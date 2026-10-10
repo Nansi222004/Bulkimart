@@ -1,0 +1,220 @@
+.voice-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background-color: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeInModal 0.2s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.voice-modal-card {
+  width: 100%;
+  max-width: 500px;
+  background: #ffffff;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpModal {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.voice-modal-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voice-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.voice-modal-close-btn {
+  background: #f1f5f9;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.voice-modal-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.voice-modal-body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.voice-status-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  margin: 0;
+  min-height: 20px;
+}
+
+.voice-mic-container {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.voice-ripple-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.25);
+  pointer-events: none;
+  transition: transform 0.08s ease-out, opacity 0.08s ease-out;
+}
+
+.voice-ripple-ring.outer {
+  background: rgba(8, 185, 232, 0.15);
+}
+
+.voice-mic-btn {
+  position: relative;
+  z-index: 2;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.voice-mic-btn:active {
+  transform: scale(0.92);
+}
+
+.voice-mic-btn.listening {
+  background: linear-gradient(135deg, #08B9E8 0%, #078CCB 100%);
+  box-shadow: 0 8px 24px rgba(8, 185, 232, 0.4);
+}
+
+.voice-transcript-box {
+  width: 100%;
+  min-height: 64px;
+  background: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.voice-text-final {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.voice-text-interim {
+  font-weight: 400;
+  color: #64748b;
+  font-style: italic;
+}
+
+.voice-text-placeholder {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.voice-cleaned-preview {
+  font-size: 13px;
+  color: #10b981;
+  background: #ecfdf5;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid #a7f3d0;
+}
+
+.voice-modal-footer {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+}
+
+.voice-action-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.voice-action-btn.primary {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+}
+
+.voice-action-btn.primary:disabled {
+  background: #cbd5e1;
+  color: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.voice-action-btn.secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.voice-action-btn.secondary:hover {
+  background: #e2e8f0;
+}

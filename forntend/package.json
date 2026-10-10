@@ -1,0 +1,26 @@
+{
+  "name": "forntend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "firebase": "*",
+    "jszip": "^3.10.1",
+    "lucide-react": "*",
+    "react": "*",
+    "react-dom": "*",
+    "socket.io-client": "*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "vite": "^8.2.0"
+  }
+}

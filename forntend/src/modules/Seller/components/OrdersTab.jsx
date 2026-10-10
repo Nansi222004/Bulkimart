@@ -1,0 +1,684 @@
+import React, { useState } from 'react';
+import { useSeller } from '../context/SellerContext';
+import { EmptyState } from './EmptyState';
+
+/**
+ * Orders — live from GET /api/sellers/orders, and now actionable.
+ *
+ * Every button here goes to the server and the list is re-read from it; nothing
+ * repaints locally. An earlier version faked exactly that, which let a seller
+ * believe they had dispatched an order the customer still saw as pending.
+ *
+ * The two storefronts part company after the shop is done packing. A Quick order
+ * stops at `dispatched`, because a rider takes over and reports the rest. A Shop
+ * All parcel goes to a courier that does not talk to this system, so the shop
+ * stays the reporter to the end — which is why only Shop All sees "Out for
+ * delivery" and "Delivered".
+ *
+ * Still true, and still the reason there is no per-seller status: an order can
+ * hold several sellers' goods but carries one status. For a single-seller order,
+ * which is every order today, that is the same thing.
+ */
+
+/**
+ * Is this parcel going to a courier, or to one of our own riders?
+ *
+ * The question these buttons turn on, and it is about the carrier, not the
+ * storefront. This used to ask `channel === 'ecommerce'`, which was right while
+ * Shop All meant courier. A Same-Day order is Shop All and a rider collects it —
+ * so the shop was shown "Hand to courier" and a form demanding a waybill they
+ * had no way to produce. They could not finish, the order never reached
+ * `dispatched`, and no rider was ever rung about it.
+ *
+ * Falls back to the storefront for rows served before the API sent the carrier.
+ */
+const byCourier = (order) =>
+  order.deliveryType ? order.deliveryType === 'shiprocket' : order.channel === 'ecommerce';
+
+/** What the shop may do next, mirroring vendorTransitions() on the server. */
+const NEXT_ACTIONS = {
+  placed:    [{ to: 'confirmed', label: 'Accept order' }],
+  confirmed: [{ to: 'dispatched', label: 'Hand to courier', courierOnly: true },
+              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true }],
+  preparing: [{ to: 'dispatched', label: 'Hand to courier', courierOnly: true },
+              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true }],
+  // A rider reports everything after pickup, so the shop's moves end at
+  // `dispatched`. A courier reports nothing, so the shop carries on.
+  dispatched:       [{ to: 'out_for_delivery', label: 'Out for delivery', courierOnly: true }],
+  out_for_delivery: [{ to: 'delivered', label: 'Mark delivered', courierOnly: true }],
+};
+
+const actionsFor = (status, courier) =>
+  (NEXT_ACTIONS[status] || []).filter((a) =>
+    (!a.courierOnly || courier) && (!a.riderOnly || !courier)
+  );
+const STATUS_TABS = [
+  { label: 'All', value: 'all' },
+  { label: 'New', value: 'placed' },
+  { label: 'Confirmed', value: 'confirmed' },
+  { label: 'Dispatched', value: 'dispatched' },
+  { label: 'Delivered', value: 'delivered' },
+  { label: 'Cancelled', value: 'cancelled' },
+];
+
+const PILL = {
+  placed: { bg: '#fef3c7', fg: '#92400e' },
+  confirmed: { bg: '#dbeafe', fg: '#1e40af' },
+  preparing: { bg: '#e0e7ff', fg: '#3730a3' },
+  dispatched: { bg: '#ede9fe', fg: '#6d28d9' },
+  out_for_delivery: { bg: '#ede9fe', fg: '#6d28d9' },
+  delivered: { bg: '#dcfce7', fg: '#166534' },
+  cancelled: { bg: '#fee2e2', fg: '#b91c1c' },
+  return_requested: { bg: '#fef3c7', fg: '#92400e' },
+  returned: { bg: '#fee2e2', fg: '#b91c1c' },
+  refunded: { bg: '#f1f5f9', fg: '#475569' },
+};
+
+const LABEL = {
+  placed: 'New',
+  confirmed: 'Confirmed',
+  preparing: 'Preparing',
+  dispatched: 'Dispatched',
+  out_for_delivery: 'Out for delivery',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+  return_requested: 'Return requested',
+  returned: 'Returned',
+  refunded: 'Refunded',
+};
+
+const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const fmt = (d) =>
+  d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+export const OrdersTab = () => {
+  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, triggerToast, selectedTypes, activeMode, setActiveMode } = useSeller();
+  const [tab, setTab] = useState('all');
+  const [selected, setSelected] = useState(null);
+  // Which order is mid-request, so its buttons can be disabled rather than
+  // letting an impatient double-tap fire the same transition twice.
+  const [busyId, setBusyId] = useState(null);
+  // The order waiting on courier details before it can be dispatched.
+  const [dispatching, setDispatching] = useState(null);
+  const [courier, setCourier] = useState('');
+  const [awb, setAwb] = useState('');
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const run = async (order, to, extra) => {
+    setBusyId(order._id);
+    const res = await updateOrderStatus(order._id, to, extra);
+    setBusyId(null);
+    triggerToast?.(res.ok ? res.message || 'Order updated' : res.message);
+    return res.ok;
+  };
+
+  const onAction = (order, action) => {
+    // Only a genuine courier hand-off needs a waybill. A rider pickup is a
+    // straight status change — asking for a tracking number there is asking for
+    // something that does not exist.
+    if (byCourier(order) && action.to === 'dispatched') {
+      setCourier('');
+      setAwb('');
+      setDispatching(order);
+      return;
+    }
+    run(order, action.to);
+  };
+
+  const confirmDispatch = async () => {
+    if (!courier.trim() || !awb.trim()) {
+      triggerToast?.('Enter the courier name and the tracking number');
+      return;
+    }
+    const ok = await run(dispatching, 'dispatched', { courier: courier.trim(), awb: awb.trim() });
+    if (ok) setDispatching(null);
+  };
+
+  const activeChannelName = activeMode === 'quick' ? 'grocery' : 'ecommerce';
+  
+  const channelOrders = (orders || []).filter((o) => {
+    if (o.channel) return o.channel === activeChannelName;
+    if (activeMode === 'quick') return !byCourier(o);
+    return byCourier(o);
+  });
+
+  const totalOrdersCount = channelOrders.length;
+  const pendingOrdersCount = channelOrders.filter(o => o.status === 'placed').length;
+  const confirmedOrdersCount = channelOrders.filter(o => o.status === 'confirmed' || o.status === 'preparing').length;
+  const deliveredOrdersCount = channelOrders.filter(o => o.status === 'delivered').length;
+
+  const shown = channelOrders.filter((o) => {
+    const matchesTab = tab === 'all' ? true : (o.status === tab || (tab === 'confirmed' && o.status === 'preparing'));
+    const orderNo = (o.orderNo || '').toLowerCase();
+    const custName = (o.customer?.name || '').toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
+    const matchesSearch = !query || orderNo.includes(query) || custName.includes(query);
+    return matchesTab && matchesSearch;
+  });
+
+  return (
+    <div style={{ padding: '0 4px 40px 4px' }}>
+      <style dangerouslySetInnerHTML={{__html: `
+        .order-kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin-bottom: 20px;
+        }
+        @media (min-width: 768px) {
+          .order-kpi-grid {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+          }
+        }
+        .order-kpi-card {
+          background-color: #fff;
+          border: 1.5px solid #f1f5f9;
+          border-radius: 16px;
+          padding: 14px 16px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.01), 0 10px 15px -3px rgba(0,0,0,0.02);
+          transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+          min-width: 0;
+          cursor: pointer;
+        }
+        .order-kpi-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 10px 15px -3px rgba(0,0,0,0.04);
+        }
+      `}} />
+
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+        gap: 12
+      }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>
+              Order Management
+            </h1>
+            <span style={{
+              backgroundColor: '#f1f5f9',
+              color: '#64748b',
+              fontSize: 10,
+              fontWeight: 800,
+              padding: '3px 8px',
+              borderRadius: 20,
+              letterSpacing: '0.5px'
+            }}>
+              REAL-TIME
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+            Process and track your customer orders with ease.
+          </p>
+        </div>
+      </div>
+
+      {/* Mode Switcher Toggle (Moved from Header for Orders Tab) */}
+      {selectedTypes && selectedTypes.includes('ecommerce') && selectedTypes.includes('quick') && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          margin: '0 0 16px 0'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '2px',
+            backgroundColor: '#f1f5f9',
+            borderRadius: '12px',
+            border: '1.5px solid #e2e8f0'
+          }}>
+            <button 
+              onClick={() => setActiveMode('ecommerce')}
+              style={{
+                border: 'none',
+                background: activeMode === 'ecommerce' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'none',
+                color: activeMode === 'ecommerce' ? '#fff' : '#64748b',
+                fontSize: '11px',
+                fontWeight: '800',
+                padding: '6px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: activeMode === 'ecommerce' ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              📦 E-Commerce
+            </button>
+            <button 
+              onClick={() => setActiveMode('quick')}
+              style={{
+                border: 'none',
+                background: activeMode === 'quick' ? 'linear-gradient(135deg, #10b981, #047857)' : 'none',
+                color: activeMode === 'quick' ? '#fff' : '#64748b',
+                fontSize: '11px',
+                fontWeight: '800',
+                padding: '6px 12px',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: activeMode === 'quick' ? '0 2px 4px rgba(16, 185, 129, 0.2)' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              ⚡ Quick Commerce
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* KPI Cards ("Chips") */}
+      <div className="order-kpi-grid">
+        {/* Card 1: Total Orders */}
+        <div 
+          className="order-kpi-card" 
+          onClick={() => setTab('all')}
+          style={{ border: tab === 'all' ? '1.5px solid #2563eb' : '1.5px solid #f1f5f9' }}
+        >
+          <div style={{
+            width: 42,
+            height: 42,
+            borderRadius: 12,
+            backgroundColor: '#f1f5f9',
+            color: '#334155',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+              TOTAL ORDERS
+            </span>
+            <span style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>
+              {totalOrdersCount}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 2: Pending */}
+        <div 
+          className="order-kpi-card" 
+          onClick={() => setTab('placed')}
+          style={{ border: tab === 'placed' ? '1.5px solid #f59e0b' : '1.5px solid #f1f5f9' }}
+        >
+          <div style={{
+            width: 42,
+            height: 42,
+            borderRadius: 12,
+            backgroundColor: '#fef3c7',
+            color: '#b45309',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+              PENDING
+            </span>
+            <span style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>
+              {pendingOrdersCount}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Confirmed */}
+        <div 
+          className="order-kpi-card" 
+          onClick={() => setTab('confirmed')}
+          style={{ border: tab === 'confirmed' ? '1.5px solid #2563eb' : '1.5px solid #f1f5f9' }}
+        >
+          <div style={{
+            width: 42,
+            height: 42,
+            borderRadius: 12,
+            backgroundColor: '#dbeafe',
+            color: '#1d4ed8',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+              CONFIRMED
+            </span>
+            <span style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>
+              {confirmedOrdersCount}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 4: Delivered */}
+        <div 
+          className="order-kpi-card" 
+          onClick={() => setTab('delivered')}
+          style={{ border: tab === 'delivered' ? '1.5px solid #10b981' : '1.5px solid #f1f5f9' }}
+        >
+          <div style={{
+            width: 42,
+            height: 42,
+            borderRadius: 12,
+            backgroundColor: '#dcfce7',
+            color: '#15803d',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+              DELIVERED
+            </span>
+            <span style={{ fontSize: 22, fontWeight: '900', color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>
+              {deliveredOrdersCount}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Search Input Bar */}
+      <div style={{
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: '#fff',
+        border: '1.5px solid #e2e8f0',
+        borderRadius: 12,
+        padding: '10px 16px'
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input 
+          type="text" 
+          placeholder="Search by Order ID or Customer name..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            border: 'none',
+            outline: 'none',
+            background: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            color: '#0f172a',
+            width: '100%'
+          }}
+        />
+        {searchQuery && (
+          <button 
+            onClick={() => setSearchQuery('')}
+            style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      <div className="seller-scroll-tabs">
+        {STATUS_TABS.map((t) => (
+          <button
+            key={t.value}
+            className={`seller-tab-btn ${tab === t.value ? 'active' : ''}`}
+            onClick={() => setTab(t.value)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="orders-tab-list">
+        {ordersLoading ? (
+          <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b', fontSize: 12 }}>
+            Loading your orders…
+          </div>
+        ) : ordersError ? (
+          <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 700, marginBottom: 10 }}>{ordersError}</div>
+            <button className="seller-tab-btn" onClick={() => fetchSellerOrders()}>Try again</button>
+          </div>
+        ) : shown.length === 0 ? (
+          <EmptyState
+            icon="🧾"
+            title={tab === 'all' ? 'No orders yet' : 'Nothing in this stage'}
+            message={
+              tab === 'all'
+                ? 'Orders appear here as soon as customers start buying from your store.'
+                : 'No orders are currently at this stage.'
+            }
+          />
+        ) : (
+          shown.map((order) => {
+            const pill = PILL[order.status] || PILL.placed;
+            return (
+              <div key={order._id} className="order-fulfillment-card">
+                <div className="order-f-header">
+                  <span className="order-f-id">{order.orderNo}</span>
+                  <span
+                    className="order-f-status-pill"
+                    style={{ backgroundColor: pill.bg, color: pill.fg }}
+                  >
+                    {LABEL[order.status] || order.status}
+                  </span>
+                </div>
+
+                <div className="order-f-body">
+                  <div className="order-f-customer">
+                    <h4>{order.customer?.name || 'Customer'}</h4>
+                    <p>
+                      {fmt(order.placedAt)} • {order.itemCount} item{order.itemCount === 1 ? '' : 's'}
+                      {order.customer?.city ? ` • ${order.customer.city}` : ''}
+                    </p>
+                  </div>
+                  {/* This seller's share, not the basket total — the order may
+                      carry other sellers' goods and a shared delivery fee. */}
+                  <span className="order-f-amount">{money(order.subtotal)}</span>
+                </div>
+
+                {/* A Same-Day job carries a promise the shop has to pack against,
+                    so it says so on the card rather than looking like any other
+                    Shop All order. */}
+                {order.deliveryMode === 'same_day' && (
+                  <div className="order-f-customer" style={{ paddingTop: 0 }}>
+                    <p style={{ fontSize: 11, color: '#166534', fontWeight: 800 }}>
+                      ⚡ Same-day — a rider collects this
+                      {order.promisedBy
+                        ? ` · by ${new Date(order.promisedBy).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`
+                        : ''}
+                    </p>
+                  </div>
+                )}
+
+                {/* The courier and waybill, once there is one — the customer is
+                    shown the same two strings on their tracking screen. */}
+                {order.shiprocket?.awb && (
+                  <div className="order-f-customer" style={{ paddingTop: 0 }}>
+                    <p style={{ fontSize: 11 }}>
+                      📦 {order.shiprocket.courier} • {order.shiprocket.awb}
+                    </p>
+                  </div>
+                )}
+
+                <div className="order-f-actions">
+                  <button className="order-action-btn-sm details" onClick={() => setSelected(order)}>
+                    Details
+                  </button>
+                  {actionsFor(order.status, byCourier(order)).map((action) => (
+                    <button
+                      key={action.to + action.label}
+                      className="order-action-btn-sm"
+                      disabled={busyId === order._id}
+                      onClick={() => onAction(order, action)}
+                    >
+                      {busyId === order._id ? 'Working…' : action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Courier hand-off. Asked for once, at the only moment it is knowable. */}
+      {dispatching && (
+        <div className="seller-modal-overlay">
+          <div className="seller-modal-sheet">
+            <div className="modal-sheet-header">
+              <h3 className="modal-sheet-title">Hand to courier</h3>
+              <button className="modal-close-btn" onClick={() => setDispatching(null)}>✕</button>
+            </div>
+
+            <p style={{ fontSize: 12, color: '#64748b', padding: '0 0 14px' }}>
+              {dispatching.orderNo} — once this parcel leaves your shop the tracking
+              number is the only way the customer can follow it.
+            </p>
+
+            <div className="onboarding-form-group">
+              <label className="onboarding-label">Courier</label>
+              <input
+                className="onboarding-input"
+                placeholder="e.g. Delhivery, Blue Dart, India Post"
+                value={courier}
+                onChange={(e) => setCourier(e.target.value)}
+              />
+            </div>
+
+            <div className="onboarding-form-group">
+              <label className="onboarding-label">Tracking / AWB number</label>
+              <input
+                className="onboarding-input"
+                placeholder="As printed on the courier's label"
+                value={awb}
+                onChange={(e) => setAwb(e.target.value)}
+              />
+            </div>
+
+            <button
+              className="primary-onboarding-btn"
+              style={{ width: '100%', marginTop: 8 }}
+              disabled={busyId === dispatching._id}
+              onClick={confirmDispatch}
+            >
+              {busyId === dispatching._id ? 'Saving…' : 'Confirm hand-off'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selected && (
+        <div className="seller-modal-overlay">
+          <div className="seller-modal-sheet">
+            <div className="modal-sheet-header">
+              <h3 className="modal-sheet-title">{selected.orderNo}</h3>
+              <button className="modal-close-btn" onClick={() => setSelected(null)}>✕</button>
+            </div>
+
+            <div className="review-summary-card">
+              <div className="review-item-row">
+                <span className="review-item-key">Placed</span>
+                <span className="review-item-val">{fmt(selected.placedAt)}</span>
+              </div>
+              <div className="review-item-row">
+                <span className="review-item-key">Status</span>
+                <span className="review-item-val" style={{ color: 'var(--primary)' }}>
+                  {LABEL[selected.status] || selected.status}
+                </span>
+              </div>
+              <div className="review-item-row">
+                <span className="review-item-key">Storefront</span>
+                <span className="review-item-val">
+                  {selected.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}
+                </span>
+              </div>
+              <div className="review-item-row">
+                <span className="review-item-key">Payment</span>
+                <span className="review-item-val" style={{ textTransform: 'uppercase' }}>
+                  {selected.paymentMethod || '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="review-summary-card">
+              <h4 className="review-card-title" style={{ marginBottom: 8 }}>Your items in this order</h4>
+              {selected.items.map((i) => (
+                <div key={i.productId || i.name} style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 6 }}>
+                  <div className="review-item-row">
+                    <span className="review-item-key">
+                      {i.name} × {i.qty}
+                    </span>
+                    <span className="review-item-val">{money(i.lineTotal)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: i.additionalMessage ? '#1d4ed8' : '#94a3b8', fontStyle: i.additionalMessage ? 'italic' : 'normal', fontWeight: i.additionalMessage ? 600 : 400 }}>
+                    📝 Customer Message: {i.additionalMessage ? `"${i.additionalMessage}"` : 'No additional message provided.'}
+                  </div>
+                </div>
+              ))}
+              <div className="review-item-row" style={{ borderTop: '1px dashed #e2e8f0', paddingTop: 8, marginTop: 4 }}>
+                <span className="review-item-key" style={{ fontWeight: 900 }}>Your total</span>
+                <span className="review-item-val" style={{ color: 'var(--primary)', fontWeight: 900 }}>
+                  {money(selected.subtotal)}
+                </span>
+              </div>
+            </div>
+
+            <div className="review-summary-card">
+              <h4 className="review-card-title" style={{ marginBottom: 8 }}>Delivery Address</h4>
+              <span className="review-item-val" style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                {selected.shippingAddress?.name}
+                {selected.shippingAddress?.phone ? ` · ${selected.shippingAddress.phone}` : ''}
+                <br />
+                {selected.shippingAddress?.line1}
+                {selected.shippingAddress?.line2 ? `, ${selected.shippingAddress.line2}` : ''}
+                <br />
+                {selected.shippingAddress?.city}
+                {selected.shippingAddress?.state ? `, ${selected.shippingAddress.state}` : ''}
+                {selected.shippingAddress?.pincode ? ` — ${selected.shippingAddress.pincode}` : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OrdersTab;

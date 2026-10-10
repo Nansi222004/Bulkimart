@@ -1,0 +1,2136 @@
+/* DELIVERY PARTNER APP - MOBILE-FIRST SCOPED STYLES */
+
+/* Main Container: Mobile Frame on Desktop, full-bleed on Mobile */
+.delivery-app-container {
+  width: 100%;
+  max-width: 430px;
+  /* Standard premium mobile frame */
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0 auto;
+  background-color: #f7fafc;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+@media (max-width: 480px) {
+  .delivery-app-container {
+    max-width: 100%;
+    box-shadow: none;
+  }
+}
+
+/* Scrollable main viewport area */
+.delivery-main-viewport {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  padding-bottom: 90px;
+  /* Spacer for bottom navbar */
+  scrollbar-width: none;
+}
+
+.delivery-main-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scoped Toast Alerts popup */
+.delivery-toast-banner {
+  position: absolute;
+  top: 24px;
+  left: 20px;
+  right: 20px;
+  background-color: #0f172a;
+  color: #ffffff;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  z-index: 999;
+  animation: slideDownIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDownIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Scoped Card Styles */
+.delivery-card {
+  background-color: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  padding: 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.delivery-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.delivery-card-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Button UI Components */
+.delivery-primary-action-btn {
+  width: 100%;
+  padding: 14px;
+  background-color: #08b9e8;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 10px rgba(8, 185, 232, 0.22);
+}
+
+.delivery-primary-action-btn:hover {
+  background-color: #078ccb;
+}
+
+.delivery-secondary-action-btn {
+  padding: 14px 20px;
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delivery-secondary-action-btn:hover {
+  background-color: #e2e8f0;
+}
+
+.delivery-danger-btn-outline {
+  padding: 14px;
+  background: none;
+  border: 1.5px solid #fecaca;
+  color: #dc2626;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delivery-danger-btn-outline:hover {
+  background-color: #fef2f2;
+}
+
+/* ---------------------------------------------------- */
+/* 1. ONBOARDING PAGE STYLES */
+/* ---------------------------------------------------- */
+.delivery-onboarding-wrapper {
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+.delivery-onboarding-header {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.delivery-onboarding-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.delivery-brand-logo {
+  font-size: 24px;
+}
+
+.delivery-brand-text {
+  font-size: 20px;
+  font-weight: 900;
+  color: #073b78;
+}
+
+.delivery-onboarding-sub {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Step Dots indicator */
+.delivery-step-indicator-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin: 10px 0;
+}
+
+.delivery-step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.delivery-step-dot.active {
+  background-color: #1b7a37;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(27, 122, 55, 0.15);
+}
+
+.delivery-step-dot.completed {
+  background-color: #ebfdf2;
+  border-color: #1b7a37;
+  color: #1b7a37;
+}
+
+/* Onboarding step panels */
+.delivery-onboarding-card {
+  background-color: #ffffff;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  padding: 24px 20px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.01);
+  box-sizing: border-box;
+}
+
+.delivery-step-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+  text-align: left;
+}
+
+.delivery-step-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 20px 0;
+  text-align: left;
+  line-height: 1.4;
+}
+
+/* Vehicle Grid cards */
+.delivery-vehicle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.delivery-vehicle-card {
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.delivery-vehicle-card:hover {
+  background-color: #f8fafc;
+}
+
+.delivery-vehicle-card.selected {
+  border-color: #1b7a37;
+  background-color: #ebfdf2;
+}
+
+.delivery-vehicle-icon {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.delivery-vehicle-name {
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.delivery-vehicle-limit {
+  font-size: 8.5px;
+  color: #64748b;
+  text-align: center;
+}
+
+/* Text Input controls */
+.delivery-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.delivery-input-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.delivery-text-input {
+  padding: 12px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.delivery-text-input:focus {
+  border-color: #1b7a37;
+}
+
+/* File uploading widget mockup */
+.delivery-file-upload-box {
+  padding: 16px;
+  background-color: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+
+.delivery-file-upload-box:hover {
+  background-color: #eff6ff;
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.delivery-btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.delivery-btn-row button {
+  flex: 1;
+}
+
+/* Application Under Review Details */
+.delivery-status-animation-box {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  margin: 10px auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delivery-status-pulse-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: #fef3c7;
+  animation: pulseRing 1.8s infinite;
+}
+
+.delivery-status-icon {
+  font-size: 32px;
+  z-index: 1;
+}
+
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.delivery-onboarding-summary-box {
+  background-color: #f8fafc;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.delivery-summary-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+
+.delivery-summary-item span {
+  color: #64748b;
+}
+
+.delivery-badge-pending {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.delivery-loading-text {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+@keyframes bounceUp {
+  0% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------- */
+/* 2. DASHBOARD VIEW STYLES */
+/* ---------------------------------------------------- */
+.delivery-dashboard-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 16px 0;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+}
+
+.delivery-header-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delivery-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background-color: #1b7a37;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delivery-driver-info {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.delivery-driver-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.delivery-driver-vehicle {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+/* Status toggler (Online / Offline) */
+.delivery-status-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: all 0.2s;
+}
+
+.delivery-status-toggle-btn.offline {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.delivery-status-toggle-btn.online {
+  background-color: #ebfdf2;
+  border-color: #86efac;
+  color: #16a34a;
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.1);
+}
+
+.status-toggle-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #cbd5e1;
+}
+
+.delivery-status-toggle-btn.online .status-toggle-indicator {
+  background-color: #16a34a;
+  animation: pulseIndicator 1.5s infinite;
+}
+
+@keyframes pulseIndicator {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* COD Wallet Card layout */
+.delivery-debit-wallet-card {
+  border-left: 4px solid #1b7a37;
+}
+
+.delivery-wallet-status {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  background-color: #ebfdf2;
+  color: #16a34a;
+  border-radius: 4px;
+}
+
+.delivery-wallet-balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.delivery-balance-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-balance-val {
+  font-size: 26px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.delivery-balance-label {
+  font-size: 9.5px;
+  color: #64748b;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.delivery-settle-btn {
+  padding: 8px 12px;
+  background-color: #0f172a;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.delivery-settle-btn:disabled {
+  background-color: #cbd5e1;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Debit capacity limits */
+.delivery-progress-container {
+  margin: 12px 0;
+}
+
+.delivery-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #1b7a37;
+  transition: width 0.4s ease;
+}
+
+.delivery-progress-bar.warning {
+  background-color: #d97706;
+}
+
+.delivery-progress-bar.blocked {
+  background-color: #dc2626;
+}
+
+.delivery-progress-container::after {
+  content: "";
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #f1f5f9;
+  margin-top: -6px;
+  z-index: -1;
+  position: relative;
+}
+
+.delivery-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* Warnings and Blocks */
+.delivery-alert-box {
+  font-size: 11.5px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.delivery-alert-box.warning {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+}
+
+.delivery-alert-box.blocked {
+  background-color: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+}
+
+/* KPI grids */
+.delivery-dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.delivery-kpi-card {
+  background-color: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.delivery-kpi-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.delivery-kpi-val {
+  font-size: 20px;
+  font-weight: 900;
+  color: #0f172a;
+  margin: 6px 0 4px 0;
+}
+
+.delivery-kpi-sub {
+  font-size: 9px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* Listening area radar */
+.delivery-duty-listening-card {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.delivery-listening-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.delivery-listening-body h4 {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 12px 0 4px 0;
+}
+
+.delivery-listening-body p {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+.delivery-simulate-btn {
+  padding: 10px 16px;
+  background-color: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(79, 70, 229, 0.15);
+}
+
+/* Radar Pulse animations */
+.delivery-radar-pulse {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-center {
+  font-size: 22px;
+  z-index: 1;
+}
+
+.radar-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: #e0e7ff;
+  animation: radarPulse 2s infinite;
+}
+
+.radar-ring-2 {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: #eff6ff;
+  animation: radarPulse 2s infinite 0.7s;
+}
+
+@keyframes radarPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------- */
+/* 3. ACTIVE DELIVERY PAGE */
+/* ---------------------------------------------------- */
+.delivery-active-delivery-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+/* SLA Bar */
+.delivery-sla-timer-bar {
+  background-color: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  color: #d97706;
+}
+
+.delivery-sla-timer-bar.delayed {
+  background-color: #fef2f2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+/* Navigation Map blueprint */
+.delivery-active-map-box {
+  height: 180px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.01);
+}
+
+.delivery-map-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.map-route-path {
+  stroke-dashoffset: 0;
+  animation: routeTravel 15s linear infinite;
+}
+
+@keyframes routeTravel {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+.map-rider-marker .pulse-circle,
+.map-rider-marker-transit .pulse-circle {
+  animation: markerPulse 1.6s infinite;
+}
+
+@keyframes markerPulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Directions info bubble overlay */
+.delivery-map-nav-bubble {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  background-color: #0f172a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.nav-bubble-arrow {
+  color: #10b981;
+  font-size: 16px;
+}
+
+.nav-bubble-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-bubble-text strong {
+  font-size: 11.5px;
+  color: #ffffff;
+}
+
+.nav-bubble-text span {
+  font-size: 9px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+/* Step tracker headers */
+.delivery-active-step-header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.delivery-step-badge {
+  flex: 1;
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 4px;
+  color: #94a3b8;
+  border-bottom: 2px solid transparent;
+}
+
+.delivery-step-badge.active {
+  color: #1b7a37;
+  border-bottom-color: #1b7a37;
+}
+
+.active-delivery-sub-stage {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-address-block {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.address-type-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.delivery-address-block h4 {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 3px 0;
+}
+
+.delivery-address-block p {
+  font-size: 11px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Call actions */
+.delivery-customer-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.delivery-customer-actions-row button {
+  flex: 1;
+  padding: 8px;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Items checklists */
+.delivery-item-checklist-box {
+  background-color: #f8fafc;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.checklist-heading {
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  display: block;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checklist-item-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #1b7a37;
+  cursor: pointer;
+}
+
+.item-details {
+  font-size: 12.5px;
+  color: #334155;
+}
+
+.delivery-action-row-full {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* OTP Verify Forms */
+.delivery-otp-verify-form {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 16px;
+}
+
+.delivery-otp-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.delivery-test-helper-badge {
+  font-size: 9px;
+  background-color: #fff7ed;
+  color: #ea580c;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #ffedd5;
+}
+
+.delivery-otp-digit-input {
+  letter-spacing: 6px;
+  font-size: 20px;
+  font-weight: 900;
+  text-align: center;
+  padding: 12px;
+  border: 2px solid #cbd5e1;
+  border-radius: 10px;
+  outline: none;
+  font-family: monospace;
+  box-sizing: border-box;
+}
+
+.delivery-otp-digit-input:focus {
+  border-color: #3b82f6;
+}
+
+.delivery-cod-alert-box {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 12px 0;
+  text-align: left;
+}
+
+/* ---------------------------------------------------- */
+/* 4. EARNINGS VIEW STYLES */
+/* ---------------------------------------------------- */
+.delivery-earnings-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-payout-balance-card {
+  background-color: #1e293b;
+  color: #ffffff;
+}
+
+.delivery-payout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 6px 0 10px 0;
+}
+
+.delivery-payout-amount {
+  font-size: 32px;
+  font-weight: 900;
+}
+
+.delivery-cashout-btn {
+  padding: 10px 16px;
+  background-color: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.delivery-cashout-btn:disabled {
+  background-color: #475569;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.delivery-payout-footer-label {
+  font-size: 9px;
+  color: #94a3b8;
+  margin: 0;
+  font-weight: 700;
+}
+
+/* Filters */
+.delivery-earnings-filter-pill-row {
+  display: flex;
+  background-color: #e2e8f0;
+  padding: 4px;
+  border-radius: 24px;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.delivery-filter-pill-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 8px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.delivery-filter-pill-btn.active {
+  background-color: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Stats list */
+.delivery-breakdown-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #64748b;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+}
+
+.delivery-earnings-stats-grid {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1.5px dashed #f1f5f9;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.earnings-stat-item {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.earnings-stat-label {
+  font-size: 9.5px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.earnings-stat-val {
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f172a;
+  margin-top: 4px;
+}
+
+.earnings-stat-val.primary-color {
+  color: #1b7a37;
+}
+
+.delivery-earnings-list-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.earnings-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.earnings-breakdown-row span {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.earnings-breakdown-row strong {
+  color: #334155;
+}
+
+/* Graph structures */
+.delivery-bar-graph-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.delivery-bar-graph-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  width: 32px;
+  text-align: left;
+}
+
+.bar-wrapper {
+  flex: 1;
+  height: 8px;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background-color: #1b7a37;
+  border-radius: 4px;
+}
+
+.bar-fill.yearly-color {
+  background-color: #3b82f6;
+}
+
+.bar-value {
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  width: 44px;
+  text-align: right;
+}
+
+/* Logs lists */
+.delivery-transaction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.delivery-txn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.delivery-txn-row:last-child {
+  border-bottom: none;
+}
+
+.txn-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.txn-icon {
+  font-size: 18px;
+  padding: 6px;
+  background-color: #ebfdf2;
+  border-radius: 8px;
+}
+
+.txn-meta {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.txn-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.txn-time {
+  font-size: 9px;
+  color: #94a3b8;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+.txn-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.txn-amount {
+  font-size: 13.5px;
+  font-weight: 900;
+  color: #1b7a37;
+}
+
+.txn-cod-badge {
+  font-size: 8px;
+  color: #b45309;
+  background-color: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+/* Customer tip — green rather than the COD badge's amber, because this is
+   money the rider keeps, not money they are holding on someone's behalf. */
+.txn-tip-badge {
+  font-size: 8px;
+  color: #15803d;
+  background-color: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.delivery-tips-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background-color: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 10px;
+}
+
+.delivery-tips-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.delivery-tips-icon { font-size: 18px; }
+
+.delivery-tips-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.delivery-tips-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #14532d;
+}
+
+.delivery-tips-sub {
+  font-size: 10px;
+  color: #3f6212;
+}
+
+.delivery-tips-amount {
+  font-size: 18px;
+  font-weight: 900;
+  color: #15803d;
+  white-space: nowrap;
+}
+
+/* COD Bottom settle bar */
+.delivery-cod-settlement-bottom-card {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+}
+
+.cod-bottom-left {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.cod-bottom-left span {
+  font-size: 9px;
+  font-weight: 700;
+  color: #b45309;
+  text-transform: uppercase;
+}
+
+.cod-bottom-left strong {
+  font-size: 18px;
+  font-weight: 900;
+  color: #78350f;
+}
+
+/* ---------------------------------------------------- */
+/* 5. PROFILE VIEW STYLES */
+/* ---------------------------------------------------- */
+.delivery-profile-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-profile-main-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.profile-large-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  background-color: #1b7a37;
+  color: #ffffff;
+  font-size: 26px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.delivery-profile-main-card h3 {
+  font-size: 18px;
+  font-weight: 900;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+}
+
+.profile-partner-id {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+}
+
+.profile-stats-row {
+  display: flex;
+  width: 100%;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 16px;
+}
+
+.profile-stat-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-stat-col strong {
+  font-size: 15px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.profile-stat-col span {
+  font-size: 9px;
+  color: #64748b;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.profile-section-title {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #64748b;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.profile-data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-data-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.profile-data-row span {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.profile-data-row strong {
+  color: #334155;
+}
+
+.profile-status-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.profile-status-badge.verified {
+  color: #16a34a;
+}
+
+.delivery-profile-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-support-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.profile-support-btn.outline {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.profile-logout-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: #0f172a;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+/* ---------------------------------------------------- */
+/* 6. OVERLAY ORDER PING MODAL SHEET */
+/* ---------------------------------------------------- */
+.delivery-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.delivery-order-ping-modal-sheet {
+  background-color: #ffffff;
+  border-radius: 24px 24px 0 0;
+  width: 100%;
+  padding: 24px 20px;
+  box-shadow: 0 -10px 25px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  animation: slideUpIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: center;
+}
+
+@keyframes slideUpIn {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.ping-modal-header-pulsing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ping-pulsing-circle {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  animation: pulseIndicator 1.2s infinite;
+}
+
+.ping-title {
+  font-size: 11px;
+  font-weight: 900;
+  color: #ef4444;
+  letter-spacing: 1px;
+}
+
+/* Countdown circle timer */
+.ping-countdown-circle {
+  width: 60px;
+  height: 60px;
+  position: relative;
+  margin: 0 auto 16px;
+}
+
+.countdown-number {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 15px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.circular-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.circle-bg {
+  fill: none;
+  stroke: #f1f5f9;
+  stroke-width: 3.5;
+}
+
+.circle {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke: #ef4444;
+  transition: stroke-dasharray 1s linear;
+}
+
+.ping-payout-box {
+  background-color: #ebfdf2;
+  border: 1px solid #bbf7d0;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 20px;
+}
+
+/* Tip banner on the incoming-offer sheet. Amber against the payout box's
+   green so it reads as a separate, additional fact rather than more of the
+   same block. */
+.ping-tip-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: -10px 0 20px;
+}
+
+.ping-tip-icon { font-size: 16px; }
+
+.ping-tip-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.ping-tip-text strong {
+  font-size: 14px;
+  font-weight: 900;
+  color: #b45309;
+}
+
+.payout-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #16a34a;
+  letter-spacing: 0.5px;
+}
+
+.payout-val {
+  font-size: 32px;
+  font-weight: 900;
+  color: #15803d;
+  margin: 4px 0;
+}
+
+.payout-sub {
+  font-size: 9.5px;
+  color: #166534;
+  font-weight: 700;
+}
+
+.ping-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 10px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.ping-detail-item {
+  background-color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ping-detail-item span {
+  font-size: 8.5px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.ping-detail-item strong {
+  font-size: 11.5px;
+  color: #0f172a;
+  margin-top: 2px;
+}
+
+.ping-detail-item strong.cod-highlight {
+  color: #b45309;
+}
+
+.ping-addresses-box {
+  background-color: #f8fafc;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 24px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ping-address-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.address-marker {
+  font-size: 14px;
+}
+
+.address-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.address-meta strong {
+  font-size: 10.5px;
+  color: #475569;
+}
+
+.address-text {
+  font-size: 11.5px;
+  color: #0f172a;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+.ping-actions-row {
+  display: flex;
+  gap: 12px;
+}
+
+/* ---------------------------------------------------- */
+/* 7. BOTTOM TAB NAVBAR */
+/* ---------------------------------------------------- */
+.delivery-navbar-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background-color: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  z-index: 900;
+}
+
+.delivery-nav-item {
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.delivery-nav-item.active {
+  color: #1b7a37;
+}
+
+.nav-icon {
+  font-size: 20px;
+}
+
+.nav-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+/* ============================================================
+   LOCATION PICKER — GPS capture + manual address entry
+   ============================================================ */
+
+.delivery-location-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Outlined rather than solid: the primary action on the step is "Continue",
+   and this button must not compete with it. */
+.delivery-location-gps-btn {
+  width: 100%;
+  padding: 13px;
+  background-color: #f0fdf4;
+  color: #1b7a37;
+  border: 1.5px dashed #1b7a37;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delivery-location-gps-btn:hover:not(:disabled) {
+  background-color: #dcfce7;
+  border-style: solid;
+}
+
+.delivery-location-gps-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.delivery-location-fix {
+  padding: 12px;
+  background-color: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 10px;
+}
+
+.delivery-location-fix-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delivery-location-fix-badge {
+  padding: 3px 8px;
+  background-color: #1b7a37;
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.delivery-location-fix-coords {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  font-variant-numeric: tabular-nums;
+}
+
+.delivery-location-clear {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.delivery-location-accuracy {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+}
+
+.delivery-location-error {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: #fef2f2;
+  border: 1.5px solid #fecaca;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b91c1c;
+  line-height: 1.5;
+}
+
+.delivery-location-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.delivery-location-divider::before,
+.delivery-location-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: #e2e8f0;
+}
+
+.delivery-location-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 420px) {
+  .delivery-location-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.delivery-required {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+/* ============================================================
+   RIDER AUTH — register / sign in
+   ============================================================ */
+
+.delivery-auth-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  margin-bottom: 18px;
+  background-color: #f1f5f9;
+  border-radius: 12px;
+}
+
+.delivery-auth-tab {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 800;
+  font-family: inherit;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delivery-auth-tab.active {
+  background-color: #ffffff;
+  color: #1b7a37;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.delivery-auth-tab:disabled {
+  cursor: not-allowed;
+}
+
+.delivery-otp-input {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 8px;
+}
+
+.delivery-auth-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.delivery-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #1b7a37;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.delivery-link-btn:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* ============================================================
+   FILE PICKER — real device uploads
+   ============================================================ */
+
+.delivery-file-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  background-color: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delivery-file-picker:hover {
+  border-color: #1b7a37;
+  background-color: #f0fdf4;
+}
+
+.delivery-file-picker.has-file {
+  border-style: solid;
+  border-color: #86efac;
+  background-color: #f0fdf4;
+}
+
+/* The native control is hidden but still the thing being clicked — the label
+   wraps it, so the whole box is the hit target and keyboard focus still works. */
+.delivery-file-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.delivery-file-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.delivery-file-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.delivery-file-picker.has-file .delivery-file-text {
+  color: #166534;
+}
+
+.delivery-file-meta {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Bulkimart brand normalization for legacy delivery controls. */
+.delivery-step-dot.active,
+.delivery-status-progress-fill,
+.delivery-duty-toggle.active,
+.delivery-primary-btn,
+.delivery-save-btn,
+.delivery-accept-btn { background-color: #08b9e8; }
+.delivery-step-dot.completed,
+.delivery-vehicle-card.selected,
+.delivery-text-input:focus,
+.delivery-step-badge.active,
+.delivery-file-picker:hover { border-color: #08b9e8; }
+.delivery-step-dot.completed,
+.delivery-step-badge.active,
+.earnings-stat-val.primary-color,
+.delivery-nav-item.active,
+.delivery-file-picker:hover { color: #078ccb; }
+.delivery-vehicle-card.selected,
+.delivery-file-picker:hover { background-color: #eaf9fe; }
+input[type="checkbox"] { accent-color: #08b9e8; }

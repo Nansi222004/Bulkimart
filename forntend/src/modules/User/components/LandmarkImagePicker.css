@@ -1,0 +1,231 @@
+.landmark-picker-container {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.landmark-picker-head {
+  margin-bottom: 6px;
+}
+
+.landmark-picker-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.landmark-picker-subtext {
+  margin: 2px 0 6px 0;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.landmark-preview-card {
+  position: relative;
+  width: 100%;
+  height: 130px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.landmark-preview-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.landmark-remove-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.landmark-remove-btn:hover {
+  background: #ef4444;
+}
+
+.landmark-upload-trigger-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: #ffffff;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  transition: all 0.2s ease;
+}
+
+.landmark-upload-trigger-btn:hover {
+  border-color: #10b981;
+  color: #059669;
+  background: #f0fdf4;
+}
+
+.landmark-picker-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+/* Modal Bottom Sheet */
+.landmark-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: landmarkFadeIn 0.2s ease-out;
+}
+
+@keyframes landmarkFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.landmark-modal-sheet {
+  width: 100%;
+  max-width: 500px;
+  background: #ffffff;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  padding: 20px 20px 24px;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: landmarkSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes landmarkSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.landmark-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.landmark-sheet-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.landmark-close-btn {
+  background: #f1f5f9;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landmark-sheet-desc {
+  margin: -4px 0 4px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.landmark-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.landmark-option-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.landmark-option-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.option-icon-box {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.option-text strong {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.option-text span {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+.landmark-cancel-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.landmark-cancel-btn:hover {
+  background: #e2e8f0;
+}

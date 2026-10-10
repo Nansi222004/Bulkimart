@@ -1,0 +1,14 @@
+# Added by code-review-graph
+.code-review-graph/
+node_modules/
+**/node_modules/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+**/.env
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+

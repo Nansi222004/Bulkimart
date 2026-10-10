@@ -1,0 +1,2126 @@
+import mongoose from 'mongoose';
+import DeliveryPartner from '../models/DeliveryPartner.js';
+import User from '../models/User.js';
+import Order from '../models/Order.js';
+import Delivery from '../models/Delivery.js';
+import Seller from '../models/Seller.js';
+import Product from '../models/Product.js';
+import Payment from '../models/Payment.js';
+import { asyncHandler } from '../middlewares/error.middleware.js';
+import { ok, httpError, paginated, getPagination } from '../utils/response.js';
+import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { VENDOR_STATUS, CHANNEL, CHANNELS, riderClaimableStatuses, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
+import { parseLocation, hasUsableLocation, distanceKm, etaMinutes } from '../utils/geo.js';
+import { riderPayout, payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
+import { canTakeAnother, maxConcurrentDeliveries } from '../services/riderCapacity.service.js';
+import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import DeliveryPayout from '../models/DeliveryPayout.js';
+import { DELIVERY_PAYOUT_STATUS, DELIVERY_MIN_PAYOUT_AMOUNT } from '../constants/enums.js';
+
+/**
+ * Delivery partner onboarding — three steps, then an admin verifies by hand.
+ *
+ * A rider carries other people's goods and, on COD orders, other people's cash.
+ * Nothing about the rider app unlocks until an admin has actually looked at the
+ * licence and the Aadhaar, so registering grants no role and no access on its
+ * own (see middlewares/vendor.middleware.js requireApprovedPartner).
+ *
+ * The status flow mirrors sellers:
+ *   incomplete → pending → approved | rejected → suspended
+ */
+
+const findMine = async (userId) => DeliveryPartner.findOne({ userId });
+
+const requireProfile = async (userId) => {
+  const partner = await findMine(userId);
+  if (!partner) throw httpError(404, 'Start your rider registration first');
+  return partner;
+};
+
+/** Editing after submission would let a rider swap documents post-approval. */
+const assertEditable = (partner) => {
+  if ([VENDOR_STATUS.APPROVED, VENDOR_STATUS.SUSPENDED].includes(partner.status)) {
+    throw httpError(400, 'Your details are locked. Contact support to change them.');
+  }
+};
+
+// @desc    Begin rider registration
+// @route   POST /api/delivery/start
+// @access  Private
+export const startOnboarding = asyncHandler(async (req, res) => {
+  let partner = await findMine(req.user._id);
+
+  if (!partner) {
+    partner = await DeliveryPartner.create({
+      userId: req.user._id,
+      onboardingStep: 1,
+      status: VENDOR_STATUS.INCOMPLETE,
+    });
+  }
+
+  // The rider's name lives on the User, not the partner: it is the same person
+  // whether they are shopping or delivering, and duplicating it guarantees the
+  // two copies eventually disagree.
+  const set = { deliveryPartnerId: partner._id };
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (name) {
+    if (name.length < 2) throw httpError(400, 'Please enter your full name');
+    set.name = name;
+  }
+
+  // Link the profile only. The 'delivery' role — which is what unlocks the
+  // rider app — is granted on admin approval, never at registration.
+  await User.updateOne({ _id: req.user._id }, { $set: set });
+
+  return ok(res, partner, 'Registration started');
+});
+
+// @desc    Step 1 — vehicle and driving licence
+// @route   PUT /api/delivery/step/1
+// @access  Private
+export const submitStep1 = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+  assertEditable(partner);
+
+  const { vehicleType, vehicleNo, licenseNo, licenseExpiry } = req.body;
+  if (!vehicleType) throw httpError(400, 'Please select your vehicle type');
+  if (!['bicycle', 'bike', 'auto', 'car'].includes(vehicleType)) {
+    throw httpError(400, 'Vehicle type must be bicycle, bike, auto or car');
+  }
+  if (!vehicleNo) throw httpError(400, 'Vehicle number is required');
+
+  /**
+   * A bicycle needs no licence — not a number, and not a photograph.
+   *
+   * This used to demand a licence number from everyone while excusing only the
+   * photo, which no bicycle rider could satisfy: they have nothing to type. The
+   * two rules now agree.
+   */
+  const needsLicence = vehicleType !== 'bicycle';
+  if (needsLicence) {
+    if (!licenseNo) throw httpError(400, 'Licence number is required for a motor vehicle');
+    if (!req.file && !partner.drivingLicense?.url) {
+      throw httpError(400, 'Please upload a photo of your driving licence');
+    }
+  }
+
+  if (licenseExpiry) {
+    const expiry = new Date(licenseExpiry);
+    if (Number.isNaN(expiry.getTime())) throw httpError(400, 'Licence expiry date is not valid');
+    if (expiry < new Date()) throw httpError(400, 'That licence has already expired');
+  }
+
+  const url = req.file
+    ? await uploadToCloudinary(req.file.buffer, `delivery-kyc/${req.user._id}`)
+    : partner.drivingLicense?.url;
+
+  partner.vehicleType = vehicleType;
+  partner.vehicleNo = String(vehicleNo).toUpperCase().replace(/\s+/g, '');
+  // Switching to a bicycle clears the licence rather than leaving one attached
+  // to a vehicle that does not need it.
+  partner.drivingLicense = needsLicence
+    ? {
+        no: licenseNo,
+        url,
+        expiryDate: licenseExpiry || partner.drivingLicense?.expiryDate,
+      }
+    : undefined;
+  if (partner.onboardingStep < 2) partner.onboardingStep = 2;
+
+  await partner.save();
+  return ok(res, partner, 'Vehicle details saved');
+});
+
+// @desc    Step 2 — Aadhaar
+// @route   PUT /api/delivery/step/2
+// @access  Private
+export const submitStep2 = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+  assertEditable(partner);
+
+  const { aadhaarNumber } = req.body;
+  if (!aadhaarNumber) throw httpError(400, 'Please provide your Aadhaar number');
+  if (!/^\d{12}$/.test(String(aadhaarNumber).replace(/\s/g, ''))) {
+    throw httpError(400, 'An Aadhaar number is 12 digits');
+  }
+  if (!req.files?.aadhaarFront || !req.files?.aadhaarBack) {
+    throw httpError(400, 'Please upload both the front and back of your Aadhaar');
+  }
+
+  const [frontUrl, backUrl] = await Promise.all([
+    uploadToCloudinary(req.files.aadhaarFront[0].buffer, `delivery-kyc/${req.user._id}`),
+    uploadToCloudinary(req.files.aadhaarBack[0].buffer, `delivery-kyc/${req.user._id}`),
+  ]);
+
+  // Only the last four digits are kept — the full number is never stored.
+  partner.aadhaar = {
+    number: `XXXX-XXXX-${String(aadhaarNumber).slice(-4)}`,
+    frontUrl,
+    backUrl,
+  };
+  if (partner.onboardingStep < 3) partner.onboardingStep = 3;
+
+  await partner.save();
+  return ok(res, partner, 'Identity documents uploaded');
+});
+
+// @desc    Step 3 — service area and payout account
+// @route   PUT /api/delivery/step/3
+// @access  Private
+export const submitStep3 = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+  assertEditable(partner);
+
+  const { zones, accountNo, ifsc, holderName, bankName, upiId } = req.body;
+
+  const list = Array.isArray(zones)
+    ? zones
+    : String(zones || '').split(',').map((z) => z.trim()).filter(Boolean);
+
+  if (list.length === 0) throw httpError(400, 'Add at least one pincode you can deliver to');
+  const bad = list.find((z) => !/^\d{6}$/.test(z));
+  if (bad) throw httpError(400, `"${bad}" is not a valid 6-digit pincode`);
+
+  if (!accountNo || !ifsc || !holderName || !bankName) {
+    throw httpError(400, 'Bank account details are required so we can pay you');
+  }
+
+  // Where the rider is based. Two ways in, and both are legitimate:
+  //   - the GPS button filled lat/lng for them
+  //   - they typed an address, because they denied location permission,
+  //     are indoors with no fix, or are registering from somewhere else
+  // Requiring both would lock out anyone who says no to the permission prompt,
+  // so either route is enough on its own.
+  const parsed = parseLocation(req.body);
+  if (!parsed.ok) throw httpError(400, parsed.message);
+
+  const loc = parsed.location;
+  const hasCoords = loc.lat !== undefined && loc.lng !== undefined;
+  if (!hasCoords && !(loc.address && loc.pincode)) {
+    throw httpError(400, 'Share your current location, or type your address with a 6-digit pincode');
+  }
+
+  const passbookUrl = req.file
+    ? await uploadToCloudinary(req.file.buffer, `delivery-bank/${req.user._id}`)
+    : partner.bankDetails?.passbookUrl;
+
+  partner.zones = [...new Set(list)];
+  // Merge, so a rider editing only their bank details does not blank the
+  // coordinates the GPS captured on an earlier pass.
+  partner.baseLocation = { ...(partner.baseLocation?.toObject?.() ?? partner.baseLocation ?? {}), ...loc };
+  partner.bankDetails = { accountNo, ifsc: String(ifsc).toUpperCase(), holderName, bankName, upiId, passbookUrl };
+  if (partner.onboardingStep < 4) partner.onboardingStep = 4;
+
+  await partner.save();
+  return ok(res, partner, 'Service area and payout details saved');
+});
+
+// @desc    Submit for admin verification
+// @route   POST /api/delivery/submit
+// @access  Private
+export const submitApplication = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+
+  if (partner.status === VENDOR_STATUS.APPROVED) {
+    throw httpError(400, 'Your account is already approved');
+  }
+  if (partner.status === VENDOR_STATUS.PENDING) {
+    throw httpError(400, 'Your application is already awaiting verification');
+  }
+  if (partner.onboardingStep < 4) {
+    throw httpError(400, 'Please complete all registration steps first');
+  }
+
+  // Re-check the documents actually exist — a step could have been skipped by
+  // calling the API directly.
+  const missing = [];
+  if (!partner.vehicleType || !partner.vehicleNo) missing.push('vehicle details');
+  if (partner.vehicleType !== 'bicycle' && !partner.drivingLicense?.url) missing.push('driving licence');
+  if (!partner.aadhaar?.frontUrl || !partner.aadhaar?.backUrl) missing.push('Aadhaar documents');
+  if (!partner.zones?.length) missing.push('service pincodes');
+  if (!partner.bankDetails?.accountNo) missing.push('bank account');
+  if (!hasUsableLocation(partner.baseLocation)) missing.push('your base location');
+  if (missing.length) throw httpError(400, `Still missing: ${missing.join(', ')}`);
+
+  partner.status = VENDOR_STATUS.PENDING;
+  partner.rejectionReason = undefined;
+  await partner.save();
+
+  return ok(res, { status: partner.status }, 'Application submitted for verification');
+});
+
+// @desc    My rider profile and application status
+// @route   GET /api/delivery/me
+// @access  Private
+export const getMyProfile = asyncHandler(async (req, res) => {
+  const partner = await findMine(req.user._id);
+  if (!partner) throw httpError(404, 'Rider profile not found');
+
+  // The name and phone are on the User record, but every screen that shows a
+  // rider needs them next to the partner data, so send them together.
+  return ok(res, {
+    ...partner.toObject(),
+    name: req.user.name,
+    phone: req.user.phone,
+  });
+});
+
+// @desc    Save or update where the rider is based
+// @route   PUT /api/delivery/location
+// @access  Private
+export const updateLocation = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+
+  // Deliberately not gated by assertEditable. That guard exists to stop a rider
+  // swapping KYC documents after approval; a base location is operational, not
+  // evidence, and a rider who moves house must be able to correct it.
+  const parsed = parseLocation(req.body);
+  if (!parsed.ok) throw httpError(400, parsed.message);
+
+  const loc = parsed.location;
+  if (!hasUsableLocation(loc)) {
+    throw httpError(400, 'Share your current location, or type your address with a 6-digit pincode');
+  }
+
+  partner.baseLocation = { ...(partner.baseLocation?.toObject?.() ?? partner.baseLocation ?? {}), ...loc };
+  if (loc.lat !== undefined && loc.lng !== undefined) {
+    partner.currentLocation = { lat: loc.lat, lng: loc.lng, updatedAt: new Date() };
+  }
+  await partner.save();
+
+  return ok(res, partner.baseLocation, 'Location saved');
+});
+
+/**
+ * Record one rider's response to being offered one order.
+ *
+ * Mirrors `pushTimeline` in order.controller.js — a small, unexported helper
+ * next to the handlers that use it, not a service, because nothing outside
+ * this file offers an order to a rider.
+ *
+ * NOT wired into broadcast/accept/decline/timeout yet. This step only adds
+ * the write path; nothing calls it until a later step records an actual
+ * OFFERED/DECLINED_BY_RIDER/OFFER_EXPIRED event. It only ever appends —
+ * resolving an existing OFFERED attempt (decline/expire/accept) in place,
+ * rather than pushing a second row for the same rider, is a decision for
+ * whichever later step actually writes those transitions, once accept/
+ * decline/timeout behavior itself is being changed.
+ */
+const pushOfferAttempt = (order, { riderId, status = OFFER_ATTEMPT_STATUS.OFFERED, reason }) => {
+  order.offerAttempts.push({
+    riderId,
+    status,
+    offeredAt: new Date(),
+    ...(reason ? { reason } : {}),
+  });
+};
+
+/**
+ * Record that a rider was offered this order — once, no matter how many
+ * times or which of the two paths (socket ping, pending-orders poll) says so.
+ *
+ * A separate helper from `pushOfferAttempt` above on purpose: that one
+ * mutates an in-memory document the caller must then `.save()`, which fits
+ * `acceptOrder`'s shape but neither call site here — `broadcastNewOrderToRiders`
+ * doesn't save on its success path, and `getPendingDeliveryOrders` never
+ * saves at all, being read-only. This is a single atomic `updateOne` instead.
+ *
+ * The dedup guard lives in the filter, not in a read-then-check: `$ne`
+ * against the array matches only when this rider has *no* entry yet, of any
+ * status. That covers every duplicate source at once — the same socket ping
+ * landing twice, the 10s poll re-seeing an order it already recorded, a
+ * retried broadcast, a reconnect — and, as a side effect, it also stops a
+ * rider who already declined or expired on this order from ever being
+ * recorded as offered it again.
+ */
+const recordOfferIfNew = (orderId, riderId) =>
+  Order.updateOne(
+    { _id: orderId, 'offerAttempts.riderId': { $ne: riderId } },
+    { $push: { offerAttempts: { riderId, status: OFFER_ATTEMPT_STATUS.OFFERED, offeredAt: new Date() } } }
+  );
+
+/**
+ * Offer a dispatched order to nearby riders.
+ *
+ * `attempt` widens the search each time nobody takes it. A parcel sitting on a
+ * counter with no rider is the single most common way this flow stalls, and
+ * before this the function simply logged "no riders available" and returned —
+ * the order stayed `dispatched` for ever, with nobody watching and nothing
+ * telling the shop.
+ */
+export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
+  const order = await Order.findById(orderId);
+  if (!order) return;
+
+  // The same list accept checks against — see constants/enums.js.
+  if (!riderClaimableStatuses(order.type).includes(order.status)) return;
+
+  // Already taken while we were widening the net.
+  if (order.deliveryPartnerId) return;
+
+  const sellerItem = order.items.find(item => item.sellerId);
+  if (!sellerItem) return;
+
+  const seller = await Seller.findById(sellerItem.sellerId);
+  if (!seller || !seller.storeDetails?.point) {
+    console.warn(`[RIDER BROADCAST] ${order.orderNo}: store has no pinned location — cannot find riders`);
+    return;
+  }
+
+  const [lng, lat] = seller.storeDetails.point.coordinates;
+  const baseRadius = Number(process.env.PICKUP_RADIUS_METERS) || 5000;
+
+  // 5 km, then 10, then 15. Beyond that the trip stops being worth a rider's
+  // time and it becomes a problem for a person to solve, not a wider query.
+  const MAX_ATTEMPTS = 3;
+  const radiusMeters = baseRadius * attempt;
+
+  // Find approved, online, available riders within 5km radius of the store
+  let riders = [];
+  try {
+    riders = await DeliveryPartner.find({
+      status: 'approved',
+      isAvailable: true,
+      'baseLocation.point': {
+        $near: {
+          $geometry: { type: 'Point', coordinates: [lng, lat] },
+          $maxDistance: radiusMeters
+        }
+      }
+    }).limit(5);
+  } catch (err) {
+    console.warn(`[RIDER BROADCAST] Geo search failed: ${err.message}. Trying fallback search...`);
+  }
+
+  /**
+   * A rider's own configured radius (if they've set one) is a further cap
+   * ON TOP OF the shared search radius above, never a substitute for it —
+   * the $near query already bounds candidates to `radiusMeters`; this only
+   * excludes a rider from THIS attempt when their own limit is smaller
+   * than that. A rider with no radius configured is unaffected, exactly
+   * as before this field existed.
+   */
+  const shopLoc = { lat, lng };
+  riders = riders.filter((r) => {
+    if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
+    const riderLoc = (r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation;
+    const km = distanceKm(riderLoc, shopLoc);
+    return km === undefined || km <= r.deliveryRadiusKm;
+  });
+
+  /**
+   * The wide fallbacks below are for Quick only.
+   *
+   * When the geo search finds nobody, this widens to matching pincode zones and
+   * then to any approved online rider in the database, with no distance check at
+   * all. For Quick that is a reasonable net — better a distant rider than an
+   * order nobody collects.
+   *
+   * A Same-Day order was sold on a promise of twenty kilometres. Reaching past
+   * that to a rider in another city would keep the order moving and break the
+   * thing the customer actually paid for, quietly. So for internal e-commerce
+   * the geo search is the whole search: if it finds nobody, the order waits for
+   * a human rather than being handed to someone who cannot make the promise.
+   */
+  const promisedRadius = order.type === CHANNEL.ECOM;
+
+  if (riders.length === 0 && !promisedRadius) {
+    // Fallback 1: match by zones (pincode of seller or shipping destination)
+    const storePincode = seller.storeDetails?.pincode;
+    const destPincode = order.shippingAddress?.pincode;
+    const orConditions = [];
+    if (storePincode) orConditions.push({ zones: storePincode });
+    if (destPincode) orConditions.push({ zones: destPincode });
+
+    if (orConditions.length > 0) {
+      riders = await DeliveryPartner.find({
+        status: 'approved',
+        isAvailable: true,
+        $or: orConditions
+      }).limit(5);
+    }
+
+    if (riders.length === 0) {
+      // Fallback 2: grab any online approved rider in the database
+      riders = await DeliveryPartner.find({
+        status: 'approved',
+        isAvailable: true
+      }).limit(5);
+    }
+  }
+
+  if (riders.length === 0) {
+    console.log(`[RIDER BROADCAST] ${order.orderNo}: nobody within ${radiusMeters}m (attempt ${attempt}/${MAX_ATTEMPTS})`);
+
+    if (attempt < MAX_ATTEMPTS) {
+      // Widen and try again shortly — riders come on shift, and one may finish
+      // a delivery nearby within the next half minute.
+      setTimeout(() => {
+        broadcastNewOrderToRiders(orderId, attempt + 1).catch(console.error);
+      }, 30 * 1000);
+      return;
+    }
+
+    /**
+     * Out of options. The order is not cancelled — the shop has already packed
+     * it and the customer has already paid — so it is flagged for a human and
+     * everyone involved is told, rather than left looking fine while nothing
+     * happens.
+     */
+    order.needsManualAssignment = true;
+    order.timeline.push({
+      status: order.status,
+      timestamp: new Date(),
+      note: `No delivery partner found within ${radiusMeters / 1000} km after ${MAX_ATTEMPTS} attempts — needs manual assignment`,
+    });
+    await order.save();
+
+    try {
+      const { emitToSeller, emitToUser } = await import('../socket/rooms.js');
+      emitToSeller(String(seller._id), 'no_rider_found', {
+        orderId: order._id,
+        orderNo: order.orderNo,
+        searchedKm: radiusMeters / 1000,
+      });
+      emitToUser(order.userId, 'delivery_delayed', {
+        orderId: order._id,
+        message: 'We are still finding a delivery partner for your order.',
+      });
+      notifySeller(String(seller._id), {
+        event: NOTIFICATION_EVENT.NO_RIDER_FOUND,
+        title: 'No rider found nearby',
+        message: `Order ${order.orderNo} needs manual delivery assignment — no rider was found within ${radiusMeters / 1000} km.`,
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifySeller (no rider) failed:', e.message));
+      notifyUser(order.userId, {
+        event: NOTIFICATION_EVENT.DELIVERY_DELAYED,
+        title: 'Delivery is taking longer than usual',
+        message: 'We are still finding a delivery partner for your order.',
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifyUser (delivery delayed) failed:', e.message));
+    } catch (e) {
+      console.error('[RIDER BROADCAST] notify failed:', e.message);
+    }
+
+    console.warn(`[RIDER BROADCAST] ${order.orderNo}: FLAGGED for manual assignment`);
+    return;
+  }
+
+  /**
+   * Riders are addressed by their DeliveryPartner id, not their User id.
+   *
+   * The rider app joins `rider:<partnerId>` (it passes `riderProfile._id`), so
+   * broadcasting to User ids sent every ping into a room nobody was sitting in.
+   * The order rang, the log said it rang, and no rider ever saw it.
+   */
+  const riderIds = riders.map(r => String(r._id));
+
+  console.log(`[RIDER BROADCAST] Broadcasting order ${order.orderNo} to riders: ${riderIds.join(', ')}`);
+
+  const shop = seller.storeDetails;
+  const drop = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
+
+  /**
+   * Both distances a rider needs to judge the job, measured rather than invented.
+   *
+   * This was `(1.5 + Math.random() * 3)` — a different number every time the same
+   * order was offered, and unrelated to anything. A rider decides whether to
+   * accept on exactly this figure.
+   */
+  const legKm = distanceKm(shop, drop);
+
+  const payload = {
+    orderId: order._id,
+    orderNo: order.orderNo,
+    merchantName: shop.name,
+    merchantAddress: [shop.address, shop.city].filter(Boolean).join(', '),
+    merchantLocation: { lat: shop.lat, lng: shop.lng },
+    customerName: order.shippingAddress.name,
+    customerAddress: [order.shippingAddress.line1, order.shippingAddress.line2, order.shippingAddress.city]
+      .filter(Boolean).join(', '),
+    customerLocation: drop.lat !== undefined ? drop : undefined,
+    landmarkImage: order.shippingAddress?.landmarkImage || null,
+    hasLandmarkImage: Boolean(order.shippingAddress?.landmarkImage),
+    // Shop → customer, which is the leg the rider is paid for.
+    distance: legKm,
+    etaMin: etaMinutes(legKm),
+    paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
+    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    totalAmount: order.pricing.totalAmount,
+    // The figure the settlement will use, so the offer cannot overstate it.
+    // The customer's tip is part of that figure and is quoted here for the
+    // same reason every other component is: a rider decides whether to accept
+    // on this number, so it has to be the number they actually get.
+    payout: riderPayout(legKm, { mode: payoutModeOf(order), tip: order.pricing?.tipAmount }),
+    /**
+     * What kind of job this is, from the order's own record.
+     *
+     * A Quick trip and a Shop All same-day trip look identical in this payload
+     * otherwise, and they are not the same job — the second carries a promise
+     * made to the customer at checkout, and a rider deciding whether to accept
+     * deserves to know which one they are looking at.
+     *
+     * Absent on Quick orders, which have only one kind.
+     */
+    deliveryMode: order.delivery?.mode,
+    promisedBy: order.delivery?.promisedBy,
+    items: order.items.map(item => ({ name: item.name, qty: item.qty }))
+  };
+
+  /**
+   * Sent per rider rather than broadcast, because one field genuinely differs:
+   * how far each of them is from the shop. That was shown as a hardcoded
+   * "0.8 km" to everybody, and it is one of the two numbers a rider uses to
+   * judge whether the trip is worth taking.
+   */
+  const { emitToRider } = await import('../socket/rooms.js');
+  for (const r of riders) {
+    // Record the offer before ringing the rider, not after — a ping that
+    // fires and a save that fails would otherwise leave a rider staring at a
+    // job with no record it was ever offered.
+    //
+    // Whether this was a genuinely NEW attempt decides whether to ring at
+    // all. `recordOfferIfNew`'s guard already stops a second OFFERED row
+    // from being written for a rider who declined, expired, accepted, or is
+    // still actively OFFERED on this order — but until now nothing stopped
+    // the ping itself from firing anyway on a no-op write, so a rider who had
+    // already turned this job down still heard their phone ring for it every
+    // time the seller's own status change re-triggered a broadcast. An
+    // already-active OFFERED rider isn't missing anything either: their open
+    // offer is kept alive by their own 10s poll, not by a repeated ping.
+    const { modifiedCount } = await recordOfferIfNew(order._id, r._id);
+    const riderLoc = r?.currentLocation?.lat !== undefined ? r.currentLocation : r?.baseLocation;
+    emitToRider(String(r._id), 'rider_ping', {
+      ...payload,
+      pickupDistance: distanceKm(riderLoc, shop),
+    });
+    // Persisted + pushed only for a genuinely new offer — `modifiedCount`
+    // is the same "was this actually new" signal `recordOfferIfNew` already
+    // computed, so a re-broadcast to an already-offered rider doesn't also
+    // write a duplicate Notification row for them. Fire-and-forget: this
+    // runs inside a per-rider loop and must not slow down the next ping.
+    if (modifiedCount) {
+      notifyRider(String(r._id), {
+        event: NOTIFICATION_EVENT.RIDER_PING,
+        title: payload.payout?.tip > 0 ? `New order offer — ₹${payload.payout.tip} tip` : 'New order offer',
+        /**
+         * The tip is named in the text, not only in the payload.
+         *
+         * This string is what becomes the push notification body, so for a
+         * rider whose app is in their pocket it is the whole offer. A tip
+         * that only existed in `payload.payout` would be invisible at exactly
+         * the moment it is meant to persuade someone to take the job.
+         */
+        message: payload.payout?.tip > 0
+          ? `${payload.merchantName} — ${payload.distance} km, ₹${payload.payout.total} (includes ₹${payload.payout.tip} customer tip)`
+          : `${payload.merchantName} — ${payload.distance} km, ₹${payload.payout?.total ?? payload.totalAmount}`,
+        metadata: { orderId: order._id, tipAmount: payload.payout?.tip || 0 },
+      }).catch((e) => console.error('[NOTIFICATION] notifyRider (ping) failed:', e.message));
+    }
+  }
+};
+
+// @desc    Rider declines an order they were offered
+// @route   POST /api/delivery/orders/:id/decline
+// @access  Private (Approved riders only)
+//
+// OFFERED → DECLINED_BY_RIDER on the SAME offerAttempts entry — never a
+// second row for the same rider/order. See Order.js offerAttemptSchema.
+//
+// Atomic for the same reason acceptOrder is: the winning condition (this
+// rider's attempt must currently read OFFERED, and the order must still be
+// unassigned) lives in the update's filter, not in a read-then-write. A
+// decline arriving the instant another rider accepts, or the instant this
+// same offer expires, simply fails to match — Mongo is the arbiter, not a
+// race between two requests reading stale state.
+export const declineOrder = asyncHandler(async (req, res) => {
+  const partner = req.partner; // injected by requireApprovedPartner
+  // Optional and not yet collected by any UI (see Section 4 of the request) —
+  // a decline with no request body at all must not throw before reaching the
+  // actual logic.
+  const { reason } = req.body || {};
+
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      // Once assigned, the offer pool is irrelevant — nothing left to decline.
+      $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }],
+      offerAttempts: {
+        $elemMatch: { riderId: partner._id, status: OFFER_ATTEMPT_STATUS.OFFERED },
+      },
+    },
+    {
+      $set: {
+        'offerAttempts.$[attempt].status': OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER,
+        'offerAttempts.$[attempt].respondedAt': new Date(),
+        ...(reason ? { 'offerAttempts.$[attempt].reason': reason } : {}),
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
+    }
+  );
+
+  if (!order) {
+    // Nothing matched — work out which condition failed, so the rider (and
+    // the frontend's reconciliation) gets a true reason rather than a
+    // generic refusal. Mirrors acceptOrder's own disambiguation read below.
+    const existing = await Order.findById(req.params.id).select('deliveryPartnerId offerAttempts');
+    if (!existing) throw httpError(404, 'Order not found');
+
+    if (existing.deliveryPartnerId) {
+      throw httpError(409, 'This order has already been assigned to a rider — there is nothing left to decline');
+    }
+
+    const mine = existing.offerAttempts.find((a) => String(a.riderId) === String(partner._id));
+    if (!mine) throw httpError(404, 'You were not offered this order');
+
+    if (mine.status === OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER) {
+      // Idempotent: a duplicate decline is not an error, just a no-op — the
+      // rider's own earlier decline already stands.
+      return ok(res, { status: mine.status }, 'This offer was already declined');
+    }
+
+    throw httpError(409, `This offer is already ${mine.status} — it can no longer be declined`);
+  }
+
+  return ok(res, { status: OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER }, 'Offer declined');
+});
+
+// @desc    Backend-authoritative offer expiry — the 15s countdown ran out
+// @route   POST /api/delivery/orders/:id/expire
+// @access  Private (Approved riders only)
+//
+// OFFERED → OFFER_EXPIRED on the SAME offerAttempts entry — same shape as
+// declineOrder above, deliberately. A timeout is not a decline (the rider
+// never acted), so it gets its own status and its own `expiredAt`, but the
+// concurrency story is identical: the winning condition (this rider's
+// attempt must currently read OFFERED) lives in the update's filter, so an
+// expiry arriving the instant the rider accepts, or the instant they
+// manually decline, simply fails to match rather than racing a read.
+export const expireOrder = asyncHandler(async (req, res) => {
+  const partner = req.partner; // injected by requireApprovedPartner
+
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      // Once assigned, the offer pool is irrelevant — nothing left to expire.
+      $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }],
+      offerAttempts: {
+        $elemMatch: { riderId: partner._id, status: OFFER_ATTEMPT_STATUS.OFFERED },
+      },
+    },
+    {
+      $set: {
+        'offerAttempts.$[attempt].status': OFFER_ATTEMPT_STATUS.OFFER_EXPIRED,
+        'offerAttempts.$[attempt].expiredAt': new Date(),
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
+    }
+  );
+
+  if (!order) {
+    // Nothing matched — work out which condition failed, so the frontend's
+    // reconciliation gets a true reason. Mirrors declineOrder's own
+    // disambiguation read above.
+    const existing = await Order.findById(req.params.id).select('deliveryPartnerId offerAttempts');
+    if (!existing) throw httpError(404, 'Order not found');
+
+    if (existing.deliveryPartnerId) {
+      throw httpError(409, 'This order has already been assigned to a rider — there is nothing left to expire');
+    }
+
+    const mine = existing.offerAttempts.find((a) => String(a.riderId) === String(partner._id));
+    if (!mine) throw httpError(404, 'You were not offered this order');
+
+    if (mine.status === OFFER_ATTEMPT_STATUS.OFFER_EXPIRED) {
+      // Idempotent: a duplicate expiry request is not an error, just a
+      // no-op — the earlier expiry already stands.
+      return ok(res, { status: mine.status }, 'This offer had already expired');
+    }
+
+    throw httpError(409, `This offer is already ${mine.status} — it can no longer expire`);
+  }
+
+  return ok(res, { status: OFFER_ATTEMPT_STATUS.OFFER_EXPIRED }, 'Offer expired');
+});
+
+// @desc    Rider accepts order
+// @route   POST /api/delivery/orders/:id/accept
+// @access  Private (Approved riders only)
+export const acceptOrder = asyncHandler(async (req, res) => {
+  const partner = req.partner; // injected by requireApprovedPartner
+
+  /**
+   * Capacity, not the availability flag.
+   *
+   * This used to read `partner.isAvailable`, which accepting an order sets to
+   * false — so one trip locked the rider out of every other one, with no way to
+   * relax that while the flow was still being built. The limit now lives in
+   * RIDER_MAX_CONCURRENT_DELIVERIES and is unset during development.
+   */
+  const capacity = await canTakeAnother(partner._id);
+  if (!capacity.ok) throw httpError(409, capacity.reason);
+
+  /**
+   * Everything that can refuse this request happens before the claim.
+   *
+   * Once the order is claimed it is off the market for every other rider, so a
+   * failure after that point strands it: assigned to somebody, with no delivery
+   * record, and invisible to the riders who could still have taken it.
+   */
+  // `type` is load-bearing: it decides which statuses a rider may claim from,
+  // and leaving it out of the projection quietly treated every Quick order as a
+  // Shop All one — claimable only at `dispatched`, which is exactly the window
+  // early ringing exists to open.
+  const candidate = await Order.findById(req.params.id).select('items status type deliveryPartnerId');
+  if (!candidate) throw httpError(404, 'Order not found');
+
+  const pickupSeller = await Seller.findById(candidate.items.find(i => i.sellerId)?.sellerId)
+    .select('businessName storeDetails');
+
+  const shop = pickupSeller?.storeDetails;
+  if (shop?.lat === undefined || shop?.lng === undefined) {
+    // Refuse rather than guess. A rider sent to the wrong place wastes a trip
+    // and the customer waits for an order that was never collected.
+    throw httpError(409, 'This store has not pinned its location yet — it cannot be picked up from');
+  }
+
+  /**
+   * Claim the order in one atomic step.
+   *
+   * This was a read, then a check, then a write. The same order is offered to up
+   * to five riders at once, so two tapping Accept within the same moment both
+   * read `deliveryPartnerId: null`, both passed the check, and the second write
+   * silently overwrote the first — two riders sent to one shop, each holding a
+   * different confirmation code, and only one of them able to complete.
+   *
+   * Putting the conditions in the filter makes MongoDB the arbiter: exactly one
+   * update can match, and everyone else gets null back.
+   */
+  const order = await Order.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      // One shared definition, so the offer and the claim cannot disagree.
+      status: { $in: riderClaimableStatuses(candidate.type) },
+      $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }],
+      /**
+       * This rider's own offer, if one exists, must still be live.
+       *
+       * The claim below and the `arrayFilters` resolve-to-ACCEPTED further down
+       * used to be able to disagree: the claim only checked the order, so it
+       * could succeed and set `deliveryPartnerId` even when this rider's
+       * attempt had already lost to a concurrent expiry — the array update
+       * would then just silently skip (no element matched OFFERED), leaving
+       * an order assigned to a rider whose own offer record read
+       * OFFER_EXPIRED. Requiring it here, in the same atomic filter, means
+       * the claim itself fails the instant that's true, rather than only the
+       * sub-update of it. Vacuously true for a rider with no attempt at all,
+       * so a "cold" accept — one that never went through offer/poll — is
+       * unaffected.
+       */
+      offerAttempts: {
+        $not: {
+          $elemMatch: { riderId: partner._id, status: { $ne: OFFER_ATTEMPT_STATUS.OFFERED } },
+        },
+      },
+    },
+    {
+      /**
+       * Assigning a rider does not move the order along.
+       *
+       * This used to set `out_for_delivery` on claim. Now that a Quick order can
+       * be claimed while it is still being packed, that told the customer their
+       * food was on its way while it was sitting on the counter — and it skipped
+       * "dispatched" entirely, so the shop's own hand-over never showed.
+       *
+       * The order becomes out_for_delivery when the rider actually picks it up,
+       * which updateDeliveryStatus handles.
+       */
+      $set: {
+        deliveryPartnerId: partner._id,
+        // Resolves the SAME offerAttempts entry this rider was recorded
+        // against — never a second one. A no-op (arrayFilters matches
+        // nothing) when this rider claimed without ever polling or being
+        // pinged, which is why it rides along in this update rather than
+        // needing its own.
+        'offerAttempts.$[attempt].status': OFFER_ATTEMPT_STATUS.ACCEPTED,
+        'offerAttempts.$[attempt].respondedAt': new Date(),
+      },
+      $push: {
+        timeline: {
+          status: candidate.status,
+          timestamp: new Date(),
+          note: `Delivery partner ${req.user.name} assigned`,
+        },
+      },
+    },
+    {
+      new: true,
+      arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
+    }
+  );
+
+  if (!order) {
+    // Nothing matched. Work out which condition failed, so the rider is told
+    // something true rather than a generic refusal.
+    const existing = await Order.findById(req.params.id).select('status deliveryPartnerId offerAttempts');
+    if (!existing) throw httpError(404, 'Order not found');
+    if (existing.deliveryPartnerId) {
+      throw httpError(409, 'Another rider accepted this order first');
+    }
+    // Order is still unassigned, so the claim failed on the new condition:
+    // this rider's own offer already resolved to something other than
+    // OFFERED (an expiry or a decline that landed first).
+    const mine = existing.offerAttempts.find((a) => String(a.riderId) === String(partner._id));
+    if (mine && mine.status !== OFFER_ATTEMPT_STATUS.OFFERED) {
+      throw httpError(409, `Your offer for this order is already ${mine.status} — it can no longer be accepted`);
+    }
+    throw httpError(400, `This order is ${existing.status} — it is not ready for pickup`);
+  }
+
+  /**
+   * No code is issued here.
+   *
+   * One used to be generated the moment a rider accepted, which put a number on
+   * the customer's screen while the parcel was still on the shop counter. It
+   * meant nothing at that point — and a code shown for twenty minutes before it
+   * is needed is a code somebody reads out over the phone to whoever asks.
+   *
+   * It is created when the rider actually asks for it, at the door.
+   */
+
+  /**
+   * The pickup is the shop, read from the seller record above.
+   *
+   * This used to be hardcoded: the address was the first item's *product name*
+   * ("Chocolate Cream Biscuits 300g") and the coordinates were a fixed point in
+   * Indore. It looked correct in testing only because the shop being tested was
+   * also in Indore — every seller in Pune or Nagpur would have sent the rider
+   * several hundred kilometres to a spot nobody had ever visited.
+   */
+  const pickup = {
+    address: [shop.name || pickupSeller.businessName, shop.address, shop.city]
+      .filter(Boolean).join(', '),
+    lat: shop.lat,
+    lng: shop.lng,
+  };
+
+  const drop = {
+    address: [order.shippingAddress.line1, order.shippingAddress.line2, order.shippingAddress.city]
+      .filter(Boolean).join(', '),
+    lat: order.shippingAddress.lat,
+    lng: order.shippingAddress.lng,
+  };
+
+  // Measured, not assumed. Straight-line: enough for an ETA, and free.
+  const legKm = distanceKm(pickup, drop);
+
+  const delivery = await Delivery.create({
+    orderId: order._id,
+    partnerId: partner._id,
+    pickupLocation: pickup,
+    dropLocation: drop,
+    route: {
+      distanceKm: legKm,
+      durationMin: etaMinutes(legKm),
+    },
+    status: 'accepted',
+
+    /**
+     * The rates in force at the moment this rider said yes.
+     *
+     * Settlement reads this rather than the live rates, so an admin changing
+     * the per-kilometre figure while the rider is on the road cannot change
+     * what they were promised when they accepted.
+     */
+    ratesUsed: rateSnapshotFor(payoutModeOf(order)),
+
+    /**
+     * Seed the rider's position from where they are based.
+     *
+     * The live pings only start once the device reports its first fix, which
+     * can be several seconds — or never, if they denied the permission. Until
+     * then `partnerLocation` was empty and the customer's map showed no rider
+     * at all, moments after being told one had been assigned. A slightly stale
+     * pin beats a missing one, and the first real ping replaces it.
+     */
+    partnerLocation: partner.baseLocation?.lat !== undefined
+      ? {
+          lat: partner.baseLocation.lat,
+          lng: partner.baseLocation.lng,
+          updatedAt: new Date(),
+        }
+      : undefined,
+
+    otpVerified: false
+  });
+
+  order.deliveryId = delivery._id;
+  await order.save();
+
+  /**
+   * Only step out of the offer pool when the limit says one trip at a time.
+   *
+   * With no limit configured the rider stays on duty and keeps being offered
+   * work, which is the point of allowing several at once. Flipping the flag
+   * regardless would have taken them off the pool after the first order and
+   * quietly reinstated the very restriction the limit is meant to control.
+   */
+  if (maxConcurrentDeliveries() === 1) {
+    partner.isAvailable = false;
+    await partner.save();
+  }
+
+  // Notify other riders to clear the ping, and notify buyer
+  try {
+    const { emitToUser, emitToSeller } = await import('../socket/rooms.js');
+    emitToUser(order.userId, 'rider_assigned', {
+      orderId: order._id,
+      riderName: req.user.name,
+      riderPhone: req.user.phone,
+      vehicleType: partner.vehicleType,
+      // No code here. It does not exist yet, and once it does it travels in its
+      // own 'otp_ready' event at the moment the rider asks for it at the door.
+      deliveryId: delivery._id
+    });
+    notifyUser(order.userId, {
+      event: NOTIFICATION_EVENT.RIDER_ASSIGNED,
+      title: 'Rider assigned',
+      message: `${req.user.name} is on the way with your order ${order.orderNo}.`,
+      metadata: { orderId: order._id },
+      route: '/orders',
+    }).catch((e) => console.error('[NOTIFICATION] notifyUser (rider assigned) failed:', e.message));
+
+    const sellerId = order.items.find(i => i.sellerId)?.sellerId;
+    if (sellerId) {
+      emitToSeller(sellerId, 'rider_assigned', {
+        orderId: order._id,
+        riderName: req.user.name,
+        riderPhone: req.user.phone,
+      });
+      notifySeller(sellerId, {
+        event: NOTIFICATION_EVENT.RIDER_ASSIGNED,
+        title: 'Rider assigned',
+        message: `${req.user.name} picked up order ${order.orderNo}.`,
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifySeller (rider assigned) failed:', e.message));
+    }
+  } catch (err) {
+    console.error('Socket notification fail:', err.message);
+  }
+
+  return ok(res, {
+    orderId: order._id,
+    deliveryId: delivery._id,
+    step: 'pickup',
+    merchantName: payloadMerchantName(order),
+    merchantAddress: 'Store Address',
+    customerName: order.shippingAddress.name,
+    customerAddress: `${order.shippingAddress.line1}, ${order.shippingAddress.line2 || ''}`,
+    landmarkImage: order.shippingAddress?.landmarkImage || null,
+    hasLandmarkImage: Boolean(order.shippingAddress?.landmarkImage),
+    items: order.items.map(i => ({ name: i.name, qty: i.qty })),
+    // The rider's own accept response never carried a usable code either — and
+    // must not, since the whole point is that only the customer has it.
+    paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
+    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    // Carried on the accept response too, so the job the rider just took keeps
+    // showing the same pay — and the same tip — they saw on the offer, without
+    // waiting for the next poll of the active-delivery view to tell them again.
+    payout: riderPayout(delivery.route?.distanceKm, {
+      mode: delivery.ratesUsed?.mode || payoutModeOf(order),
+      rates: delivery.ratesUsed?.perKm !== undefined ? delivery.ratesUsed : undefined,
+      tip: order.pricing?.tipAmount,
+    }),
+  }, 'Order accepted successfully');
+});
+
+// @desc    Rider cancels a delivery they accepted, before pickup
+// @route   POST /api/delivery/orders/:id/cancel
+// @access  Private (Approved riders only)
+//
+// Pre-pickup only — the frontend Cancel button has only ever existed on the
+// pickup-stage screen, and this endpoint enforces that same boundary
+// server-side, not just in the UI. `Delivery.status` has no cancellation
+// value of its own; 'rejected' is reused for it — defined in the schema but
+// never written by any other code path today.
+//
+// Releasing the rider does not touch Order.status. A rider stepping back is
+// not the customer's order being cancelled — the order was never advanced
+// at accept time in the first place (see acceptOrder's own note on this),
+// so it is still sitting at whatever claimable status offered it, and
+// clearing deliveryPartnerId is what makes it claimable again.
+//
+// Two documents move together here — ownership on Order, pickup-stage on
+// Delivery — which a single findOneAndUpdate can't express safely. A
+// transaction is the existing tool for exactly this shape of problem in
+// this codebase (see order.controller.js's own cancel/checkout flows); this
+// reuses that convention rather than introducing one.
+export const cancelDelivery = asyncHandler(async (req, res) => {
+  const partner = req.partner; // injected by requireApprovedPartner
+  const { reason } = req.body || {};
+
+  const order = await Order.findById(req.params.id).select('deliveryPartnerId deliveryId status');
+  if (!order) throw httpError(404, 'Order not found');
+  if (!order.deliveryId) throw httpError(404, 'No delivery record exists for this order');
+
+  /**
+   * Ownership is read from the Delivery record, not `order.deliveryPartnerId`.
+   *
+   * A successful cancel clears the latter — that is the whole point, it is
+   * what re-opens the order — so a second cancel request arriving after the
+   * first already committed would otherwise find `deliveryPartnerId` already
+   * gone and wrongly report "not assigned" instead of recognising its own
+   * earlier cancellation. `Delivery.partnerId` is never cleared, so it stays
+   * the reliable answer to "was this ever this rider's delivery" even after
+   * the order itself has moved on.
+   */
+  const delivery = await Delivery.findById(order.deliveryId);
+  if (!delivery || String(delivery.partnerId) !== String(partner._id)) {
+    throw httpError(404, 'No active delivery assignment found');
+  }
+
+  const CANCELLABLE_DELIVERY_STATUSES = ['assigned', 'accepted', 'arrived_at_store'];
+
+  if (delivery.status === 'rejected') {
+    // Idempotent: a duplicate cancel is not an error, just a no-op — the
+    // rider's own earlier cancellation already stands.
+    return ok(res, { status: delivery.status }, 'This delivery was already cancelled');
+  }
+
+  const session = await mongoose.startSession();
+  let cancelled = false;
+  try {
+    await session.withTransaction(async () => {
+      // The winning condition lives in this filter, not in a read-then-write —
+      // same reasoning as acceptOrder/declineOrder/expireOrder. A pickup or a
+      // second cancel that already moved the Delivery past this list simply
+      // fails to match.
+      const deliveryResult = await Delivery.updateOne(
+        { _id: order.deliveryId, partnerId: partner._id, status: { $in: CANCELLABLE_DELIVERY_STATUSES } },
+        { $set: { status: 'rejected' } },
+        { session }
+      );
+      if (deliveryResult.modifiedCount !== 1) return; // no-op transaction; disambiguated below
+
+      const orderResult = await Order.updateOne(
+        { _id: order._id, deliveryPartnerId: partner._id },
+        {
+          $unset: { deliveryPartnerId: '' },
+          $push: {
+            timeline: {
+              status: order.status,
+              timestamp: new Date(),
+              note: `Delivery partner ${req.user.name} cancelled before pickup${reason ? `: ${reason}` : ''}`,
+            },
+          },
+        },
+        { session }
+      );
+      if (orderResult.modifiedCount !== 1) {
+        // Would leave the Delivery marked rejected with the order still
+        // assigned — abort rather than commit a half-applied cancellation.
+        throw httpError(409, 'This order is no longer assigned to you');
+      }
+      cancelled = true;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!cancelled) {
+    // Nothing matched — work out which condition failed, so the rider gets a
+    // true reason. Mirrors decline/expire's own disambiguation reads.
+    const current = await Delivery.findById(order.deliveryId).select('status');
+    if (!current) throw httpError(404, 'Delivery record not found');
+    if (current.status === 'rejected') {
+      // Idempotent: a duplicate cancel is not an error, just a no-op.
+      return ok(res, { status: current.status }, 'This delivery was already cancelled');
+    }
+    throw httpError(409, `This delivery is already ${current.status} — it can no longer be cancelled`);
+  }
+
+  // Re-open the order to the existing dispatch mechanism — the same call
+  // the seller's own status-update trigger already makes elsewhere in this
+  // file. Not a new reassignment path; reusing the one that exists.
+  broadcastNewOrderToRiders(order._id).catch(console.error);
+
+  return ok(res, { status: 'rejected' }, 'Delivery cancelled — the order has been released for reassignment');
+});
+
+// @desc    Update delivery stage / status (Heading to store -> Arrived -> Picked Up / In Transit)
+// @route   PATCH /api/delivery/orders/:id/status
+// @access  Private (Approved riders only)
+export const updateDeliveryStatus = asyncHandler(async (req, res) => {
+  const { status } = req.body;
+  if (!['arrived_at_store', 'picked_up', 'arrived_at_customer'].includes(status)) {
+    throw httpError(400, 'Invalid status update');
+  }
+
+  const order = await Order.findById(req.params.id).select('deliveryPartnerId deliveryId userId');
+  if (!order || String(order.deliveryPartnerId) !== String(req.partner._id)) {
+    throw httpError(404, 'No active delivery assignment found');
+  }
+
+  const delivery = await Delivery.findById(order.deliveryId).select('status');
+  if (!delivery) {
+    throw httpError(404, 'Delivery record not found');
+  }
+
+  const NOTES = {
+    arrived_at_store: 'Rider arrived at the store',
+    picked_up: 'Rider collected the order',
+    arrived_at_customer: 'Rider reached the delivery address',
+  };
+
+  /**
+   * The stage lives on the Delivery, not the Order.
+   *
+   * `arrived_at_store` used to write `assigned` here — the initial value — so
+   * reaching the shop pushed the delivery backwards and nothing downstream
+   * could tell the two apart. The enum now has a state for each moment.
+   *
+   * The order's own status only moves once, at pickup: to a customer the parcel
+   * is "out for delivery" from that point on, and the finer detail belongs to
+   * the tracking screen rather than to the order's own history.
+   *
+   * This used to be `delivery.status = status; ... delivery.save()` — a blind
+   * overwrite with no condition on the delivery's current state. That was safe
+   * only because this used to be the sole writer of Delivery.status. Rider
+   * cancellation (cancelDelivery) is now a second one, and a stale pickup
+   * request that read the delivery just before a concurrent cancellation
+   * committed would otherwise silently revert `rejected` back to `picked_up`
+   * on save — confirmed live, reproducibly, before this fix. The condition
+   * now lives in the update's filter, same shape as accept/decline/expire/
+   * cancel, and — since it touches both Order and Delivery together — the
+   * same transaction convention cancelDelivery already uses.
+   */
+  const TERMINAL_DELIVERY_STATUSES = ['rejected', 'delivered', 'failed'];
+
+  const session = await mongoose.startSession();
+  let applied = false;
+  try {
+    await session.withTransaction(async () => {
+      const deliveryResult = await Delivery.updateOne(
+        { _id: delivery._id, status: { $nin: TERMINAL_DELIVERY_STATUSES } },
+        {
+          $set: {
+            status,
+            ...(status === 'picked_up' ? { startTime: new Date() } : {}),
+          },
+        },
+        { session }
+      );
+      if (deliveryResult.modifiedCount !== 1) return; // no-op transaction; disambiguated below
+
+      const orderUpdate = {
+        $push: { timeline: { status, timestamp: new Date(), note: NOTES[status] } },
+      };
+      if (status === 'picked_up') orderUpdate.$set = { status: 'out_for_delivery' };
+
+      const orderResult = await Order.updateOne(
+        { _id: order._id, deliveryPartnerId: req.partner._id },
+        orderUpdate,
+        { session }
+      );
+      if (orderResult.modifiedCount !== 1) {
+        // Would leave the Delivery moved forward with the order left behind —
+        // abort rather than commit a half-applied update.
+        throw httpError(409, 'This order is no longer assigned to you');
+      }
+      applied = true;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!applied) {
+    const current = await Delivery.findById(delivery._id).select('status');
+    throw httpError(409, `This delivery is already ${current?.status || 'resolved'} — it can no longer be updated`);
+  }
+
+  // Notify buyer via socket
+  try {
+    const { emitToUser } = await import('../socket/rooms.js');
+    // The stage itself, not a re-labelled version of it. Collapsing
+    // 'arrived_at_store' into 'arrived' threw away which place was arrived at,
+    // which is the only interesting part.
+    emitToUser(order.userId, 'delivery_status_updated', {
+      orderId: String(order._id),
+      stage: status,
+      at: new Date(),
+    });
+  } catch (err) {
+    console.error('Socket send failed:', err.message);
+  }
+
+  return ok(res, { status }, 'Delivery status updated');
+});
+
+// @desc    Generate OTP for delivery verification
+// @route   POST /api/delivery/orders/:id/generate-otp
+// @access  Private (Approved riders only)
+export const generateDeliveryOtp = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order || String(order.deliveryPartnerId) !== String(req.partner._id)) {
+    throw httpError(404, 'Active delivery not found');
+  }
+
+  const delivery = await Delivery.findById(order.deliveryId);
+  if (!delivery) throw httpError(404, 'Delivery record not found');
+
+  const otp = Math.floor(1000 + Math.random() * 9000).toString();
+  delivery.otp = otp;
+  delivery.otpAttempts = 0;          // a fresh code gets a fresh budget of tries
+  delivery.otpIssuedAt = new Date();
+
+  /**
+   * How far the rider was from the door when they asked for the code.
+   *
+   * Not a gate. City GPS is routinely off by a hundred metres, and a rider
+   * inside a stairwell can read far worse — refusing them there would strand an
+   * honest delivery, which costs more than catching a dishonest one. So the
+   * request always succeeds and the distance is simply written down. A rider
+   * generating codes from two kilometres away shows up in the data; a rider
+   * whose phone is having a bad day does not get punished for it.
+   */
+  delivery.otpIssuedFromKm = distanceKm(delivery.partnerLocation, delivery.dropLocation);
+  if (delivery.otpIssuedFromKm > 1) {
+    console.warn(
+      `[OTP] ${order.orderNo}: code requested from ${delivery.otpIssuedFromKm} km away from the drop`
+    );
+  }
+
+  await delivery.save();
+
+  // Only the customer is told the code.
+  try {
+    const { emitToUser } = await import('../socket/rooms.js');
+    emitToUser(order.userId, 'otp_ready', { otp });
+    // The OTP itself never goes in the notification title/body/data — a lock
+    // screen or notification tray is a worse place for it than the in-app
+    // socket payload it already travels in.
+    notifyUser(order.userId, {
+      event: NOTIFICATION_EVENT.OTP_READY,
+      title: 'Delivery OTP ready',
+      message: `Your rider has arrived. Your delivery OTP is ${otp}. Share this code with the rider.`,
+      metadata: { orderId: order._id, otp },
+      route: '/orders',
+    }).catch((e) => console.error('[NOTIFICATION] notifyUser (otp ready) failed:', e.message));
+  } catch (err) {
+    console.error(err);
+  }
+
+  /**
+   * The rider is told that a code was sent — never what it is.
+   *
+   * This used to answer with { otp }. The whole point of the code is that only
+   * the person holding the parcel's destination knows it, so handing it to the
+   * courier turns the confirmation into a formality they can complete alone,
+   * from anywhere, without meeting anybody.
+   */
+  return ok(res, { sent: true }, 'A 4-digit code has been sent to the customer. Ask them for it.');
+});
+
+// @desc    Verify OTP and complete delivery
+// @route   POST /api/delivery/orders/:id/verify-otp
+// @access  Private (Approved riders only)
+export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
+  const { otp } = req.body;
+  if (!otp) throw httpError(400, 'OTP is required');
+
+  const order = await Order.findById(req.params.id);
+  if (!order || String(order.deliveryPartnerId) !== String(req.partner._id)) {
+    throw httpError(404, 'Active delivery assignment not found');
+  }
+
+  const delivery = await Delivery.findById(order.deliveryId);
+  if (!delivery) throw httpError(404, 'Delivery record not found');
+
+  /**
+   * A 4-digit code is 10,000 possibilities — a couple of minutes of guessing
+   * for anyone willing to loop. Without a cap, withholding the code from the
+   * rider achieves nothing: they would simply try every one.
+   */
+  const MAX_ATTEMPTS = 5;
+  if ((delivery.otpAttempts || 0) >= MAX_ATTEMPTS) {
+    throw httpError(429, 'Too many incorrect attempts. Ask the customer to have a new code sent.');
+  }
+
+  // No code has been issued yet — the rider skipped straight to verifying.
+  if (!delivery.otp) {
+    throw httpError(400, 'Send the code to the customer first, then ask them for it');
+  }
+
+  if (delivery.otp !== String(otp).trim()) {
+    delivery.otpAttempts = (delivery.otpAttempts || 0) + 1;
+    await delivery.save();
+
+    const left = MAX_ATTEMPTS - delivery.otpAttempts;
+    throw httpError(400, left > 0
+      ? `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.`
+      : 'Incorrect code. No attempts left — ask for a new code to be sent.');
+  }
+
+  // OTP verified — everything below is one logical operation: Delivery,
+  // Order, and the rider's earnings must all move together or not at all.
+  //
+  // This used to be `delivery.status = 'delivered'; ... Promise.all([three
+  // independent .save() calls])` — no condition on the delivery's current
+  // state, and three separate writes with no shared transaction. Two
+  // concurrent correct-OTP submissions (a double-tap; the submit button has
+  // no in-flight guard) would both pass validation against the same stale
+  // read and both credit earnings — a real double-payment path. The
+  // condition now lives in the update's filter, same shape as
+  // cancelDelivery/updateDeliveryStatus: only a Delivery still short of
+  // 'delivered'/'rejected'/'failed' can complete, and whichever request's
+  // atomic write actually lands first is the only one that reaches the
+  // earnings credit at all — the loser's own conditioned write matches
+  // nothing and never gets there.
+  //
+  // The same function that produced the figure quoted on the offer screen,
+  // computed once, before the transaction — it depends only on data already
+  // loaded, not on anything the transaction itself could race.
+  const settlement = riderPayout(delivery.route?.distanceKm, {
+    mode: delivery.ratesUsed?.mode || payoutModeOf(order),
+    // The rate frozen at acceptance. Deliveries taken before rates became
+    // configurable have no snapshot and settle at the live rate, exactly as
+    // they always did.
+    rates: delivery.ratesUsed?.perKm !== undefined ? delivery.ratesUsed : undefined,
+    /**
+     * The tip is read from the order, not from a frozen snapshot, because
+     * unlike a rate it is not something an admin can change underneath the
+     * rider — it was fixed by the customer at checkout and nothing edits it
+     * afterwards. It is credited the same way on a COD order as on a prepaid
+     * one: the cash a rider collects at the door is money they owe back, not
+     * money they keep, so paying the tip through earnings is what actually
+     * gets it to them.
+     */
+    tip: order.pricing?.tipAmount,
+  });
+  const earnings = settlement.total;
+  const tipEarned = settlement.tip;
+
+  const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'failed'];
+
+  const session = await mongoose.startSession();
+  let completed = false;
+  try {
+    await session.withTransaction(async () => {
+      const deliveryResult = await Delivery.updateOne(
+        { _id: delivery._id, status: { $nin: TERMINAL_DELIVERY_STATUSES } },
+        {
+          $set: {
+            otpVerified: true,
+            status: 'delivered',
+            endTime: new Date(),
+            partnerEarnings: earnings,
+            partnerTip: tipEarned,
+          },
+        },
+        { session }
+      );
+      if (deliveryResult.modifiedCount !== 1) return; // no-op transaction; disambiguated below
+
+      /**
+       * Return & Refund — Phase 3: stamp the real delivery moment onto
+       * every item, and (only for a return-eligible item) the deadline
+       * computed from ITS OWN frozen snapshot — never today's
+       * CategoryReturnPolicy. A non-eligible item still gets `deliveredAt`
+       * (a plain fact) but `returnEligibleUntil` stays null, never a
+       * deadline that would make it look returnable.
+       */
+      const deliveredAt = new Date();
+      const itemsWithDeliveryStamp = order.items.map((item) => {
+        const plain = item.toObject ? item.toObject() : item;
+        const { returnEligible, returnWindowDays } = plain.returnPolicy || {};
+        const eligibleUntil = returnEligible && Number.isFinite(returnWindowDays) && returnWindowDays > 0
+          ? new Date(deliveredAt.getTime() + returnWindowDays * 24 * 60 * 60 * 1000)
+          : null;
+        return {
+          ...plain, deliveredAt, returnEligibleUntil: eligibleUntil,
+          // NHCONE Coins (Phase 7) — no longer credited here. This item
+          // enters PENDING and waits for its own return window (or, for a
+          // non-returnable item, becomes due immediately) — the sweeper
+          // (services/coin.service.js::processReturnWindowRewards) decides
+          // and credits it later, once any Return on it has resolved.
+          coinRewardStatus: 'PENDING',
+          coinRewardEligibleAt: eligibleUntil || deliveredAt,
+        };
+      });
+
+      const orderResult = await Order.updateOne(
+        { _id: order._id, deliveryPartnerId: req.partner._id, status: { $ne: 'delivered' } },
+        {
+          $set: { status: 'delivered', items: itemsWithDeliveryStamp },
+          $push: {
+            timeline: {
+              status: 'delivered',
+              timestamp: deliveredAt,
+              note: 'Order delivered successfully by rider',
+            },
+          },
+        },
+        { session }
+      );
+      if (orderResult.modifiedCount !== 1) {
+        // Would leave the Delivery marked delivered with the order left
+        // behind — abort rather than commit a half-applied completion.
+        throw httpError(409, 'This order could not be marked delivered');
+      }
+
+      // $inc, not a read-modify-write — the field never passes through this
+      // process's memory, so there is nothing here for a second concurrent
+      // request to race even in principle. Reached only because the
+      // Delivery write above actually matched, which is the real exactly-
+      // once guarantee; this step is just how the credit itself is applied.
+      await DeliveryPartner.updateOne(
+        { _id: req.partner._id },
+        {
+          $set: { isAvailable: true },
+          $inc: {
+            totalDeliveries: 1,
+            'earnings.total': earnings,
+            'earnings.pending': earnings,
+            // A breakdown of the credit above, not an extra one — `earnings`
+            // already contains the tip.
+            'earnings.tips': tipEarned,
+          },
+        },
+        { session }
+      );
+
+      // NHCONE Coins (Phase 7) — no immediate credit here anymore. Every
+      // item was just stamped `coinRewardStatus: 'PENDING'` above; the
+      // return-window-aware sweeper decides and credits it later.
+
+      completed = true;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!completed) {
+    // Nothing matched — work out which condition failed. Mirrors decline/
+    // expire/cancel's own disambiguation reads.
+    const current = await Delivery.findById(delivery._id).select('status partnerEarnings partnerTip');
+    if (current?.status === 'delivered') {
+      // Idempotent: a duplicate completion is not an error, just a no-op —
+      // no second earnings credit, no second delivery count increment.
+      return ok(res, {
+        earnings: current.partnerEarnings ?? 0,
+        tip: current.partnerTip ?? 0,
+      }, 'This delivery was already completed');
+    }
+    throw httpError(409, `This delivery is already ${current?.status || 'resolved'} — it cannot be completed`);
+  }
+
+  // Notify buyer and seller
+  try {
+    const { emitToUser, emitToSeller } = await import('../socket/rooms.js');
+    emitToUser(order.userId, 'order_delivered', { orderId: order._id });
+    notifyUser(order.userId, {
+      event: NOTIFICATION_EVENT.ORDER_DELIVERED,
+      title: 'Order delivered',
+      message: `Order ${order.orderNo} has been delivered. Enjoy!`,
+      metadata: { orderId: order._id },
+      route: '/orders',
+    }).catch((e) => console.error('[NOTIFICATION] notifyUser (order delivered) failed:', e.message));
+
+    // NHCONE Coins (Phase 7) — no longer credited synchronously here, so no
+    // "Coins added" notification fires at this exact moment either; the
+    // sweeper's own credit path can send one later if that becomes needed
+    // (Section 28 — not overbuilt in this phase).
+
+    const sellerId = order.items.find(i => i.sellerId)?.sellerId;
+    if (sellerId) {
+      emitToSeller(sellerId, 'order_delivered', { orderId: order._id });
+      notifySeller(sellerId, {
+        event: NOTIFICATION_EVENT.ORDER_DELIVERED,
+        title: 'Order delivered',
+        message: `Order ${order.orderNo} has been delivered to the customer.`,
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifySeller (order delivered) failed:', e.message));
+    }
+  } catch (err) {
+    console.error(err);
+  }
+
+  /**
+   * Write the outcome back onto the subscription this order came from, if
+   * it came from one.
+   *
+   * Absent on every ordinary order — `order.subscriptionId` only exists on
+   * orders `packSubscriptionDelivery` creates — so this branch never runs
+   * for the overwhelming majority of deliveries this endpoint completes.
+   * Deliberately outside the completion transaction above: the order and
+   * the rider's earnings have already committed successfully by this
+   * point, so a failure here is a recoverable bookkeeping lag on the
+   * subscription's own schedule, never a financial-correctness issue —
+   * reopening the just-hardened completion transaction for this would risk
+   * exactly the class of bug that transaction was built to close.
+   */
+  if (order.subscriptionId) {
+    try {
+      const { default: Subscription } = await import('../models/Subscription.js');
+      const { nextScheduledDeliveryDate } = await import('../services/subscription.service.js');
+
+      await Subscription.updateOne(
+        { _id: order.subscriptionId, 'deliverySchedule._id': order.subscriptionDeliveryEntryId },
+        { $set: {
+            'deliverySchedule.$.status': 'delivered',
+            'deliverySchedule.$.deliveryPartnerId': req.partner._id,
+            'deliverySchedule.$.deliveryId': delivery._id,
+          } }
+      );
+
+      const sub = await Subscription.findById(order.subscriptionId).select('deliverySchedule timeSlot');
+      if (sub) {
+        const next = nextScheduledDeliveryDate(sub.deliverySchedule, sub.timeSlot);
+        await Subscription.updateOne({ _id: sub._id }, { $set: { nextDeliveryDate: next } });
+      }
+    } catch (err) {
+      console.error('[SUBSCRIPTION] delivery write-back failed:', err.message);
+    }
+  }
+
+  return ok(res, { earnings, tip: tipEarned },
+    tipEarned > 0
+      ? `Delivery completed — ₹${earnings} earned, including a ₹${tipEarned} tip from the customer`
+      : 'Delivery verified and completed successfully');
+});
+
+// @desc    Get pending delivery orders (fallback/on-mount pings check)
+// @route   GET /api/delivery/orders/pending
+// @access  Private (Approved riders only)
+export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
+  const partner = req.partner;
+  if (!partner) {
+    throw httpError(404, 'Rider profile not found');
+  }
+
+  /**
+   * Only orders a rider can actually take.
+   *
+   * This listed `confirmed` and `preparing` as well, but accept refuses anything
+   * that is not `dispatched` — so the app offered jobs that were still being
+   * packed and every Accept came back 400. An order is available to riders at
+   * exactly the moment the shop hands it over, and nowhere else.
+   */
+  /**
+   * Every job this rider could actually take, whichever storefront it came from.
+   *
+   * This asked for `type: CHANNEL.GROCERY`, which silently excluded every
+   * Same-Day order — they are Shop All orders carried by our own riders. The
+   * socket ping still reached the rider, so a rider watching at that exact
+   * second saw the offer; a rider who opened the app a minute later, came on
+   * duty afterwards, or whose socket had reconnected saw nothing at all. This
+   * poll is the net behind the ping, and it had a hole the shape of Same-Day.
+   *
+   * The carrier decides, matching the gate the broadcast already uses
+   * (`deliveryType !== 'shiprocket'`). `$ne` rather than `=== 'internal'` so the
+   * grocery orders placed before `deliveryType` was recorded still qualify.
+   *
+   * Claimable statuses differ per storefront — Quick from `confirmed`, Shop All
+   * only once `dispatched` — so the channels are asked separately and the answer
+   * still comes from riderClaimableStatuses(), which is not touched.
+   */
+  const pendingOrders = await Order.find({
+    deliveryType: { $ne: 'shiprocket' },
+    $and: [
+      { $or: CHANNELS.map((ch) => ({ type: ch, status: { $in: riderClaimableStatuses(ch) } })) },
+      { $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }] },
+    ],
+    /**
+     * Not an order this rider already resolved.
+     *
+     * The poll used to return every claimable order to every requesting
+     * rider, full stop — `recordOfferIfNew` further down stopped a second
+     * OFFERED row from being written for a rider who had already declined,
+     * expired, or (briefly, before assignment clears it) accepted, but
+     * nothing stopped the order from still showing up in this list every
+     * 10 seconds regardless. A rider who turned a job down kept seeing it
+     * reappear. Same `$not: $elemMatch` shape as acceptOrder's own claim
+     * guard — vacuously true for a rider with no attempt yet, true while
+     * their attempt is still the active OFFERED, false the moment it
+     * resolves to anything else.
+     */
+    offerAttempts: {
+      $not: {
+        $elemMatch: {
+          riderId: partner._id,
+          status: { $in: [OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER, OFFER_ATTEMPT_STATUS.OFFER_EXPIRED, OFFER_ATTEMPT_STATUS.ACCEPTED] },
+        },
+      },
+    },
+  }).sort({ createdAt: 1 });
+
+  const formatted = [];
+  for (const order of pendingOrders) {
+    const sellerItem = order.items.find(item => item.sellerId);
+    if (!sellerItem) continue;
+
+    const seller = await Seller.findById(sellerItem.sellerId);
+    if (!seller) continue;
+
+    // Every order returned here genuinely is being offered to this rider
+    // right now — this poll exists precisely so a rider who missed (or never
+    // received) the socket ping still sees it. Recorded the same way the
+    // ping itself is; the guard inside makes repeat polls of the same order
+    // no-ops.
+    await recordOfferIfNew(order._id, partner._id);
+
+    const shop = seller.storeDetails || {};
+    const drop = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
+    const legKm = distanceKm(shop, drop);
+
+    // How far this particular rider has to travel just to reach the shop.
+    const riderLoc = partner?.currentLocation?.lat !== undefined ? partner.currentLocation : partner?.baseLocation;
+    const pickupKm = distanceKm(riderLoc, shop);
+
+    formatted.push({
+      orderId: order._id,
+      orderNo: order.orderNo,
+      merchantName: shop.name || 'Store',
+      merchantAddress: [shop.address, shop.city].filter(Boolean).join(', '),
+      merchantLocation: { lat: shop.lat, lng: shop.lng },
+      customerName: order.shippingAddress.name,
+      customerAddress: [order.shippingAddress.line1, order.shippingAddress.line2, order.shippingAddress.city]
+        .filter(Boolean).join(', '),
+      customerLocation: drop.lat !== undefined ? drop : undefined,
+      landmarkImage: order.shippingAddress?.landmarkImage || null,
+      hasLandmarkImage: Boolean(order.shippingAddress?.landmarkImage),
+      distance: legKm,
+      pickupDistance: pickupKm,
+      etaMin: etaMinutes(legKm),
+      paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
+      codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+      totalAmount: order.pricing.totalAmount,
+      // Computed by the same function that pays out on completion.
+      payout: riderPayout(legKm, { mode: payoutModeOf(order), tip: order.pricing?.tipAmount }),
+      // Same fields the socket ping carries, so an offer picked up by the poll
+      // is indistinguishable from one that arrived live.
+      deliveryMode: order.delivery?.mode,
+      promisedBy: order.delivery?.promisedBy,
+      items: order.items.map(item => ({ name: item.name, qty: item.qty }))
+    });
+  }
+
+  return ok(res, formatted, 'Pending delivery orders retrieved successfully');
+});
+
+// Helper to resolve merchant store name
+const payloadMerchantName = (order) => {
+  const storeItem = order.items.find(item => item.sellerId);
+  return storeItem ? storeItem.name : 'SHG Merchant Store';
+};
+
+// @desc    Toggle rider availability (online/offline duty status)
+// @route   PUT /api/delivery/availability
+// @access  Private (Approved riders only)
+export const toggleAvailability = asyncHandler(async (req, res) => {
+  const { isAvailable, lat, lng } = req.body;
+  const partner = req.partner;
+  const wantsWork = Boolean(isAvailable);
+
+  // Coordinates are optional here, same as before this fix — the frontend only
+  // attempts a GPS fix when going online and silently sends none if permission
+  // is denied or the fix times out (see DeliveryContext.jsx:handleToggleOnline).
+  // When they ARE sent, they must be real coordinates, not silently accepted
+  // and stored as NaN — a bad `Number(lat)` used to write straight through to
+  // `currentLocation` with no validation at all.
+  const hasLat = lat !== undefined && lat !== null && lat !== '';
+  const hasLng = lng !== undefined && lng !== null && lng !== '';
+  let parsedLat, parsedLng;
+
+  if (hasLat || hasLng) {
+    if (!hasLat || !hasLng) {
+      throw httpError(400, 'Both latitude and longitude are required together');
+    }
+    parsedLat = Number(lat);
+    parsedLng = Number(lng);
+    if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+      throw httpError(400, 'Invalid latitude — must be a number between -90 and 90');
+    }
+    if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+      throw httpError(400, 'Invalid longitude — must be a number between -180 and 180');
+    }
+  }
+
+  /**
+   * Going on duty is refused while a delivery is still open.
+   *
+   * `isAvailable` means "free to be given a job", and accepting one sets it to
+   * false. But this endpoint overwrote that unconditionally, so a rider who
+   * tapped the duty toggle mid-delivery became eligible again and could collect
+   * a second order — and a third. One rider here was carrying three at once,
+   * each with a customer expecting it.
+   *
+   * Going off duty is always allowed: a rider must be able to stop taking new
+   * work without abandoning what they are already holding.
+   */
+  if (wantsWork) {
+    const capacity = await canTakeAnother(partner._id);
+    if (!capacity.ok) {
+      throw httpError(409, `${capacity.reason} (${capacity.open} still open)`);
+    }
+  }
+
+  partner.isAvailable = wantsWork;
+  if (hasLat && hasLng) {
+    // Going offline never invalidates the last known fix — the rider's last
+    // real position stays on record rather than being cleared, since nothing
+    // here was asked to erase it and a stale-but-real point is more useful
+    // than none at all.
+    partner.currentLocation = {
+      lat: parsedLat,
+      lng: parsedLng,
+      updatedAt: new Date(),
+    };
+  }
+  await partner.save();
+
+  return ok(res, { isAvailable: partner.isAvailable },
+    `You are now ${partner.isAvailable ? 'on duty' : 'off duty'}`);
+});
+
+
+
+// @desc    Ping the rider's live position during an active delivery
+// @route   PUT /api/delivery/orders/:id/location
+// @access  Private (Approved riders only)
+export const updateDeliveryLocation = asyncHandler(async (req, res) => {
+  /**
+   * Distinct from PUT /api/delivery/location, which sets where a rider is
+   * *based* — a value that changes when they move house, not every few
+   * seconds. The rider app was posting live GPS to that one, quietly
+   * overwriting their home base with wherever they happened to be, and
+   * nothing was ever emitted to the customer watching the map.
+   */
+  const order = await Order.findById(req.params.id).select("userId deliveryPartnerId deliveryId status");
+  if (!order || String(order.deliveryPartnerId) !== String(req.partner._id)) {
+    throw httpError(404, "No active delivery assignment found");
+  }
+
+  const parsed = parseLocation(req.body, { requireCoords: true });
+  if (!parsed.ok) throw httpError(400, parsed.message);
+  const { lat, lng } = parsed.location;
+
+  // Stored on the Delivery, so the trail belongs to this trip rather than to
+  // the rider in general.
+  await Delivery.updateOne(
+    { _id: order.deliveryId },
+    { $set: { partnerLocation: { lat, lng, updatedAt: new Date() } } }
+  );
+
+  // The customer watching the map is the whole point of this endpoint.
+  try {
+    const { emitToUser } = await import("../socket/rooms.js");
+    emitToUser(order.userId, "location_update", {
+      orderId: String(order._id),
+      deliveryId: String(order.deliveryId),
+      lat,
+      lng,
+      at: new Date(),
+    });
+  } catch (err) {
+    console.error("[LOCATION] emit failed:", err.message);
+  }
+
+  // Deliberately terse: this is called every few seconds from a phone on
+  // mobile data, so the response should not carry a payload nobody reads.
+  return ok(res, null, "Location updated");
+});
+
+// @desc    The delivery this rider is currently carrying, if any
+// @route   GET /api/delivery/orders/active
+// @access  Private (Approved riders only)
+export const getActiveDelivery = asyncHandler(async (req, res) => {
+  /**
+   * Restores a trip in progress.
+   *
+   * The rider app kept the active delivery in React state alone, so a refresh —
+   * or a phone locking and the tab being evicted — left a rider holding an order
+   * with no screen for it. The app showed "listening for orders" while the
+   * server still had them assigned; they could not go back on duty, because the
+   * delivery was open; and the customer waited for somebody who no longer had
+   * any way to complete it.
+   */
+  const order = await Order.findOne({
+    deliveryPartnerId: req.partner._id,
+    status: { $nin: ['delivered', 'cancelled', 'returned', 'refunded'] },
+  }).sort({ updatedAt: -1 });
+
+  if (!order) return ok(res, null, 'No delivery in progress');
+
+  const delivery = order.deliveryId ? await Delivery.findById(order.deliveryId) : null;
+  const sellerItem = order.items.find((i) => i.sellerId);
+  const seller = sellerItem
+    ? await Seller.findById(sellerItem.sellerId).select('businessName storeDetails')
+    : null;
+  const shop = seller?.storeDetails || {};
+
+  const inTransit = ['picked_up', 'in_transit', 'arrived_at_customer'].includes(delivery?.status);
+
+  return ok(res, {
+    orderId: order._id,
+    orderNo: order.orderNo,
+    // Which screen the rider app should be showing.
+    step: inTransit ? 'transit' : 'pickup',
+    stage: delivery?.status || null,
+    // Whether a code has already gone out, so the button does not offer to send
+    // a second one and invalidate the number the customer is reading aloud.
+    otpSent: Boolean(delivery?.otp),
+
+    merchantName: shop.name || seller?.businessName || 'Store',
+    merchantAddress: [shop.address, shop.city].filter(Boolean).join(', '),
+    merchantLocation: shop.lat !== undefined ? { lat: shop.lat, lng: shop.lng } : undefined,
+
+    customerName: order.shippingAddress?.name,
+    customerAddress: [order.shippingAddress?.line1, order.shippingAddress?.line2, order.shippingAddress?.city]
+      .filter(Boolean).join(', '),
+    customerLocation: order.shippingAddress?.lat !== undefined
+      ? { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng }
+      : undefined,
+    landmarkImage: order.shippingAddress?.landmarkImage || null,
+    hasLandmarkImage: Boolean(order.shippingAddress?.landmarkImage),
+    orderType: order.type || null,
+    deliveryMode: order.delivery?.mode || null,
+    deliveryType: order.deliveryType || null,
+
+    items: order.items.map((i) => ({ name: i.name, qty: i.qty })),
+    paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
+    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    distance: delivery?.route?.distanceKm,
+    payout: riderPayout(delivery?.route?.distanceKm, {
+      mode: delivery?.ratesUsed?.mode || payoutModeOf(order),
+      rates: delivery?.ratesUsed?.perKm !== undefined ? delivery.ratesUsed : undefined,
+      tip: order.pricing?.tipAmount,
+    }),
+    // Never the code itself — only the customer holds that.
+  }, 'Delivery in progress');
+});
+
+/**
+ * Every resolved offer/delivery outcome for this rider, newest first.
+ *
+ * Two sources, deliberately kept separate rather than merged into a new
+ * collection:
+ *
+ *   Order.offerAttempts — offers that never became a Delivery at all
+ *   (declined or expired before acceptance). A rider can have at most one
+ *   attempt per order (see recordOfferIfNew's own dedup guard), so each
+ *   matching order contributes exactly one history row.
+ *
+ *   Delivery — offers this rider actually accepted, whichever way they
+ *   ended: delivered, or cancelled pre-pickup (`rejected` — the only writer
+ *   of that status in this codebase is cancelDelivery, so it means
+ *   CANCELLED_BY_RIDER unambiguously, not the unrelated "offer rejected"
+ *   reading the enum name might suggest). `failed` is included for when the
+ *   architecture eventually writes it; nothing does yet, so it will not
+ *   appear — not fabricated, just structurally ready.
+ *
+ * An order can appear from at most one of the two sources for a given
+ * rider: an offer that resolved to DECLINED_BY_RIDER/OFFER_EXPIRED never had
+ * a Delivery created (Delivery only exists once acceptOrder succeeds), so
+ * there is no overlap to deduplicate between them.
+ */
+export const getRiderHistory = asyncHandler(async (req, res) => {
+  const partner = req.partner;
+  const { page, limit, skip } = getPagination(req.query);
+
+  const OFFER_TYPES = ['DECLINED_BY_RIDER', 'OFFER_EXPIRED'];
+  const DELIVERY_TYPE_BY_STATUS = { delivered: 'DELIVERED', rejected: 'CANCELLED_BY_RIDER', failed: 'FAILED' };
+
+  // ?type= restricts to one source query instead of running both and
+  // throwing half the results away. 'ALL' (or the param simply being
+  // absent) means no restriction — both sources are queried.
+  const wantedType = req.query.type && req.query.type !== 'ALL' ? req.query.type : undefined;
+  const wantsOffers = !wantedType || OFFER_TYPES.includes(wantedType);
+  const wantsDeliveries = !wantedType || Object.values(DELIVERY_TYPE_BY_STATUS).includes(wantedType);
+
+  const [offerOrders, deliveries] = await Promise.all([
+    wantsOffers
+      ? Order.find(
+          {
+            offerAttempts: {
+              $elemMatch: {
+                riderId: partner._id,
+                status: { $in: wantedType ? [wantedType] : OFFER_TYPES },
+              },
+            },
+          },
+          // Positional projection: only the one matching attempt for this
+          // rider, never the whole array — nothing about another rider's
+          // offer on the same order is read or returned.
+          { orderNo: 1, 'offerAttempts.$': 1 }
+        ).lean()
+      : [],
+    wantsDeliveries
+      ? Delivery.find({
+          partnerId: partner._id,
+          status: wantedType
+            ? Object.keys(DELIVERY_TYPE_BY_STATUS).find((k) => DELIVERY_TYPE_BY_STATUS[k] === wantedType)
+            : { $in: Object.keys(DELIVERY_TYPE_BY_STATUS) },
+        })
+          .select('orderId status endTime updatedAt partnerEarnings partnerTip')
+          .populate('orderId', 'orderNo')
+          .lean()
+      : [],
+  ]);
+
+  const offerItems = offerOrders.map((o) => {
+    const attempt = o.offerAttempts[0]; // the positional projection guarantees exactly one
+    const type = attempt.status; // already DECLINED_BY_RIDER or OFFER_EXPIRED
+    return {
+      id: String(attempt._id),
+      orderId: String(o._id),
+      orderNo: o.orderNo,
+      type,
+      timestamp: (type === 'OFFER_EXPIRED' ? attempt.expiredAt : attempt.respondedAt) || attempt.offeredAt,
+    };
+  });
+
+  const deliveryItems = deliveries
+    .filter((d) => d.orderId) // an order deleted out from under a delivery is not shown as history for one that no longer exists
+    .map((d) => {
+      const type = DELIVERY_TYPE_BY_STATUS[d.status];
+      const item = {
+        id: String(d._id),
+        orderId: String(d.orderId._id),
+        orderNo: d.orderId.orderNo,
+        type,
+        timestamp: (type === 'DELIVERED' ? d.endTime : null) || d.updatedAt,
+      };
+      if (type === 'DELIVERED' && d.partnerEarnings !== undefined) {
+        item.amount = d.partnerEarnings;
+        // Surfaced separately so the history row can show what part of this
+        // delivery's pay the customer chose to add.
+        if (d.partnerTip > 0) item.tip = d.partnerTip;
+      }
+      return item;
+    });
+
+  const all = [...offerItems, ...deliveryItems].sort(
+    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+  );
+
+  const total = all.length;
+  const page_ = all.slice(skip, skip + limit);
+
+  return paginated(res, page_, { page, limit, total });
+});
+
+/* ============================================================================
+ * RIDER-INITIATED PAYOUTS — withdraw a specific amount from earnings.pending.
+ *
+ * Coexists with the pre-existing admin bulk `settleRiderPayout` action in
+ * admin.controller.js: that one sweeps whatever `earnings.pending` happens to
+ * be at the moment an admin clicks it, while this lets a rider carve out one
+ * specific amount and track it as its own request. No double-counting is
+ * possible — the reservation below atomically removes `amount` from
+ * `earnings.pending` the instant the request is created, so a bulk settle run
+ * afterward only ever sees what is left.
+ * ========================================================================== */
+
+// @desc    Request a withdrawal of a specific amount from pending earnings
+// @route   POST /api/delivery/payouts
+// @access  Private/DeliveryPartner (approved)
+export const requestPayout = asyncHandler(async (req, res) => {
+  const partner = req.partner;
+  const amount = Number(req.body.amount);
+
+  if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
+    throw httpError(400, 'Please provide a whole-number payout amount greater than zero');
+  }
+  if (amount < DELIVERY_MIN_PAYOUT_AMOUNT) {
+    throw httpError(400, `Minimum payout amount is ₹${DELIVERY_MIN_PAYOUT_AMOUNT}`);
+  }
+  if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) {
+    throw httpError(400, 'Add a UPI ID or bank account before requesting a payout');
+  }
+
+  // Atomic reservation: the $gte guard and the $inc happen as one database
+  // operation, so two concurrent requests can never both reserve more than
+  // is actually pending — a read-check-create pattern here would race.
+  const reserved = await DeliveryPartner.findOneAndUpdate(
+    { _id: partner._id, 'earnings.pending': { $gte: amount } },
+    { $inc: { 'earnings.pending': -amount } },
+    { new: true }
+  );
+
+  if (!reserved) {
+    throw httpError(400, 'Insufficient pending balance for this payout amount');
+  }
+
+  // "At most one pending request per rider" is enforced by a unique partial
+  // index (see models/DeliveryPayout.js), not a read-check-create in JS —
+  // two concurrent requests both reserving above would otherwise both pass
+  // an in-app "already pending?" check before either had written a row.
+  let payout;
+  try {
+    payout = await DeliveryPayout.create({
+      partnerId: partner._id,
+      userId: req.user._id,
+      amount,
+      status: DELIVERY_PAYOUT_STATUS.PENDING,
+      payoutMethod: {
+        upiId: partner.bankDetails?.upiId,
+        accountNo: partner.bankDetails?.accountNo,
+        ifsc: partner.bankDetails?.ifsc,
+        holderName: partner.bankDetails?.holderName,
+        bankName: partner.bankDetails?.bankName,
+      },
+    });
+  } catch (err) {
+    // Creating the request record failed after the reservation succeeded —
+    // give the reserved amount back so it isn't stranded out of the ledger.
+    await DeliveryPartner.updateOne({ _id: partner._id }, { $inc: { 'earnings.pending': amount } });
+    if (err.code === 11000) {
+      throw httpError(409, 'You already have a payout request awaiting processing');
+    }
+    throw err;
+  }
+
+  notifyAllAdmins({
+    event: NOTIFICATION_EVENT.PAYOUT_REQUESTED,
+    title: 'New rider payout request',
+    message: `A rider has requested a payout of ₹${amount}.`,
+    metadata: { payoutId: String(payout._id), partnerId: String(partner._id), amount },
+    route: '/admin/delivery-payouts',
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: 'Payout request submitted',
+    data: { payout, earnings: reserved.earnings },
+  });
+});
+
+// @desc    This rider's own payout request history
+// @route   GET /api/delivery/payouts
+// @access  Private/DeliveryPartner (approved)
+export const getMyPayouts = asyncHandler(async (req, res) => {
+  const partner = req.partner;
+  const { page, limit, skip } = getPagination(req.query);
+
+  const [rows, total] = await Promise.all([
+    DeliveryPayout.find({ partnerId: partner._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    DeliveryPayout.countDocuments({ partnerId: partner._id }),
+  ]);
+
+  return paginated(res, rows, { page, limit, total });
+});

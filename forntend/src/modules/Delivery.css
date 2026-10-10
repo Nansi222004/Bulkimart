@@ -1,0 +1,12 @@
+
+.delivery-location-notice {
+  margin: 0;
+  padding: 10px 12px;
+  background-color: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  line-height: 1.5;
+}

@@ -1,0 +1,7 @@
+node_modules
+.env
+.env.local
+.env.*.local
+
+# Firebase service account (private key)
+config/firebase-service-account.json

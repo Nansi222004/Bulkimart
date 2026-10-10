@@ -1,0 +1,161 @@
+:root {
+  --brand-primary: #08b9e8;
+  --brand-primary-dark: #078ccb;
+  --brand-deep-blue: #073b78;
+  --brand-orange: #ff8500;
+  --brand-orange-dark: #f36b00;
+  --brand-aqua-light: #eaf9fe;
+  --brand-orange-light: #fff3e5;
+  --page-background: #ffffff;
+  --surface-background: #f7fafc;
+  --success-color: #16a34a;
+  --error-color: #dc2626;
+  --warning-color: #f59e0b;
+
+  --bg-page: var(--surface-background);
+  --bg-card: #ffffff;
+  --border-color: #e2e8f0;
+
+  --text-primary: #172b4d;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --text-white: #ffffff;
+
+  --primary: var(--brand-primary);
+  --primary-hover: var(--brand-primary-dark);
+  --primary-light: var(--brand-aqua-light);
+  --accent: var(--brand-orange);
+  --accent-hover: var(--brand-orange-dark);
+
+  --accent-blue: #2563eb;
+  --accent-blue-light: #eff6ff;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-circle: 50%;
+
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-premium: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(135deg, var(--brand-aqua-light), #ffffff 52%, var(--brand-orange-light));
+  color: var(--text-primary);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:focus-visible {
+  outline: 3px solid rgba(8, 185, 232, 0.35);
+  outline-offset: 2px;
+}
+
+.brand-logo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.brand-logo__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.brand-logo--full { width: 190px; height: 150px; }
+.brand-logo--compact { width: 100px; height: 58px; }
+.brand-logo--compact .brand-logo__image { width: 100%; height: 46px; object-fit: contain; }
+.brand-logo--mark { width: 48px; height: 48px; overflow: hidden; }
+.brand-logo--mark .brand-logo__image { width: 68px; height: 68px; object-position: top; transform: translateY(-2px); }
+.brand-logo__portal {
+  margin-top: -5px;
+  color: var(--brand-deep-blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+#root {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* PREMIUM MOBILE VIEWPORT FRAME (DESKTOP) */
+.user-landing-page-container {
+  width: 100%;
+  max-width: 430px;
+  /* iPhone 15 Pro Max size */
+  height: 932px;
+  background-color: var(--bg-page);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-premium);
+  /* Removed the thick mock phone bezel borders */
+  border-radius: 16px;
+  /* Softened modern container rounded corners */
+}
+
+/* On mobile viewports, remove the phone frame styles */
+@media (max-width: 480px) {
+  body {
+    background-color: var(--bg-page);
+  }
+
+  .user-landing-page-container {
+    max-width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (min-width: 769px) {
+  .user-landing-page-container {
+    max-width: 1180px;
+    height: 100vh;
+    border-radius: 0;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 768px) {
+  .user-landing-page-container {
+    max-width: 720px;
+    height: 100vh;
+    border-radius: 0;
+  }
+}
+
+/* Remove number input spin buttons across browsers */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

@@ -1,0 +1,501 @@
+import React, { useState } from 'react';
+import { useAdmin } from '../context/AdminContext';
+import BrandLogo from '../../../components/BrandLogo';
+
+export const LeftSidebar = ({ collapsed, setCollapsed }) => {
+  const { activeTab, setActiveTab, triggerToast } = useAdmin();
+  const [categoriesExpanded, setCategoriesExpanded] = useState(true);
+
+  // Helper to trigger navigation
+  const handleNavClick = (id, label) => {
+    if (id === 'dashboard') {
+      setActiveTab('overview');
+    } else {
+      setActiveTab(id);
+    }
+  };
+
+  const navGroups = [
+    {
+      title: 'Platform',
+      links: [
+        { id: 'dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> },
+        { id: 'reports', label: 'Reports', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> }
+      ]
+    },
+    {
+      title: 'User Management',
+      links: [
+        { id: 'users', label: 'Users', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+        { id: 'user-wallets', label: 'Real Money Wallets', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> },
+        { id: 'tickets', label: 'Support Tickets', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> }
+      ]
+    },
+    {
+      title: 'Vendor Management',
+      links: [
+        { id: 'sellers', label: 'Sellers / Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
+        { id: 'shg-vendors', label: 'SHG Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },
+        { id: 'brand-requests', label: 'Brand Requests', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/></svg> },
+        { id: 'seller-promotions', label: 'Seller Promotions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> }
+      ]
+    },
+    {
+      title: 'NHC Management',
+      links: [
+        { id: 'nhc-applications', label: 'NHC Seller Applications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
+        { id: 'nhc-plans', label: 'NHC Seller Plans', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg> }
+      ]
+    },
+    {
+      title: 'Product Management',
+      links: [
+        { id: 'products', label: 'Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> },
+        { id: 'categories', label: 'Categories', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
+        { id: 'coupons', label: 'Coupons', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 12a2 2 0 0 1 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2z"/><line x1="13" y1="5" x2="13" y2="19"/></svg> },
+        { id: 'shg-products', label: 'SHG Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg> },
+        { id: 'inventory', label: 'Inventory', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><box y="3" x="3" width="7" height="7"/><box y="3" x="14" width="7" height="7"/><box y="14" x="14" width="7" height="7"/><box y="14" x="3" width="7" height="7"/></svg> }
+      ]
+    },
+    {
+      title: 'Order Management',
+      links: [
+        { id: 'ecom-orders', label: 'E-Commerce Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> },
+        { id: 'qcom-orders', label: 'Quick Commerce Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> },
+        { id: 'subscriptions', label: 'Subscriptions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> }
+      ]
+    },
+    {
+      title: 'Delivery Management',
+      links: [
+        { id: 'delivery-partners', label: 'Delivery Partners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
+        { id: 'delivery-zones', label: 'Delivery Zones', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> }
+      ]
+    },
+    {
+      title: 'Marketing & CMS',
+      links: [
+        { id: 'banners', label: 'Banners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/></svg> },
+        { id: 'campaigns', label: 'Campaigns / Deals', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12a2 2 0 0 1 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2z"/><path d="M9 9h.01M15 15h.01M15 9l-6 6"/></svg> },
+        { id: 'seller-promotions', label: 'Seller Promotions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
+        { id: 'promotion-packages', label: 'Promotion Packages', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+        { id: 'tip-settings', label: 'Rider Tip Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+        { id: 'notifications', label: 'Notifications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
+        { id: 'referrals', label: 'Referral Program', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/><path d="M2 21v-2a4 4 0 0 1 4-4h5a4 4 0 0 1 4 4v2"/></svg> },
+        { id: 'privacy-policy', label: 'Privacy Policy CMS', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> }
+      ]
+    },
+    {
+      title: 'Packaging Material',
+      links: [
+        { id: 'packaging-materials', label: 'Materials', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> },
+        { id: 'packaging-packages', label: 'Packages', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> },
+        { id: 'packaging-orders', label: 'Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> },
+      ]
+    },
+    {
+      title: 'Returns & Refunds',
+      links: [
+        { id: 'returns', label: 'Returns & Refunds', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg> },
+        { id: 'return-policies', label: 'Return Window Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+      ]
+    },
+    {
+      title: 'Settings',
+      links: [
+        { id: 'app-settings', label: 'App Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
+        { id: 'donation-settings', label: 'Donations & Social Work', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> },
+        { id: 'radius-settings', label: 'Radius Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/></svg> },
+        { id: 'referral-settings', label: 'Referral Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/><path d="M2 21v-2a4 4 0 0 1 4-4h5a4 4 0 0 1 4 4v2"/></svg> }
+      ]
+    }
+  ];
+
+  // Dynamic Context-Aware Sidebar Filtering
+  const isOverview = activeTab === 'overview' || activeTab === 'dashboard' || activeTab === 'reports';
+  const isNhcSection = [
+    'nhc-plans', 'nhc-applications', 'nhc-management', 'nhc-dashboard'
+  ].includes(activeTab);
+  const isVendorSection = [
+    'sellers', 'seller-kyc', 'brand-requests', 'seller-promotions', 'payouts',
+    'vendor-dashboard', 'vendors-all', 'vendors-pending', 'vendors-approved', 'vendors-rejected', 'vendors-suspended',
+    'vendor-products', 'vendor-inventory',
+    'vendor-orders', 'vendor-order-history',
+    'vendor-sales', 'vendor-earnings', 'vendor-payouts',
+    'vendor-performance', 'vendor-ratings-reviews',
+    'vendor-ad-requests', 'vendor-featured-seller', 'vendor-sponsored-products'
+  ].includes(activeTab);
+  const isShgSection = [
+    'shg-vendors', 'shg-verifications', 'shg-products', 'shg-payouts',
+    'shg-dashboard', 'shg-all', 'shg-pending', 'shg-approved', 'shg-rejected', 'shg-suspended',
+    'shg-categories', 'shg-product-approval', 'shg-orders', 'shg-performance', 'shg-featured-collections',
+    'shg-subscriptions'
+  ].includes(activeTab);
+  /**
+   * Mirrors the router's own subscription predicate (routes/index.jsx), which
+   * matches `sub-*` and `subscriptions-*` as well as the two bare ids. It used
+   * to list only 'subscriptions' and 'premium-plans' — but the top tab's id is
+   * aliased to `sub-dashboard` before it ever reaches here (see
+   * AdminContext's TAB_ALIASES), so opening Subscriptions matched nothing and
+   * the sidebar fell through to the generic platform groups.
+   *
+   * Checked after the SHG branch, so `shg-subscriptions` stays with the SHG
+   * section it belongs to rather than being claimed by this one.
+   */
+  const isSubscriptionSection = activeTab === 'subscriptions'
+    || activeTab === 'premium-plans'
+    || activeTab.startsWith('sub-')
+    || activeTab.startsWith('subscriptions-');
+  const isUserSection = [
+    'users', 'user-dashboard', 'users-all', 'users-active', 'users-inactive', 'users-blocked',
+    'user-activity', 'user-orders', 'user-subscriptions', 'user-reviews'
+  ].includes(activeTab);
+  const isDeliverySection = [
+    'delivery-partners', 'delivery-tracking', 'rider-payouts', 'delivery-zones',
+    'delivery-dashboard', 'delivery-all', 'delivery-pending', 'delivery-active', 'delivery-suspended',
+    'delivery-active-ops', 'delivery-assignment', 'delivery-history', 'delivery-performance', 'delivery-earnings'
+  ].includes(activeTab);
+
+  let filteredNavGroups = navGroups;
+
+  if (isUserSection) {
+    filteredNavGroups = [
+      {
+        title: 'CONSUMER USERS',
+        links: [
+          { id: 'user-dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> }
+        ]
+      },
+      {
+        title: 'CUSTOMER MANAGEMENT',
+        links: [
+          { id: 'users-all', label: 'All Customers', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+          { id: 'users-active', label: 'Active Customers', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+          { id: 'users-inactive', label: 'Inactive Customers', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
+          { id: 'users-blocked', label: 'Blocked Customers', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> }
+        ]
+      },
+
+      {
+        title: 'CUSTOMER ACTIVITY',
+        links: [
+          { id: 'user-activity', label: 'User Activity', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> }
+        ]
+      },
+      {
+        title: 'COMMERCE',
+        links: [
+          { id: 'user-orders', label: 'Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> },
+          { id: 'user-subscriptions', label: 'Subscriptions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> }
+        ]
+      }
+    ];
+  } else if (isVendorSection) {
+    filteredNavGroups = [
+      {
+        title: 'GENERAL VENDORS',
+        links: [
+          { id: 'vendor-dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> }
+        ]
+      },
+      {
+        title: 'VENDOR MANAGEMENT',
+        links: [
+          { id: 'vendors-all', label: 'All Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
+          { id: 'vendors-pending', label: 'Pending Approval', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+          { id: 'vendors-approved', label: 'Approved Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+          { id: 'vendors-rejected', label: 'Rejected Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> },
+          { id: 'vendors-suspended', label: 'Suspended Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> }
+        ]
+      },
+      {
+        title: 'CATALOG',
+        links: [
+          { id: 'vendor-products', label: 'Vendor Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> },
+          { id: 'vendor-inventory', label: 'Inventory', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> }
+        ]
+      },
+      {
+        title: 'ORDERS',
+        links: [
+          { id: 'vendor-orders', label: 'Vendor Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> },
+          { id: 'vendor-order-history', label: 'Order History', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg> }
+        ]
+      },
+      {
+        title: 'FINANCIAL',
+        links: [
+          { id: 'vendor-sales', label: 'Sales', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+          { id: 'vendor-earnings', label: 'Earnings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+          { id: 'vendor-payouts', label: 'Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M12 8v8m-4-4h8"/></svg> }
+        ]
+      },
+      {
+        title: 'PERFORMANCE',
+        links: [
+          { id: 'vendor-performance', label: 'Vendor Performance', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> },
+          { id: 'vendor-ratings-reviews', label: 'Ratings & Reviews', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }
+        ]
+      },
+      {
+        title: 'PROMOTIONS',
+        links: [
+          { id: 'vendor-ad-requests', label: 'Advertisement Requests', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg> },
+          { id: 'vendor-featured-seller', label: 'Featured Seller', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> },
+          { id: 'vendor-sponsored-products', label: 'Sponsored Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> }
+        ]
+      }
+    ];
+  } else if (isNhcSection) {
+    filteredNavGroups = [
+      {
+        title: 'NHC MANAGEMENT',
+        links: [
+          { id: 'nhc-applications', label: 'NHC Seller Applications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
+          { id: 'nhc-plans', label: 'NHC Seller Plans', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg> }
+        ]
+      }
+    ];
+  } else if (isShgSection) {
+    filteredNavGroups = [
+      {
+        title: 'SHG COOPERATIVES',
+        links: [
+          { id: 'shg-dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> }
+        ]
+      },
+      {
+        title: 'SHG MANAGEMENT',
+        links: [
+          { id: 'shg-all', label: 'All SHGs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+          { id: 'shg-pending', label: 'Pending Applications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+          { id: 'shg-approved', label: 'Approved SHGs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+          { id: 'shg-rejected', label: 'Rejected SHGs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> },
+          { id: 'shg-suspended', label: 'Suspended SHGs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> }
+        ]
+      },
+      {
+        title: 'SHG CATALOG',
+        links: [
+          { id: 'shg-categories', label: 'Categories', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> },
+          { id: 'shg-products', label: 'Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="21" y1="12" x2="3" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> },
+          { id: 'shg-product-approval', label: 'Product Approval', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> }
+        ]
+      },
+      {
+        title: 'ORDERS',
+        links: [
+          { id: 'shg-orders', label: 'SHG Orders', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> }
+        ]
+      },
+      {
+        title: 'BILLING',
+        links: [
+          { id: 'shg-subscriptions', label: 'Subscriptions & Plans', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> }
+        ]
+      },
+      {
+        title: 'PERFORMANCE',
+        links: [
+          { id: 'shg-performance', label: 'SHG Performance', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> }
+        ]
+      },
+      {
+        title: 'MARKETPLACE',
+        links: [
+          { id: 'shg-featured-collections', label: 'Featured Collections', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }
+        ]
+      }
+    ];
+  } else if (isSubscriptionSection) {
+    filteredNavGroups = [
+      {
+        title: 'SUBSCRIPTIONS',
+        links: [
+          // `sub-dashboard`, not `subscriptions` — the latter is aliased to
+          // this same id on the way in, so a link carrying it would never
+          // highlight as the active entry.
+          { id: 'sub-dashboard', label: 'Product Subscriptions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> },
+          { id: 'premium-plans', label: 'Premium Plans', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }
+        ]
+      }
+    ];
+  } else if (isDeliverySection) {
+    filteredNavGroups = [
+      {
+        title: 'DELIVERY FLEET',
+        links: [
+          { id: 'delivery-dashboard', label: 'Dashboard', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> }
+        ]
+      },
+      {
+        title: 'DELIVERY PARTNERS',
+        links: [
+          { id: 'delivery-all', label: 'All Partners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> },
+          { id: 'delivery-pending', label: 'Pending Applications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+          { id: 'delivery-active', label: 'Active Partners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+          { id: 'delivery-suspended', label: 'Suspended Partners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> }
+        ]
+      },
+      {
+        title: 'DELIVERY OPERATIONS',
+        links: [
+          { id: 'delivery-active-ops', label: 'Active Deliveries', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> },
+          { id: 'delivery-assignment', label: 'Order Assignment', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg> },
+          { id: 'delivery-tracking', label: 'Delivery Tracking', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
+          { id: 'delivery-zones', label: 'Delivery Hub Zones', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> }
+        ]
+      },
+      {
+        title: 'DELIVERY HISTORY',
+        links: [
+          { id: 'delivery-history', label: 'Completed Deliveries', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg> }
+        ]
+      },
+      {
+        title: 'PERFORMANCE',
+        links: [
+          { id: 'delivery-performance', label: 'Delivery Performance', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> }
+        ]
+      },
+      {
+        title: 'EARNINGS',
+        links: [
+          { id: 'delivery-earnings', label: 'Earnings & Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+          { id: 'delivery-rates', label: 'Rider Pay Rates', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> }
+        ]
+      }
+    ];
+  }
+
+  return (
+    <div className={`sa-sidebar ${collapsed ? 'collapsed' : ''}`}>
+      {/* Brand Header */}
+      <div className="sa-sidebar-header">
+        <div className="sa-logo-box">
+          <BrandLogo className="sa-logo-icon" variant="mark" />
+          <div className="sa-logo-text">
+            <span className="sa-logo-title">Bulkimart</span>
+            <span className="sa-logo-subtitle">Super Admin</span>
+          </div>
+        </div>
+        <button className="sa-collapse-btn" onClick={() => setCollapsed(!collapsed)} title="Collapse Menu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            {collapsed ? (
+              <polyline points="13 17 18 12 13 7 M6 17 11 12 6 7"/>
+            ) : (
+              <polyline points="11 17 6 12 11 7 M18 17 13 12 18 7"/>
+            )}
+          </svg>
+        </button>
+      </div>
+
+      {!isOverview && !collapsed && (
+        <button
+          onClick={() => setActiveTab('overview')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 12px',
+            margin: '12px 16px 4px 16px',
+            backgroundColor: '#1e293b',
+            color: '#34d399',
+            border: '1px solid #334155',
+            borderRadius: 8,
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+            width: 'calc(100% - 32px)'
+          }}
+        >
+          ← Show All Sidebar Groups
+        </button>
+      )}
+
+      {/* Nav Link Tree */}
+      <div className="sa-sidebar-nav">
+        {filteredNavGroups.map(group => (
+          <div key={group.title} className="sa-nav-group">
+            <span className="sa-nav-group-title">{group.title}</span>
+            {group.links.map(link => {
+              if (link.id === 'categories') {
+                const isSubActive = activeTab.startsWith('categories-') || activeTab === 'categories';
+                return (
+                  <div key={link.id} className="sa-nav-accordion" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <button
+                      className={`sa-nav-link ${isSubActive ? 'active' : ''}`}
+                      onClick={() => setCategoriesExpanded(!categoriesExpanded)}
+                      title={link.label}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {link.icon}
+                        {!collapsed && <span>{link.label}</span>}
+                      </div>
+                      {!collapsed && (
+                        <span style={{ display: 'flex', alignItems: 'center' }}>
+                          {categoriesExpanded ? (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+                          ) : (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                          )}
+                        </span>
+                      )}
+                    </button>
+                    {!collapsed && categoriesExpanded && (
+                      <div className="sa-nav-sub-links-container" style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 12 }}>
+                        {[
+                          { id: 'categories-all', label: 'All Categories' },
+                          { id: 'categories-header', label: 'Header Categories' },
+                          { id: 'categories-main', label: 'Main Categories' },
+                          { id: 'categories-sub', label: 'Sub-Categories' }
+                        ].map(sub => {
+                          const isSubLinkActive = activeTab === sub.id;
+                          return (
+                            <button
+                              key={sub.id}
+                              className={`sa-nav-link sa-nav-sub-link ${isSubLinkActive ? 'active' : ''}`}
+                              onClick={() => handleNavClick(sub.id, sub.label)}
+                              title={sub.label}
+                              style={{ 
+                                paddingLeft: 24, 
+                                fontSize: '11.5px', 
+                                opacity: isSubLinkActive ? 1 : 0.85,
+                                borderLeft: isSubLinkActive ? '2.5px solid var(--sa-primary)' : 'none',
+                                borderRadius: isSubLinkActive ? '0 4px 4px 0' : '4px',
+                                minHeight: '32px'
+                              }}
+                            >
+                              <span style={{ marginRight: 6, fontSize: 8 }}>•</span>
+                              <span>{sub.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              const isActive = (link.id === 'dashboard' && activeTab === 'overview') || activeTab === link.id;
+              return (
+                <button
+                  key={link.id}
+                  className={`sa-nav-link ${isActive ? 'active' : ''}`}
+                  onClick={() => handleNavClick(link.id, link.label)}
+                  title={link.label}
+                >
+                  {link.icon}
+                  <span>{link.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default LeftSidebar;

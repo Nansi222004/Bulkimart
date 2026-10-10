@@ -1,0 +1,11 @@
+{
+  "name": "bulkimart-app",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd forntend && npm install && npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

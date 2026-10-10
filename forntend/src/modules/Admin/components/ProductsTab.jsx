@@ -1,0 +1,293 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { useAdmin } from '../context/AdminContext';
+import { NhcSellerBadge } from './NhcSellerBadge';
+
+/**
+ * Catalogue moderation — live from GET /api/admin/products.
+ *
+ * Not an approval queue. Products go live the moment a seller publishes them,
+ * by deliberate decision, so nothing here is waiting on an admin. What an admin
+ * does have is the power to take a listing down, and to promote one.
+ *
+ * The previous version presented every product as two listings side by side, a
+ * "Quick Commerce" one and an "E-Commerce" one, each with its own price, stock
+ * and Approve button. A product belongs to exactly one storefront — that layout
+ * described a data model the backend never had.
+ */
+const STATUS_TABS = [
+  { label: 'Live', value: 'approved' },
+  { label: 'Taken down', value: 'rejected' },
+  { label: 'All', value: 'all' },
+];
+
+const CHANNEL_TABS = [
+  { label: 'All storefronts', value: '' },
+  { label: 'E-Commerce', value: 'ecommerce' },
+  { label: 'Quick Commerce', value: 'grocery' },
+];
+
+const CHANNEL_LABEL = { ecommerce: 'E-Commerce', grocery: 'Quick Commerce', shg: 'SHG' };
+
+const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+export const ProductsTab = () => {
+  const {
+    products,
+    productsLoading,
+    productsError,
+    setProductFilters,
+    fetchAdminProducts,
+    restoreProduct,
+    takeDownProduct,
+    toggleProductFeatured,
+    toggleProductSponsored,
+    selectedProduct,
+    setSelectedProduct,
+  } = useAdmin();
+
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('approved');
+  const [channel, setChannel] = useState('');
+
+  const load = useCallback(() => {
+    const filters = { status, type: channel, search };
+    setProductFilters(filters);
+    fetchAdminProducts(filters);
+  }, [status, channel, search, fetchAdminProducts, setProductFilters]);
+
+  // Debounced, because the search runs on the server rather than over a local
+  // array — one request per keystroke otherwise.
+  useEffect(() => {
+    const id = setTimeout(load, search ? 350 : 0);
+    return () => clearTimeout(id);
+  }, [load, search]);
+
+  return (
+    <>
+      <div className="admin-action-row">
+        <div className="admin-search-wrapper">
+          <input
+            type="text"
+            className="admin-search-input"
+            placeholder="Search products by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <select className="admin-filter-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          {STATUS_TABS.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+
+        <select className="admin-filter-select" value={channel} onChange={(e) => setChannel(e.target.value)}>
+          {CHANNEL_TABS.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+
+        <button className="admin-btn-sm details inline" onClick={load} disabled={productsLoading}>
+          {productsLoading ? 'Loading…' : '⟳ Refresh'}
+        </button>
+      </div>
+
+      <div className="admin-list-container">
+        {productsLoading && products.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--admin-text-muted)' }}>
+            Loading catalogue…
+          </div>
+        ) : productsError ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#b91c1c', fontWeight: 700 }}>
+            {productsError}
+          </div>
+        ) : products.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--admin-text-muted)' }}>
+            No products match this filter.
+          </div>
+        ) : (
+          products.map((p) => (
+            <div key={p.id} className="admin-item-card">
+              <div className="admin-item-header">
+                <h3 className="admin-item-title">{p.name}</h3>
+                <span className={`admin-status-pill ${p.status === 'approved' && p.isActive ? 'approved' : p.status === 'rejected' ? 'rejected' : 'under-review'}`}>
+                  {p.status === 'approved' ? (p.isActive ? 'Live' : 'Hidden') : p.status === 'rejected' ? 'Taken down' : p.status}
+                </span>
+              </div>
+
+              <div className="admin-item-body">
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Seller</span>
+                  <span className="admin-item-value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>{p.sellerName}</span>
+                    {p.isNhcSeller && <NhcSellerBadge style={{ fontSize: '9.5px', padding: '1px 5px' }} />}
+                  </span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Storefront</span>
+                  <span className="admin-item-value">{CHANNEL_LABEL[p.channel] || p.channel}</span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Category</span>
+                  <span className="admin-item-value">{p.category}</span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Price</span>
+                  <span className="admin-item-value">
+                    {money(p.price)}
+                    {/* Only worth showing when there is an actual saving. */}
+                    {p.mrp > p.price && (
+                      <span style={{ color: '#94a3b8', textDecoration: 'line-through', marginLeft: 6 }}>
+                        {money(p.mrp)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Stock</span>
+                  <span
+                    className="admin-item-value"
+                    style={p.stock === 0 ? { color: '#b91c1c', fontWeight: 800 } : undefined}
+                  >
+                    {p.stock === 0 ? 'Out of stock' : `${p.stock} ${p.unit || 'units'}`}
+                  </span>
+                </div>
+                {(p.isFeatured || p.isSponsored) && (
+                  <div className="admin-item-row">
+                    <span className="admin-item-label">Promotion</span>
+                    <span className="admin-item-value" style={{ fontWeight: 800, color: '#7c3aed' }}>
+                      {[p.isFeatured && 'Featured', p.isSponsored && `Sponsored #${p.sponsoredRank || 0}`]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </div>
+                )}
+                {p.status === 'rejected' && p.rejectionReason && (
+                  <div className="admin-item-row">
+                    <span className="admin-item-label">Reason</span>
+                    <span className="admin-item-value" style={{ color: '#b91c1c' }}>{p.rejectionReason}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="admin-item-actions">
+                <button className="admin-btn-sm details" onClick={() => setSelectedProduct(p)}>
+                  Details
+                </button>
+                <button
+                  className="admin-btn-sm details"
+                  onClick={() => toggleProductFeatured(p.id, !p.isFeatured)}
+                >
+                  {p.isFeatured ? 'Unfeature' : 'Feature'}
+                </button>
+                {p.status === 'rejected' ? (
+                  <button
+                    className="admin-btn-sm details"
+                    style={{ background: '#dcfce7', color: '#166534' }}
+                    onClick={() => restoreProduct(p.id)}
+                  >
+                    Restore
+                  </button>
+                ) : (
+                  <button
+                    className="admin-btn-sm details"
+                    style={{ background: '#fee2e2', color: '#b91c1c' }}
+                    onClick={() => takeDownProduct(p.id)}
+                  >
+                    Take down
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {selectedProduct && (
+        <div className="admin-modal-overlay">
+          <div className="admin-modal-sheet" style={{ maxWidth: 560 }}>
+            <div className="admin-modal-header">
+              <div>
+                <h3 className="admin-modal-title">{selectedProduct.name}</h3>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>
+                  {selectedProduct.sellerName} • {CHANNEL_LABEL[selectedProduct.channel] || selectedProduct.channel}
+                </span>
+              </div>
+              <button className="admin-modal-close" onClick={() => setSelectedProduct(null)}>✕</button>
+            </div>
+
+            <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {selectedProduct.image && (
+                <img
+                  src={selectedProduct.image}
+                  alt={selectedProduct.name}
+                  style={{ width: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 10, backgroundColor: '#f8fafc' }}
+                />
+              )}
+
+              <div className="admin-item-row">
+                <span className="admin-item-label">Price / MRP</span>
+                <span className="admin-item-value">
+                  {money(selectedProduct.price)} / {money(selectedProduct.mrp)}
+                </span>
+              </div>
+              <div className="admin-item-row">
+                <span className="admin-item-label">Stock</span>
+                <span className="admin-item-value">{selectedProduct.stock} {selectedProduct.unit || 'units'}</span>
+              </div>
+              <div className="admin-item-row">
+                <span className="admin-item-label">Category</span>
+                <span className="admin-item-value">{selectedProduct.category}</span>
+              </div>
+              <div className="admin-item-row">
+                <span className="admin-item-label">Listed</span>
+                <span className="admin-item-value">
+                  {selectedProduct.createdAt
+                    ? new Date(selectedProduct.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                    : '—'}
+                </span>
+              </div>
+              {selectedProduct.desc && (
+                <div>
+                  <div className="admin-item-label" style={{ marginBottom: 4 }}>Description</div>
+                  <p style={{ margin: 0, fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
+                    {selectedProduct.desc}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <button
+                className="admin-btn-sm details"
+                style={{ flex: 1 }}
+                onClick={() => toggleProductSponsored(selectedProduct.id, !selectedProduct.isSponsored, selectedProduct.isSponsored ? 0 : 1)}
+              >
+                {selectedProduct.isSponsored ? 'Remove sponsorship' : 'Sponsor this listing'}
+              </button>
+              {selectedProduct.status === 'rejected' ? (
+                <button
+                  className="admin-btn-sm details"
+                  style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
+                  onClick={() => restoreProduct(selectedProduct.id)}
+                >
+                  Put back on the storefront
+                </button>
+              ) : (
+                <button
+                  className="admin-btn-sm details"
+                  style={{ background: '#fee2e2', color: '#b91c1c', flex: 1 }}
+                  onClick={() => takeDownProduct(selectedProduct.id)}
+                >
+                  Take down
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export default ProductsTab;
