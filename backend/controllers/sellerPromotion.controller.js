@@ -722,7 +722,7 @@ export const getPromotionPublic = asyncHandler(async (req, res) => {
   // Product data is fetched live, never from a stored snapshot (Section 26)
   // — a deleted/deactivated product just drops off this list.
   const products = await Product.find({
-    _id: { $in: promotion.selectedProducts || [] }, isDeleted: { $ne: true }, isActive: true, status: 'approved',
+    _id: { $in: promotion.selectedProducts || [] }, isDeleted: { $ne: true }, isActive: true, status: 'approved', fulfillmentType: { $ne: 'digital' },
   }).select('name images price mrp stock type').lean();
 
   return ok(res, {

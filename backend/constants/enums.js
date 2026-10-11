@@ -14,6 +14,20 @@ export const CHANNEL = {
 };
 export const CHANNELS = Object.values(CHANNEL);
 
+// Wholesale is an approved seller capability in this foundation phase, not
+// yet a cart/order storefront channel. Keep it out of CHANNELS/ORDER_TYPES so
+// existing public, cart, and checkout flows cannot accept it prematurely.
+export const WHOLESALE_CHANNEL = 'wholesale';
+export const SELLER_SALES_CHANNELS = [...CHANNELS.filter((channel) => channel !== CHANNEL.SHG), WHOLESALE_CHANNEL];
+export const WHOLESALE_REQUEST_STATUS = {
+  NOT_REQUESTED: 'not_requested',
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  SUSPENDED: 'suspended',
+};
+export const WHOLESALE_REQUEST_STATUSES = Object.values(WHOLESALE_REQUEST_STATUS);
+
 // Banners additionally support a cross-channel "general" placement
 export const BANNER_TYPES = [...CHANNELS, 'general'];
 

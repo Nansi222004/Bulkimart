@@ -72,6 +72,12 @@ const orderDeliverySchema = new Schema(
 
 const orderItemSchema = new Schema({
   productId:  { type: ObjectId },
+  variantId:  { type: ObjectId },
+  sku:        String,
+  variantName: String,
+  variantAttributes: [{ name: String, value: String }],
+  unitSnapshot: String,
+  weightSnapshot: Number,
   name:       String,
   image:      String,
   qty:        Number,

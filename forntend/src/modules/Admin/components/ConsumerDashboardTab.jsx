@@ -89,7 +89,6 @@ export const ConsumerDashboardTab = () => {
         <StatCard label="Active (30d)" value={consumerStats.active} color="#166534" />
         <StatCard label="Inactive" value={consumerStats.inactive} color="#94a3b8" />
         <StatCard label="Blocked" value={consumerStats.blocked} color="#991b1b" />
-        <StatCard label="CDS Verified" value={consumerStats.cdsVerified} color="#0369a1" />
         <StatCard
           label="New Signups"
           value={consumerStats.newLast7Days}

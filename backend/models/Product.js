@@ -50,6 +50,25 @@ const productChannelSchema = new Schema(
   { _id: false }
 );
 
+const ebookFileSchema = new Schema({
+  fileId: { type: String, required: true, select: false },
+  productId: { type: ObjectId, ref: "Product", required: true },
+  ownerSellerId: { type: ObjectId, ref: "Seller", required: true },
+  sizeBytes: { type: Number, min: 1, required: true },
+  format: { type: String, enum: ["pdf"], required: true },
+  sha256: { type: String, required: true },
+  status: { type: String, enum: ["uploaded"], required: true },
+  uploadedAt: { type: Date, required: true },
+}, { _id: false });
+
+const digitalProductSchema = new Schema({
+  author: { type: String, trim: true, maxlength: 160 },
+  language: { type: String, trim: true, maxlength: 80 },
+  format: { type: String, enum: ["pdf"], default: "pdf" },
+  licenseTerms: { type: String, trim: true, maxlength: 2000 },
+  file: { type: ebookFileSchema, default: undefined },
+}, { _id: false });
+
 /**
  * One sellable variation of a product — same listing, different pack/price.
  *
@@ -67,8 +86,26 @@ const productVariantSchema = new Schema({
   stock: { type: Number, required: true, min: 0 },
   unit: { type: String, required: true, default: "piece" },
   weight: { type: Number }, // in grams
-  sku: { type: String }
-}, { _id: false });
+  sku: { type: String },
+  attributes: [{ name: { type: String, trim: true }, value: { type: String, trim: true } }],
+  // Separate wholesale price book per variant. Hidden from ordinary product
+  // queries until the wholesale storefront has its own buyer access rules.
+  // Wholesale uses the same per-variant stock source as retail.
+  wholesalePricing: {
+    type: new Schema({
+      enabled: { type: Boolean, required: true },
+      minimumQuantity: { type: Number, min: 1 },
+      quantityIncrement: { type: Number, min: 1, default: 1 },
+      priceTiers: [{
+        _id: false,
+        minimumQuantity: { type: Number, min: 1, required: true },
+        unitPrice: { type: Number, min: 0.01, required: true },
+      }],
+    }, { _id: false }),
+    default: undefined,
+    select: false,
+  },
+});
 
 /**
  * One shopper's review of this product.
@@ -116,6 +153,9 @@ const faqSchema = new Schema({
 const productSchema = new Schema(
   {
     type: { type: String, enum: ["ecommerce", "grocery", "shg"], required: true },
+    // Fulfillment is additive; absent legacy records continue to mean physical.
+    fulfillmentType: { type: String, enum: ["physical", "digital"], default: "physical" },
+    digital: { type: digitalProductSchema, default: undefined },
     sellerId: { type: ObjectId, ref: "Seller" },
     shgStoreId: { type: ObjectId, ref: "SHGStore" },
 
@@ -219,7 +259,7 @@ const productSchema = new Schema(
     // most listings never get asked anything.
     faqs: [faqSchema],
   },
-  { timestamps: true }
+  { timestamps: true, optimisticConcurrency: true }
 );
 
 productSchema.index({ type: 1, category: 1 });
@@ -240,7 +280,8 @@ productSchema.index(
 productSchema.index({ searchBoostRank: 1 });
 
 // Auto-generate slug, product SKU and variant SKUs; sync root price/mrp/
-// stock/unit/weight from the first variant so every existing query that
+// unit/weight from the first variant and root stock from the sum of variant
+// stock as a compatibility projection (never a second inventory pool), so every existing query that
 // reads pricing straight off the product document (search, cart, checkout)
 // keeps working unchanged even though a seller now enters pricing per
 // variant, not on the product itself.
@@ -256,6 +297,24 @@ productSchema.index({ searchBoostRank: 1 });
 // document for missing required fields. Validating after this hook is what
 // lets a seller fill in pricing on the variant alone and still save.
 productSchema.pre("validate", async function () {
+  if (this.fulfillmentType === "digital") {
+    if (this.type !== "ecommerce") this.invalidate("type", "Digital products must use the E-Commerce catalogue");
+    if (!this.digital?.author?.trim()) this.invalidate("digital.author", "Author is required for an e-book");
+    if (!this.digital?.language?.trim()) this.invalidate("digital.language", "Language is required for an e-book");
+    if (this.digital?.format !== "pdf") this.invalidate("digital.format", "Only PDF e-books are currently supported");
+    if (Number(this.stock || 0) !== 0 || (this.variants || []).some((variant) => Number(variant.stock) !== 0)) {
+      this.invalidate("stock", "E-books do not use physical inventory");
+    }
+    if (this.status === "approved" || this.isActive) {
+      const file = this.digital?.file;
+      if (file?.status !== "uploaded" || !file.fileId || !file.sizeBytes || !file.sha256
+        || String(file.productId) !== String(this._id) || String(file.ownerSellerId) !== String(this.sellerId)) {
+        this.invalidate("digital.file", "An e-book must have its associated private PDF before it can be active");
+      }
+    }
+  } else if (this.digital) {
+    this.invalidate("digital", "Digital metadata is only valid for digital products");
+  }
   if (this.isModified("name") && !this.slug) {
     this.slug = this.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
   }
@@ -292,13 +351,17 @@ productSchema.pre("validate", async function () {
       this.invalidate(`variants.${index}.price`, `Variant "${v.name}" price cannot be higher than its MRP`);
     }
   });
+  const variantIds = this.variants.map((variant) => String(variant._id));
+  if (new Set(variantIds).size !== variantIds.length) {
+    this.invalidate('variants', 'Variant identifiers must be unique within a product');
+  }
 
   // The primary (first) variant is what every non-variant-aware query still
-  // reads off the product root.
+  // reads for price. Root stock is the aggregate compatibility projection.
   const primary = this.variants[0];
   this.price = primary.price;
   this.mrp = primary.mrp;
-  this.stock = primary.stock;
+  this.stock = this.variants.reduce((total, variant) => total + Number(variant.stock || 0), 0);
   this.unit = primary.unit;
   this.weight = primary.weight;
 });

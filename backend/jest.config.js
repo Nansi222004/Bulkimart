@@ -10,15 +10,13 @@ export default {
   testEnvironment: 'node',
   transform: {},
   testMatch: ['**/__tests__/**/*.test.js'],
-  // Fake env values (JWT_SECRET, OTP_MODE=mock) so route modules that throw
-  // at import time without them (config/jwt.js) can be imported at all —
-  // needed by the API-level (supertest) suites under __tests__/api/. See
-  // that file's own comment for why this can never be a real secret.
+  // Test-only configuration needed by API modules at import time. The setup
+  // uses dummy values and explicitly clears database URLs; tests provide their
+  // own isolated database connection.
   setupFiles: ['<rootDir>/__tests__/setup/env.js'],
-  // Every DB-backed suite spins up its own mongodb-memory-server instance
-  // (see __tests__/setup/memoryDb.js) — never the real Atlas cluster this
-  // repo's ad-hoc _tmp_test_*.mjs scripts use. An in-memory Mongo download/
-  // boot can be slow on first run.
+  // DB-backed suites should use their own mongodb-memory-server instance —
+  // never the real Atlas cluster. An in-memory Mongo download/boot can be slow
+  // on first run.
   testTimeout: 60000,
   // mongodb-memory-server downloads a real mongod binary on first use —
   // safe to run test files in parallel against their OWN memory-server

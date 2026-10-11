@@ -1,5 +1,5 @@
 import Category from '../models/Category.js';
-import { CHANNEL, CHANNELS } from '../constants/enums.js';
+import { CHANNEL } from '../constants/enums.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
@@ -46,9 +46,12 @@ const buildUniqueSlug = async (name, parentId, ignoreId = null, channel = null) 
 // @access  Public
 export const getCategories = asyncHandler(async (req, res) => {
   const { type, parent, isPopular, showOnHome, showInNav } = req.query;
-  const filter = { isActive: true };
+  const filter = { isActive: true, type: { $in: [CHANNEL.GROCERY, CHANNEL.ECOM] } };
 
-  if (type) filter.type = type;
+  if (type) {
+    if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) return res.status(200).json([]);
+    filter.type = type;
+  }
   if (parent !== undefined) {
     filter.parent = parent === 'null' ? null : parent;
   }
@@ -71,8 +74,11 @@ export const getCategories = asyncHandler(async (req, res) => {
 // @access  Public
 export const getCategoryTree = asyncHandler(async (req, res) => {
   const { type } = req.query;
-  const filter = { isActive: true };
-  if (type) filter.type = type;
+  const filter = { isActive: true, type: { $in: [CHANNEL.GROCERY, CHANNEL.ECOM] } };
+  if (type) {
+    if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) return res.status(200).json([]);
+    filter.type = type;
+  }
 
   const all = await Category.find(filter).sort({ sortOrder: 1, name: 1 }).lean();
 
@@ -112,9 +118,9 @@ export const getGroceryCategories = asyncHandler(async (req, res) => {
 // @access  Public
 export const getSelectableCategories = asyncHandler(async (req, res) => {
   const { type } = req.query;
-  if (!type) {
+  if (!type || ![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) {
     res.status(400);
-    throw new Error('A channel type is required (ecommerce | grocery | shg)');
+    throw new Error('A supported channel type is required (ecommerce | grocery)');
   }
 
   const all = await Category.find({ type, isActive: true })
@@ -160,7 +166,7 @@ export const getSelectableCategories = asyncHandler(async (req, res) => {
 // @access  Public
 export const getCategoryById = asyncHandler(async (req, res) => {
   const category = await Category.findById(req.params.id);
-  if (!category || !category.isActive) {
+  if (!category || !category.isActive || category.type === 'shg') {
     res.status(404);
     throw new Error('Category not found');
   }
@@ -172,7 +178,7 @@ export const getCategoryById = asyncHandler(async (req, res) => {
 // @route   GET /api/categories/stats
 // @access  Public
 export const getCategoryStats = asyncHandler(async (req, res) => {
-  const all = await Category.find({ isActive: true }, 'type parent').lean();
+  const all = await Category.find({ isActive: true, type: { $in: [CHANNEL.GROCERY, CHANNEL.ECOM] } }, 'type parent').lean();
 
   const parentIds = new Set(all.filter((c) => c.parent).map((c) => String(c.parent)));
   const byId = new Map(all.map((c) => [String(c._id), c]));
@@ -189,7 +195,7 @@ export const getCategoryStats = asyncHandler(async (req, res) => {
   };
 
   const stats = {};
-  for (const channel of CHANNELS) stats[channel] = { l1: 0, l2: 0, l3: 0, leaves: 0, total: 0 };
+  for (const channel of [CHANNEL.ECOM, CHANNEL.GROCERY]) stats[channel] = { l1: 0, l2: 0, l3: 0, leaves: 0, total: 0 };
 
   for (const cat of all) {
     const bucket = stats[cat.type];
@@ -243,11 +249,11 @@ export const createCategory = asyncHandler(async (req, res) => {
   const channel = parentDoc ? parentDoc.type : type;
   if (!channel) {
     res.status(400);
-    throw new Error('Section is required for a header category (ecommerce | grocery | shg)');
+    throw new Error('Section is required for a header category (ecommerce or grocery)');
   }
-  if (!CHANNELS.includes(channel)) {
+  if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(channel)) {
     res.status(400);
-    throw new Error(`Invalid section "${channel}". Expected one of: ${CHANNELS.join(', ')}`);
+    throw new Error(`Invalid section "${channel}". Expected ecommerce or grocery`);
   }
 
   const categoryData = {

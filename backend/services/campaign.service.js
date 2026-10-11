@@ -8,7 +8,7 @@ const round2 = (n) => Math.round(Number(n) * 100) / 100;
 /** Same three flags this codebase always checks before showing a product
  *  to a customer — cart.controller.js, order.controller.js and
  *  banner.controller.js all use this exact combination. */
-export const isEligibleProduct = (p) => !!p && !p.isDeleted && p.isActive && p.status === 'approved';
+export const isEligibleProduct = (p) => !!p && p.fulfillmentType !== 'digital' && !p.isDeleted && p.isActive && p.status === 'approved';
 
 /** DRAFT / SCHEDULED / ACTIVE / EXPIRED / DISABLED — never stored, always
  *  derived, same discipline as Banner.js. */
@@ -29,7 +29,7 @@ export const isCampaignEffectivelyActive = (c) => campaignLifecycle(c) === 'ACTI
  * out-of-catalog product was never a candidate for a deal.
  */
 export const eligibleProductsForCampaign = async (campaign) => {
-  const filter = { isActive: true, isDeleted: false, status: 'approved' };
+  const filter = { isActive: true, isDeleted: false, status: 'approved', fulfillmentType: { $ne: 'digital' } };
   if (campaign.targetType === 'CATEGORY') {
     if (campaign.targetCategory) {
       const childCategories = await Category.find({ parent: campaign.targetCategory }).select('_id').lean();

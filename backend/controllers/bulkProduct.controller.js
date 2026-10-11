@@ -1,8 +1,6 @@
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
-import { assertActiveShgSubscription } from '../services/shgSubscription.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { extractZip } from '../utils/zipExtractor.js';
@@ -11,15 +9,15 @@ import { parseSpreadsheet, generateBulkTemplateExcelJS, BULK_COLUMNS } from '../
 /**
  * @desc    Get/Download Bulk Upload Template pre-populated with valid system categories & Excel Data Validation Dropdowns
  * @route   GET /api/products/bulk/template
- * @access  Private (Seller/Admin/SHG)
+ * @access  Private (Seller/Admin)
  */
 export const downloadBulkTemplate = asyncHandler(async (req, res) => {
   const mode = String(req.query.mode || 'ecommerce').toLowerCase();
   const isQuick = mode === 'quick' || mode === 'grocery';
-  const isShg = mode === 'shg';
+  if (mode === 'shg') throw new Error('The SHG catalog has been retired');
 
   // Determine channel type for category filter
-  const targetChannel = isShg ? 'shg' : (isQuick ? 'grocery' : 'ecommerce');
+  const targetChannel = isQuick ? 'grocery' : 'ecommerce';
 
   // Fetch active categories for the specified channel from database
   let categories = await Category.find({ isActive: true, type: targetChannel }).lean();
@@ -120,11 +118,9 @@ export const downloadBulkTemplate = asyncHandler(async (req, res) => {
   // Generate ExcelJS .xlsx Buffer with dependent dropdowns
   const excelBuffer = await generateBulkTemplateExcelJS(categoriesTree, mode, categoryHierarchy);
 
-  const filename = isShg
-    ? 'Bulkimart_SHG_Bulk_Product_Template.xlsx'
-    : (isQuick 
-        ? 'Bulkimart_Quick_Commerce_Bulk_Product_Template.xlsx' 
-        : 'Bulkimart_Ecommerce_Bulk_Product_Template.xlsx');
+  const filename = isQuick
+    ? 'Bulkimart_Quick_Commerce_Bulk_Product_Template.xlsx'
+    : 'Bulkimart_Ecommerce_Bulk_Product_Template.xlsx';
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -134,7 +130,7 @@ export const downloadBulkTemplate = asyncHandler(async (req, res) => {
 /**
  * @desc    Process Bulk Upload (Excel + ZIP file)
  * @route   POST /api/products/bulk/upload
- * @access  Private (Seller/Admin/SHG)
+ * @access  Private (Seller/Admin)
  */
 export const processBulkUpload = asyncHandler(async (req, res) => {
   const excelFile = req.files?.excelFile?.[0];
@@ -170,31 +166,23 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
     throw new Error('The uploaded Excel file contains no valid product rows.');
   }
 
-  // Determine mode & channel type (seller / shg / admin context)
+  // Determine one of the supported Seller storefront channels.
   const reqMode = String(req.query.mode || req.body?.mode || '').toLowerCase();
-  const isShg = reqMode === 'shg' || req.user?.roleContext === 'shg' || (req.user?.roles?.includes('shg') && !req.user?.roles?.includes('seller'));
+  if (reqMode === 'shg' || req.user?.roleContext === 'shg') {
+    throw new Error('The SHG catalog has been retired');
+  }
   const isQuick = reqMode === 'quick' || req.user?.roleContext === 'grocery';
 
-  const channelType = isShg ? 'shg' : (isQuick ? 'grocery' : 'ecommerce');
+  const channelType = isQuick ? 'grocery' : 'ecommerce';
 
   let sellerId = undefined;
-  let shgStoreId = undefined;
-
-  if (isShg) {
-    const shgStore = await SHGStore.findOne({ userId: req.user._id });
-    if (!shgStore || shgStore.status !== 'approved') {
-      res.status(400);
-      throw new Error('Approved SHG account required to list products');
-    }
-    // Verify SHG has active subscription
-    await assertActiveShgSubscription(shgStore._id);
-    shgStoreId = shgStore._id;
-  } else {
-    sellerId = req.user?.sellerId;
-    if (!sellerId && req.userType === 'user') {
-      const sellerDoc = await Seller.findOne({ userId: req.user._id });
-      if (sellerDoc) sellerId = sellerDoc._id;
-    }
+  sellerId = req.user?.sellerId;
+  if (!sellerId && req.userType === 'user') {
+    const sellerDoc = await Seller.findOne({ userId: req.user._id });
+    if (sellerDoc) sellerId = sellerDoc._id;
+  }
+  if (!sellerId && req.userType !== 'admin') {
+    throw new Error('Approved Seller account required to upload products');
   }
 
   // 3. Pre-fetch Categories from Database for lookup
@@ -297,8 +285,6 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
       const newProduct = await Product.create({
         type: channelType,
         sellerId: sellerId || undefined,
-        shgStoreId: shgStoreId || undefined,
-        isHandmade: isShg ? true : undefined,
         name: productName,
         brand: brand || undefined,
         variantName: variantName || undefined,

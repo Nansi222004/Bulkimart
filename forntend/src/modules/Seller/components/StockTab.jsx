@@ -27,14 +27,17 @@ export const StockTab = () => {
     return `${prefix}-01-RW${idNum.padStart(2, '0')}`;
   };
 
+  // Digital listings are not physical inventory and have no adjustable stock.
+  const inventoryProducts = products.filter((product) => product.raw?.fulfillmentType !== 'digital');
+
   // KPI Calculations
-  const totalInventory = products.reduce((acc, p) => acc + p.stock, 0);
-  const lowStockCount = products.filter(p => p.stock > 0 && p.stock <= 10).length;
-  const outOfStockCount = products.filter(p => p.stock === 0).length;
-  const totalValuation = products.reduce((acc, p) => acc + (p.price * p.stock), 0);
+  const totalInventory = inventoryProducts.reduce((acc, p) => acc + p.stock, 0);
+  const lowStockCount = inventoryProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
+  const outOfStockCount = inventoryProducts.filter(p => p.stock === 0).length;
+  const totalValuation = inventoryProducts.reduce((acc, p) => acc + (p.price * p.stock), 0);
 
   // Filtered Products
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = inventoryProducts.filter(p => {
     const code = getProductCode(p).toLowerCase();
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
                           code.includes(search.toLowerCase());

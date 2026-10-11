@@ -1,17 +1,33 @@
+import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
-import { CHANNEL, CHANNELS, APPROVAL, LOW_STOCK_THRESHOLD } from '../constants/enums.js';
+import { CHANNEL, CHANNELS, APPROVAL, LOW_STOCK_THRESHOLD, WHOLESALE_CHANNEL } from '../constants/enums.js';
 import { httpError, ok, created } from '../utils/response.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { parseProductSameDay, checkSameDayEligibility } from '../services/sameDay.service.js';
-import { assertActiveShgSubscription } from '../services/shgSubscription.service.js';
 import { applyApprovedRatings, approvedReviewsOf, ratingBreakdownOf } from '../services/productRatings.service.js';
 import { resolveCampaignPriceForProduct } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service.js';
+import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
+import { resolveInventoryItem } from '../services/inventory.service.js';
+import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
+import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
+import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
+
+const parseDigitalDetails = (input) => {
+  let details = input;
+  if (typeof details === 'string') {
+    try { details = JSON.parse(details); }
+    catch { throw httpError(400, 'E-book metadata must be valid JSON'); }
+  }
+  if (!details || typeof details !== 'object' || Array.isArray(details)) {
+    throw httpError(400, 'E-book metadata must be an object');
+  }
+  return details;
+};
 
 /**
  * A product's `type`/`category` name its PRIMARY channel. `channels[]` names
@@ -42,26 +58,13 @@ export const buildChannelMatch = (type, category, subCategory) => {
   return { $or: [primary, { channels: { $elemMatch: cross } }] };
 };
 
-/**
- * Non-destructive customer-facing availability for SHG sellers.
- *
- * A product with no `shgStoreId` (any ordinary seller) is always let through
- * unconditionally — this must never affect a non-SHG listing. An SHG product
- * is let through only if its store can currently sell at all: an active,
- * unexpired subscription AND not suspended by an admin (see
- * shgSubscription.service.js's getOrderableShgStoreIds).
- * `Product.stock`/`isActive` are never touched by this: it only shapes what a
- * browse/search query returns, so the cooperative's real inventory is
- * untouched and reappears the moment they renew or are reinstated.
- */
+/** Non-destructive public availability for legacy SHG listings only. */
 const withCustomerLegacyExclusions = async (extraAnd = []) => {
-  const nhcSellerIds = await Seller.find({ isNscSeller: true }).distinct('_id');
   return {
     $and: [
       ...extraAnd,
       { type: { $ne: 'shg' } },
       { shgStoreId: { $exists: false } },
-      { sellerId: { $nin: nhcSellerIds } },
     ],
   };
 };
@@ -73,7 +76,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   const { type, category, subCategory, minPrice, maxPrice, inStock, isFeatured, page = 1, limit = 20 } = req.query;
 
   // Public search query — must be approved and active
-  const filter = { status: 'approved', isActive: true, isDeleted: false };
+  const filter = { status: 'approved', isActive: true, isDeleted: false, fulfillmentType: { $ne: 'digital' } };
 
   /**
    * A storefront never wants "everything".
@@ -84,7 +87,7 @@ export const getProducts = asyncHandler(async (req, res) => {
    * An unrecognised value is treated as absent rather than as an error, so an
    * older client degrades to the default storefront instead of breaking.
    */
-  const resolvedType = CHANNELS.includes(type) ? type : CHANNEL.GROCERY;
+  const resolvedType = [CHANNEL.GROCERY, CHANNEL.ECOM].includes(type) ? type : CHANNEL.GROCERY;
   Object.assign(filter, await withCustomerLegacyExclusions([buildChannelMatch(resolvedType, category, subCategory)]));
 
   if (minPrice || maxPrice) {
@@ -105,7 +108,6 @@ export const getProducts = asyncHandler(async (req, res) => {
   let products = await Product.find(filter)
     .populate('category', 'name')
     .populate('sellerId', 'storeDetails businessName serviceRadiusKm')
-    .populate('shgStoreId', 'groupName district')
     .sort({ isSponsored: -1, sponsoredRank: 1, createdAt: -1 })
     .skip(skip)
     .limit(Number(limit));
@@ -155,12 +157,13 @@ export const getFeaturedProducts = asyncHandler(async (req, res) => {
   // Same reason as the listing and the search: a featured strip belongs to one
   // storefront, not to both at once.
   const { type } = req.query;
-  const resolvedType = CHANNELS.includes(type) ? type : CHANNEL.GROCERY;
+  const resolvedType = [CHANNEL.GROCERY, CHANNEL.ECOM].includes(type) ? type : CHANNEL.GROCERY;
 
   const products = await Product.find({
     status: 'approved',
     isActive: true,
     isDeleted: false,
+    fulfillmentType: { $ne: 'digital' },
     ...(await withCustomerLegacyExclusions([
       buildChannelMatch(resolvedType),
       { $or: [{ isFeatured: true }, { isSponsored: true }] },
@@ -181,13 +184,13 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
     status: 'approved',
     isActive: true,
     isDeleted: false,
+    fulfillmentType: { $ne: 'digital' },
     ...(await withCustomerLegacyExclusions([buildChannelMatch(CHANNEL.GROCERY)])),
   };
 
   const products = await Product.find(filter)
     .populate('category', 'name')
     .populate('sellerId', 'storeDetails businessName')
-    .populate('shgStoreId', 'groupName district')
     .sort({ createdAt: -1 });
 
   res.status(200).json(products);
@@ -196,17 +199,6 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
 // @desc    Get SHG products
 // @route   GET /api/products/shg
 // @access  Public
-export const getSHGProducts = asyncHandler(async (req, res) => {
-  res.status(200).json([]);
-});
-
-// @desc    Get all approved SHG stores
-// @route   GET /api/products/shg/stores
-// @access  Public
-export const getApprovedSHGStores = asyncHandler(async (req, res) => {
-  res.status(200).json([]);
-});
-
 /** Turn user input into a literal, non-regex-special string before building a RegExp from it. */
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -224,7 +216,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
   // for "oil" in Shop All returned cooking oil from the Quick catalogue — an
   // item that basket cannot even hold, since add-to-cart routes by product type.
   const { type } = req.query;
-  const resolvedType = CHANNELS.includes(type) ? type : CHANNEL.GROCERY;
+  const resolvedType = [CHANNEL.GROCERY, CHANNEL.ECOM].includes(type) ? type : CHANNEL.GROCERY;
 
   /**
    * `$text` does whole-word (stemmed) token matching, never prefix/substring
@@ -245,6 +237,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
     status: 'approved',
     isActive: true,
     isDeleted: false,
+    fulfillmentType: { $ne: 'digital' },
     ...(await withCustomerLegacyExclusions([buildChannelMatch(resolvedType)])),
     $or: [{ name: containsRegex }, { sellerName: containsRegex }, { tags: containsRegex }],
   };
@@ -310,15 +303,15 @@ export const getProductById = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
     .populate('category', 'name')
     .populate('channels.category', 'name')
-    .populate('sellerId', 'storeDetails businessName isNscSeller')
+    .populate('sellerId', 'storeDetails businessName')
     .populate('shgStoreId', 'groupName district');
 
   if (
     !product ||
     product.isDeleted ||
+    product.fulfillmentType === 'digital' ||
     product.type === 'shg' ||
-    product.shgStoreId ||
-    product.sellerId?.isNscSeller
+    product.shgStoreId
   ) {
     res.status(404);
     throw new Error('Product not found');
@@ -389,7 +382,8 @@ export const getDeliveryOptions = asyncHandler(async (req, res) => {
   const products = await Product.find({
     _id: { $in: productIds },
     status: APPROVAL.APPROVED, isActive: true, isDeleted: false,
-  }).select('type stock sellerId sameDay').lean();
+    fulfillmentType: { $ne: 'digital' },
+  }).select('type stock sellerId sameDay fulfillmentType').lean();
 
   // One lookup per shop, however many of its items are on the page.
   const sellerIds = [...new Set(products.map((p) => String(p.sellerId)).filter(Boolean))];
@@ -428,25 +422,27 @@ export const getDeliveryOptions = asyncHandler(async (req, res) => {
  */
 export const getProductDeliveryOptions = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
-    .select('type stock sellerId sameDay').lean();
+    .select('type stock variants sellerId sameDay fulfillmentType').lean();
 
-  if (!product || product.isDeleted) throw httpError(404, 'Product not found');
+  if (!product || product.isDeleted || product.fulfillmentType === 'digital') throw httpError(404, 'Product not found');
 
   const seller = product.sellerId
     ? await Seller.findById(product.sellerId).select('status storeDetails sameDay').lean()
     : null;
 
   const qty = Math.max(1, Number(req.query.qty) || 1);
+  const inventory = resolveInventoryItem(product, req.query.variantId, { allowLegacyPrimary: !req.query.variantId });
+  const deliveryProduct = { ...product, stock: inventory.stock };
   const destination = {
     lat: req.query.lat !== undefined ? Number(req.query.lat) : undefined,
     lng: req.query.lng !== undefined ? Number(req.query.lng) : undefined,
   };
 
-  const sameDay = await checkSameDayEligibility({ product, seller, destination, qty });
+  const sameDay = await checkSameDayEligibility({ product: deliveryProduct, seller, destination, qty });
 
   return ok(res, {
     sameDay,
-    scheduled: { available: product.type === CHANNEL.ECOM && product.stock >= qty },
+    scheduled: { available: product.type === CHANNEL.ECOM && inventory.stock >= qty },
   }, 'Delivery options');
 });
 
@@ -464,7 +460,7 @@ export const getProductDeliveryOptions = asyncHandler(async (req, res) => {
  * Returns { categoryId, subCategoryId } where subCategory is the parent, so
  * filters and breadcrumbs do not need an extra lookup.
  */
-const resolveListingCategory = async (categoryId, channel, allowShgCategory = false) => {
+const resolveListingCategory = async (categoryId, channel) => {
   const cat = await Category.findById(categoryId);
   if (!cat || !cat.isActive) {
     throw httpError(400, 'Selected category is not available');
@@ -472,7 +468,7 @@ const resolveListingCategory = async (categoryId, channel, allowShgCategory = fa
   // An SHG vendor's products always live under the SHG category tree, no
   // matter which storefront (grocery/ecommerce) they're being listed into —
   // only their `type` field changes per channel, not their category.
-  if (cat.type !== channel && !(allowShgCategory && cat.type === 'shg')) {
+  if (cat.type !== channel) {
     throw httpError(400, `That category belongs to the ${cat.type} section — please pick a ${channel} category`);
   }
 
@@ -502,7 +498,7 @@ const resolveListingCategory = async (categoryId, channel, allowShgCategory = fa
 // points that build a `channels` array.
 const CROSS_LISTABLE_CHANNELS = [CHANNEL.GROCERY, CHANNEL.ECOM];
 
-const resolveChannelList = async (raw, primaryType, allowShgCategory = false) => {
+const resolveChannelList = async (raw, primaryType) => {
   if (raw === undefined || raw === null || raw === '') return [];
   const list = typeof raw === 'string' ? JSON.parse(raw) : raw;
   if (!Array.isArray(list)) return [];
@@ -517,7 +513,7 @@ const resolveChannelList = async (raw, primaryType, allowShgCategory = false) =>
     if (seen.has(entry.type)) continue;
     seen.add(entry.type);
 
-    const { categoryId, subCategoryId } = await resolveListingCategory(entry.category, entry.type, allowShgCategory);
+    const { categoryId, subCategoryId } = await resolveListingCategory(entry.category, entry.type);
     resolved.push({
       type: entry.type,
       category: categoryId,
@@ -528,20 +524,132 @@ const resolveChannelList = async (raw, primaryType, allowShgCategory = false) =>
   return resolved;
 };
 
-/** Same ownership rule everywhere a seller/SHG vendor edits their own product. */
+/** Seller-owned catalog mutation; historical SHG products remain inaccessible. */
 const assertOwnsProduct = async (product, req) => {
   let authorized = false;
-  if (product.sellerId) {
+  if (product.sellerId && req.userType !== 'admin') {
     const seller = await Seller.findOne({ userId: req.user._id });
     if (seller && product.sellerId.toString() === seller._id.toString()) authorized = true;
-  } else if (product.shgStoreId) {
-    const shgStore = await SHGStore.findOne({ userId: req.user._id });
-    if (shgStore && product.shgStoreId.toString() === shgStore._id.toString()) authorized = true;
   }
   if (!authorized && req.userType !== 'admin') {
     throw httpError(403, 'Not authorized to edit this product');
   }
 };
+
+const applyWholesalePricing = (variants, seller, existingVariants = []) => variants.map((variant, index) => {
+  const explicit = Object.prototype.hasOwnProperty.call(variant, 'wholesalePricing');
+  // Stable variant IDs are the identity. Names and array positions are
+  // editable and must never move a wholesale price book to a different SKU.
+  const existing = variant._id
+    ? existingVariants.find((item) => String(item._id) === String(variant._id))
+    : undefined;
+  const requested = explicit
+    ? variant.wholesalePricing
+    : existing?.wholesalePricing;
+  if (requested === undefined) return variant;
+
+  const normalized = normalizeWholesalePricing(requested);
+  if (explicit && normalized?.enabled && (
+    seller?.status !== 'approved'
+    || seller.wholesaleChannel?.status !== 'approved'
+    || !seller.salesChannels?.includes(WHOLESALE_CHANNEL)
+  )) {
+    throw httpError(403, 'Wholesale pricing requires an approved Wholesale seller channel');
+  }
+  if (normalized === undefined) {
+    const { wholesalePricing: _removed, ...withoutWholesale } = variant;
+    return withoutWholesale;
+  }
+  return { ...variant, wholesalePricing: normalized };
+});
+
+/**
+ * Save only wholesale terms for an existing seller-owned product. This narrow
+ * write intentionally cannot accept price, stock, seller ID, or inventory
+ * fields, and uses array filters so retail edits and inventory mutations do
+ * not get overwritten by a stale product document.
+ */
+export const updateProductWholesalePricing = asyncHandler(async (req, res) => {
+  const seller = await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  if (req.userType !== 'user' || !req.user.roles?.includes('seller')) {
+    throw httpError(403, 'Seller access required');
+  }
+
+  const requested = req.body?.variants;
+  if (!Array.isArray(requested) || requested.length === 0) {
+    throw httpError(400, 'Provide at least one variant wholesale configuration');
+  }
+  const ids = requested.map((entry) => entry?.variantId);
+  if (ids.some((id) => !id || !mongoose.isValidObjectId(id)) || new Set(ids.map(String)).size !== ids.length) {
+    throw httpError(400, 'Each wholesale configuration needs a unique valid variant ID');
+  }
+
+  const product = await Product.findOne({ _id: req.params.id, sellerId: seller._id, isDeleted: false })
+    .select('_id sellerId fulfillmentType variants._id variants.name');
+  if (!product) throw httpError(404, 'Product not found');
+  if (product.fulfillmentType === 'digital') throw httpError(400, 'Wholesale offers are not available for digital products');
+  const variants = product.variants || [];
+  const normalized = requested.map((entry) => {
+    if (!variants.some((variant) => String(variant._id) === String(entry.variantId))) {
+      throw httpError(400, 'A selected variant does not belong to this product');
+    }
+    if (!Object.prototype.hasOwnProperty.call(entry, 'wholesalePricing')) {
+      throw httpError(400, 'Wholesale pricing configuration is required for each variant');
+    }
+    const pricing = normalizeWholesalePricing(entry.wholesalePricing);
+    if (pricing?.enabled && (
+      seller.status !== 'approved'
+      || seller.wholesaleChannel?.status !== 'approved'
+      || !seller.salesChannels?.includes(WHOLESALE_CHANNEL)
+    )) {
+      throw httpError(403, 'Wholesale pricing requires an approved Wholesale seller channel');
+    }
+    return { variantId: new mongoose.Types.ObjectId(entry.variantId), pricing: pricing || { enabled: false } };
+  });
+
+  const set = {};
+  const arrayFilters = [];
+  const presentVariants = [];
+  normalized.forEach(({ variantId, pricing }, index) => {
+    const key = `wholesaleVariant${index}`;
+    set[`variants.$[${key}].wholesalePricing`] = pricing;
+    arrayFilters.push({ [`${key}._id`]: variantId });
+    presentVariants.push({ $elemMatch: { _id: variantId } });
+  });
+
+  const result = await Product.updateOne(
+    { _id: product._id, sellerId: seller._id, variants: { $all: presentVariants } },
+    { $set: set },
+    { arrayFilters, runValidators: true },
+  );
+  if (!result.matchedCount) throw httpError(409, 'Product variants changed; refresh and try again');
+
+  res.status(200).json({
+    success: true,
+    message: 'Wholesale terms saved. Wholesale purchasing is not enabled.',
+    variants: normalized.map(({ variantId, pricing }) => ({ variantId, wholesalePricing: pricing })),
+  });
+});
+
+/**
+ * Read-only catalog foundation. It requires a signed-in buyer account to
+ * avoid publishing wholesale price books to anonymous retail traffic. Buyer
+ * business eligibility remains a product-policy decision and is not inferred
+ * here. No cart or checkout action is exposed by this route.
+ */
+export const getWholesaleCatalog = asyncHandler(async (req, res) => {
+  if (req.userType !== 'user' || !req.user.roles?.includes('buyer')) {
+    throw httpError(403, 'Buyer account required');
+  }
+  res.status(200).json({ success: true, data: await getEligibleWholesaleCatalog() });
+});
+
+/** Public navigation hint only: no seller, product, price, or stock data. */
+export const getWholesaleAvailability = asyncHandler(async (_req, res) => {
+  const catalog = await getEligibleWholesaleCatalog();
+  return res.status(200).json({ success: true, enabled: catalog.length > 0 });
+});
 
 // @desc    Create a product (Seller/SHG)
 // @route   POST /api/products
@@ -549,8 +657,10 @@ const assertOwnsProduct = async (product, req) => {
 export const createProduct = asyncHandler(async (req, res) => {
   const {
     type, name, description, category, subCategory, dimensions, tags, sameDay,
-    brandName, gstRate, variants, isHandmade, returnable,
+    brandName, gstRate, variants, isHandmade, returnable, fulfillmentType = 'physical', digital,
   } = req.body;
+
+  if (!['physical', 'digital'].includes(fulfillmentType)) throw httpError(400, 'Invalid product fulfillment type');
 
   if (!type || !name || !category) {
     res.status(400);
@@ -562,11 +672,29 @@ export const createProduct = asyncHandler(async (req, res) => {
   // Pricing, stock, unit and weight are entered per variant now, not on the
   // product itself — at least one is required, and each is checked the same
   // way the old root-field checks used to be.
-  const parsedVariants = variants
+  let parsedVariants = variants
     ? (typeof variants === 'string' ? JSON.parse(variants) : variants)
     : [];
   if (!Array.isArray(parsedVariants) || parsedVariants.length === 0) {
     throw httpError(400, 'Please add at least one variant with pricing and stock');
+  }
+  // Variant identity is server-assigned; never let a seller choose IDs.
+  parsedVariants = parsedVariants.map(({ _id: _ignoredId, ...variant }) => variant);
+  const digitalDetails = digital !== undefined ? parseDigitalDetails(digital) : {};
+  if (fulfillmentType === 'digital') {
+    if (type !== CHANNEL.ECOM) throw httpError(400, 'E-books can only be listed in E-Commerce');
+    if (parsedVariants.length !== 1 || Number(parsedVariants[0].stock) !== 0
+      || !Number.isFinite(Number(parsedVariants[0].price)) || Number(parsedVariants[0].price) <= 0) {
+      throw httpError(400, 'An e-book requires one priced variant and no physical stock');
+    }
+    if (!String(digitalDetails.author || '').trim() || !String(digitalDetails.language || '').trim()) {
+      throw httpError(400, 'Author and language are required for an e-book');
+    }
+    if ((digitalDetails.format || 'pdf') !== 'pdf') throw httpError(400, 'Only PDF e-books are currently supported');
+    parsedVariants[0].unit = 'piece';
+    parsedVariants[0].mrp = parsedVariants[0].mrp || parsedVariants[0].price;
+  } else if (digital !== undefined) {
+    throw httpError(400, 'Digital metadata is only valid for an e-book');
   }
   parsedVariants.forEach((v, i) => {
     const label = v.name || `Variant ${i + 1}`;
@@ -583,6 +711,13 @@ export const createProduct = asyncHandler(async (req, res) => {
 
   const productData = {
     type,
+    fulfillmentType,
+    ...(fulfillmentType === 'digital' ? { digital: {
+      author: String(digitalDetails.author).trim(),
+      language: String(digitalDetails.language).trim(),
+      format: 'pdf',
+      licenseTerms: digitalDetails.licenseTerms ? String(digitalDetails.licenseTerms).trim() : undefined,
+    } } : {}),
     name,
     description,
     category,
@@ -597,7 +732,7 @@ export const createProduct = asyncHandler(async (req, res) => {
      * this existed. Note what is absent: no price of any kind. Same-Day is a way
      * of delivering this item, and variant `price` stays the only one.
      */
-    sameDay: parseProductSameDay(sameDay),
+    sameDay: fulfillmentType === 'physical' ? parseProductSameDay(sameDay) : undefined,
     brandName,
     gstRate: gstRate ? Number(gstRate) : 0,
     isHandmade: isHandmade === true || isHandmade === 'true',
@@ -615,75 +750,35 @@ export const createProduct = asyncHandler(async (req, res) => {
     // Listings go live immediately — there is no pre-moderation queue. The admin
     // keeps takedown powers (PATCH /api/admin/products/:id/reject) for anything
     // that breaks policy after the fact.
-    status: APPROVAL.APPROVED,
-    isActive: true
+    status: fulfillmentType === 'digital' ? APPROVAL.PENDING : APPROVAL.APPROVED,
+    isActive: fulfillmentType !== 'digital'
   };
 
-  // Resolve role context:
-  let roleContext = req.query.roleContext || req.body?.roleContext;
-  if (!roleContext && (type === 'grocery' || type === 'ecommerce')) {
-    roleContext = 'seller';
-  } else if (!roleContext && type === 'shg') {
-    roleContext = 'shg';
+  if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) {
+    throw httpError(400, 'Products must be listed in Quick Commerce or Shop All');
   }
-  if (roleContext === 'shg' && !req.user.roles.includes('shg')) {
-    roleContext = 'seller';
-  } else if (roleContext === 'seller' && !req.user.roles.includes('seller')) {
-    roleContext = 'shg';
+  const seller = await Seller.findOne({ userId: req.user._id });
+  if (!seller || seller.status !== 'approved') {
+    res.status(400);
+    throw new Error('Approved Seller account required to list products');
   }
-  if (!roleContext) {
-    if (req.user.roles.includes('shg')) {
-      roleContext = 'shg';
-    } else {
-      roleContext = 'seller';
-    }
-  }
-
-  // Assign vendor reference
-  if (roleContext === 'shg') {
-    const shgStore = await SHGStore.findOne({ userId: req.user._id });
-    if (!shgStore || shgStore.status !== 'approved') {
-      res.status(400);
-      throw new Error('Approved SHG account required to list products');
-    }
-    productData.shgStoreId = shgStore._id;
-    // Allow the type ('grocery' or 'ecommerce') sent by client
-    // Business-write gate, distinct from the approval check above: an
-    // approved SHG store still needs a currently-active paid subscription
-    // to create a NEW listing (existing listings/orders are never touched
-    // by this — see requireActiveSHGSubscription's doc comment).
-    await assertActiveShgSubscription(shgStore._id);
-  } else if (roleContext === 'seller') {
-    const seller = await Seller.findOne({ userId: req.user._id });
-    if (!seller || seller.status !== 'approved') {
-      res.status(400);
-      throw new Error('Approved Seller account required to list products');
-    }
-    productData.sellerId = seller._id;
-    // Denormalized for search — see Product.js's `sellerName` field comment.
-    productData.sellerName = seller.storeDetails?.name || seller.businessName;
-  } else {
-    res.status(403);
-    throw new Error('Seller or SHG role required to add products');
-  }
+  parsedVariants = applyWholesalePricing(parsedVariants, seller);
+  productData.sellerId = seller._id;
+  productData.sellerName = seller.storeDetails?.name || seller.businessName;
 
   // Category is validated only now, because the channel is decided above.
-  // An SHG vendor's category always comes from the SHG tree, regardless of
-  // which storefront `productData.type` ends up being.
-  const allowShgCategory = roleContext === 'shg';
-  const { categoryId, subCategoryId } = await resolveListingCategory(category, productData.type, allowShgCategory);
+  const { categoryId, subCategoryId } = await resolveListingCategory(category, productData.type);
   productData.category = categoryId;
   productData.subCategory = subCategoryId;
 
-  // Optional cross-listing: extra channels beyond the primary one above, e.g.
-  // an SHG product also toggled into Quick and/or Shop All. Each entry needs
-  // its OWN category, since categories are channel-scoped (except for SHG,
-  // whose category is always the SHG tree, same as the primary listing above).
-  const resolvedChannels = await resolveChannelList(req.body.channels, productData.type, allowShgCategory);
+  const resolvedChannels = await resolveChannelList(req.body.channels, productData.type);
+  if (fulfillmentType === 'digital' && resolvedChannels.length) {
+    throw httpError(400, 'E-books cannot be cross-listed into physical storefront channels');
+  }
   if (resolvedChannels.length) productData.channels = resolvedChannels;
 
   // Upload images to Cloudinary (multer caps the count at 5)
-  const folder = productData.sellerId ? `products/${productData.sellerId}` : `products/shg-${productData.shgStoreId}`;
+  const folder = `products/${productData.sellerId}`;
   const imageUrls = [];
   for (const file of req.files) {
     imageUrls.push(await uploadToCloudinary(file.buffer, folder));
@@ -697,28 +792,93 @@ export const createProduct = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     success: true,
-    message: 'Product published successfully and is now live.',
+    message: fulfillmentType === 'digital'
+      ? 'E-book draft created. Upload its PDF file before submitting it for moderation.'
+      : 'Product published successfully and is now live.',
     product
   });
+});
+
+/** Seller-owned private PDF upload. This endpoint stores bytes only on the
+ * backend's private filesystem; there is intentionally no download route. */
+export const uploadDigitalProductFile = asyncHandler(async (req, res) => {
+  if (!req.file) throw httpError(400, 'Choose a PDF e-book file to upload');
+  const sellerId = req.seller?._id;
+  if (!sellerId) throw httpError(403, 'An approved seller account is required');
+
+  const productQuery = Product.findById(req.params.id);
+  const product = typeof productQuery.select === 'function'
+    ? await productQuery.select('+digital.file.fileId')
+    : await productQuery;
+  assertEbookUploadOwnership(product, sellerId);
+
+  const stored = await storeEbookPdf(req.file);
+  const previousId = product.digital?.file?.fileId;
+  try {
+    product.digital.file = {
+      fileId: stored.fileId,
+      productId: product._id,
+      ownerSellerId: sellerId,
+      sizeBytes: stored.sizeBytes,
+      format: stored.format,
+      sha256: stored.sha256,
+      status: 'uploaded',
+      uploadedAt: stored.uploadedAt,
+    };
+    // A replacement returns to moderation; it cannot silently replace content
+    // beneath an already approved listing.
+    product.status = APPROVAL.PENDING;
+    product.isActive = false;
+    await product.save();
+  } catch (error) {
+    await removeStoredEbook(stored.fileId).catch(() => {});
+    throw error;
+  }
+  if (previousId && previousId !== stored.fileId) await removeStoredEbook(previousId).catch(() => {});
+
+  return created(res, {
+    productId: product._id,
+    file: { status: 'uploaded', format: stored.format, sizeBytes: stored.sizeBytes, uploadedAt: stored.uploadedAt },
+    moderationStatus: product.status,
+  }, 'Private e-book file uploaded; listing is pending admin review');
 });
 
 // @desc    Update own product
 // @route   PUT /api/products/:id
 // @access  Private
 export const updateProduct = asyncHandler(async (req, res) => {
-  let product = await Product.findById(req.params.id);
+  const productQuery = Product.findById(req.params.id);
+  let product = typeof productQuery.select === 'function'
+    ? await productQuery.select('+variants.wholesalePricing')
+    : await productQuery;
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
 
   await assertOwnsProduct(product, req);
-  if (product.shgStoreId && req.userType !== 'admin') await assertActiveShgSubscription(product.shgStoreId);
 
   const {
     name, description, category, subCategory, dimensions, tags, sameDay,
-    sku, brandName, gstRate, variants, isHandmade, returnable,
+    sku, brandName, gstRate, variants, isHandmade, returnable, digital,
   } = req.body;
+
+  if (digital !== undefined && product.fulfillmentType !== 'digital') {
+    throw httpError(400, 'Digital metadata cannot be added to a physical product');
+  }
+  if (digital !== undefined && product.fulfillmentType === 'digital') {
+    const details = parseDigitalDetails(digital);
+    if (!String(details.author || '').trim() || !String(details.language || '').trim()) {
+      throw httpError(400, 'Author and language are required for an e-book');
+    }
+    if ((details.format || 'pdf') !== 'pdf') throw httpError(400, 'Only PDF e-books are currently supported');
+    product.digital.author = String(details.author).trim();
+    product.digital.language = String(details.language).trim();
+    product.digital.format = 'pdf';
+    product.digital.licenseTerms = details.licenseTerms ? String(details.licenseTerms).trim() : undefined;
+    product.status = APPROVAL.PENDING;
+    product.isActive = false;
+  }
 
   let detailsChanged = false;
 
@@ -726,13 +886,29 @@ export const updateProduct = asyncHandler(async (req, res) => {
   // whole array (same checks as creation), only when the edit actually sent
   // one. Root price/mrp/stock/unit/weight are re-synced from variants[0] by
   // the model's pre-validate hook once `product.variants` is reassigned below.
-  const parsedVariants = variants !== undefined
+  let parsedVariants = variants !== undefined
     ? (typeof variants === 'string' ? JSON.parse(variants) : variants)
     : undefined;
   if (parsedVariants !== undefined) {
     if (!Array.isArray(parsedVariants) || parsedVariants.length === 0) {
       throw httpError(400, 'Please keep at least one variant with pricing and stock');
     }
+    const existingVariantIds = new Set((product.variants || []).map((variant) => String(variant._id)));
+    parsedVariants = parsedVariants.map((variant, index) => {
+      if (variant._id && !existingVariantIds.has(String(variant._id))) {
+        throw httpError(400, 'A variant identifier does not belong to this product');
+      }
+      if (!variant._id) {
+        const existing = product.variants || [];
+        const candidates = variant.sku
+          ? existing.filter((entry) => entry.sku && String(entry.sku) === String(variant.sku))
+          : existing.filter((entry) => entry.name === variant.name);
+        if (candidates.length > 1) throw httpError(400, `Cannot safely identify the existing "${variant.name}" variant; refresh and include its variant ID`);
+        if (candidates.length === 1) variant._id = candidates[0]._id;
+        else if (index < existing.length) throw httpError(400, `Variant ${index + 1} is missing its stable ID; refresh the product and try again`);
+      }
+      return variant;
+    });
     parsedVariants.forEach((v, i) => {
       const label = v.name || `Variant ${i + 1}`;
       if (!v.name) throw httpError(400, `Variant ${i + 1} needs a name`);
@@ -740,6 +916,16 @@ export const updateProduct = asyncHandler(async (req, res) => {
       if (v.stock === undefined || v.stock === '' || Number(v.stock) < 0) throw httpError(400, `"${label}" stock cannot be negative`);
       if (v.mrp !== undefined && v.mrp !== '' && Number(v.price) > Number(v.mrp)) throw httpError(400, `"${label}" price cannot be higher than its MRP`);
     });
+    if (product.fulfillmentType === 'digital'
+      && (parsedVariants.length !== 1 || Number(parsedVariants[0].stock) !== 0)) {
+      throw httpError(400, 'An e-book requires one priced variant and no physical stock');
+    }
+    if (req.userType === 'admin') {
+      parsedVariants = applyWholesalePricing(parsedVariants, { status: 'approved', salesChannels: [WHOLESALE_CHANNEL] }, product.variants || []);
+    } else {
+      const seller = await Seller.findOne({ userId: req.user._id });
+      parsedVariants = applyWholesalePricing(parsedVariants, seller, product.variants || []);
+    }
   }
 
   if (name) { product.name = name; detailsChanged = true; }
@@ -747,7 +933,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
   if (category) {
     // Same rules as creation: active, same channel (or the SHG tree, for an
     // SHG-owned product), and a leaf.
-    const resolved = await resolveListingCategory(category, product.type, Boolean(product.shgStoreId));
+    const resolved = await resolveListingCategory(category, product.type);
     product.category = resolved.categoryId;
     product.subCategory = resolved.subCategoryId;
     detailsChanged = true;
@@ -788,6 +974,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
    * it was.
    */
   if (sameDay !== undefined) {
+    if (product.fulfillmentType === 'digital') throw httpError(400, 'E-books do not support physical delivery options');
     product.sameDay = parseProductSameDay(sameDay, product.sameDay);
   }
 
@@ -795,7 +982,11 @@ export const updateProduct = asyncHandler(async (req, res) => {
   // Omitted entirely (`undefined`) leaves the existing cross-listings alone —
   // same rule as Same-Day above.
   if (req.body.channels !== undefined) {
-    product.channels = await resolveChannelList(req.body.channels, product.type, Boolean(product.shgStoreId));
+    const channels = await resolveChannelList(req.body.channels, product.type);
+    if (product.fulfillmentType === 'digital' && channels.length) {
+      throw httpError(400, 'E-books cannot be cross-listed into physical storefront channels');
+    }
+    product.channels = channels;
   }
 
   // Edits no longer knock a listing offline — products are not pre-moderated.
@@ -846,21 +1037,19 @@ export const updateProductChannelStatus = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Product not found');
   }
+  if (product.fulfillmentType === 'digital') throw httpError(400, 'E-books cannot be cross-listed as physical storefront inventory');
   await assertOwnsProduct(product, req);
-  if (product.shgStoreId && req.userType !== 'admin') await assertActiveShgSubscription(product.shgStoreId);
-
   if (type === product.type) {
     throw httpError(400, "That is this product's primary channel — use its Active toggle instead");
   }
 
-  const allowShgCategory = Boolean(product.shgStoreId);
   const channels = product.channels || [];
   const existing = channels.find((c) => c.type === type);
 
   if (existing) {
     if (isActive !== undefined) existing.isActive = isActive !== false;
     if (category) {
-      const resolved = await resolveListingCategory(category, type, allowShgCategory);
+      const resolved = await resolveListingCategory(category, type);
       existing.category = resolved.categoryId;
       existing.subCategory = resolved.subCategoryId;
     }
@@ -868,7 +1057,7 @@ export const updateProductChannelStatus = asyncHandler(async (req, res) => {
     if (!category) {
       throw httpError(400, `Please pick a ${type} category to list this product there`);
     }
-    const resolved = await resolveListingCategory(category, type, allowShgCategory);
+    const resolved = await resolveListingCategory(category, type);
     channels.push({
       type,
       category: resolved.categoryId,
@@ -917,7 +1106,7 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     throw httpError(400, 'Please provide a non-zero whole-number stock adjustment');
   }
 
-  const product = await Product.findById(req.params.id).select('sellerId shgStoreId isDeleted variants stock');
+  const product = await Product.findById(req.params.id).select('sellerId shgStoreId isDeleted variants stock fulfillmentType');
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
@@ -925,22 +1114,23 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
   if (product.isDeleted) {
     throw httpError(400, 'This product has been deleted and can no longer be adjusted');
   }
+  if (product.fulfillmentType === 'digital') throw httpError(400, 'E-books do not use physical inventory');
 
   await assertOwnsProduct(product, req);
-  if (product.shgStoreId && req.userType !== 'admin') await assertActiveShgSubscription(product.shgStoreId);
 
   // Only meaningful when decreasing — an increase can never push stock
   // negative, so no lower-bound check is needed on that path.
   const filter = { _id: product._id };
-  if (parsedDelta < 0) {
-    filter['variants.0.stock'] = { $gte: -parsedDelta };
+  let update;
+  if (Array.isArray(product.variants) && product.variants.length) {
+    if (parsedDelta < 0) filter['variants.0.stock'] = { $gte: -parsedDelta };
+    update = { $inc: { 'variants.0.stock': parsedDelta, stock: parsedDelta, __v: 1 } };
+  } else {
+    if (parsedDelta < 0) filter.stock = { $gte: -parsedDelta };
+    update = { $inc: { stock: parsedDelta, __v: 1 } };
   }
 
-  const updated = await Product.findOneAndUpdate(
-    filter,
-    { $inc: { 'variants.0.stock': parsedDelta, stock: parsedDelta } },
-    { new: true }
-  );
+  const updated = await Product.findOneAndUpdate(filter, update, { new: true });
 
   if (!updated) {
     // Ownership already passed above, so a null result here can only mean
@@ -970,7 +1160,6 @@ export const deleteProduct = asyncHandler(async (req, res) => {
   }
 
   await assertOwnsProduct(product, req);
-  if (product.shgStoreId && req.userType !== 'admin') await assertActiveShgSubscription(product.shgStoreId);
 
   // Soft delete — must NOT reuse isActive, which is the admin "go live" flag.
   // Otherwise approving a product would resurrect a deleted one.
@@ -990,55 +1179,20 @@ export const deleteProduct = asyncHandler(async (req, res) => {
 export const getMyProducts = asyncHandler(async (req, res) => {
   let filter = { isDeleted: false };
 
-  // Resolve role context:
-  let roleContext = req.query.roleContext;
-  if (!roleContext && req.query.type) {
-    if (req.query.type === 'grocery' || req.query.type === 'ecommerce') {
-      roleContext = 'seller';
-    } else if (req.query.type === 'shg') {
-      roleContext = 'shg';
-    }
-  }
-  if (roleContext === 'shg' && !req.user.roles.includes('shg')) {
-    roleContext = 'seller';
-  } else if (roleContext === 'seller' && !req.user.roles.includes('seller')) {
-    roleContext = 'shg';
-  }
-  if (!roleContext) {
-    if (req.user.roles.includes('shg')) {
-      roleContext = 'shg';
-    } else {
-      roleContext = 'seller';
-    }
-  }
-
   // The seller panel has a Shop All / Quick toggle; ?type= scopes the list to
   // the active channel — including products whose PRIMARY channel is
   // something else but were cross-listed into this one.
-  if (req.query.type && CHANNELS.includes(req.query.type)) {
+  if (req.query.type && [CHANNEL.GROCERY, CHANNEL.ECOM].includes(req.query.type)) {
     Object.assign(filter, buildChannelMatch(req.query.type));
   }
-
-  if (roleContext === 'shg') {
-    const shgStore = await SHGStore.findOne({ userId: req.user._id });
-    if (!shgStore) {
-      res.status(404);
-      throw new Error('SHG store not found');
-    }
-    filter.shgStoreId = shgStore._id;
-  } else if (roleContext === 'seller') {
-    const seller = await Seller.findOne({ userId: req.user._id });
-    if (!seller) {
-      res.status(404);
-      throw new Error('Seller profile not found');
-    }
-    filter.sellerId = seller._id;
-  } else {
-    res.status(403);
-    throw new Error('Access denied. Seller or SHG role required.');
+  const seller = await Seller.findOne({ userId: req.user._id });
+  if (!seller) {
+    res.status(404);
+    throw new Error('Seller profile not found');
   }
+  filter.sellerId = seller._id;
 
-  const products = await Product.find(filter).populate('category', 'name').sort({ createdAt: -1 });
+  const products = await Product.find(filter).select('+variants.wholesalePricing').populate('category', 'name').sort({ createdAt: -1 });
   res.status(200).json(products);
 });
 

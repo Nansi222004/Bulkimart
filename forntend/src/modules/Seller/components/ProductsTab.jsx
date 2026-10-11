@@ -17,9 +17,14 @@ export const ProductsTab = () => {
     setEditingProductId,
     startEditProduct,
     fetchMyProducts,
+    sellerProfile,
   } = useSeller();
 
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const wholesaleAuthorized = sellerProfile?.status === 'approved'
+    && sellerProfile?.wholesaleChannel?.status === 'approved'
+    && sellerProfile?.salesChannels?.includes('wholesale');
+  const wholesaleOfferCount = products.reduce((count, product) => count + (product.raw?.variants || []).filter((variant) => variant.wholesalePricing?.enabled).length, 0);
 
   // Local filter states
   const [search, setSearch] = useState('');
@@ -67,8 +72,9 @@ export const ProductsTab = () => {
   // KPI Calculations
   const allItemsCount = products.length;
   const activeCount = products.filter(p => p.status === 'Active').length;
-  const lowStockCount = products.filter(p => p.stock > 0 && p.stock <= 10).length;
-  const outStockCount = products.filter(p => p.stock === 0).length;
+  const physicalProducts = products.filter(p => p.raw?.fulfillmentType !== 'digital');
+  const lowStockCount = physicalProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
+  const outStockCount = physicalProducts.filter(p => p.stock === 0).length;
 
   // Filter products by searchable columns and local tab filters
   const filteredProducts = products.filter(p => {
@@ -84,9 +90,9 @@ export const ProductsTab = () => {
     if (activeProductTab === 'Active') {
       matchesTab = p.status === 'Active';
     } else if (activeProductTab === 'Low Stock') {
-      matchesTab = p.stock > 0 && p.stock <= 10;
+      matchesTab = p.raw?.fulfillmentType !== 'digital' && p.stock > 0 && p.stock <= 10;
     } else if (activeProductTab === 'Out of Stock') {
-      matchesTab = p.stock === 0;
+      matchesTab = p.raw?.fulfillmentType !== 'digital' && p.stock === 0;
     }
 
     return matchesSearch && matchesCategory && matchesTab;
@@ -377,6 +383,16 @@ export const ProductsTab = () => {
           </button>
         </div>
       </div>
+
+      {wholesaleAuthorized && (
+        <section aria-label="Wholesale product management" style={{ margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd', borderRadius: 12, background: '#f0fbff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <strong style={{ display: 'block', color: '#073b78', fontSize: 14 }}>Wholesale catalog settings</strong>
+            <span style={{ color: '#64748b', fontSize: 12 }}>Configure variant MOQ and quantity tiers from a product’s Edit → Item Variants panel. Shared inventory and retail pricing stay unchanged.</span>
+          </div>
+          <span style={{ color: '#078ccb', fontSize: 12, fontWeight: 800 }}>{wholesaleOfferCount} enabled variant offer{wholesaleOfferCount === 1 ? '' : 's'}</span>
+        </section>
+      )}
 
       {/* 2. SELECTABLE KPI CARDS AS TABS */}
       <div className="prod-kpi-grid">
@@ -687,6 +703,8 @@ export const ProductsTab = () => {
             <div className="prod-cards-mobile">
               {sortedProducts.map((p) => {
                 const { categoryName, subcategory } = getProductDetails(p);
+                const isEbook = p.raw?.fulfillmentType === 'digital';
+                const ebookFileStatus = p.raw?.digital?.file?.status === 'uploaded' ? 'PDF uploaded' : 'PDF missing';
                 const statusStyle = p.status === 'Active'
                   ? { backgroundColor: '#ebfdf2', color: '#166534' }
                   : p.status === 'Rejected'
@@ -710,7 +728,7 @@ export const ProductsTab = () => {
                       </div>
                       <div className="prod-card-mobile-info">
                         <span className="prod-card-mobile-name">{p.name}</span>
-                        <span className="prod-card-mobile-meta">{categoryName} · {subcategory}</span>
+                        <span className="prod-card-mobile-meta">{isEbook ? `E-book · ${p.raw?.digital?.format?.toUpperCase() || 'PDF'} · ${ebookFileStatus}` : `${categoryName} · ${subcategory}`}</span>
                         <span className="prod-card-mobile-code">{getProductCode(p)}</span>
                       </div>
                       <span className="prod-card-mobile-status" style={statusStyle}>{statusLabel}</span>
@@ -758,6 +776,8 @@ export const ProductsTab = () => {
                 {sortedProducts.map((p) => {
                   const { header, categoryName, subcategory } = getProductDetails(p);
                   const isEvenId = parseInt(p.id.replace(/\D/g, '') || '0') % 2 === 0;
+                  const isEbook = p.raw?.fulfillmentType === 'digital';
+                  const ebookFileStatus = p.raw?.digital?.file?.status === 'uploaded' ? 'PDF uploaded' : 'PDF missing';
 
                   return (
                     <tr key={p.id} className="prod-table-row">
@@ -842,8 +862,8 @@ export const ProductsTab = () => {
                           color: '#1e293b',
                           letterSpacing: '0.3px',
                           cursor: 'pointer'
-                        }} onClick={() => triggerToast(`${p.name} variant setup details: 1 Default Variant`)}>
-                          {isEvenId ? '2 VARIANTS' : '1 VARIANTS'}
+                        }} onClick={() => isEbook ? triggerToast(`${p.name}: ${ebookFileStatus}`) : triggerToast(`${p.name} variant setup details: 1 Default Variant`)}>
+                          {isEbook ? `E-BOOK · ${ebookFileStatus.toUpperCase()}` : isEvenId ? '2 VARIANTS' : '1 VARIANTS'}
                         </span>
                       </td>
 

@@ -238,7 +238,7 @@ export const ReturnsTab = () => {
                     {['REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED'].includes(detail.status) ? 'Refund breakdown' : 'Estimated refund'}: ₹{detail.refundEstimate.refundAmount}
                   </p>
                   <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--sa-text-muted)' }}>
-                    Item ₹{detail.refundEstimate.itemGrossAmount} − coupon ₹{detail.refundEstimate.allocatedCouponDiscount || 0} − CDS ₹{detail.refundEstimate.allocatedCdsDiscount || 0} − Coins ₹{detail.refundEstimate.allocatedCoinDiscount || 0}
+                    Item ₹{detail.refundEstimate.itemGrossAmount} − coupon ₹{detail.refundEstimate.allocatedCouponDiscount || 0} − previous order discount ₹{detail.refundEstimate.allocatedLegacyDiscount || 0} − Coins ₹{detail.refundEstimate.allocatedCoinDiscount || 0}
                     {detail.refundEstimate.allocatedCoinsCount > 0 ? ` (${detail.refundEstimate.allocatedCoinsCount} Coins to restore)` : ''}
                   </p>
                   {detail.refundEstimate.limitations?.map((l, idx) => (

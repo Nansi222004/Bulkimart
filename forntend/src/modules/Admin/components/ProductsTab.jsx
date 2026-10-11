@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { NhcSellerBadge } from './NhcSellerBadge';
 
 /**
  * Catalogue moderation — live from GET /api/admin/products.
@@ -15,6 +14,7 @@ import { NhcSellerBadge } from './NhcSellerBadge';
  * described a data model the backend never had.
  */
 const STATUS_TABS = [
+  { label: 'Pending review', value: 'pending' },
   { label: 'Live', value: 'approved' },
   { label: 'Taken down', value: 'rejected' },
   { label: 'All', value: 'all' },
@@ -120,13 +120,16 @@ export const ProductsTab = () => {
                   <span className="admin-item-label">Seller</span>
                   <span className="admin-item-value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span>{p.sellerName}</span>
-                    {p.isNhcSeller && <NhcSellerBadge style={{ fontSize: '9.5px', padding: '1px 5px' }} />}
                   </span>
                 </div>
                 <div className="admin-item-row">
                   <span className="admin-item-label">Storefront</span>
-                  <span className="admin-item-value">{CHANNEL_LABEL[p.channel] || p.channel}</span>
+                  <span className="admin-item-value">{p.fulfillmentType === 'digital' ? 'E-book · ' : ''}{CHANNEL_LABEL[p.channel] || p.channel}</span>
                 </div>
+                {p.fulfillmentType === 'digital' && <>
+                  <div className="admin-item-row"><span className="admin-item-label">Author</span><span className="admin-item-value">{p.digital?.author || '—'}</span></div>
+                  <div className="admin-item-row"><span className="admin-item-label">Language / file</span><span className="admin-item-value">{p.digital?.language || '—'} · {p.digital?.format?.toUpperCase() || 'PDF'} ({p.digital?.fileStatus || 'missing'})</span></div>
+                </>}
                 <div className="admin-item-row">
                   <span className="admin-item-label">Category</span>
                   <span className="admin-item-value">{p.category}</span>
@@ -144,12 +147,12 @@ export const ProductsTab = () => {
                   </span>
                 </div>
                 <div className="admin-item-row">
-                  <span className="admin-item-label">Stock</span>
+                  <span className="admin-item-label">{p.fulfillmentType === 'digital' ? 'Physical stock' : 'Stock'}</span>
                   <span
                     className="admin-item-value"
-                    style={p.stock === 0 ? { color: '#b91c1c', fontWeight: 800 } : undefined}
+                    style={p.fulfillmentType !== 'digital' && p.stock === 0 ? { color: '#b91c1c', fontWeight: 800 } : undefined}
                   >
-                    {p.stock === 0 ? 'Out of stock' : `${p.stock} ${p.unit || 'units'}`}
+                    {p.fulfillmentType === 'digital' ? 'Not applicable' : p.stock === 0 ? 'Out of stock' : `${p.stock} ${p.unit || 'units'}`}
                   </span>
                 </div>
                 {(p.isFeatured || p.isSponsored) && (
@@ -180,13 +183,13 @@ export const ProductsTab = () => {
                 >
                   {p.isFeatured ? 'Unfeature' : 'Feature'}
                 </button>
-                {p.status === 'rejected' ? (
+                {p.status === 'rejected' || p.status === 'pending' ? (
                   <button
                     className="admin-btn-sm details"
                     style={{ background: '#dcfce7', color: '#166534' }}
                     onClick={() => restoreProduct(p.id)}
                   >
-                    Restore
+                    {p.status === 'pending' ? 'Approve' : 'Restore'}
                   </button>
                 ) : (
                   <button
@@ -265,13 +268,13 @@ export const ProductsTab = () => {
               >
                 {selectedProduct.isSponsored ? 'Remove sponsorship' : 'Sponsor this listing'}
               </button>
-              {selectedProduct.status === 'rejected' ? (
+              {selectedProduct.status === 'rejected' || selectedProduct.status === 'pending' ? (
                 <button
                   className="admin-btn-sm details"
                   style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
                   onClick={() => restoreProduct(selectedProduct.id)}
                 >
-                  Put back on the storefront
+                  {selectedProduct.status === 'pending' ? 'Approve listing' : 'Put back on the storefront'}
                 </button>
               ) : (
                 <button

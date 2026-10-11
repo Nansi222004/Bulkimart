@@ -100,7 +100,7 @@ const run = async () => {
    Test accounts (OTP is always 1234 while OTP_MODE=mock)
    ──────────────────────────────────────────────────────
    9000000001  buyer
-   9000000002  buyer + CDS verified  → use to test the checkout discount
+   9000000002  buyer
    9000000005  buyer, DEACTIVATED    → expect 403
    9000000011  approved seller       (Joshi General Store)
    9000000013  PENDING seller        → use for the admin approval demo

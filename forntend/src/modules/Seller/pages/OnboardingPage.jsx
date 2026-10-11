@@ -32,6 +32,12 @@ const DocRow = ({ label, hint, docKey, file, onPick, onDelete, required }) => {
   );
 };
 
+const StepBack = ({ step, onNavigate }) => (
+  <button type="button" className="secondary-onboarding-btn" style={{ marginBottom: 14 }} onClick={() => onNavigate(step)}>
+    Back
+  </button>
+);
+
 export const OnboardingPage = ({ onSubmitted }) => {
   const {
     onboardingStep,
@@ -71,26 +77,10 @@ export const OnboardingPage = ({ onSubmitted }) => {
     setSelectedTypes,
     activeMode,
     setActiveMode,
-    isNscSeller,
-    setIsNscSeller,
-    nhcPlans,
-    nhcPlansLoading,
-    nhcPlansError,
-    fetchNhcPlans,
-    selectedNhcPlan,
-    setSelectedNhcPlan,
   } = useSeller();
+  const [declarationAccepted, setDeclarationAccepted] = useState(false);
 
-  const [showPlanConfirmModal, setShowPlanConfirmModal] = useState(false);
-
-  // Fetch NHC plans when seller reaches plan step or selects NHC seller type
-  useEffect(() => {
-    if (isNscSeller) {
-      fetchNhcPlans();
-    }
-  }, [isNscSeller, fetchNhcPlans]);
-
-  const totalSteps = isNscSeller ? 10 : 9;
+  const totalSteps = 9;
 
   return (
     <div className="seller-main-content">
@@ -113,76 +103,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
           </div>
         </div>
 
-        {/* SCREEN 1: INDIVIDUAL vs NHC ORGANISATION */}
+        {/* SCREEN 1: CHOOSE SALES CHANNELS */}
         {onboardingStep === 1 && (
-          <>
-            <h3 className="onboarding-title" style={{ textAlign: 'center', marginBottom: 6 }}>How Are You Selling?</h3>
-            <p className="onboarding-subtitle" style={{ textAlign: 'center', marginBottom: 24 }}>
-              This decides whether your store is grouped under NHC Stores for shoppers browsing that section.
-            </p>
-
-            <div className="seller-type-cards-grid" style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 28 }}>
-              {/* Option 1: Individual Seller */}
-              <div
-                className={`seller-type-option-card ${!isNscSeller ? 'selected' : ''}`}
-                onClick={() => setIsNscSeller(false)}
-                style={{
-                  padding: '16px 20px',
-                  borderRadius: 16,
-                  border: !isNscSeller ? '2.5px solid var(--primary)' : '1.5px solid #e2e8f0',
-                  backgroundColor: !isNscSeller ? 'var(--primary-light)' : '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 16,
-                  transition: 'all 0.2s ease-in-out'
-                }}
-              >
-                <div style={{ fontSize: 28 }}>🧑‍💼</div>
-                <div style={{ flex: 1 }}>
-                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: '800', color: '#0f172a' }}>Individual Seller</h4>
-                  <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>Selling on your own, as a proprietor or an independent shop.</p>
-                </div>
-                <div className="seller-card-check" style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: !isNscSeller ? 'var(--primary)' : '#fff', borderColor: !isNscSeller ? 'var(--primary)' : '#cbd5e1' }}>
-                  {!isNscSeller && <span style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>✓</span>}
-                </div>
-              </div>
-
-              {/* Option 2: NHC Organisation Seller */}
-              <div
-                className={`seller-type-option-card ${isNscSeller ? 'selected' : ''}`}
-                onClick={() => setIsNscSeller(true)}
-                style={{
-                  padding: '16px 20px',
-                  borderRadius: 16,
-                  border: isNscSeller ? '2.5px solid var(--primary)' : '1.5px solid #e2e8f0',
-                  backgroundColor: isNscSeller ? 'var(--primary-light)' : '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 16,
-                  transition: 'all 0.2s ease-in-out'
-                }}
-              >
-                <div style={{ fontSize: 28 }}>🏢</div>
-                <div style={{ flex: 1 }}>
-                  <h4 style={{ margin: 0, fontSize: 13, fontWeight: '800', color: '#0f172a' }}>NHC Organization Seller</h4>
-                  <p style={{ margin: '4px 0 0', fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>Selling on behalf of an NHC organisation — featured under NHC Stores for shoppers.</p>
-                </div>
-                <div className="seller-card-check" style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: isNscSeller ? 'var(--primary)' : '#fff', borderColor: isNscSeller ? 'var(--primary)' : '#cbd5e1' }}>
-                  {isNscSeller && <span style={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>✓</span>}
-                </div>
-              </div>
-            </div>
-
-            <button className="primary-onboarding-btn" onClick={() => setOnboardingStep(2)}>
-              Continue
-            </button>
-          </>
-        )}
-
-        {/* SCREEN 2: CHOOSE SALES CHANNELS */}
-        {onboardingStep === 2 && (
           <>
             <h3 className="onboarding-title" style={{ textAlign: 'center', marginBottom: 6 }}>Select Your Sales Channels</h3>
             <p className="onboarding-subtitle" style={{ textAlign: 'center', marginBottom: 24 }}>Choose how you want to deliver and sell your products on Bulkimart.</p>
@@ -276,20 +198,25 @@ export const OnboardingPage = ({ onSubmitted }) => {
               </div>
             </div>
 
-            <button className="primary-onboarding-btn" onClick={() => setOnboardingStep(3)}>
+            <button
+              className="primary-onboarding-btn"
+              onClick={() => setOnboardingStep(2)}
+              disabled={!selectedTypes.length || selectedTypes.some((type) => !['ecommerce', 'quick'].includes(type))}
+            >
               Continue to Registration
             </button>
           </>
         )}
 
-        {/* SCREEN 3: MOBILE VERIFICATION */}
-        {onboardingStep === 3 && (() => {
+        {/* SCREEN 2: MOBILE VERIFICATION */}
+        {onboardingStep === 2 && (() => {
           let signedInPhone = '';
           try { signedInPhone = JSON.parse(localStorage.getItem('userProfile') || '{}').phone || ''; } catch { /* ignore */ }
 
           if (signedInPhone) {
             return (
               <>
+                <StepBack step={1} onNavigate={setOnboardingStep} />
                 <h3 className="onboarding-title">Mobile Number Verified</h3>
                 <p className="onboarding-subtitle">
                   Your store will be registered against this number, and you will use it to sign in.
@@ -310,7 +237,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   </div>
                 </div>
 
-                <button className="primary-onboarding-btn" onClick={() => setOnboardingStep(4)}>
+                <button className="primary-onboarding-btn" onClick={() => setOnboardingStep(3)}>
                   Continue
                 </button>
               </>
@@ -319,6 +246,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
           return (
             <>
+              <StepBack step={1} onNavigate={setOnboardingStep} />
               <h3 className="onboarding-title">Verify Mobile Number</h3>
               <p className="onboarding-subtitle">
                 We will send a verification code to this number. You will use the same number to sign in later.
@@ -364,7 +292,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                     className="primary-onboarding-btn"
                     onClick={async () => {
                       const res = await verifyOtpAndLogin();
-                      if (res.ok) setOnboardingStep(4);
+                      if (res.ok) setOnboardingStep(3);
                     }}
                     disabled={otpCode.length < 4}
                   >
@@ -377,8 +305,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
         })()}
 
         {/* SCREEN 4: AADHAAR VERIFICATION */}
-        {onboardingStep === 4 && (
+        {onboardingStep === 3 && (
           <>
+            <StepBack step={2} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Identity Verification</h3>
             <p className="onboarding-subtitle">Please verify your Aadhaar card for KYC verification. Your business details are fully encrypted and secure.</p>
 
@@ -412,7 +341,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   </div>
                 </div>
 
-                <button className="primary-onboarding-btn" style={{ marginTop: 20 }} onClick={() => setOnboardingStep(5)}>
+                <button className="primary-onboarding-btn" style={{ marginTop: 20 }} onClick={() => setOnboardingStep(4)}>
                   Continue
                 </button>
               </>
@@ -421,22 +350,11 @@ export const OnboardingPage = ({ onSubmitted }) => {
         )}
 
         {/* SCREEN 5: BUSINESS / STORE DETAILS */}
-        {onboardingStep === 5 && (
+        {onboardingStep === 4 && (
           <>
+            <StepBack step={3} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Business Profile Details</h3>
-            <p className="onboarding-subtitle">Tell us about your store name and seller categorization.</p>
-
-            <div className="onboarding-form-group">
-              <label className="onboarding-label">Seller Classification</label>
-              <input 
-                type="text" 
-                className="onboarding-input" 
-                value={isNscSeller ? "NHC Organization Seller" : "General Vendor / Retailer"} 
-                readOnly 
-                disabled 
-                style={{ backgroundColor: '#f8fafc', color: '#334155', cursor: 'not-allowed', fontWeight: '600' }}
-              />
-            </div>
+            <p className="onboarding-subtitle">Tell us about your store.</p>
 
             <div className="onboarding-form-group">
               <label className="onboarding-label">Store Name</label>
@@ -461,8 +379,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button 
               className="primary-onboarding-btn" 
-              onClick={() => setOnboardingStep(6)}
-              disabled={!bizForm.storeName}
+              onClick={() => setOnboardingStep(5)}
+              disabled={!bizForm.storeName.trim()}
             >
               Continue
             </button>
@@ -470,8 +388,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
         )}
 
         {/* SCREEN 6: ADDRESS DETAILS */}
-        {onboardingStep === 6 && (
+        {onboardingStep === 5 && (
           <>
+            <StepBack step={4} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Where Is Your Store?</h3>
             <p className="onboarding-subtitle">
               Standing at your shop? Tap the button and we will fill this in. Quick
@@ -512,7 +431,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button
               className="primary-onboarding-btn"
-              onClick={() => setOnboardingStep(7)}
+              onClick={() => setOnboardingStep(6)}
               disabled={
                 !(addressForm.lat !== undefined && addressForm.lng !== undefined) &&
                 !(addressForm.street && /^\d{6}$/.test(addressForm.pincode || ''))
@@ -524,8 +443,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
         )}
 
         {/* SCREEN 7: BANK DETAILS */}
-        {onboardingStep === 7 && (
+        {onboardingStep === 6 && (
           <>
+            <StepBack step={5} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Bank Credentials</h3>
             <p className="onboarding-subtitle">Provide details where weekly sales balance transfers will occur.</p>
 
@@ -576,8 +496,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button 
               className="primary-onboarding-btn" 
-              onClick={() => setOnboardingStep(8)}
-              disabled={!bankForm.holderName || !bankForm.accountNumber || !bankForm.ifscCode}
+              onClick={() => setOnboardingStep(7)}
+              disabled={!bankForm.holderName.trim() || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()}
             >
               Continue
             </button>
@@ -585,8 +505,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
         )}
 
         {/* SCREEN 8: DOCUMENT SCANS */}
-        {onboardingStep === 8 && (
+        {onboardingStep === 7 && (
           <>
+            <StepBack step={6} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Upload KYC Documents</h3>
             <p className="onboarding-subtitle">Attach clear scans or photos. JPG, PNG, WEBP or PDF, up to 5 MB each.</p>
 
@@ -619,10 +540,10 @@ export const OnboardingPage = ({ onSubmitted }) => {
             <button
               className="primary-onboarding-btn"
               style={{ marginTop: 24 }}
-              onClick={() => setOnboardingStep(isNscSeller ? 9 : 9)}
+              onClick={() => setOnboardingStep(8)}
               disabled={!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10}
             >
-              {isNscSeller ? 'Continue to NHC Plan Selection' : 'Continue to Review'}
+              Continue to Review
             </button>
             {(!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10) && (
               <p style={{ fontSize: 11, opacity: 0.6, textAlign: 'center', marginTop: 8 }}>
@@ -632,207 +553,19 @@ export const OnboardingPage = ({ onSubmitted }) => {
           </>
         )}
 
-        {/* SCREEN 9 (NHC BRANCH): NHC SELLER PLAN SELECTION */}
-        {isNscSeller && onboardingStep === 9 && (
+
+        {/* SCREEN REVIEW & SUBMIT SUMMARY */}
+        {onboardingStep === 8 && (
           <>
-            <h3 className="onboarding-title" style={{ textAlign: 'center', marginBottom: 6 }}>Choose Your NHC Seller Plan</h3>
-            <p className="onboarding-subtitle" style={{ textAlign: 'center', marginBottom: 24 }}>
-              Select an NHC seller membership tier configured by NHC Administration.
-            </p>
-
-            {nhcPlansLoading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-                Loading active NHC seller plans...
-              </div>
-            ) : nhcPlansError ? (
-              <div style={{ padding: 16, borderRadius: 12, backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', textAlign: 'center', marginBottom: 20 }}>
-                {nhcPlansError}
-              </div>
-            ) : nhcPlans.length === 0 ? (
-              <div style={{ padding: 32, borderRadius: 16, backgroundColor: '#f8fafc', border: '1.5px dashed #cbd5e1', textAlign: 'center', marginBottom: 24 }}>
-                <h4 style={{ margin: '0 0 8px', fontSize: 15, color: '#334155' }}>NHC seller plans are currently unavailable.</h4>
-                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Please contact NHC administration.</p>
-              </div>
-            ) : (
-              <div className="nhc-plans-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, marginBottom: 28 }}>
-                {nhcPlans.map((plan) => {
-                  const isSelected = selectedNhcPlan?.id === plan.id || selectedNhcPlan?._id === plan._id;
-                  const formattedAmount = Number(plan.amount).toLocaleString('en-IN');
-                  return (
-                    <div
-                      key={plan.id || plan._id}
-                      className={`nhc-plan-card ${isSelected ? 'selected' : ''}`}
-                      onClick={() => setSelectedNhcPlan(plan)}
-                      style={{
-                        padding: '24px 20px',
-                        borderRadius: 18,
-                        border: isSelected ? '2.5px solid var(--primary, #15803d)' : '1.5px solid #e2e8f0',
-                        backgroundColor: isSelected ? 'var(--primary-light, rgba(21,128,61,0.06))' : '#fff',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justify: 'space-between',
-                        boxShadow: isSelected ? '0 10px 25px -5px rgba(21,128,61,0.2)' : '0 4px 12px rgba(0,0,0,0.03)',
-                        transition: 'all 0.2s ease-in-out',
-                        position: 'relative'
-                      }}
-                    >
-                      {isSelected && (
-                        <div style={{ position: 'absolute', top: 14, right: 14, backgroundColor: 'var(--primary, #15803d)', color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 12 }}>
-                          SELECTED ✓
-                        </div>
-                      )}
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--primary, #15803d)', letterSpacing: 0.8, marginBottom: 4 }}>
-                          {plan.planType || 'NHC PLAN'}
-                        </div>
-                        <h4 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-                          {plan.name}
-                        </h4>
-                        <div style={{ fontSize: 26, fontWeight: 900, color: '#0f172a', marginBottom: 12 }}>
-                          ₹{formattedAmount}
-                          <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginLeft: 4 }}>
-                            {plan.currency || 'INR'}
-                          </span>
-                        </div>
-                        {plan.description && (
-                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                            {plan.description}
-                          </p>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        style={{
-                          marginTop: 20,
-                          padding: '10px 16px',
-                          borderRadius: 10,
-                          border: 'none',
-                          backgroundColor: isSelected ? 'var(--primary, #15803d)' : '#f1f5f9',
-                          color: isSelected ? '#fff' : '#334155',
-                          fontWeight: 700,
-                          fontSize: 12,
-                          cursor: 'pointer',
-                          width: '100%'
-                        }}
-                      >
-                        {isSelected ? 'Selected' : `Select ${plan.name}`}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <button
-              className="primary-onboarding-btn"
-              disabled={!selectedNhcPlan || nhcPlans.length === 0}
-              onClick={() => setShowPlanConfirmModal(true)}
-            >
-              Continue to Review
-            </button>
-
-            {/* CONFIRMATION MODAL */}
-            {showPlanConfirmModal && selectedNhcPlan && (
-              <div style={{
-                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20
-              }}>
-                <div style={{
-                  backgroundColor: '#fff', borderRadius: 20, padding: 28, maxWidth: 420, width: '100%',
-                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0', textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-                  <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-                    Confirm Plan Selection
-                  </h3>
-                  <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748b' }}>
-                    You have selected:
-                  </p>
-
-                  <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: 14, border: '1px solid #e2e8f0', marginBottom: 24, textAlign: 'left' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>Selected Plan:</span>
-                      <strong style={{ fontSize: 12, color: '#0f172a' }}>{selectedNhcPlan.name}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>Plan Amount:</span>
-                      <strong style={{ fontSize: 14, color: 'var(--primary, #15803d)' }}>
-                        ₹{Number(selectedNhcPlan.amount).toLocaleString('en-IN')}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 24 }}>
-                    Do you want to continue with this selection?
-                  </p>
-
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <button
-                      style={{
-                        flex: 1, padding: '12px 16px', borderRadius: 10, border: '1px solid #cbd5e1',
-                        backgroundColor: '#fff', color: '#475569', fontWeight: 700, fontSize: 12, cursor: 'pointer'
-                      }}
-                      onClick={() => setShowPlanConfirmModal(false)}
-                    >
-                      Change Plan
-                    </button>
-                    <button
-                      style={{
-                        flex: 1, padding: '12px 16px', borderRadius: 10, border: 'none',
-                        backgroundColor: 'var(--primary, #15803d)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer'
-                      }}
-                      onClick={() => {
-                        setShowPlanConfirmModal(false);
-                        setOnboardingStep(10);
-                      }}
-                    >
-                      Yes, Continue
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* SCREEN REVIEW & SUBMIT SUMMARY (Step 10 for NHC, Step 9 for Individual) */}
-        {((isNscSeller && onboardingStep === 10) || (!isNscSeller && onboardingStep === 9)) && (
-          <>
+            <StepBack step={7} onNavigate={setOnboardingStep} />
             <h3 className="onboarding-title">Review & Submit Summary</h3>
             <p className="onboarding-subtitle">Double-check your credentials before submitting for KYC check.</p>
-
-            {/* NHC Plan Summary (If NHC Seller) */}
-            {isNscSeller && selectedNhcPlan && (
-              <div className="review-summary-card" style={{ border: '2px solid var(--primary, #15803d)', backgroundColor: 'var(--primary-light, rgba(21,128,61,0.05))' }}>
-                <div className="review-card-header">
-                  <h4 className="review-card-title" style={{ color: 'var(--primary, #15803d)' }}>Selected NHC Seller Plan</h4>
-                  <button className="review-edit-btn" onClick={() => setOnboardingStep(9)}>Edit Plan</button>
-                </div>
-                <div className="review-item-row">
-                  <span className="review-item-key">Plan Name</span>
-                  <span className="review-item-val" style={{ fontWeight: 800 }}>{selectedNhcPlan.name}</span>
-                </div>
-                <div className="review-item-row">
-                  <span className="review-item-key">Plan Amount</span>
-                  <span className="review-item-val" style={{ fontWeight: 900, color: 'var(--primary, #15803d)', fontSize: 14 }}>
-                    ₹{Number(selectedNhcPlan.amount).toLocaleString('en-IN')}
-                  </span>
-                </div>
-              </div>
-            )}
 
             {/* Business Profile Summary */}
             <div className="review-summary-card">
               <div className="review-card-header">
                 <h4 className="review-card-title">Business Information</h4>
-                <button className="review-edit-btn" onClick={() => setOnboardingStep(5)}>Edit</button>
-              </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Seller Type</span>
-                <span className="review-item-val">{isNscSeller ? 'NHC Organization' : 'Individual Seller'}</span>
+                  <button className="review-edit-btn" onClick={() => setOnboardingStep(4)}>Edit</button>
               </div>
               <div className="review-item-row">
                 <span className="review-item-key">Store Name</span>
@@ -852,7 +585,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
             <div className="review-summary-card">
               <div className="review-card-header">
                 <h4 className="review-card-title">Bank Details</h4>
-                <button className="review-edit-btn" onClick={() => setOnboardingStep(7)}>Edit</button>
+                <button className="review-edit-btn" onClick={() => setOnboardingStep(6)}>Edit</button>
               </div>
               <div className="review-item-row">
                 <span className="review-item-key">Bank Name</span>
@@ -866,7 +599,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             {/* Declaration Checkbox */}
             <label className="onboarding-label" style={{ display: 'flex', gap: 8, fontSize: 11, cursor: 'pointer', margin: '20px 0' }}>
-              <input type="checkbox" defaultChecked />
+              <input type="checkbox" checked={declarationAccepted} onChange={(event) => setDeclarationAccepted(event.target.checked)} />
               <span>I confirm that the information provided is correct.</span>
             </label>
 
@@ -879,11 +612,11 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button
               className="primary-onboarding-btn"
-              disabled={submitting}
+              disabled={submitting || !declarationAccepted}
               onClick={async () => {
                 const res = await submitSellerApplication();
                 if (res.ok) {
-                  setOnboardingStep(isNscSeller ? 11 : 10);
+                  setOnboardingStep(9);
                   onSubmitted?.();
                 }
               }}
@@ -893,8 +626,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
           </>
         )}
 
-        {/* SCREEN APPLICATION SUBMITTED STATUS (Step 11 for NHC, Step 10 for Individual) */}
-        {((isNscSeller && onboardingStep === 11) || (!isNscSeller && onboardingStep === 10)) && (
+        {/* SCREEN APPLICATION SUBMITTED STATUS */}
+        {onboardingStep === 9 && (
           <>
             <div className="onboarding-status-box">
               <div className="status-icon-circle review">⏱</div>
@@ -903,23 +636,6 @@ export const OnboardingPage = ({ onSubmitted }) => {
             </div>
 
             <div className="review-summary-card">
-              {/* NHC Plan Snapshot display */}
-              {(submittedSeller?.nhcPlan || selectedNhcPlan) && (
-                <>
-                  <div className="review-item-row">
-                    <span className="review-item-key">Selected Plan</span>
-                    <span className="review-item-val" style={{ fontWeight: 800 }}>
-                      {submittedSeller?.nhcPlan?.planName || selectedNhcPlan?.name}
-                    </span>
-                  </div>
-                  <div className="review-item-row">
-                    <span className="review-item-key">Plan Amount</span>
-                    <span className="review-item-val" style={{ fontWeight: 800, color: 'var(--primary, #15803d)' }}>
-                      ₹{Number(submittedSeller?.nhcPlan?.planAmount || selectedNhcPlan?.amount).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </>
-              )}
               <div className="review-item-row">
                 <span className="review-item-key">Store Name</span>
                 <span className="review-item-val">{submittedSeller?.storeDetails?.name || bizForm.storeName}</span>

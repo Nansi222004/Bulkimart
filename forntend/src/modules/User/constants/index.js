@@ -82,6 +82,14 @@ export const QUICK_ACTIONS = [
     icon: 'ticket',
     color: '#fff3e5',
     iconColor: '#ff8500'
+  },
+  {
+    id: 'wholesale',
+    title: 'Wholesale',
+    subtitle: 'Bulk quantities',
+    icon: 'bulk',
+    color: '#eaf9fe',
+    iconColor: '#078ccb'
   }
 ];
 

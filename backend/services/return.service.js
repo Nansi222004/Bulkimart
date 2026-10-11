@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Return from '../models/Return.js';
 import Payment from '../models/Payment.js';
-import Product from '../models/Product.js';
 import { httpError } from '../utils/response.js';
 import {
   ORDER_STATUS, RETURN_STATUS, RETURN_QUANTITY_RELEASING_STATUSES,
@@ -14,6 +13,7 @@ import * as phonepeService from './phonepe.service.js';
 import { refundToWallet } from './wallet.service.js';
 import { WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { notifyUser, notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
+import { mutateInventory } from './inventory.service.js';
 
 /**
  * The real, item-level Return backend (Phase 4). `order.controller.js
@@ -168,6 +168,7 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
         sellerId: item.sellerId,
         shgStoreId: item.shgStoreId,
         productId: item.productId,
+        variantId: item.variantId,
         productName: item.name,
         productImage: item.image,
         unitPriceSnapshot: item.price,
@@ -272,11 +273,7 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
         // `restockStatus`: a duplicate/retried request can never restock twice.
         if (ret.restockStatus === RESTOCK_STATUS.NOT_PROCESSED) {
           if (ret.restockDecision === RESTOCK_DECISION.RESTOCKABLE) {
-            await Product.updateOne(
-              { _id: ret.productId },
-              { $inc: { stock: ret.quantity } },
-              { session }
-            );
+            await mutateInventory({ productId: ret.productId, variantId: ret.variantId, quantity: ret.quantity, session, restore: true });
             ret.restockStatus = RESTOCK_STATUS.RESTOCKED;
           } else if (ret.restockDecision === RESTOCK_DECISION.NON_RESTOCKABLE) {
             ret.restockStatus = RESTOCK_STATUS.NOT_RESTOCKED;
@@ -338,7 +335,7 @@ const adminComment = (c) => typeof c === 'string' && c.trim().length > 0;
  *
  * Allocation rule (Phase 6B): this codebase has no per-item discount
  * allocation anywhere (confirmed by inspection — `Order.pricing` records
- * coupon/CDS/Coins discount at the ORDER level only). Per the phase's own
+ * coupon/Coins discount at the ORDER level only). Per the phase's own
  * "establish a deterministic proportional allocation rule based on actual
  * eligible item values" instruction, each returned line's share of every
  * order-level discount is proportional to its own gross value against the
@@ -347,8 +344,8 @@ const adminComment = (c) => typeof c === 'string' && c.trim().length > 0;
  *   shareOfOrder = (unitPrice × returnedQty) / sum(unitPrice × qty for every item)
  *   allocatedX   = round2(shareOfOrder × order.pricing.X)
  *
- * Applied identically to couponDiscount, cdsDiscount, and coinDiscount (the
- * three order-level monetary discounts that exist). Coins are additionally
+ * Historical CDS discounts are retained as a legacy order discount so old
+ * returns preserve the paid amount. Coins are additionally
  * translated back into a whole-Coin count (`allocatedCoinsCount`) for
  * `coin.service.js::refundRedeemedCoins`, since Coins are an integer
  * currency, not a rupee figure.
@@ -371,11 +368,11 @@ export const calculateReturnRefund = (returnDoc, order) => {
   const shareOfOrder = orderSubtotal > 0 ? itemGrossAmount / orderSubtotal : 0;
 
   const allocatedCouponDiscount = round2(shareOfOrder * (pricing.couponDiscount || 0));
-  const allocatedCdsDiscount    = round2(shareOfOrder * (pricing.cdsDiscount || 0));
+  const allocatedLegacyDiscount = round2(shareOfOrder * (pricing.cdsDiscount || 0));
   const allocatedCoinDiscount   = round2(shareOfOrder * (pricing.coinDiscount || 0));
   const allocatedCoinsCount     = Math.round(shareOfOrder * (pricing.coinsUsed || 0));
 
-  const refundAmount = Math.max(0, round2(itemGrossAmount - allocatedCouponDiscount - allocatedCdsDiscount - allocatedCoinDiscount));
+  const refundAmount = Math.max(0, round2(itemGrossAmount - allocatedCouponDiscount - allocatedLegacyDiscount - allocatedCoinDiscount));
 
   const limitations = [
     'Delivery charge is not refunded — treated as a rendered service, independent of which item is later returned; no partial-delivery-refund rule exists in this codebase.',
@@ -383,7 +380,7 @@ export const calculateReturnRefund = (returnDoc, order) => {
   ];
   if (orderSubtotal <= 0) limitations.push('Order subtotal could not be computed from item data — discount allocation defaulted to 0.');
 
-  return { itemGrossAmount, allocatedCouponDiscount, allocatedCdsDiscount, allocatedCoinDiscount, allocatedCoinsCount, refundAmount, limitations };
+  return { itemGrossAmount, allocatedCouponDiscount, allocatedLegacyDiscount, allocatedCoinDiscount, allocatedCoinsCount, refundAmount, limitations };
 };
 
 /* ============================================================================

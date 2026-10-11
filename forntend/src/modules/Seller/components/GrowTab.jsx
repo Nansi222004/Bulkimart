@@ -7,13 +7,12 @@ export const GrowTab = () => {
     setActiveGrowTab,
     campaigns,
     handleStartCampaign,
-    triggerToast
   } = useSeller();
 
   return (
     <>
       <div className="seller-scroll-tabs">
-        {['Overview', 'Promote', 'Client Brand'].map(gTab => (
+        {['Overview', 'Promote'].map(gTab => (
           <button 
             key={gTab}
             className={`seller-tab-btn ${activeGrowTab === gTab ? 'active' : ''}`}
@@ -42,13 +41,6 @@ export const GrowTab = () => {
             </div>
           </div>
 
-          <div className="onboarding-pitch-row">
-            <div className="onboarding-pitch-icon">🏷</div>
-            <div className="onboarding-pitch-text">
-              <h4>Client Brand Support</h4>
-              <p>Collaborate to sell under popular regional client brands.</p>
-            </div>
-          </div>
         </div>
       )}
 
@@ -72,30 +64,6 @@ export const GrowTab = () => {
         </div>
       )}
 
-      {activeGrowTab === 'Client Brand' && (
-        <div style={{ padding: 16 }}>
-          <h4 className="onboarding-title" style={{ fontSize: 14 }}>Co-Branded Retail Program</h4>
-          <p className="onboarding-subtitle">Submit packaging design verification requests to list under major verified retail brands.</p>
-
-          <div className="onboarding-form-group">
-            <label className="onboarding-label">Select Brand Partner</label>
-            <select className="onboarding-select">
-              <option>Patanjali Co-op Brand</option>
-              <option>Organica Green Fields</option>
-              <option>Nirbhaya Women Handlooms</option>
-            </select>
-          </div>
-
-          <div className="onboarding-form-group">
-            <label className="onboarding-label">Commercial Percentage Share</label>
-            <input type="text" className="onboarding-input" value="Standard 10% Platform commission" readOnly />
-          </div>
-
-          <button className="primary-onboarding-btn" onClick={() => triggerToast('Co-branding request submitted to partners!')}>
-            Submit Packaging Request
-          </button>
-        </div>
-      )}
     </>
   );
 };

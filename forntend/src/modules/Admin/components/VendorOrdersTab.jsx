@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
-import { NhcSellerBadge, sortNhcSellersFirst } from './NhcSellerBadge';
 
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -107,7 +106,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
           </div>
           <p style={{ margin: '6px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
             {mode === 'active'
-              ? 'Real-time order flow across all registered vendor stores, dark stores, and NHC partner outlets.'
+              ? 'Real-time order flow across all registered vendor stores and dark stores.'
               : 'Complete historical log of fulfilled, delivered, cancelled, and refunded vendor orders.'}
           </p>
         </div>
@@ -215,15 +214,14 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                 </tr>
               </thead>
               <tbody>
-                {sortNhcSellersFirst(orders).map((o) => {
+                {orders.map((o) => {
                   const bStyle = getStatusBadgeStyle(o.status);
                   return (
                     <tr
                       key={o._id}
                       style={{
                         borderBottom: '1px solid #f1f5f9',
-                        backgroundColor: o.isNhcSellerOrder ? '#fffdf5' : undefined,
-                        borderLeft: o.isNhcSellerOrder ? '4px solid #fde68a' : '4px solid transparent',
+                        borderLeft: '4px solid transparent',
                       }}
                     >
                       <td style={{ padding: '14px 16px', fontWeight: '800', fontFamily: 'monospace', color: '#1e293b' }}>
@@ -232,7 +230,6 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: '700', color: '#0f172a' }}>{o.storeNames}</span>
-                          {o.isNhcSellerOrder && <NhcSellerBadge style={{ fontSize: '9.5px', padding: '1px 5px' }} />}
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
@@ -330,7 +327,6 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                   <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
                     Order {selectedOrder.orderNo}
                   </h3>
-                  {selectedOrder.isNhcSellerOrder && <NhcSellerBadge />}
                 </div>
                 <span style={{ fontSize: '12px', color: '#64748b' }}>Placed on {fmtDate(selectedOrder.createdAt)}</span>
               </div>

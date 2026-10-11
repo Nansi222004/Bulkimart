@@ -36,15 +36,4 @@ export const banners = [
     startDate: new Date('2026-08-01'),
     endDate: new Date('2026-12-31'),
   },
-  {
-    _id: ID.banner(4),
-    title: 'CDS members get 5% off every order',
-    image: img('CDS Membership Offer', 1200, 400),
-    targetRoute: '/profile/cds',
-    type: 'general',
-    isActive: true,
-    priority: 7,
-    startDate: new Date('2026-08-01'),
-    endDate: new Date('2026-12-31'),
-  },
 ];

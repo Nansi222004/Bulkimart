@@ -158,9 +158,6 @@ export const TopHeader = ({ onLogout }) => {
           { id: 'overview', label: '📊 Platform Overview' },
           { id: 'users', label: '👤 Consumer Users' },
           { id: 'sellers', label: '🏬 General Vendors' },
-          { id: 'nhc-applications', label: '⭐ NHC Management' },
-          { id: 'shg-vendors', label: '🌸 SHG Cooperatives' },
-          { id: 'subscriptions', label: '📅 Subscriptions' },
           { id: 'delivery-partners', label: '🛵 Delivery Fleet' }
         ].map(tab => {
           let isActive = activeTab === tab.id;
@@ -170,12 +167,6 @@ export const TopHeader = ({ onLogout }) => {
             isActive = activeTab === 'user-dashboard' || activeTab.startsWith('users-') || activeTab === 'user-activity' || activeTab === 'user-orders' || activeTab === 'user-subscriptions' || activeTab === 'user-reviews';
           } else if (tab.id === 'sellers') {
             isActive = activeTab === 'vendor-dashboard' || activeTab.startsWith('vendors-') || activeTab.startsWith('stores-') || activeTab.startsWith('vendor-');
-          } else if (tab.id === 'nhc-applications') {
-            isActive = activeTab === 'nhc-applications' || activeTab === 'nhc-plans' || activeTab.startsWith('nhc-');
-          } else if (tab.id === 'shg-vendors') {
-            isActive = activeTab === 'shg-dashboard' || activeTab.startsWith('shg-');
-          } else if (tab.id === 'subscriptions') {
-            isActive = activeTab === 'sub-dashboard' || activeTab === 'premium-plans' || activeTab.startsWith('subscriptions-') || activeTab.startsWith('sub-');
           } else if (tab.id === 'delivery-partners') {
             isActive = activeTab === 'delivery-dashboard' || activeTab.startsWith('delivery-') || activeTab.startsWith('rider-');
           }

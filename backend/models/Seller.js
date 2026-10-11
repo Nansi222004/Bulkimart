@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { CHANNEL } from "../constants/enums.js";
+import { CHANNEL, SELLER_SALES_CHANNELS, WHOLESALE_REQUEST_STATUSES } from "../constants/enums.js";
 import { RADIUS_HARD_SAFETY_CEILING_KM } from "./RadiusSetting.js";
 import geoPointSchema from "./geoPoint.schema.js";
 
@@ -97,11 +97,9 @@ const sellerSchema = new Schema(
     userId:         { type: ObjectId, ref: "User", required: true, unique: true },
     onboardingStep: { type: Number, default: 0 }, // 0-4 in-progress, 5=submitted
 
-    // Step 0 — chosen before any business details, on the very first onboarding
-    // screen: is this an individual seller or an NSC/NSG organisation? Drives
-    // the "NSG Stores" storefront filter — a customer tapping that quick action
-    // sees products only from sellers with this set, nothing else about how the
-    // account is treated changes.
+    // Historical organization-seller marker. Retained for existing seller
+    // records; registration, authorization, and storefront discovery no longer
+    // use this field. Remove only through a separately reviewed data migration.
     isNscSeller: { type: Boolean, default: false, index: true },
 
     // Step 1 — Business Info
@@ -162,7 +160,7 @@ const sellerSchema = new Schema(
     tradeLicense: String,
     documents: [sellerDocumentSchema],
 
-    // NHC Plan Snapshot (Captured at plan selection time for NHC Organisation Sellers)
+    // Historical organization-plan snapshot; retained for existing records only.
     nhcPlan: {
       planId:      { type: ObjectId, ref: "NHCPlan" },
       planType:    { type: String }, // e.g. 'UNIT_SELLER' | 'BLOCK_SELLER'
@@ -191,8 +189,24 @@ const sellerSchema = new Schema(
     // Stored as the database channel values; the panel labels 'grocery' as "Quick".
     salesChannels: {
       type: [String],
-      enum: [CHANNEL.ECOM, CHANNEL.GROCERY],
+      enum: SELLER_SALES_CHANNELS,
       default: [CHANNEL.ECOM],
+    },
+
+    // A seller cannot activate Wholesale by submitting salesChannels. The
+    // seller requests it, and an administrator changes this status; approval
+    // then adds WHOLESALE_CHANNEL to salesChannels. Undefined on older seller
+    // documents is treated as not_requested without a data migration.
+    wholesaleChannel: {
+      type: new Schema({
+        status: { type: String, enum: WHOLESALE_REQUEST_STATUSES, default: 'not_requested' },
+        requestedAt: Date,
+        decidedAt: Date,
+        decidedBy: { type: ObjectId, ref: 'Admin' },
+        rejectionReason: { type: String, maxlength: 500 },
+        suspensionReason: { type: String, maxlength: 500 },
+      }, { _id: false }),
+      default: undefined,
     },
 
     // Same-Day operating rules. Absent = this shop does not offer it.

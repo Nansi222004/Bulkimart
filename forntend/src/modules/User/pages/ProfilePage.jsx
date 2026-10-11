@@ -26,7 +26,6 @@ const ProfilePage = () => {
     deleteAddress,
     setSelectedAddressId,
     selectedAddressId,
-    verifyCDS,
     uploadLandmarkImage,
     fetchWalletBalance,
     donationPref,
@@ -221,10 +220,6 @@ const ProfilePage = () => {
     setProfileMsg('Avatar updated successfully!');
   };
 
-  // CDS verification states
-  const [cdsNoInput, setCdsNoInput] = useState('');
-  const [isVerifyingCDS, setIsVerifyingCDS] = useState(false);
-  const [cdsError, setCdsError] = useState('');
 
   // Address creation states
   const [isAddingAddress, setIsAddingAddress] = useState(false);
@@ -555,28 +550,6 @@ const ProfilePage = () => {
     }, 800);
   };
 
-  // Handle CDS verification
-  const handleCDSVerify = async (e) => {
-    e.preventDefault();
-    if (!cdsNoInput.trim()) {
-      setCdsError('Please enter a CDS Card number');
-      return;
-    }
-
-    setIsVerifyingCDS(true);
-    setCdsError('');
-
-    try {
-      const res = await verifyCDS(cdsNoInput.trim());
-      setIsVerifyingCDS(false);
-      if (res.success) {
-        setCdsNoInput('');
-      }
-    } catch (err) {
-      setIsVerifyingCDS(false);
-      setCdsError(err.message || 'Invalid CDS Card number. Must start with "CDS".');
-    }
-  };
 
   // Handle Adding Address
   const handleAddAddressSubmit = (e) => {
@@ -800,7 +773,6 @@ const ProfilePage = () => {
         onClick={() => {
           setActiveSection(null);
           setProfileMsg('');
-          setCdsError('');
           setSupportJustCreated(null);
         }}
         style={{

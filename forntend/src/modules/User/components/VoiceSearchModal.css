@@ -106,7 +106,7 @@
 }
 
 .voice-ripple-ring.outer {
-  background: rgba(8, 185, 232, 0.15);
+  background: var(--focus-ring);
 }
 
 .voice-mic-btn {
@@ -131,8 +131,8 @@
 }
 
 .voice-mic-btn.listening {
-  background: linear-gradient(135deg, #08B9E8 0%, #078CCB 100%);
-  box-shadow: 0 8px 24px rgba(8, 185, 232, 0.4);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  box-shadow: 0 8px 24px var(--focus-ring);
 }
 
 .voice-transcript-box {

@@ -15,8 +15,6 @@ import { riderPayout } from './riderPay.service.js';
  * Order of operations:
  *   subtotal
  *   − coupon discount        (on the items the coupon actually covers)
- *   − CDS member discount    (on what is left, so the two never compound
- *                             into more than the cart is worth)
  *   + delivery               (waived only by a free-shipping coupon, or an
  *                             empty cart — there is no spend threshold that
  *                             waives it on its own)
@@ -29,14 +27,13 @@ import { riderPayout } from './riderPay.service.js';
  *   - distanceKm absent → the flat admin-configured fallback (see
  *     services/deliveryCharge.service.js) — used when there's no address yet,
  *     or the delivery has no rider leg to price (an external courier order).
- * The CDS percentage is still read from env (CDS_DISCOUNT_PERCENT).
  */
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
  * @param {Array}  items       [{ price, qty, type }]
- * @param {object} user        needs isCDSVerified
+ * @param {object} user        retained for caller compatibility
  * @param {object} applied     result of coupon.service evaluateCoupon(), optional
  * @param {object} sameDay     the Same-Day verdict, when chosen and available
  * @param {number} [distanceKm] shop → customer, when a caller has one to give —
@@ -64,10 +61,8 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // a priced order never has to change when they arrive.
   const discount = 0;
 
-  // ---- CDS member discount -------------------------------------------------
-  const cdsPercent = Number(process.env.CDS_DISCOUNT_PERCENT || 5);
-  const afterCoupon = round2(Math.max(subtotal - couponDiscount - discount, 0));
-  const cdsDiscount = user?.isCDSVerified ? round2((afterCoupon * cdsPercent) / 100) : 0;
+  // Retain a zero-valued legacy field for older cart/order readers.
+  const cdsDiscount = 0;
 
   // ---- delivery ------------------------------------------------------------
   // No spend threshold waives this — every order pays a real charge. The
@@ -133,7 +128,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // ---- rider tip ------------------------------------------------------------
   // Server-validated against the fixed ladder by tip.service.js's resolveTip
   // before it reaches here. Additive in exactly the way the donation above is:
-  // it is charged on top, and no coupon, CDS discount or free-shipping waiver
+  // it is charged on top, and no coupon or free-shipping waiver
   // touches it. It is NOT part of deliveryCharge — the delivery charge is what
   // the platform bills for carrying the parcel, the tip is the customer's own
   // money for the rider, and folding the two together would make it impossible
@@ -173,8 +168,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
     sameDayIncentive,
 
     // surfaced so the UI can explain the numbers instead of hardcoding them
-    cdsPercent,
-    totalSavings: round2(couponDiscount + cdsDiscount + discount),
+    totalSavings: round2(couponDiscount + discount),
   };
 };
 

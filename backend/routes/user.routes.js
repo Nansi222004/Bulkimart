@@ -9,7 +9,6 @@ import {
   setDefaultAddress,
   uploadLandmarkImage,
   getWallet,
-  verifyCDS,
   updateFCMToken
 } from '../controllers/user.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
@@ -40,7 +39,6 @@ import { getDonationPreference, updateDonationPreference } from '../controllers/
 router.get('/wallet', getWallet);
 router.get('/donation-preference', getDonationPreference);
 router.patch('/donation-preference', updateDonationPreference);
-router.post('/cds/verify', verifyCDS);
 router.put('/fcm-token', updateFCMToken);
 
 export default router;

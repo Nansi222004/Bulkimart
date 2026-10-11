@@ -1,14 +1,10 @@
 import express from 'express';
 import {
-  createSubscription,
   getMySubscriptions,
   getSubscriptionById,
   getSubscriptionsForSeller,
   getSubscriptionForSeller,
-  getSubscriptionsForShgStore,
-  getSubscriptionForShgStore,
   updateSubscriptionStatus,
-  calculateSubscriptionBasket,
   sellerAcceptSubscription,
   sellerDeclineSubscription,
   packSubscriptionDelivery,
@@ -21,16 +17,13 @@ const router = express.Router();
 // reads, which return an address and a payment.
 router.use(protect);
 
-router.post('/basket', calculateSubscriptionBasket);
+// New subscription creation has been retired. GET remains for historical
+// customer records; the remaining seller actions support already-created
+// subscriptions that still need to be fulfilled.
+router.get('/', getMySubscriptions);
 
-router.route('/')
-  .post(createSubscription)
-  .get(getMySubscriptions);
-
-// Registered before "/:id" — Express matches routes in registration order,
-// and "/:id" would otherwise swallow "/seller"/"/shg" as if they were ids.
+// Registered before "/:id" so the seller list path is explicit and readable.
 router.get('/seller', getSubscriptionsForSeller);
-router.get('/shg', getSubscriptionsForShgStore);
 
 router.get('/:id', getSubscriptionById);
 router.patch('/:id/status', updateSubscriptionStatus);
@@ -47,7 +40,6 @@ router.patch('/:id/status', updateSubscriptionStatus);
  * panel loads its own list.
  */
 router.get('/:id/seller-view', getSubscriptionForSeller);
-router.get('/:id/shg-view', getSubscriptionForShgStore);
 router.post('/:id/seller-accept', sellerAcceptSubscription);
 router.post('/:id/seller-decline', sellerDeclineSubscription);
 router.post('/:id/deliveries/:entryId/pack', packSubscriptionDelivery);

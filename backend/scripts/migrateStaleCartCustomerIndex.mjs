@@ -1,5 +1,6 @@
 import '../config/bootstrap.js';
 import mongoose from 'mongoose';
+import { isDeepStrictEqual } from 'node:util';
 
 const EXPECTED_HOST = 'cluster0.q39nutg.mongodb.net';
 const EXPECTED_DATABASE = 'bulkimart';
@@ -78,8 +79,11 @@ try {
     const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
     const backupName = `carts_index_backup_${stamp}`;
     const metadataName = `${backupName}_metadata`;
-    const existing = await db.listCollections({ name: { $in: [backupName, metadataName] } }, { nameOnly: true }).toArray();
-    if (existing.length) throw new Error('Cart index migration refused: backup collection name already exists.');
+    const [backupExists, metadataExists] = await Promise.all([
+      db.listCollections({ name: backupName }, { nameOnly: true }).hasNext(),
+      db.listCollections({ name: metadataName }, { nameOnly: true }).hasNext(),
+    ]);
+    if (backupExists || metadataExists) throw new Error('Cart index migration refused: backup collection name already exists.');
 
     const sourceDocuments = await carts.find({}).toArray();
     const backup = db.collection(backupName);
@@ -98,12 +102,17 @@ try {
       backup.countDocuments({}),
       metadata.countDocuments({ _id: 'cart-index-migration-snapshot' }),
     ]);
-    const backedIds = await backup.find({}, { projection: { _id: 1 } }).toArray();
-    const sourceIds = new Set(sourceDocuments.map((doc) => String(doc._id)));
+    const [backedDocuments, recordedMetadata] = await Promise.all([
+      backup.find({}).toArray(),
+      metadata.findOne({ _id: 'cart-index-migration-snapshot' }),
+    ]);
+    const sourceById = new Map(sourceDocuments.map((doc) => [String(doc._id), doc]));
     if (
       backupCount !== sourceDocuments.length ||
       metadataCount !== 1 ||
-      backedIds.some((doc) => !sourceIds.has(String(doc._id)))
+      !recordedMetadata ||
+      !isDeepStrictEqual(recordedMetadata.indexes, indexes) ||
+      backedDocuments.some((doc) => !isDeepStrictEqual(doc, sourceById.get(String(doc._id))))
     ) {
       throw new Error(`Cart backup verification failed; stale index was not dropped. Backup: ${backupName}`);
     }
@@ -111,9 +120,19 @@ try {
     // Only the exact obsolete index is removed. Cart documents and all other
     // indexes are left untouched; the current userId/channel unique index stays.
     await carts.dropIndex(STALE_INDEX);
-    const indexesAfter = await carts.listIndexes().toArray();
+    const [indexesAfter, docsAfter] = await Promise.all([
+      carts.listIndexes().toArray(),
+      carts.find({}).toArray(),
+    ]);
     if (indexesAfter.some((index) => index.name === STALE_INDEX) || !indexesAfter.some((index) => index.name === expectedCompound.name)) {
       throw new Error(`Index verification failed after migration; inspect target manually. Cart backup: ${backupName}`);
+    }
+    const docsAfterById = new Map(docsAfter.map((doc) => [String(doc._id), doc]));
+    if (
+      docsAfter.length !== sourceDocuments.length ||
+      sourceDocuments.some((doc) => !isDeepStrictEqual(doc, docsAfterById.get(String(doc._id))))
+    ) {
+      throw new Error(`Cart document verification failed after index migration. Cart backup: ${backupName}`);
     }
 
     console.log(JSON.stringify({
@@ -122,6 +141,7 @@ try {
       backup: { collection: backupName, metadataCollection: metadataName, documentsVerified: backupCount, indexesRecorded: indexes.length },
       droppedIndex: STALE_INDEX,
       indexesAfter: reportIndexes(indexesAfter),
+      cartDocumentsUnchanged: true,
     }, null, 2));
   }
 } finally {

@@ -12,7 +12,7 @@ import {
   getSellerOrders,
   updateOrderStatus,
   updateSalesChannels,
-  requestBrand,
+  requestWholesaleChannel,
   requestPromo,
   getSellerFaqs,
   answerSellerFaq
@@ -24,10 +24,6 @@ import {
   listActivePromotionPackages, listMyPromotions, getMyPromotionDetail, createPromotion, updatePromotion,
   submitPromotion, resubmitPromotion, cancelPromotion, initiatePromotionPayment,
 } from '../controllers/sellerPromotion.controller.js';
-import {
-  listPackagingMaterialsForSeller, listPackagingPackagesForSeller, getPackagingPackageForSeller,
-  createPackageOrder, createBulkOrder, listMyPackagingOrders, getMyPackagingOrder,
-} from '../controllers/packaging.controller.js';
 import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } from '../controllers/return.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
@@ -104,7 +100,7 @@ router.get('/dashboard', requireApprovedSeller, getDashboard);
 router.get('/orders', requireApprovedSeller, getSellerOrders);
 router.patch('/orders/:id/status', requireApprovedSeller, updateOrderStatus);
 router.patch('/channels', requireApprovedSeller, updateSalesChannels);
-router.post('/brand-request', requireApprovedSeller, requestBrand);
+router.post('/wholesale-request', requireApprovedSeller, requestWholesaleChannel);
 router.post('/promo-request', requireApprovedSeller, requestPromo);
 router.get('/faqs', requireApprovedSeller, getSellerFaqs);
 router.patch('/faqs/:faqId/answer', requireApprovedSeller, answerSellerFaq);
@@ -129,13 +125,6 @@ router.post('/promotions/:id/payment', requireApprovedSeller, initiatePromotionP
 
 // ---- Packaging Material -------------------------------------------------
 // Registered before /packaging/packages/:id so "orders" is never parsed as an id.
-router.get('/packaging/materials', requireApprovedSeller, listPackagingMaterialsForSeller);
-router.get('/packaging/packages', requireApprovedSeller, listPackagingPackagesForSeller);
-router.get('/packaging/packages/:id', requireApprovedSeller, getPackagingPackageForSeller);
-router.post('/packaging/orders/package', requireApprovedSeller, createPackageOrder);
-router.post('/packaging/orders/bulk', requireApprovedSeller, createBulkOrder);
-router.get('/packaging/orders', requireApprovedSeller, listMyPackagingOrders);
-router.get('/packaging/orders/:id', requireApprovedSeller, getMyPackagingOrder);
 
 // ---- Return & Refund — read-only visibility (Phase 4) -------------------
 router.get('/returns', requireApprovedSeller, listSellerReturns);

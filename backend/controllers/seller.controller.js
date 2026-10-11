@@ -7,12 +7,13 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import {
   CHANNEL, CHANNELS, LOW_STOCK_THRESHOLD, ORDER_STATUS, vendorTransitions, VENDOR_CANCELLABLE_STATUSES,
-  SAME_DAY_MAX_PROCESSING_MINUTES,
+  SAME_DAY_MAX_PROCESSING_MINUTES, WHOLESALE_CHANNEL, WHOLESALE_REQUEST_STATUS,
 } from '../constants/enums.js';
 import { parseLocation } from '../utils/geo.js';
 import { parseSellerSameDay } from '../services/sameDay.service.js';
 import { getRadiusSetting } from '../services/radiusSetting.service.js';
 import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { httpError } from '../utils/response.js';
 
 // Helper to notify admins
 const notifyAdmins = async (title, message) => {
@@ -28,14 +29,48 @@ const notifyAdmins = async (title, message) => {
 // @route   POST /api/sellers/start
 // @access  Private
 export const startOnboarding = asyncHandler(async (req, res) => {
+  const hasChannelSelection = Object.prototype.hasOwnProperty.call(req.body || {}, 'salesChannels');
+  let requestedChannels;
+  if (hasChannelSelection) {
+    const { salesChannels } = req.body;
+    const allowedChannels = [CHANNEL.ECOM, CHANNEL.GROCERY];
+    if (!Array.isArray(salesChannels) || salesChannels.length === 0 || salesChannels.some((channel) => !allowedChannels.includes(channel))) {
+      throw httpError(400, 'salesChannels must contain ecommerce, grocery, or both');
+    }
+    requestedChannels = [...new Set(salesChannels)];
+  }
+
   let seller = await Seller.findOne({ userId: req.user._id });
-  
+  let channelSelectionDefaulted = false;
   if (!seller) {
     seller = await Seller.create({
       userId: req.user._id,
       onboardingStep: 1,
-      status: 'incomplete'
+      status: 'incomplete',
+      salesChannels: requestedChannels || [CHANNEL.ECOM],
     });
+    channelSelectionDefaulted = !hasChannelSelection;
+    requestedChannels = null; // already persisted by Seller.create
+  } else if (requestedChannels) {
+    const currentChannels = Array.isArray(seller.salesChannels) ? [...new Set(seller.salesChannels)] : [];
+    const sameSelection = currentChannels.length === requestedChannels.length &&
+      currentChannels.every((channel) => requestedChannels.includes(channel));
+    if (seller.status !== 'incomplete' && !sameSelection) {
+      throw httpError(409, 'Sales channels can only be selected during initial onboarding');
+    }
+    if (seller.status !== 'incomplete') requestedChannels = null;
+  }
+
+  if (seller && requestedChannels) {
+    seller.salesChannels = requestedChannels;
+    await seller.save();
+  } else if (seller && (!Array.isArray(seller.salesChannels) || seller.salesChannels.length === 0)) {
+    // Legacy clients did not send channels. Preserve their established default,
+    // but make the fallback explicit in the response rather than silently
+    // misclassifying a submitted Quick/Hybrid selection.
+    seller.salesChannels = [CHANNEL.ECOM];
+    await seller.save();
+    channelSelectionDefaulted = true;
   }
 
   // Link the profile, but DO NOT grant the 'seller' role here.
@@ -46,7 +81,9 @@ export const startOnboarding = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    seller
+    seller,
+    salesChannels: seller.salesChannels,
+    channelSelectionDefaulted,
   });
 });
 
@@ -60,7 +97,7 @@ export const submitStep1 = asyncHandler(async (req, res) => {
     throw new Error('Seller profile not initiated');
   }
 
-  const { businessName, businessType, storeDetails, isNscSeller } = req.body;
+  const { businessName, businessType, storeDetails } = req.body;
   if (!businessName || !businessType || !storeDetails) {
     res.status(400);
     throw new Error('Please fill all fields');
@@ -90,9 +127,6 @@ export const submitStep1 = asyncHandler(async (req, res) => {
 
   seller.businessName = businessName;
   seller.businessType = businessType;
-  if (isNscSeller !== undefined) {
-    seller.isNscSeller = isNscSeller === true || isNscSeller === 'true';
-  }
 
   // Merge, so editing only the store name does not wipe coordinates captured on
   // an earlier pass through this step.
@@ -479,10 +513,13 @@ export const updateSalesChannels = asyncHandler(async (req, res) => {
     throw new Error('channels must be an array');
   }
 
-  // Only the two storefronts a general vendor can sell through. 'shg' is a
-  // separate vendor type with its own marketplace, so it is not selectable here.
+  // The existing self-service toggle may only change already-supported retail
+  // channels. Wholesale is approved separately by an administrator.
   const ALLOWED = [CHANNEL.ECOM, CHANNEL.GROCERY];
-  const cleaned = [...new Set(channels)].filter((c) => ALLOWED.includes(c));
+  if (channels.some((channel) => !ALLOWED.includes(channel))) {
+    throw httpError(403, 'Wholesale must be requested and approved separately');
+  }
+  const cleaned = [...new Set(channels)];
 
   // A seller must sell somewhere — an empty selection would strand their
   // catalogue with no storefront to appear in.
@@ -491,7 +528,10 @@ export const updateSalesChannels = asyncHandler(async (req, res) => {
     throw new Error('Select at least one sales channel');
   }
 
-  seller.salesChannels = cleaned;
+  // Retain the separately approved wholesale capability when a seller toggles
+  // their existing E-Commerce / Quick Commerce choices.
+  const wholesaleApproved = seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.APPROVED;
+  seller.salesChannels = wholesaleApproved ? [...cleaned, WHOLESALE_CHANNEL] : cleaned;
   await seller.save();
 
   res.status(200).json({
@@ -501,34 +541,32 @@ export const updateSalesChannels = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Request brand approval
-// @route   POST /api/sellers/brand-request
-// @access  Private
-export const requestBrand = asyncHandler(async (req, res) => {
-  const seller = await Seller.findOne({ userId: req.user._id });
-  if (!seller) {
-    res.status(404);
-    throw new Error('Seller profile not found');
+// @desc    Request access to the Wholesale seller channel
+// @route   POST /api/sellers/wholesale-request
+// @access  Private (approved seller)
+export const requestWholesaleChannel = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller || seller.status !== 'approved') throw httpError(403, 'An approved seller account is required');
+
+  if (seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.APPROVED && seller.salesChannels?.includes(WHOLESALE_CHANNEL)) {
+    return res.status(200).json({ success: true, status: WHOLESALE_REQUEST_STATUS.APPROVED, salesChannels: seller.salesChannels });
+  }
+  if (seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.SUSPENDED) {
+    throw httpError(409, 'Wholesale access is suspended; contact an administrator to restore it');
+  }
+  if (seller.wholesaleChannel?.status !== WHOLESALE_REQUEST_STATUS.PENDING) {
+    seller.wholesaleChannel = {
+      status: WHOLESALE_REQUEST_STATUS.PENDING,
+      requestedAt: new Date(),
+    };
+    await seller.save();
   }
 
-  const { title, description } = req.body;
-  if (!title || !description) {
-    res.status(400);
-    throw new Error('Please provide title and description');
-  }
-
-  seller.brandRequests.push({
-    title,
-    description,
-    status: 'pending',
-    createdAt: new Date()
-  });
-
-  await seller.save();
-  res.status(200).json({
+  return res.status(202).json({
     success: true,
-    message: 'Brand request submitted successfully',
-    seller
+    message: 'Wholesale access request submitted for admin review',
+    status: seller.wholesaleChannel.status,
+    salesChannels: seller.salesChannels || [],
   });
 });
 

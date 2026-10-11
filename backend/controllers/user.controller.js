@@ -1,7 +1,6 @@
 import User from '../models/User.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
-import { verifyCDSMembership } from '../services/cds.service.js';
 import { registerPushToken } from '../services/notification.service.js';
 
 // @desc    Get user profile
@@ -30,22 +29,11 @@ export const updateProfile = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
-  const { name, email, isShgMember, shgRegNo } = req.body;
+  const { name, email } = req.body;
   if (name) user.name = name;
   if (email) user.email = email;
-  if (isShgMember !== undefined) user.isShgMember = isShgMember;
-  if (shgRegNo !== undefined) {
-    if (shgRegNo && shgRegNo.trim()) {
-      const existingUser = await User.findOne({ shgRegNo: shgRegNo.trim(), _id: { $ne: user._id } });
-      if (existingUser) {
-        res.status(400);
-        throw new Error('This SHG Registration ID is already registered.');
-      }
-      user.shgRegNo = shgRegNo.trim();
-    } else {
-      user.shgRegNo = undefined;
-    }
-  }
+  // Membership fields remain on stored users for historical compatibility,
+  // but are no longer editable through the customer profile API.
 
   if (req.file) {
     const avatarUrl = await uploadToCloudinary(req.file.buffer, 'avatars');
@@ -240,36 +228,6 @@ export const getWallet = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     wallet: user.wallet
-  });
-});
-
-// @desc    Verify and link CDS Membership
-// @route   POST /api/users/cds/verify
-// @access  Private
-export const verifyCDS = asyncHandler(async (req, res) => {
-  const { membershipNo } = req.body;
-  if (!membershipNo) {
-    res.status(400);
-    throw new Error('Please provide a CDS membership number');
-  }
-
-  const result = await verifyCDSMembership(membershipNo);
-  if (!result.isValid) {
-    res.status(400);
-    throw new Error(result.message || 'Verification failed');
-  }
-
-  const user = await User.findById(req.user._id);
-  user.cdsMembershipNo = membershipNo;
-  user.isCDSVerified = true;
-  user.cdsVerifiedAt = new Date();
-  await user.save();
-
-  res.status(200).json({
-    success: true,
-    verified: true,
-    discountPercent: result.discount,
-    message: result.message
   });
 });
 

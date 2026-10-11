@@ -17,7 +17,7 @@ const TopProducts = () => {
     event.stopPropagation();
     setCartError('');
 
-    const result = await addToCart(product.id);
+    const result = await addToCart(product);
     if (result?.ok) {
       setAddedProductId(product.id);
       window.setTimeout(() => {

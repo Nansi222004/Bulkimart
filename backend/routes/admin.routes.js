@@ -1,10 +1,9 @@
 import express from 'express';
 import {
-  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius,
+  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, decideSellerWholesaleChannel, getWholesaleManagementSummary,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
-  listSHGStores, getSHGDetail, approveSHG, rejectSHG, suspendSHG, shgPerformanceStats,
   listProducts, approveProduct, rejectProduct, featureProduct, sponsorProduct,
-  listUsers, setUserStatus, setUserCDS, getConsumerLocations,
+  listUsers, setUserStatus, getConsumerLocations,
   getPendingCounts,
   listDeliveryPartners,
   deliveryFleetStats, getDeliveryPartnerDetail, deliveryPerformanceStats, listDeliveryZones,
@@ -13,10 +12,8 @@ import {
   getDeliveryChargeSettingForAdmin, setDeliveryChargeSettingForAdmin,
   getRadiusSettingForAdmin, setRadiusSettingForAdmin,
   listSubscriptionsForAdmin, getSubscriptionDetailForAdmin,
-  listShgSubscriptionPlans, createShgSubscriptionPlan, updateShgSubscriptionPlan,
-  listShgSubscriptionsForAdmin,
   getDashboardOverview,
-  getConsumerStats, listCDSMembers, getCustomerActivityLog, getCustomerOrders, getConsumerOrdersSummary,
+  getConsumerStats, getCustomerActivityLog, getCustomerOrders, getConsumerOrdersSummary,
   getCustomerReviews, deleteCustomerReview, updateReviewStatus,
   getTickets, resolveTicket, getTicketDetailAdmin, replyToTicket, addInternalNote,
   assignTicket, changeTicketStatus,
@@ -25,12 +22,6 @@ import {
   listRiderPayouts, settleRiderPayout,
   listDeliveryPayoutRequests, completeDeliveryPayoutRequest, rejectDeliveryPayoutRequest,
 } from '../controllers/admin.controller.js';
-import {
-  listPackagingMaterialsAdmin, createPackagingMaterial, updatePackagingMaterial, setPackagingMaterialStatus,
-  listPackagingPackagesAdmin, getPackagingPackageAdmin, createPackagingPackage, updatePackagingPackage,
-  publishPackagingPackage, disablePackagingPackage,
-  listPackagingOrdersAdmin, getPackagingOrderAdmin, updatePackagingOrderStatusAdmin,
-} from '../controllers/packaging.controller.js';
 import { listReturnPolicies, upsertReturnPolicy } from '../controllers/returnPolicy.controller.js';
 import {
   listReturnsAdmin, getReturnAdmin, updateReturnStatusAdmin,
@@ -48,9 +39,6 @@ import {
 import {
   listCoupons, createCoupon, updateCoupon, toggleCoupon, deleteCoupon, getCouponRedemptions,
 } from '../controllers/coupon.controller.js';
-import {
-  listPremiumPlansForAdmin, createPremiumPlan, updatePremiumPlan,
-} from '../controllers/premium.controller.js';
 import {
   getDonationSettingForAdmin, setDonationSettingForAdmin,
   getAdminDonationOverview, getAdminDonationTransactions, getAdminDonationDetail,
@@ -70,10 +58,6 @@ import {
 import {
   getAllPolicies, getPolicyByRole, getPolicyBySlug, updatePolicy,
 } from '../controllers/privacyPolicyController.js';
-import {
-  getAdminPlans, createAdminPlan, updateAdminPlan, toggleAdminPlanStatus,
-  getAdminNhcApplications, getAdminNhcApplicationDetail, approveNhcApplication, rejectNhcApplication
-} from '../controllers/nhc.controller.js';
 import { protect, requireAdmin } from '../middlewares/auth.middleware.js';
 import { uploadSingle, uploadMultiple } from '../middlewares/upload.middleware.js';
 
@@ -95,20 +79,13 @@ router.get('/vendor-earnings', getVendorEarningsAdmin);
 router.get('/vendor-payouts', getVendorPayoutsAdmin);
 router.patch('/vendor-payouts/:id/settle', settleVendorPayoutAdmin);
 router.get('/sellers', listSellers);              // ?status=pending | approved | rejected | suspended
+router.get('/wholesale/summary', getWholesaleManagementSummary);
 router.get('/sellers/:id', getSellerDetail);      // full registration data + documents
 router.patch('/sellers/:id/radius', setSellerRadius);
+router.patch('/sellers/:id/wholesale', decideSellerWholesaleChannel);
 router.patch('/sellers/:id/approve', approveSeller);
 router.patch('/sellers/:id/reject', rejectSeller);
 router.patch('/sellers/:id/suspend', suspendSeller);
-
-// ---- SHG vendors -----------------------------------------------------------
-// Static segment before /shg/:id, same ordering rule as deliveryFleetStats.
-router.get('/shg-performance', shgPerformanceStats);
-router.get('/shg', listSHGStores);
-router.get('/shg/:id', getSHGDetail);
-router.patch('/shg/:id/approve', approveSHG);
-router.patch('/shg/:id/reject', rejectSHG);
-router.patch('/shg/:id/suspend', suspendSHG);
 
 // ---- product moderation ----------------------------------------------------
 router.get('/products', listProducts);
@@ -203,23 +180,6 @@ router.get('/delivery-payouts', listDeliveryPayoutRequests);
 router.patch('/delivery-payouts/:id/complete', completeDeliveryPayoutRequest);
 router.patch('/delivery-payouts/:id/reject', rejectDeliveryPayoutRequest);
 
-// ---- Packaging Material System (V1) -------------------------------------
-router.get('/packaging/materials', listPackagingMaterialsAdmin);
-router.post('/packaging/materials', uploadSingle('image'), createPackagingMaterial);
-router.patch('/packaging/materials/:id', uploadSingle('image'), updatePackagingMaterial);
-router.patch('/packaging/materials/:id/status', setPackagingMaterialStatus);
-
-router.get('/packaging/packages', listPackagingPackagesAdmin);
-router.post('/packaging/packages', uploadSingle('image'), createPackagingPackage);
-router.get('/packaging/packages/:id', getPackagingPackageAdmin);
-router.patch('/packaging/packages/:id', uploadSingle('image'), updatePackagingPackage);
-router.patch('/packaging/packages/:id/publish', publishPackagingPackage);
-router.patch('/packaging/packages/:id/disable', disablePackagingPackage);
-
-router.get('/packaging/orders', listPackagingOrdersAdmin);
-router.get('/packaging/orders/:id', getPackagingOrderAdmin);
-router.patch('/packaging/orders/:id/status', updatePackagingOrderStatusAdmin);
-
 // ---- Return & Refund — Category Return Policy (Phase 2 foundation) -----
 router.get('/return-policies', listReturnPolicies);
 router.patch('/return-policies/:categoryId', upsertReturnPolicy);
@@ -255,29 +215,13 @@ router.delete('/coupons/:id', deleteCoupon);
 router.get('/subscriptions', listSubscriptionsForAdmin);
 router.get('/subscriptions/:id', getSubscriptionDetailForAdmin);
 
-// ---- SHG seller subscriptions (plan catalog + purchased records) -----------
-router.get('/shg-subscription-plans', listShgSubscriptionPlans);
-router.post('/shg-subscription-plans', createShgSubscriptionPlan);
-router.patch('/shg-subscription-plans/:id', updateShgSubscriptionPlan);
-router.get('/shg-subscriptions', listShgSubscriptionsForAdmin);
-
-// ---- customer Premium Membership plans ---------------------------------
-// Handlers live in premium.controller.js (domain cohesion) and are wired
-// here so they inherit this router's protect + requireAdmin — same shape as
-// the coupon handlers above.
-router.get('/premium-plans', listPremiumPlansForAdmin);
-router.post('/premium-plans', createPremiumPlan);
-router.patch('/premium-plans/:id', updatePremiumPlan);
-
 // ---- customers -------------------------------------------------------------
 router.get('/users', listUsers);
 router.patch('/users/:id/status', setUserStatus);
-router.patch('/users/:id/cds', setUserCDS);
 
 // ---- consumer management (Consumer Users tab) ------------------------------
 router.get('/consumers/stats', getConsumerStats);
 router.get('/consumers/locations', getConsumerLocations);
-router.get('/consumers/cds', listCDSMembers);
 router.get('/consumers/activity-log', getCustomerActivityLog);
 router.get('/consumers/orders', getCustomerOrders);
 router.get('/consumers/orders-summary', getConsumerOrdersSummary);
@@ -304,16 +248,5 @@ router.patch('/tickets/:id/resolve', resolveTicket);
 router.get('/privacy-policy', getAllPolicies);
 router.get('/privacy-policy/:identifier', getPolicyBySlug);
 router.put('/privacy-policy/:identifier', updatePolicy);
-
-// ---- NHC Management --------------------------------------------------------
-router.get('/nhc/plans', getAdminPlans);
-router.post('/nhc/plans', createAdminPlan);
-router.patch('/nhc/plans/:id', updateAdminPlan);
-router.patch('/nhc/plans/:id/status', toggleAdminPlanStatus);
-
-router.get('/nhc/seller-applications', getAdminNhcApplications);
-router.get('/nhc/seller-applications/:id', getAdminNhcApplicationDetail);
-router.patch('/nhc/seller-applications/:id/approve', approveNhcApplication);
-router.patch('/nhc/seller-applications/:id/reject', rejectNhcApplication);
 
 export default router;

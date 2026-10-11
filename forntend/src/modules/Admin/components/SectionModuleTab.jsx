@@ -39,45 +39,6 @@ export const SectionModuleTab = ({ moduleId }) => {
       data: []
     },
 
-    'membership-cards': {
-      title: 'Membership Cards Index',
-      desc: 'Issued physical and digital QR membership cards for in-store & online discounts.',
-      columns: ['Card Serial #', 'Cardholder', 'Card Type', 'Issued Date', 'QR Code Link', 'Status'],
-      data: []
-    },
-
-    'user-kyc': {
-      title: 'User Identity KYC Queue',
-      desc: 'Audit government Aadhaar and identity verification requests for CDS benefits.',
-      columns: ['KYC Ref #', 'Applicant Name', 'Doc Type', 'ID Number', 'Submitted Date', 'Verification'],
-      data: []
-    },
-
-    // 'shg-categories' used to be mock data here. It is now a real, live
-    // 3-level tree (CategoriesTab with fixedChannel="shg"), wired in
-    // routes/index.jsx before this component is ever reached for that tab.
-
-    'shg-orders': {
-      title: 'SHG Marketplace Orders Pipeline',
-      desc: 'Centralized view of customer orders placed specifically for SHG handmade products.',
-      columns: ['Order Ref', 'SHG Vendor Name', 'Customer', 'Product Items', 'Total Value', 'Delivery Status', 'Status'],
-      data: []
-    },
-
-    'shg-vendors': {
-      title: 'SHG Vendors Directory',
-      desc: 'Manage Self-Help Group vendors, group leaders, and district registrations.',
-      columns: ['SHG ID', 'SHG Group Name', 'Group Leader', 'District / Location', 'Members', 'Cert #', 'Status'],
-      data: []
-    },
-
-    'brand-requests': {
-      title: 'Client Brand Selling Proposals',
-      desc: 'Approve vendor applications to sell items under official Bulkimart brand lines.',
-      columns: ['Request ID', 'Vendor Name', 'Proposed Product Line', 'Packaging Support', 'Margin %', 'Status'],
-      data: []
-    },
-
     'seller-promotions': {
       title: 'Seller Promotions & Ad Campaigns',
       desc: 'Sponsored product priority rankings and homepage banner ad placements.',

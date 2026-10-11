@@ -17,7 +17,6 @@ import { initSocket } from "./socket/socket.js";
 import { startOrderSweeper } from "./services/orderSweeper.service.js";
 import { startSubscriptionAcceptSweeper } from "./services/subscriptionAcceptSweeper.service.js";
 import { startSubscriptionPrepSweeper } from "./services/subscriptionPrepSweeper.service.js";
-import { startShgSubscriptionSweeper } from "./services/shgSubscriptionSweeper.service.js";
 import { startSellerPromotionSweeper } from "./services/sellerPromotionSweeper.service.js";
 import { loadRates } from "./services/riderPay.service.js";
 import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js";
@@ -34,7 +33,7 @@ if (process.env.NODE_ENV === "development") {
 
 // Refuse to boot with mock integrations in production.
 if (process.env.NODE_ENV === "production") {
-  const unsafe = ["OTP_MODE", "CDS_MODE", "RAZORPAY_MODE", "SHIPROCKET_MODE", "FCM_MODE", "MAPS_MODE"]
+  const unsafe = ["OTP_MODE", "RAZORPAY_MODE", "SHIPROCKET_MODE", "FCM_MODE", "MAPS_MODE"]
     .filter((key) => process.env[key] === "mock");
   if (unsafe.length) {
     throw new Error(`Refusing to boot — mock mode enabled in production: ${unsafe.join(", ")}`);
@@ -92,7 +91,6 @@ const start = async () => {
   startOrderSweeper();
   startSubscriptionAcceptSweeper();
   startSubscriptionPrepSweeper();
-  startShgSubscriptionSweeper();
   startSellerPromotionSweeper();
   // Rider pay rates into memory once, so the offer screen never waits on a
   // query. Admin saves refresh this; a failure leaves the env defaults.

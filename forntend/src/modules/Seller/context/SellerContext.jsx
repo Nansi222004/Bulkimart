@@ -5,18 +5,37 @@ import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
+import {
+  clearSellerDraft,
+  getSellerDraftKey,
+  readSellerDraft,
+  selectedModesToChannels,
+  writeSellerDraft,
+} from '../utils/onboardingDraft';
 
 const SellerContext = createContext();
+const getUserId = (profile) => {
+  const id = profile?._id || profile?.id || profile?.userId?._id || profile?.userId;
+  return typeof id === 'string' || typeof id === 'number' ? String(id) : null;
+};
+const getBrowserStorage = () => {
+  try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; }
+};
 
 export const SellerProvider = ({ children }) => {
+  const [userProfile, setUserProfile] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('userProfile') || 'null'); } catch { return null; }
+  });
+  const userId = getUserId(userProfile);
+  const draftKey = getSellerDraftKey(userId);
+  const [draftIdentityKey, setDraftIdentityKey] = useState(draftKey);
+  const [initialDraft] = useState(() => readSellerDraft(getBrowserStorage(), draftKey));
+  const submitSellerApplicationLock = React.useRef(false);
+
   // GLOBAL STATES
   const [isOnboarded, setIsOnboarded] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(1);
-  // Screen 1 of onboarding, before any business details — is this account an
-  // individual seller or an NSC/NSG organisation? Drives the "NSG Stores"
-  // storefront filter customers see later; nothing else treats it specially.
-  const [isNscSeller, setIsNscSeller] = useState(false);
-  const [selectedTypes, setSelectedTypes] = useState(['ecommerce']); // can contain 'ecommerce', 'quick'
+  const [onboardingStep, setOnboardingStep] = useState(() => initialDraft?.step || 1);
+  const [selectedTypes, setSelectedTypes] = useState(() => initialDraft?.selectedTypes || ['ecommerce']); // can contain 'ecommerce', 'quick'
   const [activeMode, setActiveMode] = useState('ecommerce'); // 'ecommerce' | 'quick'
 
   // The panel toggle says "Quick"; the database calls that channel `grocery`.
@@ -45,9 +64,6 @@ export const SellerProvider = ({ children }) => {
     setActiveTabState(tabId);
   };
   const [toastMessage, setToastMessage] = useState('');
-  const [userProfile, setUserProfile] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('userProfile') || 'null'); } catch { return null; }
-  });
 
   // ONBOARDING FORM STATE
   const [otpSent, setOtpSent] = useState(false);
@@ -56,7 +72,7 @@ export const SellerProvider = ({ children }) => {
   const [otpCode, setOtpCode] = useState('');
   const [otpTimer, setOtpTimer] = useState(0);
   // Set when /api/auth/seller/send-otp (or verify) reports this phone has
-  // never registered on NHCONE Shopping App — the seller entry point checks,
+  // never registered on the customer shopping app — the seller entry point checks,
   // never auto-creates, an account. SellerLoginPage.jsx renders a dedicated
   // "not a member" screen instead of the phone/OTP form while this is true.
   const [notAMember, setNotAMember] = useState(false);
@@ -64,15 +80,15 @@ export const SellerProvider = ({ children }) => {
   const [aadhaarVerifying, setAadhaarVerifying] = useState(false);
   const [aadhaarNo, setAadhaarNo] = useState('');
 
-  const [bizForm, setBizForm] = useState({
-    storeName: '',
-    vendorType: 'General Vendor',
-    category: 'Groceries',
-    description: '',
+  const [bizForm, setBizForm] = useState(() => ({
+    storeName: initialDraft?.bizForm?.storeName || '',
+    vendorType: initialDraft?.bizForm?.vendorType || 'General Vendor',
+    category: initialDraft?.bizForm?.category || 'Groceries',
+    description: initialDraft?.bizForm?.description || '',
     shgName: '',
     shgId: '',
     leaderName: ''
-  });
+  }));
 
   /**
    * The store address, plus where it actually is.
@@ -115,31 +131,48 @@ export const SellerProvider = ({ children }) => {
   const [submitError, setSubmitError] = useState('');
   const [submittedSeller, setSubmittedSeller] = useState(null);
 
-  // NHC Plan Selection State (Dynamic from /api/nhc/plans)
-  const [nhcPlans, setNhcPlans] = useState([]);
-  const [nhcPlansLoading, setNhcPlansLoading] = useState(false);
-  const [nhcPlansError, setNhcPlansError] = useState('');
-  const [selectedNhcPlan, setSelectedNhcPlan] = useState(null);
-
-  const fetchNhcPlans = useCallback(async () => {
-    setNhcPlansLoading(true);
-    setNhcPlansError('');
-    try {
-      const res = await fetch(apiUrl('/api/nhc/plans'));
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || 'Could not load NHC seller plans');
-      const plans = body.data || body || [];
-      setNhcPlans(Array.isArray(plans) ? plans : []);
-    } catch (err) {
-      setNhcPlansError(err.message || 'Failed to fetch NHC seller plans');
-      setNhcPlans([]);
-    } finally {
-      setNhcPlansLoading(false);
-    }
-  }, []);
-
   const [applicationId] = useState(() => 'APP' + Math.floor(10000000 + Math.random() * 90000000));
   const [applicationDate] = useState(() => new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }));
+
+  useEffect(() => {
+    if (draftKey !== draftIdentityKey) {
+      const switchingAccounts = Boolean(draftIdentityKey && draftKey && draftIdentityKey !== draftKey);
+      clearSellerDraft(getBrowserStorage(), draftIdentityKey);
+      const draft = readSellerDraft(getBrowserStorage(), draftKey);
+      if (draft || switchingAccounts) {
+        setOnboardingStep(draft?.step || 1);
+        setSelectedTypes(draft?.selectedTypes || ['ecommerce']);
+        setActiveMode(draft?.selectedTypes?.includes('quick') && !draft?.selectedTypes?.includes('ecommerce') ? 'quick' : 'ecommerce');
+        setBizForm((current) => ({
+          ...current,
+          storeName: draft?.bizForm?.storeName || '',
+          vendorType: draft?.bizForm?.vendorType || 'General Vendor',
+          category: draft?.bizForm?.category || 'Groceries',
+          description: draft?.bizForm?.description || '',
+        }));
+      }
+      if (switchingAccounts) {
+        // Sensitive inputs and browser File objects must be re-entered after an
+        // account change; they are never copied into another seller's session.
+        setOtpSent(false); setOtpCode(''); setSellerPhone(''); setOtpVerified(false);
+        setAadhaarNo(''); setAadhaarVerified(false);
+        setAddressForm({ street: '', landmark: '', state: '', district: '', pincode: '', lat: undefined, lng: undefined, accuracy: undefined, source: undefined });
+        setBankForm({ holderName: '', bankName: '', accountNumber: '', ifscCode: '' });
+        setUploadedDocs({ aadhaarFront: null, aadhaarBack: null, pan: null, passbook: null, businessCert: null });
+        setPanNumber('');
+        setSubmittedSeller(null);
+      }
+      setDraftIdentityKey(draftKey);
+      return;
+    }
+
+    if (!draftKey) return;
+    if (submittedSeller || onboardingStep >= 9) {
+      clearSellerDraft(getBrowserStorage(), draftKey);
+      return;
+    }
+    writeSellerDraft(getBrowserStorage(), draftKey, { step: onboardingStep, selectedTypes, bizForm });
+  }, [draftKey, draftIdentityKey, onboardingStep, selectedTypes, bizForm, submittedSeller]);
 
   // ACTIVE SELLER PANEL DATA STATES
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,11 +191,16 @@ export const SellerProvider = ({ children }) => {
 
   // Form states
   const [newProductForm, setNewProductForm] = useState({
+    fulfillmentType: 'physical',
     name: '',
     categoryId: '',      // a real Category _id, never a display name
     desc: '',
     brandName: '',
     gstRate: 0,
+    ebookPrice: '',
+    author: '',
+    language: '',
+    licenseTerms: '',
     // Pricing, stock, unit and weight live per-variant now, not on the
     // product root — a listing always starts with one default variant so
     // there is somewhere to type them.
@@ -257,11 +295,16 @@ export const SellerProvider = ({ children }) => {
     if (!raw) return;
     setEditingProduct(raw);
     setNewProductForm({
+      fulfillmentType: raw.fulfillmentType || 'physical',
       name: raw.name || '',
       categoryId: raw.category?._id || raw.category || '',
       desc: raw.description || '',
       brandName: raw.brandName || '',
       gstRate: raw.gstRate ?? 0,
+      ebookPrice: raw.price ?? '',
+      author: raw.digital?.author || '',
+      language: raw.digital?.language || '',
+      licenseTerms: raw.digital?.licenseTerms || '',
       // Every saved product carries at least its synced "Default" variant
       // (the model's pre-validate hook guarantees this), so this is never
       // empty for a real listing — but fall back to a blank one just in
@@ -287,12 +330,12 @@ export const SellerProvider = ({ children }) => {
    * `sameDay` is always sent, including when switched off, because leaving it out
    * means "no change" to the server — which would make disabling impossible.
    */
-  const submitProductEdit = async (form) => {
+  const submitProductEdit = async (form, ebookFile = null) => {
     setSavingProduct(true);
     setProductError('');
     try {
       if (!form.categoryId) throw new Error('Please select a category.');
-      if (!Array.isArray(form.variants) || form.variants.length === 0) {
+      if (form.fulfillmentType !== 'digital' && (!Array.isArray(form.variants) || form.variants.length === 0)) {
         throw new Error('Please add at least one variant with pricing and stock.');
       }
 
@@ -302,7 +345,15 @@ export const SellerProvider = ({ children }) => {
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName !== undefined) fd.append('brandName', form.brandName);
       fd.append('gstRate', form.gstRate || 0);
-      fd.append('variants', JSON.stringify(form.variants));
+      // Wholesale terms have their own narrow endpoint so normal retail
+      // product saves cannot accidentally rewrite those fields.
+      const editVariants = form.fulfillmentType === 'digital'
+        ? [{ ...(editingProduct?.variants?.[0]?._id ? { _id: editingProduct.variants[0]._id } : {}), name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
+        : form.variants.map(({ wholesalePricing, ...variant }) => variant);
+      fd.append('variants', JSON.stringify(editVariants));
+      if (form.fulfillmentType === 'digital') {
+        fd.append('digital', JSON.stringify({ author: form.author, language: form.language, format: 'pdf', licenseTerms: form.licenseTerms }));
+      }
 
       if (activeChannel === 'ecommerce') {
         fd.append('sameDay', JSON.stringify(
@@ -327,7 +378,17 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || 'Could not save your changes');
 
-      triggerToast('Product updated.');
+      if (ebookFile) {
+        const fileData = new FormData();
+        fileData.append('file', ebookFile);
+        const fileRes = await fetch(apiUrl(`/api/products/${editingProductId}/digital-file`), {
+          method: 'POST', headers: authHeader(), body: fileData,
+        });
+        const fileBody = await fileRes.json().catch(() => ({}));
+        if (!fileRes.ok) throw new Error(fileBody.message || 'Metadata saved, but the private PDF upload failed. You can retry the upload.');
+      }
+
+      triggerToast(form.fulfillmentType === 'digital' ? 'E-book changes submitted for admin review.' : 'Product updated.');
       setShowAddProductModal(false);
       setEditingProduct(null);
       await fetchMyProducts();
@@ -389,8 +450,11 @@ export const SellerProvider = ({ children }) => {
 
       // Restore the saved channel selection so a refresh does not reset it.
       const saved = seller?.salesChannels;
-      if (Array.isArray(saved) && saved.length) {
-        const modes = saved.map((c) => (c === 'grocery' ? 'quick' : 'ecommerce'));
+      const hasDraft = Boolean(readSellerDraft(getBrowserStorage(), draftKey));
+      if (!hasDraft && Array.isArray(saved) && saved.length) {
+        const modes = saved.filter((channel) => channel === 'ecommerce' || channel === 'grocery')
+          .map((channel) => (channel === 'grocery' ? 'quick' : 'ecommerce'));
+        if (!modes.length) return;
         setSelectedTypes(modes);
         setActiveMode((cur) => (modes.includes(cur) ? cur : modes[0]));
       }
@@ -399,7 +463,7 @@ export const SellerProvider = ({ children }) => {
     } finally {
       setProfileLoading(false);
     }
-  }, []);
+  }, [draftKey]);
 
   const [incomingOrder, setIncomingOrder] = useState(null);
   // A new subscription request awaiting this seller's accept/decline —
@@ -711,6 +775,28 @@ export const SellerProvider = ({ children }) => {
     }
   };
 
+  const requestWholesaleChannel = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/sellers/wholesale-request'), {
+        method: 'POST',
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || 'Could not request Wholesale access');
+      setSellerProfile((current) => current ? {
+        ...current,
+        wholesaleChannel: { ...(current.wholesaleChannel || {}), status: body.status },
+        salesChannels: body.salesChannels || current.salesChannels,
+      } : current);
+      triggerToast(body.status === 'approved' ? 'Wholesale access is already approved.' : 'Wholesale access request sent for admin review.');
+      return { ok: true, status: body.status };
+    } catch (err) {
+      triggerToast(err.message || 'Could not request Wholesale access');
+      return { ok: false, message: err.message };
+    }
+  };
+
   // OTP TIMER
   useEffect(() => {
     if (otpTimer > 0) {
@@ -736,7 +822,7 @@ export const SellerProvider = ({ children }) => {
     setNotAMember(false);
     try {
       // Seller-specific endpoint — checks the phone is already a registered
-      // NHCONE Shopping App user rather than auto-creating one (see
+      // Bulkimart customer rather than auto-creating one (see
       // auth.controller.js's requestSellerOTP doc comment: a seller account
       // is always an extension of an existing customer identity).
       const res = await fetch(apiUrl('/api/auth/seller/send-otp'), {
@@ -840,12 +926,15 @@ export const SellerProvider = ({ children }) => {
    * Documents are uploaded to Cloudinary by the server during steps 2-4.
    */
   const submitSellerApplication = async () => {
+    if (submitSellerApplicationLock.current) return { ok: false };
+    submitSellerApplicationLock.current = true;
     setSubmitting(true);
     setSubmitError('');
 
     const token = localStorage.getItem('userToken');
     if (!token) {
       setSubmitting(false);
+      submitSellerApplicationLock.current = false;
       setSubmitError('Please log in with your mobile number before registering as a seller.');
       return { ok: false };
     }
@@ -873,7 +962,12 @@ export const SellerProvider = ({ children }) => {
     };
 
     try {
-      await call('/api/sellers/start', { method: 'POST', headers: JSON_H }, 'Start');
+      const salesChannels = selectedModesToChannels(selectedTypes);
+      await call('/api/sellers/start', {
+        method: 'POST',
+        headers: JSON_H,
+        body: JSON.stringify({ salesChannels }),
+      }, 'Start');
 
       await call('/api/sellers/step/1', {
         method: 'PUT',
@@ -881,7 +975,6 @@ export const SellerProvider = ({ children }) => {
         body: JSON.stringify({
           businessName: bizForm.storeName,
           businessType: bizForm.vendorType === 'SHG Vendor' ? 'individual' : 'proprietorship',
-          isNscSeller,
           storeDetails: {
             name: bizForm.storeName,
             description: bizForm.description,
@@ -920,18 +1013,9 @@ export const SellerProvider = ({ children }) => {
       if (uploadedDocs.businessCert) f4.append('trade_license', uploadedDocs.businessCert);
       await call('/api/sellers/step/4', { method: 'PUT', headers: AUTH, body: f4 }, 'Legal documents');
 
-      // If NHC Organization Seller, select NHC Plan and save snapshot
-      if (isNscSeller && selectedNhcPlan) {
-        const planId = selectedNhcPlan.id || selectedNhcPlan._id;
-        await call('/api/nhc/seller/select-plan', {
-          method: 'POST',
-          headers: JSON_H,
-          body: JSON.stringify({ planId })
-        }, 'NHC Plan Selection');
-      }
+      const done = await call('/api/sellers/submit', { method: 'POST', headers: JSON_H }, 'Submit');
 
-      const done = await call(isNscSeller ? '/api/nhc/seller/submit-application' : '/api/sellers/submit', { method: 'POST', headers: JSON_H }, 'Submit');
-
+      clearSellerDraft(getBrowserStorage(), draftKey);
       setSubmittedSeller(done.seller);
       triggerToast('Application submitted for verification.');
       return { ok: true, seller: done.seller };
@@ -941,6 +1025,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: false };
     } finally {
       setSubmitting(false);
+      submitSellerApplicationLock.current = false;
     }
   };
 
@@ -963,7 +1048,7 @@ export const SellerProvider = ({ children }) => {
    * seller's channel, 1-5 images, price/stock sanity), so the form's checks are
    * only there to give faster feedback.
    */
-  const submitNewProduct = async (form, files) => {
+  const submitNewProduct = async (form, files, ebookFile = null) => {
     setSavingProduct(true);
     setProductError('');
 
@@ -972,13 +1057,15 @@ export const SellerProvider = ({ children }) => {
       if (!token) throw new Error('Your session expired. Please sign in again.');
       if (!form.categoryId) throw new Error('Please select a category.');
       if (!files || files.length === 0) throw new Error('Please add at least one product image.');
-      if (!Array.isArray(form.variants) || form.variants.length === 0) {
+      if (form.fulfillmentType !== 'digital' && (!Array.isArray(form.variants) || form.variants.length === 0)) {
         throw new Error('Please add at least one variant with pricing and stock.');
       }
+      if (form.fulfillmentType === 'digital' && !ebookFile) throw new Error('Choose a PDF e-book file before submitting.');
 
       const fd = new FormData();
       fd.append('roleContext', 'seller');
-      fd.append('type', activeChannel);   // Shop All or Quick, from the panel toggle
+      fd.append('type', form.fulfillmentType === 'digital' ? 'ecommerce' : activeChannel);
+      fd.append('fulfillmentType', form.fulfillmentType || 'physical');
       fd.append('name', form.name.trim());
       fd.append('category', form.categoryId);
       if (form.desc) fd.append('description', form.desc);
@@ -987,7 +1074,13 @@ export const SellerProvider = ({ children }) => {
       // A new product's own SKU is never sent — the backend always
       // auto-generates it (see Product.js's pre-validate hook), so a
       // seller can never collide with, or guess, another listing's code.
-      fd.append('variants', JSON.stringify(form.variants));
+      const createVariants = form.fulfillmentType === 'digital'
+        ? [{ name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
+        : form.variants;
+      fd.append('variants', JSON.stringify(createVariants));
+      if (form.fulfillmentType === 'digital') {
+        fd.append('digital', JSON.stringify({ author: form.author, language: form.language, format: 'pdf', licenseTerms: form.licenseTerms }));
+      }
 
       /**
        * Same-Day, only when the seller asked for it and only on Shop All.
@@ -1000,7 +1093,7 @@ export const SellerProvider = ({ children }) => {
        * Note what is not here: no price. Same-Day changes how the item is
        * delivered, never what it costs.
        */
-      if (activeChannel === 'ecommerce' && form.sameDayEnabled) {
+      if (form.fulfillmentType !== 'digital' && activeChannel === 'ecommerce' && form.sameDayEnabled) {
         fd.append('sameDay', JSON.stringify({
           enabled: true,
           processingMinutes: Number(form.processingMinutes),
@@ -1008,7 +1101,7 @@ export const SellerProvider = ({ children }) => {
       }
 
       // Quick Commerce only — see the identical guard in submitProductEdit.
-      if (activeChannel === 'grocery') {
+      if (form.fulfillmentType !== 'digital' && activeChannel === 'grocery') {
         fd.append('returnable', form.returnable ? 'true' : 'false');
       }
 
@@ -1024,11 +1117,28 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || 'Could not save the product');
 
-      triggerToast('Product published — it is live for customers now.');
+      if (form.fulfillmentType === 'digital') {
+        // Keep the draft ID in the editor so a failed upload retry updates this
+        // same listing instead of accidentally creating duplicate drafts.
+        setEditingProduct(body.product);
+        const fileData = new FormData();
+        fileData.append('file', ebookFile);
+        const fileRes = await fetch(apiUrl(`/api/products/${body.product._id}/digital-file`), {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fileData,
+        });
+        const fileBody = await fileRes.json().catch(() => ({}));
+        if (!fileRes.ok) throw new Error(fileBody.message || 'Draft created, but the private PDF upload failed. Retry to upload it.');
+      }
+
+      triggerToast(form.fulfillmentType === 'digital'
+        ? 'E-book submitted for admin review. Purchasing and downloads are not available.'
+        : 'Product published — it is live for customers now.');
       setShowAddProductModal(false);
       setNewProductForm({
+        fulfillmentType: 'physical',
         name: '', categoryId: '', desc: '',
         brandName: '', gstRate: 0,
+        ebookPrice: '', author: '', language: '', licenseTerms: '',
         variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }],
         sameDayEnabled: false, processingMinutes: '', returnable: false,
       });
@@ -1177,6 +1287,7 @@ export const SellerProvider = ({ children }) => {
         }).catch(() => {});
       }
     } finally {
+      clearSellerDraft(getBrowserStorage(), draftKey);
       localStorage.removeItem('userToken');
       localStorage.removeItem('userProfile');
       setIsOnboarded(false);
@@ -1184,7 +1295,7 @@ export const SellerProvider = ({ children }) => {
       setUserProfile(null);
       window.location.href = '/seller';
     }
-  }, []);
+  }, [draftKey]);
 
   useEffect(() => {
     if (window.location.pathname === '/seller/logout') {
@@ -1202,8 +1313,6 @@ export const SellerProvider = ({ children }) => {
         setIsOnboarded,
         onboardingStep,
         setOnboardingStep,
-        isNscSeller,
-        setIsNscSeller,
         selectedTypes,
         setSelectedTypes,
         activeMode,
@@ -1300,6 +1409,7 @@ export const SellerProvider = ({ children }) => {
         updateOrderStatus,
         fetchSellerKpis,
         sellerProfile,
+        requestWholesaleChannel,
         profileLoading,
         fetchSellerProfile,
         saveSameDaySettings,
@@ -1322,12 +1432,6 @@ export const SellerProvider = ({ children }) => {
         subscriptionPrepAlerts,
         dismissSubscriptionPrepAlert,
         setIncomingOrder,
-        nhcPlans,
-        nhcPlansLoading,
-        nhcPlansError,
-        fetchNhcPlans,
-        selectedNhcPlan,
-        setSelectedNhcPlan,
       }}
     >
       {children}

@@ -110,7 +110,7 @@ const CampaignLandingPage = () => {
                       <s style={{ fontSize: 11, color: '#94a3b8' }}>{formatCurrency(p.price)}</s>
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToCart(p.id); }}
+                      onClick={(e) => { e.stopPropagation(); addToCart(p); }}
                       style={{ marginTop: 'auto', padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >
                       Add to Cart

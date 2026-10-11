@@ -15,6 +15,7 @@ import { buildReturnPolicySnapshotsFor } from './returnPolicy.service.js';
 import { debitWallet } from './wallet.service.js';
 import { recordDonationTransaction } from './donation.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
+import { mutateInventory } from './inventory.service.js';
 
 /**
  * One basket becomes several deliveries; one payment covers them all.
@@ -46,6 +47,12 @@ export const newGroupRef = () => `grp_${crypto.randomUUID()}`;
  */
 const linesOf = (group) => group.items.map((i) => ({
   productId: i.productId,
+  variantId: i.variantId || null,
+  sku: i.sku,
+  variantName: i.variantName,
+  variantAttributes: i.variantAttributes || [],
+  unitSnapshot: i.unitSnapshot,
+  weightSnapshot: i.weightSnapshot,
   name: i.name,
   image: i.image || '',
   qty: i.qty,
@@ -187,14 +194,7 @@ export const createOrdersFromGroups = async ({
   // ---- stock, all of it, before any of it -------------------------------
   for (const g of groups) {
     for (const l of linesOf(g)) {
-      const r = await Product.updateOne(
-        { _id: l.productId, stock: { $gte: l.qty } },
-        { $inc: { stock: -l.qty } },
-        { session }
-      );
-      if (r.modifiedCount !== 1) {
-        throw httpError(409, `"${l.name}" just went out of stock. Nothing was charged.`);
-      }
+      await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session });
     }
   }
 

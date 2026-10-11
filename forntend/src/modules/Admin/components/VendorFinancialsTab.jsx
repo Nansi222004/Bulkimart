@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
-import { NhcSellerBadge, sortNhcSellersFirst } from './NhcSellerBadge';
 
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -113,12 +112,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
     }
   };
 
-  const sortedItems = sortNhcSellersFirst(data, (item) => {
-    if (subTab === 'earnings') {
-      return item.isNhcSeller || item.isNscSeller || item.vendorType === 'NHC Seller' || item.seller?.isNscSeller;
-    }
-    return item.isNhcSeller || item.isNscSeller || item.vendorType === 'NHC Seller' || item.seller?.isNscSeller || item.vendor?.isNscSeller;
-  });
+  const sortedItems = data;
 
   return (
     <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -302,9 +296,8 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                   </thead>
                   <tbody>
                     {sortedItems.map((item, idx) => {
-                      const isNhc = item.isNhcSeller || item.isNscSeller || item.vendorType === 'NHC Seller' || item.seller?.isNscSeller;
                       return (
-                        <tr key={item._id || item.id || idx} style={{ borderBottom: '1px solid #f1f5f9', background: isNhc ? 'rgba(254, 243, 199, 0.15)' : 'transparent' }}>
+                        <tr key={item._id || item.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '14px 16px' }}>
                             <div style={{ fontWeight: 600, color: '#0f172a' }}>#{item.orderId || item._id}</div>
                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{fmtDate(item.createdAt)}</div>
@@ -312,7 +305,6 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                           <td style={{ padding: '14px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span style={{ fontWeight: 600, color: '#1e293b' }}>{item.storeName || item.sellerName || '—'}</span>
-                              <NhcSellerBadge isNhc={isNhc} size="small" />
                             </div>
                             <div style={{ fontSize: '11px', color: '#64748b' }}>{item.sellerPhone || ''}</div>
                           </td>
@@ -367,13 +359,11 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                   </thead>
                   <tbody>
                     {sortedItems.map((item, idx) => {
-                      const isNhc = item.isNhcSeller || item.isNscSeller || item.vendorType === 'NHC Seller' || item.seller?.isNscSeller;
                       return (
-                        <tr key={item.sellerId || idx} style={{ borderBottom: '1px solid #f1f5f9', background: isNhc ? 'rgba(254, 243, 199, 0.15)' : 'transparent' }}>
+                        <tr key={item.sellerId || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '14px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>{item.storeName || item.businessName || item.ownerName}</span>
-                              <NhcSellerBadge isNhc={isNhc} size="small" />
                             </div>
                             <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>{item.ownerName} • {item.phone}</div>
                           </td>
@@ -434,9 +424,8 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                   </thead>
                   <tbody>
                     {sortedItems.map((item, idx) => {
-                      const isNhc = item.isNhcSeller || item.isNscSeller || item.vendorType === 'NHC Seller' || item.seller?.isNscSeller;
                       return (
-                        <tr key={item._id || item.id || idx} style={{ borderBottom: '1px solid #f1f5f9', background: isNhc ? 'rgba(254, 243, 199, 0.15)' : 'transparent' }}>
+                        <tr key={item._id || item.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '14px 16px' }}>
                             <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.payoutRef || item._id}</div>
                             <div style={{ fontSize: '11px', color: '#64748b' }}>IMPS / Bank Direct</div>
@@ -444,7 +433,6 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                           <td style={{ padding: '14px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span style={{ fontWeight: 700, color: '#0f172a' }}>{item.storeName || item.sellerName || item.seller?.businessName || '—'}</span>
-                              <NhcSellerBadge isNhc={isNhc} size="small" />
                             </div>
                             <div style={{ fontSize: '11px', color: '#64748b' }}>{item.sellerPhone || item.seller?.phone || ''}</div>
                           </td>

@@ -30,14 +30,18 @@ export const UserProvider = ({ children }) => {
     fashion: 'shop-all',
     home: 'quick',
     groceries: 'quick',
-    electronics: 'quick',
+    // `/electronics` is a shared sub-nav slug in both modes. The remembered
+    // storefront disambiguates it on refresh; without one, default to Quick.
     coupons: 'quick',
     garments: 'quick',
   };
 
   const getModeFromPath = () => {
     const parts = window.location.pathname.split('/').filter(Boolean);
-    if (parts.length === 0) return 'quick';        // the root is the Quick home
+    // The root URL is shared by both storefronts. Let the remembered mode
+    // choose its theme/catalogue on refresh; a first-time visitor still
+    // defaults to Quick in resolveMode().
+    if (parts.length === 0) return null;
     return STOREFRONT_OF_PATH[parts[0]] || null;   // null — this path says nothing
   };
 
@@ -61,7 +65,7 @@ export const UserProvider = ({ children }) => {
     if (parts.length === 0) return 'home';
     const firstPart = parts[0];
     // Retired legacy storefront URLs intentionally fall back to Bulkimart home.
-    if (['categories', 'orders', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search'].includes(firstPart)) {
+    if (['categories', 'orders', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search', 'wholesale'].includes(firstPart)) {
       if (firstPart === 'profile') return 'account';
       return firstPart;
     }
@@ -487,7 +491,7 @@ export const UserProvider = ({ children }) => {
     }
   };
 
-  const updateUserProfile = async (name, email, isShgMember, shgRegNo) => {
+  const updateUserProfile = async (name, email) => {
     try {
       const token = localStorage.getItem('userToken');
       const response = await fetch(apiUrl('/api/users/profile'), {
@@ -496,7 +500,7 @@ export const UserProvider = ({ children }) => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, email, isShgMember, shgRegNo }),
+        body: JSON.stringify({ name, email }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -521,8 +525,6 @@ export const UserProvider = ({ children }) => {
       name: '',
       email: email || '',
       phone: '',
-      isShgMember: false,
-      shgName: ''
     };
     setCurrentUser(user);
     return { success: true };
@@ -533,8 +535,6 @@ export const UserProvider = ({ children }) => {
       name: details.name || '',
       email: details.email || '',
       phone: details.phone || '',
-      isShgMember: details.isShgMember || false,
-      shgName: details.shgName || ''
     };
     setCurrentUser(user);
     return { success: true };
@@ -549,15 +549,6 @@ export const UserProvider = ({ children }) => {
     disconnectSocket();
     setWishlist(new Set());
     setWishlistItems([]);
-  };
-
-  const toggleUserShgMembership = () => {
-    if (currentUser) {
-      setCurrentUser(prev => ({
-        ...prev,
-        isShgMember: !prev.isShgMember
-      }));
-    }
   };
 
   // ========================
@@ -576,82 +567,23 @@ export const UserProvider = ({ children }) => {
     };
   };
 
-  /* ── PREMIUM MEMBERSHIP ──────────────────────────────────────────────────
-   * The entitlement that lets a customer create Product Subscriptions.
-   *
-   * `isPremium` is whatever GET /api/premium/me last said — never derived
-   * here from an expiry date. The server re-checks it on every subscription
-   * creation anyway, so anything computed in the browser could only ever be
-   * a second, disagreeing opinion.
-   */
-  const [premiumMembership, setPremiumMembership] = useState(null);
-  const [isPremium, setIsPremium] = useState(false);
-  const [premiumLoading, setPremiumLoading] = useState(false);
-  const [premiumPlans, setPremiumPlans] = useState([]);
-  const [premiumPlansError, setPremiumPlansError] = useState('');
+  const checkoutHeaders = (operation, payload) => {
+    const storageKey = `bulkimart:checkout:${operation}:${currentUser?._id || currentUser?.id || 'customer'}`;
+    const fingerprint = JSON.stringify(payload);
+    let saved;
+    try { saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch { saved = null; }
+    if (!saved || saved.fingerprint !== fingerprint || !saved.key) {
+      const key = globalThis.crypto?.randomUUID?.()
+        || `bm-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+      saved = { fingerprint, key };
+      try { sessionStorage.setItem(storageKey, JSON.stringify(saved)); } catch { /* API still enforces uniqueness for this request. */ }
+    }
+    return { ...authHeaders(), 'Idempotency-Key': saved.key };
+  };
 
-  const fetchPremiumStatus = useCallback(async () => {
-    if (!localStorage.getItem('userToken')) {
-      setIsPremium(false);
-      setPremiumMembership(null);
-      return { isPremium: false };
-    }
-    setPremiumLoading(true);
-    try {
-      const res = await fetch(apiUrl('/api/premium/me'), { headers: authHeaders(false) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || 'Could not read your membership');
-      setIsPremium(Boolean(body.data?.isPremium));
-      setPremiumMembership(body.data?.membership || null);
-      return body.data;
-    } catch {
-      // A failed read is not proof of anything — it must not grant access,
-      // and the server would refuse the creation regardless.
-      setIsPremium(false);
-      setPremiumMembership(null);
-      return { isPremium: false };
-    } finally {
-      setPremiumLoading(false);
-    }
-  }, []);
-
-  const fetchPremiumPlans = useCallback(async () => {
-    setPremiumPlansError('');
-    try {
-      const res = await fetch(apiUrl('/api/premium/plans'), { headers: authHeaders(false) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || 'Could not load membership plans');
-      setPremiumPlans(body.data || []);
-      return body.data || [];
-    } catch (err) {
-      setPremiumPlansError(err.message);
-      setPremiumPlans([]);
-      return [];
-    }
-  }, []);
-
-  /**
-   * Hand off to PhonePe for a plan. Only a planId is sent — the price, the
-   * duration and the membership's expiry are all the server's to decide.
-   */
-  const startPremiumPurchase = async (planId) => {
-    try {
-      const res = await fetch(apiUrl('/api/premium/purchase'), {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ planId }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.data?.redirectUrl) {
-        return { ok: false, message: body.message || 'Could not start the payment' };
-      }
-      // The basket lives on the server (SubscriptionBasket), so leaving the
-      // app for the gateway cannot lose it — PhonePe returns to /basket.
-      window.location.href = body.data.redirectUrl;
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, message: err.message || 'Network error starting the payment' };
-    }
+  const clearCheckoutKey = (operation) => {
+    const storageKey = `bulkimart:checkout:${operation}:${currentUser?._id || currentUser?.id || 'customer'}`;
+    try { sessionStorage.removeItem(storageKey); } catch { /* storage may be unavailable */ }
   };
 
   const EMPTY_CART = { items: [], count: 0, pricing: null, warnings: [], channel: 'ecommerce' };
@@ -817,8 +749,29 @@ export const UserProvider = ({ children }) => {
 
   // The product's own channel decides which basket it lands in — the server
   // enforces that, so this does not need to guess.
-  const addToCart = async (productId, qty = 1) => {
-    const r = await cartCall('POST', '', { productId, qty });
+  const addToCart = async (productOrId, qty = 1, variantId) => {
+    let product = productOrId && typeof productOrId === 'object' ? productOrId : null;
+    const productId = product?.id || product?._id || productOrId;
+    let variants = product?.variants || product?.raw?.variants || [];
+    // Some discovery endpoints return compact product rows without variants.
+    // Resolve the public detail record before allowing a card quick-add to
+    // choose a variant implicitly.
+    if (product && !variants.length) {
+      try {
+        const response = await fetch(apiUrl(`/api/products/${productId}`));
+        const detail = await response.json();
+        if (response.ok && Array.isArray(detail?.variants)) {
+          variants = detail.variants.map((variant) => ({ ...variant, id: String(variant._id) }));
+          product = { ...product, id: String(productId), _id: String(productId), variants, raw: detail };
+        }
+      } catch { /* The cart API remains authoritative if detail lookup is unavailable. */ }
+    }
+    if (!variantId && variants.length > 1) {
+      setSelectedProduct(product);
+      return { ok: false, message: 'Choose a product variant to add it to your cart.' };
+    }
+    const resolvedVariantId = variantId || (variants.length === 1 ? (variants[0].id || variants[0]._id) : undefined);
+    const r = await cartCall('POST', '', { productId, qty, ...(resolvedVariantId ? { variantId: resolvedVariantId } : {}) });
     if (r.ok && r.data?.channel !== cartChannel) {
       // it went into the other storefront's basket; keep both views honest
       refreshCart();
@@ -848,19 +801,18 @@ export const UserProvider = ({ children }) => {
   };
   const getCartSubtotal = () => serverCart.pricing?.subtotal || 0;
   const getDeliveryCharge = () => serverCart.pricing?.deliveryCharge || 0;
-  const getCdsDiscount = () => serverCart.pricing?.cdsDiscount || 0;
   const getCartTotal = () => serverCart.pricing?.totalAmount || 0;
   const getCartWarnings = () => serverCart.warnings || [];
 
   /** Quantity of one product in the current basket, 0 if it is not in there.
    *  The old cart was a { productId: qty } map that pages indexed directly;
    *  the server cart is a list, so lookups go through this instead. */
-  const getItemQty = (productId) =>
-    (serverCart.items || []).find((i) => String(i.productId) === String(productId))?.qty || 0;
+  const getItemQty = (productId, variantId = null) =>
+    (serverCart.items || []).find((i) => String(i.productId) === String(productId)
+      && String(i.variantId || '') === String(variantId || ''))?.qty || 0;
   const getCouponDiscount = () => serverCart.pricing?.couponDiscount || 0;
   // There is no platform fee on the server; the cart used to invent a flat ₹5,
   // which meant the displayed total never matched what was actually charged.
-  const getPlatformFee = () => 0;
   const getTotalSavings = () => serverCart.pricing?.totalSavings || 0;
 
   // ========================
@@ -910,34 +862,6 @@ export const UserProvider = ({ children }) => {
     await refreshCart(cartChannel, '');
   };
 
-  /**
-   * Verify a CDS membership number.
-   * The check itself lives on the server (services/cds.service.js), so the
-   * discount a member gets can never be granted by the client.
-   */
-  const verifyCDS = async (membershipNo) => {
-    if (!isSignedIn()) return { success: false, message: 'Please sign in first.' };
-    if (!membershipNo) return { success: false, message: 'Enter your CDS membership number.' };
-    try {
-      const res = await fetch(apiUrl('/api/users/cds/verify'), {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ cdsMembershipNo: membershipNo }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) return { success: false, message: body.message || 'Could not verify that number' };
-
-      // A verified member is priced differently, so refresh the cart too.
-      if (body.user) {
-        localStorage.setItem('userProfile', JSON.stringify(body.user));
-        setCurrentUser(body.user);
-      }
-      await refreshCart();
-      return { success: true, message: body.message || 'CDS membership verified', user: body.user };
-    } catch (err) {
-      return { success: false, message: err.message };
-    }
-  };
 
   /** Offers this shopper can use right now, each with a reason if they cannot. */
   const fetchAvailableCoupons = useCallback(async () => {
@@ -1441,57 +1365,34 @@ export const UserProvider = ({ children }) => {
     if (!addr.pincode) return { ok: false, message: 'Your saved address is missing a pincode. Please add a new address.' };
 
     try {
+      const checkoutPayload = {
+        channel: cartChannel,
+        coupon: couponCode || undefined,
+        paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
+        deliveryMode: cartChannel === 'ecommerce' ? (deliveryMode || serverCart?.items?.[0]?.deliveryMode || undefined) : undefined,
+        useCoins: useCoinsSelected,
+        donationOptedIn: Boolean(donation?.amount > 0),
+        donationAmount: donation?.amount || undefined,
+        tipAmount: tipAmount || undefined,
+        addressId: addr._id || addr.id || undefined,
+        shippingAddress: {
+          name: addr.name || 'Customer', phone: addr.phone,
+          line1: addr.line1 || addr.address, line2: addr.line2,
+          city: addr.city, state: addr.state || '', pincode: addr.pincode,
+          lat: addr.lat, lng: addr.lng,
+          landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
+        },
+      };
+      const requestHeaders = checkoutHeaders('single', checkoutPayload);
       const res = await fetch(apiUrl('/api/orders'), {
         method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          channel: cartChannel,
-          coupon: couponCode || undefined,
-          paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
-          /**
-           * The chosen mode, which the server checks again before it accepts.
-           *
-           * Sent only for Shop All: a Quick order has one way of arriving, and
-           * the server refuses a mode on a grocery cart outright.
-           *
-           * By the time this is tapped the offer may already be stale — a
-           * cut-off can pass while an address is typed. The server re-runs the
-           * eligibility check and refuses rather than quietly downgrading, so a
-           * customer never pays for one delivery and gets another.
-           */
-          deliveryMode: cartChannel === 'ecommerce' ? (deliveryMode || serverCart?.items?.[0]?.deliveryMode || undefined) : undefined,
-          // Intent only — same discipline as the coupon code below. The
-          // server recalculates eligibility, the balance, the 20% cap and
-          // the actual discount itself; nothing about the amount is trusted
-          // from here (see coin.service.js::calculateRedemptionEligibility).
-          useCoins: useCoinsSelected,
-          // The client names an amount, same as a coupon names a code — the
-          // server never trusts either one, it re-validates against its own
-          // live DonationSetting before a rupee of it is ever charged.
-          donationOptedIn: Boolean(donation?.amount > 0),
-          donationAmount: donation?.amount || undefined,
-          // Likewise re-validated server-side against the fixed tip ladder
-          // (tip.service.js) — a number that isn't on it is refused, not
-          // rounded to something the customer never picked.
-          tipAmount: tipAmount || undefined,
-          addressId: addr._id || addr.id || undefined,
-          shippingAddress: {
-            name: addr.name || 'Customer',
-            phone: addr.phone,
-            line1: addr.line1 || addr.address,
-            line2: addr.line2,
-            city: addr.city,
-            state: addr.state || '',
-            pincode: addr.pincode,
-            lat: addr.lat,
-            lng: addr.lng,
-            landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
-          },
-        }),
+        headers: requestHeaders,
+        body: JSON.stringify(checkoutPayload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not place your order' };
 
+      clearCheckoutKey('single');
       setCouponCode('');
       setAppliedCoupon(null);
       setUseCoinsSelected(false);
@@ -1524,35 +1425,30 @@ export const UserProvider = ({ children }) => {
     if (!addr.pincode) return { ok: false, message: 'Your saved address is missing a pincode.' };
 
     try {
+      const checkoutPayload = {
+        paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
+        donationOptedIn: Boolean(donation?.amount > 0),
+        donationAmount: donation?.amount || undefined,
+        tipAmount: tipAmount || undefined,
+        addressId: addr._id || addr.id || undefined,
+        shippingAddress: {
+          name: addr.name || 'Customer', phone: addr.phone,
+          line1: addr.line1 || addr.address, line2: addr.line2,
+          city: addr.city, state: addr.state || '', pincode: addr.pincode,
+          lat: addr.lat, lng: addr.lng,
+          landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
+        },
+      };
+      const requestHeaders = checkoutHeaders('unified', checkoutPayload);
       const res = await fetch(apiUrl('/api/orders/unified'), {
         method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
-          donationOptedIn: Boolean(donation?.amount > 0),
-          donationAmount: donation?.amount || undefined,
-          // Likewise re-validated server-side against the fixed tip ladder
-          // (tip.service.js) — a number that isn't on it is refused, not
-          // rounded to something the customer never picked.
-          tipAmount: tipAmount || undefined,
-          addressId: addr._id || addr.id || undefined,
-          shippingAddress: {
-            name: addr.name || 'Customer',
-            phone: addr.phone,
-            line1: addr.line1 || addr.address,
-            line2: addr.line2,
-            city: addr.city,
-            state: addr.state || '',
-            pincode: addr.pincode,
-            lat: addr.lat,
-            lng: addr.lng,
-            landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
-          },
-        }),
+        headers: requestHeaders,
+        body: JSON.stringify(checkoutPayload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not place your order' };
 
+      clearCheckoutKey('unified');
       await Promise.all([refreshCart(cartChannel, ''), fetchOrders()]);
       return {
         ok: true,
@@ -1707,16 +1603,12 @@ export const UserProvider = ({ children }) => {
     <UserContext.Provider
       value={{
         // Authentication
-        currentUser, loginUser, registerUser, logoutUser, toggleUserShgMembership,
+        currentUser, loginUser, registerUser, logoutUser,
         sendOtp, verifyOtp, updateUserProfile,
 
         // Navigation
         activeMode, setActiveMode,
         productTab, setProductTab,
-        // Premium Membership — the gate in front of Product Subscriptions
-        premiumMembership, isPremium, premiumLoading, premiumPlans, premiumPlansError,
-        fetchPremiumStatus, fetchPremiumPlans, startPremiumPurchase,
-
         activeNav, setActiveNav,
         activeSubNav, setActiveSubNav,
         isVoiceModalOpen, setIsVoiceModalOpen, openVoiceSearch, closeVoiceSearch,
@@ -1737,10 +1629,9 @@ export const UserProvider = ({ children }) => {
         addToCart, removeFromCart, clearCart,
         setCartItemQty, deleteCartItem,
         getCartCount, getCartItems, getCartWarnings, getItemQty,
-        getCartSubtotal, getDeliveryCharge, getCouponDiscount, getPlatformFee, getCartTotal,
+        getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
 
         // Coupon
-        verifyCDS,
         appliedCoupon, applyCoupon, removeCoupon,
         couponCode, availableCoupons, fetchAvailableCoupons, getTotalSavings,
         donationSetting, fetchDonationSetting,
@@ -1777,7 +1668,6 @@ export const UserProvider = ({ children }) => {
         refreshCart,
         setCartItemQty,
         deleteCartItem,
-        getCdsDiscount,
         getCartWarnings,
 
         // Subscription
