@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { NhcSellerBadge } from './NhcSellerBadge';
 
 const STATUS_COLORS = {
   approved: { bg: '#dcfce7', text: '#15803d', border: '#bbf7d0', label: 'APPROVED' },
@@ -13,7 +12,7 @@ const STATUS_COLORS = {
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
-  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius } = useAdmin();
+  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus } = useAdmin();
   const [radiusInput, setRadiusInput] = useState(seller?.business?.store?.radiusKm ?? '');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -41,13 +40,18 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
   const statusStyle = STATUS_COLORS[statusKey] || STATUS_COLORS.pending;
   const initials = storeName.slice(0, 2).toUpperCase();
 
-  const isNhc = d.isNhcSeller || d.isNscSeller || d.business?.isNhcSeller || d.business?.isNscSeller;
-
   const documents = d.documents || [];
 
   const handleSaveRadius = async () => {
     if (!d._id) return;
     await setSellerRadius(d._id, radiusInput === '' ? null : Number(radiusInput));
+  };
+
+  const handleWholesaleDecision = async (status) => {
+    if (!d._id) return;
+    const reason = status === 'rejected' ? (window.prompt('Optional reason for rejecting or revoking Wholesale access:') || '') : undefined;
+    const result = await setSellerWholesaleStatus(d._id, status, reason);
+    if (result?.ok && onRefresh) onRefresh();
   };
 
   const handleApprove = async () => {
@@ -71,15 +75,6 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
     if (onRefresh) onRefresh();
     onClose();
   };
-
-  const planInfo = (d.nhcPlan && d.nhcPlan.planName) ? d.nhcPlan : (isNhc ? {
-    planName: 'Unit Seller',
-    planType: 'UNIT_SELLER',
-    planAmount: 1000000,
-    currency: 'INR',
-    description: 'Standard NHC Unit Seller membership with local operational coverage.',
-    selectedAt: d.registeredAt || d.submittedAt || d.createdAt,
-  } : null);
 
   return (
     <div style={{
@@ -115,7 +110,6 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                 }}>
                   SLR-{String(d._id || '').slice(-6).toUpperCase()}
                 </span>
-                {isNhc && <NhcSellerBadge />}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
                 <span style={{ fontSize: 12.5, color: '#64748b', fontWeight: 600 }}>Owned by: <strong>{ownerName}</strong></span>
@@ -128,11 +122,11 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                 </span>
                 <span style={{
                   padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 800,
-                  backgroundColor: isNhc ? '#fef3c7' : '#eff6ff',
-                  color: isNhc ? '#b45309' : '#1d4ed8',
-                  border: isNhc ? '1px solid #fde68a' : '1px solid #bfdbfe'
+                  backgroundColor: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe'
                 }}>
-                  {isNhc ? '⭐ NHC SELLER' : 'GENERAL VENDOR'}
+                  SELLER
                 </span>
               </div>
             </div>
@@ -218,6 +212,31 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
               </div>
 
               {/* STORE HEALTH & DETAILS CARD */}
+              <div style={{ backgroundColor: '#f0fbff', border: '1px solid #bae6fd', borderRadius: 14, padding: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#075985', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                  Sales Channels
+                </div>
+                <div style={{ fontSize: 12, color: '#334155', marginBottom: 10 }}>
+                  {(d.salesChannels || ['ecommerce']).map((channel) => channel === 'grocery' ? 'Quick Commerce' : channel === 'ecommerce' ? 'E-Commerce' : channel === 'wholesale' ? 'Wholesale' : channel).join(' · ')}
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 10 }}>
+                  Wholesale request: <strong>{prettyStatus(d.wholesaleChannel?.status || 'not requested')}</strong>
+                </div>
+                {d.wholesaleChannel?.status === 'pending' && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" onClick={() => handleWholesaleDecision('approved')} style={{ border: 0, borderRadius: 7, background: '#08b9e8', color: '#fff', padding: '7px 10px', fontWeight: 700, cursor: 'pointer' }}>Approve Wholesale</button>
+                    <button type="button" onClick={() => handleWholesaleDecision('rejected')} style={{ border: '1px solid #fecaca', borderRadius: 7, background: '#fff', color: '#b91c1c', padding: '7px 10px', fontWeight: 700, cursor: 'pointer' }}>Reject</button>
+                  </div>
+                )}
+                {d.wholesaleChannel?.status === 'approved' && (
+                  <button type="button" onClick={() => handleWholesaleDecision('suspended')} style={{ border: '1px solid #fecaca', borderRadius: 7, background: '#fff', color: '#b91c1c', padding: '7px 10px', fontWeight: 700, cursor: 'pointer' }}>Suspend Wholesale Access</button>
+                )}
+                {d.wholesaleChannel?.status === 'suspended' && (
+                  <button type="button" onClick={() => handleWholesaleDecision('approved')} style={{ border: '1px solid #bae6fd', borderRadius: 7, background: '#eaf9fe', color: '#075985', padding: '7px 10px', fontWeight: 700, cursor: 'pointer' }}>Restore Wholesale Access</button>
+                )}
+              </div>
+
+              {/* STORE HEALTH & DETAILS CARD */}
               <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>
                   Store Health &amp; Info
@@ -280,45 +299,6 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
             {/* RIGHT COLUMN: Metrics, Performance, Bank & Legal */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-              {/* CHOSEN NHC PLAN / PACKAGE CARD */}
-              {(isNhc || planInfo) && (
-                <div style={{
-                  backgroundColor: '#fffdf5', border: '1.5px solid #fde68a', borderRadius: 14, padding: 16,
-                  boxShadow: '0 4px 12px rgba(245, 158, 11, 0.08)'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.6px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>👑</span> Chosen NHC Package / Plan
-                    </div>
-                    {planInfo?.selectedAt && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: '#92400e' }}>
-                        Selected: {new Date(planInfo.selectedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ffffff', border: '1px solid #fef3c7', padding: '12px 16px', borderRadius: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#78350f' }}>
-                        {planInfo?.planName || 'Unit Seller'}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: '#a16207', marginTop: 2 }}>
-                        {planInfo?.description || 'Standard NHC Unit Seller membership with local operational coverage.'}
-                      </div>
-                      <span style={{ display: 'inline-block', marginTop: 6, fontSize: 10, fontWeight: 800, color: '#b45309', backgroundColor: '#fef3c7', padding: '2px 8px', borderRadius: 4 }}>
-                        Type: {planInfo?.planType || 'UNIT_SELLER'}
-                      </span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', textTransform: 'uppercase' }}>Package Fee</div>
-                      <div style={{ fontSize: 20, fontWeight: 900, color: '#15803d' }}>
-                        ₹{Number(planInfo?.planAmount || 1000000).toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
               {/* 6 KPI METRICS GRID */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                 

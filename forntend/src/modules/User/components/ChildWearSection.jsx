@@ -69,7 +69,7 @@ const ChildWearSection = () => {
                   className="grid-product-add-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    addToCart(product.id);
+                    addToCart(product);
                   }}
                   aria-label={`Add ${product.name} to cart`}
                 >

@@ -100,7 +100,7 @@ const PromotionLandingPage = () => {
                     </p>
                     <span style={{ fontSize: 13.5, fontWeight: 900, color: '#0f172a' }}>{formatCurrency(p.price)}</span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); addToCart(p.id); }}
+                      onClick={(e) => { e.stopPropagation(); addToCart(p); }}
                       style={{ marginTop: 'auto', padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >
                       Add to Cart

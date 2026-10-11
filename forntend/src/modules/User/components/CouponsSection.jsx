@@ -1,6 +1,8 @@
 import React from 'react';
+import { useUser } from '../context/UserContext';
 
 const CouponsSection = () => {
+  const { activeMode } = useUser();
   const coupons = [
     {
       id: 'c1',
@@ -66,12 +68,19 @@ const CouponsSection = () => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {coupons.map((coupon) => (
+        {coupons.map((coupon) => {
+          const color = activeMode === 'shop-all'
+            ? (coupon.id === 'c3' ? 'var(--brand-orange)' : 'var(--primary)')
+            : coupon.color;
+          const background = activeMode === 'shop-all'
+            ? (coupon.id === 'c3' ? 'var(--brand-orange-light)' : 'var(--primary-light)')
+            : coupon.bgColor;
+          return (
           <div
             key={coupon.id}
             style={{
-              background: coupon.bgColor,
-              border: `2px dashed ${coupon.color}`,
+              background,
+              border: `2px dashed ${color}`,
               borderRadius: 12,
               padding: 16,
               display: 'flex',
@@ -82,7 +91,7 @@ const CouponsSection = () => {
             }}
           >
             <div style={{ flex: 1 }}>
-              <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>
+              <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
                 {coupon.title}
               </h4>
               <p style={{ margin: '4px 0 0 0', fontSize: 11, color: '#64748b' }}>
@@ -95,7 +104,7 @@ const CouponsSection = () => {
             <div style={{ textAlign: 'right' }}>
               <div
                 style={{
-                  background: coupon.color,
+                  background: color,
                   color: '#fff',
                   padding: '6px 12px',
                   borderRadius: 6,
@@ -111,7 +120,7 @@ const CouponsSection = () => {
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: coupon.color,
+                  color,
                   fontSize: 10,
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -122,7 +131,8 @@ const CouponsSection = () => {
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

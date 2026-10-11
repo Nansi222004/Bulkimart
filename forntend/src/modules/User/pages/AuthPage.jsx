@@ -101,7 +101,7 @@ const AuthPage = () => {
     if (result.success) {
       // If user was registering, update profile details in backend
       if (!isLogin && (name.trim() || email.trim())) {
-        const updateResult = await updateUserProfile(name.trim(), email.trim(), false);
+        const updateResult = await updateUserProfile(name.trim(), email.trim());
         if (!updateResult.success) {
           console.warn('Profile update failed:', updateResult.message);
         }

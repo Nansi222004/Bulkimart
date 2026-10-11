@@ -42,9 +42,6 @@ export const publicUser = (user) => ({
   avatar: user.avatar,
   roles: user.roles,
   addresses: user.addresses || [],
-  cdsMembershipNo: user.cdsMembershipNo,
-  isCDSVerified: user.isCDSVerified,
-  cdsVerifiedAt: user.cdsVerifiedAt,
   walletBalance: user.wallet?.balance ?? 0,
   isActive: user.isActive,
   isShgMember: user.isShgMember || false,
@@ -178,13 +175,12 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
  * this screen. This is the opposite of `requestOTP`/`verifyAndLogin` above
  * (which auto-create a User on a new phone — correct for the customer app,
  * where "enter phone → OTP" IS registration). Mirrors the existing
- * requestShgOTP/verifyShgOTP pattern below, minus the `roles: "shg"` filter
  * — any registered phone qualifies here, since becoming a seller is
  * something an existing buyer does for the FIRST time, not something that
  * requires already holding the seller role.
  */
 
-// @desc    Send OTP for seller entry — phone must already be a registered NHCONE user
+// @desc    Send OTP for seller entry — phone must already be a registered Bulkimart user
 // @route   POST /api/auth/seller/send-otp
 // @access  Public
 export const requestSellerOTP = asyncHandler(async (req, res) => {
@@ -330,112 +326,6 @@ export const getMe = asyncHandler(async (req, res) => {
     success: true,
     userType: 'user',
     profile: req.user
-  });
-});
-
-/**
- * SHG entry point — same "User is the base identity" rule as the seller
- * entry point above, PLUS one extra gate the seller flow doesn't have: SHG
- * onboarding also requires the user to have actually said "Yes" to "Are
- * you part of a Self-Help Group?" at registration (`User.isShgMember`,
- * written by `updateUserProfile` in user.controller.js).
- *
- * This USED to check `roles: "shg"` instead — but that role is only ever
- * granted by `approveSHG` on admin approval (admin.controller.js), so a
- * brand-new applicant who just answered "Yes" could never pass this check
- * to even START onboarding; it only ever worked for an already-approved
- * SHG owner signing back in. `isShgMember` never gets cleared once set, so
- * checking it instead correctly covers BOTH a first-time applicant and a
- * returning approved member with the one check — same "one endpoint, both
- * cases" shape the seller entry point already uses.
- */
-
-// @desc    Verify SHG phone number and request OTP
-// @route   POST /api/auth/shg/send-otp
-// @access  Public
-export const requestShgOTP = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-  if (!phone) {
-    res.status(400);
-    throw new Error("Please provide your registered mobile number");
-  }
-
-  const user = await User.findOne({ phone });
-  if (!user) {
-    throw httpError(
-      404,
-      "You are not a member of Bulkimart Shopping App. Please open the Bulkimart Shopping App and create your account first.",
-      { code: "NOT_A_MEMBER" }
-    );
-  }
-  if (!user.isShgMember) {
-    throw httpError(
-      403,
-      "Your Bulkimart account is not marked as an SHG member. Open the Bulkimart Shopping App, go to your Profile, and answer \"Yes\" to the Self-Help Group question first.",
-      { code: "NOT_SHG_ELIGIBLE" }
-    );
-  }
-
-  // Use SMS service to send OTP to the registered leader's phone
-  const result = await sendOTP(user.phone);
-
-  if (process.env.OTP_MODE === 'mock') {
-    return res.status(200).json({
-      success: true,
-      message: `OTP sent to leader's phone (ends in ${user.phone.slice(-4)}) - mock mode`,
-      otp: result.otp,
-      phone: user.phone
-    });
-  }
-
-  res.status(200).json({
-    success: true,
-    message: `OTP sent successfully to registered phone ending in ${user.phone.slice(-4)}`,
-    phone: user.phone
-  });
-});
-
-// @desc    Verify SHG OTP and login
-// @route   POST /api/auth/shg/verify-otp
-// @access  Public
-export const verifyShgOTP = asyncHandler(async (req, res) => {
-  const { phone, otp } = req.body;
-  if (!phone || !otp) {
-    res.status(400);
-    throw new Error("Please provide mobile number and OTP");
-  }
-
-  const user = await User.findOne({ phone });
-  if (!user) {
-    throw httpError(
-      404,
-      "You are not a member of Bulkimart Shopping App. Please open the Bulkimart Shopping App and create your account first.",
-      { code: "NOT_A_MEMBER" }
-    );
-  }
-  if (!user.isShgMember) {
-    throw httpError(
-      403,
-      "Your Bulkimart account is not marked as an SHG member. Open the Bulkimart Shopping App, go to your Profile, and answer \"Yes\" to the Self-Help Group question first.",
-      { code: "NOT_SHG_ELIGIBLE" }
-    );
-  }
-
-  const verification = verifyOTP(user.phone, otp);
-  if (!verification.valid) {
-    res.status(400);
-    throw new Error(verification.message || "Invalid OTP verification");
-  }
-
-  // Same "authenticated through this entry point" reasoning as the seller
-  // login above — re-verified against the real SHGStore record by anything
-  // that trusts it, not taken as final proof of approval by itself.
-  const token = generateToken(user._id, "user", "shg");
-
-  res.status(200).json({
-    success: true,
-    token,
-    user: publicUser(user),
   });
 });
 

@@ -1,9 +1,20 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { QUICK_ACTIONS } from '../constants';
 import { useUser } from '../context/UserContext';
+import { apiUrl } from '../../../utils/api';
 
 const QuickActions = () => {
-  const { setActiveNav } = useUser();
+  const { setActiveNav, activeMode } = useUser();
+  const [wholesaleAvailable, setWholesaleAvailable] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(apiUrl('/api/products/wholesale/availability'), { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setWholesaleAvailable(data?.success === true && data.enabled === true))
+      .catch(() => { if (!controller.signal.aborted) setWholesaleAvailable(false); });
+    return () => controller.abort();
+  }, []);
 
   // Render specific SVG icons based on icon name
   const renderIcon = (iconName, color) => {
@@ -43,6 +54,12 @@ const QuickActions = () => {
             <rect x="3" y="14" width="7" height="7" rx="2.2"></rect>
           </svg>
         );
+      case 'bulk':
+        return (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m3 7 9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7" /><path d="M12 11v10" /><path d="m7.5 5 9 4" />
+          </svg>
+        );
       case 'ticket':
         return (
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -60,22 +77,27 @@ const QuickActions = () => {
       setActiveNav('categories');
     } else if (actionId === 'offers') {
       setActiveNav('home');
+    } else if (actionId === 'wholesale') {
+      setActiveNav('wholesale');
     }
   };
 
   return (
     <div className="quick-actions-container">
-      {QUICK_ACTIONS.map((action) => (
+      {QUICK_ACTIONS.filter((action) => action.id !== 'wholesale' || wholesaleAvailable).map((action) => (
         <div 
           key={action.id} 
           className="quick-action-card"
+          role="button"
+          tabIndex={0}
           onClick={() => handleActionClick(action.id)}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') handleActionClick(action.id); }}
         >
           <div
             className="action-icon-wrapper"
-            style={{ backgroundColor: action.color }}
+            style={{ backgroundColor: activeMode === 'shop-all' ? 'var(--primary-light)' : action.color }}
           >
-            {renderIcon(action.icon, action.iconColor)}
+            {renderIcon(action.icon, activeMode === 'shop-all' && action.id !== 'offers' ? 'var(--primary-hover)' : action.iconColor)}
           </div>
           <div className="action-text">
             <span className="action-title">{action.title}</span>

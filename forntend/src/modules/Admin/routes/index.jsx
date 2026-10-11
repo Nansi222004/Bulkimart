@@ -16,7 +16,6 @@ import CustomerActivityLogTab from '../components/CustomerActivityLogTab';
 import ConsumerOrdersTab from '../components/ConsumerOrdersTab';
 import ConsumerDashboardTab from '../components/ConsumerDashboardTab';
 import UsersTab from '../components/UsersTab';
-import SHGVendorsTab from '../components/SHGVendorsTab';
 import DeliveryTab from '../components/DeliveryTab';
 import DeliveryDashboardTab from '../components/DeliveryDashboardTab';
 import DeliveryAssignmentTab from '../components/DeliveryAssignmentTab';
@@ -24,18 +23,9 @@ import DeliveryActiveOpsTab from '../components/DeliveryActiveOpsTab';
 import DeliveryHistoryTab from '../components/DeliveryHistoryTab';
 import DeliveryPerformanceTab from '../components/DeliveryPerformanceTab';
 import DeliveryZonesTab from '../components/DeliveryZonesTab';
-import SubscriptionsTab from '../components/SubscriptionsTab';
-import PremiumPlansTab from '../components/PremiumPlansTab';
 import UserReviewsTab from '../components/UserReviewsTab';
 import SellerKYCTab from '../components/SellerKYCTab';
-import SHGVerificationsTab from '../components/SHGVerificationsTab';
-import SHGPayoutsTab from '../components/SHGPayoutsTab';
-import SHGDashboardTab from '../components/SHGDashboardTab';
-import SHGProductApprovalTab from '../components/SHGProductApprovalTab';
-import SHGProductsTab from '../components/SHGProductsTab';
 import VendorDashboardTab from '../components/VendorDashboardTab';
-import SHGPerformanceTab from '../components/SHGPerformanceTab';
-import SHGFeaturedCollectionsTab from '../components/SHGFeaturedCollectionsTab';
 import DeliveryTrackingTab from '../components/DeliveryTrackingTab';
 import RiderPayoutsTab from '../components/RiderPayoutsTab';
 import DeliveryRatesTab from '../components/DeliveryRatesTab';
@@ -45,9 +35,6 @@ import BannersTab from '../components/BannersTab';
 import CampaignsTab from '../components/CampaignsTab';
 import SellerPromotionsTab from '../components/SellerPromotionsTab';
 import PromotionPackagesTab from '../components/PromotionPackagesTab';
-import PackagingMaterialsTab from '../components/PackagingMaterialsTab';
-import PackagingPackagesTab from '../components/PackagingPackagesTab';
-import PackagingOrdersTab from '../components/PackagingOrdersTab';
 import ReturnsTab from '../components/ReturnsTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
@@ -56,9 +43,8 @@ import ReferralsTab from '../components/ReferralsTab';
 import NotificationBroadcasterTab from '../components/NotificationBroadcasterTab';
 import PrivacyPolicyTab from '../components/PrivacyPolicyTab';
 import UserWalletsTab from '../components/UserWalletsTab';
-import NhcPlansTab from '../components/NhcPlansTab';
-import NhcApplicationsTab from '../components/NhcApplicationsTab';
 import AdminLoginPage from '../pages/AdminLoginPage';
+import WholesaleManagementTab from '../components/WholesaleManagementTab';
 
 import '../SuperAdmin.css';
 import '../Admin.css'; // Toast alert styles
@@ -74,20 +60,6 @@ const AdminRoutesContent = ({ onLogout }) => {
     if (activeTab.startsWith('categories-') || activeTab === 'categories') {
       return <CategoriesTab subTab={activeTab.startsWith('categories-') ? activeTab : 'categories-all'} />;
     }
-    if (activeTab === 'shg-categories') {
-      // Standalone tree manager, permanently scoped to the `shg` channel — it
-      // can never switch to or affect Shop All / Quick categories.
-      return <CategoriesTab subTab="categories-all" fixedChannel="shg" title="SHG Category" />;
-    }
-    // The Premium Membership plan catalog — the entitlement customers buy in
-    // order to create Product Subscriptions. Checked before the generic
-    // subscriptions match below, which would otherwise not reach it.
-    if (activeTab === 'premium-plans') {
-      return <PremiumPlansTab />;
-    }
-    if (activeTab.startsWith('subscriptions-') || activeTab.startsWith('sub-') || activeTab === 'subscriptions') {
-      return <SubscriptionsTab subTab={activeTab} />;
-    }
     switch (activeTab) {
       case 'users':             
       case 'users-all':         return <UsersTab defaultStatusFilter="All" />;
@@ -98,23 +70,8 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'user-reviews':      return <UserReviewsTab />;
       case 'user-dashboard':    return <ConsumerDashboardTab />;
       case 'user-orders':       return <ConsumerOrdersTab />;
-      case 'user-subscriptions':return <SubscriptionsTab />;
       case 'vendor-ratings-reviews': return <UserReviewsTab />;
-      case 'shg-dashboard':     return <SHGDashboardTab />;
-      case 'shg-vendors':       
-      case 'shg-all':           return <SHGVendorsTab defaultStatusFilter="All" />;
-      case 'shg-pending':       return <SHGVendorsTab defaultStatusFilter="Pending" />;
-      case 'shg-approved':      return <SHGVendorsTab defaultStatusFilter="Approved" />;
-      case 'shg-rejected':      return <SHGVendorsTab defaultStatusFilter="Rejected" />;
-      case 'shg-suspended':     return <SHGVendorsTab defaultStatusFilter="Suspended" />;
       case 'vendor-dashboard': return <VendorDashboardTab />;
-      case 'shg-products':      return <SHGProductsTab />;
-      case 'shg-product-approval': return <SHGProductApprovalTab />;
-      case 'shg-orders':        return <VendorOrdersTab defaultMode="active" isShgOnly={true} />;
-      case 'shg-performance':   return <SHGPerformanceTab />;
-      case 'shg-featured-collections': return <SHGFeaturedCollectionsTab />;
-      case 'shg-verifications': return <SHGVerificationsTab />;
-      case 'shg-payouts':       return <SHGPayoutsTab />;
       case 'delivery-dashboard':return <DeliveryDashboardTab />;
       case 'delivery-partners':
       case 'delivery-all':       return <DeliveryTab defaultStatusFilter="All" />;
@@ -136,9 +93,6 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'campaigns':          return <CampaignsTab />;
       case 'seller-promotions':  return <SellerPromotionsTab />;
       case 'promotion-packages': return <PromotionPackagesTab />;
-      case 'packaging-materials': return <PackagingMaterialsTab />;
-      case 'packaging-packages': return <PackagingPackagesTab />;
-      case 'packaging-orders':   return <PackagingOrdersTab />;
       case 'returns':            return <ReturnsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;
@@ -148,13 +102,8 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'privacy-policy':
       case 'privacy':            return <PrivacyPolicyTab />;
       case 'user-wallets':       return <UserWalletsTab />;
-      case 'nhc-plans':
-      case 'nhc-plan':
-      case 'nhc-seller-plans':   return <NhcPlansTab />;
-      case 'nhc-applications':
-      case 'nhc-application':
-      case 'nhc-seller-applications': return <NhcApplicationsTab />;
-      case 'sellers':           
+      case 'wholesale':         return <WholesaleManagementTab />;
+      case 'sellers':
       // status values match the backend enum (lowercase)
       case 'coupons':          return <CouponsTab />;
       case 'vendors-all':       return <SellersTab defaultStatusFilter="all" />;

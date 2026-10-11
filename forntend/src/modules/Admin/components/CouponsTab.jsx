@@ -28,7 +28,7 @@ const BLANK = {
   discountType: 'percentage', value: '', maxDiscount: '',
   minOrderValue: '', channel: 'all',
   totalUsageLimit: '', perUserLimit: 1,
-  firstOrderOnly: false, cdsMembersOnly: false, isPublic: true,
+  firstOrderOnly: false, isPublic: true,
   startsAt: '', expiresAt: '',
 };
 
@@ -109,7 +109,6 @@ export const CouponsTab = () => {
       totalUsageLimit: c.totalUsageLimit || '',
       perUserLimit: c.perUserLimit ?? 1,
       firstOrderOnly: !!c.firstOrderOnly,
-      cdsMembersOnly: !!c.cdsMembersOnly,
       isPublic: c.isPublic !== false,
       startsAt: c.startsAt ? String(c.startsAt).slice(0, 10) : '',
       expiresAt: c.expiresAt ? String(c.expiresAt).slice(0, 10) : '',
@@ -269,11 +268,11 @@ export const CouponsTab = () => {
                   {c.totalUsageLimit ? ` · ${c.usedCount}/${c.totalUsageLimit} claimed` : ` · ${c.usedCount} used`}
                 </span>
               </div>
-              {(c.firstOrderOnly || c.cdsMembersOnly || !c.isPublic) && (
+              {(c.firstOrderOnly || !c.isPublic) && (
                 <div className="admin-item-row">
                   <span className="admin-item-label">Restricted</span>
                   <span className="admin-item-value">
-                    {[c.firstOrderOnly && 'first order only', c.cdsMembersOnly && 'CDS members only', !c.isPublic && 'hidden from offers list']
+                    {[c.firstOrderOnly && 'first order only', !c.isPublic && 'hidden from offers list']
                       .filter(Boolean).join(' · ')}
                   </span>
                 </div>

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { NhcSellerBadge, sortNhcSellersFirst } from './NhcSellerBadge';
 import { SellerDetailModal } from './SellerDetailModal';
 
 /** Backend statuses are lowercase; the filter dropdown uses Title Case labels. */
@@ -91,22 +90,12 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
     return () => clearTimeout(t);
   }, [sellerStatusFilter, searchQuery, fetchSellers, fetchSellerCounts]);
 
-  const [vendorTypeFilter, setVendorTypeFilter] = useState('general');
-
   const d = sellerDetail;
 
   const [radiusInput, setRadiusInput] = useState('');
   useEffect(() => {
     setRadiusInput(d?.serviceRadiusKm !== undefined && d?.serviceRadiusKm !== null ? String(d.serviceRadiusKm) : '');
   }, [d?._id, d?.serviceRadiusKm]);
-
-  // Filter sellers by vendor type (General vs NHC)
-  const filteredSellers = sellers.filter((seller) => {
-    const isNhc = Boolean(seller.isNhcSeller || seller.isNscSeller || seller.vendorType === 'NHC Seller');
-    if (vendorTypeFilter === 'nhc') return isNhc;
-    if (vendorTypeFilter === 'general') return !isNhc;
-    return true;
-  });
 
   return (
     <>
@@ -129,15 +118,6 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
-        </select>
-        <select
-          className="admin-filter-select"
-          value={vendorTypeFilter}
-          onChange={(e) => setVendorTypeFilter(e.target.value)}
-        >
-          <option value="all">All Vendor Types</option>
-          <option value="general">General Vendors</option>
-          <option value="nhc">⭐ NHC Vendors</option>
         </select>
       </div>
 
@@ -163,28 +143,20 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
           </div>
         )}
 
-        {!sellersLoading && !sellersError && filteredSellers.length === 0 && (
+        {!sellersLoading && !sellersError && sellers.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--admin-text-muted)' }}>
             No vendors found matching the selected filter criteria.
           </div>
         )}
 
-        {!sellersLoading && !sellersError && sortNhcSellersFirst(filteredSellers).map((seller) => {
-          const isNhc = Boolean(seller.isNhcSeller || seller.isNscSeller || seller.vendorType === 'NHC Seller');
-          return (
+        {!sellersLoading && !sellersError && sellers.map((seller) => (
             <div
               key={seller._id}
-              className={`admin-item-card ${isNhc ? 'nhc-seller-card' : ''}`}
-              style={isNhc ? {
-                border: '1.5px solid #fde68a',
-                backgroundColor: '#fffdf5',
-                boxShadow: '0 2px 8px rgba(180, 83, 9, 0.05)',
-              } : undefined}
+              className="admin-item-card"
             >
               <div className="admin-item-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <h3 className="admin-item-title" style={{ margin: 0 }}>{seller.storeName || seller.businessName}</h3>
-                  {isNhc && <NhcSellerBadge />}
                 </div>
                 <span className={`admin-status-pill ${seller.status}`}>{prettyStatus(seller.status)}</span>
               </div>
@@ -194,14 +166,11 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
                 <Row label="Owner" value={seller.holderName} />
                 <Row label="Login Phone" value={seller.phone} mono />
                 <Row label="Location" value={[seller.city, seller.state].filter(Boolean).join(', ')} />
-                <Row label="Submitted" value={fmtDate(seller.submittedAt)} />
-                <Row label="Seller Type" value={isNhc ? '⭐ NHC Seller (NHC Organization)' : 'General Vendor'} />
-                {isNhc && (
-                  <Row
-                    label="NHC Package"
-                    value={seller.nhcPlan?.planName ? `${seller.nhcPlan.planName} (₹${Number(seller.nhcPlan.planAmount || 0).toLocaleString('en-IN')})` : 'Standard NHC Package'}
-                  />
+                <Row label="Channels" value={(seller.salesChannels || ['ecommerce']).map((channel) => channel === 'grocery' ? 'Quick Commerce' : channel === 'ecommerce' ? 'E-Commerce' : channel === 'wholesale' ? 'Wholesale' : channel).join(' · ')} />
+                {['pending', 'approved', 'rejected', 'suspended'].includes(seller.wholesaleChannel?.status) && (
+                  <Row label="Wholesale Request" value={prettyStatus(seller.wholesaleChannel.status)} />
                 )}
+                <Row label="Submitted" value={fmtDate(seller.submittedAt)} />
                 {seller.status === 'rejected' && seller.rejectionReason && (
                   <Row label="Reason" value={seller.rejectionReason} />
                 )}
@@ -220,8 +189,7 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
                 <button className="admin-btn-sm details" onClick={() => fetchSellerDetail(seller._id)}>View Dossier</button>
               </div>
             </div>
-          );
-        })}
+          ))}
       </div>
 
       {/* ================= FULL REGISTRATION DOSSIER ================= */}

@@ -133,7 +133,7 @@ const parseCouponBody = (body) => {
     code, title, description, discountType, value, maxDiscount, minOrderValue,
     channel, categories, products, sellers,
     totalUsageLimit, perUserLimit,
-    firstOrderOnly, cdsMembersOnly, isPublic,
+    firstOrderOnly, isPublic,
     startsAt, expiresAt, isActive,
   } = body;
 
@@ -152,7 +152,6 @@ const parseCouponBody = (body) => {
   if (totalUsageLimit !== undefined) doc.totalUsageLimit = Number(totalUsageLimit) || 0;
   if (perUserLimit !== undefined) doc.perUserLimit = Number(perUserLimit) || 0;
   if (firstOrderOnly !== undefined) doc.firstOrderOnly = !!firstOrderOnly;
-  if (cdsMembersOnly !== undefined) doc.cdsMembersOnly = !!cdsMembersOnly;
   if (isPublic !== undefined) doc.isPublic = !!isPublic;
   if (startsAt !== undefined) doc.startsAt = startsAt ? new Date(startsAt) : undefined;
   if (expiresAt !== undefined) doc.expiresAt = expiresAt ? new Date(expiresAt) : undefined;

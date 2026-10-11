@@ -6,6 +6,10 @@ const ObjectId = Schema.Types.ObjectId;
 
 const cartItemSchema = new Schema({
   productId:  { type: ObjectId, ref: "Product", required: true },
+  variantId:  { type: ObjectId },
+  sku:        String,
+  variantName: String,
+  variantAttributes: [{ name: String, value: String }],
   name:       String,   // price snapshot at add time — display only, never trusted for money
   image:      String,
   price:      Number,

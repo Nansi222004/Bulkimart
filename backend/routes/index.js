@@ -2,8 +2,6 @@ import express from "express";
 import authRoutes from "./auth.routes.js";
 import userRoutes from "./user.routes.js";
 import sellerRoutes from "./seller.routes.js";
-import shgRoutes from "./shg.routes.js";
-import shgSubscriptionRoutes from "./shgSubscription.routes.js";
 import premiumRoutes from "./premium.routes.js";
 import categoryRoutes from "./category.routes.js";
 import productRoutes from "./product.routes.js";
@@ -14,7 +12,6 @@ import donationRoutes from "./donation.routes.js";
 import tipRoutes from "./tip.routes.js";
 import campaignRoutes from "./campaign.routes.js";
 import subscriptionRoutes from "./subscription.routes.js";
-import subscriptionBasketRoutes from "./subscriptionBasket.routes.js";
 import orderRoutes from "./order.routes.js";
 import couponRoutes from "./coupon.routes.js";
 import deliveryRoutes from "./delivery.routes.js";
@@ -30,7 +27,6 @@ import returnRoutes from "./return.routes.js";
 import referralRoutes from "./referral.routes.js";
 import privacyPolicyRoutes from "./privacyPolicy.routes.js";
 import walletRoutes from "./wallet.routes.js";
-import nhcRoutes from "./nhc.routes.js";
 
 const router = express.Router();
 
@@ -38,9 +34,6 @@ const router = express.Router();
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/sellers", sellerRoutes);
-router.use("/nhc", nhcRoutes);
-router.use("/shg", shgRoutes);
-router.use("/shg-subscriptions", shgSubscriptionRoutes);
 router.use("/premium", premiumRoutes);
 router.use("/categories", categoryRoutes);
 router.use("/products", productRoutes);
@@ -66,9 +59,9 @@ router.use("/wallet", walletRoutes);
 
 // Placeholder stub lists for Day 2 modules
 router.use("/subscriptions", subscriptionRoutes);
-router.use("/subscription-baskets", subscriptionBasketRoutes);
-router.use("/baskets", subscriptionBasketRoutes);
-router.use("/basket", subscriptionBasketRoutes);
+// Product-subscription basket routes are intentionally unmounted: new
+// subscription purchases are retired. Keep historical subscription reads,
+// seller fulfillment, and payment callbacks available for in-flight records.
 router.use("/notifications", notificationRoutes);
 router.use("/tickets", ticketRoutes);
 router.use("/analytics", (req, res) => res.json({ message: "Analytics API placeholder (Day 2)" }));

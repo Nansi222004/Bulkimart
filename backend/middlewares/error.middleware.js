@@ -13,6 +13,11 @@ export const errorHandler = (err, req, res, next) => {
   if (err.name === 'ValidationError') statusCode = 400;
   if (err.name === 'CastError') statusCode = 400;
   if (err.code === 11000) statusCode = 409;
+  if (err.name === 'MulterError') statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+  if (['ENOSPC', 'EACCES', 'EPERM', 'EROFS'].includes(err.code)) {
+    statusCode = 503;
+    err.message = 'Private e-book storage is unavailable. Check local storage configuration and permissions.';
+  }
 
   res.status(statusCode).json({
     success: false,

@@ -14,7 +14,6 @@ const CartPage = () => {
     getCartSubtotal,
     getDeliveryCharge,
     getCouponDiscount,
-    getPlatformFee,
     getCartTotal,
     addToCart,
     removeFromCart,
@@ -142,7 +141,6 @@ const CartPage = () => {
   const unifiedTotals = unified.data?.totals || null;
   const subtotal = unifiedTotals ? unifiedTotals.subtotal : getCartSubtotal();
   const deliveryCharge = unifiedTotals ? unifiedTotals.deliveryCharge : getDeliveryCharge();
-  const platformFee = getPlatformFee();
   const couponDiscount = getCouponDiscount();
   const total = unifiedTotals ? unifiedTotals.totalAmount : getCartTotal();
   // Delivery is only decided (and added) on the Fulfillment Checkout page,
@@ -298,6 +296,7 @@ const CartPage = () => {
                   <h4 style={{ margin: '0 0 4px 0', fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.name}
                   </h4>
+                  {item.variantName && <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block' }}>{item.variantName}</span>}
                   <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block' }}>
                     {item.category ? item.category + ' • ' : ''}₹{item.price}/{item.unit || 'pcs'}
                   </span>

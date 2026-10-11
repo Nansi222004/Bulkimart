@@ -25,15 +25,12 @@ export const users = [
     isActive: true,
   },
   {
-    // CDS-verified buyer — use this one to test the checkout discount
+    // Second test buyer account.
     _id: ID.user(2),
     phone: '9000000002',
     name: 'प्रिया देशमुख',
     email: 'priya.deshmukh@example.com',
     roles: [ROLE.BUYER],
-    cdsMembershipNo: 'CDS-2024-00187',
-    isCDSVerified: true,
-    cdsVerifiedAt: new Date('2026-01-15'),
     addresses: [{
       label: 'Home', name: 'प्रिया देशमुख', phone: '9000000002',
       line1: '12, Gandhi Nagar', line2: 'Near Zilla Parishad',

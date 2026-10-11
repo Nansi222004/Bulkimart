@@ -24,6 +24,17 @@ export const normalizeProduct = (p) => ({
   discountPercent: p.discountPercent,
   unit: p.unit,
   stock: p.stock,
+  variants: (p.variants || []).map((variant) => ({
+    id: variant._id,
+    name: variant.name,
+    price: variant.price,
+    mrp: variant.mrp,
+    stock: variant.stock,
+    sku: variant.sku,
+    unit: variant.unit,
+    weight: variant.weight,
+    attributes: variant.attributes || [],
+  })),
   // the old cards showed a vendor line under the name
   shg: p.shgStoreId?.groupName || p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
   category: p.category?.name || '',

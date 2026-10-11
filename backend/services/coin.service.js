@@ -113,7 +113,7 @@ export const calculateRedemptionEligibility = (eligibleOrderValue, availableCoin
  */
 export const eligibleValueOfOrder = (order) => {
   const p = order?.pricing || {};
-  const value = (Number(p.subtotal) || 0) - (Number(p.discount) || 0) - (Number(p.cdsDiscount) || 0);
+  const value = (Number(p.subtotal) || 0) - (Number(p.discount) || 0);
   return Math.max(0, Math.round(value * 100) / 100);
 };
 
@@ -342,8 +342,7 @@ export const computeItemEligibleValue = (order, item) => {
   const shareOfOrder = orderSubtotal > 0 ? itemLineGross / orderSubtotal : 0;
 
   const itemDiscount = shareOfOrder * (pricing.discount || 0); // already == couponDiscount, see above
-  const itemCds = shareOfOrder * (pricing.cdsDiscount || 0);
-  const itemFullValue = Math.max(0, itemLineGross - itemDiscount - itemCds);
+  const itemFullValue = Math.max(0, itemLineGross - itemDiscount);
 
   const remainingQty = Math.max(0, (item.qty || 0) - (item.returnedQty || 0));
   const remainingFraction = item.qty > 0 ? remainingQty / item.qty : 0;

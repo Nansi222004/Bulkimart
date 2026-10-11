@@ -67,6 +67,7 @@ const returnSchema = new Schema(
     sellerId:   { type: ObjectId, ref: 'Seller', index: true },
     shgStoreId: { type: ObjectId, ref: 'SHGStore' },
     productId:  { type: ObjectId, ref: 'Product', required: true },
+    variantId:  { type: ObjectId },
 
     // Snapshotted from the Order item at request time — never re-read from
     // the live Product, which may have changed name/image/price since.

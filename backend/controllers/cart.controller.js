@@ -14,6 +14,7 @@ import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { getOrCreateWallet, calculateRedemptionEligibility } from '../services/coin.service.js';
+import { inventoryIdentityKey, resolveInventoryItem } from '../services/inventory.service.js';
 
 /**
  * One cart per channel. Quick and Shop All are fulfilled differently and never
@@ -58,24 +59,31 @@ const loadReconciledCart = async (userId, channel) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
       warnings.push(`"${line.name}" is no longer available and was removed.`);
       mutated = true;
       continue;
     }
-    if (p.stock <= 0) {
+    let inventory;
+    try { inventory = resolveInventoryItem(p, line.variantId, { allowLegacyPrimary: !line.variantId }); }
+    catch {
+      warnings.push(`"${line.name}" variant is unavailable and was removed.`);
+      mutated = true;
+      continue;
+    }
+    if (inventory.stock <= 0) {
       warnings.push(`"${p.name}" is out of stock and was removed.`);
       mutated = true;
       continue;
     }
-    if (Number(p.price) !== Number(line.price)) {
-      warnings.push(`"${p.name}" price changed from ₹${line.price} to ₹${p.price}.`);
-      line.price = p.price;
+    if (Number(inventory.price) !== Number(line.price)) {
+      warnings.push(`"${p.name}" price changed from ₹${line.price} to ₹${inventory.price}.`);
+      line.price = inventory.price;
       mutated = true;
     }
-    if (p.stock < line.qty) {
-      warnings.push(`Only ${p.stock} left of "${p.name}" — quantity reduced.`);
-      line.qty = p.stock;
+    if (inventory.stock < line.qty) {
+      warnings.push(`Only ${inventory.stock} left of "${p.name}" — quantity reduced.`);
+      line.qty = inventory.stock;
       mutated = true;
     }
     if (line.name !== p.name || line.image !== p.images?.[0] || line.mrp !== p.mrp) {
@@ -85,7 +93,7 @@ const loadReconciledCart = async (userId, channel) => {
       mutated = true;
     }
 
-    keep.push({ line, product: p });
+    keep.push({ line, product: p, inventory });
   }
 
   if (mutated) {
@@ -93,25 +101,29 @@ const loadReconciledCart = async (userId, channel) => {
     await cart.save();
   }
 
-  const items = keep.map(({ line, product }) => {
+  const items = keep.map(({ line, product, inventory }) => {
     const deal = campaignPrices.get(String(product._id));
-    const effectivePrice = deal ? deal.campaignPrice : product.price;
+    const effectivePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
     return {
       _id: line._id,
       productId: product._id,
+      variantId: inventory.variantId,
+      sku: inventory.sku,
+      variantName: inventory.variantName,
+      variantAttributes: inventory.attributes,
       name: product.name,
       image: product.images?.[0] || '',
       price: effectivePrice,
-      originalPrice: deal ? product.price : undefined,
+      originalPrice: deal ? inventory.price : undefined,
       campaign: deal ? { id: deal.campaignId, title: deal.campaignTitle, discountValue: deal.discountValue } : undefined,
-      mrp: product.mrp,
+      mrp: inventory.mrp,
       qty: line.qty,
-      unit: product.unit,
+      unit: inventory.unit,
       type: product.type,
       sellerId: product.sellerId,
       shgStoreId: product.shgStoreId,
       category: product.category?.name || '',
-      stock: product.stock,
+      stock: inventory.stock,
       deliveryMode: line.deliveryMode,
       additionalMessage: line.additionalMessage || '',
       lineTotal: Math.round(effectivePrice * line.qty * 100) / 100,
@@ -209,11 +221,11 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
    * ever actually committed against a payable amount (order.controller.js).
    *
    * Eligibility is based on the TOTAL merchandise value after existing
-   * discounts (coupon, CDS) — never a single product's price, and never
+   * discounts (coupon) — never a single product's price, and never
    * inclusive of delivery/donation, matching Section 4's ordering:
    * product/campaign price -> coupon -> ELIGIBLE VALUE -> Coins -> delivery.
    */
-  const eligibleForCoinBase = round2(pricing.subtotal - pricing.discount - pricing.couponDiscount - pricing.cdsDiscount);
+  const eligibleForCoinBase = round2(pricing.subtotal - pricing.discount - pricing.couponDiscount);
   const wallet = await getOrCreateWallet(user._id);
   const redemption = calculateRedemptionEligibility(eligibleForCoinBase, wallet.availableCoins);
   const coinsToUse = useCoins && redemption.eligible ? redemption.coinsToUse : 0;
@@ -369,7 +381,7 @@ export const addToCart = asyncHandler(async (req, res) => {
     throw httpError(401, 'A valid customer account is required to use the cart');
   }
 
-  const { productId, qty = 1 } = req.body;
+  const { productId, variantId, qty = 1 } = req.body;
   if (!productId) throw httpError(400, 'productId is required');
 
   const quantity = Number(qty);
@@ -381,7 +393,13 @@ export const addToCart = asyncHandler(async (req, res) => {
   if (!product || product.isDeleted || !product.isActive || product.status !== 'approved') {
     throw httpError(404, 'This product is not available');
   }
-  if (product.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
+  if (product.fulfillmentType === 'digital') throw httpError(409, 'E-book purchasing is not available yet');
+  const inventory = resolveInventoryItem(product, variantId);
+  if (inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
+  if (quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
+  if (quantity > MAX_QTY_PER_LINE) {
+    throw httpError(400, `You can order at most ${MAX_QTY_PER_LINE} of one item`);
+  }
 
   /**
    * Seller service radius — enforced here, not just left as a listing
@@ -429,12 +447,16 @@ export const addToCart = asyncHandler(async (req, res) => {
 
   const newLine = {
     productId: product._id,
+    ...(inventory.variantId ? { variantId: inventory.variantId } : {}),
+    sku: inventory.sku,
+    variantName: inventory.variantName,
+    variantAttributes: inventory.attributes,
     name: product.name,
     image: product.images?.[0] || '',
-    price: product.price,
-    mrp: product.mrp,
+    price: inventory.price,
+    mrp: inventory.mrp,
     qty: quantity,
-    unit: product.unit,
+    unit: inventory.unit,
     sellerId: product.sellerId,
     shgStoreId: product.shgStoreId,
     type: product.type,
@@ -447,11 +469,12 @@ export const addToCart = asyncHandler(async (req, res) => {
   for (let attempt = 0; attempt < 5 && !committed; attempt += 1) {
     const cart = await Cart.findOne(cartOwner).select('items').lean();
     if (!cart) throw httpError(409, 'Your cart could not be opened. Please try again.');
-    const existing = cart.items.find((line) => String(line.productId) === String(product._id));
+    const identity = inventoryIdentityKey({ productId: product._id, variantId: inventory.variantId });
+    const existing = cart.items.find((line) => inventoryIdentityKey(line) === identity);
 
     if (existing) {
       const desired = existing.qty + quantity;
-      if (desired > product.stock) throw httpError(400, `Only ${product.stock} left in stock`);
+      if (desired > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
       if (desired > MAX_QTY_PER_LINE) {
         throw httpError(400, `You can order at most ${MAX_QTY_PER_LINE} of one item`);
       }
@@ -461,12 +484,11 @@ export const addToCart = asyncHandler(async (req, res) => {
       );
       committed = result.modifiedCount === 1;
     } else {
-      if (quantity > product.stock) throw httpError(400, `Only ${product.stock} left in stock`);
-      if (quantity > MAX_QTY_PER_LINE) {
-        throw httpError(400, `You can order at most ${MAX_QTY_PER_LINE} of one item`);
-      }
+      const noDuplicateLine = inventory.variantId
+        ? { items: { $not: { $elemMatch: { productId: product._id, variantId: inventory.variantId } } } }
+        : { items: { $not: { $elemMatch: { productId: product._id, variantId: null } } } };
       const result = await Cart.updateOne(
-        { ...cartOwner, 'items.productId': { $ne: product._id } },
+        { ...cartOwner, ...noDuplicateLine },
         { $push: { items: newLine } },
       );
       committed = result.modifiedCount === 1;
@@ -525,7 +547,8 @@ export const updateCartItem = asyncHandler(async (req, res) => {
       if (!product || product.isDeleted || !product.isActive || product.status !== 'approved') {
         throw httpError(400, 'This product is no longer available');
       }
-      if (quantity > product.stock) throw httpError(400, `Only ${product.stock} left in stock`);
+      const inventory = resolveInventoryItem(product, line.variantId);
+      if (quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
       line.qty = quantity;
     }
 

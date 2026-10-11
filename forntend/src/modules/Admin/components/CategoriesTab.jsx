@@ -216,7 +216,7 @@ const HeaderMediaPicker = ({
   );
 };
 
-export const CategoriesTab = ({ subTab, fixedChannel, title }) => {
+export const CategoriesTab = ({ subTab }) => {
   const { triggerToast } = useAdmin();
   
   // Search query states
@@ -235,30 +235,20 @@ export const CategoriesTab = ({ subTab, fixedChannel, title }) => {
   const [treeError, setTreeError] = useState('');
   const [stats, setStats] = useState(null);
 
-  // The Categories area is split into independently managed sections. "Shop
-  // All" is the e-commerce channel, "Quick" is quick-commerce (stored as
-  // `grocery` in the database — renaming the enum would touch products, orders,
-  // banners and the seed for no benefit), and "SHG" is the self-help-group
-  // storefront. Each is a completely separate category tree — a category
-  // created under SHG has `type: 'shg'`, which product listing already keeps
-  // scoped to the SHG channel only (see resolveListingCategory in
-  // product.controller.js); Quick/Ecommerce sellers can never see or select it.
+  // Customer-visible category trees are Shop All and Quick. Historical SHG
+  // categories remain in storage for old records, but are not manageable here.
   const SECTIONS = [
     { key: 'ecommerce', label: 'Shop All', icon: '🛒' },
     { key: 'grocery', label: 'Quick', icon: '⚡' },
-    { key: 'shg', label: 'SHG', icon: '🧺' },
   ];
 
-  // `fixedChannel` locks this screen to one section permanently — used for the
-  // standalone SHG Category manager, which must never let an admin flip it
-  // over to Shop All / Quick and accidentally create or edit categories in the
-  // wrong tree. The section switcher below is not even rendered in that mode.
-  const [channel, setChannel] = useState(
-    () => fixedChannel || localStorage.getItem('adminCategoryChannel') || 'ecommerce'
-  );
+  const [channel, setChannel] = useState(() => {
+    const saved = localStorage.getItem('adminCategoryChannel');
+    return saved === 'grocery' || saved === 'ecommerce' ? saved : 'ecommerce';
+  });
 
   const switchChannel = (next) => {
-    if (fixedChannel) return;
+    if (!SECTIONS.some((section) => section.key === next)) return;
     setChannel(next);
     localStorage.setItem('adminCategoryChannel', next);   // survive a refresh
     setSelectedHeader('');
@@ -644,26 +634,9 @@ export const CategoriesTab = ({ subTab, fixedChannel, title }) => {
   return (
     <div style={{ padding: '24px', boxSizing: 'border-box' }}>
 
-      {/* ── SECTION SWITCH: Shop All / Quick / SHG ──────────────────────
-          Each section is managed completely separately. Everything below is
-          scoped to the active one, and anything created is stamped with it.
-          A `fixedChannel` screen (the standalone SHG Category manager) skips
-          the switcher entirely — there is nothing to switch to. */}
+      {/* ── SECTION SWITCH: supported customer category trees ──────────── */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        {fixedChannel && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '10px 18px', borderRadius: 12,
-            fontSize: 13, fontWeight: 800,
-            border: '2px solid var(--admin-primary, #10b981)',
-            background: 'var(--admin-primary, #10b981)',
-            color: '#062e24',
-          }}>
-            <span style={{ fontSize: 15 }}>🧺</span>
-            <span>{title || 'SHG Category'}</span>
-          </div>
-        )}
-        {!fixedChannel && SECTIONS.map((sec) => {
+        {SECTIONS.map((sec) => {
           const active = channel === sec.key;
           const count = stats && stats[sec.key] ? stats[sec.key].total : null;
           return (
@@ -745,17 +718,6 @@ export const CategoriesTab = ({ subTab, fixedChannel, title }) => {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {/* Standalone screens (SHG) have no separate Header/Main/Sub
-                  sidebar tabs to reach the add modals from, so all three live
-                  here instead. */}
-              {fixedChannel && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setShowAddHeaderModal(true)} className="admin-header-btn" style={{ fontSize: 11, padding: '8px 12px', fontWeight: 800 }}>+ Header</button>
-                  <button onClick={() => setShowAddCategoryModal(true)} className="admin-header-btn" style={{ fontSize: 11, padding: '8px 12px', fontWeight: 800 }}>+ Category</button>
-                  <button onClick={() => setShowAddSubcategoryModal(true)} className="admin-header-btn" style={{ fontSize: 11, padding: '8px 12px', fontWeight: 800 }}>+ Subcategory</button>
-                </div>
-              )}
-
               {/* Top Right Metrics Panel */}
               <div style={{
                 backgroundColor: '#f8fafc',

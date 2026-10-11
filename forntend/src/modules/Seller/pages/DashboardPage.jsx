@@ -7,7 +7,6 @@ import DashboardTab from '../components/DashboardTab';
 import ProductsTab from '../components/ProductsTab';
 import StockTab from '../components/StockTab';
 import OrdersTab from '../components/OrdersTab';
-import SubscriptionsTab from '../components/SubscriptionsTab';
 import TrackOrderTab from '../components/TrackOrderTab';
 import SalesReportTab from '../components/SalesReportTab';
 import MoneyRequestTab from '../components/MoneyRequestTab';
@@ -17,7 +16,6 @@ import SupportTab from '../components/SupportTab';
 import FaqsTab from '../components/FaqsTab';
 import SellerCampaignsTab from '../components/SellerCampaignsTab';
 import SellerPromotionsTab from '../components/SellerPromotionsTab';
-import SellerPackagingTab from '../components/SellerPackagingTab';
 import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
 import GrowTab from '../components/GrowTab';
@@ -64,7 +62,7 @@ export const DashboardPage = () => {
     incomingOrder, setIncomingOrder, fetchSellerOrders,
     incomingSubscriptionRequest, setIncomingSubscriptionRequest,
     subscriptionPrepAlerts, dismissSubscriptionPrepAlert,
-    sellerProfile, userProfile, bizForm,
+    sellerProfile, userProfile, bizForm, requestWholesaleChannel,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
@@ -82,7 +80,6 @@ export const DashboardPage = () => {
       case 'products':      return <ProductsTab />;
       case 'stock':         return <StockTab />;
       case 'orders':        return <OrdersTab />;
-      case 'subscriptions': return <SubscriptionsTab />;
       case 'track':         return <TrackOrderTab />;
       case 'salesreport':   return <SalesReportTab />;
       case 'moneyrequest':  return <MoneyRequestTab />;
@@ -90,7 +87,6 @@ export const DashboardPage = () => {
       case 'earnings':      return <EarningsTab />;
       case 'campaigns':     return <SellerCampaignsTab />;
       case 'promotions':    return <SellerPromotionsTab />;
-      case 'packaging':     return <SellerPackagingTab />;
       case 'item-returns':  return <SellerReturnsTab />;
       case 'faqs':          return <FaqsTab />;
       case 'support':       return <SupportTab />;
@@ -188,6 +184,37 @@ export const DashboardPage = () => {
 
         {/* Tab content */}
         <div className="seller-tab-content-container">
+          {sellerProfile?.status === 'approved' && (
+            <section aria-label="Wholesale channel access" style={{
+              margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd',
+              borderRadius: 12, background: '#f0fbff', display: 'flex',
+              alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+            }}>
+              <div>
+                <strong style={{ display: 'block', color: '#073b78', fontSize: 14 }}>Wholesale (B2B)</strong>
+                <span style={{ color: '#64748b', fontSize: 12 }}>
+                  {sellerProfile.wholesaleChannel?.status === 'approved'
+                    ? 'Approved seller channel'
+                    : sellerProfile.wholesaleChannel?.status === 'pending'
+                      ? 'Your request is awaiting admin review'
+                      : sellerProfile.wholesaleChannel?.status === 'rejected'
+                        ? 'Your previous request was not approved'
+                      : sellerProfile.wholesaleChannel?.status === 'suspended'
+                        ? 'Wholesale access is suspended. Contact an administrator to restore access.'
+                        : 'Request access to prepare quantity-based pricing'}
+                </span>
+              </div>
+              {sellerProfile.wholesaleChannel?.status !== 'approved' && sellerProfile.wholesaleChannel?.status !== 'pending' && sellerProfile.wholesaleChannel?.status !== 'suspended' && (
+                <button
+                  type="button"
+                  onClick={requestWholesaleChannel}
+                  style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '9px 14px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Request Wholesale Access
+                </button>
+              )}
+            </section>
+          )}
           {renderActiveTab()}
         </div>
       </div>

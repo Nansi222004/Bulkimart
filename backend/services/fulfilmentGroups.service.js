@@ -7,6 +7,7 @@ import { applyCouponCode } from './coupon.service.js';
 import { CHANNEL, CHANNELS, DELIVERY_MODE } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from './campaign.service.js';
+import { resolveInventoryItem } from './inventory.service.js';
 
 /**
  * One basket, several journeys.
@@ -76,7 +77,7 @@ const loadLines = async (userId) => {
  * @param {{lat,lng}} [args.destination]  where it is going; without it Same-Day
  *                                        cannot be answered and is reported as
  *                                        unknown rather than unavailable
- * @param {object} [args.user]            for the CDS member discount
+ * @param {object} [args.user]            retained for downstream pricing context
  */
 export const buildFulfilmentGroups = async ({ userId, destination, user, couponCode }) => {
   const lines = await loadLines(userId);
@@ -100,7 +101,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
   const products = new Map(
     (await Product.find({ _id: { $in: productIds } })
-      .select('name price stock type sellerId shgStoreId sameDay images isActive isDeleted status')
+      .select('name price stock sku unit variants type fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status')
       .lean()).map((p) => [String(p._id), p])
   );
 
@@ -127,6 +128,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   for (const line of lines) {
     const product = products.get(String(line.productId));
     const deal = campaignPrices.get(String(line.productId));
+    let inventory = null;
+    try { if (product) inventory = resolveInventoryItem(product, line.variantId, { allowLegacyPrimary: !line.variantId }); } catch { /* rendered as unavailable below */ }
     const enriched = {
       ...line,
       // Whose pickup this actually is, per the live product — not whatever
@@ -138,13 +141,14 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       deliveryMode: modeFor(line),
       modeChosen: line.channel !== CHANNEL.ECOM || Boolean(line.deliveryMode),
       product,
+      inventory,
       // The live figures (or a live, currently-active campaign price), so
       // a group is priced on what the item is now rather than what it was
       // when it went into the basket — never a cached deal.
-      price: deal ? deal.campaignPrice : (product?.price ?? line.price),
+      price: inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price,
       campaignId: deal ? deal.campaignId : undefined,
-      available: Boolean(product && product.isActive && !product.isDeleted
-        && product.status === 'approved' && product.stock >= line.qty),
+      available: Boolean(product && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
+        && product.status === 'approved' && inventory && inventory.stock >= line.qty),
     };
 
     const key = groupKeyFor(enriched);
@@ -249,6 +253,12 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         // shopper changes this group's delivery mode.
         itemId: l._id,
         productId: l.productId,
+        variantId: l.inventory?.variantId || null,
+        sku: l.inventory?.sku,
+        variantName: l.inventory?.variantName,
+        variantAttributes: l.inventory?.attributes || [],
+        unitSnapshot: l.inventory?.unit,
+        weightSnapshot: l.inventory?.weight,
         name: l.product?.name || l.name,
         image: l.product?.images?.[0] || l.image,
         qty: l.qty,
@@ -256,7 +266,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         campaignId: l.campaignId,
         lineTotal: Number((l.price * l.qty).toFixed(2)),
         available: l.available,
-        stock: l.product?.stock,
+        stock: l.inventory?.stock,
         type: l.product?.type || l.channel,
         sellerId: l.product?.sellerId || l.sellerId,
         shgStoreId: l.shgStoreId,

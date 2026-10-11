@@ -261,7 +261,7 @@ export const ElectronicsSection = () => {
                     style={{ backgroundColor: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      addToCart(product.id);
+                      addToCart(product);
                     }}
                     aria-label={`Add ${product.name} to cart`}
                   >

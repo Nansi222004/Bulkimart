@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
-import SHGContext from '../../SHG/context/SHGContext';
 import { apiUrl } from '../../../utils/api';
 
 /**
@@ -9,16 +8,11 @@ import { apiUrl } from '../../../utils/api';
  * Self-contained, reading straight off context the same way every other
  * panel modal in this app does (LocationPromptModal / SubscriptionRequired-
  * Modal follow the same shape) — no prop-drilling from whichever tab mounts
- * it. That's what lets Seller's ProductsTab.jsx/StockTab.jsx AND SHG's
- * SHGProductsTab.jsx all mount this exact component with a one-line
- * `<ProductModal />` (or `<ProductModal isShgUser />`) and never duplicate the
+ * it. That's what lets Seller's ProductsTab.jsx/StockTab.jsx mount this
+ * component without duplicating the
  * category tree fetch, the image handling or the submit wiring between them.
  *
- * `isShgUser` picks which of the two contexts supplies the shared contract
- * (`newProductForm`, `submitNewProduct`, `editingProduct`, etc.) — read via
- * the raw `useContext(XContext)` rather than the modules' own `useSeller()`/
- * `useSHG()` hooks, since those throw outside their provider and this
- * component is mounted inside only one of the two trees at a time.
+ * Reads the Seller context directly for the listing form contract.
  *
  * The category cascade (Header → Main → Sub) and the multipart image upload
  * are carried over unchanged from the modal this replaces — same endpoints,
@@ -38,21 +32,10 @@ const TABS = [
   { id: 'photos', label: 'Photos' },
 ];
 
-// SHG-only: which shopper-facing storefront(s) this listing goes out on.
-// Not a Seller concept — a Seller's channel is fixed by which dashboard
-// panel (Quick/Shop All) they're in, never chosen per-listing.
-const STOREFRONT_OPTIONS = [
-  { value: 'ecommerce', label: 'E-Commerce (Shop All)' },
-  { value: 'grocery', label: 'Quick Commerce (30-min Express)' },
-  { value: 'both', label: 'Both Storefronts (Cross-listed)' },
-];
-
 const slugify = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-export const ProductModal = ({ isShgUser = false }) => {
+export const ProductModal = () => {
   const sellerCtx = useContext(SellerContext) || {};
-  const shgCtx = useContext(SHGContext) || {};
-  const ctx = isShgUser ? shgCtx : sellerCtx;
 
   const {
     showAddProductModal, setShowAddProductModal,
@@ -63,10 +46,16 @@ export const ProductModal = ({ isShgUser = false }) => {
     platformLimits, sellerProfile,
     editingProduct, editingProductId, setEditingProductId,
     triggerToast,
-  } = ctx;
+  } = sellerCtx;
 
   const isEditing = Boolean(editingProductId);
+  const isDigital = newProductForm.fulfillmentType === 'digital' || editingProduct?.fulfillmentType === 'digital';
   const [activeTab, setActiveTab] = useState('general');
+  const [ebookFile, setEbookFile] = useState(null);
+  const [savingWholesale, setSavingWholesale] = useState(false);
+  const wholesaleAuthorized = sellerProfile?.status === 'approved'
+    && sellerProfile?.wholesaleChannel?.status === 'approved'
+    && sellerProfile?.salesChannels?.includes('wholesale');
 
   // ---- category cascade: Header (L1) -> Main (L2) -> Sub (L3) --------------
   // Only the deepest level chosen is submitted; the server re-checks it is an
@@ -81,7 +70,7 @@ export const ProductModal = ({ isShgUser = false }) => {
   // An SHG group's products always live under the SHG category tree,
   // regardless of which storefront(s) the listing is targeting — only a
   // Seller's tree is channel-scoped.
-  const categoryTreeType = isShgUser ? 'shg' : activeChannel;
+  const categoryTreeType = isDigital ? 'ecommerce' : activeChannel;
 
   useEffect(() => {
     if (!showAddProductModal) return;
@@ -143,7 +132,7 @@ export const ProductModal = ({ isShgUser = false }) => {
    * cannot configure this number, only see what Admin has already set for
    * the chosen category (GET /api/products/category-return-policy).
    */
-  const showReturnableBlock = !isShgUser && activeChannel === 'grocery';
+  const showReturnableBlock = activeChannel === 'grocery';
   const [catReturnPolicy, setCatReturnPolicy] = useState(null);
   useEffect(() => {
     if (!showReturnableBlock || !effectiveCategoryId) { setCatReturnPolicy(null); return; }
@@ -223,6 +212,7 @@ export const ProductModal = ({ isShgUser = false }) => {
       return Array.from({ length: ADDITIONAL_SLOTS }, () => ({ type: '', file: null, url: '' }));
     });
     resetCategoryPicks();
+    setEbookFile(null);
     setActiveTab('general');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAddProductModal]);
@@ -248,6 +238,54 @@ export const ProductModal = ({ isShgUser = false }) => {
     }));
   };
 
+  const updateWholesalePricing = (index, updater) => {
+    setNewProductForm((form) => ({
+      ...form,
+      variants: (form.variants || []).map((variant, i) => i === index
+        ? { ...variant, wholesalePricing: updater(variant.wholesalePricing || { enabled: false }) }
+        : variant),
+    }));
+  };
+
+  const saveWholesalePricing = async () => {
+    if (!isEditing || !editingProductId || !wholesaleAuthorized) return;
+    try {
+      const configured = variants.map((variant) => {
+        if (!variant._id) throw new Error('Save the product variant before configuring Wholesale terms.');
+        const current = variant.wholesalePricing || { enabled: false };
+        return {
+          variantId: variant._id,
+          wholesalePricing: current.enabled ? {
+            enabled: true,
+            minimumQuantity: Number(current.minimumQuantity),
+            quantityIncrement: Number(current.quantityIncrement ?? 1),
+            priceTiers: (current.priceTiers || []).map((tier) => ({
+              minimumQuantity: Number(tier.minimumQuantity),
+              unitPrice: Number(tier.unitPrice),
+            })),
+          } : { enabled: false },
+        };
+      });
+      setSavingWholesale(true);
+      const response = await fetch(apiUrl(`/api/products/${editingProductId}/wholesale-pricing`), {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('userToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ variants: configured }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'Could not save Wholesale terms');
+      triggerToast('Wholesale terms saved. Purchasing is not enabled yet.');
+      if (sellerCtx.fetchMyProducts) await sellerCtx.fetchMyProducts();
+    } catch (error) {
+      triggerToast(error.message || 'Could not save Wholesale terms');
+    } finally {
+      setSavingWholesale(false);
+    }
+  };
+
   // Mirrors the server's own checks — every variant needs a name, a positive
   // price, a non-negative stock, and a selling price that never exceeds MRP.
   const variantErrors = variants.map((v) => {
@@ -261,8 +299,8 @@ export const ProductModal = ({ isShgUser = false }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (isEditing) await submitProductEdit(newProductForm);
-    else await submitNewProduct(newProductForm, collectedFiles);
+    if (isEditing) await submitProductEdit(newProductForm, ebookFile);
+    else await submitNewProduct(newProductForm, collectedFiles, ebookFile);
   };
 
   const close = () => { setShowAddProductModal(false); setEditingProductId(null); };
@@ -273,19 +311,19 @@ export const ProductModal = ({ isShgUser = false }) => {
   const canSubmit = !savingProduct
     && (isEditing || collectedFiles.length > 0)
     && !!newProductForm.categoryId
-    && !firstVariantError;
+    && (isDigital
+      ? Number(newProductForm.ebookPrice) > 0
+        && String(newProductForm.author || '').trim().length > 0
+        && String(newProductForm.language || '').trim().length > 0
+        && Boolean(ebookFile || editingProduct?.digital?.file?.status === 'uploaded')
+      : !firstVariantError);
 
   // A listing's primary channel is fixed forever once created (the backend
   // doesn't even accept a `type` change on update) — only whether it's ALSO
   // cross-listed to the other storefront ("Both") can move. Editing an
   // SHG listing that's ecommerce-only must not offer a "Quick Commerce
   // only" option that would silently do nothing.
-  const shgPrimaryType = isShgUser && isEditing
-    ? (editingProduct?.type === 'ecommerce' ? 'ecommerce' : 'grocery')
-    : null;
-  const showSameDayBlock = isShgUser
-    ? (newProductForm.storefrontTarget === 'ecommerce' || newProductForm.storefrontTarget === 'both')
-    : activeChannel === 'ecommerce';
+  const showSameDayBlock = activeChannel === 'ecommerce';
 
   return (
     <div style={S.overlay} onClick={close}>
@@ -312,7 +350,7 @@ export const ProductModal = ({ isShgUser = false }) => {
               <span style={S.sidebarBrandLabel}>Listing Editor</span>
             </div>
             <nav style={S.tabNav}>
-              {TABS.map((t) => (
+            {TABS.filter((tab) => !isDigital || !['variants', 'groups'].includes(tab.id)).map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -329,24 +367,26 @@ export const ProductModal = ({ isShgUser = false }) => {
           </div>
 
           <div style={S.sidebarFooter}>
-            <label style={S.sideLabel}>Status</label>
-            <select
-              value={newProductForm.status || 'Published'}
-              onChange={(e) => setNewProductForm({ ...newProductForm, status: e.target.value })}
-              style={S.statusSelect}
-            >
-              <option value="Published">Published</option>
-              <option value="Draft">Draft</option>
-            </select>
+            {!isDigital && <>
+              <label style={S.sideLabel}>Status</label>
+              <select
+                value={newProductForm.status || 'Published'}
+                onChange={(e) => setNewProductForm({ ...newProductForm, status: e.target.value })}
+                style={S.statusSelect}
+              >
+                <option value="Published">Published</option>
+                <option value="Draft">Draft</option>
+              </select>
 
-            <label style={{ ...S.sideLabel, marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={Boolean(newProductForm.isFeatured)}
-                onChange={(e) => setNewProductForm({ ...newProductForm, isFeatured: e.target.checked })}
-              />
-              Featured
-            </label>
+              <label style={{ ...S.sideLabel, marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(newProductForm.isFeatured)}
+                  onChange={(e) => setNewProductForm({ ...newProductForm, isFeatured: e.target.checked })}
+                />
+                Featured
+              </label>
+            </>}
           </div>
         </div>
 
@@ -356,9 +396,7 @@ export const ProductModal = ({ isShgUser = false }) => {
             <div style={{ minWidth: 0 }}>
               <h3 style={S.title}>{isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
               <div style={S.breadcrumb}>
-                {isShgUser
-                  ? 'SHG'
-                  : ((activeChannel === 'quick' || activeChannel === 'grocery') ? 'QUICK COMMERCE' : 'SHOP ALL')}
+                {(activeChannel === 'quick' || activeChannel === 'grocery') ? 'QUICK COMMERCE' : 'SHOP ALL'}
                 {' > '}
                 {isEditing ? (editingProduct?.name || editingProductId) : 'NEW LISTING'}
               </div>
@@ -369,6 +407,16 @@ export const ProductModal = ({ isShgUser = false }) => {
           <div style={S.main}>
             {activeTab === 'general' && (
               <div style={S.tabPanel}>
+                {!isEditing && (
+                  <div className="onboarding-form-group">
+                    <label className="onboarding-label">Listing type *</label>
+                    <select className="onboarding-select" value={newProductForm.fulfillmentType || 'physical'}
+                      onChange={(event) => { setNewProductForm({ ...newProductForm, fulfillmentType: event.target.value }); setActiveTab('general'); }}>
+                      <option value="physical">Physical product</option>
+                      <option value="digital" disabled={activeChannel === 'quick' || activeChannel === 'grocery'}>E-book (PDF){activeChannel === 'quick' || activeChannel === 'grocery' ? ' — switch to Shop All' : ''}</option>
+                    </select>
+                  </div>
+                )}
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">Product Title *</label>
                   <input
@@ -394,51 +442,44 @@ export const ProductModal = ({ isShgUser = false }) => {
                     onChange={(e) => setNewProductForm({ ...newProductForm, desc: e.target.value })} />
                 </div>
 
-                {!isShgUser && (
-                  <div className="onboarding-form-group">
-                    <label className="onboarding-label">Brand Name</label>
-                    <input
-                      list="brand-suggestions" type="text" className="onboarding-input"
-                      placeholder="e.g. Local Make"
-                      value={newProductForm.brandName}
-                      onChange={(e) => setNewProductForm({ ...newProductForm, brandName: e.target.value })}
-                    />
-                    <datalist id="brand-suggestions">
-                      {BRAND_SUGGESTIONS.map((b) => <option key={b} value={b} />)}
-                    </datalist>
-                  </div>
-                )}
+                {!isDigital && <div className="onboarding-form-group">
+                  <label className="onboarding-label">Brand Name</label>
+                  <input
+                    list="brand-suggestions" type="text" className="onboarding-input"
+                    placeholder="e.g. Local Make"
+                    value={newProductForm.brandName}
+                    onChange={(e) => setNewProductForm({ ...newProductForm, brandName: e.target.value })}
+                  />
+                  <datalist id="brand-suggestions">
+                    {BRAND_SUGGESTIONS.map((b) => <option key={b} value={b} />)}
+                  </datalist>
+                </div>}
 
-                {isShgUser && (
+                {isDigital && <>
                   <div className="onboarding-form-group">
-                    <label className="onboarding-label">Storefront Target *</label>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {STOREFRONT_OPTIONS.map((opt) => {
-                        const active = newProductForm.storefrontTarget === opt.value;
-                        const locked = shgPrimaryType && opt.value !== 'both' && opt.value !== shgPrimaryType;
-                        return (
-                          <button
-                            key={opt.value} type="button"
-                            disabled={locked}
-                            onClick={() => setNewProductForm({ ...newProductForm, storefrontTarget: opt.value })}
-                            style={{
-                              ...S.gstBtn, ...(active ? S.gstBtnActive : {}),
-                              ...(locked ? { opacity: 0.4, cursor: 'not-allowed' } : {}),
-                            }}
-                            title={locked ? "A listing's original storefront can't be swapped for a different one — only added to." : undefined}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
-                      This listing is always handmade by your SHG group — shown automatically as a badge to shoppers.
-                    </span>
+                    <label className="onboarding-label">Author *</label>
+                    <input className="onboarding-input" maxLength={160} value={newProductForm.author || ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, author: event.target.value })} />
                   </div>
-                )}
+                  <div className="onboarding-form-group">
+                    <label className="onboarding-label">Language *</label>
+                    <input className="onboarding-input" maxLength={80} value={newProductForm.language || ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, language: event.target.value })} />
+                  </div>
+                  <div className="onboarding-form-group">
+                    <label className="onboarding-label">Price (₹) *</label>
+                    <input type="number" min="0.01" step="0.01" className="onboarding-input" value={newProductForm.ebookPrice || ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, ebookPrice: event.target.value })} />
+                  </div>
+                  <div className="onboarding-form-group">
+                    <label className="onboarding-label">License / permitted use (optional)</label>
+                    <textarea className="onboarding-input" rows={3} maxLength={2000} value={newProductForm.licenseTerms || ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, licenseTerms: event.target.value })} />
+                  </div>
+                  <div style={S.hintBox}>E-books use no physical stock or shipping. Purchasing and downloads are not enabled.</div>
+                </>}
 
-                <div className="onboarding-form-group">
+                {!isDigital && <div className="onboarding-form-group">
                   <label className="onboarding-label">GST Tax Rate (%)</label>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {GST_RATES.map((r) => {
@@ -454,11 +495,11 @@ export const ProductModal = ({ isShgUser = false }) => {
                       );
                     })}
                   </div>
-                </div>
+                </div>}
 
-                <div style={S.hintBox}>
+                {!isDigital && <div style={S.hintBox}>
                   Selling price, MRP, stock, unit and weight are set per variant — head to the <strong>Item Variants</strong> tab.
-                </div>
+                </div>}
 
                 {/*
                   Allow Returns — QUICK COMMERCE ONLY.
@@ -467,7 +508,7 @@ export const ProductModal = ({ isShgUser = false }) => {
                   here read-only so the Seller knows what they're opting
                   into/out of without being able to change it.
                 */}
-                {showReturnableBlock && (
+                {!isDigital && showReturnableBlock && (
                   <div className="onboarding-form-group" style={{ border: '1.5px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={Boolean(newProductForm.returnable)}
@@ -485,7 +526,7 @@ export const ProductModal = ({ isShgUser = false }) => {
                 )}
 
                 {/* Same-Day, only on the Ecommerce/Shop All leg. */}
-                {showSameDayBlock && (
+                {!isDigital && showSameDayBlock && (
                   <div className="onboarding-form-group" style={{ border: '1.5px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={Boolean(newProductForm.sameDayEnabled)}
@@ -499,7 +540,7 @@ export const ProductModal = ({ isShgUser = false }) => {
                           className="onboarding-input" placeholder="30"
                           value={newProductForm.processingMinutes}
                           onChange={(e) => setNewProductForm({ ...newProductForm, processingMinutes: e.target.value })} />
-                        {!isShgUser && !sellerProfile?.sameDay?.enabled && (
+                        {!sellerProfile?.sameDay?.enabled && (
                           <div style={S.warnBox}>
                             Your shop has not switched same-day on yet — set it up in Profile first.
                           </div>
@@ -578,9 +619,75 @@ export const ProductModal = ({ isShgUser = false }) => {
                           </div>
                         </div>
                         {variantErrors[i] && <div style={S.errorText}>{v.name || `Variant ${i + 1}`} {variantErrors[i]}.</div>}
+                        {wholesaleAuthorized && isEditing && (
+                          <section aria-label={`${v.name || `Variant ${i + 1}`} Wholesale settings`} style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid #bae6fd', background: '#f0fbff' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, color: '#073b78' }}>
+                              <input type="checkbox" checked={Boolean(v.wholesalePricing?.enabled)}
+                                onChange={(event) => updateWholesalePricing(i, (pricing) => ({
+                                  ...pricing,
+                                  enabled: event.target.checked,
+                                  minimumQuantity: pricing.minimumQuantity || 1,
+                                  quantityIncrement: pricing.quantityIncrement || 1,
+                                  priceTiers: pricing.priceTiers?.length ? pricing.priceTiers : [{ minimumQuantity: pricing.minimumQuantity || 1, unitPrice: '' }],
+                                }))} />
+                              Offer this variant through Wholesale
+                            </label>
+                            {v.wholesalePricing?.enabled && (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={S.variantCardGrid}>
+                                  <div style={S.variantField}>
+                                    <label style={S.microLabel}>MINIMUM ORDER QTY</label>
+                                    <input type="number" min="1" className="onboarding-input" value={v.wholesalePricing.minimumQuantity ?? 1}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        updateWholesalePricing(i, (pricing) => ({ ...pricing, minimumQuantity: value,
+                                          priceTiers: (pricing.priceTiers || []).map((tier, tierIndex) => tierIndex === 0 ? { ...tier, minimumQuantity: value } : tier) }));
+                                      }} />
+                                  </div>
+                                  <div style={S.variantField}>
+                                    <label style={S.microLabel}>QTY INCREMENT</label>
+                                    <input type="number" min="1" className="onboarding-input" value={v.wholesalePricing.quantityIncrement ?? 1}
+                                      onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, quantityIncrement: event.target.value }))} />
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                                  {(v.wholesalePricing.priceTiers || []).map((tier, tierIndex) => (
+                                    <div key={tierIndex} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                                      <div style={S.variantField}>
+                                        <label style={S.microLabel}>FROM QTY</label>
+                                        <input type="number" min="1" className="onboarding-input" value={tier.minimumQuantity ?? ''}
+                                          onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.map((item, idx) => idx === tierIndex ? { ...item, minimumQuantity: event.target.value } : item) }))} />
+                                      </div>
+                                      <div style={S.variantField}>
+                                        <label style={S.microLabel}>UNIT PRICE (₹)</label>
+                                        <input type="number" min="0.01" step="0.01" className="onboarding-input" value={tier.unitPrice ?? ''}
+                                          onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.map((item, idx) => idx === tierIndex ? { ...item, unitPrice: event.target.value } : item) }))} />
+                                      </div>
+                                      {v.wholesalePricing.priceTiers.length > 1 && <button type="button" onClick={() => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.filter((_, idx) => idx !== tierIndex) }))} style={S.trashBtn} aria-label="Remove price tier">×</button>}
+                                    </div>
+                                  ))}
+                                  <button type="button" onClick={() => updateWholesalePricing(i, (pricing) => {
+                                    const last = pricing.priceTiers?.[pricing.priceTiers.length - 1];
+                                    const nextQuantity = Number(last?.minimumQuantity || pricing.minimumQuantity || 1) + Number(pricing.quantityIncrement || 1);
+                                    return { ...pricing, priceTiers: [...(pricing.priceTiers || []), { minimumQuantity: nextQuantity, unitPrice: '' }] };
+                                  })} style={{ justifySelf: 'start', border: '1px solid #08b9e8', background: '#fff', color: '#078ccb', padding: '6px 10px', borderRadius: 7, fontWeight: 700, cursor: 'pointer' }}>+ Add price tier</button>
+                                </div>
+                              </div>
+                            )}
+                          </section>
+                        )}
                       </div>
                     ))}
                   </div>
+                )}
+                {wholesaleAuthorized && isEditing && (
+                  <section aria-label="Wholesale catalog settings" style={{ marginTop: 14, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+                    <strong style={{ color: '#073b78', fontSize: 13 }}>Wholesale catalog</strong>
+                    <p style={{ margin: '5px 0 10px', color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>Set per-variant MOQ and quantity prices. Retail prices and shared inventory are unchanged. Wholesale purchasing is not available yet.</p>
+                    <button type="button" onClick={saveWholesalePricing} disabled={savingWholesale || variants.some((variant) => !variant._id)} style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '8px 12px', fontWeight: 800, cursor: savingWholesale ? 'wait' : 'pointer', opacity: savingWholesale || variants.some((variant) => !variant._id) ? 0.6 : 1 }}>
+                      {savingWholesale ? 'Saving…' : 'Save Wholesale Terms'}
+                    </button>
+                  </section>
                 )}
               </div>
             )}
@@ -589,7 +696,7 @@ export const ProductModal = ({ isShgUser = false }) => {
               <div style={S.tabPanel}>
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">
-                    Main Group (Header) * <span style={{ fontWeight: 600, opacity: 0.7 }}>({isShgUser ? 'SHG' : ((activeChannel === 'quick' || activeChannel === 'grocery') ? 'Quick Commerce' : 'Shop All')} catalogue)</span>
+                    Main Group (Header) * <span style={{ fontWeight: 600, opacity: 0.7 }}>({(activeChannel === 'quick' || activeChannel === 'grocery') ? 'Quick Commerce' : 'Shop All'} catalogue)</span>
                   </label>
                   <select className="onboarding-select" value={pickL1}
                     onChange={(e) => { setPickL1(e.target.value); setPickL2(''); setPickL3(''); }} required>
@@ -643,6 +750,14 @@ export const ProductModal = ({ isShgUser = false }) => {
 
             {activeTab === 'photos' && (
               <div style={S.tabPanel}>
+                {isDigital && <div className="onboarding-form-group" style={{ marginBottom: 18 }}>
+                  <label className="onboarding-label">Private PDF file {!editingProduct?.digital?.file?.status && '*'}</label>
+                  <input type="file" accept="application/pdf,.pdf" onChange={(event) => setEbookFile(event.target.files?.[0] || null)} />
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {ebookFile ? `Selected: ${ebookFile.name} (${Math.ceil(ebookFile.size / 1024)} KB)`
+                      : editingProduct?.digital?.file?.status === 'uploaded' ? 'Private PDF uploaded. Choose another file only to replace it.' : 'PDF only; private backend storage, not Cloudinary.'}
+                  </div>
+                </div>}
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">Main Cover Photo {!isEditing && '*'}</label>
                   <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}

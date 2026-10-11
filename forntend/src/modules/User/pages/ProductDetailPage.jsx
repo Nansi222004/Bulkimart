@@ -33,7 +33,7 @@ const RatingBar = ({ label, pct, count }) => (
     <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', width: 14 }}>{label}</span>
     <svg width="10" height="10" viewBox="0 0 24 24" fill="#f59e0b"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" /></svg>
     <div style={{ flex: 1, height: 5, backgroundColor: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
-      <div style={{ width: `${pct}%`, height: '100%', backgroundColor: '#08B9E8', borderRadius: 99 }} />
+      <div style={{ width: `${pct}%`, height: '100%', backgroundColor: 'var(--primary)', borderRadius: 99 }} />
     </div>
     <span style={{ fontSize: 10, color: '#94a3b8', width: 28, textAlign: 'right' }}>{count}</span>
   </div>
@@ -55,8 +55,17 @@ const ProductDetailPage = () => {
     isWishlisted, toggleWishlist,
   } = useUser();
   const product = selectedProduct;
-
-  const [qty, setQty] = useState(() => getItemQty(product?.id));
+  const [loadedVariants, setLoadedVariants] = useState([]);
+  const [loadedProductId, setLoadedProductId] = useState('');
+  const productVariants = loadedProductId === String(product?.id)
+    ? loadedVariants
+    : (product?.variants || product?.raw?.variants || []);
+  const [selectedVariantId, setSelectedVariantId] = useState(() => productVariants[0]?.id || productVariants[0]?._id || '');
+  const selectedVariant = productVariants.find((variant) => String(variant.id || variant._id) === String(selectedVariantId)) || productVariants[0] || null;
+  const selectedPrice = selectedVariant?.price ?? product?.price;
+  const selectedMrp = selectedVariant?.mrp ?? product?.mrp;
+  const selectedStock = selectedVariant?.stock ?? product?.stock;
+  const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -208,6 +217,9 @@ const ProductDetailPage = () => {
   // trusted from whatever the card that opened this page already had in
   // memory, since a deal can start or end between browsing and opening.
   const [campaignDeal, setCampaignDeal] = useState(null);
+  const campaignPriceForVariant = campaignDeal?.discountValue != null && selectedPrice != null
+    ? Math.round(Number(selectedPrice) * (1 - Number(campaignDeal.discountValue) / 100) * 100) / 100
+    : campaignDeal?.price;
   // QUICK COMMERCE ONLY — `returnPolicy` is only ever present on a
   // `type: "grocery"` product's own GET /api/products/:id response (see
   // product.controller.js::getProductById); an E-commerce product's
@@ -222,6 +234,10 @@ const ProductDetailPage = () => {
         const res = await fetch(apiUrl(`/api/products/${product.id}`));
         const data = await res.json();
         if (!cancelled) {
+          if (Array.isArray(data?.variants)) {
+            setLoadedVariants(data.variants.map((variant) => ({ ...variant, id: String(variant._id) })));
+            setLoadedProductId(String(product.id));
+          }
           setUnavailable(Boolean(data?.subscriptionUnavailable));
           setCampaignDeal(data?.campaignPrice ? {
             price: data.campaignPrice, discountValue: data.campaignDiscountValue, title: data.campaignTitle,
@@ -243,8 +259,14 @@ const ProductDetailPage = () => {
   const deliveryPoint = getDeliveryPoint();
   const isEcom = product?.type === 'ecommerce';
   const { options: deliveryOptions, loading: deliveryLoading } =
-    useProductDeliveryOptions(isEcom ? product?.id : null, deliveryPoint, Math.max(1, qty));
+    useProductDeliveryOptions(isEcom ? product?.id : null, deliveryPoint, Math.max(1, qty), selectedVariantId || null);
   const sameDay = deliveryOptions?.sameDay;
+
+  useEffect(() => {
+    const first = productVariants[0];
+    setSelectedVariantId(first ? String(first.id || first._id || '') : '');
+  }, [product?.id, loadedProductId]);
+  useEffect(() => setQty(getItemQty(product?.id, selectedVariantId)), [product?.id, selectedVariantId]);
 
   // Related products (others)
   // Related items come from the same storefront as the product being viewed.
@@ -254,7 +276,7 @@ const ProductDetailPage = () => {
   if (!product) return null;
 
   const handleAddToCart = () => {
-    addToCart(product.id);
+    addToCart(product.id, 1, selectedVariantId || undefined);
     setQty(q => q + 1);
   };
 
@@ -271,7 +293,7 @@ const ProductDetailPage = () => {
    * the moment it took to arrive.
    */
   const handleBuyNow = async () => {
-    if (qty === 0) await addToCart(product.id);
+    if (qty === 0) await addToCart(product.id, 1, selectedVariantId || undefined);
     goToCart();
   };
 
@@ -345,6 +367,19 @@ const ProductDetailPage = () => {
           <button className="pd-view-details-btn">View details</button>
         </div>
 
+        {productVariants.length > 1 && (
+          <label style={{ display: 'grid', gap: 6, margin: '12px 0', color: '#172B4D', fontWeight: 700, fontSize: 13 }}>
+            Choose pack / variant
+            <select value={selectedVariantId} onChange={(event) => setSelectedVariantId(event.target.value)} style={{ minHeight: 42, border: '1px solid #E2E8F0', borderRadius: 10, padding: '0 12px', background: '#fff', color: '#172B4D' }}>
+              {productVariants.map((variant) => {
+                const id = String(variant.id || variant._id || '');
+                const attrs = (variant.attributes || []).map((attribute) => `${attribute.name}: ${attribute.value}`).join(', ');
+                return <option key={id} value={id} disabled={Number(variant.stock) < 1}>{variant.name}{attrs ? ` · ${attrs}` : ''} · {formatCurrency(variant.price)}{Number(variant.stock) < 1 ? ' · Out of stock' : ''}</option>;
+              })}
+            </select>
+          </label>
+        )}
+
         {/* Rating row */}
         <div className="pd-rating-row">
           <Stars rating={product.rating} size={13} />
@@ -355,15 +390,15 @@ const ProductDetailPage = () => {
         <div className="pd-price-row">
           {campaignDeal ? (
             <>
-              <span className="pd-price" style={{ color: '#b91c1c' }}>{formatCurrency(campaignDeal.price)}</span>
-              <span className="pd-mrp"><s style={{ color: '#94a3b8' }}>{formatCurrency(product.price)}</s></span>
+              <span className="pd-price" style={{ color: '#b91c1c' }}>{formatCurrency(campaignPriceForVariant)}</span>
+              <span className="pd-mrp"><s style={{ color: '#94a3b8' }}>{formatCurrency(selectedPrice)}</s></span>
               <span style={{ fontSize: 11.5, fontWeight: 900, color: '#b91c1c' }}>{campaignDeal.discountValue}% OFF</span>
             </>
           ) : (
             <>
-              <span className="pd-price">{formatCurrency(product.price)}</span>
-              {product.mrp > product.price && (
-                <span className="pd-mrp">MRP <s style={{ color: '#94a3b8' }}>{formatCurrency(product.mrp)}</s></span>
+              <span className="pd-price">{formatCurrency(selectedPrice)}</span>
+              {selectedMrp > selectedPrice && (
+                <span className="pd-mrp">MRP <s style={{ color: '#94a3b8' }}>{formatCurrency(selectedMrp)}</s></span>
               )}
             </>
           )}
@@ -376,6 +411,7 @@ const ProductDetailPage = () => {
         <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
 
         {unavailable && <UnavailableBadge style={{ marginTop: 10 }} />}
+        <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>
       </div>
 
       {/* Offers section */}
@@ -405,7 +441,7 @@ const ProductDetailPage = () => {
       <div className="pd-section-card">
         <h3 className="pd-section-title">🚚 Delivery Details</h3>
         <div className="pd-delivery-row">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#078CCB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
           <div style={{ flex: 1 }}>
             <span className="pd-delivery-label">Deliver to</span>
             <span className="pd-delivery-address">
@@ -554,7 +590,7 @@ const ProductDetailPage = () => {
                   <span className="pd-related-price">{formatCurrency(rp.price)}</span>
                   <button
                     className="pd-related-add"
-                    onClick={e => { e.stopPropagation(); addToCart(rp.id); }}
+                    onClick={e => { e.stopPropagation(); addToCart(rp); }}
                     aria-label={`Add ${rp.name}`}
                   >
                     +
@@ -725,7 +761,7 @@ const ProductDetailPage = () => {
         ) : (
           <>
             {qty === 0 ? (
-              <button className="pd-flipkart-btn add-cart" onClick={handleAddToCart}>
+              <button className="pd-flipkart-btn add-cart" onClick={handleAddToCart} disabled={!(selectedStock > 0) || (productVariants.length > 1 && !selectedVariantId)}>
                 <CartIcon />
                 ADD TO CART
               </button>

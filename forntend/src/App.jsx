@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import UserRoutes from './modules/User/routes'
 import SellerRoutes from './modules/Seller/routes'
 import AdminRoutes from './modules/Admin/routes'
-import SHGRoutes from './modules/SHG/routes'
 import DeliveryRoutes from './modules/Delivery/routes'
 import MockPhonePePage from './components/MockPhonePePage'
 
@@ -45,10 +44,6 @@ function App() {
 
   if (path === '/seller' || path.startsWith('/seller/')) {
     return <SellerRoutes />
-  }
-
-  if (path === '/shg' || path.startsWith('/shg/')) {
-    return <SHGRoutes />
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {

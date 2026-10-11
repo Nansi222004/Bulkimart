@@ -5,6 +5,7 @@ import OnboardingPage from '../pages/OnboardingPage';
 import SellerLoginPage from '../pages/SellerLoginPage';
 import SellerEntryPage from '../pages/SellerEntryPage';
 import SellerStatusGate from '../components/SellerStatusGate';
+import { clearSellerDraft, getSellerDraftKey } from '../utils/onboardingDraft';
 import { apiUrl } from '../../../utils/api';
 import '../Seller.css';
 
@@ -29,7 +30,7 @@ const SIGNED_OUT = {
 };
 
 const SellerRoutesContent = () => {
-  const { toastMessage } = useSeller();
+  const { toastMessage, userProfile } = useSeller();
 
   const [state, setState] = useState({ ...SIGNED_OUT, loading: true });
 
@@ -86,6 +87,7 @@ const SellerRoutesContent = () => {
   }, [loadStatus]);
 
   const signOut = async () => {
+    clearSellerDraft(window.localStorage, getSellerDraftKey(userProfile?._id || userProfile?.id || userProfile?.userId));
     try {
       const token = localStorage.getItem('userToken');
       if (token) {

@@ -352,46 +352,6 @@ export const getSubscriptionForSeller = asyncHandler(async (req, res) => {
   return ok(res, sub, 'Subscription');
 });
 
-// @desc    Every subscription this SHG store fulfils
-// @route   GET /api/subscriptions/shg
-// @access  Private (SHG)
-export const getSubscriptionsForShgStore = asyncHandler(async (req, res) => {
-  const shgStore = await SHGStore.findOne({ userId: req.user._id });
-  if (!shgStore) throw httpError(403, 'You have not registered an SHG store');
-
-  const subs = await Subscription.find({ shgStoreId: shgStore._id })
-    .populate('customItems.productId', 'name images price unit weight')
-    .populate('userId', 'name phone')
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const withProgress = subs.map((s) => ({ ...s, progress: deliveryProgressOf(s.deliverySchedule) }));
-  return ok(res, withProgress, 'Subscriptions');
-});
-
-// @desc    One subscription, as its fulfilling SHG store — same shape as
-//          getSubscriptionForSeller, for the identical prep-alert / pack
-//          screen the Seller side already has
-// @route   GET /api/subscriptions/:id/shg-view
-// @access  Private (SHG)
-export const getSubscriptionForShgStore = asyncHandler(async (req, res) => {
-  const shgStore = await SHGStore.findOne({ userId: req.user._id });
-  if (!shgStore) throw httpError(403, 'You have not registered an SHG store');
-
-  const sub = await Subscription.findById(req.params.id)
-    .populate('customItems.productId', 'name images price unit weight')
-    .populate('userId', 'name phone')
-    .lean();
-
-  if (!sub) throw httpError(404, 'Subscription not found');
-  if (String(sub.shgStoreId) !== String(shgStore._id)) throw httpError(403, 'This is not your subscription');
-
-  await attachOrderRefs(sub);
-  sub.progress = deliveryProgressOf(sub.deliverySchedule);
-
-  return ok(res, sub, 'Subscription');
-});
-
 /**
  * Pause, resume or cancel.
  *

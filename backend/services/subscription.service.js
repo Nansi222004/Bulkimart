@@ -181,9 +181,8 @@ export const buildSchedule = ({ frequency, count, startDate, deliveryDay }) => {
 /**
  * What the whole plan costs, paid once, up front.
  *
- * One basket repeated N times. The CDS discount is the co-operative membership
- * benefit the platform already applies elsewhere, read from the same env figure
- * so a member is not offered one rate at checkout and another here.
+ * One basket repeated N times. Legacy CDS discount fields remain zero-valued
+ * for historical API compatibility; membership no longer affects pricing.
  *
  * @param {Array<{product: object, qty: number}>} lines
  * @param {number} deliveries
@@ -197,16 +196,13 @@ export const priceSubscription = (lines, deliveries, user) => {
 
   const totalAmount = Math.round(perDelivery * deliveries * 100) / 100;
 
-  // A verified member only — an unverified number is a claim, not a benefit.
-  const percent = user?.isCDSVerified ? Number(process.env.CDS_DISCOUNT_PERCENT || 5) : 0;
-  const cdsDiscount = Math.round(totalAmount * (percent / 100) * 100) / 100;
+  const cdsDiscount = 0;
 
   return {
     perDelivery: Math.round(perDelivery * 100) / 100,
     deliveries,
     totalAmount,
     cdsDiscount,
-    cdsPercent: percent,
     finalAmount: Math.round((totalAmount - cdsDiscount) * 100) / 100,
   };
 };

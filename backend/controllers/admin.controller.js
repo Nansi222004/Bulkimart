@@ -9,7 +9,7 @@ import Ticket from '../models/Ticket.js';
 import { applyApprovedRatings } from '../services/productRatings.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
-import { ROLE, VENDOR_STATUS, APPROVAL, PAYOUT_MODES, CHANNEL } from '../constants/enums.js';
+import { ROLE, VENDOR_STATUS, APPROVAL, PAYOUT_MODES, CHANNEL, WHOLESALE_CHANNEL, WHOLESALE_REQUEST_STATUS } from '../constants/enums.js';
 import mongoose from 'mongoose';
 import Delivery from '../models/Delivery.js';
 import DeliveryRate from '../models/DeliveryRate.js';
@@ -32,6 +32,8 @@ import SellerPayout from '../models/SellerPayout.js';
 import { DELIVERY_PAYOUT_STATUS } from '../constants/enums.js';
 import { assertAdminTransition } from '../services/ticket.service.js';
 import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, LEGACY_TICKET_STATUS_MAP } from '../constants/enums.js';
+import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
+import { assertEbookReadyForApproval } from '../services/digitalProduct.service.js';
 
 /* ============================================================================
  * SELLER (GENERAL VENDOR) MANAGEMENT — BRD §6 Seller Management
@@ -41,23 +43,11 @@ import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, LEGACY_TICKET_STATUS_MAP } from 
 // @route   GET /api/admin/sellers?status=pending&search=&page=&limit=
 // @access  Private/Admin
 export const listSellers = asyncHandler(async (req, res) => {
-  const { status, search, vendorType, isNscSeller } = req.query;
+  const { status, search } = req.query;
   const { page, limit, skip } = getPagination(req.query);
 
   const filter = {};
   if (status && status !== 'all') filter.status = status;
-
-  // Separate NHC Sellers vs General Vendors:
-  // Default for general vendor listing: filter out NHC Sellers ({ isNscSeller: { $ne: true } })
-  // NHC Sellers are managed under NHC Management -> NHC Seller Applications.
-  if (vendorType === 'nhc' || isNscSeller === 'true') {
-    filter.isNscSeller = true;
-  } else if (vendorType === 'all') {
-    // Explicitly request all if needed
-  } else {
-    // Default for General Vendor section: exclude NHC sellers
-    filter.isNscSeller = { $ne: true };
-  }
 
   if (search) {
     const rx = new RegExp(search, 'i');
@@ -75,26 +65,10 @@ export const listSellers = asyncHandler(async (req, res) => {
 
   // Flatten into the shape the admin table needs
   const rows = sellers.map((s) => {
-    const isNhc = Boolean(s.isNscSeller);
-    let plan = s.nhcPlan || null;
-    if (isNhc && (!plan || !plan.planName)) {
-      plan = {
-        planType: 'UNIT_SELLER',
-        planName: 'Unit Seller',
-        planAmount: 1000000,
-        currency: 'INR',
-        description: 'Standard NHC Unit Seller membership with local operational coverage.',
-        selectedAt: s.createdAt || s.updatedAt || new Date(),
-      };
-    }
     return {
       _id: s._id,
       businessName: s.businessName,
       storeName: s.storeDetails?.name,
-      isNhcSeller: isNhc,
-      isNscSeller: isNhc,
-      vendorType: isNhc ? 'NHC Seller' : 'General Vendor',
-      nhcPlan: plan,
       holderName: s.userId?.name || s.bankDetails?.holderName || '—',
       phone: s.userId?.phone,           // login identity
       storePhone: s.storeDetails?.phone,
@@ -104,6 +78,8 @@ export const listSellers = asyncHandler(async (req, res) => {
       pincode: s.storeDetails?.pincode,
       status: s.status,
       onboardingStep: s.onboardingStep,
+      salesChannels: s.salesChannels || [CHANNEL.ECOM],
+      wholesaleChannel: s.wholesaleChannel || { status: WHOLESALE_REQUEST_STATUS.NOT_REQUESTED },
       commissionRate: s.commissionRate,
       rating: s.rating,
       submittedAt: s.updatedAt,
@@ -127,26 +103,8 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     { $group: { _id: '$status', count: { $sum: 1 } } },
   ]);
 
-  const isNhc = Boolean(seller.isNscSeller);
-
-  // If this is an NHC seller but nhcPlan snapshot is missing, auto-backfill default Unit Seller plan
-  if (isNhc && (!seller.nhcPlan || !seller.nhcPlan.planName)) {
-    seller.nhcPlan = {
-      planType: 'UNIT_SELLER',
-      planName: 'Unit Seller',
-      planAmount: 1000000,
-      currency: 'INR',
-      description: 'Standard NHC Unit Seller membership with local operational coverage.',
-      selectedAt: seller.createdAt || seller.updatedAt || new Date(),
-    };
-    await seller.save();
-  }
-
   return ok(res, {
     _id: seller._id,
-    isNhcSeller: isNhc,
-    isNscSeller: isNhc,
-    nhcPlan: seller.nhcPlan || null,
     status: seller.status,
     onboardingStep: seller.onboardingStep,
     rejectionReason: seller.rejectionReason,
@@ -154,6 +112,8 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     submittedAt: seller.updatedAt,
     registeredAt: seller.createdAt,
     serviceRadiusKm: seller.serviceRadiusKm,
+    salesChannels: seller.salesChannels || [CHANNEL.ECOM],
+    wholesaleChannel: seller.wholesaleChannel || { status: WHOLESALE_REQUEST_STATUS.NOT_REQUESTED },
 
     // --- account (login identity) --------------------------------------
     account: {
@@ -170,8 +130,6 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
       businessName: seller.businessName,
       businessType: seller.businessType,
       store: seller.storeDetails,
-      isNhcSeller: isNhc,
-      isNscSeller: isNhc,
     },
 
     // --- step 2: Aadhaar KYC (number stored masked) ---------------------
@@ -212,7 +170,6 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
       products: productCounts.reduce((acc, c) => ({ ...acc, [c._id]: c.count }), {}),
     },
 
-    brandRequests: seller.brandRequests,
     promoRequests: seller.promoRequests,
   });
 });
@@ -271,6 +228,84 @@ export const approveSeller = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(seller.userId, { $addToSet: { roles: ROLE.SELLER } });
 
   return ok(res, { _id: seller._id, status: seller.status, approvedAt: seller.approvedAt }, 'Seller approved successfully');
+});
+
+// @desc    Approve or reject a seller's separate Wholesale channel request
+// @route   PATCH /api/admin/sellers/:id/wholesale
+// @access  Private/Admin
+export const decideSellerWholesaleChannel = asyncHandler(async (req, res) => {
+  const { status, rejectionReason, suspensionReason } = req.body || {};
+  if (![WHOLESALE_REQUEST_STATUS.APPROVED, WHOLESALE_REQUEST_STATUS.REJECTED, WHOLESALE_REQUEST_STATUS.SUSPENDED].includes(status)) {
+    throw httpError(400, 'status must be approved, rejected, or suspended');
+  }
+
+  const seller = await Seller.findById(req.params.id);
+  if (!seller) throw httpError(404, 'Seller not found');
+  if (seller.status !== VENDOR_STATUS.APPROVED) throw httpError(409, 'Seller must have an approved account before Wholesale can be enabled');
+
+  const currentStatus = seller.wholesaleChannel?.status || WHOLESALE_REQUEST_STATUS.NOT_REQUESTED;
+  const alreadyApproved = currentStatus === WHOLESALE_REQUEST_STATUS.APPROVED && status === WHOLESALE_REQUEST_STATUS.APPROVED;
+  const canDecidePending = currentStatus === WHOLESALE_REQUEST_STATUS.PENDING && [WHOLESALE_REQUEST_STATUS.APPROVED, WHOLESALE_REQUEST_STATUS.REJECTED].includes(status);
+  const canRevoke = currentStatus === WHOLESALE_REQUEST_STATUS.APPROVED && [WHOLESALE_REQUEST_STATUS.REJECTED, WHOLESALE_REQUEST_STATUS.SUSPENDED].includes(status);
+  const canRestore = currentStatus === WHOLESALE_REQUEST_STATUS.SUSPENDED && status === WHOLESALE_REQUEST_STATUS.APPROVED;
+  if (!alreadyApproved && !canDecidePending && !canRevoke && !canRestore) {
+    throw httpError(409, 'There is no pending Wholesale request to decide');
+  }
+  if (status === WHOLESALE_REQUEST_STATUS.REJECTED && rejectionReason != null && String(rejectionReason).length > 500) {
+    throw httpError(400, 'Rejection reason must be 500 characters or fewer');
+  }
+  if (status === WHOLESALE_REQUEST_STATUS.SUSPENDED && suspensionReason != null && String(suspensionReason).length > 500) {
+    throw httpError(400, 'Suspension reason must be 500 characters or fewer');
+  }
+
+  const channels = new Set(seller.salesChannels || [CHANNEL.ECOM]);
+  if (status === WHOLESALE_REQUEST_STATUS.APPROVED) channels.add(WHOLESALE_CHANNEL);
+  else channels.delete(WHOLESALE_CHANNEL);
+
+  seller.salesChannels = [...channels];
+  seller.wholesaleChannel = {
+    ...(seller.wholesaleChannel?.toObject?.() || seller.wholesaleChannel || {}),
+    status,
+    decidedAt: new Date(),
+    decidedBy: req.user._id,
+    rejectionReason: status === WHOLESALE_REQUEST_STATUS.REJECTED ? String(rejectionReason || '').trim() || undefined : undefined,
+    suspensionReason: status === WHOLESALE_REQUEST_STATUS.SUSPENDED ? String(suspensionReason || '').trim() || undefined : undefined,
+  };
+  await seller.save();
+
+  return ok(res, {
+    _id: seller._id,
+    status: seller.wholesaleChannel.status,
+    salesChannels: seller.salesChannels,
+  }, status === WHOLESALE_REQUEST_STATUS.APPROVED ? 'Wholesale channel approved/restored' : status === WHOLESALE_REQUEST_STATUS.SUSPENDED ? 'Wholesale channel suspended' : 'Wholesale channel rejected/revoked');
+});
+
+// @desc    Live Wholesale requests and eligible offer counts for admins
+// @route   GET /api/admin/wholesale/summary
+// @access  Private/Admin
+export const getWholesaleManagementSummary = asyncHandler(async (_req, res) => {
+  const [sellers, offers] = await Promise.all([
+    Seller.find({ 'wholesaleChannel.status': { $in: [
+      WHOLESALE_REQUEST_STATUS.PENDING,
+      WHOLESALE_REQUEST_STATUS.APPROVED,
+      WHOLESALE_REQUEST_STATUS.REJECTED,
+      WHOLESALE_REQUEST_STATUS.SUSPENDED,
+    ] } }).select('_id businessName storeDetails.name status salesChannels wholesaleChannel userId').populate('userId', 'name phone isActive').sort({ 'wholesaleChannel.requestedAt': -1 }).lean(),
+    getEligibleWholesaleCatalog(),
+  ]);
+  const variants = offers.flatMap((offer) => offer.variants || []);
+  return ok(res, {
+    sellers,
+    offers,
+    counts: {
+      requestingSellers: sellers.filter((seller) => seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.PENDING).length,
+      approvedSellers: sellers.filter((seller) => seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.APPROVED).length,
+      suspendedSellers: sellers.filter((seller) => seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.SUSPENDED).length,
+      eligibleProducts: offers.length,
+      eligibleVariants: variants.length,
+      availableVariants: variants.filter((variant) => variant.available).length,
+    },
+  });
 });
 
 // @desc    Reject a seller
@@ -511,7 +546,7 @@ export const listProducts = asyncHandler(async (req, res) => {
   const [products, total] = await Promise.all([
     Product.find(filter)
       .populate('category', 'name')
-      .populate('sellerId', 'businessName storeDetails.name isNscSeller')
+      .populate('sellerId', 'businessName storeDetails.name')
       .populate('shgStoreId', 'groupName district')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -526,8 +561,21 @@ export const listProducts = asyncHandler(async (req, res) => {
 // @route   PATCH /api/admin/products/:id/approve
 // @access  Private/Admin
 export const approveProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id);
+  const query = Product.findById(req.params.id);
+  const product = typeof query.select === 'function' ? await query.select('+digital.file.fileId') : await query;
   if (!product) throw httpError(404, 'Product not found');
+
+  if (product.fulfillmentType === 'digital') {
+    assertEbookReadyForApproval(product);
+    const seller = await Seller.findById(product.sellerId).select('status userId');
+    if (!seller || seller.status !== VENDOR_STATUS.APPROVED) {
+      throw httpError(409, 'The seller must be approved and active before an e-book can be approved');
+    }
+    const sellerUser = await User.findById(seller.userId).select('isActive');
+    if (!sellerUser || sellerUser.isActive === false) {
+      throw httpError(409, 'The seller account must be active before an e-book can be approved');
+    }
+  }
 
   // Both flags are required: every public query filters on status AND isActive.
   product.status = APPROVAL.APPROVED;
@@ -599,7 +647,7 @@ const escapeRegexForUserFilter = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g,
 // @route   GET /api/admin/users
 // @access  Private/Admin
 export const listUsers = asyncHandler(async (req, res) => {
-  const { search, role, cds, status, state, district } = req.query;
+  const { search, role, status, state, district } = req.query;
   const { page, limit, skip } = getPagination(req.query);
 
   const filter = {};
@@ -608,8 +656,6 @@ export const listUsers = asyncHandler(async (req, res) => {
     filter.$or = [{ phone: rx }, { name: rx }, { email: rx }];
   }
   if (role) filter.roles = role;
-  if (cds === 'true') filter.isCDSVerified = true;
-  if (cds === 'false') filter.isCDSVerified = false;
 
   /**
    * State/District filter — geographic breakdown for the Consumer Users
@@ -733,29 +779,6 @@ export const setUserStatus = asyncHandler(async (req, res) => {
   if (!user) throw httpError(404, 'User not found');
 
   return ok(res, user, `User ${user.isActive ? 'activated' : 'deactivated'}`);
-});
-
-// @desc    Manually override CDS membership — BRD §6 CDS Membership Status Management
-// @route   PATCH /api/admin/users/:id/cds
-// @access  Private/Admin
-export const setUserCDS = asyncHandler(async (req, res) => {
-  const { isCDSVerified, cdsMembershipNo } = req.body;
-
-  const user = await User.findById(req.params.id);
-  if (!user) throw httpError(404, 'User not found');
-
-  if (cdsMembershipNo !== undefined) user.cdsMembershipNo = cdsMembershipNo;
-  if (isCDSVerified !== undefined) {
-    user.isCDSVerified = !!isCDSVerified;
-    user.cdsVerifiedAt = isCDSVerified ? new Date() : undefined;
-  }
-  await user.save();
-
-  return ok(res, {
-    _id: user._id,
-    cdsMembershipNo: user.cdsMembershipNo,
-    isCDSVerified: user.isCDSVerified,
-  }, 'CDS membership status updated');
 });
 
 /* ============================================================================
@@ -1635,9 +1658,9 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
     SHGStore.countDocuments({ status: VENDOR_STATUS.APPROVED }),
     Subscription.countDocuments({ status: 'active' }),
     Order.find({}).sort({ createdAt: -1 }).limit(10).populate('userId', 'name phone').lean(),
-    Product.find({ stock: { $lt: 10 }, isDeleted: false }).sort({ stock: 1 }).limit(10)
+    Product.find({ stock: { $lt: 10 }, isDeleted: false, fulfillmentType: { $ne: 'digital' } }).sort({ stock: 1 }).limit(10)
       .populate('sellerId', 'businessName').populate('shgStoreId', 'groupName').lean(),
-    Seller.find({}).sort({ isNscSeller: -1, createdAt: -1 }).limit(5).select('businessName status createdAt isNscSeller').lean(),
+    Seller.find({}).sort({ createdAt: -1 }).limit(5).select('businessName status createdAt').lean(),
     computeCategorySales(5),
   ]);
 
@@ -1678,7 +1701,7 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
  * CONSUMER MANAGEMENT — Consumer Users tab
  * ========================================================================== */
 
-// @desc    Buyer counts by behavioural status — total/active/inactive/blocked/CDS,
+// @desc    Buyer counts by behavioural status — total/active/inactive/blocked,
 //          plus new-signup counts for the last 7/30 days
 // @route   GET /api/admin/consumers/stats
 // @access  Private/Admin
@@ -1687,10 +1710,9 @@ export const getConsumerStats = asyncHandler(async (req, res) => {
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const [total, blocked, cdsVerified, newLast7Days, newLast30Days, recentBuyerIds] = await Promise.all([
+  const [total, blocked, newLast7Days, newLast30Days, recentBuyerIds] = await Promise.all([
     User.countDocuments({ roles: 'buyer' }),
     User.countDocuments({ roles: 'buyer', isActive: false }),
-    User.countDocuments({ roles: 'buyer', isCDSVerified: true }),
     User.countDocuments({ roles: 'buyer', createdAt: { $gte: sevenDaysAgo } }),
     User.countDocuments({ roles: 'buyer', createdAt: { $gte: thirtyDaysAgo } }),
     Order.distinct('userId', { createdAt: { $gte: thirtyDaysAgo } }),
@@ -1700,28 +1722,7 @@ export const getConsumerStats = asyncHandler(async (req, res) => {
     User.countDocuments({ roles: 'buyer', isActive: true, _id: { $nin: recentBuyerIds } }),
   ]);
 
-  return ok(res, { total, active, inactive, blocked, cdsVerified, newLast7Days, newLast30Days });
-});
-
-// @desc    Buyers with a verified CDS membership
-// @route   GET /api/admin/consumers/cds
-// @access  Private/Admin
-export const listCDSMembers = asyncHandler(async (req, res) => {
-  const { search } = req.query;
-  const { page, limit, skip } = getPagination(req.query);
-
-  const filter = { roles: 'buyer', isCDSVerified: true };
-  if (search) {
-    const rx = new RegExp(search, 'i');
-    filter.$or = [{ phone: rx }, { name: rx }, { email: rx }, { cdsMembershipNo: rx }];
-  }
-
-  const [users, total] = await Promise.all([
-    User.find(filter).select('-wallet.transactions').sort({ cdsVerifiedAt: -1 }).skip(skip).limit(limit),
-    User.countDocuments(filter),
-  ]);
-
-  return paginated(res, users, { page, limit, total });
+  return ok(res, { total, active, inactive, blocked, newLast7Days, newLast30Days });
 });
 
 /**
@@ -2449,8 +2450,8 @@ export const vendorDashboard = asyncHandler(async (req, res) => {
     // The queue an admin would actually act on next.
     Seller.find({ status: VENDOR_STATUS.PENDING })
       .populate('userId', 'name phone')
-      .select('businessName storeDetails.name storeDetails.city updatedAt userId isNscSeller')
-      .sort({ isNscSeller: -1, updatedAt: -1 })
+      .select('businessName storeDetails.name storeDetails.city updatedAt userId')
+      .sort({ updatedAt: -1 })
       .limit(6)
       .lean(),
   ]);
@@ -2461,7 +2462,7 @@ export const vendorDashboard = asyncHandler(async (req, res) => {
 
   const topSellerIds = topRows.map((r) => r._id);
   const topSellers = await Seller.find({ _id: { $in: topSellerIds } })
-    .select('businessName storeDetails.name storeDetails.city rating isNscSeller')
+    .select('businessName storeDetails.name storeDetails.city rating')
     .lean();
   const sellerById = new Map(topSellers.map((s) => [String(s._id), s]));
 
@@ -3276,7 +3277,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
   const [orders, total] = await Promise.all([
     Order.find(filter)
       .populate('userId', 'name phone email')
-      .populate('items.sellerId', 'businessName storeDetails.name storeDetails.city isNscSeller')
+      .populate('items.sellerId', 'businessName storeDetails.name storeDetails.city')
       .populate('items.shgStoreId', 'groupName district')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -3287,13 +3288,10 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
 
   const rows = orders.map((o) => {
     const storeNamesSet = new Set();
-    let isNhcSellerOrder = false;
-
     (o.items || []).forEach((item) => {
       if (item.sellerId) {
         const storeName = item.sellerId.storeDetails?.name || item.sellerId.businessName;
         if (storeName) storeNamesSet.add(storeName);
-        if (item.sellerId.isNscSeller) isNhcSellerOrder = true;
       } else if (item.shgStoreId?.groupName) {
         storeNamesSet.add(item.shgStoreId.groupName);
       }
@@ -3307,7 +3305,6 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       channel: o.type,
       status: o.status,
       storeNames,
-      isNhcSellerOrder,
       customerName: o.shippingAddress?.name || o.userId?.name || 'Customer',
       customerPhone: o.shippingAddress?.phone || o.userId?.phone || '—',
       city: o.shippingAddress?.city || '—',
@@ -3371,9 +3368,6 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
       businessName: s.businessName || 'General Seller',
       storeName: s.storeDetails?.name || s.businessName || 'Store',
       city: s.storeDetails?.city || '—',
-      isNhcSeller: Boolean(s.isNscSeller),
-      isNscSeller: Boolean(s.isNscSeller),
-      vendorType: s.isNscSeller ? 'NHC Seller' : 'Normal Seller',
       sellerName: s.userId?.name || s.businessName || 'Seller',
       sellerPhone: s.userId?.phone || s.phone || '—',
       deliveredOrders: stats.ordersCount,
@@ -3447,8 +3441,6 @@ export const getVendorEarningsAdmin = asyncHandler(async (req, res) => {
       businessName: s.businessName,
       storeName: s.storeDetails?.name || s.businessName,
       city: s.storeDetails?.city || '—',
-      isNhcSeller: Boolean(s.isNscSeller),
-      isNscSeller: Boolean(s.isNscSeller),
       holderName: s.userId?.name || s.bankDetails?.holderName || '—',
       phone: s.userId?.phone,
       bankDetails: s.bankDetails || {},
@@ -3466,11 +3458,7 @@ export const getVendorEarningsAdmin = asyncHandler(async (req, res) => {
     rows = rows.filter((r) => rx.test(r.businessName) || rx.test(r.storeName) || rx.test(r.city));
   }
 
-  rows.sort((a, b) => {
-    if (a.isNhcSeller && !b.isNhcSeller) return -1;
-    if (!a.isNhcSeller && b.isNhcSeller) return 1;
-    return b.grossSales - a.grossSales;
-  });
+  rows.sort((a, b) => b.grossSales - a.grossSales);
 
   const totalGross = rows.reduce((sum, r) => sum + r.grossSales, 0);
   const totalCommission = rows.reduce((sum, r) => sum + r.platformFee, 0);
@@ -3528,8 +3516,6 @@ export const getVendorPayoutsAdmin = asyncHandler(async (req, res) => {
       sellerId: s._id,
       businessName: s.businessName,
       storeName: s.storeDetails?.name || s.businessName,
-      isNhcSeller: Boolean(s.isNscSeller),
-      isNscSeller: Boolean(s.isNscSeller),
       holderName: s.userId?.name || s.bankDetails?.holderName || '—',
       phone: s.userId?.phone,
       amount: existing?.amount || netPayable,

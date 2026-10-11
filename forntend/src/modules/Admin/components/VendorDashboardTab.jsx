@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { NhcSellerBadge, sortNhcSellersFirst } from './NhcSellerBadge';
 
 const WINDOWS = [
   { days: 7, label: '7 days' },
@@ -242,14 +241,12 @@ export const VendorDashboardTab = () => {
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {sortNhcSellersFirst(pendingQueue).map((v, i) => {
-                const isNhc = Boolean(v.isNhcSeller || v.isNscSeller);
+              {pendingQueue.map((v, i) => {
                 return (
                   <div key={v.sellerId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i === pendingQueue.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span>{v.name}</span>
-                        {isNhc && <NhcSellerBadge style={{ fontSize: '9.5px', padding: '1px 5px' }} />}
                       </div>
                       <div style={{ fontSize: 10.5, color: '#64748b' }}>
                         {[v.owner, v.city].filter(Boolean).join(' · ')}

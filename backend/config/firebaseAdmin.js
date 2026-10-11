@@ -1,13 +1,10 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Single shared Firebase Admin app, initialized once from
- * FIREBASE_SERVICE_ACCOUNT_JSON (the service account key as one JSON-string
- * env var — kept in .env rather than only the file path, since that's what
- * every deploy target beyond this local machine can actually set). Every
- * place that needs Firebase Admin (FCM push today, anything else later)
- * imports `getFirebaseApp()` from here instead of calling
- * `initializeApp()` a second time, which throws.
+ * FIREBASE_SERVICE_ACCOUNT_JSON (or FIREBASE_SERVICE_ACCOUNT file path / JSON string).
  */
 let app = null;
 
@@ -20,16 +17,23 @@ export const getFirebaseApp = () => {
     return app;
   }
 
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!raw) {
     throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT is not set');
   }
 
-  const serviceAccount = JSON.parse(raw);
-  // Hosted env providers commonly preserve PEM newlines as literal `\\n`.
-  // Normalize both forms before handing the key to Firebase Admin.
+  let serviceAccount;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) {
+    serviceAccount = JSON.parse(trimmed);
+  } else {
+    const filePath = path.resolve(process.cwd(), trimmed);
+    serviceAccount = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  }
+
+  // Normalize private key newlines
   if (typeof serviceAccount.private_key === 'string') {
-    serviceAccount.private_key = serviceAccount.private_key.replace(/\\\\n/g, '\n');
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
   }
 
   app = initializeApp({

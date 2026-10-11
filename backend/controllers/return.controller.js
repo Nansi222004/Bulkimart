@@ -50,6 +50,7 @@ const publicReturnShape = (ret, delivery) => ({
   orderId: ret.orderId,
   orderItemId: ret.orderItemId,
   productId: ret.productId,
+  variantId: ret.variantId,
   productName: ret.productName,
   productImage: ret.productImage,
   quantity: ret.quantity,

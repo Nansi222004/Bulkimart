@@ -91,7 +91,7 @@ const PopularCategories = () => {
 
     // Default icon
     return (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#078ccb" strokeWidth="2">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="9" />
         <path d="M9 12h6M12 9v6" />
       </svg>

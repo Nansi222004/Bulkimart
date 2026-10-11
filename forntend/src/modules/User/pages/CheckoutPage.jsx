@@ -24,7 +24,6 @@ const CheckoutPage = () => {
     cartChannel,
     deliveryMode,
     setDeliveryMode,
-    getPlatformFee,
     getCouponDiscount,
     cartLoading,
     appliedCoupon,
@@ -337,7 +336,6 @@ const CheckoutPage = () => {
   }, [isQuickCommerceCart, quickCommerceSeller, items, serverCart, quickGroup]);
 
   const subtotalVal = unified.data ? (unified.data.totals?.subtotal || 0) : (serverCart?.pricing?.subtotal || 0);
-  const platformFeeVal = getPlatformFee ? getPlatformFee() : 0;
   const couponDiscountVal = unified.data
     ? (unified.data.totals?.couponDiscount || 0)
     : (getCouponDiscount ? getCouponDiscount() : 0);
@@ -507,7 +505,7 @@ const CheckoutPage = () => {
               {placedOrders.length} orders created
             </span>
           ) : (
-            <span className="cds-id-text" style={{ background: 'var(--primary-light)', color: 'var(--primary)', padding: '4px 14px', borderRadius: 20, fontWeight: 700 }}>
+            <span className="order-id-badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', padding: '4px 14px', borderRadius: 20, fontWeight: 700 }}>
               Order ID: {placedOrderDetails.orderNo || placedOrderDetails._id || placedOrderDetails.id}
             </span>
           )}
@@ -1658,12 +1656,6 @@ const CheckoutPage = () => {
               <span>Items Subtotal</span>
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{subtotalVal}</span>
             </div>
-            {platformFeeVal > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                <span>CDS Platform Fee</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{platformFeeVal}</span>
-              </div>
-            )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
               <span>Delivery Charges</span>
@@ -1850,12 +1842,6 @@ const CheckoutPage = () => {
                   <span>Items Subtotal</span>
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{subtotalVal}</span>
                 </div>
-                {platformFeeVal > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                    <span>CDS Platform Fee</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{platformFeeVal}</span>
-                  </div>
-                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                   <span>Delivery Charges</span>
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>

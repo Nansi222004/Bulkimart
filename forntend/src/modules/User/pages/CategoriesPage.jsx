@@ -175,7 +175,7 @@ const CategoriesPage = () => {
                     <span>{formatCurrency(product.price)}</span>
                   </button>
                   <WishlistHeartButton productId={product._id} size={14} />
-                  <button type="button" className="category-result-add" onClick={() => addToCart(product._id)}>Add</button>
+                  <button type="button" className="category-result-add" onClick={() => addToCart(product)}>Add</button>
                 </article>
               ))}
             </div>

@@ -19,6 +19,7 @@ import OrderTrackingPage from './OrderTrackingPage';
 import CampaignLandingPage from './CampaignLandingPage';
 import PromotionLandingPage from './PromotionLandingPage';
 import SearchPage from './SearchPage';
+import WholesalePage from './WholesalePage';
 import WriteReviewPage from './WriteReviewPage';
 import VegetablesSection from '../components/VegetablesSection';
 import MilkSection from '../components/MilkSection';
@@ -89,6 +90,7 @@ const LandingPageContent = () => {
     'checkout',
     'orders',
     'wishlist',
+    'wholesale',
   ]);
 
   if (!currentUser && protectedNavItems.has(activeNav)) {
@@ -211,13 +213,15 @@ const LandingPageContent = () => {
         return <CartPage />;
       case 'checkout':
         return <CheckoutPage />;
+      case 'wholesale':
+        return <WholesalePage />;
       default:
         return null;
     }
   };
 
   return (
-    <div className={`user-landing-page-container mode-${activeMode} subnav-${activeSubNav}`}>
+    <div className={`user-landing-page-container mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode}>
       {/* Scrollable Main Area */}
       <main className={`user-main-content page-${activeNav}`}>
         {renderContent()}
@@ -239,7 +243,7 @@ const LandingPageContent = () => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            boxShadow: '0 8px 16px rgba(8, 185, 232, 0.28)',
+            boxShadow: '0 8px 16px var(--focus-ring)',
             cursor: 'pointer',
             zIndex: 90,
             transition: 'all 0.2s'

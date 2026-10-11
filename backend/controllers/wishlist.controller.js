@@ -11,7 +11,7 @@ import { ok, httpError } from '../utils/response.js';
  * never disagree at the moment of adding.
  */
 const isEligible = (product) =>
-  !!product && !product.isDeleted && product.isActive && product.status === 'approved';
+  !!product && product.fulfillmentType !== 'digital' && !product.isDeleted && product.isActive && product.status === 'approved';
 
 /**
  * @desc    The signed-in shopper's wishlist, as live Product data
@@ -38,7 +38,7 @@ export const getWishlist = asyncHandler(async (req, res) => {
   if (!ids.length) return ok(res, { items: [], productIds: [], count: 0 });
 
   const products = await Product.find({ _id: { $in: ids } })
-    .select('name images price mrp discountPercent stock isActive isDeleted status type sellerId shgStoreId')
+    .select('name images price mrp discountPercent stock isActive isDeleted status type fulfillmentType sellerId shgStoreId')
     .lean();
 
   const byId = new Map(products.map((p) => [String(p._id), p]));
@@ -83,7 +83,7 @@ export const addToWishlist = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   if (!mongoose.isValidObjectId(productId)) throw httpError(400, 'Invalid product id');
 
-  const product = await Product.findById(productId).select('isActive isDeleted status');
+  const product = await Product.findById(productId).select('isActive isDeleted status fulfillmentType');
   if (!isEligible(product)) throw httpError(404, 'This product is not available');
 
   await User.updateOne({ _id: req.user._id }, { $addToSet: { wishlist: productId } });

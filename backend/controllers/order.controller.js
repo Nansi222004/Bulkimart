@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
+import { createHash } from 'node:crypto';
 import Order from '../models/Order.js';
+import CheckoutAttempt from '../models/CheckoutAttempt.js';
 import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
@@ -35,11 +37,49 @@ import {
 import { checkCartSameDayEligibility } from '../services/sameDay.service.js';
 import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
+import { mutateInventory, resolveInventoryItem } from '../services/inventory.service.js';
 import {
   createOrdersFromGroups,
   validateGroupsStock,
   buildDeliverySnapshot,
 } from '../services/fulfilmentOrders.service.js';
+
+const canonicalJson = (value) => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+};
+
+const checkoutIdentity = async (req, operation) => {
+  const key = req.get('Idempotency-Key');
+  if (typeof key !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(key)) {
+    throw httpError(400, 'A valid Idempotency-Key header is required', { code: 'IDEMPOTENCY_KEY_REQUIRED' });
+  }
+  const requestHash = createHash('sha256')
+    .update(`${operation}\n${canonicalJson(req.body || {})}`)
+    .digest('hex');
+  const filter = { userId: req.user._id, key };
+  const previous = await CheckoutAttempt.findOne(filter).lean();
+  if (previous) {
+    if (previous.requestHash !== requestHash || previous.operation !== operation) {
+      throw httpError(409, 'This checkout key was already used for different checkout details', { code: 'IDEMPOTENCY_KEY_REUSED' });
+    }
+    if (previous.status !== 'completed') {
+      throw httpError(409, 'This checkout is still being processed. Please retry shortly.', { code: 'CHECKOUT_IN_PROGRESS' });
+    }
+    const orders = await Promise.all((previous.orderIds || []).map((id) => Order.findById(id)));
+    if (!orders.length || orders.some((order) => !order || String(order.userId) !== String(req.user._id))) {
+      throw httpError(409, 'The previous checkout result is unavailable. Please contact support.', { code: 'CHECKOUT_RESULT_UNAVAILABLE' });
+    }
+    return { key, requestHash, replay: previous, replayOrders: orders };
+  }
+  return { key, requestHash, replay: null, replayOrders: [] };
+};
+
+const isTransactionUnavailable = (err) =>
+  /Transaction numbers are only allowed|replica set|does not support transactions/i.test(err?.message || '');
 
 /**
  * Checkout.
@@ -67,6 +107,15 @@ import {
 
 const pushTimeline = (order, status, note) => {
   order.timeline.push({ status, timestamp: new Date(), note });
+};
+
+const claimCancellation = async (order, reason, session) => {
+  const result = await Order.updateOne(
+    { _id: order._id, status: { $in: CANCELLABLE_STATUSES } },
+    { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } } },
+    { session }
+  );
+  if (result.modifiedCount !== 1) throw httpError(409, 'This order has already changed and cannot be cancelled again');
 };
 
 /**
@@ -139,6 +188,17 @@ const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
 // @route   POST /api/orders
 // @access  Private
 export const createOrder = asyncHandler(async (req, res) => {
+  const idempotency = await checkoutIdentity(req, 'single');
+  if (idempotency.replay) {
+    const order = idempotency.replayOrders[0];
+    return created(res, {
+      order,
+      payment: { id: idempotency.replay.paymentId, method: idempotency.replay.paymentMethod, amount: idempotency.replay.amount },
+      coinsUsed: idempotency.replay.coinsUsed || 0,
+      coinDiscount: idempotency.replay.coinDiscount || 0,
+      nextStep: idempotency.replay.nextStep,
+    }, `Order ${order.orderNo} placed`);
+  }
   const { addressId, shippingAddress, paymentMethod = PAYMENT_METHOD.COD, notes } = req.body;
   const channel = req.body.channel || CHANNEL.ECOM;
 
@@ -204,12 +264,11 @@ export const createOrder = asyncHandler(async (req, res) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
       throw httpError(409, `"${line.name}" is no longer available. Please review your cart.`);
     }
-    if (p.stock < line.qty) {
-      throw httpError(409, `Only ${p.stock} left of "${p.name}". Please review your cart.`);
-    }
+    const inventory = resolveInventoryItem(p, line.variantId, { allowLegacyPrimary: !line.variantId });
+    if (inventory.stock < line.qty) throw httpError(409, `Only ${inventory.stock} left of "${p.name}". Please review your cart.`);
     /**
      * A suspended cooperative must not take an order, and the feed filter
      * cannot enforce that on its own — this item may have been added to the
@@ -231,10 +290,16 @@ export const createOrder = asyncHandler(async (req, res) => {
 
     lines.push({
       productId: p._id,
+      variantId: inventory.variantId,
+      sku: inventory.sku,
+      variantName: inventory.variantName,
+      variantAttributes: inventory.attributes,
+      unitSnapshot: inventory.unit,
+      weightSnapshot: inventory.weight,
       name: p.name,
       image: p.images?.[0] || '',
       qty: line.qty,
-      price: deal ? deal.campaignPrice : p.price,  // live price (or live campaign price), never the cart snapshot
+      price: deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price,
       campaignId: deal ? deal.campaignId : undefined,
       type: p.type,
       sellerId: p.sellerId,
@@ -356,7 +421,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   /**
    * NHCONE Coins — resolved here, after every existing discount (coupon,
-   * CDS) and before delivery/donation are added, matching Section 4's
+   * and before delivery/donation are added, matching Section 4's
    * ordering exactly. The client sends intent only (`useCoins: true`) —
    * `coinsToUse`/`coinDiscount` are never read from the request body, only
    * `req.user`'s own real wallet balance decides them (Section 7/18).
@@ -366,7 +431,7 @@ export const createOrder = asyncHandler(async (req, res) => {
    * the order it becomes always agree on what counted as "eligible value".
    */
   const useCoins = req.body.useCoins === true;
-  const eligibleForCoinBase = Math.round((pricing.subtotal - pricing.discount - pricing.couponDiscount - pricing.cdsDiscount) * 100) / 100;
+  const eligibleForCoinBase = Math.round((pricing.subtotal - pricing.discount - pricing.couponDiscount) * 100) / 100;
   const wallet = await getOrCreateWallet(req.user._id);
   const redemption = calculateRedemptionEligibility(eligibleForCoinBase, wallet.availableCoins);
   const coinsToUse = useCoins && redemption.eligible ? redemption.coinsToUse : 0;
@@ -384,15 +449,15 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   const executeOrderCommit = async (txnSession = null) => {
     const opts = txnSession ? { session: txnSession } : {};
+    await CheckoutAttempt.create([{
+      userId: req.user._id,
+      key: idempotency.key,
+      requestHash: idempotency.requestHash,
+      operation: 'single',
+      status: 'processing',
+    }], opts);
     for (const l of lines) {
-      const r = await Product.updateOne(
-        { _id: l.productId, stock: { $gte: l.qty } },
-        { $inc: { stock: -l.qty } },
-        opts
-      );
-      if (r.modifiedCount !== 1) {
-        throw httpError(409, `"${l.name}" just went out of stock. Nothing was charged.`);
-      }
+      await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session: txnSession });
     }
 
     if (coinsToUse > 0) {
@@ -494,18 +559,44 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
     await Cart.updateOne({ userId: req.user._id, channel }, { $set: { items: [] } }, opts);
 
+    await CheckoutAttempt.updateOne(
+      { userId: req.user._id, key: idempotency.key },
+      { $set: {
+        status: 'completed', orderIds: [doc._id], paymentId: payment._id,
+        paymentMethod, amount: payableAmount, coinsUsed: coinsToUse,
+        coinDiscount, nextStep: paymentMethod === PAYMENT_METHOD.COD
+          ? 'Order confirmed. Pay on delivery.'
+          : 'Create a payment to confirm this order.',
+      } },
+      opts
+    );
+
     return doc;
   };
 
   try {
-    try {
-      await session.withTransaction(async () => {
-        order = await executeOrderCommit(session);
-      });
-    } catch (txnErr) {
-      console.warn("MongoDB transaction failed in createOrder, executing fallback:", txnErr.message);
-      order = await executeOrderCommit(null);
+    await session.withTransaction(async () => {
+      order = await executeOrderCommit(session);
+    });
+  } catch (txnErr) {
+    if (txnErr?.code === 11000) {
+      const retry = await CheckoutAttempt.findOne({ userId: req.user._id, key: idempotency.key }).lean();
+      if (retry?.requestHash === idempotency.requestHash && retry.operation === 'single' && retry.status === 'completed') {
+        const [existingOrder] = await Promise.all((retry.orderIds || []).map((id) => Order.findById(id)));
+        if (existingOrder && String(existingOrder.userId) === String(req.user._id)) {
+          return created(res, {
+            order: existingOrder,
+            payment: { id: retry.paymentId, method: retry.paymentMethod, amount: retry.amount },
+            coinsUsed: retry.coinsUsed || 0, coinDiscount: retry.coinDiscount || 0, nextStep: retry.nextStep,
+          }, `Order ${existingOrder.orderNo} placed`);
+        }
+      }
+      throw httpError(409, 'This checkout key is already being processed or was used for different details', { code: 'IDEMPOTENCY_CONFLICT' });
     }
+    if (isTransactionUnavailable(txnErr)) {
+      throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });
+    }
+    throw txnErr;
   } finally {
     await session.endSession();
   }
@@ -579,6 +670,24 @@ export const createOrder = asyncHandler(async (req, res) => {
  * @route POST /api/orders/unified
  */
 export const createUnifiedOrder = asyncHandler(async (req, res) => {
+  const idempotency = await checkoutIdentity(req, 'unified');
+  if (idempotency.replay) {
+    const { replay } = idempotency;
+    const orders = idempotency.replayOrders;
+    return created(res, {
+      groupRef: replay.groupRef,
+      orders: orders.map((o) => ({
+        _id: o._id, orderNo: o.orderNo, type: o.type, deliveryType: o.deliveryType,
+        deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
+        shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
+        timeline: o.timeline, createdAt: o.createdAt, items: o.items,
+        pricing: o.pricing, status: o.status,
+      })),
+      payment: { id: replay.paymentId, method: replay.paymentMethod, amount: replay.amount, groupRef: replay.groupRef },
+      totals: replay.totals,
+      nextStep: replay.nextStep,
+    }, `${orders.length} order${orders.length > 1 ? 's' : ''} placed`);
+  }
   const { addressId, shippingAddress, paymentMethod = PAYMENT_METHOD.COD, notes } = req.body;
 
   if (!Object.values(PAYMENT_METHOD).includes(paymentMethod)) {
@@ -664,18 +773,53 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   let result;
 
   try {
-    try {
-      await session.withTransaction(async () => {
-        result = await createOrdersFromGroups({
-          user: req.user, address, groups, paymentMethod, notes, session, donation, tip,
-        });
-      });
-    } catch (txnErr) {
-      console.warn("MongoDB transaction failed in createOrdersFromBasket, executing fallback:", txnErr.message);
+    await session.withTransaction(async () => {
+      await CheckoutAttempt.create([{
+        userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash,
+        operation: 'unified', status: 'processing',
+      }], { session });
       result = await createOrdersFromGroups({
-        user: req.user, address, groups, paymentMethod, notes, session: null, donation, tip,
+        user: req.user, address, groups, paymentMethod, notes, session, donation, tip,
       });
+      const { orders, payment, groupRef } = result;
+      await CheckoutAttempt.updateOne(
+        { userId: req.user._id, key: idempotency.key },
+        { $set: {
+          status: 'completed', orderIds: orders.map((o) => o._id), paymentId: payment._id,
+          groupRef, totals: composed.totals, paymentMethod, amount: payment.amount,
+          nextStep: paymentMethod === PAYMENT_METHOD.COD
+            ? `${orders.length} order${orders.length > 1 ? 's' : ''} confirmed. Pay on delivery.`
+            : 'Create a payment to confirm these orders.',
+        } },
+        { session }
+      );
+    });
+  } catch (txnErr) {
+    if (txnErr?.code === 11000) {
+      const retry = await CheckoutAttempt.findOne({ userId: req.user._id, key: idempotency.key }).lean();
+      if (retry?.requestHash === idempotency.requestHash && retry.operation === 'unified' && retry.status === 'completed') {
+        const orders = await Promise.all((retry.orderIds || []).map((id) => Order.findById(id)));
+        if (orders.length && orders.every((order) => order && String(order.userId) === String(req.user._id))) {
+          return created(res, {
+            groupRef: retry.groupRef,
+            orders: orders.map((o) => ({
+              _id: o._id, orderNo: o.orderNo, type: o.type, deliveryType: o.deliveryType,
+              deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
+              shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
+              timeline: o.timeline, createdAt: o.createdAt, items: o.items,
+              pricing: o.pricing, status: o.status,
+            })),
+            payment: { id: retry.paymentId, method: retry.paymentMethod, amount: retry.amount, groupRef: retry.groupRef },
+            totals: retry.totals, nextStep: retry.nextStep,
+          }, `${orders.length} order${orders.length > 1 ? 's' : ''} placed`);
+        }
+      }
+      throw httpError(409, 'This checkout key is already being processed or was used for different details', { code: 'IDEMPOTENCY_CONFLICT' });
     }
+    if (isTransactionUnavailable(txnErr)) {
+      throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });
+    }
+    throw txnErr;
   } finally {
     await session.endSession();
   }
@@ -930,25 +1074,19 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   }
 
   const session = await mongoose.startSession();
+  const cancelReason = req.body.reason || 'Cancelled by customer';
   try {
     await session.withTransaction(async () => {
+      await claimCancellation(order, cancelReason, session);
+      order.cancelReason = cancelReason;
       // Put every unit back before marking it cancelled.
       for (const item of order.items) {
-        await Product.updateOne(
-          { _id: item.productId },
-          { $inc: { stock: item.qty } },
-          { session }
-        );
+        await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
       // The customer should not lose a one-per-person coupon to an order they
       // cancelled before it was ever fulfilled.
       await releaseCoupon(order.coupon, order._id, session);
-
-      order.status = ORDER_STATUS.CANCELLED;
-      order.cancelReason = req.body.reason || 'Cancelled by customer';
-      pushTimeline(order, ORDER_STATUS.CANCELLED, order.cancelReason);
-      await order.save({ session });
 
       // Money already taken is queued for refund rather than silently kept.
       if (order.paymentId) {
@@ -1008,10 +1146,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
               reason: order.cancelReason,
               markedAt: new Date(),
             };
-            // The order was already saved above, before the payment was read —
-            // so this needs its own write or the marker is lost the moment the
-            // transaction commits.
-            await order.save({ session });
+            await Order.updateOne({ _id: order._id, status: ORDER_STATUS.CANCELLED }, { $set: { refundPending: order.refundPending } }, { session });
           } else {
             // Ordinary single-order payment — unchanged.
             payment.refund = {
@@ -1027,6 +1162,8 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   } finally {
     await session.endSession();
   }
+
+  order.status = ORDER_STATUS.CANCELLED;
 
   return ok(res, { orderNo: order.orderNo, status: order.status }, 'Order cancelled and stock restored');
 });
@@ -1081,23 +1218,16 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
+      await claimCancellation(order, reason, session);
+      order.cancelReason = reason;
       // Put every unit back
       for (const item of order.items) {
-        await Product.updateOne(
-          { _id: item.productId },
-          { $inc: { stock: item.qty } },
-          { session }
-        );
+        await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
       if (order.coupon) {
         await releaseCoupon(order.coupon, order._id, session);
       }
-
-      order.status = ORDER_STATUS.CANCELLED;
-      order.cancelReason = reason;
-      pushTimeline(order, ORDER_STATUS.CANCELLED, reason);
-      await order.save({ session });
 
       if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
@@ -1120,7 +1250,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
               reason,
               markedAt: new Date(),
             };
-            await order.save({ session });
+            await Order.updateOne({ _id: order._id, status: ORDER_STATUS.CANCELLED }, { $set: { refundPending: order.refundPending } }, { session });
           } else {
             // Flagged, not executed — the gateway refund is a separate job, and
             // it must not be attempted inside this transaction.
@@ -1136,6 +1266,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
   } finally {
     await session.endSession();
   }
+  order.status = ORDER_STATUS.CANCELLED;
 
   // Outside the transaction: a failed notification must not undo a real cancel.
   try {

@@ -71,7 +71,7 @@ export const useDeliveryOptions = (productIds, destination) => {
  * Separate from the batch because the product page has a quantity selector, and
  * three of something is a different question from one when two are in stock.
  */
-export const useProductDeliveryOptions = (productId, destination, qty = 1) => {
+export const useProductDeliveryOptions = (productId, destination, qty = 1, variantId = null) => {
   const [options, setOptions] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -89,7 +89,7 @@ export const useProductDeliveryOptions = (productId, destination, qty = 1) => {
 
     (async () => {
       try {
-        const qs = new URLSearchParams({ lat: String(lat), lng: String(lng), qty: String(qty) });
+        const qs = new URLSearchParams({ lat: String(lat), lng: String(lng), qty: String(qty), ...(variantId ? { variantId: String(variantId) } : {}) });
         const res = await fetch(apiUrl(`/api/products/${productId}/delivery-options?${qs}`));
         const body = await res.json().catch(() => ({}));
         if (!cancelled) setOptions(res.ok ? (body.data || null) : null);
@@ -101,7 +101,7 @@ export const useProductDeliveryOptions = (productId, destination, qty = 1) => {
     })();
 
     return () => { cancelled = true; };
-  }, [productId, lat, lng, qty]);
+  }, [productId, lat, lng, qty, variantId]);
 
   return { options, loading };
 };

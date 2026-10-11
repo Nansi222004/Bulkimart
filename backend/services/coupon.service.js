@@ -61,10 +61,6 @@ export const evaluateCoupon = async (coupon, {
     return fail('This coupon has been fully claimed.');
   }
 
-  if (coupon.cdsMembersOnly && !user?.isCDSVerified) {
-    return fail('This coupon is only for verified CDS members.');
-  }
-
   if (coupon.perUserLimit > 0 && user?._id) {
     const used = redemptionCounts
       ? (redemptionCounts.get(String(coupon._id)) || 0)

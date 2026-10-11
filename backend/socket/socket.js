@@ -4,7 +4,6 @@
  * Rooms are named after the identity they belong to:
  *   "user:<userId>"        — the buyer
  *   "seller:<sellerId>"    — the Seller document, not the User behind it
- *   "shg:<shgStoreId>"     — the SHGStore document, likewise
  *   "rider:<partnerId>"    — the DeliveryPartner document, likewise
  *
  * Which room a socket may enter is decided here, from the JWT, and never from
@@ -27,7 +26,6 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import Seller from "../models/Seller.js";
-import SHGStore from "../models/SHGStore.js";
 import DeliveryPartner from "../models/DeliveryPartner.js";
 import { VENDOR_STATUS } from "../constants/enums.js";
 import { JWT_SECRET } from "../config/jwt.js";
@@ -99,21 +97,6 @@ export const initSocket = (httpServer) => {
         console.log(`[SOCKET] ${socket.id} → seller:${seller._id}`);
       } catch (err) {
         console.error("[SOCKET] join_seller failed:", err.message);
-      }
-    });
-
-    // ── SHG store ────────────────────────────────────────────────────────
-    socket.on("join_shg", async () => {
-      try {
-        const shgStore = await SHGStore.findOne({ userId: socket.userId }).select("_id status");
-        if (!shgStore) return socket.emit("join_denied", { room: "shg", reason: "No SHG store profile" });
-        if (shgStore.status !== VENDOR_STATUS.APPROVED) {
-          return socket.emit("join_denied", { room: "shg", reason: `SHG store is ${shgStore.status}` });
-        }
-        socket.join(`shg:${shgStore._id}`);
-        console.log(`[SOCKET] ${socket.id} → shg:${shgStore._id}`);
-      } catch (err) {
-        console.error("[SOCKET] join_shg failed:", err.message);
       }
     });
 

@@ -141,7 +141,7 @@ const HeroBanner = () => {
       return;
     }
 
-    if (['/shg-stores', '/nhc-stores', '/nsg-stores'].includes(route)) {
+    if (route === '/shg-stores') {
       setActiveNav('home');
     } else if (route === '/cart') {
       setActiveNav('cart');

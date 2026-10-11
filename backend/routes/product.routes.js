@@ -3,8 +3,6 @@ import {
   getProducts,
   getFeaturedProducts,
   getGroceryProducts,
-  getSHGProducts,
-  getApprovedSHGStores,
   searchProducts,
   getProductById,
   createProduct,
@@ -20,25 +18,34 @@ import {
   getProductFaqs,
   getDeliveryOptions,
   getProductDeliveryOptions,
-  getCategoryReturnPolicyForSeller
+  getCategoryReturnPolicyForSeller,
+  updateProductWholesalePricing,
+  getWholesaleCatalog,
+  getWholesaleAvailability,
+  uploadDigitalProductFile,
 } from '../controllers/product.controller.js';
 import { protect, requireRole } from '../middlewares/auth.middleware.js';
+import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { downloadBulkTemplate, processBulkUpload } from '../controllers/bulkProduct.controller.js';
-import { uploadMultiple, uploadBulkFiles } from '../middlewares/upload.middleware.js';
+import { uploadProductImages, uploadBulkFiles } from '../middlewares/upload.middleware.js';
+import { uploadEbookFile } from '../middlewares/ebookUpload.middleware.js';
 
 const router = express.Router();
 
 // Bulk Product Upload & Template routes (declared before /:id)
-router.get('/bulk/template', protect, requireRole('seller', 'shg', 'admin'), downloadBulkTemplate);
-router.post('/bulk/upload', protect, requireRole('seller', 'shg', 'admin'), uploadBulkFiles, processBulkUpload);
+router.get('/bulk/template', protect, requireRole('seller', 'admin'), downloadBulkTemplate);
+router.post('/bulk/upload', protect, requireRole('seller', 'admin'), uploadBulkFiles, processBulkUpload);
 
 // Public routes
 router.get('/', getProducts);
 router.get('/featured', getFeaturedProducts);
 router.get('/grocery', getGroceryProducts);
-router.get('/shg/stores', getApprovedSHGStores);
-router.get('/shg', getSHGProducts);
 router.get('/search', searchProducts);
+
+// Read-only wholesale catalog foundation. It is authenticated and deliberately
+// has no cart/checkout counterpart while Wholesale purchasing remains disabled.
+router.get('/wholesale/availability', getWholesaleAvailability);
+router.get('/wholesale/catalog', protect, getWholesaleCatalog);
 
 /**
  * What delivery is actually available, per product, for one address.
@@ -57,6 +64,10 @@ router.get('/search', searchProducts);
 router.post('/delivery-options', getDeliveryOptions);
 router.get('/:id/delivery-options', getProductDeliveryOptions);
 
+// Keep this fixed path above /:id: Express otherwise treats "seller" as a
+// product id and the seller's own listing request fails with a CastError.
+router.get('/seller/mine', protect, requireRole('seller'), getMyProducts);
+
 // Which of a given list this shopper already reviewed — a delivered-order
 // screen's "Rate & Review" vs "already submitted" badge reads this, never
 // local state alone, so it survives a refresh and a reorder of the same
@@ -67,22 +78,26 @@ router.get('/reviews/mine', protect, getMyReviewedProductIds);
 // "Category Return Window" display. Declared before `/:id` for the same
 // reason as `/reviews/mine` above: Express would otherwise treat
 // "category-return-policy" as an `:id`.
-router.get('/category-return-policy', protect, requireRole('seller', 'shg'), getCategoryReturnPolicyForSeller);
+router.get('/category-return-policy', protect, requireRole('seller'), getCategoryReturnPolicyForSeller);
+
+// Seller-owned, terms-only write; never accepts retail price or stock fields.
+router.patch('/:id/wholesale-pricing', protect, requireRole('seller'), updateProductWholesalePricing);
 
 router.get('/:id', getProductById);
+// Actual e-book bytes use private local storage, never the image CDN.
+router.post('/:id/digital-file', protect, requireRole('seller'), requireApprovedSeller, uploadEbookFile('file'), uploadDigitalProductFile);
 // Public: approved reviews + the star breakdown a product page renders.
 router.get('/:id/reviews', getProductReviews);
 // Public: answered Q&A only — an unanswered question isn't public yet.
 router.get('/:id/faqs', getProductFaqs);
 
 // Protected routes
-router.post('/', protect, requireRole('seller', 'shg'), uploadMultiple('images', 5), createProduct);
-router.put('/:id', protect, requireRole('seller', 'shg', 'admin'), uploadMultiple('images', 5), updateProduct);
-router.patch('/:id/channels', protect, requireRole('seller', 'shg', 'admin'), updateProductChannelStatus);
-router.patch('/:id/stock', protect, requireRole('seller', 'shg', 'admin'), adjustProductStock);
-router.delete('/:id', protect, requireRole('seller', 'shg', 'admin'), deleteProduct);
+router.post('/', protect, requireRole('seller'), uploadProductImages('images', 5), createProduct);
+router.put('/:id', protect, requireRole('seller', 'admin'), uploadProductImages('images', 5), updateProduct);
+router.patch('/:id/channels', protect, requireRole('seller', 'admin'), updateProductChannelStatus);
+router.patch('/:id/stock', protect, requireRole('seller', 'admin'), adjustProductStock);
+router.delete('/:id', protect, requireRole('seller', 'admin'), deleteProduct);
 
-router.get('/seller/mine', protect, requireRole('seller', 'shg'), getMyProducts);
 router.post('/:id/reviews', protect, addProductReview);
 router.post('/:id/faqs', protect, askProductQuestion);
 

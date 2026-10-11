@@ -235,7 +235,7 @@ const LocationPromptModal = () => {
               {/* Option 1: Use Current Location */}
               <div style={styles.actionCard} onClick={handleAllowAccess}>
                 <div style={styles.purpleIconCircle}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#078CCB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                     <circle cx="12" cy="10" r="3" />
                   </svg>
@@ -256,7 +256,7 @@ const LocationPromptModal = () => {
               {/* Option 2: Add New Address */}
               <div style={styles.actionCard} onClick={handleAddNewAddress}>
                 <div style={styles.purpleIconCircle}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#078CCB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19" />
                     <line x1="5" y1="12" x2="19" y2="12" />
                   </svg>
@@ -286,8 +286,8 @@ const LocationPromptModal = () => {
                         key={addr._id || addr.id}
                         style={{
                           ...styles.savedAddrCard,
-                          borderColor: isSelected ? '#08B9E8' : '#f1f5f9',
-                          background: isSelected ? '#EAF9FE' : '#ffffff',
+                          borderColor: isSelected ? 'var(--primary)' : '#f1f5f9',
+                          background: isSelected ? 'var(--primary-light)' : '#ffffff',
                         }}
                         onClick={() => handleSelectSavedAddress(addr)}
                       >
@@ -356,11 +356,11 @@ const styles = {
     width: '76px',
     height: '76px',
     borderRadius: '50%',
-    background: '#eaf9fe',
+    background: 'var(--primary-light)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#078ccb',
+    color: 'var(--primary-hover)',
     marginBottom: 4,
     marginTop: 8,
   },
@@ -391,7 +391,7 @@ const styles = {
     marginTop: 8,
   },
   btnAllow: {
-    background: 'linear-gradient(135deg, #078ccb 0%, #08b9e8 100%)',
+    background: 'linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%)',
     color: '#fff',
     border: 'none',
     borderRadius: '16px',
@@ -402,7 +402,7 @@ const styles = {
     cursor: 'pointer',
     transition: 'background 0.2s',
     outline: 'none',
-    boxShadow: '0 4px 12px rgba(8, 185, 232, 0.25)',
+    boxShadow: '0 4px 12px var(--focus-ring)',
   },
   btnManual: {
     background: '#ffffff',
@@ -483,7 +483,7 @@ const styles = {
   searchSubmitBtn: {
     position: 'absolute',
     right: '8px',
-    background: '#078ccb',
+    background: 'var(--primary-hover)',
     color: '#ffffff',
     border: 'none',
     borderRadius: '10px',
@@ -519,7 +519,7 @@ const styles = {
     width: '38px',
     height: '38px',
     borderRadius: '50%',
-    background: '#eaf9fe',
+    background: 'var(--primary-light)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

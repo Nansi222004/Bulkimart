@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { NhcSellerBadge, sortNhcSellersFirst } from '../components/NhcSellerBadge';
 
 export const SuperAdminDashboard = () => {
   const { triggerToast, setActiveTab, sellerCounts, dashboardOverview, fetchDashboardOverview } = useAdmin();
@@ -9,30 +8,28 @@ export const SuperAdminDashboard = () => {
     fetchDashboardOverview();
   }, [fetchDashboardOverview]);
 
-  // Total Sellers keeps the badge-driven "pending + approved" count the KPI
-  // card already showed (drives the "N pending" trend line below it); every
-  // other number here comes straight off GET /api/admin/dashboard/overview.
-  const totalSellersCount = (sellerCounts.approved || 0) + (sellerCounts.pending || 0);
+  // Total sellers comes from current seller status counts or the dashboard API.
+  const totalSellersCount = ((sellerCounts?.approved || 0) + (sellerCounts?.pending || 0)) || (dashboardOverview?.totalSellers || 0);
   const ov = dashboardOverview;
 
   const recentOrders = (ov?.recentOrders || []).map((o) => ({
-    id: o.id,
-    customer: o.buyerName,
-    type: o.type === 'grocery' ? 'Quick Commerce' : o.type === 'ecommerce' ? 'E-Commerce' : o.type,
-    amount: o.amount,
-    status: o.status,
+    id: o.id || o._id || '—',
+    customer: o.buyerName || 'Customer',
+    type: o.type === 'grocery' ? 'Quick Commerce' : o.type === 'ecommerce' ? 'E-Commerce' : (o.type || 'Order'),
+    amount: o.amount ?? 0,
+    status: o.status || 'Pending',
   }));
   const lowStockAlerts = (ov?.lowStockAlerts || []).map((p) => ({
-    name: p.name,
-    category: p.sellerName,
+    name: p.name || 'Product',
+    category: p.sellerName || '—',
     hub: '',
-    stock: p.stock,
+    stock: p.stock ?? 0,
   }));
-  const sellerRegistrations = sortNhcSellersFirst(ov?.recentSellers || []).map((s) => ({
-    name: s.businessName || s.name,
-    isNhcSeller: Boolean(s.isNhcSeller || s.isNscSeller),
-    type: (s.isNhcSeller || s.isNscSeller) ? '⭐ NHC Seller' : 'Seller',
-    status: s.status,
+  const sellerRegistrations = (ov?.recentSellers || []).map((s, idx) => ({
+    id: s.id || s._id || `seller-${idx}`,
+    name: s.businessName || s.name || 'Unnamed Seller',
+    type: 'Seller',
+    status: s.status || 'Pending',
     date: s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
   }));
   const ecomCategories = ov?.ecommerceCategories || [];
@@ -78,18 +75,6 @@ export const SuperAdminDashboard = () => {
           <span className="sa-kpi-title">Total Sellers</span>
           <span className="sa-kpi-value">{totalSellersCount}</span>
           <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{sellerCounts.pending || 0} pending</span>
-        </div>
-
-        <div className="sa-kpi-card shg" onClick={() => setActiveTab('shg-vendors')} style={{ cursor: 'pointer' }}>
-          <span className="sa-kpi-title">SHG Sellers</span>
-          <span className="sa-kpi-value" style={{ color: 'var(--sa-shg)' }}>{ov?.shgSellers || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Approved' : 'Loading…'}</span>
-        </div>
-
-        <div className="sa-kpi-card sub" onClick={() => setActiveTab('subscriptions')} style={{ cursor: 'pointer' }}>
-          <span className="sa-kpi-title">Active Subs</span>
-          <span className="sa-kpi-value" style={{ color: 'var(--sa-warning)' }}>{ov?.activeSubscriptions || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Currently active' : 'Loading…'}</span>
         </div>
 
       </div>
@@ -139,8 +124,8 @@ export const SuperAdminDashboard = () => {
           <div className="sa-widget-list">
             {recentOrders.length === 0 ? (
               <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>No recent orders.</div>
-            ) : recentOrders.map(order => (
-              <div key={order.id} className="sa-widget-row">
+            ) : recentOrders.map((order, idx) => (
+              <div key={order.id || idx} className="sa-widget-row">
                 <div className="sa-widget-left">
                   <div className="sa-widget-avatar">ORD</div>
                   <div className="sa-widget-info">
@@ -150,7 +135,7 @@ export const SuperAdminDashboard = () => {
                 </div>
                 <div className="sa-widget-right">
                   <span className="sa-widget-value">₹{order.amount}</span>
-                  <span className={`sa-status-pill ${order.status.toLowerCase().replace(/\s+/g, '-')}`}>{order.status}</span>
+                  <span className={`sa-status-pill ${(order.status || 'pending').toString().toLowerCase().replace(/\s+/g, '-')}`}>{order.status}</span>
                 </div>
               </div>
             ))}
@@ -192,20 +177,19 @@ export const SuperAdminDashboard = () => {
           <div className="sa-widget-list">
             {sellerRegistrations.length === 0 ? (
               <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>No recent registrations.</div>
-            ) : sellerRegistrations.map(sel => (
-              <div key={sel.name} className="sa-widget-row">
+            ) : sellerRegistrations.map((sel, idx) => (
+              <div key={sel.id || sel.name || idx} className="sa-widget-row">
                 <div className="sa-widget-left">
-                  <div className="sa-widget-avatar" style={{ backgroundColor: sel.type.includes('SHG') ? 'rgba(139, 92, 246, 0.1)' : 'rgba(14, 165, 233, 0.1)', color: sel.type.includes('SHG') ? 'var(--sa-shg)' : 'var(--sa-primary)' }}>SEL</div>
+                  <div className="sa-widget-avatar" style={{ backgroundColor: (sel.type || '').includes('SHG') ? 'rgba(139, 92, 246, 0.1)' : 'rgba(14, 165, 233, 0.1)', color: (sel.type || '').includes('SHG') ? 'var(--sa-shg)' : 'var(--sa-primary)' }}>SEL</div>
                   <div className="sa-widget-info">
                     <span className="sa-widget-name" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>{sel.name}</span>
-                      {sel.isNhcSeller && <NhcSellerBadge style={{ fontSize: '9px', padding: '1px 4px' }} />}
                     </span>
                     <span className="sa-widget-sub">{sel.type} • {sel.date}</span>
                   </div>
                 </div>
                 <div className="sa-widget-right">
-                  <span className={`sa-status-pill ${sel.status.toLowerCase().replace(/\s+/g, '-')}`}>{sel.status}</span>
+                  <span className={`sa-status-pill ${(sel.status || 'pending').toString().toLowerCase().replace(/\s+/g, '-')}`}>{sel.status}</span>
                 </div>
               </div>
             ))}

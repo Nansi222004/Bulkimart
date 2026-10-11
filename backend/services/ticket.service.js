@@ -24,9 +24,9 @@ import {
  * different role at all, let alone have that request merely double-checked.
  *
  * Two-tier resolution:
- *   1. Trusted JWT claim — `seller`/`shg` are set only by their own gated
- *      login endpoints (verifySellerOTP/verifyShgOTP in auth.controller.js),
- *      at the moment those already confirmed the context. Still re-verified
+ *   1. Trusted JWT claim — seller claims come from the gated seller login;
+ *      historical SHG claims may remain valid until their tokens expire.
+ *      Both are re-verified against the live approval record below. Still re-verified
  *      against the live approval record below (a seller suspended after
  *      their token was issued must not keep filing seller tickets on an
  *      old token) — the claim only decides *which* collection to check

@@ -14,7 +14,6 @@ const AdminContext = createContext();
  */
 const TAB_ALIASES = {
   sellers: 'vendor-dashboard',
-  'shg-vendors': 'shg-dashboard',
   subscriptions: 'sub-dashboard',
   'delivery-partners': 'delivery-dashboard',
   users: 'user-dashboard',
@@ -27,12 +26,6 @@ const TAB_ALIASES = {
 const PATH_ALIASES = {
   reviews: 'user-reviews',
   orders: 'ecom-orders',
-  'nhc-plan': 'nhc-plans',
-  'nhc-seller-plan': 'nhc-plans',
-  'nhc-seller-plans': 'nhc-plans',
-  'nhc-application': 'nhc-applications',
-  'nhc-seller-application': 'nhc-applications',
-  'nhc-seller-applications': 'nhc-applications',
 };
 
 const DEFAULT_TAB = 'overview';
@@ -42,6 +35,7 @@ const tabFromPath = () => {
   const segment = window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0];
   if (!segment) return DEFAULT_TAB;
   const decoded = decodeURIComponent(segment);
+  if (decoded === 'shg' || decoded.startsWith('shg-')) return DEFAULT_TAB;
   return PATH_ALIASES[decoded] || TAB_ALIASES[decoded] || decoded;
 };
 
@@ -51,6 +45,7 @@ export const AdminProvider = ({ children }) => {
   const [activeTabInternal, setActiveTabInternal] = useState(tabFromPath);
 
   const setActiveTab = (tabId) => {
+    if (tabId === 'shg' || tabId.startsWith('shg-')) tabId = DEFAULT_TAB;
     const resolved = TAB_ALIASES[tabId] || tabId;
     setActiveTabInternal(resolved);
 
@@ -421,6 +416,19 @@ export const AdminProvider = ({ children }) => {
     }
   };
 
+  const setSellerWholesaleStatus = async (id, status, reason) => {
+    try {
+      const payload = { status, ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }) };
+      const { message } = await adminPatch(`/sellers/${id}/wholesale`, payload);
+      triggerToast(message || `Wholesale channel ${status}.`);
+      await Promise.all([fetchSellerDetail(id), fetchSellers(sellerStatusFilter)]);
+      return { ok: true };
+    } catch (err) {
+      triggerToast(err.message);
+      return { ok: false, message: err.message };
+    }
+  };
+
   const setDeliveryPartnerRadius = async (id, radiusKm) => {
     try {
       const { message } = await adminPatch(`/delivery-partners/${id}/radius`, { radiusKm });
@@ -551,9 +559,16 @@ export const AdminProvider = ({ children }) => {
         id: p._id,
         name: p.name,
         channel: p.type,
+        fulfillmentType: p.fulfillmentType || 'physical',
+        digital: p.fulfillmentType === 'digital' ? {
+          author: p.digital?.author,
+          language: p.digital?.language,
+          format: p.digital?.format,
+          fileStatus: p.digital?.file?.status || 'missing',
+          fileSizeBytes: p.digital?.file?.sizeBytes || 0,
+        } : undefined,
         sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName
                  || p.shgStoreId?.groupName || '—',
-        isNhcSeller: Boolean(p.sellerId?.isNscSeller || p.sellerId?.isNhcSeller),
         category: p.category?.name || '—',
         desc: p.description,
         price: p.price,
@@ -812,8 +827,6 @@ export const AdminProvider = ({ children }) => {
         name: u.name || 'Anonymous User',
         phone: u.phone || '',
         email: u.email || '',
-        cdsMembership: u.isCDSVerified ? 'Active' : 'Inactive',
-        membershipNo: u.cdsCardNo || '',
         kycStatus: u.isActive ? 'Verified' : 'Pending',
         date: u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
         isActive: u.isActive,
@@ -852,17 +865,17 @@ export const AdminProvider = ({ children }) => {
     }
   };
 
-  // Consumer directory summary counts — total/active/inactive/blocked/CDS buyers,
+  // Consumer directory summary counts — total/active/inactive/blocked buyers,
   // plus new-signup counts. Powers both the Consumer Users header chips and
   // the Consumer Users -> Dashboard tab's stat cards.
   const [consumerStats, setConsumerStats] = useState({
-    total: 0, active: 0, inactive: 0, blocked: 0, cdsVerified: 0, newLast7Days: 0, newLast30Days: 0,
+    total: 0, active: 0, inactive: 0, blocked: 0, newLast7Days: 0, newLast30Days: 0,
   });
 
   const fetchConsumerStats = useCallback(async () => {
     try {
       const { data } = await adminGet('/consumers/stats');
-      setConsumerStats(data || { total: 0, active: 0, inactive: 0, blocked: 0, cdsVerified: 0, newLast7Days: 0, newLast30Days: 0 });
+      setConsumerStats(data || { total: 0, active: 0, inactive: 0, blocked: 0, newLast7Days: 0, newLast30Days: 0 });
     } catch {
       /* summary counts are non-critical */
     }
@@ -1454,6 +1467,7 @@ export const AdminProvider = ({ children }) => {
       rejectSeller,
       suspendSeller,
       setSellerRadius,
+      setSellerWholesaleStatus,
       fetchRadiusSettings,
       setRadiusSettings,
       fetchReferralSettings,
