@@ -4,6 +4,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "build": "node --check index.js",
     "start": "node index.js",
     "dev": "nodemon index.js",
     "seed": "node seed/index.js",
