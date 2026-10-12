@@ -29,6 +29,7 @@ import Seller from "../models/Seller.js";
 import DeliveryPartner from "../models/DeliveryPartner.js";
 import { VENDOR_STATUS } from "../constants/enums.js";
 import { JWT_SECRET } from "../config/jwt.js";
+import { getAllowedOrigins } from "../config/cors.js";
 
 let io;
 
@@ -38,23 +39,9 @@ export const getIO = () => {
   return io;
 };
 
-/** Origins allowed to open a socket. Same list the HTTP API should accept. */
-const allowedOrigins = () => {
-  const configured = (process.env.CORS_ORIGINS || process.env.APP_BASE_URL || process.env.FRONTEND_URL || "")
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
-
-  if (configured.length) return configured;
-
-  // Nothing configured: allow the local dev servers only. A wildcard here would
-  // let any page on the internet open an authenticated socket against this API.
-  return ["http://localhost:4173", "http://127.0.0.1:4173"];
-};
-
 export const initSocket = (httpServer) => {
   io = new Server(httpServer, {
-    cors: { origin: allowedOrigins(), methods: ["GET", "POST"], credentials: true },
+    cors: { origin: getAllowedOrigins(), methods: ["GET", "POST"], credentials: true },
     pingTimeout: 60000,
   });
 

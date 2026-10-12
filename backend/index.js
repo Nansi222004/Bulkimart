@@ -11,6 +11,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 import compression from "compression";
 import connectDB from "./config/db.js";
+import { getCorsOptions } from "./config/cors.js";
 import apiRoutes from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { initSocket } from "./socket/socket.js";
@@ -39,7 +40,9 @@ if (process.env.NODE_ENV === "production") {
 
 const app = express();
 const PORT = process.env.PORT || 5050;
-const HOSTNAME = process.env.HOSTNAME || 'localhost';
+// Hosting platforms route public traffic to the assigned PORT on the network
+// interface. Binding localhost makes the process healthy only from itself.
+const HOSTNAME = process.env.BIND_HOST || "0.0.0.0";
 
 // CSP off: the built frontend below pulls scripts from Firebase, Google
 // Maps and the payment gateway's own checkout script — helmet's default
@@ -49,7 +52,7 @@ app.use(compression());
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
-app.use(cors({ origin: "*", credentials: true }));
+app.use(cors(getCorsOptions()));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

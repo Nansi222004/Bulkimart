@@ -1,0 +1,18 @@
+RewriteEngine On
+
+# API requests belong to the backend/reverse proxy and must never receive the
+# React application shell.
+RewriteRule ^api(?:/|$) - [L]
+
+# Serve real files and directories directly.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# A missing static asset is an actual 404. Returning index.html here would make
+# browsers report misleading JavaScript/CSS MIME-type errors.
+RewriteRule ^assets(?:/|$) - [L]
+RewriteRule \.(?:css|js|mjs|map|json|png|jpe?g|gif|webp|svg|ico|avif|woff2?|ttf|otf|eot|wav|mp3|mp4|webm|pdf)$ - [L,NC]
+
+# Client-side application routes (for example /seller) receive the SPA shell.
+RewriteRule ^ index.html [L]
