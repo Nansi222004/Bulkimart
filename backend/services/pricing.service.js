@@ -39,10 +39,9 @@ const round2 = (n) => Math.round(n * 100) / 100;
  * @param {number} [distanceKm] shop → customer, when a caller has one to give —
  *                               real distance-based pricing when present, the
  *                               flat fallback otherwise (see doc comment above)
- * @param {object} [donation]   already server-validated by resolveDonation()
  * @param {number} [tip]        already server-validated by resolveTip()
  */
-export const priceOrder = (items = [], user = {}, applied = null, sameDay = null, distanceKm = null, donation = null, tip = 0) => {
+export const priceOrder = (items = [], user = {}, applied = null, sameDay = null, distanceKm = null, tip = 0) => {
   // Admin-configurable (services/deliveryCharge.service.js), cached — never a
   // DB read on this hot path. Falls back to the pre-configuration default
   // when nothing has been set.
@@ -116,27 +115,16 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
     deliveryCharge = round2(standardFee + sameDayFee + sameDayIncentive);
   }
 
-  // ---- Help Wallet / Social Work donation -----------------------------------
-  // Already server-validated by the caller (donation.service.js's
-  // resolveDonation) against the live admin-configured setting before it
-  // ever reaches here — this just adds it in, the same way deliveryCharge
-  // is additive and never discounted or waived by a coupon.
-  const donationAmount = round2(Math.max(0, Number(donation?.amount) || 0));
-  const donationTitle = donationAmount > 0 ? donation?.title : undefined;
-  const donationComment = donationAmount > 0 ? (donation?.comment || '') : '';
-
   // ---- rider tip ------------------------------------------------------------
   // Server-validated against the fixed ladder by tip.service.js's resolveTip
-  // before it reaches here. Additive in exactly the way the donation above is:
-  // it is charged on top, and no coupon or free-shipping waiver
-  // touches it. It is NOT part of deliveryCharge — the delivery charge is what
-  // the platform bills for carrying the parcel, the tip is the customer's own
-  // money for the rider, and folding the two together would make it impossible
-  // to pay one out in full without paying out the other.
+  // before it reaches here. Additive: it is charged on top, and no coupon
+  // or free-shipping waiver touches it. It is NOT part of deliveryCharge — the delivery
+  // charge is what the platform bills for carrying the parcel, the tip is the customer's own
+  // money for the rider.
   const tipAmount = Math.max(0, Math.round(Number(tip) || 0));
 
   const totalAmount = round2(
-    Math.max(subtotal - discount - couponDiscount - cdsDiscount + deliveryCharge + donationAmount + tipAmount, 0)
+    Math.max(subtotal - discount - couponDiscount - cdsDiscount + deliveryCharge + tipAmount, 0)
   );
 
   return {
@@ -148,9 +136,6 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
     couponFreeShipping,
     cdsDiscount,
     deliveryCharge,
-    donationAmount,
-    donationTitle,
-    donationComment,
     tipAmount,
     totalAmount,
 

@@ -308,16 +308,6 @@ const UserWalletsTab = () => {
                   </span>
                 </div>
 
-                <div style={{ border: '1.5px solid #fbcfe8', borderRadius: '14px', padding: '20px', boxShadow: '0 2px 8px rgba(219, 39, 119, 0.05)', backgroundColor: '#fdf2f8' }}>
-                  <span style={{ fontSize: '12px', color: '#be185d', fontWeight: '800', textTransform: 'uppercase' }}>🤝 Total Donations Collected</span>
-                  <h3 style={{ margin: '8px 0 0 0', fontSize: '26px', fontWeight: '900', color: '#be185d' }}>
-                    ₹{(overview.totalDonationReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </h3>
-                  <span style={{ fontSize: '11px', color: '#9d174d', fontWeight: '600', marginTop: '4px', display: 'block' }}>
-                    {overview.totalDonationCount || 0} customer donation contributions
-                  </span>
-                </div>
-
               </div>
 
               <h4 style={{ fontSize: '15px', fontWeight: '800', color: '#334155', marginBottom: '14px' }}>
@@ -354,7 +344,7 @@ const UserWalletsTab = () => {
               </div>
 
               <h4 style={{ fontSize: '15px', fontWeight: '800', color: '#334155', marginBottom: '14px' }}>
-                🔺 Credits & Funds Collection Breakdown (Top-ups, Refunds, Admin Credits & Donations)
+                🔺 Credits Breakdown (Top-ups, Refunds & Admin Credits)
               </h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
                 
@@ -382,56 +372,6 @@ const UserWalletsTab = () => {
                   <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>Refunds for cancelled/returned orders</span>
                 </div>
 
-                <div style={{ backgroundColor: '#ffffff', border: '1.5px solid #fbcfe8', borderRadius: '14px', padding: '18px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', color: '#be185d', fontWeight: '800', textTransform: 'uppercase' }}>🤝 Social Work Donations</span>
-                    <span style={{ fontSize: '10.5px', background: '#fdf2f8', color: '#be185d', padding: '2px 8px', borderRadius: '10px', fontWeight: '700' }}>Social Fund</span>
-                  </div>
-                  <h3 style={{ margin: '8px 0 0 0', fontSize: '22px', fontWeight: '900', color: '#be185d' }}>
-                    +₹{(overview.totalDonationReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </h3>
-                  <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>Collected from customer donations during checkout</span>
-                </div>
-
-              </div>
-
-              {/* Dedicated Social Work & Donation Fund Card */}
-              <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#fdf2f8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
-                      💖
-                    </div>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>
-                        Social Work & Donation Fund Overview
-                      </h4>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>
-                        Customer contributions collected at checkout for community impact & social causes
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginTop: '16px' }}>
-                  <div style={{ backgroundColor: '#fdf2f8', padding: '14px 18px', borderRadius: '12px', border: '1px solid #fbcfe8' }}>
-                    <span style={{ fontSize: '11px', color: '#9d174d', fontWeight: '700', textTransform: 'uppercase' }}>Total Donations Collected</span>
-                    <div style={{ fontSize: '22px', fontWeight: '900', color: '#be185d', marginTop: '4px' }}>
-                      ₹{(overview.totalDonationReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div style={{ backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '11px', color: '#475569', fontWeight: '700', textTransform: 'uppercase' }}>Today's Donations</span>
-                    <div style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
-                      ₹{(overview.todayDonationReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div style={{ backgroundColor: '#f8fafc', padding: '14px 18px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '11px', color: '#475569', fontWeight: '700', textTransform: 'uppercase' }}>Total Contributions</span>
-                    <div style={{ fontSize: '22px', fontWeight: '900', color: '#0f172a', marginTop: '4px' }}>
-                      {overview.totalDonationCount || 0} transactions
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}

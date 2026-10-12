@@ -13,7 +13,6 @@
     "check:cloudinary": "node seed/checkCloudinary.js",
     "fix:roles": "node seed/fixVendorRoles.js",
     "seed:categories": "node seed/seedCategories.js",
-    "seed:shg-plans": "node seed/seedShgSubscriptionPlans.js",
     "migrate:shopall": "node seed/migrateCategoriesToShopAll.js",
     "remove:mock-products": "node seed/removeMockProducts.js",
     "seed:real-products": "node seed/seedRealProducts.js",

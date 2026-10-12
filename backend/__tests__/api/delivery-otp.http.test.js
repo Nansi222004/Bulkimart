@@ -34,7 +34,6 @@ jest.unstable_mockModule('../../services/notification.service.js', () => ({
   notifySeller: jest.fn(async () => {}),
   notifyRider: jest.fn(async () => {}),
   notifyAllAdmins: jest.fn(async () => {}),
-  notifyShg: jest.fn(async () => {}),
   NOTIFICATION_EVENT: new Proxy({}, { get: (_target, key) => String(key) }),
 }));
 jest.unstable_mockModule('../../socket/rooms.js', () => ({

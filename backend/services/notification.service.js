@@ -12,7 +12,6 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { sendPushNotification, sendBulkNotification } from './fcm.service.js';
 
@@ -27,11 +26,7 @@ export const NOTIFICATION_EVENT = {
   DELIVERY_DELAYED: 'DELIVERY_DELAYED',
   NO_RIDER_FOUND: 'NO_RIDER_FOUND',
   RIDER_PING: 'RIDER_PING',
-  NEW_SUBSCRIPTION: 'NEW_SUBSCRIPTION',
-  SUBSCRIPTION_PREP: 'SUBSCRIPTION_PREP',
-  SUBSCRIPTION_STATUS_UPDATED: 'SUBSCRIPTION_STATUS_UPDATED',
   CAMPAIGN_UPDATE: 'CAMPAIGN_UPDATE',
-  PREMIUM_UPDATE: 'PREMIUM_UPDATE',
   SELLER_PROMOTION_UPDATE: 'SELLER_PROMOTION_UPDATE',
   SYSTEM: 'SYSTEM',
   TICKET_CREATED: 'TICKET_CREATED',
@@ -43,8 +38,6 @@ export const NOTIFICATION_EVENT = {
   TICKET_REOPENED: 'TICKET_REOPENED',
   PAYOUT_REQUESTED: 'PAYOUT_REQUESTED',
   PAYOUT_COMPLETED: 'PAYOUT_COMPLETED',
-  DONATION_SUCCESS: 'DONATION_SUCCESS',
-  DONATION_REFUNDED: 'DONATION_REFUNDED',
   PAYOUT_REJECTED: 'PAYOUT_REJECTED',
   PACKAGING_ORDER_CREATED: 'PACKAGING_ORDER_CREATED',
   PACKAGING_PAYMENT_CONFIRMED: 'PACKAGING_PAYMENT_CONFIRMED',
@@ -92,12 +85,8 @@ const EVENT_CATEGORY = {
   DELIVERY_DELAYED: 'delivery',
   NO_RIDER_FOUND: 'delivery',
   RIDER_PING: 'delivery',
-  NEW_SUBSCRIPTION: 'subscription',
-  SUBSCRIPTION_PREP: 'subscription',
-  SUBSCRIPTION_STATUS_UPDATED: 'subscription',
   CAMPAIGN_UPDATE: 'promotion',
   SELLER_PROMOTION_UPDATE: 'promotion',
-  PREMIUM_UPDATE: 'membership',
   SYSTEM: 'system',
   TICKET_CREATED: 'system',
   TICKET_ASSIGNED: 'system',
@@ -203,9 +192,9 @@ const pushToUser = async (userId, { title, message, data, image }) => {
 const emitBestEffort = async (roomKind, roomId, socketEvent, payload) => {
   if (!roomKind || !roomId || !socketEvent) return;
   try {
-    const { emitToUser, emitToSeller, emitToShg, emitToRider, emitToAdmins } = await import('../socket/rooms.js');
+    const { emitToUser, emitToSeller, emitToRider, emitToAdmins } = await import('../socket/rooms.js');
     if (roomKind === 'admin') return emitToAdmins(socketEvent, payload); // shared admin:all room, no per-recipient id
-    const emit = { user: emitToUser, seller: emitToSeller, shg: emitToShg, rider: emitToRider }[roomKind];
+    const emit = { user: emitToUser, seller: emitToSeller, rider: emitToRider }[roomKind];
     if (emit) emit(String(roomId), socketEvent, payload);
   } catch (err) {
     console.error('[NOTIFICATION] socket emit failed:', err.message);
@@ -333,13 +322,6 @@ export const notifySeller = async (sellerId, opts) => {
   const seller = await Seller.findById(sellerId).select('userId').lean().catch(() => null);
   if (!seller?.userId) return null;
   return notifyCore(seller.userId, 'seller', sellerId, opts);
-};
-
-export const notifyShg = async (shgStoreId, opts) => {
-  if (!shgStoreId) return null;
-  const store = await SHGStore.findById(shgStoreId).select('userId').lean().catch(() => null);
-  if (!store?.userId) return null;
-  return notifyCore(store.userId, 'shg', shgStoreId, opts);
 };
 
 export const notifyRider = async (partnerId, opts) => {

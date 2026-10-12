@@ -2,7 +2,7 @@ import { CHANNEL, APPROVAL } from '../../constants/enums.js';
 import { ID, img } from '../ids.js';
 
 /**
- * 60 products: 30 ecommerce / 20 grocery / 10 SHG.
+ * Demo products for the active e-commerce and grocery channels.
  * Includes 3 featured, 3 sponsored, 5 low-stock, 4 pending, 2 rejected
  * so every admin/seller UI state has real data behind it.
  */
@@ -10,7 +10,7 @@ import { ID, img } from '../ids.js';
 let n = 0;
 const make = ({
   name, type, category, price, mrp, stock, unit = 'piece',
-  sellerId, shgStoreId, weight, tags = [],
+  sellerId, weight, tags = [],
   status = APPROVAL.APPROVED, isActive = true,
   isFeatured = false, isSponsored = false, sponsoredRank = 0,
   rejectionReason, rating,
@@ -20,7 +20,6 @@ const make = ({
     _id: ID.product(n),
     type,
     sellerId,
-    shgStoreId,
     name,
     slug: name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
     description: `${name}. Sourced and quality-checked before dispatch.`,
@@ -48,8 +47,6 @@ const make = ({
 
 const S1 = ID.seller(1); // Joshi General Store (approved)
 const S2 = ID.seller(2); // Meena Traders (approved)
-const G1 = ID.shg(1);    // Jai Bhavani (approved)
-const G2 = ID.shg(2);    // Savitri Handloom (approved)
 
 export const products = [
   // ============================================================ ECOMMERCE (30)
@@ -106,16 +103,4 @@ export const products = [
   make({ name: 'Fresh Tomato 1kg', type: CHANNEL.GROCERY, category: ID.cat(210), sellerId: S1, price: 38, mrp: 50, stock: 150, unit: 'kg', weight: 1000 }),
   make({ name: 'Fresh Onion 2kg', type: CHANNEL.GROCERY, category: ID.cat(210), sellerId: S1, price: 74, mrp: 90, stock: 140, unit: 'kg', weight: 2000 }),
   make({ name: 'Assam Tea Leaves 500g', type: CHANNEL.GROCERY, category: ID.cat(15), sellerId: S2, price: 245, mrp: 320, stock: 68, unit: 'g', weight: 500, status: APPROVAL.PENDING }),
-
-  // ================================================================== SHG (10)
-  make({ name: 'Homemade Mango Pickle 500g', type: CHANNEL.SHG, category: ID.cat(301), shgStoreId: G1, price: 220, mrp: 280, stock: 40, unit: 'g', weight: 500, tags: ['pickle', 'homemade'], isFeatured: true, rating: 4.9 }),
-  make({ name: 'Homemade Lemon Pickle 500g', type: CHANNEL.SHG, category: ID.cat(302), shgStoreId: G1, price: 195, mrp: 250, stock: 35, unit: 'g', weight: 500, rating: 4.6 }),
-  make({ name: 'Mixed Vegetable Pickle 400g', type: CHANNEL.SHG, category: ID.cat(19), shgStoreId: G1, price: 210, mrp: 260, stock: 28, unit: 'g', weight: 400 }),
-  make({ name: 'Handmade Urad Papad 200g', type: CHANNEL.SHG, category: ID.cat(303), shgStoreId: G1, price: 85, mrp: 110, stock: 120, unit: 'g', weight: 200 }),
-  make({ name: 'Forest Honey 500g', type: CHANNEL.SHG, category: ID.cat(306), shgStoreId: G1, price: 445, mrp: 599, stock: 22, unit: 'g', weight: 500, tags: ['organic'], rating: 4.8 }),
-  make({ name: 'Organic Jaggery Blocks 1kg', type: CHANNEL.SHG, category: ID.cat(22), shgStoreId: G1, price: 130, mrp: 170, stock: 9, unit: 'kg', weight: 1000 }),
-  make({ name: 'Handloom Cotton Saree', type: CHANNEL.SHG, category: ID.cat(304), shgStoreId: G2, price: 1850, mrp: 2600, stock: 12, weight: 600, tags: ['handloom'], rating: 4.7 }),
-  make({ name: 'Handwoven Cotton Dupatta', type: CHANNEL.SHG, category: ID.cat(305), shgStoreId: G2, price: 650, mrp: 950, stock: 24, weight: 250 }),
-  make({ name: 'Jute Shopping Bag', type: CHANNEL.SHG, category: ID.cat(24), shgStoreId: G2, price: 275, mrp: 400, stock: 55, weight: 300, tags: ['eco', 'jute'] }),
-  make({ name: 'Handmade Herbal Soap Pack of 3', type: CHANNEL.SHG, category: ID.cat(23), shgStoreId: G2, price: 320, mrp: 450, stock: 30, unit: 'pack', weight: 350, status: APPROVAL.REJECTED, rejectionReason: 'Missing ingredient list on the product label.' }),
 ];

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
 
-const TYPE_ICON = { order: '📦', delivery: '⚠', subscription: '🔁', promotion: '🎉', membership: '💰', system: '✓' };
+const TYPE_ICON = { order: '📦', delivery: '⚠', promotion: '🎉', system: '✓' };
 
 export const NotificationDrawer = ({ isOpen, onClose }) => {
   const { triggerToast } = useSeller();
@@ -13,7 +13,8 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
     notifications: rawNotifications, unreadCount, markRead, markAllRead, removeNotification,
   } = useNotifications({ autoFetch: isOpen });
 
-  const notifications = rawNotifications.map((n) => ({
+  const visibleNotifications = rawNotifications.filter((n) => !['subscription', 'membership'].includes(n.type));
+  const notifications = visibleNotifications.map((n) => ({
     id: n._id, type: n.type, title: n.title, desc: n.message, unread: !n.isRead,
     // Only ever set on an Admin broadcast — absent on every event-driven
     // notification, exactly as before this field existed.

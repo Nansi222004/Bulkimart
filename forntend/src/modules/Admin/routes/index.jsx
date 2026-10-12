@@ -29,7 +29,6 @@ import VendorDashboardTab from '../components/VendorDashboardTab';
 import DeliveryTrackingTab from '../components/DeliveryTrackingTab';
 import RiderPayoutsTab from '../components/RiderPayoutsTab';
 import DeliveryRatesTab from '../components/DeliveryRatesTab';
-import DonationSettingsTab from '../components/DonationSettingsTab';
 import TipSettingsTab from '../components/TipSettingsTab';
 import BannersTab from '../components/BannersTab';
 import CampaignsTab from '../components/CampaignsTab';
@@ -87,7 +86,6 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'delivery-earnings':
       case 'rider-payouts':      return <RiderPayoutsTab />;
       case 'delivery-rates':     return <DeliveryRatesTab />;
-      case 'donation-settings':  return <DonationSettingsTab />;
       case 'tip-settings':       return <TipSettingsTab />;
       case 'banners':            return <BannersTab />;
       case 'campaigns':          return <CampaignsTab />;

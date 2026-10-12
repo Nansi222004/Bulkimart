@@ -4,7 +4,7 @@ import WalletLedger, {
   WALLET_TRANSACTION_TYPE,
   WALLET_REFERENCE_TYPE,
 } from "../models/WalletLedger.js";
-import DonationTransaction, { DONATION_STATUS } from "../models/DonationTransaction.js";
+
 import { httpError } from "../utils/response.js";
 import { notifyUser, NOTIFICATION_EVENT } from "./notification.service.js";
 
@@ -411,7 +411,7 @@ export const getAdminWalletOverview = async () => {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [totalUsers, usersWithWalletRes, totalBalanceRes, ledgerAgg, typeAgg, donationAgg] = await Promise.all([
+  const [totalUsers, usersWithWalletRes, totalBalanceRes, ledgerAgg, typeAgg] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ "wallet.balance": { $gt: 0 } }),
     User.aggregate([{ $group: { _id: null, total: { $sum: "$wallet.balance" } } }]),
@@ -433,20 +433,6 @@ export const getAdminWalletOverview = async () => {
         },
       },
     ]),
-    DonationTransaction.aggregate([
-      {
-        $facet: {
-          total: [
-            { $match: { status: { $in: [DONATION_STATUS.COLLECTED, DONATION_STATUS.DISBURSED] } } },
-            { $group: { _id: null, totalAmount: { $sum: "$amount" }, count: { $sum: 1 } } },
-          ],
-          today: [
-            { $match: { status: { $in: [DONATION_STATUS.COLLECTED, DONATION_STATUS.DISBURSED] }, collectedAt: { $gte: startOfToday } } },
-            { $group: { _id: null, totalAmount: { $sum: "$amount" }, count: { $sum: 1 } } },
-          ],
-        },
-      },
-    ]).catch(() => []),
   ]);
 
   const totalWalletBalance = totalBalanceRes[0]?.total || 0;
@@ -473,10 +459,9 @@ export const getAdminWalletOverview = async () => {
     if (t === "refund" || t.includes("refund")) refundCredits += item.totalAmount;
   });
 
-  const donationFacet = donationAgg[0] || {};
-  const totalDonationReceived = donationFacet.total?.[0]?.totalAmount || 0;
-  const totalDonationCount = donationFacet.total?.[0]?.count || 0;
-  const todayDonationReceived = donationFacet.today?.[0]?.totalAmount || 0;
+  const totalDonationReceived = 0;
+  const totalDonationCount = 0;
+  const todayDonationReceived = 0;
 
   return {
     totalUsers,

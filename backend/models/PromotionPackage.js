@@ -5,7 +5,7 @@ const { Schema, model } = mongoose;
 /**
  * Admin-managed price list for Seller Promotion (paid advertisement) slots.
  *
- * Same discipline as PremiumPlan.js: a purchased SellerPromotion snapshots
+ * A purchased SellerPromotion snapshots
  * this package's name/duration/price at the moment of purchase (see
  * SellerPromotion.js's packageNameSnapshot/durationDaysSnapshot/
  * amountSnapshot) — raising a price here only ever affects future

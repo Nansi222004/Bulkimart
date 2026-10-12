@@ -12,14 +12,13 @@ import { apiUrl } from '../../../utils/api';
  *
  * Sending REUSES the existing central notification.service.js (via
  * services/broadcast.service.js's audience resolution + notifyUser/
- * notifySeller/notifyShg/notifyRider) — this file only manages the
+ * notifySeller/notifyRider) — this file only manages the
  * campaign record and the compose form.
  */
 
 const AUDIENCES = [
   { value: 'ALL_CUSTOMERS', label: 'All Customers' },
   { value: 'ALL_SELLERS', label: 'All Sellers' },
-  { value: 'ALL_SHG', label: 'All SHG Vendors' },
   { value: 'ALL_DELIVERY_PARTNERS', label: 'All Delivery Partners' },
 ];
 
@@ -155,7 +154,7 @@ export const NotificationBroadcasterTab = () => {
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#0f172a' }}>Push Notifications Broadcaster</h2>
           <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>
-            Broadcast Push and in-app alerts to customers, sellers, SHG vendors or delivery partners. Email/SMS are shown for future use — no provider is configured today, so those channels are recorded as Not Configured, never faked as sent.
+            Broadcast push and in-app alerts to customers, sellers, or delivery partners. Email/SMS are shown for future use — no provider is configured today, so those channels are recorded as Not Configured, never faked as sent.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

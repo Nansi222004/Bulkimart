@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import Ticket from '../models/Ticket.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
@@ -25,8 +24,7 @@ import {
  *
  * Two-tier resolution:
  *   1. Trusted JWT claim — seller claims come from the gated seller login;
- *      historical SHG claims may remain valid until their tokens expire.
- *      Both are re-verified against the live approval record below. Still re-verified
+ *      seller claims are re-verified against the live approval record below.
  *      against the live approval record below (a seller suspended after
  *      their token was issued must not keep filing seller tickets on an
  *      old token) — the claim only decides *which* collection to check
@@ -45,10 +43,6 @@ export const resolveRequester = async (user, tokenRole, requestedRole) => {
     const seller = await Seller.findOne({ userId: user._id, status: 'approved' }).select('_id');
     if (seller) return { role: TICKET_REQUESTER_ROLE.SELLER, name: user.name || 'Seller', email: user.email, vendorId: seller._id };
   }
-  if (roleToTest === TICKET_REQUESTER_ROLE.SHG) {
-    const store = await SHGStore.findOne({ userId: user._id, status: 'approved' }).select('_id');
-    if (store) return { role: TICKET_REQUESTER_ROLE.SHG, name: user.name || 'SHG Leader', email: user.email, vendorId: store._id };
-  }
   if (roleToTest === TICKET_REQUESTER_ROLE.DELIVERY) {
     const partner = await DeliveryPartner.findOne({ userId: user._id, status: 'approved' }).select('_id');
     if (partner) return { role: TICKET_REQUESTER_ROLE.DELIVERY, name: user.name || 'Delivery Partner', email: user.email, vendorId: partner._id };
@@ -60,10 +54,6 @@ export const resolveRequester = async (user, tokenRole, requestedRole) => {
   if (tokenRole === TICKET_REQUESTER_ROLE.SELLER) {
     const seller = await Seller.findOne({ userId: user._id, status: 'approved' }).select('_id');
     if (seller) return { role: TICKET_REQUESTER_ROLE.SELLER, name: user.name || 'Seller', email: user.email, vendorId: seller._id };
-  }
-  if (tokenRole === TICKET_REQUESTER_ROLE.SHG) {
-    const store = await SHGStore.findOne({ userId: user._id, status: 'approved' }).select('_id');
-    if (store) return { role: TICKET_REQUESTER_ROLE.SHG, name: user.name || 'SHG Leader', email: user.email, vendorId: store._id };
   }
 
   const partner = await DeliveryPartner.findOne({ userId: user._id, status: 'approved' }).select('_id');
@@ -92,7 +82,6 @@ export const assertRelatedEntitiesOwned = async ({ role, vendorId, user }, { rel
     let owns = false;
     if (role === TICKET_REQUESTER_ROLE.CUSTOMER) owns = String(order.userId) === String(user._id);
     else if (role === TICKET_REQUESTER_ROLE.SELLER) owns = order.items.some((i) => String(i.sellerId) === String(vendorId));
-    else if (role === TICKET_REQUESTER_ROLE.SHG) owns = order.items.some((i) => String(i.shgStoreId) === String(vendorId));
     else if (role === TICKET_REQUESTER_ROLE.DELIVERY) {
       owns = Boolean(await Delivery.exists({ orderId: order._id, partnerId: vendorId }));
     }
@@ -102,13 +91,10 @@ export const assertRelatedEntitiesOwned = async ({ role, vendorId, user }, { rel
 
   if (relatedProduct) {
     if (!mongoose.isValidObjectId(relatedProduct)) throw httpError(400, 'Invalid related product id');
-    const product = await Product.findById(relatedProduct).select('sellerId shgStoreId');
+    const product = await Product.findById(relatedProduct).select('sellerId');
     if (!product) throw httpError(404, 'Related product not found');
 
     if (role === TICKET_REQUESTER_ROLE.SELLER && String(product.sellerId) !== String(vendorId)) {
-      throw httpError(403, 'This product does not belong to your store');
-    }
-    if (role === TICKET_REQUESTER_ROLE.SHG && String(product.shgStoreId) !== String(vendorId)) {
       throw httpError(403, 'This product does not belong to your store');
     }
     // Customer/Delivery referencing a product they don't own is fine — a

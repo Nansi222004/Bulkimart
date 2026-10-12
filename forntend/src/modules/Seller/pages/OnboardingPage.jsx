@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { LocationPicker } from '../../../components/LocationPicker';
 import BrandLogo from '../../../components/BrandLogo';
+import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
 
 /** A real file picker — opens the device's storage and keeps the actual File. */
 const DocRow = ({ label, hint, docKey, file, onPick, onDelete, required }) => {
@@ -573,7 +574,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
               </div>
               <div className="review-item-row">
                 <span className="review-item-key">Vendor Type</span>
-                <span className="review-item-val">{bizForm.vendorType}</span>
+                <span className="review-item-val">{sellerTypeLabelFromModes(selectedTypes)}</span>
               </div>
               <div className="review-item-row">
                 <span className="review-item-key">Category</span>

@@ -210,34 +210,6 @@ export const categoryTree = [
     ],
   },
 
-  // ==========================================================================
-  // SHG MARKETPLACE
-  // ==========================================================================
-  {
-    channel: CHANNEL.SHG,
-    name: 'Homemade Foods',
-    children: [
-      { name: 'Homemade Pickles', children: [{ name: 'Mango Pickle' }, { name: 'Lemon Pickle' }, { name: 'Mixed Vegetable Pickle' }] },
-      { name: 'Papad & Masala', children: [{ name: 'Urad Papad' }, { name: 'Moong Papad' }, { name: 'Homemade Masala' }] },
-      { name: 'Organic Honey & Jaggery', children: [{ name: 'Forest Honey' }, { name: 'Organic Jaggery' }, { name: 'Jaggery Powder' }] },
-    ],
-  },
-  {
-    channel: CHANNEL.SHG,
-    name: 'Handloom & Textiles',
-    children: [
-      { name: 'Handloom Textiles', children: [{ name: 'Cotton Sarees' }, { name: 'Dupattas & Stoles' }, { name: 'Bed Linen' }] },
-      { name: 'Jute & Cane Products', children: [{ name: 'Jute Bags' }, { name: 'Cane Baskets' }, { name: 'Jute Mats' }] },
-    ],
-  },
-  {
-    channel: CHANNEL.SHG,
-    name: 'Handmade Crafts',
-    children: [
-      { name: 'Handmade Soaps & Candles', children: [{ name: 'Herbal Soaps' }, { name: 'Soy Candles' }, { name: 'Aroma Candles' }] },
-      { name: 'Home Decor', children: [{ name: 'Wall Hangings' }, { name: 'Terracotta' }, { name: 'Bamboo Crafts' }] },
-    ],
-  },
 ];
 
 /** Flat counts, for the seeder's summary line. */

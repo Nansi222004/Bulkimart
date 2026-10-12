@@ -13,7 +13,7 @@ import {
 } from '../constants/enums.js';
 import { buildReturnPolicySnapshotsFor } from './returnPolicy.service.js';
 import { debitWallet } from './wallet.service.js';
-import { recordDonationTransaction } from './donation.service.js';
+
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { mutateInventory } from './inventory.service.js';
 
@@ -152,7 +152,7 @@ const deliverySnapshotOf = (group) => buildDeliverySnapshot({
  * @returns {{ orders: Order[], payment: Payment, groupRef: string }}
  */
 export const createOrdersFromGroups = async ({
-  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), donation = null, tip = 0,
+  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0,
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
 
@@ -175,7 +175,7 @@ export const createOrdersFromGroups = async ({
    * into the frozen `returnEligible` here, at the one place this snapshot
    * is built — the seller can never widen the category's own window, only
    * narrow (or zero out) their own product's eligibility within it.
-   * E-commerce/SHG lines are untouched: same `catPolicy` object as before
+   * E-commerce lines are untouched: same `catPolicy` object as before
    * this field existed, no `sellerReturnable` key at all.
    */
   const withReturnPolicy = (lines) => lines.map((l) => {
@@ -198,24 +198,19 @@ export const createOrdersFromGroups = async ({
     }
   }
 
-  // A single basket-level choice, not one per group — added once to the
-  // payment and to the first group's order below, never multiplied across
-  // however many deliveries the basket happens to split into.
-  const donationAmount = Math.max(0, Number(donation?.amount) || 0);
-
   /**
    * One tip for the basket, paid to one rider.
    *
    * The checkout offers a single tip, but a basket can split into several
    * deliveries with a different rider on each — so "the delivery partner" the
    * customer tipped is genuinely ambiguous here. It rides on the first order,
-   * the same way the donation does, and is paid in full to whoever carries
-   * that one rather than being divided into fractions nobody was promised.
+   * and is paid in full to whoever carries that one rather than being divided
+   * into fractions nobody was promised.
    */
   const tipAmount = Math.max(0, Math.round(Number(tip) || 0));
 
   // ---- one payment for the whole basket ---------------------------------
-  const payable = Number((groups.reduce((t, g) => t + g.total, 0) + donationAmount + tipAmount).toFixed(2));
+  const payable = Number((groups.reduce((t, g) => t + g.total, 0) + tipAmount).toFixed(2));
 
   if (paymentMethod === PAYMENT_METHOD.WALLET) {
     await debitWallet({
@@ -241,15 +236,11 @@ export const createOrdersFromGroups = async ({
 
   // ---- one order per group ----------------------------------------------
   const orders = [];
-  let donationAttached = false;
   let tipAttached = false;
   for (const g of groups) {
     // Attached to the first order only — one basket-level choice, recorded
     // once, so a refund or a per-order view never double-counts it across
     // however many deliveries the checkout split into.
-    const thisOrdersDonation = !donationAttached && donationAmount > 0 ? donationAmount : 0;
-    if (thisOrdersDonation > 0) donationAttached = true;
-
     const thisOrdersTip = !tipAttached && tipAmount > 0 ? tipAmount : 0;
     if (thisOrdersTip > 0) tipAttached = true;
 
@@ -263,10 +254,7 @@ export const createOrdersFromGroups = async ({
        *
        * Each order carries what its own delivery costs — never the basket total
        * — so a cancellation, a seller payout or a refund reads one order and
-       * gets a figure that means something on its own. The donation is the one
-       * deliberate exception: it isn't any group's own money, it just has to
-       * live somewhere, so it rides on the first order and is added into that
-       * order's own totalAmount to keep this order internally consistent.
+       * gets a figure that means something on its own.
        */
       pricing: {
         subtotal: g.subtotal,
@@ -274,11 +262,8 @@ export const createOrdersFromGroups = async ({
         couponDiscount: 0,
         cdsDiscount: 0,
         deliveryCharge: g.deliveryCharge,
-        donationAmount: thisOrdersDonation,
-        donationTitle: thisOrdersDonation > 0 ? donation?.title : undefined,
-        donationComment: thisOrdersDonation > 0 ? (donation?.comment || '') : '',
         tipAmount: thisOrdersTip,
-        totalAmount: Number((g.total + thisOrdersDonation + thisOrdersTip).toFixed(2)),
+        totalAmount: Number((g.total + thisOrdersTip).toFixed(2)),
       },
       paymentMethod,
       paymentId: payment._id,
@@ -303,9 +288,7 @@ export const createOrdersFromGroups = async ({
    */
   await Payment.updateOne({ _id: payment._id }, { $set: { orderId: orders[0]._id } }, { session });
 
-  if (donationAmount > 0 && orders[0]) {
-    await recordDonationTransaction({ order: orders[0], payment, session });
-  }
+
 
   // Only the storefronts that were actually ordered from are emptied.
   const channels = [...new Set(groups.map((g) => g.channel))];

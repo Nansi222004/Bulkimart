@@ -32,9 +32,6 @@ export const updateProfile = asyncHandler(async (req, res) => {
   const { name, email } = req.body;
   if (name) user.name = name;
   if (email) user.email = email;
-  // Membership fields remain on stored users for historical compatibility,
-  // but are no longer editable through the customer profile API.
-
   if (req.file) {
     const avatarUrl = await uploadToCloudinary(req.file.buffer, 'avatars');
     user.avatar = avatarUrl;

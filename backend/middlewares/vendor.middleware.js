@@ -1,7 +1,5 @@
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
-import { getActiveShgSubscription } from '../services/shgSubscription.service.js';
 import { asyncHandler } from './error.middleware.js';
 import { VENDOR_STATUS } from '../constants/enums.js';
 
@@ -56,80 +54,7 @@ export const requireApprovedSeller = asyncHandler(async (req, res, next) => {
   next();
 });
 
-/** Same gate for the SHG vendor panel. */
-export const requireApprovedSHG = asyncHandler(async (req, res, next) => {
-  if (req.userType === 'admin') return next();
-
-  const store = await SHGStore.findOne({ userId: req.user._id });
-
-  if (!store) {
-    return res.status(403).json({
-      success: false,
-      data: null,
-      message: 'You have not registered an SHG store yet.',
-      meta: { vendorStatus: 'none' },
-    });
-  }
-
-  if (store.status !== VENDOR_STATUS.APPROVED) {
-    const messages = {
-      [VENDOR_STATUS.INCOMPLETE]: 'Please complete your SHG registration first.',
-      [VENDOR_STATUS.PENDING]: 'Your SHG application is awaiting admin approval.',
-      [VENDOR_STATUS.UNDER_REVIEW]: 'Your SHG application is currently under review.',
-      [VENDOR_STATUS.REJECTED]: 'Your SHG application was rejected.',
-    };
-
-    return res.status(403).json({
-      success: false,
-      data: null,
-      message: messages[store.status] || 'SHG account is not approved.',
-      meta: {
-        vendorStatus: store.status,
-        onboardingStep: store.onboardingStep,
-        rejectionReason: store.rejectionReason,
-      },
-    });
-  }
-
-  req.shgStore = store;
-  next();
-});
-
-/**
- * Gate for SHG business-write operations (product create/edit/delete,
- * stock, channel toggles) that require a PAID, currently-unexpired
- * subscription — a step beyond mere admin approval.
- *
- * Always run AFTER `requireApprovedSHG` (reuses `req.shgStore`, never
- * re-queries it). Effective access is deliberately status + endDate, not
- * status alone — a stale "active" row past its endDate must still be
- * denied even if the expiry sweeper hasn't ticked yet (see
- * shgSubscriptionSweeper.service.js: the sweeper only refreshes the cached
- * `status` for display/admin purposes, this check is the real gate).
- *
- * NOT applied to: SHG order-status updates (existing order processing
- * continues regardless of subscription state) or member add/remove
- * (roster admin, not billed business activity) — both left ungated on
- * purpose, per the business requirement.
- */
-export const requireActiveSHGSubscription = asyncHandler(async (req, res, next) => {
-  if (req.userType === 'admin') return next();
-
-  const store = req.shgStore;
-  const sub = await getActiveShgSubscription(store._id);
-
-  if (!sub) {
-    return res.status(403).json({
-      success: false,
-      data: null,
-      message: 'An active subscription is required for this action.',
-      meta: { code: 'SUBSCRIPTION_REQUIRED' },
-    });
-  }
-
-  req.shgSubscription = sub;
-  next();
-});
+/** SHG middleware retired */
 
 /**
  * Gate for the RIDER APP (availability, assignments, pickups, earnings).

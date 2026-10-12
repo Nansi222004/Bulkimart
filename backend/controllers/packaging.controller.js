@@ -536,7 +536,7 @@ export const getMyPackagingOrder = asyncHandler(async (req, res) => {
 /**
  * Moves a PackagingOrder's payment to paid/failed exactly once. Exported so
  * payment.controller.js's shared PhonePe webhook can branch into it, same as
- * settleSellerPromotionPayment/settlePremiumPayment/settleShgSubscriptionPayment.
+ * settleSellerPromotionPayment and the other shared-payment settlement handlers.
  */
 export const settlePackagingOrderPayment = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode }) => {
   if (payment.status === PAYMENT_STATUS.PAID) return { changed: false, status: 'paid' };

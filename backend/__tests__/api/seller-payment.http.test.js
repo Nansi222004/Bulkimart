@@ -209,6 +209,7 @@ describe('mocked HTTP seller and product API', () => {
     const response = await request(app).post('/api/sellers/start')
       .set(bearer(tokenFor(applicant._id)))
       .send({ salesChannels }).expect(200);
+    expect(sellers.get(String(applicant._id)).salesChannels).toEqual(expected);
     expect(response.body.seller.salesChannels).toEqual(expected);
     expect(response.body.salesChannels).toEqual(expected);
     expect(response.body.channelSelectionDefaulted).toBe(false);
@@ -228,6 +229,36 @@ describe('mocked HTTP seller and product API', () => {
     expect(legacy.body.channelSelectionDefaulted).toBe(true);
     const retry = await request(app).post('/api/sellers/start').set(token).send({}).expect(200);
     expect(retry.body.salesChannels).toEqual(['ecommerce']);
+  });
+
+  test('multiple phone-based seller registrations do not require an email address', async () => {
+    for (const phone of ['9300000096', '9300000097']) {
+      const applicant = { _id: new mongoose.Types.ObjectId(), phone, roles: ['buyer'], isActive: true };
+      users.set(String(applicant._id), applicant);
+      const response = await request(app).post('/api/sellers/start')
+        .set(bearer(tokenFor(applicant._id)))
+        .send({ salesChannels: ['ecommerce'] })
+        .expect(200);
+      expect(response.body.seller.email).toBeUndefined();
+    }
+  });
+
+  test('duplicate-key errors return a safe registration message instead of a MongoDB error', async () => {
+    const applicant = { _id: new mongoose.Types.ObjectId(), phone: '9300000095', roles: ['buyer'], isActive: true };
+    users.set(String(applicant._id), applicant);
+    Seller.create.mockRejectedValueOnce(Object.assign(
+      new Error('E11000 duplicate key error collection: bulkimart.sellers index: email_1 dup key: { email: null }'),
+      { code: 11000, keyPattern: { email: 1 }, keyValue: { email: null } },
+    ));
+
+    const response = await request(app).post('/api/sellers/start')
+      .set(bearer(tokenFor(applicant._id)))
+      .send({ salesChannels: ['ecommerce'] })
+      .expect(409);
+
+    expect(response.body.message).toMatch(/registration is temporarily unavailable/i);
+    expect(response.body.message).not.toMatch(/E11000|collection:|index:|dup key/i);
+    expect(response.body.stack).toBeUndefined();
   });
 
   test('the onboarding endpoint cannot change channels for an already approved seller', async () => {

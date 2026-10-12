@@ -12,9 +12,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
 import { priceOrder, resolveDeliveryType } from '../services/pricing.service.js';
 import { applyCouponCode, redeemCoupon, releaseCoupon } from '../services/coupon.service.js';
-import { resolveDonation, recordDonationTransaction } from '../services/donation.service.js';
 import { resolveTip } from '../services/tip.service.js';
-import { assertShgStoreOrderable } from '../services/shgSubscription.service.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { forwardGeocode } from '../services/geocode.service.js';
@@ -275,9 +273,6 @@ export const createOrder = asyncHandler(async (req, res) => {
      * cart before the suspension, or posted straight to the API. Checked here,
      * with the rest of the line revalidation, before any money moves.
      */
-    if (p.shgStoreId) {
-      await assertShgStoreOrderable(p.shgStoreId, p.name);
-    }
     if (p.sellerId && customerLoc) {
       const seller = sellersById.get(String(p.sellerId));
       if (seller?.serviceRadiusKm !== undefined && seller?.serviceRadiusKm !== null
@@ -404,16 +399,11 @@ export const createOrder = asyncHandler(async (req, res) => {
     orderDistanceKm = verdict.distanceKm;
   }
 
-  // Same discipline as the coupon above: the client opts in and names an
-  // amount, but that amount is only ever accepted if it matches what the
-  // admin's live donation setting actually offers right now.
-  const donation = resolveDonation(req.body.donationAmount, req.body.donationOptedIn === true, req.body.donationComment);
-
-  // Same discipline once more: the client names a tip, and it is accepted only
+  // The client names a tip, and it is accepted only
   // if it is one of the fixed presets the tip UI actually offers.
   const tip = resolveTip(req.body.tipAmount);
 
-  const pricing = priceOrder(lines, req.user, applied, sameDay, orderDistanceKm, donation, tip);
+  const pricing = priceOrder(lines, req.user, applied, sameDay, orderDistanceKm, tip);
   const deliveryType = resolveDeliveryType(lines, requestedMode);
 
   // A cart only ever holds one channel now, so the order type is unambiguous.
@@ -515,9 +505,6 @@ export const createOrder = asyncHandler(async (req, res) => {
         couponCode: pricing.couponCode,
         cdsDiscount: pricing.cdsDiscount,
         deliveryCharge: pricing.deliveryCharge,
-        donationAmount: pricing.donationAmount,
-        donationTitle: pricing.donationTitle,
-        donationComment: pricing.donationComment,
         tipAmount: pricing.tipAmount,
         coinsUsed: coinsToUse,
         coinDiscount,
@@ -543,10 +530,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     }], opts);
 
     await Payment.updateOne({ _id: payment._id }, { $set: { orderId: doc._id } }, opts);
-
-    if (pricing.donationAmount > 0) {
-      await recordDonationTransaction({ order: doc, payment, session: txnSession });
-    }
 
     if (applied?.ok) {
       await redeemCoupon({
@@ -761,11 +744,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   // never leave.
   validateGroupsStock(groups);
 
-  // One basket, one donation choice — attached to a single order below
-  // (createOrdersFromGroups puts it on the first), not duplicated per group.
-  const donation = resolveDonation(req.body.donationAmount, req.body.donationOptedIn === true, req.body.donationComment);
-
-  // Likewise one basket, one tip — attached to the first order, and paid in
+  // One basket, one tip — attached to the first order, and paid in
   // full to the rider who carries it.
   const tip = resolveTip(req.body.tipAmount);
 
@@ -779,7 +758,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         operation: 'unified', status: 'processing',
       }], { session });
       result = await createOrdersFromGroups({
-        user: req.user, address, groups, paymentMethod, notes, session, donation, tip,
+        user: req.user, address, groups, paymentMethod, notes, session, tip,
       });
       const { orders, payment, groupRef } = result;
       await CheckoutAttempt.updateOne(
@@ -1093,17 +1072,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
         const payment = await Payment.findById(order.paymentId).session(session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
           const rawTotal = payment.groupRef ? (order.pricing?.totalAmount || payment.amount) : payment.amount;
-          const donationAmt = Number(order.pricing?.donationAmount || 0);
-          const shouldRefundDonation = req.body.refundDonation === true;
-          const refundAmount = shouldRefundDonation ? rawTotal : Math.max(0, rawTotal - donationAmt);
-
-          if (shouldRefundDonation && donationAmt > 0) {
-            await DonationTransaction.updateOne(
-              { orderId: order._id, status: DONATION_STATUS.COLLECTED },
-              { $set: { status: DONATION_STATUS.REFUNDED, refundedAt: new Date() } },
-              { session }
-            );
-          }
+          const refundAmount = rawTotal;
 
           if (payment.method === PAYMENT_METHOD.WALLET) {
             await refundToWallet({

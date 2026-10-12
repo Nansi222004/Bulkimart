@@ -15,15 +15,12 @@ import apiRoutes from "./routes/index.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { initSocket } from "./socket/socket.js";
 import { startOrderSweeper } from "./services/orderSweeper.service.js";
-import { startSubscriptionAcceptSweeper } from "./services/subscriptionAcceptSweeper.service.js";
-import { startSubscriptionPrepSweeper } from "./services/subscriptionPrepSweeper.service.js";
 import { startSellerPromotionSweeper } from "./services/sellerPromotionSweeper.service.js";
 import { loadRates } from "./services/riderPay.service.js";
 import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js";
 import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
 import { loadReferralConfig } from "./services/referralConfig.service.js";
-import { loadDonationSetting } from "./services/donation.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
 
 // Fix: Node.js on Windows uses local router DNS (fe80::1) which blocks SRV record queries.
@@ -89,8 +86,6 @@ const start = async () => {
   initSocket(httpServer);
   // Started after the database is up: the sweeper queries on every tick.
   startOrderSweeper();
-  startSubscriptionAcceptSweeper();
-  startSubscriptionPrepSweeper();
   startSellerPromotionSweeper();
   // Rider pay rates into memory once, so the offer screen never waits on a
   // query. Admin saves refresh this; a failure leaves the env defaults.
@@ -103,8 +98,6 @@ const start = async () => {
   await loadRadiusSetting().catch((e) => console.warn('[RADIUS SETTING] using env defaults:', e.message));
   // Same reasoning, for the Referral Program's reward/limit configuration.
   await loadReferralConfig().catch((e) => console.warn('[REFERRAL CONFIG] using defaults:', e.message));
-  // Same reasoning, for the checkout Donation prompt setting.
-  await loadDonationSetting().catch((e) => console.warn('[DONATION SETTING] using defaults:', e.message));
   // Auto-seed default role privacy policies if missing
   await seedPrivacyPolicies().catch((e) => console.warn('[PRIVACY POLICY SEED] error:', e.message));
 

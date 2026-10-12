@@ -22,15 +22,9 @@ const paymentSchema = new Schema(
      */
     groupRef:       { type: String, index: true },
     subscriptionId: { type: ObjectId, ref: "Subscription" },
-    // A different domain from `subscriptionId` above (that one refs the
-    // customer recurring-delivery Subscription model) — this refs an SHG
-    // seller's paid business-subscription purchase. Absent on every
-    // ordinary/order/delivery-subscription payment, same as the others.
+    // Historical references retained only so older payment documents can be
+    // read without rewriting financial records. No active flow creates them.
     shgSubscriptionId: { type: ObjectId, ref: "SHGSubscription" },
-    // A third payment purpose: a customer buying Premium Membership, which is
-    // the entitlement to create Product Subscriptions. Absent on every other
-    // payment, same as the two above — which of these is set is what the
-    // shared PhonePe webhook branches on.
     premiumMembershipId: { type: ObjectId, ref: "PremiumMembership" },
     // A fourth payment purpose: a seller paying for a Seller Promotion
     // (advertisement) slot. Absent on every other payment, same as the

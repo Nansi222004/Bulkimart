@@ -34,11 +34,7 @@ router.route('/addresses/:addressId')
 
 router.put('/addresses/:addressId/default', setDefaultAddress);
 
-import { getDonationPreference, updateDonationPreference } from '../controllers/donation.controller.js';
-
 router.get('/wallet', getWallet);
-router.get('/donation-preference', getDonationPreference);
-router.patch('/donation-preference', updateDonationPreference);
 router.put('/fcm-token', updateFCMToken);
 
 export default router;

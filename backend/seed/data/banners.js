@@ -25,15 +25,4 @@ export const banners = [
     startDate: new Date('2026-08-01'),
     endDate: new Date('2026-12-31'),
   },
-  {
-    _id: ID.banner(3),
-    title: 'Support local SHG artisans',
-    image: img('SHG Marketplace', 1200, 400),
-    targetRoute: '/shg',
-    type: CHANNEL.SHG,
-    isActive: true,
-    priority: 8,
-    startDate: new Date('2026-08-01'),
-    endDate: new Date('2026-12-31'),
-  },
 ];

@@ -1555,44 +1555,6 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
     console.error(err);
   }
 
-  /**
-   * Write the outcome back onto the subscription this order came from, if
-   * it came from one.
-   *
-   * Absent on every ordinary order — `order.subscriptionId` only exists on
-   * orders `packSubscriptionDelivery` creates — so this branch never runs
-   * for the overwhelming majority of deliveries this endpoint completes.
-   * Deliberately outside the completion transaction above: the order and
-   * the rider's earnings have already committed successfully by this
-   * point, so a failure here is a recoverable bookkeeping lag on the
-   * subscription's own schedule, never a financial-correctness issue —
-   * reopening the just-hardened completion transaction for this would risk
-   * exactly the class of bug that transaction was built to close.
-   */
-  if (order.subscriptionId) {
-    try {
-      const { default: Subscription } = await import('../models/Subscription.js');
-      const { nextScheduledDeliveryDate } = await import('../services/subscription.service.js');
-
-      await Subscription.updateOne(
-        { _id: order.subscriptionId, 'deliverySchedule._id': order.subscriptionDeliveryEntryId },
-        { $set: {
-            'deliverySchedule.$.status': 'delivered',
-            'deliverySchedule.$.deliveryPartnerId': req.partner._id,
-            'deliverySchedule.$.deliveryId': delivery._id,
-          } }
-      );
-
-      const sub = await Subscription.findById(order.subscriptionId).select('deliverySchedule timeSlot');
-      if (sub) {
-        const next = nextScheduledDeliveryDate(sub.deliverySchedule, sub.timeSlot);
-        await Subscription.updateOne({ _id: sub._id }, { $set: { nextDeliveryDate: next } });
-      }
-    } catch (err) {
-      console.error('[SUBSCRIPTION] delivery write-back failed:', err.message);
-    }
-  }
-
   return ok(res, { earnings, tip: tipEarned },
     tipEarned > 0
       ? `Delivery completed — ₹${earnings} earned, including a ₹${tipEarned} tip from the customer`

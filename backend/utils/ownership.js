@@ -1,5 +1,4 @@
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import { ROLE, VENDOR_STATUS } from '../constants/enums.js';
 import { httpError } from './response.js';
 
@@ -12,11 +11,6 @@ import { httpError } from './response.js';
  * Replaces the same block copy-pasted four times in product.controller.js.
  */
 export const resolveVendor = async (user) => {
-  if (user?.roles?.includes(ROLE.SHG)) {
-    const doc = await SHGStore.findOne({ userId: user._id });
-    if (doc) return { kind: ROLE.SHG, doc, filter: { shgStoreId: doc._id } };
-  }
-
   if (user?.roles?.includes(ROLE.SELLER)) {
     const doc = await Seller.findOne({ userId: user._id });
     if (doc) return { kind: ROLE.SELLER, doc, filter: { sellerId: doc._id } };
@@ -46,9 +40,6 @@ export const canManageProduct = async (product, req) => {
   const vendor = await resolveVendor(req.user);
   if (!vendor) return false;
 
-  if (vendor.kind === ROLE.SHG) {
-    return product.shgStoreId?.toString() === vendor.doc._id.toString();
-  }
   return product.sellerId?.toString() === vendor.doc._id.toString();
 };
 
@@ -57,8 +48,7 @@ export const canManageProduct = async (product, req) => {
  * Prevents seller A from reading what seller B sold to the same buyer.
  */
 export const scopeOrderToVendor = (order, vendor) => {
-  const key = vendor.kind === ROLE.SHG ? 'shgStoreId' : 'sellerId';
-  const mine = order.items.filter((i) => i[key]?.toString() === vendor.doc._id.toString());
+  const mine = order.items.filter((i) => i.sellerId?.toString() === vendor.doc._id.toString());
   const subtotal = mine.reduce((sum, i) => sum + i.price * i.qty, 0);
 
   return {

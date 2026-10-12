@@ -7,7 +7,7 @@ import { adminGet, adminPost, adminPatch } from '../../../utils/adminApi';
  * against (Section 12/13). A price change here only ever affects future
  * purchases — a promotion already bought keeps its own snapshot
  * (packageNameSnapshot/durationDaysSnapshot/amountSnapshot on
- * SellerPromotion), same discipline PremiumPlan already follows.
+ * SellerPromotion), preserving the price paid at purchase time.
  */
 
 const money = (n) => '₹' + Math.round(Number(n) || 0);

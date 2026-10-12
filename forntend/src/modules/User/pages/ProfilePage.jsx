@@ -28,54 +28,9 @@ const ProfilePage = () => {
     selectedAddressId,
     uploadLandmarkImage,
     fetchWalletBalance,
-    donationPref,
-    donationSetting,
-    saveDonationPreference,
   } = useUser();
 
-  // Donation Preference states
-  const [selectedDonationOption, setSelectedDonationOption] = useState(null);
-  const [customDonationInput, setCustomDonationInput] = useState('');
-  const [savingDonationPref, setSavingDonationPref] = useState(false);
-  const [donationPrefSaveError, setDonationPrefSaveError] = useState('');
-  const [isEditingDonationPref, setIsEditingDonationPref] = useState(false);
 
-  const handleSaveDonationPref = async () => {
-    let targetAmount = selectedDonationOption;
-    if (customDonationInput.trim()) {
-      targetAmount = Number(customDonationInput);
-    }
-    if (!targetAmount || targetAmount <= 0) {
-      setDonationPrefSaveError('Please select or enter a valid donation amount.');
-      return;
-    }
-
-    setSavingDonationPref(true);
-    setDonationPrefSaveError('');
-    try {
-      await saveDonationPreference({ enabled: true, amount: targetAmount });
-      setIsEditingDonationPref(false);
-    } catch (err) {
-      setDonationPrefSaveError(err.message || 'Could not save donation preference');
-    } finally {
-      setSavingDonationPref(false);
-    }
-  };
-
-  const handleRemoveDonationPref = async () => {
-    setSavingDonationPref(true);
-    setDonationPrefSaveError('');
-    try {
-      await saveDonationPreference({ enabled: false });
-      setSelectedDonationOption(null);
-      setCustomDonationInput('');
-      setIsEditingDonationPref(false);
-    } catch (err) {
-      setDonationPrefSaveError(err.message || 'Could not remove donation preference');
-    } finally {
-      setSavingDonationPref(false);
-    }
-  };
 
   // Top-Up PhonePe states
   const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
@@ -683,28 +638,7 @@ const ProfilePage = () => {
       badge: null,
       action: () => setActiveSection('addresses')
     },
-    {
-      id: 'donation',
-      label: 'Donation Preference',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-        </svg>
-      ),
-      badge: donationPref?.enabled && donationPref?.valid !== false ? (
-        <span className="menu-badge" style={{
-          backgroundColor: 'rgba(225, 29, 72, 0.1)',
-          color: '#e11d48',
-          fontSize: '11px',
-          fontWeight: '800',
-          padding: '2px 8px',
-          borderRadius: '20px'
-        }}>
-          ❤️ ₹{donationPref.amount}
-        </span>
-      ) : null,
-      action: () => setActiveSection('donation')
-    },
+
     {
       id: 'become-seller',
       label: isSeller ? 'Your Shop' : 'Become a Seller',
@@ -1516,234 +1450,7 @@ const ProfilePage = () => {
           </div>
         );
 
-      case 'donation':
-        const isPrefActive = donationPref?.enabled && donationPref?.valid !== false && !isEditingDonationPref;
-        return (
-          <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            {/* Banner Header */}
-            <div style={{
-              background: 'linear-gradient(135deg, #078CCB 0%, #08B9E8 100%)',
-              color: '#ffffff',
-              borderRadius: '20px',
-              padding: '24px 20px',
-              boxShadow: '0 10px 25px -5px rgba(8, 185, 232, 0.22)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '28px' }}>❤️</span>
-                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#ffffff' }}>
-                  Donate with every order
-                </h3>
-              </div>
-              <p style={{ margin: 0, fontSize: '13px', opacity: 0.9, lineHeight: '1.5' }}>
-                Save a default donation preference to automatically support transformative social work across India on every checkout.
-              </p>
-            </div>
 
-            {/* Status Card */}
-            <div style={{
-              backgroundColor: '#ffffff',
-              borderRadius: '16px',
-              border: '1px solid #e2e8f0',
-              padding: '20px',
-              boxShadow: '0 2px 10px rgba(0,0,0,0.03)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                <span style={{ fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#64748b' }}>
-                  Donation Preference Status
-                </span>
-                <span style={{
-                  padding: '4px 10px',
-                  borderRadius: '20px',
-                  fontSize: '11px',
-                  fontWeight: '800',
-                  backgroundColor: isPrefActive ? 'rgba(22, 101, 52, 0.1)' : '#f1f5f9',
-                  color: isPrefActive ? '#166534' : '#64748b'
-                }}>
-                  {isPrefActive ? '● ACTIVE PREFERENCE' : '○ OFF'}
-                </span>
-              </div>
-
-              {donationPref?.valid === false && donationPref?.enabled && (
-                <div style={{
-                  backgroundColor: '#fff7ed',
-                  border: '1px solid #ffedd5',
-                  borderRadius: '12px',
-                  padding: '12px 16px',
-                  marginBottom: '16px',
-                  color: '#c2410c',
-                  fontSize: '13px',
-                  fontWeight: '600'
-                }}>
-                  ⚠️ {donationPref?.reason || 'Your saved donation amount is no longer available.'} Please select a new amount below.
-                </div>
-              )}
-
-              {isPrefActive ? (
-                <div>
-                  <div style={{
-                    backgroundColor: '#f0fdf4',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    marginBottom: '16px'
-                  }}>
-                    <strong style={{ display: 'block', fontSize: '16px', color: '#14532d', marginBottom: '4px' }}>
-                      Donation Preference: ₹{donationPref.amount}
-                    </strong>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#166534' }}>
-                      ₹{donationPref.amount} will be added to your orders by default at checkout. You can still deselect or change it for any single order.
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingDonationPref(true)}
-                      style={{
-                        flex: 1,
-                        padding: '12px',
-                        borderRadius: '12px',
-                        border: '1.5px solid #08B9E8',
-                        backgroundColor: '#ffffff',
-                        color: '#078CCB',
-                        fontWeight: '800',
-                        fontSize: '13px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Change Amount
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRemoveDonationPref}
-                      disabled={savingDonationPref}
-                      style={{
-                        flex: 1,
-                        padding: '12px',
-                        borderRadius: '12px',
-                        border: '1.5px solid #fca5a5',
-                        backgroundColor: '#fef2f2',
-                        color: '#b91c1c',
-                        fontWeight: '800',
-                        fontSize: '13px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {savingDonationPref ? 'Removing...' : 'Remove Preference'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p style={{ fontSize: '13px', color: '#475569', margin: '0 0 16px 0', lineHeight: '1.5' }}>
-                    {isEditingDonationPref
-                      ? 'Select a new donation amount to update your default preference:'
-                      : 'Choose an amount to donate with every order by default:'}
-                  </p>
-
-                  {/* Options Selector */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: '10px', marginBottom: '16px' }}>
-                    {(donationSetting?.options || [10, 20, 50, 100]).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDonationOption(opt);
-                          setCustomDonationInput('');
-                        }}
-                        style={{
-                          padding: '12px',
-                          borderRadius: '12px',
-                          border: selectedDonationOption === opt ? '2px solid #08B9E8' : '1.5px solid #cbd5e1',
-                          backgroundColor: selectedDonationOption === opt ? '#EAF9FE' : '#ffffff',
-                          color: selectedDonationOption === opt ? '#078CCB' : '#0f172a',
-                          fontWeight: '800',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        ₹{opt}
-                      </button>
-                    ))}
-                  </div>
-
-                  {donationSetting?.allowCustom && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>
-                        Or enter custom amount (₹{donationSetting.minCustomAmount || 1} - ₹{donationSetting.maxCustomAmount || 10000})
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="Custom amount in ₹"
-                        value={customDonationInput}
-                        onChange={(e) => {
-                          setCustomDonationInput(e.target.value);
-                          setSelectedDonationOption(null);
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '12px',
-                          borderRadius: '10px',
-                          border: '1.5px solid #cbd5e1',
-                          fontSize: '14px',
-                          fontWeight: '600'
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {donationPrefSaveError && (
-                    <div style={{ color: '#ef4444', fontSize: '12px', fontWeight: '600', marginBottom: '12px' }}>
-                      ⚠️ {donationPrefSaveError}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                      type="button"
-                      onClick={handleSaveDonationPref}
-                      disabled={savingDonationPref}
-                      style={{
-                        flex: 2,
-                        padding: '14px',
-                        borderRadius: '12px',
-                        backgroundColor: '#08B9E8',
-                        color: '#ffffff',
-                        fontWeight: '800',
-                        fontSize: '14px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(8, 185, 232, 0.24)'
-                      }}
-                    >
-                      {savingDonationPref ? 'Saving Preference...' : 'Save Donation Preference'}
-                    </button>
-                    {isEditingDonationPref && (
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingDonationPref(false)}
-                        style={{
-                          flex: 1,
-                          padding: '14px',
-                          borderRadius: '12px',
-                          border: '1.5px solid #cbd5e1',
-                          backgroundColor: '#f1f5f9',
-                          color: '#475569',
-                          fontWeight: '700',
-                          fontSize: '13px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
 
       case 'refer':
         return (
@@ -1897,7 +1604,7 @@ const ProfilePage = () => {
               <>
                 <h4 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Contact Customer Support</h4>
                 <p style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.5', margin: 0 }}>
-                  Need help with an order, cooperative membership card, or delivery timings? Open a support ticket and our team will get back within 24 hours.
+                  Need help with an order, payment, or delivery timing? Open a support ticket and our team will get back within 24 hours.
                 </p>
 
                 <form onSubmit={handleSupportSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

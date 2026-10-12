@@ -11,7 +11,6 @@ import {
   getDeliveryRates, setDeliveryRate, previewDeliveryRate, deliveryRateImpact,
   getDeliveryChargeSettingForAdmin, setDeliveryChargeSettingForAdmin,
   getRadiusSettingForAdmin, setRadiusSettingForAdmin,
-  listSubscriptionsForAdmin, getSubscriptionDetailForAdmin,
   getDashboardOverview,
   getConsumerStats, getCustomerActivityLog, getCustomerOrders, getConsumerOrdersSummary,
   getCustomerReviews, deleteCustomerReview, updateReviewStatus,
@@ -39,11 +38,6 @@ import {
 import {
   listCoupons, createCoupon, updateCoupon, toggleCoupon, deleteCoupon, getCouponRedemptions,
 } from '../controllers/coupon.controller.js';
-import {
-  getDonationSettingForAdmin, setDonationSettingForAdmin,
-  getAdminDonationOverview, getAdminDonationTransactions, getAdminDonationDetail,
-  addAdminNoteToDonation, updateDonationStatus, exportDonationTransactionsCSV,
-} from '../controllers/donation.controller.js';
 import {
   getTipSettingForAdmin, setTipSettingForAdmin,
 } from '../controllers/tip.controller.js';
@@ -125,16 +119,6 @@ router.get('/referrals/:id', getReferralAdmin);
 router.patch('/referrals/:id/block', blockReferralAdmin);
 router.patch('/referrals/:id/approve', approveReferralAdmin);
 
-// ---- Help Wallet / Social Work donation setting & transactions ----------------
-router.get('/donation-setting', getDonationSettingForAdmin);
-router.post('/donation-setting', setDonationSettingForAdmin);
-router.get('/donations/overview', getAdminDonationOverview);
-router.get('/donations/transactions', getAdminDonationTransactions);
-router.get('/donations/export', exportDonationTransactionsCSV);
-router.get('/donations/transactions/:id', getAdminDonationDetail);
-router.post('/donations/transactions/:id/notes', addAdminNoteToDonation);
-router.patch('/donations/transactions/:id/status', updateDonationStatus);
-
 // ---- Dynamic Tip Setting ----------------------------------------------------
 router.get('/tip-setting', getTipSettingForAdmin);
 router.post('/tip-setting', setTipSettingForAdmin);
@@ -210,10 +194,6 @@ router.get('/coupons/:id/redemptions', getCouponRedemptions);
 router.put('/coupons/:id', updateCoupon);
 router.patch('/coupons/:id/toggle', toggleCoupon);
 router.delete('/coupons/:id', deleteCoupon);
-
-// ---- subscriptions (read-only monitoring) ----------------------------------
-router.get('/subscriptions', listSubscriptionsForAdmin);
-router.get('/subscriptions/:id', getSubscriptionDetailForAdmin);
 
 // ---- customers -------------------------------------------------------------
 router.get('/users', listUsers);

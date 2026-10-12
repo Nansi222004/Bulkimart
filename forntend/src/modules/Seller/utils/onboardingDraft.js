@@ -13,6 +13,23 @@ export const selectedModesToChannels = (modes) => {
   ];
 };
 
+/** Display the seller's chosen storefront channel(s), not a legacy vendor label. */
+export const sellerTypeLabelFromModes = (modes) => {
+  let channels;
+  try {
+    channels = selectedModesToChannels(modes);
+  } catch {
+    return 'Select a sales channel';
+  }
+
+  const hasEcommerce = channels.includes('ecommerce');
+  const hasQuick = channels.includes('grocery');
+  if (hasEcommerce && hasQuick) return 'Hybrid';
+  if (hasQuick) return 'Quick Commerce';
+  if (hasEcommerce) return 'E-Commerce';
+  return 'Select a sales channel';
+};
+
 export const getSellerDraftKey = (userId) => {
   const id = typeof userId === 'string' ? userId.trim() : '';
   return id ? `${DRAFT_PREFIX}${id}` : null;

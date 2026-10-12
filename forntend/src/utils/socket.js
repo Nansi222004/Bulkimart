@@ -27,10 +27,10 @@ export const socket = io(socketUrl, {
 
 /**
  * Initialise socket connection and authenticate with the user token.
- * Joins user, seller, SHG, or rider rooms based on the active role.
+ * Joins user, seller, or rider rooms based on the active role.
  *
  * @param {string} token - The auth token
- * @param {string} role - 'buyer' | 'seller' | 'shg' | 'delivery'
+ * @param {string} role - 'buyer' | 'seller' | 'delivery'
  * @param {string} id - The MongoDB profile ID to join the room
  */
 export const connectSocket = (token, role, id) => {
@@ -47,8 +47,6 @@ export const connectSocket = (token, role, id) => {
     socket.emit('join_user', id);
   } else if (role === 'seller') {
     socket.emit('join_seller', id);
-  } else if (role === 'shg') {
-    socket.emit('join_shg', id);
   } else if (role === 'delivery') {
     socket.emit('join_rider', id);
   } else if (role === 'admin') {

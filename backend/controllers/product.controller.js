@@ -196,9 +196,6 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
   res.status(200).json(products);
 });
 
-// @desc    Get SHG products
-// @route   GET /api/products/shg
-// @access  Public
 /** Turn user input into a literal, non-regex-special string before building a RegExp from it. */
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -303,8 +300,7 @@ export const getProductById = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id)
     .populate('category', 'name')
     .populate('channels.category', 'name')
-    .populate('sellerId', 'storeDetails businessName')
-    .populate('shgStoreId', 'groupName district');
+    .populate('sellerId', 'storeDetails businessName');
 
   if (
     !product ||

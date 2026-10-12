@@ -28,7 +28,7 @@ export const DEFAULT_PRIVACY_POLICIES = [
           "Location data is accessed only when granted permission to accurately pin your delivery address, match nearby dark stores/sellers, and enable live order dispatch tracking.",
         points: [
           "Address Pinpoint Accuracy during checkout",
-          "Finding nearest active Dark Stores & SHG Outlets",
+          "Finding nearest active Dark Stores & Fulfillment Centers",
           "Real-time Rider Tracking during active delivery dispatches",
         ],
         order: 2,
@@ -186,65 +186,8 @@ export const DEFAULT_PRIVACY_POLICIES = [
         order: 4,
       },
     ],
-  },
-  {
-    role: "shg",
-    roleTitle: "SHG Cooperative & Store Privacy Policy",
-    slug: "shg-policy",
-    summary:
-      "Policies ensuring data protection, government/cooperative registration privacy, product authenticity, and fair financial distribution for Self-Help Groups.",
-    version: "1.0.0",
-    sections: [
-      {
-        id: "shg-sec-1",
-        title: "1. SHG Group Registration & Verification Data",
-        content:
-          "We collect Self-Help Group registration certificates, leader details, village/block locations, and group bank account credentials to verify authentic SHG status and enable direct empowerment payouts.",
-        points: [
-          "SHG Registration certificate & Block Development verification",
-          "Group President/Secretary contact credentials",
-          "Group Bank Account for direct payout distribution",
-        ],
-        order: 1,
-      },
-      {
-        id: "shg-sec-2",
-        title: "2. Artisan Craft & Local Product Authenticity",
-        content:
-          "Details of traditional crafts, homemade food items, organic produce, and artisan member profiles are recorded to showcase origin authenticity and support fair trade practices.",
-        points: [
-          "Artisan group member product listings",
-          "Organic/Handicraft quality certificate records",
-          "Transparent pricing & fair margin guarantees",
-        ],
-        order: 2,
-      },
-      {
-        id: "shg-sec-3",
-        title: "3. Direct Group Payouts & Transparent Auditing",
-        content:
-          "Sales proceeds from SHG store orders are credited directly to the verified group bank account, with transparent reporting available for audit by group leadership.",
-        points: [
-          "Direct group bank account settlement",
-          "Zero hidden platform deduction guarantee",
-          "Downloadable monthly sales & revenue reports",
-        ],
-        order: 3,
-      },
-      {
-        id: "shg-sec-4",
-        title: "4. Rural Enterprise Data Security",
-        content:
-          "All group member details and sales records are safeguarded using enterprise-grade encryption and are never disclosed to commercial competitors.",
-        points: [
-          "Protection of cooperative group member lists",
-          "Encrypted database records",
-          "Support for government scheme & subsidy integration",
-        ],
-        order: 4,
-      },
-    ],
-  },
+  }
+
 ];
 
 export const seedPrivacyPolicies = async () => {

@@ -32,8 +32,6 @@ const CheckoutPage = () => {
     fetchAvailableCoupons,
     removeCoupon,
     couponCode,
-    donationSetting,
-    donationPref,
     tipSetting,
     fetchTipSetting,
     useCoinsSelected,
@@ -45,30 +43,6 @@ const CheckoutPage = () => {
   useEffect(() => {
     fetchWalletBalance();
   }, [fetchWalletBalance]);
-
-  const donationPreselectedRef = useRef(false);
-
-  useEffect(() => {
-    if (donationPreselectedRef.current) return;
-    if (!donationSetting || !donationSetting.isEnabled) return;
-    if (donationPref && donationPref.enabled && donationPref.amount > 0 && donationPref.valid !== false) {
-      const prefAmt = Number(donationPref.amount);
-      const isPreset = (donationSetting.options || []).some((o) => Number(o) === prefAmt);
-      const isValidCustom = donationSetting.allowCustom
-        && prefAmt >= (donationSetting.minCustomAmount ?? 1)
-        && prefAmt <= (donationSetting.maxCustomAmount ?? 10000);
-
-      if (isPreset) {
-        setDonationChip(prefAmt);
-        setDonationCustomInput('');
-        donationPreselectedRef.current = true;
-      } else if (isValidCustom) {
-        setDonationChip(null);
-        setDonationCustomInput(String(prefAmt));
-        donationPreselectedRef.current = true;
-      }
-    }
-  }, [donationSetting, donationPref]);
 
   /**
    * The delivery choice, and whether one still has to be made.
@@ -127,23 +101,7 @@ const CheckoutPage = () => {
   const [applying, setApplying] = useState(false);
   const [showOffers, setShowOffers] = useState(false);
 
-  /**
-   * Help Wallet / Social Work donation — a checkout-time choice, not part
-   * of the cart. `donationChip` is a preset the shopper tapped;
-   * `donationCustomInput` is the raw text of a typed-in amount, kept
-   * separate so a stray click on a chip doesn't clobber what they were
-   * typing. Whichever produced a valid number is what actually gets sent —
-   * and the server re-validates that number against the live admin
-   * setting before it ever becomes a charge (see donation.service.js).
-   */
-  const [donationChip, setDonationChip] = useState(null);
-  const [donationCustomInput, setDonationCustomInput] = useState('');
-  const [donationComment, setDonationComment] = useState('');
-  const [showDonationKnowMore, setShowDonationKnowMore] = useState(false);
 
-  const donationCustomVal = Number(donationCustomInput);
-  const donationAmountVal = donationChip
-    ?? (Number.isFinite(donationCustomVal) && donationCustomVal > 0 ? donationCustomVal : 0);
 
   const [tipChip, setTipChip] = useState(null);
   const [tipCustomInput, setTipCustomInput] = useState('');
@@ -294,10 +252,7 @@ const CheckoutPage = () => {
   // order without Coins is byte-for-byte the pre-Coins total).
   const coinDiscountVal = (!isUnified && useCoinsSelected) ? (serverCart?.coins?.coinDiscount || 0) : 0;
   const total = (unified.data ? (unified.data.totals?.totalAmount ?? 0) : getCartTotal()) - coinDiscountVal;
-  // The donation is checkout-only, never part of the cart's own pricing —
-  // added on here for display; the server independently adds the same
-  // validated amount to the order it actually creates.
-  const grandTotalVal = total + donationAmountVal + tipAmount;
+  const grandTotalVal = total + tipAmount;
   const channelItems = getCartItems();
   const items = unified.data ? unified.basketItems : channelItems;
 
@@ -412,10 +367,9 @@ const CheckoutPage = () => {
     // the stock in a transaction, and returns the created order.
     // One basket that becomes three deliveries takes one payment; a basket that
     // is already one delivery goes down the path it always has.
-    const donation = donationAmountVal > 0 ? { amount: donationAmountVal, title: donationSetting?.title, comment: donationComment } : null;
     const res = isUnified
-      ? await placeUnifiedOrder(paymentMethod, donation, tipAmount)
-      : await placeOrder(paymentMethod, donation, tipAmount);
+      ? await placeUnifiedOrder(paymentMethod, tipAmount)
+      : await placeOrder(paymentMethod, tipAmount);
 
     if (!res.ok) {
       setIsOrdering(false);
@@ -427,8 +381,8 @@ const CheckoutPage = () => {
 
     // "Online Payment" doesn't stop here — the order exists (stock is held,
     // pricing is locked) but is not paid yet. Hand the shopper to PhonePe the
-    // same way the SHG subscription purchase does; the confirmation screen
-    // below is only for Cash on Delivery, where placing IS the whole flow.
+    // same way the other PhonePe purchase flows do; the confirmation screen
+    // below is only for Cash on Delivery, where placing is the whole flow.
     if (paymentMethod === 'Online Payment') {
       const pay = await initiateOnlinePayment(firstOrder._id);
       setIsOrdering(false);
@@ -1459,118 +1413,7 @@ const CheckoutPage = () => {
           </div>
         )}
 
-        {/* Help Wallet / Social Work Donation Card */}
-        {donationSetting?.isEnabled && (
-          <div className="profile-menu-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <span style={{ fontSize: 20 }}>❤️</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.35 }}>
-                  {donationSetting.title || 'Donate & Support Transformative Social Work In India'}
-                </p>
-                {donationSetting.subtitle && (
-                  <p style={{ margin: '3px 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>{donationSetting.subtitle}</p>
-                )}
-              </div>
-            </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {(donationSetting.options || []).map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => { setDonationChip((prev) => (prev === amt ? null : amt)); setDonationCustomInput(''); }}
-                  style={{
-                    padding: '7px 14px', borderRadius: 999, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
-                    border: donationChip === amt ? '1.5px solid var(--primary)' : '1.5px solid var(--border-color)',
-                    background: donationChip === amt ? 'var(--primary)' : '#fff',
-                    color: donationChip === amt ? '#fff' : 'var(--text-primary)',
-                  }}
-                >
-                  ₹{amt}
-                </button>
-              ))}
-            </div>
-
-            {donationSetting.allowCustom && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>Other amount:</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={donationCustomInput}
-                  onChange={(e) => {
-                    const digitsOnly = e.target.value.replace(/\D/g, '');
-                    setDonationCustomInput(digitsOnly);
-                    setDonationChip(null);
-                  }}
-                  onWheel={(e) => e.target.blur()}
-                  placeholder={`₹${donationSetting.minCustomAmount || 1}–₹${donationSetting.maxCustomAmount || 10000}`}
-                  style={{ width: 140, padding: '7px 10px', borderRadius: 8, border: '1.5px solid var(--border-color)', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }}
-                />
-              </div>
-            )}
-
-            {donationAmountVal > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  Optional message/comment:
-                </label>
-                <input
-                  type="text"
-                  maxLength={250}
-                  value={donationComment}
-                  onChange={(e) => setDonationComment(e.target.value)}
-                  placeholder="e.g. Hope this supports children in need"
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 8, border: '1.5px solid var(--border-color)', fontSize: 12, fontFamily: 'inherit', outline: 'none' }}
-                />
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setShowDonationKnowMore(true)}
-                style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--primary)', cursor: 'pointer' }}
-              >
-                Know More →
-              </button>
-              {donationAmountVal > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setDonationChip(null); setDonationCustomInput(''); setDonationComment(''); }}
-                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', cursor: 'pointer' }}
-                >
-                  Remove contribution
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {showDonationKnowMore && (
-          <div
-            onClick={() => setShowDonationKnowMore(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          >
-            <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 20, maxWidth: 360, width: '100%' }}>
-              <p style={{ margin: '0 0 10px', fontSize: 13.5, fontWeight: 900, color: 'var(--text-primary)' }}>
-                {donationSetting?.title || 'Social Work Contribution'}
-              </p>
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                {donationSetting?.knowMoreText || 'No further details have been added yet.'}
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowDonationKnowMore(false)}
-                style={{ marginTop: 14, width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 800, fontSize: 12.5, cursor: 'pointer' }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Quick Commerce Partner / Store Details Card */}
         {isQuickCommerceCart && (
@@ -1684,13 +1527,6 @@ const CheckoutPage = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 600 }}>
                 <span>Bulkimart Coins ({serverCart.coins.coinsToUse} used)</span>
                 <span>-₹{coinDiscountVal}</span>
-              </div>
-            )}
-
-            {donationAmountVal > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
-                <span>Social Work Contribution</span>
-                <span>+₹{donationAmountVal}</span>
               </div>
             )}
 
@@ -1862,12 +1698,7 @@ const CheckoutPage = () => {
                     <span>-₹{couponDiscountVal}</span>
                   </div>
                 )}
-                {donationAmountVal > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
-                    <span>Social Work Contribution</span>
-                    <span>+₹{donationAmountVal}</span>
-                  </div>
-                )}
+
                 {tipAmount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                     <span>Delivery Partner Tip</span>

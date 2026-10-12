@@ -288,9 +288,6 @@ const buildReturnDetail = async (returnId) => {
   const ret = await Return.findById(returnId)
     .populate('customerId', 'name phone email')
     .populate('sellerId', 'businessName storeDetails.name storeDetails.phone')
-    // An SHG return has no sellerId at all — the cooperative is the vendor,
-    // so without this the seller line is blank for every SHG item.
-    .populate('shgStoreId', 'groupName district')
     .populate({ path: 'pickup.partnerId', select: 'userId vehicleType vehicleNo', populate: { path: 'userId', select: 'name phone' } })
     .populate('pickup.deliveryId')
     .lean();

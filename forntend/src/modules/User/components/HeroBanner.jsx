@@ -1,6 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
+import bannerShopallSmartBuy from '../../../assets/banner_shopall_smartbuy.jpg';
+import bannerShopallFestive from '../../../assets/banner_shopall_festive.jpg';
+import bannerQuickFresh from '../../../assets/banner_quick_fresh.jpg';
+
+const DEFAULT_THEMED_BANNERS = {
+  'shop-all': [
+    {
+      _id: 'default-shopall-1',
+      title: 'Smart Buy Mega Sale',
+      subtitle: 'Huge savings on Electronics, Home Appliances & Fashion!',
+      image: bannerShopallSmartBuy,
+      targetRoute: '/smart-buy',
+      type: 'ecommerce',
+      isActive: true,
+      priority: 10,
+    },
+    {
+      _id: 'default-shopall-2',
+      title: 'Grand Festive Super Deals',
+      subtitle: 'Flat 20% to 50% OFF across Kitchenware, Electronics, Footwear & Garments!',
+      image: bannerShopallFestive,
+      targetRoute: '/hot-deals',
+      type: 'ecommerce',
+      isActive: true,
+      priority: 9,
+    },
+  ],
+  'quick': [
+    {
+      _id: 'default-quick-1',
+      title: 'Fresh Groceries in 10 Mins!',
+      subtitle: 'Farm-fresh vegetables, dairy, bakery & daily staples delivered instantly!',
+      image: bannerQuickFresh,
+      targetRoute: '/grocery',
+      type: 'grocery',
+      isActive: true,
+      priority: 10,
+    },
+  ],
+};
 
 const HeroBanner = () => {
   const { activeMode, activeSubNav, setActiveNav, setActiveSubNav, setSelectedCategoryFilter, setSelectedProduct, setSelectedCampaignId, setSelectedPromotionId } = useUser();
@@ -54,7 +94,7 @@ const HeroBanner = () => {
         if (cancelled) return;
         console.error("Error fetching banners:", err);
         setBanners([]);
-        setError(err.message || 'Could not load banners');
+        setError('');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -64,10 +104,22 @@ const HeroBanner = () => {
     return () => { cancelled = true; };
   }, [activeMode, activeSubNav, retryToken]);
 
-  const activeBanners = banners.filter((banner) => {
-    const searchable = `${banner.title || ''} ${banner.subtitle || ''} ${banner.targetRoute || ''}`.toLowerCase();
-    return !searchable.includes('subscription') && !searchable.includes('premium membership');
-  });
+  const activeBanners = (() => {
+    const serverBanners = banners.filter((banner) => {
+      const searchable = `${banner.title || ''} ${banner.subtitle || ''} ${banner.targetRoute || ''}`.toLowerCase();
+      return !searchable.includes('subscription') && !searchable.includes('premium membership');
+    });
+
+    const themedDefaults = DEFAULT_THEMED_BANNERS[activeMode] || [];
+
+    if (serverBanners.length > 0) {
+      const existingTitles = new Set(serverBanners.map(b => (b.title || '').toLowerCase()));
+      const extraDefaults = themedDefaults.filter(d => !existingTitles.has((d.title || '').toLowerCase()));
+      return [...serverBanners, ...extraDefaults];
+    }
+
+    return themedDefaults;
+  })();
 
   // Auto-advance slides (Flipkart style horizontal sliding)
   useEffect(() => {
@@ -101,7 +153,7 @@ const HeroBanner = () => {
     if (!bannerToHandle) return;
 
     // Track click on backend
-    if (bannerToHandle._id && bannerToHandle._id !== 'default-shg') {
+    if (bannerToHandle._id) {
       fetch(apiUrl(`/api/banners/${bannerToHandle._id}/click`), { method: 'POST' }).catch(() => {});
     }
 
@@ -141,9 +193,7 @@ const HeroBanner = () => {
       return;
     }
 
-    if (route === '/shg-stores') {
-      setActiveNav('home');
-    } else if (route === '/cart') {
+    if (route === '/cart') {
       setActiveNav('cart');
     } else if (route === '/categories') {
       setActiveNav('categories');

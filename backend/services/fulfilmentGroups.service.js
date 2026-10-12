@@ -147,7 +147,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // when it went into the basket — never a cached deal.
       price: inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price,
       campaignId: deal ? deal.campaignId : undefined,
-      available: Boolean(product && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
+      available: Boolean(product && product.type !== 'shg' && !product.shgStoreId
+        && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
         && product.status === 'approved' && inventory && inventory.stock >= line.qty),
     };
 

@@ -19,16 +19,6 @@ export const commissions = [
     isActive: true,
   },
   {
-    // SHG is 0% by platform policy — BRD social mission
-    _id: ID.commission(2),
-    vendorType: 'shg',
-    categoryId: null,
-    percentage: 0,
-    flatFee: 0,
-    effectiveDate: new Date('2026-01-01'),
-    isActive: true,
-  },
-  {
     // category-specific override, proves the fallback chain works
     _id: ID.commission(3),
     vendorType: 'general',

@@ -28,7 +28,7 @@ import { SELLER_PROMOTION_MODULES } from '../models/SellerPromotion.js';
  *
  * Reused, not rebuilt: the existing upload pipeline (uploadToCloudinary),
  * the existing PhonePe integration (services/phonepe.service.js, the same
- * one Premium Membership uses), the existing Notification model, and the
+ * the existing Notification model, and the
  * existing Banner engine via services/sellerPromotion.service.js.
  */
 
@@ -355,7 +355,7 @@ export const cancelPromotion = asyncHandler(async (req, res) => {
 /**
  * Move a SellerPromotion's payment to paid/failed exactly once. Exported so
  * payment.controller.js's shared webhook can branch into it, same as
- * settlePremiumPayment/settleShgSubscriptionPayment.
+ * the other shared-payment settlement handlers.
  */
 export const settleSellerPromotionPayment = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode }) => {
   if (payment.status === PAYMENT_STATUS.PAID) return { changed: false, status: 'paid' };

@@ -12,13 +12,13 @@ export const CHANNEL = {
   GROCERY: 'grocery',
   SHG: 'shg',
 };
-export const CHANNELS = Object.values(CHANNEL);
+export const CHANNELS = [CHANNEL.ECOM, CHANNEL.GROCERY];
 
 // Wholesale is an approved seller capability in this foundation phase, not
 // yet a cart/order storefront channel. Keep it out of CHANNELS/ORDER_TYPES so
 // existing public, cart, and checkout flows cannot accept it prematurely.
 export const WHOLESALE_CHANNEL = 'wholesale';
-export const SELLER_SALES_CHANNELS = [...CHANNELS.filter((channel) => channel !== CHANNEL.SHG), WHOLESALE_CHANNEL];
+export const SELLER_SALES_CHANNELS = [...CHANNELS, WHOLESALE_CHANNEL];
 export const WHOLESALE_REQUEST_STATUS = {
   NOT_REQUESTED: 'not_requested',
   PENDING: 'pending',
@@ -260,51 +260,12 @@ export const PAYOUT_MODES = Object.values(PAYOUT_MODE);
  */
 export const TIP_PRESETS = [10, 20, 30, 40, 50];
 
-// ---------------------------------------------------------------- subscriptions
-export const PLAN_TYPE = {
-  TEN_DAY: '10day',
-  FIFTEEN_DAY: '15day',
-  MONTHLY: 'monthly',
-  CUSTOM: 'custom',
-};
-export const PLAN_TYPES = Object.values(PLAN_TYPE);
-export const PLAN_DURATION_DAYS = { '10day': 10, '15day': 15, monthly: 30 };
 
-export const SUBSCRIPTION_STATUS = {
-  PENDING_SELLER_ACCEPTANCE: 'pending_seller_acceptance',
-  ACTIVE: 'active',
-  PAUSED: 'paused',
-  CANCELLED: 'cancelled',
-  EXPIRED: 'expired',
-};
-export const SUBSCRIPTION_STATUSES = Object.values(SUBSCRIPTION_STATUS);
 
-/** One rider's-side-mirrored lifecycle for a single scheduled delivery row. */
-export const SUBSCRIPTION_DELIVERY_STATUS = {
-  SCHEDULED: 'scheduled',
-  PACKED: 'packed',
-  DELIVERED: 'delivered',
-  SKIPPED: 'skipped',
-  FAILED: 'failed',
-};
-export const SUBSCRIPTION_DELIVERY_STATUSES = Object.values(SUBSCRIPTION_DELIVERY_STATUS);
 
-export const SUBSCRIPTION_FREQUENCY = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly' };
-export const SUBSCRIPTION_FREQUENCIES = Object.values(SUBSCRIPTION_FREQUENCY);
 
-export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/**
- * What one subscription delivery may weigh.
- *
- * A rider carries this on a two-wheeler alongside whatever else they are
- * holding. The ceiling is per DELIVERY, not per plan — a month of 5 kg drops is
- * thirty ordinary trips, while one 25 kg drop is a trip nobody can make.
- */
-export const SUBSCRIPTION_MAX_WEIGHT_KG = Number(process.env.SUBSCRIPTION_MAX_WEIGHT_KG) || 20;
 
-/** How many deliveries one plan may generate — a guard against a typo'd duration. */
-export const SUBSCRIPTION_MAX_DELIVERIES = 90;
 
 // ---------------------------------------------------------------- pricing
 // The floor services/deliveryCharge.service.js falls back to before an

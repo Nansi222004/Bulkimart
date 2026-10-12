@@ -19,11 +19,6 @@ export const emitToSeller = (sellerId, event, payload) => {
   getIO().to(`seller:${sellerId}`).emit(event, payload);
 };
 
-/** Emit to a single SHG store. */
-export const emitToShg = (shgStoreId, event, payload) => {
-  getIO().to(`shg:${shgStoreId}`).emit(event, payload);
-};
-
 /** Emit to a single delivery partner. */
 export const emitToRider = (partnerId, event, payload) => {
   getIO().to(`rider:${partnerId}`).emit(event, payload);

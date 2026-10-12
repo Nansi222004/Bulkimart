@@ -21,8 +21,6 @@ import ProfileTab from '../components/ProfileTab';
 import GrowTab from '../components/GrowTab';
 import AccountTab from '../components/AccountTab';
 import SellerOrderRingModal from '../components/SellerOrderRingModal';
-import SubscriptionRequestRingModal from '../components/SubscriptionRequestRingModal';
-import SubscriptionPackChecklist from '../components/SubscriptionPackChecklist';
 import NotificationPopup from '../../../components/NotificationPopup';
 
 /** Maps an Admin/business-event deep link (always `/seller/...` per
@@ -40,7 +38,6 @@ const TAB_TITLES = {
   products: 'Products',
   stock: 'Stocks',
   orders: 'Orders',
-  subscriptions: 'Subscriptions',
   returns: 'Return Requests',
   track: 'Track Order',
   salesreport: 'Sales Report',
@@ -60,13 +57,10 @@ export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     incomingOrder, setIncomingOrder, fetchSellerOrders,
-    incomingSubscriptionRequest, setIncomingSubscriptionRequest,
-    subscriptionPrepAlerts, dismissSubscriptionPrepAlert,
     sellerProfile, userProfile, bizForm, requestWholesaleChannel,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
-  const [openPackAlert, setOpenPackAlert] = useState(null); // { subscriptionId, deliveryEntryId } | null
 
   const isHybrid = (selectedTypes.includes('ecommerce') && selectedTypes.includes('quick')) ||
     (Array.isArray(sellerProfile?.salesChannels) && sellerProfile.salesChannels.includes('ecommerce') && sellerProfile.salesChannels.includes('grocery'));
@@ -232,63 +226,7 @@ export const DashboardPage = () => {
         />
       )}
 
-      {incomingSubscriptionRequest && (
-        <SubscriptionRequestRingModal
-          request={incomingSubscriptionRequest}
-          onAccept={() => setIncomingSubscriptionRequest(null)}
-          onDecline={() => setIncomingSubscriptionRequest(null)}
-        />
-      )}
 
-      {/* Subscription deliveries due for packing — a small dismissible
-          stack rather than a full nav tab, kept intentionally simple. */}
-      {subscriptionPrepAlerts.length > 0 && (
-        <div style={{ position: 'fixed', top: 76, right: 16, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320 }}>
-          {subscriptionPrepAlerts.map((alert) => (
-            <div
-              key={alert.deliveryEntryId}
-              style={{
-                background: '#fff', border: '1.5px solid #10b981', borderRadius: 14,
-                padding: '12px 14px', boxShadow: '0 8px 16px -4px rgba(0,0,0,0.12)',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-              }}
-            >
-              <div>
-                <strong style={{ fontSize: 13, display: 'block' }}>📦 Delivery due soon</strong>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {new Date(alert.deliveryDate).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => setOpenPackAlert({ subscriptionId: alert.subscriptionId, deliveryEntryId: alert.deliveryEntryId })}
-                  style={{ padding: '6px 10px', borderRadius: 10, border: 'none', background: '#10b981', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
-                >
-                  Prepare
-                </button>
-                <button
-                  onClick={() => dismissSubscriptionPrepAlert(alert.deliveryEntryId)}
-                  style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer' }}
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {openPackAlert && (
-        <SubscriptionPackChecklist
-          subscriptionId={openPackAlert.subscriptionId}
-          deliveryEntryId={openPackAlert.deliveryEntryId}
-          onPacked={(entryId) => {
-            dismissSubscriptionPrepAlert(entryId);
-            setOpenPackAlert(null);
-          }}
-          onClose={() => setOpenPackAlert(null)}
-        />
-      )}
 
       {/* WhatsApp-style floating notification — reacts to the existing
           socket `notification_new` event; no new backend call besides the

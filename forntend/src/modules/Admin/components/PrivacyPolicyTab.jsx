@@ -24,13 +24,6 @@ const ROLE_TABS = [
     icon: "🛵",
     description: "Background location tracking, KYC, trip earnings, and rider safety policies.",
   },
-  {
-    id: "shg",
-    slug: "shg-policy",
-    label: "SHG Cooperative",
-    icon: "🏬",
-    description: "Cooperative registration, artisan product authenticity, and rural group payouts.",
-  },
 ];
 
 export const PrivacyPolicyTab = () => {
@@ -202,7 +195,7 @@ export const PrivacyPolicyTab = () => {
         <div>
           <h2 style={{ margin: 0, fontSize: "22px", fontWeight: "800" }}>📜 Privacy Policy Management</h2>
           <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#94a3b8" }}>
-            Dynamically update privacy policy terms for Users, Sellers, Riders, and SHG stores.
+            Dynamically update privacy policy terms for users, sellers, and riders.
           </p>
         </div>
         <div style={{ display: "flex", gap: "12px" }}>

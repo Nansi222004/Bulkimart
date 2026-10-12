@@ -81,11 +81,6 @@ export const users = [
   { _id: ID.user(15), phone: '9000000015', name: 'Ramesh Gupta', roles: [ROLE.BUYER], isActive: true },
   { _id: ID.user(16), phone: '9000000016', name: 'Sunita Rao', roles: [ROLE.BUYER], isActive: true },
 
-  // ---------------------------------------------------- SHG-backing accounts
-  { _id: ID.user(21), phone: '9000000021', name: 'Lakshmi Bai', roles: [ROLE.BUYER], isActive: true },
-  { _id: ID.user(22), phone: '9000000022', name: 'Sarita Devi', roles: [ROLE.BUYER], isActive: true },
-  { _id: ID.user(23), phone: '9000000023', name: 'Geeta Kumari', roles: [ROLE.BUYER], isActive: true },
-
   // ----------------------------------------- delivery-partner accounts (Day 2)
   { _id: ID.user(31), phone: '9000000031', name: 'Imran Shaikh', roles: [ROLE.BUYER], isActive: true },
   { _id: ID.user(32), phone: '9000000032', name: 'Deepak Yadav', roles: [ROLE.BUYER], isActive: true },

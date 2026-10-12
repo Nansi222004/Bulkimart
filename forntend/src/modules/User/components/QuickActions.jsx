@@ -87,7 +87,7 @@ const QuickActions = () => {
       {QUICK_ACTIONS.filter((action) => action.id !== 'wholesale' || wholesaleAvailable).map((action) => (
         <div 
           key={action.id} 
-          className="quick-action-card"
+          className={`quick-action-card ${activeMode === 'shop-all' ? 'quick-action-card--shop-all' : ''}`}
           role="button"
           tabIndex={0}
           onClick={() => handleActionClick(action.id)}
@@ -95,9 +95,9 @@ const QuickActions = () => {
         >
           <div
             className="action-icon-wrapper"
-            style={{ backgroundColor: activeMode === 'shop-all' ? 'var(--primary-light)' : action.color }}
+            style={{ backgroundColor: activeMode === 'shop-all' ? 'var(--quick-action-icon-bg, var(--primary-light))' : action.color }}
           >
-            {renderIcon(action.icon, activeMode === 'shop-all' && action.id !== 'offers' ? 'var(--primary-hover)' : action.iconColor)}
+            {renderIcon(action.icon, activeMode === 'shop-all' && action.id !== 'offers' ? 'var(--quick-action-icon-color, var(--primary-hover))' : action.iconColor)}
           </div>
           <div className="action-text">
             <span className="action-title">{action.title}</span>

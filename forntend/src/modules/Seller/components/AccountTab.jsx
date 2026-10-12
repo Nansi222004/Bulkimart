@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
+import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
 import productHoney from '../../../assets/product_honey.png';
 
 export const AccountTab = () => {
@@ -230,19 +231,9 @@ export const AccountTab = () => {
               <span className="review-item-val">{bankForm.holderName || 'Not provided'}</span>
             </div>
             <div className="review-item-row">
-              <span className="review-item-key">Mobile Number</span>
-              <span className="review-item-val">9876543210</span>
-            </div>
-            <div className="review-item-row">
               <span className="review-item-key">Classification</span>
-              <span className="review-item-val">{bizForm.vendorType}</span>
+              <span className="review-item-val">{sellerTypeLabelFromModes(selectedTypes)}</span>
             </div>
-            {bizForm.shgId && (
-              <div className="review-item-row">
-                <span className="review-item-key">SHG ID</span>
-                <span className="review-item-val">{bizForm.shgId}</span>
-              </div>
-            )}
             
             {/* Enabled Sales Channels Row */}
             <div className="review-item-row" style={{ borderTop: '1px dashed #e2e8f0', paddingTop: 10, marginTop: 10 }}>

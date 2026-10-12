@@ -7,7 +7,7 @@ const router = express.Router();
 
 /**
  * Where PhonePe sends the seller back — before any auth, same placement
- * premium.routes.js uses for its own return URL: the browser returns
+ * payment return handlers use: the browser returns
  * without the app's Authorization header, and the real state is re-checked
  * against PhonePe itself, never trusted from the redirect alone.
  */

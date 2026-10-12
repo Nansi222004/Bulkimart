@@ -4,7 +4,6 @@ import mongoose from 'mongoose';
 
 import User from '../models/User.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import Category from '../models/Category.js';
 import Product from '../models/Product.js';
 import Commission from '../models/Commission.js';
@@ -16,7 +15,6 @@ import { ROLE, VENDOR_STATUS } from '../constants/enums.js';
 import { categories } from './data/categories.js';
 import { users } from './data/users.js';
 import { sellers } from './data/sellers.js';
-import { shgStores } from './data/shgStores.js';
 import { products } from './data/products.js';
 import { commissions } from './data/commissions.js';
 import { banners } from './data/banners.js';
@@ -53,7 +51,7 @@ const run = async () => {
   if (RESET) {
     console.log('⚠  --reset: clearing seeded collections (Admin is preserved)\n');
     await Promise.all([
-      User.deleteMany({}), Seller.deleteMany({}), SHGStore.deleteMany({}),
+      User.deleteMany({}), Seller.deleteMany({}),
       Category.deleteMany({}), Product.deleteMany({}), Commission.deleteMany({}),
       Banner.deleteMany({}), Cart.deleteMany({}), Order.deleteMany({}),
     ]);
@@ -63,7 +61,6 @@ const run = async () => {
   await upsertAll(Category, categories, 'categories');
   await upsertAll(User, users, 'users');
   await upsertAll(Seller, sellers, 'sellers');
-  await upsertAll(SHGStore, shgStores, 'shg stores');
   // Demo products are NOT seeded by default any more — the catalogue should
   // start empty so real seller listings are the only products in the system.
   // Pass --with-products if you ever need the old demo catalogue back.
@@ -81,12 +78,6 @@ const run = async () => {
     if (s.status === VENDOR_STATUS.APPROVED) update.$addToSet = { roles: ROLE.SELLER };
     await User.updateOne({ _id: s.userId }, update);
   }
-  for (const g of shgStores) {
-    const update = { $set: { shgStoreId: g._id } };
-    if (g.status === VENDOR_STATUS.APPROVED) update.$addToSet = { roles: ROLE.SHG };
-    await User.updateOne({ _id: g.userId }, update);
-  }
-
   // ---- summary
   const [pendingSellers, pendingProducts, lowStock] = await Promise.all([
     Seller.countDocuments({ status: VENDOR_STATUS.PENDING }),
@@ -104,8 +95,6 @@ const run = async () => {
    9000000005  buyer, DEACTIVATED    → expect 403
    9000000011  approved seller       (Joshi General Store)
    9000000013  PENDING seller        → use for the admin approval demo
-   9000000021  approved SHG          (Jai Bhavani Mahila Bachat Gat)
-   9000000023  PENDING SHG           → use for the admin approval demo
    admin       ${process.env.ADMIN_EMAIL || 'admin@admin.com'} / POST /api/auth/admin/login
 
    Awaiting admin action: ${pendingSellers} sellers, ${pendingProducts} products

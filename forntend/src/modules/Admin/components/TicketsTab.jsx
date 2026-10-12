@@ -89,7 +89,6 @@ export const TicketsTab = () => {
           <option value="All">All Roles</option>
           <option value="customer">Customer</option>
           <option value="seller">Seller</option>
-          <option value="shg">SHG</option>
           <option value="delivery">Delivery Partner</option>
         </select>
         <select className="admin-filter-select" value={ticketCategoryFilter} onChange={(e) => setTicketCategoryFilter(e.target.value)}>

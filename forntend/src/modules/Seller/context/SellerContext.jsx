@@ -85,8 +85,6 @@ export const SellerProvider = ({ children }) => {
     vendorType: initialDraft?.bizForm?.vendorType || 'General Vendor',
     category: initialDraft?.bizForm?.category || 'Groceries',
     description: initialDraft?.bizForm?.description || '',
-    shgName: '',
-    shgId: '',
     leaderName: ''
   }));
 
@@ -466,17 +464,6 @@ export const SellerProvider = ({ children }) => {
   }, [draftKey]);
 
   const [incomingOrder, setIncomingOrder] = useState(null);
-  // A new subscription request awaiting this seller's accept/decline —
-  // same "one ring at a time" shape as incomingOrder above.
-  const [incomingSubscriptionRequest, setIncomingSubscriptionRequest] = useState(null);
-  // Prep alerts can arrive faster than a seller clears them (several
-  // subscriptions can come due close together), so these queue rather
-  // than overwrite one another.
-  const [subscriptionPrepAlerts, setSubscriptionPrepAlerts] = useState([]);
-
-  // Urgent ring for an incoming order or subscription request — same
-  // "one alert at a time" shape as the state driving each modal, so the
-  // sound can never disagree with what's on screen and two never overlap.
   const prevIncomingOrderKey = React.useRef(null);
   useEffect(() => {
     const key = incomingOrder ? `order:${incomingOrder.orderId || incomingOrder._id}` : null;
@@ -484,14 +471,6 @@ export const SellerProvider = ({ children }) => {
     else if (prevIncomingOrderKey.current) stopRing(prevIncomingOrderKey.current);
     prevIncomingOrderKey.current = key;
   }, [incomingOrder]);
-
-  const prevIncomingSubKey = React.useRef(null);
-  useEffect(() => {
-    const key = incomingSubscriptionRequest ? `sub:${incomingSubscriptionRequest.subscriptionId}` : null;
-    if (key) startRing(key);
-    else if (prevIncomingSubKey.current) stopRing(prevIncomingSubKey.current);
-    prevIncomingSubKey.current = key;
-  }, [incomingSubscriptionRequest]);
 
   // Push registration, independent of whether the seller is currently
   // viewing the dashboard.
@@ -513,27 +492,11 @@ export const SellerProvider = ({ children }) => {
       setIncomingOrder(order);
     });
 
-    socket.on('subscription_request', (request) => {
-      setIncomingSubscriptionRequest(request);
-    });
-
-    socket.on('subscription_prep_alert', (alert) => {
-      setSubscriptionPrepAlerts((prev) => [...prev, alert]);
-    });
-
     return () => {
       socket.off('new_order');
-      socket.off('subscription_request');
-      socket.off('subscription_prep_alert');
       disconnectSocket();
     };
   }, [sellerProfile]);
-
-  // Removes one alert once the seller has opened/handled it — by
-  // deliveryEntryId, since that's what identifies a single scheduled row.
-  const dismissSubscriptionPrepAlert = (deliveryEntryId) => {
-    setSubscriptionPrepAlerts((prev) => prev.filter((a) => a.deliveryEntryId !== deliveryEntryId));
-  };
 
   /**
    * Save the shop's Same-Day hours and reach.
@@ -598,37 +561,7 @@ export const SellerProvider = ({ children }) => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState('');
 
-  const [sellerSubscriptions, setSellerSubscriptions] = useState([]);
-  const [sellerSubscriptionsLoading, setSellerSubscriptionsLoading] = useState(false);
-  const [sellerSubscriptionsError, setSellerSubscriptionsError] = useState('');
 
-  /**
-   * Every subscription this seller fulfils — fetched on demand (the
-   * Subscriptions tab calls this on mount), not kept live via socket the
-   * way `incomingSubscriptionRequest`/`subscriptionPrepAlerts` are. Those
-   * two stay as notification-only nudges; this is the actual backend
-   * state the list/detail screens render, re-fetched fresh so a refresh
-   * always shows the real thing rather than a stale local copy.
-   */
-  const fetchSellerSubscriptions = useCallback(async () => {
-    setSellerSubscriptionsLoading(true);
-    setSellerSubscriptionsError('');
-    try {
-      const res = await fetch(apiUrl('/api/subscriptions/seller'), { headers: authHeader() });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSellerSubscriptionsError(body.message || 'Could not load subscriptions');
-        setSellerSubscriptions([]);
-        return;
-      }
-      setSellerSubscriptions(body.data || []);
-    } catch (err) {
-      setSellerSubscriptionsError(err.message || 'Network error — is the server running?');
-      setSellerSubscriptions([]);
-    } finally {
-      setSellerSubscriptionsLoading(false);
-    }
-  }, []);
 
   const fetchSellerOrders = useCallback(async (status = 'all') => {
     setOrdersLoading(true);
@@ -974,7 +907,7 @@ export const SellerProvider = ({ children }) => {
         headers: JSON_H,
         body: JSON.stringify({
           businessName: bizForm.storeName,
-          businessType: bizForm.vendorType === 'SHG Vendor' ? 'individual' : 'proprietorship',
+          businessType: 'proprietorship',
           storeDetails: {
             name: bizForm.storeName,
             description: bizForm.description,
@@ -1189,11 +1122,7 @@ export const SellerProvider = ({ children }) => {
   // (see product.controller.js::deleteProduct's own comment, and
   // admin.controller.js::approveProduct — never seller-writable), and no
   // route accepts a seller-facing `status` field. This handler is not
-  // wired into any Seller UI (grep confirms it's unused there — only
-  // SHGProductsTab.jsx calls the SHG context's own, differently-shaped
-  // version). Left as-is, unconnected — per Package 2's explicit scope,
-  // this is reported as out-of-scope rather than given a fake or invented
-  // backend here.
+  // wired into any Seller UI.
   const handleToggleProductStatus = (productId, newStatus) => {
     setActiveActionsMenuId(null);
     triggerToast('Active/inactive toggle has no backend yet — not available.');
@@ -1420,17 +1349,9 @@ export const SellerProvider = ({ children }) => {
         startEditProduct,
         submitProductEdit,
         orders,
-        sellerSubscriptions,
-        sellerSubscriptionsLoading,
-        sellerSubscriptionsError,
-        fetchSellerSubscriptions,
         payouts,
         campaigns,
         incomingOrder,
-        incomingSubscriptionRequest,
-        setIncomingSubscriptionRequest,
-        subscriptionPrepAlerts,
-        dismissSubscriptionPrepAlert,
         setIncomingOrder,
       }}
     >

@@ -28,13 +28,10 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
         throw new Error('Failed to download template. Please try again.');
       }
 
-      const isShg = String(mode).toLowerCase() === 'shg';
       const isQuick = String(mode).toLowerCase() === 'quick' || String(mode).toLowerCase() === 'grocery';
-      const defaultFilename = isShg
-        ? 'Bulkimart_SHG_Bulk_Product_Template.xlsx'
-        : (isQuick 
-            ? 'Bulkimart_Quick_Commerce_Bulk_Product_Template.xlsx' 
-            : 'Bulkimart_Ecommerce_Bulk_Product_Template.xlsx');
+      const defaultFilename = isQuick
+        ? 'Bulkimart_Quick_Commerce_Bulk_Product_Template.xlsx'
+        : 'Bulkimart_Ecommerce_Bulk_Product_Template.xlsx';
 
       const contentDisposition = res.headers.get('content-disposition');
       let filename = defaultFilename;
@@ -153,12 +150,10 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
         }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800' }}>
-              {mode === 'shg' ? 'SHG Bulk Product Listing' : 'Bulk Product Listing'}
+              Bulk Product Listing
             </h3>
             <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
-              {mode === 'shg'
-                ? 'Upload Excel sheet with SHG categories & images ZIP file to list products in bulk'
-                : 'Upload Excel product sheet & images ZIP file to list items in bulk'}
+              Upload Excel product sheet & images ZIP file to list items in bulk
             </p>
           </div>
           <button
@@ -210,10 +205,10 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
           }}>
             <div>
               <strong style={{ display: 'block', fontSize: '14px', color: '#0f172a' }}>
-                1. Download {mode === 'shg' ? 'SHG Excel Template' : (mode === 'quick' ? 'Quick Commerce Excel Template' : 'Ecommerce Excel Template')}
+                1. Download {mode === 'quick' ? 'Quick Commerce Excel Template' : 'Ecommerce Excel Template'}
               </strong>
               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                Pre-populated with valid {mode === 'shg' ? 'SHG' : 'system'} Categories, Headers & dropdowns.
+                Pre-populated with valid system Categories, Headers & dropdowns.
               </span>
             </div>
             <button

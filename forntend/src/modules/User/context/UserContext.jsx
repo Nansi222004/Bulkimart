@@ -72,11 +72,7 @@ export const UserProvider = ({ children }) => {
     return 'home';
   };
 
-  const getSubscriptionStepFromPath = () => {
-    const pathname = window.location.pathname;
-    if (pathname.startsWith('/basket')) return 'basket';
-    return 'products';
-  };
+
 
   const getSubNavFromPath = (mode) => {
     const pathname = window.location.pathname;
@@ -107,7 +103,6 @@ export const UserProvider = ({ children }) => {
   const [activeMode, setActiveModeState] = useState(resolveMode);
   const [productTab, setProductTab] = useState('quick');
   const [activeNav, setActiveNavState] = useState(getNavFromPath);
-  const [subscriptionStep, setSubscriptionStepState] = useState(getSubscriptionStepFromPath);
 
   const currentModeFromPath = resolveMode();
   const [activeSubNav, setActiveSubNavState] = useState(() => getSubNavFromPath(currentModeFromPath));
@@ -117,7 +112,6 @@ export const UserProvider = ({ children }) => {
   const currentMode = pathMode || activeMode;
   const currentNav = getNavFromPath();
   const currentSubNav = getSubNavFromPath(currentMode);
-  const currentSubStep = getSubscriptionStepFromPath();
 
   /**
    * Only a path that names a storefront may change which one we are in.
@@ -131,9 +125,6 @@ export const UserProvider = ({ children }) => {
   }
   if (activeNav !== currentNav) {
     setActiveNavState(currentNav);
-  }
-  if (subscriptionStep !== currentSubStep) {
-    setSubscriptionStepState(currentSubStep);
   }
   if (activeSubNav !== currentSubNav) {
     setActiveSubNavState(currentSubNav);
@@ -187,17 +178,11 @@ export const UserProvider = ({ children }) => {
   };
 
   const setActiveNav = (navId) => {
-    let newPath = navId === 'home' ? '/' : `/${navId}`;
-    if (['basket', 'subscriptions', 'my-subscriptions'].includes(navId)) newPath = '/';
+    const newPath = navId === 'home' ? '/' : `/${navId}`;
     if (window.location.pathname !== newPath) {
       window.history.pushState(null, '', newPath);
     }
-    if (['basket', 'subscriptions', 'my-subscriptions'].includes(navId)) {
-      setActiveNavState('home');
-      setSubscriptionStepState('products');
-    } else {
-      setActiveNavState(navId);
-    }
+    setActiveNavState(navId);
     if (navId === 'home') {
       setActiveSubNavState(activeMode === 'quick' ? 'grocery--home' : 'ecommerce--smart-buy');
     }
@@ -301,14 +286,7 @@ export const UserProvider = ({ children }) => {
   // --- Product Detail ---
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // --- Subscription ---
-  const setSubscriptionStep = (step) => {
-    const newPath = step === 'basket' ? '/basket' : '/subscriptions';
-    if (window.location.pathname !== newPath) {
-      window.history.pushState(null, '', newPath);
-    }
-    setSubscriptionStepState(step);
-  };
+
 
 
   // --- Coupon ---
@@ -878,88 +856,7 @@ export const UserProvider = ({ children }) => {
     }
   }, [cartChannel]);
 
-  /**
-   * The Help Wallet / Social Work donation prompt config for checkout.
-   * Public — no sign-in required to fetch it, same as the storefront's
-   * other read-only catalog data. Purely informational; the amount that
-   * actually gets charged is independently re-validated server-side at
-   * order placement, never taken from anything cached here.
-   */
-  const [donationSetting, setDonationSetting] = useState(null);
-  const fetchDonationSetting = useCallback(async () => {
-    try {
-      const res = await fetch(apiUrl('/api/donation-setting'));
-      const body = await res.json().catch(() => ({}));
-      if (res.ok) setDonationSetting(body.data || null);
-    } catch {
-      // leave whatever was already loaded rather than blank the checkout on a network blip
-    }
-  }, []);
-  useEffect(() => { fetchDonationSetting(); }, [fetchDonationSetting]);
 
-  // Saved Donation Preference (Persistent Customer Setting)
-  const [donationPref, setDonationPref] = useState(null);
-  const [donationPrefLoading, setDonationPrefLoading] = useState(false);
-  const [donationPrefError, setDonationPrefError] = useState('');
-
-  const fetchDonationPreference = useCallback(async () => {
-    const token = localStorage.getItem('userToken') || localStorage.getItem('token');
-    if (!token) { setDonationPref(null); return null; }
-    setDonationPrefLoading(true);
-    setDonationPrefError('');
-    try {
-      const res = await fetch(apiUrl('/api/users/donation-preference'), {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const body = await res.json().catch(() => ({}));
-      if (res.ok && body.success) {
-        setDonationPref(body.data?.preference || null);
-        if (body.data?.setting) setDonationSetting(body.data.setting);
-        return body.data?.preference || null;
-      } else {
-        setDonationPrefError(body.message || 'Failed to fetch donation preference');
-      }
-    } catch (e) {
-      setDonationPrefError(e.message || 'Error fetching donation preference');
-    } finally {
-      setDonationPrefLoading(false);
-    }
-    return null;
-  }, []);
-
-  const saveDonationPreference = useCallback(async ({ enabled, amount }) => {
-    const token = localStorage.getItem('userToken') || localStorage.getItem('token');
-    if (!token) throw new Error('Please login to save donation preference');
-    setDonationPrefLoading(true);
-    setDonationPrefError('');
-    try {
-      const res = await fetch(apiUrl('/api/users/donation-preference'), {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ enabled, amount })
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) {
-        throw new Error(body.message || 'Could not save donation preference');
-      }
-      setDonationPref(body.data?.preference || { enabled, amount });
-      return body.data?.preference;
-    } catch (err) {
-      setDonationPrefError(err.message);
-      throw err;
-    } finally {
-      setDonationPrefLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchDonationPreference();
-    }
-  }, [currentUser, fetchDonationPreference]);
 
   const [tipSetting, setTipSetting] = useState(null);
   const fetchTipSetting = useCallback(async () => {
@@ -1298,60 +1195,14 @@ export const UserProvider = ({ children }) => {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  // ========================
-  // SUBSCRIPTIONS — server-backed, same shape as ORDERS above
-  // ========================
-  const [subscriptions, setSubscriptions] = useState([]);
-  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
-  const [subscriptionsError, setSubscriptionsError] = useState('');
-  const [selectedSubscription, setSelectedSubscription] = useState(null);
 
-  const fetchSubscriptions = useCallback(async () => {
-    if (!isSignedIn()) { setSubscriptions([]); return; }
-    setSubscriptionsLoading(true);
-    setSubscriptionsError('');
-    try {
-      const res = await fetch(apiUrl('/api/subscriptions'), { headers: authHeaders(false) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSubscriptionsError(body.message || 'Could not load your subscriptions');
-        setSubscriptions([]);
-        return;
-      }
-      setSubscriptions(body.data || []);
-    } catch (err) {
-      setSubscriptionsError(err.message || 'Network error — is the server running?');
-      setSubscriptions([]);
-    } finally {
-      setSubscriptionsLoading(false);
-    }
-  }, []);
-
-  /**
-   * The authoritative single subscription — always re-fetched by id, never
-   * trusted from the list row alone. A list row can be seconds to minutes
-   * stale (schedule/status can move via the seller's own actions or the
-   * sweepers); opening the detail screen re-reads from the backend the
-   * same way `selectedOrder`'s tracking screen already does for orders.
-   */
-  const fetchSubscriptionById = useCallback(async (id) => {
-    try {
-      const res = await fetch(apiUrl(`/api/subscriptions/${id}`), { headers: authHeaders(false) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, message: body.message || 'Could not load this subscription' };
-      setSelectedSubscription(body.data);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, message: err.message || 'Network error — is the server running?' };
-    }
-  }, []);
 
   /**
    * Place the order for the storefront currently being viewed.
    * Totals are recalculated server-side from live prices, so what is charged
    * always matches what the cart showed.
    */
-  const placeOrder = async (paymentMethod = 'Cash on Delivery', donation = null, tipAmount = 0) => {
+  const placeOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
     if ((serverCart.items || []).length === 0) return { ok: false, message: 'Your cart is empty.' };
 
@@ -1371,8 +1222,6 @@ export const UserProvider = ({ children }) => {
         paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
         deliveryMode: cartChannel === 'ecommerce' ? (deliveryMode || serverCart?.items?.[0]?.deliveryMode || undefined) : undefined,
         useCoins: useCoinsSelected,
-        donationOptedIn: Boolean(donation?.amount > 0),
-        donationAmount: donation?.amount || undefined,
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
         shippingAddress: {
@@ -1414,7 +1263,7 @@ export const UserProvider = ({ children }) => {
    * the shopper put it, and the server regroups from there — passing it again
    * from here would be a second copy of the same decision, free to disagree.
    */
-  const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', donation = null, tipAmount = 0) => {
+  const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
 
     const addr = getSelectedAddress();
@@ -1427,8 +1276,6 @@ export const UserProvider = ({ children }) => {
     try {
       const checkoutPayload = {
         paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
-        donationOptedIn: Boolean(donation?.amount > 0),
-        donationAmount: donation?.amount || undefined,
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
         shippingAddress: {
@@ -1634,8 +1481,6 @@ export const UserProvider = ({ children }) => {
         // Coupon
         appliedCoupon, applyCoupon, removeCoupon,
         couponCode, availableCoupons, fetchAvailableCoupons, getTotalSavings,
-        donationSetting, fetchDonationSetting,
-        donationPref, donationPrefLoading, donationPrefError, fetchDonationPreference, saveDonationPreference,
         tipSetting, fetchTipSetting,
 
         // Addresses
@@ -1659,8 +1504,6 @@ export const UserProvider = ({ children }) => {
         cancelOrder,
         fetchOrders,
         ordersLoading,
-        subscriptions, subscriptionsLoading, subscriptionsError, fetchSubscriptions,
-        selectedSubscription, setSelectedSubscription, fetchSubscriptionById,
         cartChannel,
         switchCartChannel,
         cartSummary,
@@ -1669,9 +1512,6 @@ export const UserProvider = ({ children }) => {
         setCartItemQty,
         deleteCartItem,
         getCartWarnings,
-
-        // Subscription
-        subscriptionStep, setSubscriptionStep,
 
         // Wishlist
         wishlist, toggleWishlist, isWishlisted, getWishlistItems, wishlistLoading, refreshWishlist,

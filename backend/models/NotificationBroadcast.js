@@ -12,7 +12,7 @@ const ObjectId = Schema.Types.ObjectId;
  * Deliberately its OWN model, not fields bolted onto Notification: this
  * document is the CAMPAIGN (one row per broadcast, tracking counts/status/
  * schedule); the fan-out itself still produces ordinary Notification rows
- * (one per recipient, via the existing notifyUser/notifySeller/notifyShg/
+ * (one per recipient, via the existing notifyUser/notifySeller/
  * notifyRider), each carrying `metadata.broadcastId` back to this
  * document — so read/delivered/failed counts are counted from the real
  * per-recipient rows, never a second, hand-maintained tally that could
@@ -43,7 +43,7 @@ const notificationBroadcastSchema = new Schema(
      */
     targetAudience: {
       type: String,
-      enum: ["ALL_CUSTOMERS", "ALL_SELLERS", "ALL_SHG", "ALL_DELIVERY_PARTNERS"],
+      enum: ["ALL_CUSTOMERS", "ALL_SELLERS", "ALL_DELIVERY_PARTNERS"],
       required: true,
     },
 

@@ -48,20 +48,13 @@ const userSchema = new Schema(
     email:    String,
     avatar:   String,
 
-    // CDS Membership — discount integration (3rd party)
-    cdsMembershipNo: String,
-    isCDSVerified:   { type: Boolean, default: false },
-    cdsVerifiedAt:   Date,
-
-    // Multi-role: one user can be buyer + seller + shg + delivery partner
+    // The legacy `shg` enum value remains so saving an older user document
+    // does not invalidate its historical roles array. No active route grants it.
     roles: [{ type: String, enum: ["buyer", "seller", "shg", "delivery"] }],
 
     // Links to role-specific profiles
     sellerId:          { type: ObjectId, ref: "Seller" },
-    shgStoreId:        { type: ObjectId, ref: "SHGStore" },
     deliveryPartnerId: { type: ObjectId, ref: "DeliveryPartner" },
-    isShgMember:       { type: Boolean, default: false },
-    shgRegNo:          { type: String, unique: true, sparse: true },
 
     // Saved delivery addresses
     addresses: [addressSchema],
@@ -93,13 +86,6 @@ const userSchema = new Schema(
       lastUsedAt: { type: Date, default: Date.now },
       createdAt:  { type: Date, default: Date.now },
     }],
-
-    // Saved donation preference for automatic preselection at checkout
-    donationPreference: {
-      enabled:   { type: Boolean, default: false },
-      amount:    { type: Number, default: 0 },
-      updatedAt: Date
-    },
 
     isActive: { type: Boolean, default: true },
 

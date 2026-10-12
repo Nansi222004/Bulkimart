@@ -1,6 +1,5 @@
 import User from '../models/User.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Product from '../models/Product.js';
 import Order from '../models/Order.js';
@@ -15,13 +14,12 @@ import Delivery from '../models/Delivery.js';
 import DeliveryRate from '../models/DeliveryRate.js';
 import DeliveryChargeSetting from '../models/DeliveryChargeSetting.js';
 import RadiusSetting, { RADIUS_HARD_SAFETY_CEILING_KM } from '../models/RadiusSetting.js';
-import Subscription from '../models/Subscription.js';
-import SubscriptionPlan from '../models/SubscriptionPlan.js';
-import SHGSubscription from '../models/SHGSubscription.js';
 import { riderPayout, loadRates } from '../services/riderPay.service.js';
 import { getDeliveryChargeSetting, loadDeliveryChargeSetting } from '../services/deliveryCharge.service.js';
 import { getRadiusSetting, loadRadiusSetting } from '../services/radiusSetting.service.js';
-import { deliveryProgressOf, attachOrderRefs } from './subscription.controller.js';
+
+
+
 import TicketMessage from '../models/TicketMessage.js';
 import NotificationModel from '../models/Notification.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
@@ -344,186 +342,31 @@ export const suspendSeller = asyncHandler(async (req, res) => {
   return ok(res, { _id: seller._id, status: seller.status, productsDeactivated: modifiedCount }, 'Seller suspended');
 });
 
-/* ============================================================================
- * SHG VENDOR MANAGEMENT — BRD §6 SHG Marketplace Management
- * ========================================================================== */
 
-// @desc    List SHG stores
-// @route   GET /api/admin/shg
-// @access  Private/Admin
-export const listSHGStores = asyncHandler(async (req, res) => {
-  const { status, search } = req.query;
-  const { page, limit, skip } = getPagination(req.query);
 
-  const filter = {};
-  if (status && status !== 'all') filter.status = status;
-  if (search) {
-    const rx = new RegExp(search, 'i');
-    filter.$or = [{ groupName: rx }, { district: rx }, { village: rx }, { nrlmId: rx }];
-  }
 
-  const [stores, total] = await Promise.all([
-    SHGStore.find(filter).populate('userId', 'phone name email').sort({ updatedAt: -1 }).skip(skip).limit(limit),
-    SHGStore.countDocuments(filter),
-  ]);
 
-  const rows = stores.map((s) => ({
-    _id: s._id,
-    groupName: s.groupName,
-    vendorType: 'SHG Vendor',
-    nrlmId: s.nrlmId,
-    holderName: s.userId?.name || s.groupBankAccount?.holderName || '—',
-    phone: s.userId?.phone,
-    village: s.village,
-    block: s.block,
-    district: s.district,
-    state: s.state,
-    pincode: s.pincode,
-    memberCount: s.members?.length || 0,
-    status: s.status,
-    commissionRate: s.commissionRate,
-    rating: s.rating,
-    submittedAt: s.updatedAt,
-    rejectionReason: s.rejectionReason,
-  }));
 
-  return paginated(res, rows, { page, limit, total });
-});
 
-// @desc    Full SHG store detail with documents
-// @route   GET /api/admin/shg/:id
-// @access  Private/Admin
-export const getSHGDetail = asyncHandler(async (req, res) => {
-  const store = await SHGStore.findById(req.params.id)
-    .populate('userId', 'phone name email createdAt isActive')
-    .populate('productCategories', 'name type');
-  if (!store) throw httpError(404, 'SHG store not found');
 
-  return ok(res, {
-    _id: store._id,
-    status: store.status,
-    onboardingStep: store.onboardingStep,
-    rejectionReason: store.rejectionReason,
-    registeredAt: store.createdAt,
-    submittedAt: store.updatedAt,
 
-    account: {
-      userId: store.userId?._id,
-      phone: store.userId?.phone,
-      name: store.userId?.name,
-      email: store.userId?.email,
-      isActive: store.userId?.isActive,
-    },
 
-    group: {
-      groupName: store.groupName,
-      village: store.village,
-      block: store.block,
-      district: store.district,
-      state: store.state,
-      pincode: store.pincode,
-      nrlmId: store.nrlmId,
-    },
 
-    leaderAadhaar: store.leaderAadhaar,
-    bank: store.groupBankAccount,
-    members: store.members,
-    productCategories: store.productCategories,
 
-    documents: [
-      { label: 'Leader Aadhaar Front', url: store.leaderAadhaar?.frontUrl, category: 'KYC' },
-      { label: 'Leader Aadhaar Back', url: store.leaderAadhaar?.backUrl, category: 'KYC' },
-      { label: 'SHG Certificate', url: store.shgCertUrl, category: 'Certificate' },
-      { label: 'Group Bank Passbook', url: store.groupBankAccount?.passbookUrl, category: 'Bank' },
-    ].filter((d) => d.url),
 
-    metrics: {
-      commissionRate: store.commissionRate, // always 0 — BRD social mission
-      rating: store.rating,
-      totalOrders: store.totalOrders,
-    },
-  });
-});
 
-// @desc    Approve an SHG store
-// @route   PATCH /api/admin/shg/:id/approve
-// @access  Private/Admin
-export const approveSHG = asyncHandler(async (req, res) => {
-  const store = await SHGStore.findById(req.params.id);
-  if (!store) throw httpError(404, 'SHG store not found');
-  if (store.status === VENDOR_STATUS.APPROVED) throw httpError(400, 'SHG store is already approved');
-  if (store.onboardingStep < 5) throw httpError(400, 'SHG store has not completed onboarding yet');
 
-  store.status = VENDOR_STATUS.APPROVED;
-  store.commissionRate = 0; // enforced: SHG sells commission-free
-  store.rejectionReason = undefined;
-  await store.save();
 
-  await User.findByIdAndUpdate(store.userId, { $addToSet: { roles: ROLE.SHG } });
 
-  return ok(res, { _id: store._id, status: store.status, commissionRate: 0 }, 'SHG store approved successfully');
-});
 
-// @desc    Reject an SHG store
-// @route   PATCH /api/admin/shg/:id/reject
-// @access  Private/Admin
-export const rejectSHG = asyncHandler(async (req, res) => {
-  const { reason } = req.body;
-  if (!reason) throw httpError(400, 'A rejection reason is required');
 
-  const store = await SHGStore.findById(req.params.id);
-  if (!store) throw httpError(404, 'SHG store not found');
 
-  store.status = VENDOR_STATUS.REJECTED;
-  store.rejectionReason = reason;
-  await store.save();
 
-  return ok(res, { _id: store._id, status: store.status, rejectionReason: reason }, 'SHG store rejected');
-});
 
-/**
- * @desc    Suspend an approved SHG store
- * @route   PATCH /api/admin/shg/:id/suspend
- * @access  Private/Admin
- *
- * Distinct from rejection, which is a verdict on an APPLICATION. This is the
- * withdrawal of an approval already granted, and what it exists to do is stop
- * the cooperative receiving orders: a suspended store is excluded from the
- * customer feed and refused at checkout (see shgSubscription.service.js's
- * getOrderableShgStoreIds / assertShgStoreOrderable).
- *
- * Deliberately non-destructive. Products are not deactivated and stock is not
- * touched, so reinstating through the ordinary approve endpoint brings the
- * catalogue back exactly as it was — and an admin cannot accidentally erase a
- * cooperative's listings by suspending them.
- */
-export const suspendSHG = asyncHandler(async (req, res) => {
-  const { reason } = req.body;
-  // Required, as it is for a rejection: a cooperative cut off from orders is
-  // owed the reason, and an admin reviewing this later needs to know why.
-  if (!reason || !String(reason).trim()) throw httpError(400, 'A suspension reason is required');
 
-  const store = await SHGStore.findById(req.params.id);
-  if (!store) throw httpError(404, 'SHG store not found');
-  if (store.status === VENDOR_STATUS.SUSPENDED) throw httpError(400, 'SHG store is already suspended');
 
-  store.status = VENDOR_STATUS.SUSPENDED;
-  store.rejectionReason = String(reason).trim();
-  await store.save();
 
-  /**
-   * The SHG role is left on the user, unlike a rider suspension which pulls
-   * it. A cooperative still needs to sign in to see why they were suspended
-   * and to fix it; taking the role would lock them out of their own store
-   * and out of the message explaining what happened.
-   */
 
-  return ok(res, {
-    _id: store._id,
-    status: store.status,
-    rejectionReason: store.rejectionReason,
-  }, 'SHG store suspended — it will no longer receive orders');
-});
 
 /* ============================================================================
  * PRODUCT APPROVAL — BRD §6 Product Management
@@ -533,21 +376,19 @@ export const suspendSHG = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/products?status=pending
 // @access  Private/Admin
 export const listProducts = asyncHandler(async (req, res) => {
-  const { status, type, sellerId, shgStoreId, search } = req.query;
+  const { status, type, sellerId, search } = req.query;
   const { page, limit, skip } = getPagination(req.query);
 
   const filter = { isDeleted: false };
   if (status && status !== 'all') filter.status = status;
   if (type) filter.type = type;
   if (sellerId) filter.sellerId = sellerId;
-  if (shgStoreId) filter.shgStoreId = shgStoreId;
   if (search) filter.name = new RegExp(search, 'i');
 
   const [products, total] = await Promise.all([
     Product.find(filter)
       .populate('category', 'name')
       .populate('sellerId', 'businessName storeDetails.name')
-      .populate('shgStoreId', 'groupName district')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -789,23 +630,19 @@ export const setUserStatus = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/dashboard/pending-counts
 // @access  Private/Admin
 export const getPendingCounts = asyncHandler(async (req, res) => {
-  const [sellersPending, shgPending, productsPending, sellersApproved, shgApproved,
-         ridersPending, ridersApproved] = await Promise.all([
+  const [sellersPending, productsPending, sellersApproved, ridersPending, ridersApproved] = await Promise.all([
     Seller.countDocuments({ status: VENDOR_STATUS.PENDING }),
-    SHGStore.countDocuments({ status: VENDOR_STATUS.PENDING }),
     Product.countDocuments({ status: APPROVAL.PENDING, isDeleted: false }),
     Seller.countDocuments({ status: VENDOR_STATUS.APPROVED }),
-    SHGStore.countDocuments({ status: VENDOR_STATUS.APPROVED }),
     DeliveryPartner.countDocuments({ status: VENDOR_STATUS.PENDING }),
     DeliveryPartner.countDocuments({ status: VENDOR_STATUS.APPROVED }),
   ]);
 
   return ok(res, {
     sellers: { pending: sellersPending, approved: sellersApproved },
-    shg: { pending: shgPending, approved: shgApproved },
     products: { pending: productsPending },
     delivery: { pending: ridersPending, approved: ridersApproved },
-    totalPending: sellersPending + shgPending + productsPending + ridersPending,
+    totalPending: sellersPending + productsPending + ridersPending,
   });
 });
 
@@ -1416,160 +1253,25 @@ export const deliveryRateImpact = asyncHandler(async (req, res) => {
   }, 'Rate impact over the last 30 days');
 });
 
-/* ============================================================================
- * SUBSCRIPTIONS — read-only monitoring
- *
- * No create/edit/pause/resume/cancel here on purpose — this is a view layer
- * over the real Subscription module (creation, scheduling, seller
- * acceptance, the sweepers, packing, and the rider/OTP pipeline all already
- * exist and are untouched by this file). `deliveryProgressOf`/
- * `attachOrderRefs` are the exact same functions the customer and seller
- * endpoints already use — reused here, not reimplemented, so admin can never
- * disagree with what a seller or customer sees for the same subscription.
- * ========================================================================== */
 
-// @desc    Every subscription in the system
-// @route   GET /api/admin/subscriptions?status=&page=&limit=
-// @access  Private/Admin
-export const listSubscriptionsForAdmin = asyncHandler(async (req, res) => {
-  const { status } = req.query;
-  const { page, limit, skip } = getPagination(req.query);
 
-  const filter = {};
-  if (status && status !== 'all') filter.status = status;
 
-  const [subs, total] = await Promise.all([
-    Subscription.find(filter)
-      .populate('customItems.productId', 'name images price unit weight')
-      .populate('userId', 'name phone')
-      .populate('sellerId', 'businessName storeDetails')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Subscription.countDocuments(filter),
-  ]);
 
-  const withProgress = subs.map((s) => ({ ...s, progress: deliveryProgressOf(s.deliverySchedule) }));
-  return paginated(res, withProgress, { page, limit, total });
-});
 
-// @desc    One subscription, in full — no ownership check beyond being admin
-// @route   GET /api/admin/subscriptions/:id
-// @access  Private/Admin
-export const getSubscriptionDetailForAdmin = asyncHandler(async (req, res) => {
-  const sub = await Subscription.findById(req.params.id)
-    .populate('customItems.productId', 'name images price unit weight')
-    .populate('userId', 'name phone')
-    .populate('sellerId', 'businessName storeDetails')
-    .lean();
 
-  if (!sub) throw httpError(404, 'Subscription not found');
 
-  await attachOrderRefs(sub);
-  sub.progress = deliveryProgressOf(sub.deliverySchedule);
 
-  return ok(res, sub, 'Subscription');
-});
 
-// ---------------------------------------------------------------------------
-// SHG SELLER SUBSCRIPTION — plans catalog + purchased-subscription records
-// ---------------------------------------------------------------------------
 
-// @desc    All plans (including inactive ones — this is the admin catalog view)
-// @route   GET /api/admin/shg-subscription-plans
-// @access  Private/Admin
-export const listShgSubscriptionPlans = asyncHandler(async (req, res) => {
-  const plans = await SubscriptionPlan.find().sort({ durationMonths: 1 }).lean();
-  return ok(res, plans, 'Subscription plans');
-});
 
-// @desc    Create a plan
-// @route   POST /api/admin/shg-subscription-plans
-// @access  Private/Admin
-export const createShgSubscriptionPlan = asyncHandler(async (req, res) => {
-  const { name, durationMonths, price } = req.body;
-  if (!name || !durationMonths || price === undefined) {
-    throw httpError(400, 'name, durationMonths and price are required');
-  }
-  if (Number(durationMonths) < 1) throw httpError(400, 'durationMonths must be at least 1');
-  if (Number(price) < 0) throw httpError(400, 'price cannot be negative');
 
-  const plan = await SubscriptionPlan.create({
-    name, durationMonths: Number(durationMonths), price: Number(price),
-  });
-  return created(res, plan, 'Plan created');
-});
 
-/**
- * Edit a plan's price/duration/name/active flag.
- *
- * Deliberately touches ONLY the catalog document. Every SHGSubscription
- * already bought carries its own planName/durationMonths/amount snapshot
- * (see SHGSubscription.js), so a price change here can never rewrite what a
- * seller already paid — it only affects purchases made from now on.
- *
- * @route   PATCH /api/admin/shg-subscription-plans/:id
- * @access  Private/Admin
- */
-export const updateShgSubscriptionPlan = asyncHandler(async (req, res) => {
-  const plan = await SubscriptionPlan.findById(req.params.id);
-  if (!plan) throw httpError(404, 'Plan not found');
 
-  const { name, durationMonths, price, isActive } = req.body;
-  if (name !== undefined) plan.name = name;
-  if (durationMonths !== undefined) {
-    if (Number(durationMonths) < 1) throw httpError(400, 'durationMonths must be at least 1');
-    plan.durationMonths = Number(durationMonths);
-  }
-  if (price !== undefined) {
-    if (Number(price) < 0) throw httpError(400, 'price cannot be negative');
-    plan.price = Number(price);
-  }
-  if (isActive !== undefined) plan.isActive = Boolean(isActive);
 
-  await plan.save();
-  return ok(res, plan, 'Plan updated');
-});
 
-// @desc    Purchased SHG subscriptions — ?status=active|expiring|expired|all
-// @route   GET /api/admin/shg-subscriptions
-// @access  Private/Admin
-export const listShgSubscriptionsForAdmin = asyncHandler(async (req, res) => {
-  const { status } = req.query;
-  const { page, limit, skip } = getPagination(req.query);
-  const now = new Date();
 
-  // "active"/"expired" are derived from status + endDate together, matching
-  // the effective-access rule the middleware uses — an admin must never see
-  // a row as active that the gate would actually reject.
-  let filter = {};
-  if (status === 'active') {
-    filter = { status: 'active', endDate: { $gte: now } };
-  } else if (status === 'expired') {
-    const horizon = new Date(now);
-    filter = { $or: [{ status: 'expired' }, { status: 'active', endDate: { $lt: horizon } }] };
-  } else if (status === 'expiring') {
-    const soon = new Date(now);
-    soon.setDate(soon.getDate() + 7);
-    filter = { status: 'active', endDate: { $gte: now, $lte: soon } };
-  } else if (status === 'payment_pending') {
-    filter = { status: 'payment_pending' };
-  }
 
-  const [subs, total] = await Promise.all([
-    SHGSubscription.find(filter)
-      .populate('shgStoreId', 'groupName district state')
-      .populate('paymentId', 'status amount paidAt gateway.merchantOrderId')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    SHGSubscription.countDocuments(filter),
-  ]);
 
-  return paginated(res, subs, { page, limit, total });
-});
 
 /* ============================================================================
  * DASHBOARD OVERVIEW ANALYTICS — Platform Overview tab
@@ -1643,7 +1345,7 @@ const computeCategorySales = async (limit = 5) => {
 export const getDashboardOverview = asyncHandler(async (req, res) => {
   const [
     revenueAgg, totalOrders, ecommerceOrders, groceryOrders,
-    totalUsers, totalSellers, shgSellers, activeSubscriptions,
+    totalUsers, totalSellers,
     recentOrdersRaw, lowStockRaw, recentSellersRaw, categorySales,
   ] = await Promise.all([
     Order.aggregate([
@@ -1655,11 +1357,9 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
     Order.countDocuments({ type: CHANNEL.GROCERY }),
     User.countDocuments({ roles: 'buyer' }),
     Seller.countDocuments({ status: VENDOR_STATUS.APPROVED }),
-    SHGStore.countDocuments({ status: VENDOR_STATUS.APPROVED }),
-    Subscription.countDocuments({ status: 'active' }),
     Order.find({}).sort({ createdAt: -1 }).limit(10).populate('userId', 'name phone').lean(),
     Product.find({ stock: { $lt: 10 }, isDeleted: false, fulfillmentType: { $ne: 'digital' } }).sort({ stock: 1 }).limit(10)
-      .populate('sellerId', 'businessName').populate('shgStoreId', 'groupName').lean(),
+      .populate('sellerId', 'businessName').lean(),
     Seller.find({}).sort({ createdAt: -1 }).limit(5).select('businessName status createdAt').lean(),
     computeCategorySales(5),
   ]);
@@ -1671,8 +1371,6 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
     groceryOrders,
     totalUsers,
     totalSellers,
-    shgSellers,
-    activeSubscriptions,
     recentOrders: recentOrdersRaw.map((o) => ({
       id: o._id,
       buyerName: o.userId?.name || o.userId?.phone || 'Customer',
@@ -1685,7 +1383,7 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
       id: p._id,
       name: p.name,
       stock: p.stock,
-      sellerName: p.sellerId?.businessName || p.shgStoreId?.groupName || '—',
+      sellerName: p.sellerId?.businessName || '—',
     })),
     recentSellers: recentSellersRaw.map((s) => ({
       id: s._id,
@@ -1863,7 +1561,6 @@ export const getCustomerOrders = asyncHandler(async (req, res) => {
       // Order.js's own `groupRef` comment), so the first item's vendor is
       // the order's vendor.
       .populate('items.sellerId', 'businessName')
-      .populate('items.shgStoreId', 'groupName')
       // Delivery partner — vehicle details live on DeliveryPartner itself;
       // name/phone live on the User behind it, one level further in.
       .populate({
@@ -2518,187 +2215,18 @@ export const vendorDashboard = asyncHandler(async (req, res) => {
   }, 'Vendor dashboard');
 });
 
-/* ============================================================================
- * SHG PERFORMANCE — SHG Cooperatives › SHG Performance
- *
- * Derived from the orders themselves. Every order line already carries the
- * `shgStoreId` of the cooperative that made the item (set at checkout, see
- * order.controller.js), so sales and fulfilment can be attributed without a
- * per-store counter that could fall out of step with the orders it claims to
- * summarise.
- * ========================================================================== */
 
-// @desc    SHG economic impact + per-cooperative scorecard
-// @route   GET /api/admin/shg-performance?days=30
-// @access  Private/Admin
-export const shgPerformanceStats = asyncHandler(async (req, res) => {
-  const requestedDays = parseInt(req.query.days, 10);
-  const days = Number.isFinite(requestedDays) && requestedDays > 0
-    ? Math.min(requestedDays, 365)
-    : 30;
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  /**
-   * One row per SHG order line, tagged with the parent order's status so the
-   * same pass can answer both "what sold" and "what was cancelled".
-   *
-   * `$unwind` before matching on the line's own store id — an order can mix a
-   * cooperative's item with an ordinary seller's, and only the SHG line's
-   * money belongs to this report.
-   */
-  const lineStage = [
-    { $match: { createdAt: { $gte: since } } },
-    { $unwind: '$items' },
-    { $match: { 'items.shgStoreId': { $ne: null } } },
-  ];
 
-  const DELIVERED = 'delivered';
-  const CANCELLED = 'cancelled';
 
-  const [overallRows, perStoreRows, ratingRows] = await Promise.all([
-    Order.aggregate([
-      ...lineStage,
-      {
-        $group: {
-          _id: null,
-          // Revenue is only counted once an order is actually delivered —
-          // a placed order is a promise, not income.
-          sales: {
-            $sum: {
-              $cond: [{ $eq: ['$status', DELIVERED] },
-                { $multiply: [{ $ifNull: ['$items.price', 0] }, { $ifNull: ['$items.qty', 0] }] }, 0],
-            },
-          },
-          unitsSold: {
-            $sum: { $cond: [{ $eq: ['$status', DELIVERED] }, { $ifNull: ['$items.qty', 0] }, 0] },
-          },
-          // Orders, not lines — two SHG items in one basket is one order
-          // fulfilled, and summing lines would double-count it.
-          deliveredOrders: { $addToSet: { $cond: [{ $eq: ['$status', DELIVERED] }, '$_id', '$$REMOVE'] } },
-          cancelledOrders: { $addToSet: { $cond: [{ $eq: ['$status', CANCELLED] }, '$_id', '$$REMOVE'] } },
-          allOrders: { $addToSet: '$_id' },
-        },
-      },
-      {
-        $project: {
-          sales: 1, unitsSold: 1,
-          deliveredOrders: { $size: '$deliveredOrders' },
-          cancelledOrders: { $size: '$cancelledOrders' },
-          totalOrders: { $size: '$allOrders' },
-        },
-      },
-    ]),
 
-    Order.aggregate([
-      ...lineStage,
-      {
-        $group: {
-          _id: '$items.shgStoreId',
-          sales: {
-            $sum: {
-              $cond: [{ $eq: ['$status', DELIVERED] },
-                { $multiply: [{ $ifNull: ['$items.price', 0] }, { $ifNull: ['$items.qty', 0] }] }, 0],
-            },
-          },
-          unitsSold: {
-            $sum: { $cond: [{ $eq: ['$status', DELIVERED] }, { $ifNull: ['$items.qty', 0] }, 0] },
-          },
-          deliveredOrders: { $addToSet: { $cond: [{ $eq: ['$status', DELIVERED] }, '$_id', '$$REMOVE'] } },
-          cancelledOrders: { $addToSet: { $cond: [{ $eq: ['$status', CANCELLED] }, '$_id', '$$REMOVE'] } },
-          allOrders: { $addToSet: '$_id' },
-        },
-      },
-      {
-        $project: {
-          sales: 1, unitsSold: 1,
-          deliveredOrders: { $size: '$deliveredOrders' },
-          cancelledOrders: { $size: '$cancelledOrders' },
-          totalOrders: { $size: '$allOrders' },
-        },
-      },
-    ]),
 
-    /**
-     * Ratings come from the products themselves, not from orders — a rating
-     * is left against an item, and `ratings.average`/`ratings.count` are
-     * already maintained from approved reviews (see productRatings.service).
-     *
-     * Weighted by review count so a cooperative with one five-star review
-     * does not outrank one with fifty averaging 4.6.
-     */
-    Product.aggregate([
-      { $match: { type: 'shg', shgStoreId: { $ne: null }, 'ratings.count': { $gt: 0 } } },
-      {
-        $group: {
-          _id: '$shgStoreId',
-          weighted: { $sum: { $multiply: ['$ratings.average', '$ratings.count'] } },
-          reviews: { $sum: '$ratings.count' },
-        },
-      },
-    ]),
-  ]);
 
-  const overall = overallRows[0] || {
-    sales: 0, unitsSold: 0, deliveredOrders: 0, cancelledOrders: 0, totalOrders: 0,
-  };
-  const ratingByStore = new Map(ratingRows.map((r) => [String(r._id), r]));
 
-  const storeIds = perStoreRows.map((r) => r._id).filter(Boolean);
-  const stores = await SHGStore.find({ _id: { $in: storeIds } })
-    .select('groupName district state status')
-    .lean();
-  const storeById = new Map(stores.map((s) => [String(s._id), s]));
 
-  const leaderboard = perStoreRows
-    .map((row) => {
-      const store = storeById.get(String(row._id));
-      const rating = ratingByStore.get(String(row._id));
-      return {
-        shgStoreId: row._id,
-        name: store?.groupName || 'SHG Cooperative',
-        district: store?.district || null,
-        state: store?.state || null,
-        orders: row.deliveredOrders,
-        totalOrders: row.totalOrders,
-        grossSales: Math.round(row.sales),
-        unitsSold: row.unitsSold,
-        rating: rating ? Math.round((rating.weighted / rating.reviews) * 10) / 10 : null,
-        reviewCount: rating ? rating.reviews : 0,
-        /**
-         * Share of this cooperative's orders that actually reached the
-         * customer. Null rather than 100% when nothing has resolved yet —
-         * a store whose only order is still in transit has not met an SLA,
-         * it simply has no record either way.
-         */
-        slaPercent: (row.deliveredOrders + row.cancelledOrders) > 0
-          ? Math.round((row.deliveredOrders / (row.deliveredOrders + row.cancelledOrders)) * 1000) / 10
-          : null,
-      };
-    })
-    .sort((a, b) => b.grossSales - a.grossSales || b.orders - a.orders);
 
-  const fleetReviews = ratingRows.reduce((sum, r) => sum + r.reviews, 0);
-  const fleetWeighted = ratingRows.reduce((sum, r) => sum + r.weighted, 0);
 
-  const resolved = overall.deliveredOrders + overall.cancelledOrders;
 
-  return ok(res, {
-    window: { days, since },
-    summary: {
-      totalSales: Math.round(overall.sales),
-      ordersFulfilled: overall.deliveredOrders,
-      unitsSold: overall.unitsSold,
-      totalOrders: overall.totalOrders,
-      avgRating: fleetReviews > 0 ? Math.round((fleetWeighted / fleetReviews) * 10) / 10 : null,
-      reviewCount: fleetReviews,
-      cancellationRate: resolved > 0
-        ? Math.round((overall.cancelledOrders / resolved) * 1000) / 10
-        : null,
-      activeStores: leaderboard.length,
-    },
-    leaderboard,
-  }, 'SHG performance');
-});
 
 /* ============================================================================
  * DELIVERY HUB ZONES — Delivery Fleet › Delivery Hub Zones
@@ -3232,7 +2760,7 @@ export const rejectDeliveryPayoutRequest = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/vendor-orders?mode=active|history&status=&search=&sellerId=&page=&limit=
 // @access  Private/Admin
 export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
-  const { mode = 'active', status, search, sellerId, shgOnly, vendorType } = req.query;
+  const { mode = 'active', status, search, sellerId } = req.query;
   const { page, limit, skip } = getPagination(req.query);
 
   const ACTIVE_STATUSES = ['pending', 'placed', 'accepted', 'processing', 'packing', 'ready_for_pickup', 'out_for_delivery', 'in_transit', 'dispatch'];
@@ -3240,9 +2768,6 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
 
   const filter = {};
 
-  if (shgOnly === 'true' || vendorType === 'shg') {
-    filter['items.shgStoreId'] = { $ne: null };
-  }
   if (status && status !== 'all') {
     filter.status = status;
   } else if (mode === 'active') {
@@ -3251,12 +2776,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
     filter.status = { $in: HISTORY_STATUSES };
   }
 
-  if (sellerId) {
-    filter.$or = [
-      { 'items.sellerId': sellerId },
-      { 'items.shgStoreId': sellerId },
-    ];
-  }
+  if (sellerId) filter['items.sellerId'] = sellerId;
 
   if (search && search.trim()) {
     const rx = new RegExp(search.trim(), 'i');
@@ -3266,19 +2786,13 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       { 'shippingAddress.phone': rx },
       { 'shippingAddress.city': rx },
     ];
-    if (filter.$or) {
-      filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
-      delete filter.$or;
-    } else {
-      filter.$or = searchConditions;
-    }
+    filter.$or = searchConditions;
   }
 
   const [orders, total] = await Promise.all([
     Order.find(filter)
       .populate('userId', 'name phone email')
       .populate('items.sellerId', 'businessName storeDetails.name storeDetails.city')
-      .populate('items.shgStoreId', 'groupName district')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -3292,8 +2806,6 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       if (item.sellerId) {
         const storeName = item.sellerId.storeDetails?.name || item.sellerId.businessName;
         if (storeName) storeNamesSet.add(storeName);
-      } else if (item.shgStoreId?.groupName) {
-        storeNamesSet.add(item.shgStoreId.groupName);
       }
     });
 

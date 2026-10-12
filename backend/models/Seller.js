@@ -97,14 +97,12 @@ const sellerSchema = new Schema(
     userId:         { type: ObjectId, ref: "User", required: true, unique: true },
     onboardingStep: { type: Number, default: 0 }, // 0-4 in-progress, 5=submitted
 
-    // Historical organization-seller marker. Retained for existing seller
-    // records; registration, authorization, and storefront discovery no longer
-    // use this field. Remove only through a separately reviewed data migration.
-    isNscSeller: { type: Boolean, default: false, index: true },
-
     // Step 1 — Business Info
     businessName: String,
     businessType: { type: String, enum: ["individual", "proprietorship", "partnership", "company"] },
+    // Optional legacy/contact field. Seller sign-in is phone/OTP based, so an
+    // absent email is valid and must not collide in a unique index.
+    email: { type: String, trim: true, lowercase: true },
     storeDetails: {
       name:        String,
       logo:        String, // Cloudinary URL
@@ -159,17 +157,6 @@ const sellerSchema = new Schema(
     fssai:        String, // for food sellers
     tradeLicense: String,
     documents: [sellerDocumentSchema],
-
-    // Historical organization-plan snapshot; retained for existing records only.
-    nhcPlan: {
-      planId:      { type: ObjectId, ref: "NHCPlan" },
-      planType:    { type: String }, // e.g. 'UNIT_SELLER' | 'BLOCK_SELLER'
-      planName:    { type: String }, // e.g. 'Unit Seller'
-      planAmount:  { type: Number }, // Snapshot amount at time of selection (e.g. 1000000)
-      currency:    { type: String, default: "INR" },
-      description: { type: String },
-      selectedAt:  { type: Date },
-    },
 
     // Approval Status
     status: {
@@ -249,6 +236,18 @@ const sellerSchema = new Schema(
  * skipping it.
  */
 sellerSchema.index({ "storeDetails.point": "2dsphere" }, { sparse: true });
+
+// Preserve uniqueness for actual email strings while allowing any number of
+// seller records with no email, null, or an empty value. The explicit name lets
+// the safe index migration coexist with the legacy email_1 index until cutover.
+sellerSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    name: 'email_1_optional_unique',
+    partialFilterExpression: { email: { $type: 'string', $gt: '' } },
+  },
+);
 
 const Seller = model("Seller", sellerSchema);
 export default Seller;

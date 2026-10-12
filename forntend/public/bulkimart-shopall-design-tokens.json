@@ -1,0 +1,171 @@
+{
+  "$schema": "https://tokens.studio/schema.json",
+  "name": "Bulkimart ShopAll Design System",
+  "version": "1.0.0",
+  "description": "Production design tokens for Bulkimart ShopAll general e-commerce marketplace",
+  "color": {
+    "brand": {
+      "primary": {
+        "value": "#174A8B",
+        "type": "color",
+        "description": "Primary brand blue for headers, active states, key navigation and typography"
+      },
+      "primaryDark": {
+        "value": "#0F3260",
+        "type": "color",
+        "description": "Darker blue for pressed states and dark accents"
+      },
+      "secondary": {
+        "value": "#1976D2",
+        "type": "color",
+        "description": "Secondary blue for links, highlights and sub-headers"
+      },
+      "bluePale": {
+        "value": "#EEF4FC",
+        "type": "color",
+        "description": "Pale blue surface background for active item chips and icon containers"
+      },
+      "orange": {
+        "value": "#FF8500",
+        "type": "color",
+        "description": "Primary action accent for Add-to-Cart buttons, deal tags, and callouts"
+      },
+      "orangeHover": {
+        "value": "#E87500",
+        "type": "color",
+        "description": "Pressed / hover state for orange action buttons"
+      },
+      "orangePale": {
+        "value": "#FFF4E6",
+        "type": "color",
+        "description": "Pale orange surface for offer containers and discount badges"
+      }
+    },
+    "text": {
+      "primary": {
+        "value": "#172033",
+        "type": "color",
+        "description": "Primary dark slate text color (WCAG AAA compliant)"
+      },
+      "secondary": {
+        "value": "#64748B",
+        "type": "color",
+        "description": "Secondary slate gray for subtitles, metadata, and timestamps"
+      },
+      "muted": {
+        "value": "#94A3B8",
+        "type": "color",
+        "description": "Muted gray for placeholders, disabled labels, and subtle dividers"
+      },
+      "inverse": {
+        "value": "#FFFFFF",
+        "type": "color",
+        "description": "White text for buttons, dark pills, and badges"
+      }
+    },
+    "surface": {
+      "page": {
+        "value": "#F6F9FC",
+        "type": "color",
+        "description": "Clean light-blue tinted off-white page background"
+      },
+      "card": {
+        "value": "#FFFFFF",
+        "type": "color",
+        "description": "White container surface for cards, sheets, and headers"
+      },
+      "border": {
+        "value": "#E2E8F0",
+        "type": "color",
+        "description": "Subtle border gray for dividers and card outlines"
+      },
+      "hover": {
+        "value": "#F1F5F9",
+        "type": "color",
+        "description": "Subtle hover surface for list items and icon buttons"
+      }
+    },
+    "status": {
+      "success": {
+        "value": "#10B981",
+        "type": "color",
+        "description": "Green for in-stock, delivered, and positive feedback"
+      },
+      "warning": {
+        "value": "#F59E0B",
+        "type": "color",
+        "description": "Amber for low-stock alerts, pending orders, and ratings"
+      },
+      "danger": {
+        "value": "#EF4444",
+        "type": "color",
+        "description": "Red for wishlist active heart, out of stock, and errors"
+      }
+    }
+  },
+  "spacing": {
+    "xxs": { "value": "4px", "type": "spacing" },
+    "xs": { "value": "8px", "type": "spacing" },
+    "sm": { "value": "12px", "type": "spacing" },
+    "md": { "value": "16px", "type": "spacing" },
+    "lg": { "value": "24px", "type": "spacing" },
+    "xl": { "value": "32px", "type": "spacing" },
+    "2xl": { "value": "48px", "type": "spacing" }
+  },
+  "borderRadius": {
+    "xs": { "value": "4px", "type": "borderRadius" },
+    "sm": { "value": "8px", "type": "borderRadius" },
+    "md": { "value": "12px", "type": "borderRadius" },
+    "lg": { "value": "16px", "type": "borderRadius" },
+    "xl": { "value": "24px", "type": "borderRadius" },
+    "full": { "value": "9999px", "type": "borderRadius" }
+  },
+  "typography": {
+    "fontFamily": {
+      "primary": { "value": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", "type": "fontFamilies" }
+    },
+    "fontSize": {
+      "xs": { "value": "11px", "type": "fontSizes" },
+      "sm": { "value": "13px", "type": "fontSizes" },
+      "base": { "value": "15px", "type": "fontSizes" },
+      "md": { "value": "16px", "type": "fontSizes" },
+      "lg": { "value": "18px", "type": "fontSizes" },
+      "xl": { "value": "22px", "type": "fontSizes" },
+      "2xl": { "value": "26px", "type": "fontSizes" },
+      "3xl": { "value": "32px", "type": "fontSizes" }
+    },
+    "fontWeight": {
+      "regular": { "value": "400", "type": "fontWeights" },
+      "medium": { "value": "500", "type": "fontWeights" },
+      "semiBold": { "value": "600", "type": "fontWeights" },
+      "bold": { "value": "700", "type": "fontWeights" }
+    },
+    "lineHeight": {
+      "tight": { "value": "1.2", "type": "lineHeights" },
+      "snug": { "value": "1.35", "type": "lineHeights" },
+      "normal": { "value": "1.5", "type": "lineHeights" }
+    }
+  },
+  "boxShadow": {
+    "sm": {
+      "value": "0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03)",
+      "type": "boxShadow"
+    },
+    "md": {
+      "value": "0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04)",
+      "type": "boxShadow"
+    },
+    "lg": {
+      "value": "0 10px 25px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06)",
+      "type": "boxShadow"
+    },
+    "orangeGlow": {
+      "value": "0 4px 14px rgba(255, 133, 0, 0.35)",
+      "type": "boxShadow"
+    },
+    "blueGlow": {
+      "value": "0 4px 14px rgba(23, 74, 139, 0.30)",
+      "type": "boxShadow"
+    }
+  }
+}

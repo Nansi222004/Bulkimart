@@ -3,14 +3,13 @@ import NotificationBroadcast from '../models/NotificationBroadcast.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { httpError } from '../utils/response.js';
-import { notifyUser, notifySeller, notifyShg, notifyRider, NOTIFICATION_EVENT } from './notification.service.js';
+import { notifyUser, notifySeller, notifyRider, NOTIFICATION_EVENT } from './notification.service.js';
 
 /**
  * Admin Push Notifications Broadcaster — the send-side engine. Reuses the
- * existing per-recipient notifyUser/notifySeller/notifyShg/notifyRider
+ * existing per-recipient notifyUser/notifySeller/notifyRider
  * (Notification row + socket + FCM) exactly the way any other business
  * event does; this file's only job is CAMPAIGN management: audience
  * resolution, batching, counts and the DRAFT->...->SENT lifecycle. It does
@@ -25,9 +24,8 @@ const LOCK_STALE_MS = 5 * 60 * 1000;
  * ========================================================================== */
 
 const AUDIENCE_ROUTE_PREFIXES = {
-  ALL_CUSTOMERS: ['/orders', '/subscriptions', '/returns', '/'],
+  ALL_CUSTOMERS: ['/orders', '/returns', '/'],
   ALL_SELLERS: ['/seller/'],
-  ALL_SHG: ['/shg/'],
   ALL_DELIVERY_PARTNERS: ['/delivery/'],
 };
 
@@ -61,10 +59,6 @@ export const resolveAudienceUserIds = async (targetAudience) => {
       const sellers = await Seller.find({ status: 'approved' }).select('userId').lean();
       return sellers.map((s) => s.userId).filter(Boolean);
     }
-    case 'ALL_SHG': {
-      const stores = await SHGStore.find({ status: 'approved' }).select('userId').lean();
-      return stores.map((s) => s.userId).filter(Boolean);
-    }
     case 'ALL_DELIVERY_PARTNERS': {
       const partners = await DeliveryPartner.find({ status: 'approved' }).select('userId').lean();
       return partners.map((p) => p.userId).filter(Boolean);
@@ -75,9 +69,9 @@ export const resolveAudienceUserIds = async (targetAudience) => {
 };
 
 /**
- * The vendor-record id (Seller/SHGStore/DeliveryPartner _id) for each
+ * The vendor-record id (Seller/DeliveryPartner _id) for each
  * userId in this audience, when the audience is vendor-shaped — so sending
- * can call notifySeller/notifyShg/notifyRider (which target the vendor's
+ * can call notifySeller/notifyRider (which target the vendor's
  * own socket room, e.g. `seller:<id>`) rather than the generic user room,
  * exactly matching how every other business event already notifies them.
  */
@@ -89,10 +83,6 @@ const resolveVendorSenders = async (targetAudience) => {
   if (targetAudience === 'ALL_SELLERS') {
     const rows = await Seller.find({ status: 'approved' }).select('_id userId').lean();
     return rows.filter((r) => r.userId).map((r) => ({ userId: r.userId, send: (opts) => notifySeller(r._id, opts) }));
-  }
-  if (targetAudience === 'ALL_SHG') {
-    const rows = await SHGStore.find({ status: 'approved' }).select('_id userId').lean();
-    return rows.filter((r) => r.userId).map((r) => ({ userId: r.userId, send: (opts) => notifyShg(r._id, opts) }));
   }
   if (targetAudience === 'ALL_DELIVERY_PARTNERS') {
     const rows = await DeliveryPartner.find({ status: 'approved' }).select('_id userId').lean();

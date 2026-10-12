@@ -2,7 +2,7 @@ import { CHANNEL } from '../../constants/enums.js';
 import { ID, img } from '../ids.js';
 
 /**
- * 8 ecommerce + 10 grocery + 6 SHG parents, each with subcategories.
+ * E-commerce and grocery parents with their subcategories.
  * Numbering: parents 1..24, children 101+.
  */
 
@@ -31,7 +31,6 @@ const child = (n, name, type, parentN, sortOrder) => ({
 
 const E = CHANNEL.ECOM;
 const G = CHANNEL.GROCERY;
-const S = CHANNEL.SHG;
 
 export const categories = [
   // ---------------------------------------------------------- E-COMMERCE (8)
@@ -79,18 +78,4 @@ export const categories = [
   child(210, 'Fresh Vegetables', G, 13, 1),
   child(211, 'Seasonal Fruits', G, 13, 2),
 
-  // ---------------------------------------------------------- SHG (6)
-  parent(19, 'Homemade Pickles', S, 1),
-  parent(20, 'Papad and Masala', S, 2),
-  parent(21, 'Handloom Textiles', S, 3),
-  parent(22, 'Organic Honey and Jaggery', S, 4),
-  parent(23, 'Handmade Soaps and Candles', S, 5),
-  parent(24, 'Jute and Cane Products', S, 6),
-
-  child(301, 'Mango Pickle', S, 19, 1),
-  child(302, 'Lemon Pickle', S, 19, 2),
-  child(303, 'Urad Papad', S, 20, 1),
-  child(304, 'Cotton Sarees', S, 21, 1),
-  child(305, 'Dupattas and Stoles', S, 21, 2),
-  child(306, 'Forest Honey', S, 22, 1),
 ];

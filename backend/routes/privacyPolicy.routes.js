@@ -29,11 +29,6 @@ router.get("/delivery-policy", (req, res) => {
   return getPolicyBySlug(req, res);
 });
 
-router.get("/shg-policy", (req, res) => {
-  req.params.slug = "shg-policy";
-  return getPolicyBySlug(req, res);
-});
-
 // Dynamic slug catch-all
 router.get("/:slug", getPolicyBySlug);
 

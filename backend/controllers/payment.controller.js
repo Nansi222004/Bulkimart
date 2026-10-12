@@ -8,13 +8,10 @@ import {
   rupeesToPaise, isConfigured, setMockPaymentState,
 } from '../services/phonepe.service.js';
 import { ORDER_STATUS, PAYMENT_STATUS } from '../constants/enums.js';
-import { settleShgSubscriptionPayment } from './shgSubscription.controller.js';
-import { settlePremiumPayment } from './premium.controller.js';
 import { settleSellerPromotionPayment } from './sellerPromotion.controller.js';
 import { settlePackagingOrderPayment } from './packaging.controller.js';
 import { settleWalletTopupPayment } from './wallet.controller.js';
 import { redeemReservedCoins, releaseReservedCoins } from '../services/coin.service.js';
-import { recordDonationTransaction } from '../services/donation.service.js';
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
 
 /**
@@ -107,10 +104,6 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
         const targetOrder = fresh.groupRef
           ? await Order.findOne({ groupRef: fresh.groupRef }).sort({ createdAt: 1 }).session(session)
           : (fresh.orderId ? await Order.findById(fresh.orderId).session(session) : null);
-
-        if (targetOrder && targetOrder.pricing?.donationAmount > 0) {
-          await recordDonationTransaction({ order: targetOrder, payment: fresh, session });
-        }
 
         result = { changed: true, status: 'paid' };
       } else if (state === 'FAILED') {
@@ -246,20 +239,9 @@ export const phonepeWebhook = asyncHandler(async (req, res) => {
 
   if (evt.kind === 'payment_completed' || evt.kind === 'payment_failed') {
     const state = evt.kind === 'payment_completed' ? 'COMPLETED' : 'FAILED';
-    // Several payment purposes share this one webhook endpoint, because
-    // PhonePe only calls back to a single configured URL. Branch on which
-    // kind of payment this is; the marketplace-order path below is
-    // completely unchanged for every payment that is neither an SHG
-    // subscription nor a Premium Membership.
-    if (payment.shgSubscriptionId) {
-      await settleShgSubscriptionPayment({
-        payment, state, gatewayOrderId: evt.orderId, paymentDetails: evt.paymentDetails, errorCode: evt.errorCode,
-      });
-    } else if (payment.premiumMembershipId) {
-      await settlePremiumPayment({
-        payment, state, gatewayOrderId: evt.orderId, paymentDetails: evt.paymentDetails, errorCode: evt.errorCode,
-      });
-    } else if (payment.sellerPromotionId) {
+    // Several active payment purposes share this webhook endpoint because
+    // PhonePe only calls back to a single configured URL.
+    if (payment.sellerPromotionId) {
       await settleSellerPromotionPayment({
         payment, state, gatewayOrderId: evt.orderId, paymentDetails: evt.paymentDetails, errorCode: evt.errorCode,
       });

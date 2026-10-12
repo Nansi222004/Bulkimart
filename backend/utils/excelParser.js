@@ -31,10 +31,10 @@ export const BULK_COLUMNS = [
  */
 export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'ecommerce', categoryHierarchy = []) {
   const workbook = new ExcelJS.Workbook();
-  
+
   // Sheet 1: Main Product Template
   const worksheet = workbook.addWorksheet('Product Template');
-  
+
   // Sheet 2: Hidden Reference Sheet for Dropdowns
   const refSheet = workbook.addWorksheet('CategoriesRef');
   refSheet.state = 'hidden';
@@ -190,14 +190,11 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
   // Mode Banner Styling
   const modeStr = String(mode).toLowerCase();
   const isQuick = modeStr === 'quick' || modeStr === 'grocery';
-  const isShg = modeStr === 'shg';
 
-  const modeTitle = isShg
-    ? '🌾 SHG (SELF-HELP GROUP) BULK PRODUCT UPLOAD TEMPLATE'
-    : (isQuick 
-        ? '⚡ QUICK COMMERCE BULK PRODUCT UPLOAD TEMPLATE' 
-        : '🛒 E-COMMERCE BULK PRODUCT UPLOAD TEMPLATE');
-  const bannerColor = isShg ? 'FF166534' : (isQuick ? 'FF047857' : 'FF1E4E78'); // Forest Green for SHG, Emerald for Quick, Navy Blue for E-Commerce
+  const modeTitle = isQuick
+    ? '⚡ QUICK COMMERCE BULK PRODUCT UPLOAD TEMPLATE'
+    : '🛒 E-COMMERCE BULK PRODUCT UPLOAD TEMPLATE';
+  const bannerColor = isQuick ? 'FF047857' : 'FF1E4E78'; // Forest Green for SHG, Emerald for Quick, Navy Blue for E-Commerce
 
   // Insert Row 1: Mode Title Banner (Merged A1:P1)
   worksheet.mergeCells('A1:P1');
@@ -399,7 +396,7 @@ export async function parseXLSX(buffer) {
   try {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
-    
+
     const worksheet = workbook.getWorksheet(1);
     if (!worksheet) return parseCSV(buffer);
 
@@ -432,8 +429,8 @@ export async function parseXLSX(buffer) {
           }
         });
 
-        const isExampleRow = 
-          String(rowObj['Product Name'] || '').includes('[EXAMPLE]') || 
+        const isExampleRow =
+          String(rowObj['Product Name'] || '').includes('[EXAMPLE]') ||
           String(rowObj['Product Name'] || '').includes('DO NOT EDIT') ||
           String(rowObj['Header Category'] || '').includes('[EXAMPLE]') ||
           String(rowValues.join(' ')).includes('BULK PRODUCT UPLOAD TEMPLATE');

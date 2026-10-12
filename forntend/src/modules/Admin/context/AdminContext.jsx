@@ -14,7 +14,6 @@ const AdminContext = createContext();
  */
 const TAB_ALIASES = {
   sellers: 'vendor-dashboard',
-  subscriptions: 'sub-dashboard',
   'delivery-partners': 'delivery-dashboard',
   users: 'user-dashboard',
 };
@@ -35,7 +34,7 @@ const tabFromPath = () => {
   const segment = window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0];
   if (!segment) return DEFAULT_TAB;
   const decoded = decodeURIComponent(segment);
-  if (decoded === 'shg' || decoded.startsWith('shg-')) return DEFAULT_TAB;
+  if (decoded === 'shg' || decoded.startsWith('shg-') || decoded === 'subscriptions' || decoded.startsWith('sub-') || decoded === 'donation-settings') return DEFAULT_TAB;
   return PATH_ALIASES[decoded] || TAB_ALIASES[decoded] || decoded;
 };
 
@@ -45,7 +44,7 @@ export const AdminProvider = ({ children }) => {
   const [activeTabInternal, setActiveTabInternal] = useState(tabFromPath);
 
   const setActiveTab = (tabId) => {
-    if (tabId === 'shg' || tabId.startsWith('shg-')) tabId = DEFAULT_TAB;
+    if (tabId === 'shg' || tabId.startsWith('shg-') || tabId === 'subscriptions' || tabId.startsWith('sub-') || tabId === 'donation-settings') tabId = DEFAULT_TAB;
     const resolved = TAB_ALIASES[tabId] || tabId;
     setActiveTabInternal(resolved);
 
@@ -225,138 +224,6 @@ export const AdminProvider = ({ children }) => {
       setSellerDetailLoading(false);
     }
   }, []);
-
-  // ---- subscriptions (read-only monitoring — no create/edit/pause/cancel) ----
-  const [subscriptions, setSubscriptions] = useState([]);
-  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
-  const [subscriptionsError, setSubscriptionsError] = useState('');
-  const [selectedSubscription, setSelectedSubscription] = useState(null);
-  const [subscriptionDetailLoading, setSubscriptionDetailLoading] = useState(false);
-
-  const fetchSubscriptions = useCallback(async (status = 'all') => {
-    setSubscriptionsLoading(true);
-    setSubscriptionsError('');
-    try {
-      const { data } = await adminGet(`/subscriptions${qs({ status, limit: 100 })}`);
-      setSubscriptions(data || []);
-    } catch (err) {
-      setSubscriptionsError(err.message);
-      setSubscriptions([]);
-    } finally {
-      setSubscriptionsLoading(false);
-    }
-  }, []);
-
-  const fetchSubscriptionById = useCallback(async (id) => {
-    setSubscriptionDetailLoading(true);
-    setSelectedSubscription(null);
-    try {
-      const { data } = await adminGet(`/subscriptions/${id}`);
-      setSelectedSubscription(data);
-    } catch (err) {
-      triggerToast(err.message);
-    } finally {
-      setSubscriptionDetailLoading(false);
-    }
-  }, []);
-
-  // ---- SHG seller subscriptions (plan catalog + purchased records) ----------
-  const [shgPlans, setShgPlans] = useState([]);
-  const [shgSubscriptions, setShgSubscriptions] = useState([]);
-  const [shgSubscriptionsLoading, setShgSubscriptionsLoading] = useState(false);
-  const [shgSubscriptionsError, setShgSubscriptionsError] = useState('');
-
-  const fetchShgPlans = useCallback(async () => {
-    try {
-      const { data } = await adminGet('/shg-subscription-plans');
-      setShgPlans(data || []);
-    } catch (err) {
-      setShgPlans([]);
-    }
-  }, []);
-
-  const fetchShgSubscriptions = useCallback(async (status = 'all') => {
-    setShgSubscriptionsLoading(true);
-    setShgSubscriptionsError('');
-    try {
-      const { data } = await adminGet(`/shg-subscriptions${qs({ status, limit: 100 })}`);
-      setShgSubscriptions(data || []);
-    } catch (err) {
-      setShgSubscriptionsError(err.message);
-      setShgSubscriptions([]);
-    } finally {
-      setShgSubscriptionsLoading(false);
-    }
-  }, []);
-
-  // Editing the catalog never rewrites an already-purchased subscription —
-  // those carry their own price/duration snapshot server-side.
-  const updateShgPlan = async (id, payload) => {
-    try {
-      await adminPatch(`/shg-subscription-plans/${id}`, payload);
-      triggerToast('Plan updated.');
-      await fetchShgPlans();
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
-  const createShgPlan = async (payload) => {
-    try {
-      await adminPost('/shg-subscription-plans', payload);
-      triggerToast('Plan created.');
-      await fetchShgPlans();
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
-  /* ── CUSTOMER PREMIUM MEMBERSHIP PLANS ────────────────────────────────
-   * The catalog behind the customer-facing Premium gate. Editing a price
-   * here only changes what future purchases cost — memberships already
-   * bought keep their own snapshot, server-side.
-   */
-  const [premiumPlans, setPremiumPlans] = useState([]);
-  const [premiumPlansLoading, setPremiumPlansLoading] = useState(false);
-  const [premiumPlansError, setPremiumPlansError] = useState('');
-
-  const fetchPremiumPlans = useCallback(async () => {
-    setPremiumPlansLoading(true);
-    setPremiumPlansError('');
-    try {
-      const { data } = await adminGet('/premium-plans');
-      setPremiumPlans(data || []);
-    } catch (err) {
-      setPremiumPlansError(err.message);
-      setPremiumPlans([]);
-    } finally {
-      setPremiumPlansLoading(false);
-    }
-  }, []);
-
-  const updatePremiumPlan = async (id, payload) => {
-    try {
-      await adminPatch(`/premium-plans/${id}`, payload);
-      triggerToast('Plan updated.');
-      await fetchPremiumPlans();
-      return { ok: true };
-    } catch (err) {
-      triggerToast(err.message);
-      return { ok: false };
-    }
-  };
-
-  const createPremiumPlan = async (payload) => {
-    try {
-      await adminPost('/premium-plans', payload);
-      triggerToast('Plan created.');
-      await fetchPremiumPlans();
-      return { ok: true };
-    } catch (err) {
-      triggerToast(err.message);
-      return { ok: false };
-    }
-  };
 
   const approveSeller = async (id) => {
     try {
@@ -998,152 +865,6 @@ export const AdminProvider = ({ children }) => {
     }
   };
 
-  /**
-   * The API speaks the VENDOR_STATUS enum — lowercase, with an underscore in
-   * `under_review`. The SHG screens compare against display labels
-   * ('Approved'), so a raw pass-through silently matched nothing: an approved
-   * cooperative still showed an Approve button and wore the "under review"
-   * pill. Normalised here, at the one boundary the value enters through, so
-   * the card, its status pill and the dossier modal cannot disagree.
-   */
-  const VENDOR_STATUS_LABEL = {
-    approved: 'Approved',
-    pending: 'Pending',
-    under_review: 'Under Review',
-    rejected: 'Rejected',
-    suspended: 'Suspended',
-    incomplete: 'Incomplete',
-  };
-
-  // 6. SHG VENDORS STATE — live from GET /api/admin/shg
-  const [shgVendors, setShgVendors] = useState([]);
-  const [shgVendorsLoading, setShgVendorsLoading] = useState(false);
-  const [shgVendorsError, setShgVendorsError] = useState('');
-
-  /**
-   * The filters the list was last loaded with, so an approve/reject can
-   * reload the same view. Refetching with the defaults dropped the admin back
-   * to an unfiltered list every time they acted on a cooperative — the card
-   * they had just approved vanished into a list of everything.
-   */
-  const shgVendorFilters = useRef({ status: 'all', search: '' });
-
-  const fetchShgVendors = useCallback(async (status = 'all', search = '') => {
-    shgVendorFilters.current = { status, search };
-    setShgVendorsLoading(true);
-    setShgVendorsError('');
-    try {
-      const { data } = await adminGet(`/shg${qs({ status, search, limit: 100 })}`);
-      setShgVendors((data || []).map((s) => ({
-        id: s._id,
-        groupName: s.groupName || 'SHG Group',
-        leaderName: s.holderName || s.userId?.name || s.leaderName || '—',
-        phone: s.phone || s.userId?.phone || '—',
-        email: s.userId?.email || '—',
-        nrlmId: s.nrlmId || '',
-        shgRegId: s._id,
-        district: s.district || '',
-        block: s.block || '',
-        village: s.village || '',
-        state: s.state || '',
-        pincode: s.pincode || '',
-        membersCount: s.memberCount || s.members?.length || 0,
-        bankName: s.bankName || s.groupBankAccount?.bankName || '',
-        accountNumber: s.accountNumber || s.groupBankAccount?.accountNo || '',
-        status: VENDOR_STATUS_LABEL[s.status] || 'Pending',
-        commissionRate: s.commissionRate || 0,
-        totalOrders: s.totalOrders || 0,
-        rating: s.rating || 0,
-        date: (s.createdAt || s.submittedAt)
-          ? new Date(s.createdAt || s.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-          : '—',
-        raw: s
-      })));
-    } catch (err) {
-      setShgVendorsError(err.message);
-      setShgVendors([]);
-    } finally {
-      setShgVendorsLoading(false);
-    }
-  }, []);
-
-  /**
-   * SHG catalogue — the same /products endpoint the General Vendors screens
-   * use, pinned to `type=shg`.
-   *
-   * Kept as its own slice rather than sharing the `products` state above,
-   * because an approve/reject has to reload the list it was performed on: the
-   * shared `productFilters` describe whatever the vendor screen last asked
-   * for, and reusing them would drop the admin out of the SHG view mid-task.
-   */
-  const [shgProducts, setShgProducts] = useState([]);
-  const [shgProductsLoading, setShgProductsLoading] = useState(false);
-  const [shgProductsError, setShgProductsError] = useState('');
-  const shgProductFilters = useRef({ status: 'all', search: '' });
-
-  const fetchShgProducts = useCallback(async ({ status = 'all', search = '' } = {}) => {
-    shgProductFilters.current = { status, search };
-    setShgProductsLoading(true);
-    setShgProductsError('');
-    try {
-      const { data } = await adminGet(`/products${qs({ type: 'shg', status, search, limit: 100 })}`);
-      setShgProducts((data || []).map((p) => ({
-        id: p._id,
-        name: p.name,
-        shgName: p.shgStoreId?.groupName || '—',
-        district: p.shgStoreId?.district || '',
-        category: p.category?.name || '—',
-        description: p.description,
-        // Pricing moved onto variants; the root fields remain on older
-        // listings, so read the variant first and fall back rather than
-        // showing a blank price for one generation of products.
-        price: p.variants?.[0]?.price ?? p.price ?? null,
-        mrp: p.variants?.[0]?.mrp ?? p.mrp ?? null,
-        stock: p.variants?.[0]?.stock ?? p.stock ?? null,
-        unit: p.variants?.[0]?.unit ?? p.unit ?? '',
-        image: p.images?.[0] || null,
-        status: p.status,
-        isActive: p.isActive,
-        rejectionReason: p.rejectionReason,
-        createdAt: p.createdAt,
-        raw: p,
-      })));
-    } catch (err) {
-      setShgProductsError(err.message);
-      setShgProducts([]);
-    } finally {
-      setShgProductsLoading(false);
-    }
-  }, []);
-
-  const reloadShgProducts = () => fetchShgProducts(shgProductFilters.current);
-
-  const approveShgProduct = async (id) => {
-    try {
-      const { message } = await adminPatch(`/products/${id}/approve`);
-      triggerToast(message || 'SHG product approved and is now live.');
-      addLog(`SHG product ${id} approved.`);
-      await reloadShgProducts();
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
-  const rejectShgProduct = async (id, reason) => {
-    // The endpoint requires a reason — the seller is shown it, so there is no
-    // sensible default to invent here.
-    const finalReason = reason || window.prompt('Why is this listing being rejected? (the SHG will see this)');
-    if (!finalReason) return;
-    try {
-      const { message } = await adminPatch(`/products/${id}/reject`, { reason: finalReason });
-      triggerToast(message || 'SHG product rejected.');
-      addLog(`SHG product ${id} rejected: ${finalReason}`);
-      await reloadShgProducts();
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
   // Vendor ecosystem health — General Vendors › Dashboard.
   const [vendorDashboard, setVendorDashboard] = useState(null);
   const [vendorDashboardLoading, setVendorDashboardLoading] = useState(false);
@@ -1162,67 +883,6 @@ export const AdminProvider = ({ children }) => {
       setVendorDashboardLoading(false);
     }
   }, []);
-
-  // SHG economic impact scorecard — SHG Cooperatives › SHG Performance.
-  const [shgPerformance, setShgPerformance] = useState(null);
-  const [shgPerformanceLoading, setShgPerformanceLoading] = useState(false);
-  const [shgPerformanceError, setShgPerformanceError] = useState('');
-
-  const fetchShgPerformance = useCallback(async (days = 30) => {
-    setShgPerformanceLoading(true);
-    setShgPerformanceError('');
-    try {
-      const { data } = await adminGet(`/shg-performance${qs({ days })}`);
-      setShgPerformance(data || null);
-    } catch (err) {
-      setShgPerformanceError(err.message);
-      setShgPerformance(null);
-    } finally {
-      setShgPerformanceLoading(false);
-    }
-  }, []);
-
-  const approveShgVendor = async (id) => {
-    try {
-      await adminPatch(`/shg/${id}/approve`);
-      triggerToast('SHG Cooperative approved successfully.');
-      addLog(`SHG Vendor ${id} approved.`);
-      await fetchShgVendors(shgVendorFilters.current.status, shgVendorFilters.current.search);
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
-  const rejectShgVendor = async (id, reason) => {
-    const finalReason = reason || window.prompt('Reason for rejection:');
-    if (!finalReason) return;
-    try {
-      await adminPatch(`/shg/${id}/reject`, { reason: finalReason });
-      triggerToast('SHG Cooperative rejected.');
-      addLog(`SHG Vendor ${id} rejected: ${finalReason}`);
-      await fetchShgVendors(shgVendorFilters.current.status, shgVendorFilters.current.search);
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
-
-  /**
-   * Withdraw an approval already granted — the cooperative stops receiving
-   * orders immediately. Distinct from a rejection, which is a verdict on an
-   * application that was never approved.
-   */
-  const suspendShgVendor = async (id, reason) => {
-    const finalReason = reason || window.prompt('Why is this SHG being suspended? (they will see this)');
-    if (!finalReason || !finalReason.trim()) return;
-    try {
-      const { message } = await adminPatch(`/shg/${id}/suspend`, { reason: finalReason.trim() });
-      triggerToast(message || 'SHG suspended — it will no longer receive orders.');
-      addLog(`SHG Vendor ${id} suspended: ${finalReason}`);
-      await fetchShgVendors(shgVendorFilters.current.status, shgVendorFilters.current.search);
-    } catch (err) {
-      triggerToast(err.message);
-    }
-  };
 
   // ==========================================================================
   // 7. DELIVERY PARTNERS — live data from GET /api/admin/delivery-partners
@@ -1449,20 +1109,6 @@ export const AdminProvider = ({ children }) => {
       fetchSellerCounts,
       fetchSellerDetail,
       setSellerDetail,
-      subscriptions,
-      subscriptionsLoading,
-      subscriptionsError,
-      fetchSubscriptions,
-      selectedSubscription,
-      setSelectedSubscription,
-      subscriptionDetailLoading,
-      fetchSubscriptionById,
-      // SHG seller subscriptions
-      shgPlans, fetchShgPlans, createShgPlan, updateShgPlan,
-      // Customer Premium Membership catalog
-      premiumPlans, premiumPlansLoading, premiumPlansError,
-      fetchPremiumPlans, createPremiumPlan, updatePremiumPlan,
-      shgSubscriptions, shgSubscriptionsLoading, shgSubscriptionsError, fetchShgSubscriptions,
       approveSeller,
       rejectSeller,
       suspendSeller,
@@ -1539,15 +1185,7 @@ export const AdminProvider = ({ children }) => {
       fetchCustomerReviews,
       updateCustomerReviewStatus,
       deleteCustomerReview,
-      shgVendors,
-      shgVendorsLoading,
-      shgVendorsError,
-      fetchShgVendors,
-      approveShgVendor,
-      rejectShgVendor,
-      suspendShgVendor,
-
-      // Delivery & Subscriptions
+      // Delivery
       riders,
       ridersLoading,
       ridersError,
@@ -1581,18 +1219,6 @@ export const AdminProvider = ({ children }) => {
       vendorDashboardLoading,
       vendorDashboardError,
       fetchVendorDashboard,
-
-      shgPerformance,
-      shgPerformanceLoading,
-      shgPerformanceError,
-      fetchShgPerformance,
-
-      shgProducts,
-      shgProductsLoading,
-      shgProductsError,
-      fetchShgProducts,
-      approveShgProduct,
-      rejectShgProduct,
 
       fetchDeliveryPerformance,
       deliveryZones,

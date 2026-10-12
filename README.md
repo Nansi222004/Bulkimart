@@ -78,7 +78,6 @@ Bulkimart supports both individual retail consumers and business/wholesale buyer
   * **Multi-Variant Pack Sizing:** Listings support independent variant lines, allowing sellers to list consumer pack sizes alongside commercial bulk packs with distinct pricing, weights, and stock (`backend/models/Product.js`).
   * **Independent Seller & Product Branding:** Merchants showcase their own store name, business banner, and manufacturer brand names (e.g., brand-specific SKUs like Amul, Tata, Nike, or merchant's proprietary brand).
 * **Partially Implemented:**
-  * **Organization / Tiered Seller Accounts:** Schema and verification workflows exist for tiered unit and block merchant partnerships (`isNscSeller`, `nhcPlan`).
   * **Commercial Invoicing Metadata:** GST rates and tax identifiers are captured at product and vendor level.
   * *Retail Cart Limits:* Default ceiling of `MAX_QTY_PER_LINE = 20` exists in `backend/controllers/cart.controller.js` for retail consumer baskets; bulk quantity threshold overrides for verified B2B buyer accounts are not yet exposed in the buyer UI.
 * **Planned Roadmap Features (Not Yet in Code):**
@@ -92,11 +91,8 @@ Bulkimart supports both individual retail consumers and business/wholesale buyer
 * **Same-Day Delivery Engine:** Merchant-controlled Same-Day toggle, daily cut-off times, and preparation time limits (`backend/models/Seller.js`).
 * **Fleet Dispatching:** Real-time broadcast pings to nearby riders, concurrency limits, and OTP-verified deliveries.
 
-### D. Legacy / Inactive Subsystems — **[Retained for Schema Compatibility Only]**
-* **Grocery Subscriptions:** Backend models (`Subscription.js`, `subscriptionSweeper.service.js`) and admin reporting tabs exist in code; however, customer grocery subscription creation is **inactive in the primary customer UI** (sub-pages are unrendered).
-* **CDS Community Membership:** Third-party cooperative membership verification stub (`cds.service.js`) and discount fields in pricing calculations; inactive in official Bulkimart scope.
-* **Platform Packaging / Private Label:** Materials catalog (`PackagingMaterial.js`, `PackagingOrder.js`) and platform brand requests (`brandRequestSchema`); inactive in official Bulkimart scope.
-* **SHG Marketplace:** Legacy cooperative channel models (`SHGStore.js`, `SHGSubscription.js`); inactive in official Bulkimart scope.
+### D. Retired Legacy Features
+SHG/NHC franchise selling, recurring grocery subscriptions, donations, and Premium Membership are not Bulkimart products. Their routes, controllers, services, jobs, models, seeds, and UI entry points have been removed. A few fields remain in shared financial/order schemas only so historical documents can still be deserialized without changing database records.
 
 ---
 
@@ -136,10 +132,6 @@ npm run dev
 
 ---
 
-## 5. Architectural Boundaries & Legacy Code Retained
+## 5. Architectural Boundaries & Historical Compatibility
 
-To guarantee zero database corruption and avoid breaking active queries, legacy code and predecessor database references remain in the underlying source files but are **decoupled from official product specifications**:
-
-* **Legacy Predecessor References (SHG, CDS, Platform Packaging):**
-  * Historical models and routes remain in the codebase (`SHGStore.js`, `cds.service.js`, `packaging.controller.js`) to preserve database query compatibility and prevent breaking historical data records.
-  * These modules are not part of the active Bulkimart business model and are documented strictly as technical legacy dependencies.
+Retired-feature identifiers may remain only as inert optional fields in shared schemas such as orders and payments. They are not exposed by application routes and must not be used to create, renew, or manage retired products. Database record cleanup is intentionally outside application startup and deployment.

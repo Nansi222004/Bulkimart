@@ -46,7 +46,7 @@ const BottomNav = () => {
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
         const active = activeNav === item.id;
-        const color = active ? 'var(--primary)' : 'var(--text-secondary)';
+        const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
           <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>
             <span className="nav-icon-container">

@@ -7,7 +7,6 @@ import { priceOrder, resolveDeliveryType } from '../services/pricing.service.js'
 import { CHANNEL, CHANNELS, DELIVERY_MODE, DELIVERY_MODES } from '../constants/enums.js';
 import { applyCouponCode } from '../services/coupon.service.js';
 import Seller from '../models/Seller.js';
-import SHGStore from '../models/SHGStore.js';
 import { checkCartSameDayEligibility } from '../services/sameDay.service.js';
 import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
@@ -233,7 +232,6 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
 
   let sellerInfo = null;
   const firstSellerId = items.find((i) => i.sellerId)?.sellerId;
-  const firstShgStoreId = items.find((i) => i.shgStoreId)?.shgStoreId;
 
   if (firstSellerId) {
     const s = await Seller.findById(firstSellerId).populate('userId', 'phone name').lean();
@@ -255,21 +253,7 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
         city: s.storeDetails?.city || '',
       };
     }
-  } else if (firstShgStoreId) {
-    const shg = await SHGStore.findById(firstShgStoreId).populate('userId', 'phone name').lean();
-    if (shg) {
-      const name = shg.groupName || 'SHG Group';
-      const phone = shg.members?.[0]?.phone || shg.userId?.phone || '';
-      const addressParts = [shg.village, shg.block, shg.district, shg.state, shg.pincode].filter(Boolean);
-      const address = addressParts.length > 0 ? addressParts.join(', ') : (shg.district || '');
-      sellerInfo = {
-        _id: shg._id,
-        name,
-        phone,
-        address,
-        city: shg.district || '',
-      };
-    }
+
   }
 
   return {
@@ -391,6 +375,9 @@ export const addToCart = asyncHandler(async (req, res) => {
 
   const product = await Product.findById(productId);
   if (!product || product.isDeleted || !product.isActive || product.status !== 'approved') {
+    throw httpError(404, 'This product is not available');
+  }
+  if (product.type === 'shg' || product.shgStoreId) {
     throw httpError(404, 'This product is not available');
   }
   if (product.fulfillmentType === 'digital') throw httpError(409, 'E-book purchasing is not available yet');

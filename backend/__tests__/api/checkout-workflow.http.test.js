@@ -136,13 +136,6 @@ jest.unstable_mockModule('../../models/Coupon.js', () => ({
   DISCOUNT_TYPE: { PERCENTAGE: 'percentage', FIXED: 'fixed', FREE_SHIPPING: 'free_shipping' },
 }));
 jest.unstable_mockModule('../../models/CouponRedemption.js', () => ({ default: CouponRedemption }));
-jest.unstable_mockModule('../../services/donation.service.js', () => ({
-  resolveDonation: jest.fn(() => null),
-  recordDonationTransaction: jest.fn(async () => {}),
-}));
-jest.unstable_mockModule('../../services/shgSubscription.service.js', () => ({
-  assertShgStoreOrderable: jest.fn(async () => {}),
-}));
 jest.unstable_mockModule('../../services/campaign.service.js', () => ({
   resolveCampaignPricesForProducts: jest.fn(async () => new Map()),
 }));
@@ -154,7 +147,6 @@ jest.unstable_mockModule('../../services/notification.service.js', () => ({
   notifySeller: jest.fn(async () => {}),
   notifyRider: jest.fn(async () => {}),
   notifyAllAdmins: jest.fn(async () => {}),
-  notifyShg: jest.fn(async () => {}),
   registerPushToken: jest.fn(async () => 'web'),
   removePushToken: jest.fn(async () => {}),
   NOTIFICATION_EVENT: new Proxy({}, { get: (_target, key) => String(key) }),

@@ -2,6 +2,7 @@ import {
   clearSellerDraft,
   getSellerDraftKey,
   readSellerDraft,
+  sellerTypeLabelFromModes,
   selectedModesToChannels,
   writeSellerDraft,
 } from '../../../forntend/src/modules/Seller/utils/onboardingDraft.js';
@@ -22,6 +23,15 @@ test.each([
   [['ecommerce', 'quick'], ['ecommerce', 'grocery']],
 ])('maps selected seller modes %j to canonical channels %j', (modes, expected) => {
   expect(selectedModesToChannels(modes)).toEqual(expected);
+});
+
+test.each([
+  [['ecommerce'], 'E-Commerce'],
+  [['quick'], 'Quick Commerce'],
+  [['ecommerce', 'quick'], 'Hybrid'],
+  [[], 'Select a sales channel'],
+])('shows the selected seller type for %j', (modes, expected) => {
+  expect(sellerTypeLabelFromModes(modes)).toBe(expected);
 });
 
 test('rejects missing or invalid channel selections instead of silently defaulting', () => {

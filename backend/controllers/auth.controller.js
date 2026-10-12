@@ -44,9 +44,6 @@ export const publicUser = (user) => ({
   addresses: user.addresses || [],
   walletBalance: user.wallet?.balance ?? 0,
   isActive: user.isActive,
-  isShgMember: user.isShgMember || false,
-  shgRegNo: user.shgRegNo || null,
-  shgStoreId: user.shgStoreId || null,
   createdAt: user.createdAt,
 });
 

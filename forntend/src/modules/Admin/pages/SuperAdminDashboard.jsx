@@ -243,16 +243,6 @@ export const SuperAdminDashboard = () => {
             ))}
           </div>
         </div>
-
-        <div className="sa-widget-card" style={{ maxHeight: 'none' }}>
-          <div className="sa-card-header">
-            <h3 className="sa-card-title">Top Subscription Plans</h3>
-          </div>
-          <div style={{ padding: '12px 0', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
-            No subscription plan data.
-          </div>
-        </div>
-
       </div>
 
       {/* Bottom Horizontal Quick Actions deck */}
@@ -264,7 +254,6 @@ export const SuperAdminDashboard = () => {
             { id: 'act2', label: 'Add Category', icon: '📁 Categories' },
             { id: 'act3', label: 'Add Product', icon: '📦 Products' },
             { id: 'act4', label: 'Approve Sellers', icon: '✓ Verify Sellers' },
-            { id: 'act5', label: 'Manage Subs', icon: '🔄 Subscriptions' },
             { id: 'act6', label: 'Create Promo', icon: '🔥 Campaigns' },
             { id: 'act7', label: 'Send Notice', icon: '✉ Notifications' },
             { id: 'act8', label: 'View Reports', icon: '📊 Analytics' }
