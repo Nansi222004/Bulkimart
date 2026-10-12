@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isMockIntegrationEnabled } from './runtime.js';
 
 let shiprocketToken = null;
 let tokenExpiry = null;
@@ -7,7 +8,7 @@ let tokenExpiry = null;
  * Get cached/fresh authorization token from Shiprocket API
  */
 export const getShiprocketToken = async () => {
-  if (process.env.SHIPROCKET_MODE === 'mock') {
+  if (isMockIntegrationEnabled('SHIPROCKET_MODE')) {
     return 'mock_shiprocket_jwt_token_12345';
   }
 

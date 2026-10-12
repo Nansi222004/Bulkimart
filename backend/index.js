@@ -12,7 +12,10 @@ import helmet from "helmet";
 import compression from "compression";
 import connectDB from "./config/db.js";
 import { getCorsOptions } from "./config/cors.js";
+import { validateRuntimeConfig } from "./config/runtime.js";
+import { getFirebaseApp, validateFirebaseAdminConfig } from "./config/firebaseAdmin.js";
 import apiRoutes from "./routes/index.js";
+import healthRoutes from "./routes/health.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { initSocket } from "./socket/socket.js";
 import { startOrderSweeper } from "./services/orderSweeper.service.js";
@@ -29,13 +32,11 @@ if (process.env.NODE_ENV === "development") {
   setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 }
 
-// Refuse to boot with mock integrations in production.
-if (process.env.NODE_ENV === "production") {
-  const unsafe = ["OTP_MODE", "RAZORPAY_MODE", "SHIPROCKET_MODE", "FCM_MODE", "MAPS_MODE"]
-    .filter((key) => process.env[key] === "mock");
-  if (unsafe.length) {
-    throw new Error(`Refusing to boot — mock mode enabled in production: ${unsafe.join(", ")}`);
-  }
+// Validate before connecting to MongoDB or starting any background work.
+validateRuntimeConfig();
+if (process.env.FCM_MODE === "live") {
+  validateFirebaseAdminConfig();
+  getFirebaseApp();
 }
 
 const app = express();
@@ -53,25 +54,26 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 app.use(cors(getCorsOptions()));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buffer) => {
+    if (req.originalUrl?.startsWith('/api/payments/razorpay/webhook')) {
+      req.rawBody = Buffer.from(buffer);
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Health check moved off "/" — the built frontend (below) now owns that
 // path, and a route registered here would win over it on every request.
-app.get("/api/health", (req, res) => {
-  res.json({ message: "Backend is running 🚀" });
-});
+app.use("/api/health", healthRoutes);
 
 app.use("/api", apiRoutes);
 
 /**
  * The built frontend, served by this same process on this same port.
  *
- * Independent of NODE_ENV: this deploy runs the backend in development mode
- * (see the mock-integration guard above — several integrations are still
- * mocked, which would refuse to boot in production), but the frontend still
- * needs serving from somewhere. Presence of the built `dist` folder is the
- * real signal, not the env flag.
+ * Independent of NODE_ENV: presence of the built `dist` folder is the real
+ * signal for serving the frontend, not the runtime environment name.
  */
 const frontendDist = path.resolve(import.meta.dirname, "../forntend/dist");
 if (fs.existsSync(frontendDist)) {

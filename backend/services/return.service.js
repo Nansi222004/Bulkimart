@@ -10,6 +10,7 @@ import {
 } from '../constants/enums.js';
 import * as coinService from './coin.service.js';
 import * as phonepeService from './phonepe.service.js';
+import { createRazorpayRefund } from './razorpay.service.js';
 import { refundToWallet } from './wallet.service.js';
 import { WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { notifyUser, notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
@@ -519,21 +520,29 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
       });
     }
 
-    // ---- Real PhonePe refund (Phase 6F), reusing the existing service ----
+    // ---- Verified gateway refund. Never fall back from one provider to another. ----
     let gatewayResult;
+    const gatewayProvider = payment.gateway?.provider || 'phonepe';
     try {
-      gatewayResult = await phonepeService.createRefund({
-        merchantRefundId: merchantRefundId(ret._id),
-        originalMerchantOrderId: payment.gateway?.merchantOrderId,
-        amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),
-      });
+      gatewayResult = gatewayProvider === 'razorpay'
+        ? await createRazorpayRefund({
+            paymentId: payment.gateway?.paymentId,
+            amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),
+            receipt: merchantRefundId(ret._id),
+            notes: { returnId: String(ret._id), returnNumber: ret.returnNumber },
+          })
+        : await phonepeService.createRefund({
+            merchantRefundId: merchantRefundId(ret._id),
+            originalMerchantOrderId: payment.gateway?.merchantOrderId,
+            amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),
+          });
     } catch (err) {
-      return await failRefund(ret, err.message || 'PhonePe refund request failed');
+      return await failRefund(ret, err.message || 'Payment gateway refund request failed');
     }
 
     const state = String(gatewayResult.state || '').toUpperCase();
     if (state === 'FAILED') {
-      return await failRefund(ret, `PhonePe reported the refund as failed (${gatewayResult.raw?.errorCode || 'no code'})`);
+      return await failRefund(ret, `Payment gateway reported the refund as failed (${gatewayResult.raw?.errorCode || 'no code'})`);
     }
 
     // COMPLETED or a pending/async state (e.g. PENDING) — PhonePe's own
@@ -544,19 +553,25 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
       ...payment.refund?.toObject?.() || payment.refund || {},
       amount: breakdown.refundAmount,
       reason: 'Item return',
-      status: 'processed',
-      processedAt: now,
+      status: state === 'COMPLETED' ? 'processed' : 'pending',
+      ...(state === 'COMPLETED' ? { processedAt: now } : {}),
       merchantRefundId: merchantRefundId(ret._id),
-      phonepeRefundId: gatewayResult.refundId,
+      ...(gatewayProvider === 'razorpay'
+        ? { razorpayRefId: gatewayResult.refundId }
+        : { phonepeRefundId: gatewayResult.refundId }),
       gatewayState: gatewayResult.state,
-      totalRefundedAmount: round2(alreadyRefunded + breakdown.refundAmount),
+      totalRefundedAmount: state === 'COMPLETED'
+        ? round2(alreadyRefunded + breakdown.refundAmount)
+        : alreadyRefunded,
     };
-    payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
-      ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+    if (state === 'COMPLETED') {
+      payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
+        ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+    }
     await payment.save();
 
     if (state === 'COMPLETED') {
-      return await completeRefund(ret, { refundReference: gatewayResult.refundId, refundStatus: RETURN_REFUND_STATUS.COMPLETED, adminId, note: 'PhonePe refund completed' });
+      return await completeRefund(ret, { refundReference: gatewayResult.refundId, refundStatus: RETURN_REFUND_STATUS.COMPLETED, adminId, note: `${gatewayProvider} refund completed` });
     }
 
     // Async/pending gateway state — leave the Return in REFUND_PENDING with
@@ -569,6 +584,43 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
   } finally {
     await releaseRefundLock(returnId);
   }
+};
+
+/** Resolve an asynchronous Razorpay refund webhook exactly once. */
+export const settleRazorpayRefundWebhook = async ({ refundId, state, errorCode }) => {
+  if (!refundId || !['COMPLETED', 'FAILED'].includes(state)) return { changed: false };
+  const ret = await Return.findOne({ refundReference: refundId });
+  if (!ret || [RETURN_STATUS.REFUNDED, RETURN_STATUS.REFUND_FAILED].includes(ret.status)) {
+    return { changed: false };
+  }
+  const payment = await Payment.findOne({ 'refund.razorpayRefId': refundId });
+
+  if (state === 'FAILED') {
+    if (payment) {
+      payment.refund.status = 'failed';
+      payment.refund.gatewayState = 'FAILED';
+      await payment.save();
+    }
+    await failRefund(ret, `Razorpay reported the refund as failed (${errorCode || 'no code'})`);
+    return { changed: true, status: 'failed' };
+  }
+
+  if (payment && payment.refund?.status !== 'processed') {
+    const prior = payment.refund?.totalRefundedAmount || 0;
+    payment.refund.status = 'processed';
+    payment.refund.processedAt = new Date();
+    payment.refund.gatewayState = 'COMPLETED';
+    payment.refund.totalRefundedAmount = round2(prior + (payment.refund.amount || 0));
+    payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
+      ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+    await payment.save();
+  }
+  await completeRefund(ret, {
+    refundReference: refundId,
+    refundStatus: RETURN_REFUND_STATUS.COMPLETED,
+    note: 'Razorpay refund completed',
+  });
+  return { changed: true, status: 'completed' };
 };
 
 /** Shared terminal-success path: restores allocated Coins, marks REFUNDED. */

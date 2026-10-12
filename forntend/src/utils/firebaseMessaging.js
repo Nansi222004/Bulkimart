@@ -18,6 +18,7 @@ const firebaseConfig = {
 };
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+const hasFirebaseWebConfig = Object.values(firebaseConfig).every(Boolean);
 const PUSH_TOKEN_KEY = 'nhcone_fcm_token';
 
 let appInstance = null;
@@ -41,11 +42,12 @@ export const registerTokenWithBackend = async (token) => {
   const authToken = localStorage.getItem('userToken');
   if (!authToken || !token) return;
   try {
-    await fetch(apiUrl('/api/notifications/tokens'), {
+    const response = await fetch(apiUrl('/api/notifications/tokens'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ token, platform: 'web' }),
     });
+    if (!response.ok) throw new Error('Backend rejected the push token');
     localStorage.setItem(PUSH_TOKEN_KEY, token);
   } catch (err) {
     console.error('[PUSH] token registration failed (non-fatal):', err.message);
@@ -63,7 +65,7 @@ let initialized = false;
 export const initPushNotifications = async () => {
   if (initialized) return;
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return;
-  if (!VAPID_KEY || !firebaseConfig.apiKey) return; // not configured — silently skip
+  if (!VAPID_KEY || !hasFirebaseWebConfig) return; // not configured — silently skip
   initialized = true;
 
   try {
@@ -75,7 +77,8 @@ export const initPushNotifications = async () => {
     }
     if (permission !== 'granted') return;
 
-    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const workerParams = new URLSearchParams(firebaseConfig);
+    const registration = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${workerParams}`);
     const messaging = await getMessagingInstance();
     if (!messaging) return;
 
@@ -95,14 +98,16 @@ export const deregisterPushToken = async () => {
   const token = localStorage.getItem(PUSH_TOKEN_KEY);
   if (!authToken || !token) return;
   try {
-    await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), {
+    const response = await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${authToken}` },
     });
+    if (!response.ok) throw new Error('Backend rejected push-token removal');
   } catch (err) {
     console.error('[PUSH] token removal failed (non-fatal):', err.message);
   } finally {
     localStorage.removeItem(PUSH_TOKEN_KEY);
+    initialized = false;
   }
 };
 

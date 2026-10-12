@@ -5,11 +5,11 @@ import { otpLimiter, authLimiter, adminLoginLimiter } from '../middlewares/rateL
 
 const router = express.Router();
 
-router.post('/send-otp', requestOTP);
-router.post('/verify-otp', verifyAndLogin);
+  router.post('/send-otp', otpLimiter, requestOTP);
+router.post('/verify-otp', authLimiter, verifyAndLogin);
 router.post('/logout', logout);
-router.post('/seller/send-otp', requestSellerOTP);
-router.post('/seller/verify-otp', verifySellerOTP);
+router.post('/seller/send-otp', otpLimiter, requestSellerOTP);
+router.post('/seller/verify-otp', authLimiter, verifySellerOTP);
 router.post('/admin/login', adminLoginLimiter, adminLogin);
 router.get('/me', protect, getMe);
 

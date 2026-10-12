@@ -155,7 +155,7 @@ const deactivateToken = async (userId, token) => {
   }
 };
 
-const pushToUser = async (userId, { title, message, data, image }) => {
+export const pushToUser = async (userId, { title, message, data, image }) => {
   try {
     const user = await User.findById(userId).select('pushTokens fcmToken');
     if (!user) return;
@@ -289,6 +289,19 @@ export const notifyAllAdmins = async (opts = {}) => {
  */
 export const registerPushToken = async (userId, token, platform) => {
   const tokenPlatform = platform === 'web' ? 'web' : 'app';
+
+  // One browser/app installation must belong to only the currently signed-in
+  // account. This prevents a stale token from receiving another account's
+  // notifications after logout/account switching on the same device.
+  await User.updateMany(
+    { _id: { $ne: userId }, 'pushTokens.token': token },
+    { $pull: { pushTokens: { token } } },
+  );
+  await User.updateMany(
+    { _id: { $ne: userId }, fcmToken: token },
+    { $unset: { fcmToken: '', fcmPlatform: '' } },
+  );
+
   const user = await User.findById(userId);
   if (!user) return null;
 

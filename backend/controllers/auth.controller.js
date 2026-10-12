@@ -6,6 +6,7 @@ import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
 import { captureReferralSignup } from "../services/referral.service.js";
 import { JWT_SECRET } from "../config/jwt.js";
+import { isMockIntegrationEnabled } from "../config/runtime.js";
 
 /**
  * `role`, when given, is a claim the caller has already verified at THIS
@@ -80,7 +81,7 @@ export const requestOTP = asyncHandler(async (req, res) => {
 
   const result = await sendOTP(phone);
 
-  if (process.env.OTP_MODE === 'mock') {
+  if (isMockIntegrationEnabled('OTP_MODE')) {
     return res.status(200).json({
       success: true,
       message: "OTP sent (mock mode)",
@@ -201,7 +202,7 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
 
   const result = await sendOTP(phone);
 
-  if (process.env.OTP_MODE === 'mock') {
+  if (isMockIntegrationEnabled('OTP_MODE')) {
     return res.status(200).json({
       success: true,
       message: "OTP sent (mock mode)",

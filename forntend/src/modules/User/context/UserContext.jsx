@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useCallback, useEffect } fr
 import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
+import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 
 const UserContext = createContext();
 
@@ -1309,14 +1310,7 @@ export const UserProvider = ({ children }) => {
     }
   };
 
-  /**
-   * Start a PhonePe payment for an order that was created with
-   * paymentMethod: 'online' — same gateway, same reused pattern as the SHG
-   * subscription purchase flow (POST → redirectUrl → hand the browser to
-   * PhonePe). The order is never marked paid here or anywhere on the
-   * client; only the signed webhook / the backend's own status check does
-   * that, exactly like every other PhonePe flow in this app.
-   */
+  /** Start the server-selected gateway. Only backend verification marks paid. */
   const initiateOnlinePayment = async (orderId) => {
     try {
       const res = await fetch(apiUrl('/api/payments/initiate'), {
@@ -1326,7 +1320,10 @@ export const UserProvider = ({ children }) => {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not start the payment' };
-      return { ok: true, redirectUrl: body.data?.redirectUrl };
+      if (body.data?.provider === 'razorpay') {
+        return openRazorpayCheckout(body.data, authHeaders());
+      }
+      return { ok: true, provider: body.data?.provider, redirectUrl: body.data?.redirectUrl };
     } catch (err) {
       return { ok: false, message: err.message };
     }

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import axios from 'axios';
+import { getPaymentGateway } from '../config/runtime.js';
 
 /**
  * PhonePe Standard Checkout (v2, OAuth-based).
@@ -32,7 +33,14 @@ const HOSTS = IS_PROD
 
 const mockStore = new Map();
 
+const assertPhonePeSelected = () => {
+  if (getPaymentGateway() !== 'phonepe') {
+    throw Object.assign(new Error('PhonePe is not enabled for this deployment'), { status: 503 });
+  }
+};
+
 export const setMockPaymentState = (merchantOrderId, state) => {
+  assertPhonePeSelected();
   const existing = mockStore.get(merchantOrderId) || {};
   mockStore.set(merchantOrderId, { ...existing, state });
 };
@@ -108,6 +116,7 @@ const authHeader = (token) => ({ Authorization: `O-Bearer ${token}` });
  * @returns {{ redirectUrl, orderId, state, expireAt }}
  */
 export const createPayment = async ({ merchantOrderId, amountPaise, redirectUrl, message }) => {
+  assertPhonePeSelected();
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
     throw Object.assign(new Error('Invalid payment amount'), { status: 400 });
   }
@@ -167,6 +176,7 @@ export const createPayment = async ({ merchantOrderId, amountPaise, redirectUrl,
    ========================================================================== */
 
 export const getOrderStatus = async (merchantOrderId) => {
+  assertPhonePeSelected();
   if (isRealGatewayConfigured() && process.env.PHONEPE_MOCK !== 'true') {
     const token = await getAccessToken();
 
@@ -207,6 +217,7 @@ export const getOrderStatus = async (merchantOrderId) => {
    ========================================================================== */
 
 export const createRefund = async ({ merchantRefundId, originalMerchantOrderId, amountPaise }) => {
+  assertPhonePeSelected();
   const token = await getAccessToken();
 
   try {

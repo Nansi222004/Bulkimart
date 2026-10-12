@@ -2,18 +2,20 @@
 // or closed. Must live at the site root (not under /src) so its scope covers
 // the whole origin. These config values are the public Firebase Web client
 // identifiers (the same ones already shipped in the app's own JS bundle via
-// VITE_FIREBASE_*) — not secrets; a service worker cannot read Vite env vars,
-// so Firebase's own docs call for hardcoding them here.
+// VITE_FIREBASE_*) — not secrets. The registration URL supplies them as query
+// parameters so staging and production cannot silently target different
+// Firebase projects because of a hardcoded service-worker configuration.
 importScripts('https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging-compat.js');
 
+const params = new URL(self.location.href).searchParams;
 firebase.initializeApp({
-  apiKey: "AIzaSyAo1imN-a0bhzmYVj6qw3cXeyqIFHySMdE",
-  authDomain: "bulkimart-d865c.firebaseapp.com",
-  projectId: "bulkimart-d865c",
-  storageBucket: "bulkimart-d865c.firebasestorage.app",
-  messagingSenderId: "491974533047",
-  appId: "1:491974533047:web:af9867c4451060af359232",
+  apiKey: params.get('apiKey'),
+  authDomain: params.get('authDomain'),
+  projectId: params.get('projectId'),
+  storageBucket: params.get('storageBucket'),
+  messagingSenderId: params.get('messagingSenderId'),
+  appId: params.get('appId'),
 });
 
 const messaging = firebase.messaging();

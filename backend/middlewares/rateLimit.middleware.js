@@ -7,10 +7,24 @@ const jsonMessage = (message) => ({ success: false, data: null, message, meta: {
  * is wired, so this endpoint is a direct billing-attack surface. Keyed on
  * IP + phone so one IP cannot rotate numbers and one number cannot rotate IPs.
  */
-export const otpLimiter = (req, res, next) => next();
+export const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip)}:${String(req.body?.phone || '').trim()}`,
+  message: jsonMessage('Too many OTP requests. Please try again in 15 minutes.'),
+});
 
 /** Slightly looser guard for OTP verification / admin login brute force. */
-export const authLimiter = (req, res, next) => next();
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: jsonMessage('Too many verification attempts. Please try again in 15 minutes.'),
+});
 
 /**
  * Admin login is a password endpoint with no OTP step behind it, so an

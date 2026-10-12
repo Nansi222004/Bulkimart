@@ -1,8 +1,9 @@
 import { getShiprocketToken } from '../config/shiprocket.js';
 import axios from 'axios';
+import { isMockIntegrationEnabled } from '../config/runtime.js';
 
 export const createShiprocketOrder = async (orderData) => {
-  if (process.env.SHIPROCKET_MODE === 'mock') {
+  if (isMockIntegrationEnabled('SHIPROCKET_MODE')) {
     return {
       success: true,
       shiprocket_order_id: `SR-MOCK-${Date.now()}`,
@@ -29,7 +30,7 @@ export const createShiprocketOrder = async (orderData) => {
 };
 
 export const assignCourier = async (shiprocketOrderId) => {
-  if (process.env.SHIPROCKET_MODE === 'mock') {
+  if (isMockIntegrationEnabled('SHIPROCKET_MODE')) {
     return {
       success: true,
       awb: `AWB-MOCK-${Date.now()}`,
@@ -39,13 +40,12 @@ export const assignCourier = async (shiprocketOrderId) => {
     };
   }
 
-  // Real: API requests to assign courier and generate AWB
-  console.log(`[ASSIGN COURIER - REAL] ${shiprocketOrderId}`);
-  return { awb: `AWB-MOCK-${Date.now()}`, courier_name: 'Delhivery' };
+  // Never report simulated fulfilment as a real Shiprocket assignment.
+  throw new Error('Real Shiprocket courier assignment is not implemented');
 };
 
 export const trackShipment = async (awb) => {
-  if (process.env.SHIPROCKET_MODE === 'mock') {
+  if (isMockIntegrationEnabled('SHIPROCKET_MODE')) {
     return {
       success: true,
       current_status: 'In Transit',

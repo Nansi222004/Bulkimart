@@ -380,14 +380,17 @@ const CheckoutPage = () => {
     const firstOrder = res.order || res.orders?.[0];
 
     // "Online Payment" doesn't stop here — the order exists (stock is held,
-    // pricing is locked) but is not paid yet. Hand the shopper to PhonePe the
-    // same way the other PhonePe purchase flows do; the confirmation screen
-    // below is only for Cash on Delivery, where placing is the whole flow.
+    // pricing is locked) but is not paid yet. The backend selects the gateway;
+    // only its signed/server-side verification can mark the payment paid.
     if (paymentMethod === 'Online Payment') {
       const pay = await initiateOnlinePayment(firstOrder._id);
       setIsOrdering(false);
       if (pay.ok && pay.redirectUrl) {
         window.location.href = pay.redirectUrl;
+        return;
+      }
+      if (pay.ok && pay.verified) {
+        window.location.href = `/orders?payment=paid&order=${encodeURIComponent(firstOrder.orderNo || '')}`;
         return;
       }
       setOrderError(pay.message || 'Order placed, but the payment could not be started. You can pay from My Orders.');

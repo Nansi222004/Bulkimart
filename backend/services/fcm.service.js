@@ -1,12 +1,13 @@
 // Firebase Cloud Messaging (FCM) push notification service
 import { getMessaging } from 'firebase-admin/messaging';
 import { getFirebaseApp } from '../config/firebaseAdmin.js';
+import { isMockIntegrationEnabled } from '../config/runtime.js';
 
 export const sendPushNotification = async (fcmToken, { title, body, data = {}, image }) => {
   if (!fcmToken) return { success: false, error: 'No token provided' };
 
-  if (process.env.FCM_MODE === 'mock') {
-    console.log(`[MOCK FCM] To: ${fcmToken.substring(0, 20)}... | Title: "${title}" | Body: "${body}"`);
+  if (isMockIntegrationEnabled('FCM_MODE')) {
+    console.log(`[MOCK FCM] Notification suppressed | Title: "${title}"`);
     return { success: true };
   }
 
@@ -27,8 +28,8 @@ export const sendPushNotification = async (fcmToken, { title, body, data = {}, i
 export const sendBulkNotification = async (tokens = [], { title, body, data = {}, image }) => {
   if (tokens.length === 0) return { success: false, error: 'No tokens provided' };
 
-  if (process.env.FCM_MODE === 'mock') {
-    console.log(`[MOCK FCM BULK] To: ${tokens.length} devices | Title: "${title}" | Body: "${body}"`);
+  if (isMockIntegrationEnabled('FCM_MODE')) {
+    console.log(`[MOCK FCM BULK] ${tokens.length} notifications suppressed | Title: "${title}"`);
     return { success: true };
   }
 

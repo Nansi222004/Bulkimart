@@ -55,6 +55,8 @@ const paymentSchema = new Schema(
       provider:        String,   // 'phonepe'
       merchantOrderId: String,   // our id for this attempt: ORD-...-A1
       orderId:         String,   // PhonePe's id
+      paymentId:       String,   // Razorpay payment id after verified capture/webhook
+      signatureVerifiedAt: Date,
       initiatedAt:     Date,
       errorCode:       String,
       paymentDetails:  [mongoose.Schema.Types.Mixed],
@@ -75,7 +77,7 @@ const paymentSchema = new Schema(
       amount:        Number,
       reason:        String,
       status:        { type: String, enum: ["pending", "processed", "failed"] },
-      razorpayRefId: String, // legacy, unused by the current PhonePe integration — kept for old records
+      razorpayRefId: String,
       processedAt:   Date,
       // Additive fields for real Return-refund execution (Phase 6). A single
       // Payment can back several fulfilment orders in a unified checkout
