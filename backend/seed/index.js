@@ -10,6 +10,7 @@ import Commission from '../models/Commission.js';
 import Banner from '../models/Banner.js';
 import Cart from '../models/Cart.js';
 import Order from '../models/Order.js';
+import Admin from '../models/Admin.js';
 
 import { ROLE, VENDOR_STATUS } from '../constants/enums.js';
 import { categories } from './data/categories.js';
@@ -77,6 +78,24 @@ const run = async () => {
     const update = { $set: { sellerId: s._id } };
     if (s.status === VENDOR_STATUS.APPROVED) update.$addToSet = { roles: ROLE.SELLER };
     await User.updateOne({ _id: s.userId }, update);
+  }
+
+  // ---- ensure admin account exists
+  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@admin.com').toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin123';
+  const existingAdmin = await Admin.findOne({ email: adminEmail });
+  if (!existingAdmin) {
+    await Admin.create({
+      name: 'Super Admin',
+      email: adminEmail,
+      password: adminPassword,
+      role: 'superAdmin',
+      isActive: true,
+    });
+    console.log(`  admin          1 total  (1 new: ${adminEmail})`);
+  } else if (!existingAdmin.isActive) {
+    existingAdmin.isActive = true;
+    await existingAdmin.save();
   }
   // ---- summary
   const [pendingSellers, pendingProducts, lowStock] = await Promise.all([

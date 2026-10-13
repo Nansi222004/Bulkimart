@@ -43,8 +43,6 @@ const connectDB = async () => {
     const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
     const adminPassword = process.env.ADMIN_PASSWORD;
 
-    // Never fall back to credentials embedded in source. Bootstrap remains
-    // opt-in for a fresh environment and never changes an existing account.
     if (adminEmail && adminPassword) {
       const existing = await Admin.findOne({ email: adminEmail });
       if (!existing) {
@@ -53,11 +51,14 @@ const connectDB = async () => {
           email: adminEmail,
           password: adminPassword, // hashed by the pre-save hook
           role: "superAdmin",
+          isActive: true,
         });
         console.log("Super Admin account seeded successfully! 🚀");
+      } else if (!existing.isActive) {
+        existing.isActive = true;
+        await existing.save();
+        console.log("Super Admin account reactivated! 🚀");
       }
-    } else {
-      console.warn('[ADMIN BOOTSTRAP] skipped because explicit server credentials are not configured');
     }
 
     // Seed System Categories
