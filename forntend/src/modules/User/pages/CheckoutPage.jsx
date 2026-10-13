@@ -38,6 +38,7 @@ const CheckoutPage = () => {
     toggleUseCoins,
     walletBalance,
     fetchWalletBalance,
+    currentUser,
   } = useUser();
 
   useEffect(() => {
@@ -150,13 +151,16 @@ const CheckoutPage = () => {
 
   // Address form states
   const [showAddressForm, setShowAddressForm] = useState(false);
-  const [addrName, setAddrName] = useState('');
-  const [addrPhone, setAddrPhone] = useState('');
   const [house, setHouse] = useState('');
   const [street, setStreet] = useState('');
   const [city, setCity] = useState('');
   const [pincode, setPincode] = useState('');
   const [addressType, setAddressType] = useState('Home');
+  const [addressFormError, setAddressFormError] = useState('');
+
+  const customerName = (currentUser?.name || '').trim();
+  const customerPhone = (currentUser?.phone || '').trim();
+  const isProfileComplete = Boolean(customerName && customerPhone);
 
   // The pin captured from the device, carried through to the saved address.
   // Without it the order has no destination for the rider or the map.
@@ -323,11 +327,21 @@ const CheckoutPage = () => {
 
   const handleAddAddress = async (e) => {
     e.preventDefault();
-    if (!house || !city || !pincode) return;
+    setAddressFormError('');
+
+    if (!customerName || !customerPhone) {
+      setAddressFormError('Please complete your profile name and mobile number before saving an address.');
+      return;
+    }
+
+    if (!house || !city || !pincode) {
+      setAddressFormError('Please fill in Flat/House No., City, and Pincode.');
+      return;
+    }
     
     const res = await addAddress({
-      name: addrName || 'Home',
-      phone: addrPhone || '',
+      name: customerName,
+      phone: customerPhone,
       line1: house,
       line2: street,
       city,
@@ -341,15 +355,19 @@ const CheckoutPage = () => {
       landmarkImage: landmarkImgUrl || null,
     });
     
+    if (res && res.ok === false) {
+      setAddressFormError(res.message || 'Could not save the address');
+      return;
+    }
+
     setShowAddressForm(false);
-    setAddrName('');
-    setAddrPhone('');
     setHouse('');
     setStreet('');
     setCity('');
     setPincode('');
     setCoords(null);
     setLandmarkImgUrl('');
+    setAddressFormError('');
   };
 
   const [orderError, setOrderError] = useState('');
@@ -699,33 +717,38 @@ const CheckoutPage = () => {
                 </span>
               )}
 
-              <div className="checkout-form-row">
-                <div className="checkout-form-group">
-                  <label className="checkout-form-label" htmlFor="checkout-name">Full Name</label>
-                  <input 
-                    id="checkout-name"
-                    type="text" 
-                    className="checkout-form-input"
-                    placeholder="e.g. Rahul Sharma"
-                    value={addrName}
-                    onChange={(e) => setAddrName(e.target.value)}
-                    required
-                  />
+              {!isProfileComplete ? (
+                <div className="checkout-profile-warning" role="alert">
+                  <div className="checkout-profile-warning-text">
+                    <strong>Complete your profile:</strong>{' '}
+                    {!customerName && !customerPhone
+                      ? 'Please add your name and mobile number to deliver your order.'
+                      : !customerName
+                      ? 'Please add your full name to deliver your order.'
+                      : 'Please add your mobile number to deliver your order.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveNav('account')}
+                    className="checkout-complete-profile-btn"
+                  >
+                    Complete Profile
+                  </button>
                 </div>
-                <div className="checkout-form-group">
-                  <label className="checkout-form-label" htmlFor="checkout-phone">Mobile Number</label>
-                  <input 
-                    id="checkout-phone"
-                    type="tel" 
-                    className="checkout-form-input"
-                    placeholder="10-digit number"
-                    maxLength={10}
-                    value={addrPhone}
-                    onChange={(e) => setAddrPhone(e.target.value)}
-                    required
-                  />
+              ) : (
+                <div className="checkout-recipient-info">
+                  <span className="checkout-recipient-label">Delivering to</span>
+                  <span className="checkout-recipient-value">
+                    {customerName} • {customerPhone}
+                  </span>
                 </div>
-              </div>
+              )}
+
+              {addressFormError && (
+                <div className="checkout-form-error" role="alert">
+                  {addressFormError}
+                </div>
+              )}
               <div className="checkout-form-group">
                 <label className="checkout-form-label" htmlFor="checkout-house">Flat / House / Block No.</label>
                 <input 
@@ -840,7 +863,9 @@ const CheckoutPage = () => {
                   />
                   <div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{addr.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {addr.name || customerName || 'Delivery Address'}
+                      </span>
                       <span style={{ 
                         fontSize: 9, 
                         fontWeight: 800, 
@@ -856,7 +881,7 @@ const CheckoutPage = () => {
                       {addr.line1 || addr.house}, {addr.line2 || addr.street}, {addr.city} - {addr.pincode}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
-                      Mobile: {addr.phone}
+                      Mobile: {addr.phone || customerPhone || 'Not provided'}
                     </span>
                     {addr.landmarkImage && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>

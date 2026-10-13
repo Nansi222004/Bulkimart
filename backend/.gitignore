@@ -8,3 +8,8 @@ config/firebase-service-account.json
 
 # Local uploads fallback
 uploads/
+
+# Test directories
+__tests__/
+test/
+tests/

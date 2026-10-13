@@ -16,3 +16,8 @@ temp_interactive_push.bat
 # Local browser QA output (screenshots/profiles); never commit.
 /test-artifacts/
 
+# Test directories
+__tests__/
+**/__tests__/
+test/
+tests/

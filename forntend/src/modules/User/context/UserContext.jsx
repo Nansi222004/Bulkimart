@@ -487,6 +487,28 @@ export const UserProvider = ({ children }) => {
     }
   };
 
+  const fetchProfile = useCallback(async () => {
+    const token = localStorage.getItem('userToken');
+    if (!token) return;
+    try {
+      const res = await fetch(apiUrl('/api/users/profile'), {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.user) {
+        const currentProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
+        const updatedProfile = { ...currentProfile, ...data.user };
+        localStorage.setItem('userProfile', JSON.stringify(updatedProfile));
+        setCurrentUser(updatedProfile);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
   const logoutUser = () => {
     deregisterPushToken().catch(() => {});
     localStorage.removeItem('userToken');
@@ -881,9 +903,27 @@ export const UserProvider = ({ children }) => {
 
   const addAddress = async (address) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in first.' };
+    const profileName = (currentUser?.name || '').trim();
+    const profilePhone = (currentUser?.phone || '').trim();
+    const recipientName = profileName || (address?.name && String(address.name).trim()) || '';
+    const recipientPhone = profilePhone || (address?.phone && String(address.phone).trim()) || '';
+
+    if (!recipientName) {
+      return { ok: false, message: 'Please complete your profile name before adding a delivery address.' };
+    }
+    if (!recipientPhone) {
+      return { ok: false, message: 'Please complete your profile mobile number before adding a delivery address.' };
+    }
+
+    const payload = {
+      ...address,
+      name: recipientName,
+      phone: recipientPhone,
+    };
+
     try {
       const res = await fetch(apiUrl('/api/users/addresses'), {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify(address),
+        method: 'POST', headers: authHeaders(), body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not save the address' };
@@ -918,8 +958,15 @@ export const UserProvider = ({ children }) => {
     const id = typeof targetId === 'object' ? (targetId?._id || targetId?.id) : targetId;
     if (!id || id === 'undefined') return { ok: false, message: 'Invalid address ID' };
     try {
+      const profileName = (currentUser?.name || '').trim();
+      const profilePhone = (currentUser?.phone || '').trim();
+      const payload = {
+        ...data,
+        ...(profileName ? { name: profileName } : {}),
+        ...(profilePhone ? { phone: profilePhone } : {}),
+      };
       const res = await fetch(apiUrl(`/api/users/addresses/${id}`), {
-        method: 'PUT', headers: authHeaders(), body: JSON.stringify(data),
+        method: 'PUT', headers: authHeaders(), body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not update the address' };
@@ -1184,8 +1231,12 @@ export const UserProvider = ({ children }) => {
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
 
-    // Validate required address fields — the backend returns 400 if any are missing.
-    if (!addr.phone) return { ok: false, message: 'Your saved address is missing a phone number. Please add a new address with your mobile number.' };
+    const resolvedName = (addr.name && addr.name.trim()) || (currentUser?.name && currentUser.name.trim()) || '';
+    const resolvedPhone = (addr.phone && addr.phone.trim()) || (currentUser?.phone && currentUser.phone.trim()) || '';
+
+    // Validate required address and recipient fields
+    if (!resolvedName) return { ok: false, message: 'Your profile is missing a name. Please complete your profile.' };
+    if (!resolvedPhone) return { ok: false, message: 'Your profile is missing a mobile number. Please complete your profile.' };
     if (!addr.line1 && !addr.address) return { ok: false, message: 'Your saved address is missing the address line. Please add a new address.' };
     if (!addr.city) return { ok: false, message: 'Your saved address is missing a city. Please add a new address.' };
     if (!addr.pincode) return { ok: false, message: 'Your saved address is missing a pincode. Please add a new address.' };
@@ -1200,7 +1251,7 @@ export const UserProvider = ({ children }) => {
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
         shippingAddress: {
-          name: addr.name || 'Customer', phone: addr.phone,
+          name: resolvedName, phone: resolvedPhone,
           line1: addr.line1 || addr.address, line2: addr.line2,
           city: addr.city, state: addr.state || '', pincode: addr.pincode,
           lat: addr.lat, lng: addr.lng,
@@ -1243,7 +1294,11 @@ export const UserProvider = ({ children }) => {
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
-    if (!addr.phone) return { ok: false, message: 'Your saved address is missing a phone number.' };
+    const resolvedName = (addr.name && addr.name.trim()) || (currentUser?.name && currentUser.name.trim()) || '';
+    const resolvedPhone = (addr.phone && addr.phone.trim()) || (currentUser?.phone && currentUser.phone.trim()) || '';
+
+    if (!resolvedName) return { ok: false, message: 'Your profile is missing a name. Please complete your profile.' };
+    if (!resolvedPhone) return { ok: false, message: 'Your profile is missing a mobile number. Please complete your profile.' };
     if (!addr.line1 && !addr.address) return { ok: false, message: 'Your saved address is missing the address line.' };
     if (!addr.city) return { ok: false, message: 'Your saved address is missing a city.' };
     if (!addr.pincode) return { ok: false, message: 'Your saved address is missing a pincode.' };
@@ -1254,7 +1309,7 @@ export const UserProvider = ({ children }) => {
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
         shippingAddress: {
-          name: addr.name || 'Customer', phone: addr.phone,
+          name: resolvedName, phone: resolvedPhone,
           line1: addr.line1 || addr.address, line2: addr.line2,
           city: addr.city, state: addr.state || '', pincode: addr.pincode,
           lat: addr.lat, lng: addr.lng,
@@ -1422,7 +1477,7 @@ export const UserProvider = ({ children }) => {
       value={{
         // Authentication
         currentUser, logoutUser,
-        sendOtp, verifyOtp, updateUserProfile,
+        sendOtp, verifyOtp, updateUserProfile, fetchProfile,
 
         // Navigation
         activeMode, setActiveMode,

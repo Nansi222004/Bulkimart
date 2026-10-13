@@ -130,19 +130,43 @@ const claimCancellation = async (order, reason, session) => {
 const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
   let address = shippingAddress;
 
+  const profileName = (user?.name && user.name.trim()) || '';
+  const profilePhone = (user?.phone && user.phone.trim()) || '';
+
   if (addressId) {
     const saved = user.addresses?.id?.(addressId)
       || user.addresses?.find((a) => String(a._id) === String(addressId));
     if (!saved) throw httpError(400, 'That saved address was not found');
     address = {
-      name: saved.name, phone: saved.phone, line1: saved.line1, line2: saved.line2,
-      city: saved.city, state: saved.state, pincode: saved.pincode,
-      lat: saved.lat, lng: saved.lng, landmarkImage: saved.landmarkImage || null,
+      name: profileName || saved.name,
+      phone: profilePhone || saved.phone,
+      line1: saved.line1,
+      line2: saved.line2,
+      city: saved.city,
+      state: saved.state,
+      pincode: saved.pincode,
+      lat: saved.lat,
+      lng: saved.lng,
+      landmarkImage: saved.landmarkImage || null,
       locationSource: saved.locationSource,
+    };
+  } else if (address) {
+    address = {
+      ...address,
+      name: profileName || (address.name && String(address.name).trim()) || '',
+      phone: profilePhone || (address.phone && String(address.phone).trim()) || '',
     };
   }
 
-  if (!address?.line1 || !address?.city || !address?.pincode || !address?.phone) {
+  if (!address?.name || !address.name.trim()) {
+    throw httpError(400, 'Please complete your profile name to place an order');
+  }
+
+  if (!address?.phone || !address.phone.trim()) {
+    throw httpError(400, 'Please complete your profile mobile number to place an order');
+  }
+
+  if (!address?.line1 || !address?.city || !address?.pincode) {
     throw httpError(400, 'A delivery address with phone, address line, city and pincode is required');
   }
 

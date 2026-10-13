@@ -86,7 +86,37 @@ export const addAddress = asyncHandler(async (req, res) => {
 
   const { label, name, phone, line1, line2, city, state, pincode, lat, lng, locationSource, isDefault, placeName, landmarkImage } = req.body;
 
-  const newAddress = { label, name, phone, line1, line2, city, state, pincode, lat, lng, locationSource, isDefault, placeName, landmarkImage: landmarkImage || null };
+  // Use authenticated customer's profile details as primary source
+  const profileName = (user.name && user.name.trim()) || '';
+  const profilePhone = (user.phone && user.phone.trim()) || '';
+  const recipientName = profileName || (name && String(name).trim()) || '';
+  const recipientPhone = profilePhone || (phone && String(phone).trim()) || '';
+
+  if (!recipientName) {
+    res.status(400);
+    throw new Error('Please complete your profile name before saving an address');
+  }
+  if (!recipientPhone) {
+    res.status(400);
+    throw new Error('Please complete your profile mobile number before saving an address');
+  }
+
+  const newAddress = {
+    label: label || 'Home',
+    name: recipientName,
+    phone: recipientPhone,
+    line1,
+    line2,
+    city,
+    state,
+    pincode,
+    lat,
+    lng,
+    locationSource,
+    isDefault,
+    placeName,
+    landmarkImage: landmarkImage || null,
+  };
 
   if (isDefault) {
     user.addresses.forEach(addr => addr.isDefault = false);
@@ -123,10 +153,24 @@ export const updateAddress = asyncHandler(async (req, res) => {
   const { label, name, phone, line1, line2, city, state, pincode, lat, lng, locationSource, isDefault, placeName, landmarkImage } = req.body;
 
   if (label) address.label = label;
-  if (name) address.name = name;
-  if (phone) address.phone = phone;
+
+  // Ensure editing an address uses authenticated identity and never overwrites valid contact details with empty values
+  const profileName = (user.name && user.name.trim()) || '';
+  const profilePhone = (user.phone && user.phone.trim()) || '';
+  if (name && String(name).trim()) {
+    address.name = profileName || String(name).trim();
+  } else if (!address.name && profileName) {
+    address.name = profileName;
+  }
+
+  if (phone && String(phone).trim()) {
+    address.phone = profilePhone || String(phone).trim();
+  } else if (!address.phone && profilePhone) {
+    address.phone = profilePhone;
+  }
+
   if (line1) address.line1 = line1;
-  if (line2) address.line2 = line2;
+  if (line2 !== undefined) address.line2 = line2;
   if (city) address.city = city;
   if (state) address.state = state;
   if (pincode) address.pincode = pincode;
