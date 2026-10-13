@@ -49,6 +49,9 @@ import {
 } from '../controllers/privacyPolicyController.js';
 import { protect, requireAdmin } from '../middlewares/auth.middleware.js';
 import { uploadSingle, uploadMultiple } from '../middlewares/upload.middleware.js';
+import {
+  deleteCustomerAccount, deleteSellerAccount, deleteDeliveryAccount,
+} from '../controllers/accountManagement.controller.js';
 
 const router = express.Router();
 
@@ -75,6 +78,7 @@ router.patch('/sellers/:id/wholesale', decideSellerWholesaleChannel);
 router.patch('/sellers/:id/approve', approveSeller);
 router.patch('/sellers/:id/reject', rejectSeller);
 router.patch('/sellers/:id/suspend', suspendSeller);
+router.delete('/sellers/:id', deleteSellerAccount);
 
 // ---- product moderation ----------------------------------------------------
 router.get('/products', listProducts);
@@ -131,6 +135,7 @@ router.patch('/delivery-partners/:id/radius', setDeliveryPartnerRadius);
 router.patch('/delivery-partners/:id/approve', approveDeliveryPartner);
 router.patch('/delivery-partners/:id/reject', rejectDeliveryPartner);
 router.patch('/delivery-partners/:id/suspend', suspendDeliveryPartner);
+router.delete('/delivery-partners/:id', deleteDeliveryAccount);
 
 // ---- delivery performance (Fleet SLA scorecard) -----------------------------
 router.get('/delivery-performance', deliveryPerformanceStats);
@@ -182,6 +187,7 @@ router.delete('/coupons/:id', deleteCoupon);
 // ---- customers -------------------------------------------------------------
 router.get('/users', listUsers);
 router.patch('/users/:id/status', setUserStatus);
+router.delete('/users/:id', deleteCustomerAccount);
 
 // ---- consumer management (Consumer Users tab) ------------------------------
 router.get('/consumers/stats', getConsumerStats);

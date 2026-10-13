@@ -746,11 +746,11 @@ export const SellerProvider = ({ children }) => {
    * same number afterwards. Previously this step was a mock that created no
    * session at all, so submitting the application failed with "please log in".
    */
-  const sendOtp = async () => {
+  const sendOtp = async (intent = 'login') => {
     const phone = (sellerPhone || '').trim();
     if (phone.length !== 10) {
       triggerToast('Please enter a valid 10-digit mobile number.');
-      return;
+      return { ok: false, message: 'Please enter a valid 10-digit mobile number.' };
     }
     setNotAMember(false);
     try {
@@ -761,13 +761,17 @@ export const SellerProvider = ({ children }) => {
       const res = await fetch(apiUrl('/api/auth/seller/send-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, intent }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.meta?.code === 'NOT_A_MEMBER') {
           setNotAMember(true);
-          return;
+          return { ok: false, code: 'NOT_A_MEMBER', message: body.message };
+        }
+        if (body.meta?.code === 'SELLER_EXISTS' || body.meta?.code === 'SELLER_NOT_FOUND') {
+          triggerToast(body.message);
+          return { ok: false, code: body.meta.code, message: body.message };
         }
         throw new Error(body.message || 'Could not send OTP');
       }
@@ -776,13 +780,15 @@ export const SellerProvider = ({ children }) => {
       setOtpTimer(30);
       // In mock mode the server returns the OTP so it can be shown while testing.
       triggerToast(body.otp ? `OTP sent. Test code: ${body.otp}` : 'OTP sent to your mobile.');
+      return { ok: true };
     } catch (err) {
       triggerToast(err.message);
+      return { ok: false, message: err.message };
     }
   };
 
   /** Verify the OTP and store the session the rest of the flow depends on. */
-  const verifyOtpAndLogin = async () => {
+  const verifyOtpAndLogin = async (intent = 'login') => {
     const phone = (sellerPhone || '').trim();
     if (!otpCode) {
       triggerToast('Please enter the OTP.');
@@ -792,13 +798,17 @@ export const SellerProvider = ({ children }) => {
       const res = await fetch(apiUrl('/api/auth/seller/verify-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp: otpCode }),
+        body: JSON.stringify({ phone, otp: otpCode, intent }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.meta?.code === 'NOT_A_MEMBER') {
           setNotAMember(true);
           return { ok: false, code: 'NOT_A_MEMBER' };
+        }
+        if (body.meta?.code === 'SELLER_EXISTS' || body.meta?.code === 'SELLER_NOT_FOUND') {
+          triggerToast(body.message);
+          return { ok: false, code: body.meta.code, message: body.message };
         }
         throw new Error(body.message || 'OTP verification failed');
       }

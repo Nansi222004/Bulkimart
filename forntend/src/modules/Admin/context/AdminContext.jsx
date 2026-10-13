@@ -666,6 +666,44 @@ export const AdminProvider = ({ children }) => {
     }
   };
 
+  const removeCustomerAccount = async (id) => {
+    try {
+      const { data, message } = await adminDelete(`/users/${id}`);
+      triggerToast(message || (data?.action === 'deleted' ? 'Customer permanently deleted.' : 'Customer deactivated; history was preserved.'));
+      await fetchUsers();
+      return { ok: true, action: data?.action };
+    } catch (err) {
+      triggerToast(err.message);
+      return { ok: false, message: err.message };
+    }
+  };
+
+  const removeSellerAccount = async (id) => {
+    try {
+      const { data, message } = await adminDelete(`/sellers/${id}`);
+      triggerToast(message || (data?.action === 'deleted' ? 'Seller permanently deleted.' : 'Seller deactivated; history was preserved.'));
+      setSellerDetail(null);
+      await Promise.all([fetchSellers(sellerStatusFilter), fetchSellerCounts()]);
+      return { ok: true, action: data?.action };
+    } catch (err) {
+      triggerToast(err.message);
+      return { ok: false, message: err.message };
+    }
+  };
+
+  const removeDeliveryAccount = async (id) => {
+    try {
+      const { data, message } = await adminDelete(`/delivery-partners/${id}`);
+      triggerToast(message || (data?.action === 'deleted' ? 'Delivery partner permanently deleted.' : 'Delivery partner deactivated; history was preserved.'));
+      setRiderDetail(null);
+      await Promise.all([refreshRiders(), fetchRiderCounts()]);
+      return { ok: true, action: data?.action };
+    } catch (err) {
+      triggerToast(err.message);
+      return { ok: false, message: err.message };
+    }
+  };
+
   // Consumer directory summary counts — total/active/inactive/blocked buyers,
   // plus new-signup counts. Powers both the Consumer Users header chips and
   // the Consumer Users -> Dashboard tab's stat cards.
@@ -1092,6 +1130,9 @@ export const AdminProvider = ({ children }) => {
       usersError,
       fetchUsers,
       approveUserKyc,
+      removeCustomerAccount,
+      removeSellerAccount,
+      removeDeliveryAccount,
       consumerLocations,
       fetchConsumerLocations,
       consumerStats,

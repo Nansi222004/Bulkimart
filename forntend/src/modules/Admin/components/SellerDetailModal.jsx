@@ -12,10 +12,11 @@ const STATUS_COLORS = {
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
-  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus } = useAdmin();
+  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus, removeSellerAccount } = useAdmin();
   const [radiusInput, setRadiusInput] = useState(seller?.business?.store?.radiusKm ?? '');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   if (!seller && !loading) return null;
 
@@ -74,6 +75,20 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
     await rejectSeller(d._id, rejectReason.trim());
     if (onRefresh) onRefresh();
     onClose();
+  };
+
+  const handleRemove = async () => {
+    const confirmed = window.confirm(
+      'Remove this seller account? A reference-free onboarding profile may be permanently deleted. A seller with historical catalog, order, payout, or financial records will be deactivated instead. Active fulfillment or unresolved obligations will block the action.'
+    );
+    if (!confirmed) return;
+    setRemoving(true);
+    const result = await removeSellerAccount(d._id);
+    setRemoving(false);
+    if (result?.ok) {
+      if (onRefresh) onRefresh();
+      onClose();
+    }
   };
 
   return (
@@ -439,6 +454,14 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
 
               {/* BOTTOM ACTION BUTTONS */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto', paddingTop: 10 }}>
+                <button
+                  onClick={handleRemove}
+                  disabled={removing}
+                  style={{ padding: '10px 16px', borderRadius: 10, border: '1px solid #fecaca', backgroundColor: '#fff', color: '#b91c1c', fontWeight: 800, fontSize: 12.5, cursor: removing ? 'wait' : 'pointer' }}
+                  title="Permanently deletes only reference-free accounts; otherwise deactivates while preserving history"
+                >
+                  {removing ? 'Checking…' : 'Delete / Deactivate Seller'}
+                </button>
                 
                 {(statusKey === 'pending' || statusKey === 'under_review') && (
                   <>

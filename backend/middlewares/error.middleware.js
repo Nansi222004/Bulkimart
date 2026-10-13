@@ -19,9 +19,13 @@ export const errorHandler = (err, req, res, next) => {
     if (duplicateFields.includes('email') && err.keyValue?.email == null) {
       publicMessage = 'Seller registration is temporarily unavailable. Please try again later or contact support.';
     } else if (duplicateFields.includes('email')) {
-      publicMessage = 'This email address is already associated with a seller account.';
+      publicMessage = req.originalUrl?.includes('/sellers')
+        ? 'This email address is already associated with another seller profile. Sign in or use account recovery if it is yours.'
+        : 'An account already uses this email address. Sign in or use account recovery if it is yours.';
     } else if (duplicateFields.includes('userId')) {
       publicMessage = 'A seller profile already exists for this account. Please sign in to your seller account.';
+    } else if (duplicateFields.includes('phone') && req.originalUrl?.includes('/sellers')) {
+      publicMessage = 'This mobile number is already linked to a seller profile. Please sign in or use account recovery.';
     } else {
       publicMessage = 'A record with these details already exists. Please review the information and try again.';
     }

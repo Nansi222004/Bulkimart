@@ -45,6 +45,7 @@ export const startOnboarding = asyncHandler(async (req, res) => {
   if (!seller) {
     seller = await Seller.create({
       userId: req.user._id,
+      phone: req.user.phone,
       onboardingStep: 1,
       status: 'incomplete',
       salesChannels: requestedChannels || [CHANNEL.ECOM],

@@ -30,6 +30,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
 
   const [currentMode, setCurrentMode] = useState(mode || 'login');
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // Registration states when user is not yet a member in Bulkimart
   const [regOtpSent, setRegOtpSent] = useState(false);
@@ -52,6 +53,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
     setNotAMember(false);
     setRegOtpSent(false);
     setRegOtpCode('');
+    setFormError('');
   };
 
   const changePhone = () => {
@@ -62,16 +64,24 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
   };
 
   const handleSend = async () => {
+    setFormError('');
     setBusy(true);
-    await sendOtp();
+    const result = await sendOtp(currentMode);
     setBusy(false);
+    if (!result?.ok) {
+      setFormError(result?.message || 'Could not send OTP.');
+      if (result?.code === 'SELLER_EXISTS') setCurrentMode('login');
+      if (result?.code === 'SELLER_NOT_FOUND') setCurrentMode('register');
+    }
   };
 
   const handleVerify = async () => {
+    setFormError('');
     setBusy(true);
-    const res = await verifyOtpAndLogin();
+    const res = await verifyOtpAndLogin(currentMode);
     setBusy(false);
     if (res.ok) onLoggedIn?.();
+    else setFormError(res.message || 'OTP verification failed.');
   };
 
   // Instant Account Activation for brand-new users registering as sellers
@@ -82,6 +92,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       return;
     }
     setRegBusy(true);
+    setFormError('');
     try {
       const res = await fetch(apiUrl('/api/auth/send-otp'), {
         method: 'POST',
@@ -94,6 +105,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       triggerToast?.(data.otp ? `OTP sent. Test code: ${data.otp}` : 'OTP sent to your mobile number.');
     } catch (err) {
       triggerToast?.(err.message);
+      setFormError(err.message);
     } finally {
       setRegBusy(false);
     }
@@ -106,6 +118,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       return;
     }
     setRegBusy(true);
+    setFormError('');
     try {
       const res = await fetch(apiUrl('/api/auth/verify-otp'), {
         method: 'POST',
@@ -127,6 +140,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       onLoggedIn?.();
     } catch (err) {
       triggerToast?.(err.message);
+      setFormError(err.message);
     } finally {
       setRegBusy(false);
     }
@@ -135,9 +149,9 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
   // When a non-member phone is entered, offer instant account creation right here
   if (notAMember) {
     return (
-      <div className="seller-main-content">
+      <div className="seller-main-content seller-auth-page">
         <div className="seller-header-row">
-          <BrandLogo variant="compact" portal="Seller" />
+          <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
         </div>
 
         <div className="onboarding-container">
@@ -157,6 +171,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
           <p className="onboarding-subtitle" style={{ textAlign: 'center' }}>
             Mobile number <strong>{sellerPhone}</strong> is not registered yet. Activate your account now to start your store onboarding.
           </p>
+          {formError && <div className="seller-auth-error" role="alert">{formError}</div>}
 
           {!regOtpSent ? (
             <div style={{ marginTop: 20 }}>
@@ -177,6 +192,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
                   className="onboarding-input"
                   placeholder="Enter OTP (Test: 1234)"
                   maxLength={6}
+                  autoComplete="one-time-code"
                   autoFocus
                   value={regOtpCode}
                   onChange={(e) => setRegOtpCode(e.target.value.replace(/\D/g, ''))}
@@ -211,9 +227,9 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
   const isRegister = currentMode === 'register';
 
   return (
-    <div className="seller-main-content">
+    <div className="seller-main-content seller-auth-page">
       <div className="seller-header-row">
-        <BrandLogo variant="compact" portal="Seller" />
+        <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
       </div>
 
       <div className="onboarding-container">
@@ -287,6 +303,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
             ? 'Enter your mobile number to begin seller onboarding and register your store.'
             : 'Enter the mobile number you registered your store with.'}
         </p>
+        {formError && <div className="seller-auth-error" role="alert">{formError}</div>}
 
         {/* Informational banner in Register mode */}
         {isRegister && (
@@ -375,6 +392,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
                 className="onboarding-input"
                 placeholder="Enter 4-digit code (e.g. 1234)"
                 maxLength={6}
+                autoComplete="one-time-code"
                 autoFocus
                 value={otpCode}
                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}

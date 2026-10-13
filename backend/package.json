@@ -23,6 +23,11 @@
     "test:sameday": "node scripts/sameDayEligibility.mjs",
     "delivery:unstick": "node scripts/releaseStuckDeliveries.mjs",
     "delivery:unstick:apply": "node scripts/releaseStuckDeliveries.mjs --apply",
+    "accounts:cleanup:report": "node scripts/accountCleanup.mjs",
+    "accounts:cleanup:apply": "node scripts/accountCleanup.mjs --apply --confirm=BULKIMART_ACCOUNT_CLEANUP",
+    "accounts:verify-seller-registration": "node scripts/verifySellerRegistration.mjs",
+    "accounts:verify-cleanup": "node scripts/verifyAccountCleanup.mjs",
+    "accounts:repair-references": "node scripts/repairCleanupReferences.mjs",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "keywords": [],

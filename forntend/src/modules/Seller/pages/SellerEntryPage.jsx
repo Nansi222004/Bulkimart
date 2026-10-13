@@ -27,9 +27,9 @@ const OPTIONS = [
 ];
 
 export const SellerEntryPage = ({ onChoose }) => (
-  <div className="seller-main-content">
+  <div className="seller-main-content seller-auth-page">
     <div className="seller-header-row">
-      <BrandLogo variant="compact" portal="Seller" />
+      <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
     </div>
 
     <div className="onboarding-container">

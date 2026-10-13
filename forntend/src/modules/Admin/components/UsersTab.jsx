@@ -11,6 +11,7 @@ export const UsersTab = ({ defaultStatusFilter }) => {
     setSearchQuery,
     consumerLocations,
     fetchConsumerLocations,
+    removeCustomerAccount,
   } = useAdmin();
 
   const [selectedUser, setSelectedUser] = useState(null);
@@ -22,6 +23,19 @@ export const UsersTab = ({ defaultStatusFilter }) => {
   // elsewhere in this directory.
   const [stateFilter, setStateFilter] = useState('All');
   const [districtFilter, setDistrictFilter] = useState('All');
+  const [removing, setRemoving] = useState(false);
+
+  const removeSelected = async () => {
+    if (!selectedUser || removing) return;
+    const confirmed = window.confirm(
+      'Remove this customer account? If it has no references it will be permanently deleted. If historical orders or financial records exist it will only be deactivated. Active orders, balances, refunds, or unresolved obligations will block the action.'
+    );
+    if (!confirmed) return;
+    setRemoving(true);
+    const result = await removeCustomerAccount(selectedUser.id);
+    setRemoving(false);
+    if (result?.ok) setSelectedUser(null);
+  };
 
   React.useEffect(() => {
     if (defaultStatusFilter) {
@@ -238,6 +252,15 @@ export const UsersTab = ({ defaultStatusFilter }) => {
                   ))}
                 </div>
               )}
+
+              <div style={{ borderTop: '1px solid var(--admin-border-color)', paddingTop: 14, marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--admin-text-muted)', marginBottom: 8 }}>
+                  Permanent deletion is used only for a standalone account with no history. Otherwise the account is deactivated and historical records stay intact.
+                </div>
+                <button className="admin-btn-sm reject" onClick={removeSelected} disabled={removing}>
+                  {removing ? 'Checking account…' : 'Delete / Deactivate Customer'}
+                </button>
+              </div>
 
             </div>
           </div>

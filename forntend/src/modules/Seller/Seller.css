@@ -41,6 +41,8 @@ body {
 .seller-app-container {
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
+  min-height: 100svh;
   background-color: var(--bg-page);
   position: relative;
   display: flex;
@@ -52,6 +54,8 @@ body {
 /* SCROLLABLE MAIN WRAPPER */
 .seller-main-content {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -574,7 +578,7 @@ body {
   font-family: 'Outfit', sans-serif;
   font-size: 20px;
   font-weight: 800;
-  color: #14532d;
+  color: #073b78;
 }
 
 .onboarding-subtitle {
@@ -654,7 +658,7 @@ body {
 
 .onboarding-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(27, 122, 55, 0.1);
+  box-shadow: 0 0 0 3px rgba(8, 185, 232, 0.16);
 }
 
 .onboarding-select {
@@ -728,6 +732,110 @@ body {
   background-color: #cbd5e1;
   color: #94a3b8;
   cursor: not-allowed;
+}
+
+.seller-auth-page {
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 133, 0, .10), transparent 28rem),
+    linear-gradient(180deg, #f4fcff 0%, #f8fafc 48%);
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.seller-auth-page .seller-header-row {
+  min-height: 58px;
+  padding: 8px 16px;
+  border-bottom-color: rgba(8, 185, 232, .16);
+}
+
+.seller-auth-logo.brand-logo--compact {
+  width: 128px;
+  height: 52px;
+}
+
+.seller-auth-logo.brand-logo--compact .brand-logo__image {
+  height: 38px;
+}
+
+.seller-auth-page .onboarding-container {
+  flex: 0 0 auto;
+  width: min(100%, 520px);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 20px 16px max(32px, env(safe-area-inset-bottom));
+}
+
+.seller-auth-page .onboarding-input {
+  min-height: 46px;
+  padding: 11px 12px;
+  font-size: 16px;
+}
+
+.seller-auth-page .primary-onboarding-btn {
+  min-height: 46px;
+  background: linear-gradient(135deg, #08b9e8, #078ccb);
+  box-shadow: 0 8px 20px rgba(8, 185, 232, .18);
+}
+
+.seller-auth-page .primary-onboarding-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #078ccb, #0877b7);
+}
+
+.seller-auth-page .primary-onboarding-btn:disabled {
+  box-shadow: none;
+}
+
+.seller-auth-page input[autocomplete="one-time-code"],
+.seller-auth-page input[maxlength="6"] {
+  letter-spacing: .3em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.seller-auth-error {
+  margin: -10px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #fed7aa;
+  border-left: 4px solid #ff8500;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+@media (min-width: 768px) {
+  .seller-auth-page {
+    padding: 28px 20px 48px;
+  }
+
+  .seller-auth-page .seller-header-row {
+    width: min(100%, 620px);
+    margin: 0 auto;
+    border: 1px solid rgba(8, 185, 232, .14);
+    border-bottom: 0;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .seller-auth-page .onboarding-container {
+    padding: 32px 40px 40px;
+    background: #fff;
+    border: 1px solid rgba(8, 185, 232, .14);
+    border-radius: 0 0 20px 20px;
+    box-shadow: 0 20px 50px rgba(7, 59, 120, .08);
+  }
+}
+
+@media (max-width: 374px) {
+  .seller-auth-page .onboarding-container {
+    padding-inline: 12px;
+  }
+
+  .seller-auth-page .seller-header-row {
+    padding-inline: 12px;
+  }
 }
 
 .secondary-onboarding-btn {

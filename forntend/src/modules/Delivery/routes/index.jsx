@@ -88,7 +88,9 @@ const DeliveryRoutesContent = () => {
     return (
       <div className="delivery-app-container">
         {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
-        <DeliveryOnboardingPage />
+        <div className="delivery-main-viewport delivery-onboarding-viewport">
+          <DeliveryOnboardingPage />
+        </div>
       </div>
     );
   }

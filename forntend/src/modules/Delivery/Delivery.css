@@ -28,11 +28,21 @@
 /* Scrollable main viewport area */
 .delivery-main-viewport {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 16px;
   padding-bottom: 90px;
   /* Spacer for bottom navbar */
   scrollbar-width: none;
+}
+
+.delivery-onboarding-viewport {
+  padding: 0;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
 }
 
 .delivery-main-viewport::-webkit-scrollbar {
@@ -156,6 +166,23 @@
   flex-direction: column;
   gap: 20px;
   box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding-bottom: max(40px, calc(24px + env(safe-area-inset-bottom)));
+}
+
+.delivery-onboarding-card,
+.delivery-onboarding-step-body,
+.delivery-input-group,
+.delivery-text-input,
+.delivery-file-upload-box {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.delivery-text-input,
+.delivery-file-upload-box {
+  width: 100%;
 }
 
 .delivery-onboarding-header {

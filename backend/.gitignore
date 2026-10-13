@@ -11,5 +11,13 @@ uploads/
 
 # Test directories
 __tests__/
+!__tests__/
+__tests__/*
+!__tests__/api/
+__tests__/api/*
+!__tests__/api/account-management.http.test.js
+!__tests__/services/
+__tests__/services/*
+!__tests__/services/account-lifecycle.test.js
 test/
 tests/

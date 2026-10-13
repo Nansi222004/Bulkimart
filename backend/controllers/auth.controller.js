@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Admin from "../models/Admin.js";
+import Seller from "../models/Seller.js";
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
@@ -134,10 +135,13 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
   }
 
   if (!user) {
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
     user = await User.create({
       phone,
       name: (name || "").trim(),
-      email: (email || "").trim(),
+      // A sparse unique index ignores an absent field, but an empty string is
+      // a real duplicate value. Phone-only registration must omit email.
+      ...(normalizedEmail ? { email: normalizedEmail } : {}),
       roles: ["buyer"],
       wallet: { balance: 0, transactions: [] }
     });
@@ -175,7 +179,7 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/seller/send-otp
 // @access  Public
 export const requestSellerOTP = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
+  const { phone, intent } = req.body;
   if (!phone || phone.length < 10) {
     res.status(400);
     throw new Error("Please provide a valid phone number");
@@ -193,6 +197,18 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
     );
   }
 
+  const seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
+  if (intent === 'register' && seller) {
+    throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue that application or open the seller dashboard.', {
+      code: 'SELLER_EXISTS', sellerStatus: seller.status,
+    });
+  }
+  if (intent === 'login' && !seller) {
+    throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
+      code: 'SELLER_NOT_FOUND',
+    });
+  }
+
   const result = await sendOTP(phone);
 
   if (isMockIntegrationEnabled('OTP_MODE')) {
@@ -205,7 +221,8 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: "OTP sent successfully"
+    message: "OTP sent successfully",
+    sellerState: seller ? { exists: true, status: seller.status } : { exists: false },
   });
 });
 
@@ -215,7 +232,7 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/seller/verify-otp
 // @access  Public
 export const verifySellerOTP = asyncHandler(async (req, res) => {
-  const { phone, otp } = req.body;
+  const { phone, otp, intent } = req.body;
 
   if (!phone || !otp) {
     res.status(400);
@@ -242,6 +259,18 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
     throw new Error("Access denied — user account is deactivated");
   }
 
+  const seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
+  if (intent === 'register' && seller) {
+    throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue.', {
+      code: 'SELLER_EXISTS', sellerStatus: seller.status,
+    });
+  }
+  if (intent === 'login' && !seller) {
+    throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
+      code: 'SELLER_NOT_FOUND',
+    });
+  }
+
   // "seller" here means "authenticated through the seller entry point" —
   // not yet proof of an *approved* Seller record. Anything that trusts this
   // claim (ticket.service.js::resolveRequester) re-checks approval status
@@ -253,6 +282,7 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
     success: true,
     token,
     user: publicUser(user),
+    sellerState: seller ? { exists: true, status: seller.status } : { exists: false },
   });
 });
 

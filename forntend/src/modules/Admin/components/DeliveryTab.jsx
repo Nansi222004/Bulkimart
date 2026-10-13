@@ -54,6 +54,7 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
     approveRider,
     rejectRider,
     suspendRider,
+    removeDeliveryAccount,
   } = useAdmin();
 
   const [search, setSearch] = useState('');
@@ -62,6 +63,18 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
   const [tab, setTab] = useState(defaultStatusFilter || 'All');
   const [dossierTab, setDossierTab] = useState('application');
   const [riderRadiusInput, setRiderRadiusInput] = useState('');
+  const [removing, setRemoving] = useState(false);
+
+  const removeRider = async () => {
+    if (!riderDetail || removing) return;
+    const confirmed = window.confirm(
+      'Remove this delivery-partner account? A reference-free application may be permanently deleted. A partner with completed delivery or payout history will be deactivated instead. Active deliveries, return pickups, pending earnings, or payouts will block the action.'
+    );
+    if (!confirmed) return;
+    setRemoving(true);
+    await removeDeliveryAccount(riderDetail._id);
+    setRemoving(false);
+  };
   useEffect(() => {
     setRiderRadiusInput(
       riderDetail?.deliveryRadiusKm !== undefined && riderDetail?.deliveryRadiusKm !== null
@@ -574,6 +587,15 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                 {/* Decisions live at the bottom of the dossier, so they are taken
                     after reading it rather than from the list at a glance. */}
                 <div className="admin-modal-actions" style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                  <button
+                    className="admin-btn-sm details"
+                    style={{ background: '#fff', borderColor: '#fecaca', color: '#b91c1c' }}
+                    onClick={removeRider}
+                    disabled={removing}
+                    title="Permanently deletes only reference-free accounts; otherwise deactivates while preserving history"
+                  >
+                    {removing ? 'Checking…' : 'Delete / Deactivate Partner'}
+                  </button>
                   {riderDetail.status === 'pending' && (
                     <>
                       <button

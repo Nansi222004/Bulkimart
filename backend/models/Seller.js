@@ -95,6 +95,11 @@ const brandRequestSchema = new Schema({
 const sellerSchema = new Schema(
   {
     userId:         { type: ObjectId, ref: "User", required: true, unique: true },
+    // Compatibility with the deployed, non-sparse unique `phone_1` index from
+    // the legacy standalone-seller schema. Authentication still belongs to
+    // User.phone; this mirror prevents missing/null collisions without dropping
+    // an index or creating a second login identity.
+    phone:          { type: String, trim: true, select: false },
     onboardingStep: { type: Number, default: 0 }, // 0-4 in-progress, 5=submitted
 
     // Step 1 — Business Info
