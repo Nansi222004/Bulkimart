@@ -645,7 +645,7 @@ const CheckoutPage = () => {
   }
 
   return (
-    <div className="checkout-page-container" style={{ fontFamily: "'Outfit', sans-serif", paddingBottom: 60 }}>
+    <div className="checkout-page-container" style={{ fontFamily: "'Outfit', sans-serif" }}>
       
       {/* Loading Overlay */}
       {isOrdering && (
@@ -1556,6 +1556,8 @@ const CheckoutPage = () => {
 
 
 
+        {errorBanner}
+
         {/* Checkout CTA Bar */}
         <div className="checkout-cta-bar">
           <div onClick={() => setShowBillBreakdown(prev => !prev)} style={{ cursor: 'pointer' }}>
@@ -1578,8 +1580,6 @@ const CheckoutPage = () => {
               : 'Confirm & Place Order'}
           </button>
         </div>
-
-        {errorBanner}
 
       </div>
 

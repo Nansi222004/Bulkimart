@@ -1231,8 +1231,8 @@ export const UserProvider = ({ children }) => {
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
 
-    const resolvedName = (addr.name && addr.name.trim()) || (currentUser?.name && currentUser.name.trim()) || '';
-    const resolvedPhone = (addr.phone && addr.phone.trim()) || (currentUser?.phone && currentUser.phone.trim()) || '';
+    const resolvedName = (addr.name != null ? String(addr.name).trim() : '') || (currentUser?.name != null ? String(currentUser.name).trim() : '') || '';
+    const resolvedPhone = (addr.phone != null ? String(addr.phone).trim() : '') || (currentUser?.phone != null ? String(currentUser.phone).trim() : '') || '';
 
     // Validate required address and recipient fields
     if (!resolvedName) return { ok: false, message: 'Your profile is missing a name. Please complete your profile.' };
@@ -1294,8 +1294,8 @@ export const UserProvider = ({ children }) => {
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
-    const resolvedName = (addr.name && addr.name.trim()) || (currentUser?.name && currentUser.name.trim()) || '';
-    const resolvedPhone = (addr.phone && addr.phone.trim()) || (currentUser?.phone && currentUser.phone.trim()) || '';
+    const resolvedName = (addr.name != null ? String(addr.name).trim() : '') || (currentUser?.name != null ? String(currentUser.name).trim() : '') || '';
+    const resolvedPhone = (addr.phone != null ? String(addr.phone).trim() : '') || (currentUser?.phone != null ? String(currentUser.phone).trim() : '') || '';
 
     if (!resolvedName) return { ok: false, message: 'Your profile is missing a name. Please complete your profile.' };
     if (!resolvedPhone) return { ok: false, message: 'Your profile is missing a mobile number. Please complete your profile.' };

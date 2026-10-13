@@ -130,45 +130,63 @@ const claimCancellation = async (order, reason, session) => {
 const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
   let address = shippingAddress;
 
-  const profileName = (user?.name && user.name.trim()) || '';
-  const profilePhone = (user?.phone && user.phone.trim()) || '';
+  const profileName = user?.name != null ? String(user.name).trim() : '';
+  const profilePhone = user?.phone != null ? String(user.phone).trim() : '';
 
-  if (addressId) {
-    const saved = user.addresses?.id?.(addressId)
-      || user.addresses?.find((a) => String(a._id) === String(addressId));
-    if (!saved) throw httpError(400, 'That saved address was not found');
-    address = {
-      name: profileName || saved.name,
-      phone: profilePhone || saved.phone,
-      line1: saved.line1,
-      line2: saved.line2,
-      city: saved.city,
-      state: saved.state,
-      pincode: saved.pincode,
-      lat: saved.lat,
-      lng: saved.lng,
-      landmarkImage: saved.landmarkImage || null,
-      locationSource: saved.locationSource,
-    };
-  } else if (address) {
+  const cleanAddressId = (addressId && addressId !== 'undefined' && addressId !== 'null') ? String(addressId) : null;
+
+  if (cleanAddressId) {
+    const saved = user?.addresses?.id?.(cleanAddressId)
+      || user?.addresses?.find?.((a) => String(a?._id || a?.id) === cleanAddressId);
+
+    if (saved) {
+      const savedName = saved.name != null ? String(saved.name).trim() : '';
+      const savedPhone = saved.phone != null ? String(saved.phone).trim() : '';
+      address = {
+        name: profileName || savedName,
+        phone: profilePhone || savedPhone,
+        line1: saved.line1,
+        line2: saved.line2,
+        city: saved.city,
+        state: saved.state,
+        pincode: saved.pincode,
+        lat: saved.lat,
+        lng: saved.lng,
+        landmarkImage: saved.landmarkImage || null,
+        locationSource: saved.locationSource,
+      };
+    } else if (!address || !address.line1) {
+      throw httpError(400, 'That saved address was not found');
+    }
+  }
+
+  if (address) {
+    const rawName = address.name != null ? String(address.name).trim() : '';
+    const rawPhone = address.phone != null ? String(address.phone).trim() : '';
     address = {
       ...address,
-      name: profileName || (address.name && String(address.name).trim()) || '',
-      phone: profilePhone || (address.phone && String(address.phone).trim()) || '',
+      name: profileName || rawName,
+      phone: profilePhone || rawPhone,
     };
   }
 
-  if (!address?.name || !address.name.trim()) {
+  const resolvedName = address?.name != null ? String(address.name).trim() : '';
+  const resolvedPhone = address?.phone != null ? String(address.phone).trim() : '';
+
+  if (!resolvedName) {
     throw httpError(400, 'Please complete your profile name to place an order');
   }
 
-  if (!address?.phone || !address.phone.trim()) {
+  if (!resolvedPhone) {
     throw httpError(400, 'Please complete your profile mobile number to place an order');
   }
 
   if (!address?.line1 || !address?.city || !address?.pincode) {
     throw httpError(400, 'A delivery address with phone, address line, city and pincode is required');
   }
+
+  address.name = resolvedName;
+  address.phone = resolvedPhone;
 
   if (address.lat === undefined || address.lng === undefined) {
     const hit = await forwardGeocode([

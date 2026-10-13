@@ -87,10 +87,10 @@ export const addAddress = asyncHandler(async (req, res) => {
   const { label, name, phone, line1, line2, city, state, pincode, lat, lng, locationSource, isDefault, placeName, landmarkImage } = req.body;
 
   // Use authenticated customer's profile details as primary source
-  const profileName = (user.name && user.name.trim()) || '';
-  const profilePhone = (user.phone && user.phone.trim()) || '';
-  const recipientName = profileName || (name && String(name).trim()) || '';
-  const recipientPhone = profilePhone || (phone && String(phone).trim()) || '';
+  const profileName = user?.name != null ? String(user.name).trim() : '';
+  const profilePhone = user?.phone != null ? String(user.phone).trim() : '';
+  const recipientName = profileName || (name != null ? String(name).trim() : '');
+  const recipientPhone = profilePhone || (phone != null ? String(phone).trim() : '');
 
   if (!recipientName) {
     res.status(400);
@@ -155,15 +155,15 @@ export const updateAddress = asyncHandler(async (req, res) => {
   if (label) address.label = label;
 
   // Ensure editing an address uses authenticated identity and never overwrites valid contact details with empty values
-  const profileName = (user.name && user.name.trim()) || '';
-  const profilePhone = (user.phone && user.phone.trim()) || '';
-  if (name && String(name).trim()) {
+  const profileName = user?.name != null ? String(user.name).trim() : '';
+  const profilePhone = user?.phone != null ? String(user.phone).trim() : '';
+  if (name != null && String(name).trim()) {
     address.name = profileName || String(name).trim();
   } else if (!address.name && profileName) {
     address.name = profileName;
   }
 
-  if (phone && String(phone).trim()) {
+  if (phone != null && String(phone).trim()) {
     address.phone = profilePhone || String(phone).trim();
   } else if (!address.phone && profilePhone) {
     address.phone = profilePhone;
