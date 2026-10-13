@@ -144,7 +144,7 @@ const claimForSending = async (broadcastId) => {
       $or: [{ processingLockedAt: null }, { processingLockedAt: { $exists: false } }, { processingLockedAt: { $lt: staleCutoff } }],
     },
     { $set: { status: 'PROCESSING', processingLockedAt: now } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 };
 
@@ -234,7 +234,7 @@ export const sendBroadcastNow = async (broadcastId) => {
         },
         $unset: { processingLockedAt: 1 },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     return updated;
@@ -306,7 +306,7 @@ export const cancelScheduledBroadcast = async (broadcastId) => {
   const updated = await NotificationBroadcast.findOneAndUpdate(
     { _id: broadcastId, status: { $in: ['DRAFT', 'SCHEDULED'] } },
     { $set: { status: 'CANCELLED' } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!updated) throw httpError(400, 'Only a Draft or Scheduled broadcast can be cancelled', { code: 'INVALID_BROADCAST_TRANSITION' });
   return updated;

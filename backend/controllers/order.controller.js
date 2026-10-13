@@ -152,12 +152,14 @@ const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
     ]);
 
     if (hit.ok) {
-      address = { ...address, lat: hit.lat, lng: hit.lng, locationSource: 'geocoded' };
-      if (hit.precision !== 'ROOFTOP') {
-        console.warn(`[CHECKOUT] address resolved only to ${hit.precision}: ${hit.matched}`);
+      address = { ...address, lat: hit.lat, lng: hit.lng, locationSource: 'geocoded', geocodePrecision: hit.precision };
+      if (hit.precision !== 'ROOFTOP' && hit.precision !== 'RANGE_INTERPOLATED') {
+        // Log only the precision and pincode — never the full matched address
+        // or line1 — to avoid exposing customer details in routine logs.
+        console.warn(`[CHECKOUT] address resolved only to ${hit.precision} (pincode ${address.pincode})`);
       }
     } else {
-      console.warn(`[CHECKOUT] could not locate delivery address: ${hit.message}`);
+      console.warn(`[CHECKOUT] could not locate delivery address (pincode ${address.pincode})`);
     }
   }
 

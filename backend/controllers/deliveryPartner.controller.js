@@ -659,7 +659,7 @@ export const declineOrder = asyncHandler(async (req, res) => {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
     }
   );
@@ -720,7 +720,7 @@ export const expireOrder = asyncHandler(async (req, res) => {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
     }
   );
@@ -862,7 +862,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
       },
     },
     {
-      new: true,
+      returnDocument: 'after',
       arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
     }
   );
@@ -2017,7 +2017,7 @@ export const requestPayout = asyncHandler(async (req, res) => {
   const reserved = await DeliveryPartner.findOneAndUpdate(
     { _id: partner._id, 'earnings.pending': { $gte: amount } },
     { $inc: { 'earnings.pending': -amount } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!reserved) {

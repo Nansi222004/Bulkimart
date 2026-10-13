@@ -38,7 +38,7 @@ export const getOrCreateWallet = async (userId, session) => {
     return await CoinWallet.findOneAndUpdate(
       { userId },
       { $setOnInsert: { userId } },
-      { upsert: true, new: true, setDefaultsOnInsert: true, session }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true, session }
     );
   } catch (err) {
     if (err.code === 11000) {
@@ -184,7 +184,7 @@ export const reserveCoins = async ({ userId, amount, referenceType, referenceId,
   const after = await CoinWallet.findOneAndUpdate(
     { userId, availableCoins: { $gte: amount } },
     { $inc: { availableCoins: -amount, reservedCoins: amount } },
-    { new: true, session }
+    { returnDocument: 'after', session }
   );
   if (!after) {
     const exists = await CoinWallet.exists({ userId }).session(session || null);
@@ -203,7 +203,7 @@ export const releaseReservedCoins = async ({ userId, amount, referenceType, refe
   const after = await CoinWallet.findOneAndUpdate(
     { userId, reservedCoins: { $gte: amount } },
     { $inc: { reservedCoins: -amount, availableCoins: amount } },
-    { new: true, session }
+    { returnDocument: 'after', session }
   );
   if (!after) throw httpError(400, 'No matching reserved Coins to release');
   return writeLedger({
@@ -219,7 +219,7 @@ export const redeemReservedCoins = async ({ userId, amount, referenceType, refer
   const after = await CoinWallet.findOneAndUpdate(
     { userId, reservedCoins: { $gte: amount } },
     { $inc: { reservedCoins: -amount, lifetimeUsed: amount } },
-    { new: true, session }
+    { returnDocument: 'after', session }
   );
   if (!after) throw httpError(400, 'No matching reserved Coins to redeem');
   return writeLedger({
@@ -235,7 +235,7 @@ export const creditEarnedCoins = async ({ userId, amount, referenceType, referen
   const after = await CoinWallet.findOneAndUpdate(
     { userId },
     { $inc: { availableCoins: amount, lifetimeEarned: amount } },
-    { new: true, upsert: true, setDefaultsOnInsert: true, session }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, session }
   );
   return writeLedger({
     userId, type: COIN_TRANSACTION_TYPE.EARN, amount, after,
@@ -257,7 +257,7 @@ export const reverseEarnedCoins = async ({ userId, amount, referenceType, refere
   const after = await CoinWallet.findOneAndUpdate(
     { userId },
     { $inc: { availableCoins: -amount, lifetimeReversed: amount } },
-    { new: true, upsert: true, setDefaultsOnInsert: true, session }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, session }
   );
   return writeLedger({
     userId, type: COIN_TRANSACTION_TYPE.REVERSAL, amount, after,
@@ -272,7 +272,7 @@ export const refundRedeemedCoins = async ({ userId, amount, referenceType, refer
   const after = await CoinWallet.findOneAndUpdate(
     { userId },
     { $inc: { availableCoins: amount, lifetimeRefunded: amount } },
-    { new: true, upsert: true, setDefaultsOnInsert: true, session }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true, session }
   );
   return writeLedger({
     userId, type: COIN_TRANSACTION_TYPE.REFUND, amount, after,
@@ -295,7 +295,7 @@ export const adjustCoins = async ({ userId, amount, adminId, reason, idempotency
   const after = await CoinWallet.findOneAndUpdate(
     { userId },
     { $inc: { availableCoins: amount } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
   );
   return writeLedger({
     userId, type: COIN_TRANSACTION_TYPE.ADJUSTMENT, amount: Math.abs(amount), after,

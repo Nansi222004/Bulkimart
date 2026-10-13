@@ -1134,7 +1134,7 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     update = { $inc: { stock: parsedDelta, __v: 1 } };
   }
 
-  const updated = await Product.findOneAndUpdate(filter, update, { new: true });
+  const updated = await Product.findOneAndUpdate(filter, update, { returnDocument: 'after' });
 
   if (!updated) {
     // Ownership already passed above, so a null result here can only mean

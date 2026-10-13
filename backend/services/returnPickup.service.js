@@ -180,7 +180,7 @@ export const acceptReturnPickup = async ({ returnId, partnerId }) => {
         'pickup.offerAttempts.$[o].respondedAt': new Date(),
       },
     },
-    { new: true, arrayFilters: [{ 'o.riderId': partnerId }] }
+    { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId }] }
   );
 
   if (!claimed) {
@@ -232,7 +232,7 @@ export const declineReturnPickup = async ({ returnId, partnerId, reason }) => {
   const result = await Return.findOneAndUpdate(
     { _id: returnId, 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } } },
     { $set: { 'pickup.offerAttempts.$[o].status': OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER, 'pickup.offerAttempts.$[o].respondedAt': now, 'pickup.offerAttempts.$[o].reason': reason } },
-    { new: true, arrayFilters: [{ 'o.riderId': partnerId, 'o.status': OFFER_ATTEMPT_STATUS.OFFERED }] }
+    { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId, 'o.status': OFFER_ATTEMPT_STATUS.OFFERED }] }
   );
   if (!result) {
     const fresh = await Return.findById(returnId).lean();
@@ -248,7 +248,7 @@ export const expireReturnPickupOffer = async ({ returnId, partnerId }) => {
   const result = await Return.findOneAndUpdate(
     { _id: returnId, 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } } },
     { $set: { 'pickup.offerAttempts.$[o].status': OFFER_ATTEMPT_STATUS.OFFER_EXPIRED, 'pickup.offerAttempts.$[o].expiredAt': now } },
-    { new: true, arrayFilters: [{ 'o.riderId': partnerId, 'o.status': OFFER_ATTEMPT_STATUS.OFFERED }] }
+    { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId, 'o.status': OFFER_ATTEMPT_STATUS.OFFERED }] }
   );
   return result || await Return.findById(returnId); // idempotent, same shape as declineReturnPickup
 };
@@ -342,7 +342,7 @@ export const updateReturnPickupStage = async ({ returnId, partnerId, status }) =
   if (!ret) throw httpError(404, 'Return not found');
   if (String(ret.pickup?.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
 
-  const delivery = await Delivery.findOneAndUpdate({ _id: ret.pickup.deliveryId }, { $set: { status } }, { new: true });
+  const delivery = await Delivery.findOneAndUpdate({ _id: ret.pickup.deliveryId }, { $set: { status } }, { returnDocument: 'after' });
   if (ret.sellerId) {
     emit('seller', ret.sellerId, 'return_pickup_stage', { returnId: String(ret._id), status });
   }

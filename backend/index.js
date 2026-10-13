@@ -41,6 +41,13 @@ if (process.env.FCM_MODE === "live") {
 }
 
 const app = express();
+
+// Hostinger routes traffic through a single reverse-proxy layer (Nginx/LiteSpeed)
+// that sets X-Forwarded-For. Trusting exactly one hop lets express-rate-limit
+// key on the real client IP instead of the proxy's, and silences the
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR validation error from express-rate-limit v8.
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 5050;
 // Hosting platforms route public traffic to the assigned PORT on the network
 // interface. Binding localhost makes the process healthy only from itself.
@@ -76,6 +83,11 @@ app.use("/api", apiRoutes);
  * Independent of NODE_ENV: presence of the built `dist` folder is the real
  * signal for serving the frontend, not the runtime environment name.
  */
+// NOTE: KYC documents in backend/uploads/ are NOT served statically.
+// Identity documents must never be publicly accessible. Cloudinary URLs
+// are the intended delivery mechanism; the local fallback stores files
+// for disaster recovery but does not expose them without authorization.
+
 const frontendDist = path.resolve(import.meta.dirname, "../forntend/dist");
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
@@ -111,3 +123,15 @@ const start = async () => {
 };
 
 start();
+
+// Graceful shutdown: stop background sweepers and close the HTTP server
+// so Hostinger restarts see a clean exit rather than a killed process.
+const shutdown = (signal) => {
+  console.log(`\n${signal} received — shutting down gracefully`);
+  import('./services/orderSweeper.service.js').then((m) => m.stopOrderSweeper()).catch(() => {});
+  import('./services/sellerPromotionSweeper.service.js').then((m) => m.stopSellerPromotionSweeper()).catch(() => {});
+  // Allow in-flight requests to drain for up to 10 s before forcing exit.
+  setTimeout(() => process.exit(0), 10_000).unref();
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

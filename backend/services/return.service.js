@@ -403,7 +403,7 @@ const acquireRefundLock = async (returnId) => {
       $or: [{ refundLockedAt: null }, { refundLockedAt: { $exists: false } }, { refundLockedAt: { $lt: staleCutoff } }],
     },
     { $set: { refundLockedAt: now } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   return claimed;
 };

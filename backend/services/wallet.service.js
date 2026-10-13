@@ -118,7 +118,7 @@ export const debitWallet = async ({
   );
 
   // Atomic deduction with balance guard: balance >= debitAmount
-  const updateOptions = { new: true, runValidators: true };
+  const updateOptions = { returnDocument: 'after', runValidators: true };
   if (session) updateOptions.session = session;
 
   const updatedUser = await User.findOneAndUpdate(
@@ -242,7 +242,7 @@ export const creditWallet = async ({
     session ? { session } : {}
   );
 
-  const updateOptions = { new: true, runValidators: true };
+  const updateOptions = { returnDocument: 'after', runValidators: true };
   if (session) updateOptions.session = session;
 
   const updatedUser = await User.findOneAndUpdate(

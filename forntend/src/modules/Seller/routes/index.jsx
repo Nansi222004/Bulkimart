@@ -120,6 +120,7 @@ const SellerRoutesContent = () => {
           mode={intent || 'login'}
           onLoggedIn={loadStatus}
           onBack={() => setIntent('login')}
+          onToggleMode={setIntent}
         />
       );
     }

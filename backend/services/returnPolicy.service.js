@@ -184,7 +184,7 @@ export const upsertReturnPolicy = async ({ categoryId, returnWindowDays, isActiv
       },
       $setOnInsert: { createdBy: adminId },
     },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true }
   );
 
   return policy;

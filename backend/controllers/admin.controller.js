@@ -616,7 +616,7 @@ export const setUserStatus = asyncHandler(async (req, res) => {
   const { isActive } = req.body;
   if (isActive === undefined) throw httpError(400, 'isActive is required');
 
-  const user = await User.findByIdAndUpdate(req.params.id, { isActive: !!isActive }, { new: true }).select('phone name isActive');
+  const user = await User.findByIdAndUpdate(req.params.id, { isActive: !!isActive }, { returnDocument: 'after' }).select('phone name isActive');
   if (!user) throw httpError(404, 'User not found');
 
   return ok(res, user, `User ${user.isActive ? 'activated' : 'deactivated'}`);
@@ -1705,7 +1705,7 @@ export const deleteCustomerReview = asyncHandler(async (req, res) => {
   const product = await Product.findOneAndUpdate(
     { 'ratings.reviews._id': id },
     { $pull: { 'ratings.reviews': { _id: id } } },
-    { new: true }
+    { returnDocument: 'after' }
   ).select('ratings');
   if (!product) throw httpError(404, 'Review not found');
 
@@ -1765,7 +1765,7 @@ export const markAdminNotificationRead = asyncHandler(async (req, res) => {
   const notification = await NotificationModel.findOneAndUpdate(
     { _id: req.params.id, userId: req.user._id, recipientModel: 'Admin' },
     { $set: { isRead: true } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!notification) throw httpError(404, 'Notification not found');
   return ok(res, notification, 'Marked as read');

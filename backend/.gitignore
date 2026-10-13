@@ -5,3 +5,6 @@ node_modules
 
 # Firebase service account (private key)
 config/firebase-service-account.json
+
+# Local uploads fallback
+uploads/

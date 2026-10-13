@@ -143,7 +143,7 @@ export const updatePolicy = async (req, res) => {
       policy = await PrivacyPolicy.findOneAndUpdate(
         { role: targetRole },
         { $set: updatedData },
-        { new: true, runValidators: true }
+        { returnDocument: 'after', runValidators: true }
       );
     } else {
       policy = await PrivacyPolicy.create(updatedData);
