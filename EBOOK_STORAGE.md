@@ -20,7 +20,7 @@ Before digital checkout/download launch, design a server-verified entitlement ti
 
 Digital-only checkout should be implemented first. Reject mixed physical/digital carts until shipping, taxes, partial refunds, coupon allocation, and split settlement rules are approved. Digital items must not consume inventory, require a shipping address, create courier assignment/delivery OTP, or enter physical restocking automatically. Preserve order snapshots and existing physical workflows.
 
-Business approval is still needed for seller commission/platform fees, tax and invoice classification, coupons, referral qualifying-order eligibility, refund/chargeback policy and access revocation, seller settlement timing, and license/usage terms. No values or policies are inferred here. The known Referral Program post-credit chargeback reward-reversal gap remains unchanged and should be addressed separately. Generic Donations & Social Impact remains unchanged.
+Business approval is still needed for seller commission/platform fees, tax and invoice classification, coupons, refund/chargeback policy and access revocation, seller settlement timing, and license/usage terms. No values or policies are inferred here. Generic Donations & Social Impact remains unchanged.
 
 ## Rollout prerequisites
 

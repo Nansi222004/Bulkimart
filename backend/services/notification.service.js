@@ -66,10 +66,6 @@ export const NOTIFICATION_EVENT = {
   // Admin Push Notifications Broadcaster — a marketing/informational
   // message an admin composed, never a business event.
   ADMIN_BROADCAST: 'ADMIN_BROADCAST',
-  // Referral Program
-  REFERRAL_SIGNUP: 'REFERRAL_SIGNUP',
-  REFERRAL_REWARD_CREDITED: 'REFERRAL_REWARD_CREDITED',
-  REFERRAL_MILESTONE_REACHED: 'REFERRAL_MILESTONE_REACHED',
 };
 
 // Maps a fine-grained event to the model's existing (pre-established) coarse
@@ -121,9 +117,6 @@ const EVENT_CATEGORY = {
   RETURN_PICKED_UP: 'delivery',
   RETURN_DELIVERED_TO_SELLER: 'delivery',
   ADMIN_BROADCAST: 'broadcast',
-  REFERRAL_SIGNUP: 'system',
-  REFERRAL_REWARD_CREDITED: 'system',
-  REFERRAL_MILESTONE_REACHED: 'system',
 };
 
 const INVALID_TOKEN_CODES = new Set([

@@ -12,7 +12,7 @@ import { resolveCampaignPriceForProduct } from '../services/campaign.service.js'
 import { isWithinRadius } from '../services/radius.service.js';
 import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service.js';
 import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
-import { resolveInventoryItem } from '../services/inventory.service.js';
+import { persistLegacyVariantIds, resolveInventoryItem } from '../services/inventory.service.js';
 import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
 import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
 import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
@@ -140,6 +140,12 @@ export const getProducts = asyncHandler(async (req, res) => {
     // exact count, since that would need a geo-aggregation to get right
     // across pages (see comment above).
   }
+
+  // Old products may have variants saved before subdocument IDs were added to
+  // the schema. Persist the IDs Mongoose assigned during this read before
+  // returning them, otherwise the next request would hydrate different IDs and
+  // add-to-cart would (correctly) reject the catalogue's now-stale selection.
+  products = await Promise.all(products.map((product) => persistLegacyVariantIds(product)));
 
   res.status(200).json({
     success: true,
@@ -297,7 +303,7 @@ export const getCategoryReturnPolicyForSeller = asyncHandler(async (req, res) =>
 // @route   GET /api/products/:id
 // @access  Public
 export const getProductById = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id)
+  let product = await Product.findById(req.params.id)
     .populate('category', 'name')
     .populate('channels.category', 'name')
     .populate('sellerId', 'storeDetails businessName');
@@ -312,6 +318,8 @@ export const getProductById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Product not found');
   }
+
+  product = await persistLegacyVariantIds(product);
 
   const data = product.toObject();
   data.subscriptionUnavailable = false;

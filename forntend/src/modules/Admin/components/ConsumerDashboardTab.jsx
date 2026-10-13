@@ -34,24 +34,20 @@ export const ConsumerDashboardTab = () => {
     consumerStats, fetchConsumerStats,
     consumerLocations, fetchConsumerLocations,
     consumerOrdersSummary, fetchConsumerOrdersSummary,
-    fetchReferralCostReport,
     activityLogs, activityLogsLoading, fetchCustomerActivityLog,
     setActiveTab,
   } = useAdmin();
 
-  const [referralReport, setReferralReport] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadAll = async () => {
     setLoading(true);
-    const [, , , report] = await Promise.all([
+    await Promise.all([
       fetchConsumerStats(),
       fetchConsumerLocations(),
       fetchConsumerOrdersSummary(),
-      fetchReferralCostReport(),
       fetchCustomerActivityLog({ limit: 5 }),
     ]);
-    setReferralReport(report || null);
     setLoading(false);
   };
 
@@ -70,7 +66,7 @@ export const ConsumerDashboardTab = () => {
         <div>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--sa-text-primary)' }}>Consumer Users Ecosystem Dashboard</h2>
           <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>
-            Live customer growth, geographic reach, order activity, and referral program health.
+            Live customer growth, geographic reach, and order activity.
           </p>
         </div>
         <button
@@ -142,28 +138,6 @@ export const ConsumerDashboardTab = () => {
                 </div>
               ))}
             </div>
-          )}
-        </SectionCard>
-
-        {/* Referral program snapshot */}
-        <SectionCard title="Referral Program">
-          {referralReport ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Successful Referrals</span>
-                <span style={{ fontWeight: 800 }}>{referralReport.successfulReferrals}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Coins Issued This Month</span>
-                <span style={{ fontWeight: 800 }}>{referralReport.thisMonth.coins} (≈ ₹{referralReport.thisMonth.rupees.toLocaleString('en-IN')})</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Milestone Bonuses Paid</span>
-                <span style={{ fontWeight: 800 }}>{referralReport.milestonesPaid}</span>
-              </div>
-            </div>
-          ) : (
-            <p style={{ fontSize: 12, color: '#94a3b8' }}>Referral data unavailable.</p>
           )}
         </SectionCard>
 

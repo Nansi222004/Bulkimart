@@ -391,39 +391,6 @@ const ProfilePage = () => {
     if (activeSection === 'wallet') loadCoinWallet();
   }, [activeSection]);
 
-  // Referral Program — real code/stats/history from GET /api/referrals/me
-  // and /api/referrals/list. This used to be a fabricated static code
-  // ("NHCONE-50OFF") promising ₹50 in a "Help Wallet" that doesn't exist for
-  // this program — removed entirely; the reward is real NHCONE Coins,
-  // earned only once a referred friend's first order is delivered and its
-  // return window has closed.
-  const [referral, setReferral] = useState(null);
-  const [referralList, setReferralList] = useState([]);
-  const [loadingReferral, setLoadingReferral] = useState(false);
-  const [referralCopied, setReferralCopied] = useState(false);
-
-  const loadReferralData = async () => {
-    setLoadingReferral(true);
-    try {
-      const authHeader = { Authorization: 'Bearer ' + localStorage.getItem('userToken') };
-      const [meRes, listRes] = await Promise.all([
-        fetch(apiUrl('/api/referrals/me'), { headers: authHeader }).then((r) => r.json()),
-        fetch(apiUrl('/api/referrals/list'), { headers: authHeader }).then((r) => r.json()),
-      ]);
-      setReferral(meRes?.data || null);
-      setReferralList(listRes?.data || []);
-    } catch (err) {
-      setReferral(null);
-      setReferralList([]);
-    } finally {
-      setLoadingReferral(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeSection === 'refer' && !referral) loadReferralData();
-  }, [activeSection]);
-
   // Dynamic Privacy Policy states
   const [privacyTab, setPrivacyTab] = useState('user-policy');
   const [privacyPolicyData, setPrivacyPolicyData] = useState(null);
@@ -456,35 +423,6 @@ const ProfilePage = () => {
       loadPrivacyPolicy(targetTab);
     }
   }, [activeSection, privacyTab, currentUser]);
-
-  const handleCopyReferralCode = () => {
-    if (!referral?.referralCode) return;
-    navigator.clipboard.writeText(referral.referralCode).then(() => {
-      setReferralCopied(true);
-      setTimeout(() => setReferralCopied(false), 2000);
-    });
-  };
-
-  const handleShareReferral = () => {
-    if (!referral?.referralCode) return;
-    const link = `${window.location.origin}/?ref=${referral.referralCode}`;
-    const text = `Join me on Bulkimart! Use my code ${referral.referralCode} and sign up here: ${link}`;
-    if (navigator.share) {
-      navigator.share({ title: 'Join Bulkimart', text, url: link }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(text);
-      setReferralCopied(true);
-      setTimeout(() => setReferralCopied(false), 2000);
-    }
-  };
-
-  const REFERRAL_STATUS_LABEL = {
-    PENDING: { text: 'Waiting for first order', color: '#38bdf8' },
-    QUALIFIED: { text: 'Processing reward', color: '#eab308' },
-    CREDITED: { text: 'Reward credited', color: '#4ade80' },
-    BLOCKED: { text: 'Not eligible', color: '#ef4444' },
-    EXPIRED: { text: 'Expired', color: '#64748b' },
-  };
 
   // Handle Profile Save
   const handleSaveProfile = async (e) => {
@@ -652,17 +590,6 @@ const ProfilePage = () => {
         ? null 
         : <span className="menu-badge active-badge" style={{ background: '#08B9E8', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>New</span>,
       action: () => window.history.pushState({}, '', '/seller') // Handled natively, bypasses Day 2
-    },
-    {
-      id: 'refer',
-      label: 'Refer & Earn',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-        </svg>
-      ),
-      badge: null,
-      action: () => setActiveSection('refer')
     },
     {
       id: 'support',
@@ -1451,140 +1378,6 @@ const ProfilePage = () => {
         );
 
 
-
-      case 'refer':
-        return (
-          <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            {loadingReferral && !referral ? (
-              <p style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', padding: '40px 0' }}>Loading referral details...</p>
-            ) : !referral ? (
-              <p style={{ fontSize: '13px', color: '#ef4444', textAlign: 'center', padding: '40px 0' }}>Could not load your referral details. Please try again.</p>
-            ) : (
-              <>
-                <div style={{ textAlign: 'center', background: '#ffffff', padding: '24px 20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-                  <div style={{ fontSize: '48px', margin: '0' }}>🎁</div>
-                  <h4 style={{ margin: '8px 0 0', fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>Invite Friends & Earn Coins</h4>
-                  <p style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.6', margin: '8px 0 0' }}>
-                    You earn <strong style={{ color: '#F36B00', fontWeight: '800' }}>{referral.perReferralCoins} Coins</strong>
-                    {referral.refereeRewardCoins > 0 && (
-                      <> and your friend earns <strong style={{ color: '#F36B00', fontWeight: '800' }}>{referral.refereeRewardCoins} Coins</strong> too</>
-                    )} — once they complete their first order (min. ₹{referral.minQualifyingOrderValue}) and its return window closes.
-                  </p>
-                </div>
-
-                {referral.referredBy && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px',
-                    backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px',
-                  }}>
-                    <span style={{ fontSize: '22px' }}>👋</span>
-                    <div>
-                      <span style={{ fontSize: '13px', fontWeight: '700', display: 'block', color: '#14532d' }}>
-                        You joined via a referral from {referral.referredBy.referrerName}
-                      </span>
-                      <span style={{ fontSize: '11px', fontWeight: '600', color: (REFERRAL_STATUS_LABEL[referral.referredBy.status] || REFERRAL_STATUS_LABEL.PENDING).color }}>
-                        {referral.referredBy.status === 'CREDITED'
-                          ? `You earned ${referral.referredBy.rewardCoins} Coins for your first order — enjoy!`
-                          : referral.referredBy.rewardCoins > 0
-                            ? `Complete your first eligible order to earn ${referral.referredBy.rewardCoins} Coins — ${(REFERRAL_STATUS_LABEL[referral.referredBy.status] || REFERRAL_STATUS_LABEL.PENDING).text.toLowerCase()}`
-                            : (REFERRAL_STATUS_LABEL[referral.referredBy.status] || REFERRAL_STATUS_LABEL.PENDING).text}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{
-                  border: '2px dashed #08B9E8', borderRadius: '16px', padding: '20px 16px',
-                  backgroundColor: '#ffffff', textAlign: 'center', boxShadow: '0 4px 12px rgba(8, 185, 232, 0.08)'
-                }}>
-                  <span style={{ fontSize: '11px', color: '#078CCB', textTransform: 'uppercase', fontWeight: '800', letterSpacing: '1px', display: 'block', marginBottom: '8px' }}>
-                    Your Unique Referral Code
-                  </span>
-                  <span style={{ fontSize: '26px', fontWeight: '900', letterSpacing: '3px', color: '#078CCB', fontFamily: 'monospace' }}>
-                    {referral.referralCode}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button onClick={handleCopyReferralCode} className="auth-submit-btn" style={{ flex: 1, padding: '12px', fontSize: '14px', borderRadius: '12px' }}>
-                    {referralCopied ? '✓ Copied!' : 'Copy Code'}
-                  </button>
-                  <button
-                    onClick={handleShareReferral}
-                    style={{
-                      flex: 1, borderRadius: '12px', border: '2px solid var(--primary, #08B9E8)',
-                      backgroundColor: '#ffffff', color: 'var(--primary, #078CCB)', fontWeight: '800', cursor: 'pointer',
-                      fontSize: '14px', padding: '12px'
-                    }}
-                  >
-                    Share Code
-                  </button>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                  {[
-                    { label: 'Total', value: referral.stats.total, color: '#0f172a' },
-                    { label: 'Successful', value: referral.stats.successful, color: '#16a34a' },
-                    { label: 'Coins Earned', value: referral.totalCoinsEarned, color: '#d97706' },
-                  ].map((s) => (
-                    <div key={s.label} style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '14px 10px', textAlign: 'center', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
-                      <div style={{ fontSize: '20px', fontWeight: '900', color: s.color }}>{s.value}</div>
-                      <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: '700', marginTop: '4px' }}>{s.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {referral.nextMilestone && (
-                  <div style={{ fontSize: '12px', color: '#475569', textAlign: 'center', background: '#fff7ed', padding: '10px 14px', borderRadius: '12px', border: '1px solid #ffedd5' }}>
-                    {referral.stats.successful} of {referral.nextMilestone.count} referrals to unlock a{' '}
-                    <strong style={{ color: '#d97706' }}>{referral.nextMilestone.bonusCoins} coin</strong> milestone bonus
-                  </div>
-                )}
-
-                <h4 style={{ margin: '8px 0 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Your Referrals</h4>
-                {referralList.length === 0 ? (
-                  <div style={{ padding: '20px', background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>You haven't referred anyone yet — share your code above!</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {referralList.map((r) => {
-                      const status = REFERRAL_STATUS_LABEL[r.status] || REFERRAL_STATUS_LABEL.PENDING;
-                      return (
-                        <div key={r._id} style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          padding: '14px 16px', backgroundColor: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0',
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-                        }}>
-                          <div>
-                            <span style={{ fontSize: '14px', fontWeight: '700', display: 'block', color: '#0f172a' }}>{r.refereeName}</span>
-                            <span style={{ fontSize: '11px', color: status.color, fontWeight: '700' }}>{status.text}</span>
-                          </div>
-                          <span style={{ fontSize: '14px', fontWeight: '800', color: r.status === 'CREDITED' ? '#16a34a' : '#64748b' }}>
-                            {r.status === 'CREDITED' ? '+' : ''}{r.rewardCoins || 0} Coins
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <details style={{ marginTop: '8px', color: '#475569', background: '#ffffff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
-                  <summary style={{ fontSize: '12px', fontWeight: '700', cursor: 'pointer', color: '#0f172a' }}>
-                    Referral Program — Terms & Conditions
-                  </summary>
-                  <ul style={{ fontSize: '11.5px', lineHeight: '1.7', paddingLeft: '18px', margin: '10px 0 0', color: '#475569' }}>
-                    <li>Your reward ({referral.perReferralCoins} Bulkimart Coins){referral.refereeRewardCoins > 0 && <> and your friend's reward ({referral.refereeRewardCoins} Bulkimart Coins)</>} are credited only after your friend's <strong>first order</strong> is delivered, is worth at least ₹{referral.minQualifyingOrderValue}, and its return window closes with no return raised — never at signup.</li>
-                    <li>Your friend must place that qualifying order within {referral.referralValidityDays} days of signing up, or the referral expires.</li>
-                    <li>Coins are credited to your Bulkimart Coins wallet and are not redeemable for cash.</li>
-                    <li>Self-referral, duplicate accounts, and fraudulent orders are not eligible and may be blocked.</li>
-                    <li>Bulkimart may change reward amounts or suspend the program at any time; changes never affect a referral already in progress.</li>
-                  </ul>
-                </details>
-              </>
-            )}
-          </div>
-        );
 
       case 'support':
         return (

@@ -37,8 +37,6 @@ import PromotionPackagesTab from '../components/PromotionPackagesTab';
 import ReturnsTab from '../components/ReturnsTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
-import ReferralSettingsTab from '../components/ReferralSettingsTab';
-import ReferralsTab from '../components/ReferralsTab';
 import NotificationBroadcasterTab from '../components/NotificationBroadcasterTab';
 import PrivacyPolicyTab from '../components/PrivacyPolicyTab';
 import UserWalletsTab from '../components/UserWalletsTab';
@@ -94,8 +92,6 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'returns':            return <ReturnsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;
-      case 'referral-settings':  return <ReferralSettingsTab />;
-      case 'referrals':          return <ReferralsTab />;
       case 'notifications':      return <NotificationBroadcasterTab />;
       case 'privacy-policy':
       case 'privacy':            return <PrivacyPolicyTab />;

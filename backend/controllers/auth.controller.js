@@ -4,7 +4,6 @@ import Admin from "../models/Admin.js";
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
-import { captureReferralSignup } from "../services/referral.service.js";
 import { JWT_SECRET } from "../config/jwt.js";
 import { isMockIntegrationEnabled } from "../config/runtime.js";
 
@@ -99,7 +98,7 @@ export const requestOTP = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/verify-otp
 // @access  Public
 export const verifyAndLogin = asyncHandler(async (req, res) => {
-  const { phone, otp, referralCode, isLogin, name, email } = req.body;
+  const { phone, otp, isLogin, name, email } = req.body;
 
   if (!phone || !otp) {
     res.status(400);
@@ -144,12 +143,6 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
     });
     isNewUser = true;
 
-    // Referral Program — attribution happens exactly once, right here, on a
-    // brand-new phone number. Never blocks signup on any failure (see
-    // captureReferralSignup's own try/catch).
-    if (referralCode) {
-      await captureReferralSignup({ refereeId: user._id, referralCode });
-    }
   }
 
   if (!user.isActive) {
@@ -269,17 +262,20 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
 export const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!normalizedEmail || typeof password !== 'string' || !password) {
     res.status(400);
     throw new Error("Please provide email and password");
   }
 
-  const admin = await Admin.findOne({ email: email.toLowerCase() });
+  const admin = await Admin.findOne({ email: normalizedEmail });
 
   if (admin && (await admin.matchPassword(password))) {
     if (!admin.isActive) {
-      res.status(403);
-      throw new Error("Access denied — admin account is deactivated");
+      // Keep public login failures non-enumerating. Operators can inspect the
+      // account state through authorized administration channels.
+      res.status(401);
+      throw new Error("Invalid admin credentials");
     }
 
     admin.lastLogin = new Date();

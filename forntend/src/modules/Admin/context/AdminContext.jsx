@@ -334,72 +334,6 @@ export const AdminProvider = ({ children }) => {
   };
 
   // ==========================================================================
-  // Referral Program — settings, monitoring queue, cost report
-  // ==========================================================================
-  const fetchReferralSettings = async () => {
-    try {
-      const { data } = await adminGet('/referral-settings');
-      return data;
-    } catch (err) {
-      triggerToast(err.message);
-      return null;
-    }
-  };
-
-  const setReferralSettings = async (payload) => {
-    try {
-      const { message } = await adminPost('/referral-settings', payload);
-      triggerToast(message || 'Referral settings updated.');
-      return true;
-    } catch (err) {
-      triggerToast(err.message);
-      return false;
-    }
-  };
-
-  const fetchReferralsAdmin = async ({ status, search, page = 1, limit = 20 } = {}) => {
-    try {
-      const { data, pagination } = await adminGet(`/referrals${qs({ status, search, page, limit })}`);
-      return { rows: data || [], pagination };
-    } catch (err) {
-      triggerToast(err.message);
-      return { rows: [], pagination: null };
-    }
-  };
-
-  const fetchReferralCostReport = async () => {
-    try {
-      const { data } = await adminGet('/referrals/cost-report');
-      return data;
-    } catch (err) {
-      triggerToast(err.message);
-      return null;
-    }
-  };
-
-  const blockReferralAdminAction = async (id, reason) => {
-    try {
-      await adminPatch(`/referrals/${id}/block`, { reason });
-      triggerToast('Referral blocked.');
-      return true;
-    } catch (err) {
-      triggerToast(err.message);
-      return false;
-    }
-  };
-
-  const approveReferralAdminAction = async (id) => {
-    try {
-      await adminPatch(`/referrals/${id}/approve`, {});
-      triggerToast('Referral approved and credited.');
-      return true;
-    } catch (err) {
-      triggerToast(err.message);
-      return false;
-    }
-  };
-
-  // ==========================================================================
   // 2. PRODUCTS — live from GET /api/admin/products
   //    Mock catalogue removed. It listed five SHG products (clay jars, mango
   //    pickle, forest honey) that exist in no database, each carrying a
@@ -1116,12 +1050,6 @@ export const AdminProvider = ({ children }) => {
       setSellerWholesaleStatus,
       fetchRadiusSettings,
       setRadiusSettings,
-      fetchReferralSettings,
-      setReferralSettings,
-      fetchReferralsAdmin,
-      fetchReferralCostReport,
-      blockReferralAdminAction,
-      approveReferralAdminAction,
       products,
       productsLoading,
       productsError,

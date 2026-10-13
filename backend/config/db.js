@@ -40,18 +40,24 @@ const connectDB = async () => {
 
     // Seed the Super Admin ONCE. Never overwrite an existing admin's password —
     // doing so silently reverts any password changed through the admin panel on every restart.
-    const adminEmail = process.env.ADMIN_EMAIL || "admin@admin.com";
-    const adminPassword = process.env.ADMIN_PASSWORD || "Admin!@#123";
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
-    const existing = await Admin.findOne({ email: adminEmail });
-    if (!existing) {
-      await Admin.create({
-        name: "Super Admin",
-        email: adminEmail,
-        password: adminPassword, // hashed by the pre-save hook
-        role: "superAdmin",
-      });
-      console.log("Super Admin account seeded successfully! 🚀");
+    // Never fall back to credentials embedded in source. Bootstrap remains
+    // opt-in for a fresh environment and never changes an existing account.
+    if (adminEmail && adminPassword) {
+      const existing = await Admin.findOne({ email: adminEmail });
+      if (!existing) {
+        await Admin.create({
+          name: "Super Admin",
+          email: adminEmail,
+          password: adminPassword, // hashed by the pre-save hook
+          role: "superAdmin",
+        });
+        console.log("Super Admin account seeded successfully! 🚀");
+      }
+    } else {
+      console.warn('[ADMIN BOOTSTRAP] skipped because explicit server credentials are not configured');
     }
 
     // Seed System Categories

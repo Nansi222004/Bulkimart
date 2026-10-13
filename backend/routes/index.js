@@ -21,7 +21,6 @@ import ticketRoutes from "./ticket.routes.js";
 import packagingRoutes from "./packaging.routes.js";
 import coinRoutes from "./coin.routes.js";
 import returnRoutes from "./return.routes.js";
-import referralRoutes from "./referral.routes.js";
 import privacyPolicyRoutes from "./privacyPolicy.routes.js";
 import walletRoutes from "./wallet.routes.js";
 
@@ -48,7 +47,6 @@ router.use("/promotions", promotionRoutes);
 router.use("/packaging", packagingRoutes);
 router.use("/coins", coinRoutes);
 router.use("/returns", returnRoutes);
-router.use("/referrals", referralRoutes);
 router.use("/privacy-policy", privacyPolicyRoutes);
 router.use("/wallet", walletRoutes);
 

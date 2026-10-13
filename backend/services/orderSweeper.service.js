@@ -2,7 +2,6 @@ import Order from '../models/Order.js';
 import { cancelOrderAndRestore } from '../controllers/order.controller.js';
 import { processReturnWindowRewards } from './coin.service.js';
 import { sweepScheduledBroadcastsOnce } from './broadcast.service.js';
-import { sweepReferralRewardsOnce as sweepReferralRewardsOnceImpl } from './referral.service.js';
 import { ORDER_STATUS, CHANNEL } from '../constants/enums.js';
 
 /**
@@ -67,18 +66,6 @@ const sweepCoinRewardsOnce = async () => {
   if (processed > 0) console.log(`[COINS SWEEPER] ${processed} order item(s) resolved this tick`);
 };
 
-/**
- * Referral Program — reward qualification/payout (see referral.service.js).
- * Its own try/catch/sibling-job slot, same as the two above: a referral bug
- * can never block order cancellation, Coins, or broadcasts, and vice versa.
- */
-const sweepReferralRewardsOnce = async () => {
-  const { qualified, credited, expired } = await sweepReferralRewardsOnceImpl({ limit: 100 });
-  if (qualified || credited || expired) {
-    console.log(`[REFERRAL SWEEPER] ${qualified} qualified, ${credited} credited, ${expired} expired this tick`);
-  }
-};
-
 export const startOrderSweeper = () => {
   if (timer) return;
 
@@ -89,7 +76,6 @@ export const startOrderSweeper = () => {
     // job pattern as the two above: its own try/catch, so a broadcast bug
     // can never block order cancellation or Coins.
     sweepScheduledBroadcastsOnce().catch((err) => console.error('[BROADCAST SWEEPER] failed:', err.message));
-    sweepReferralRewardsOnce().catch((err) => console.error('[REFERRAL SWEEPER] failed:', err.message));
   }, SWEEP_INTERVAL_MS);
 
   // Do not hold the process open on its own account — a shutdown should not

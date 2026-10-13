@@ -13,6 +13,7 @@ import compression from "compression";
 import connectDB from "./config/db.js";
 import { getCorsOptions } from "./config/cors.js";
 import { validateRuntimeConfig } from "./config/runtime.js";
+import { validateCloudinaryStartupConfig } from "./config/cloudinary.js";
 import { getFirebaseApp, validateFirebaseAdminConfig } from "./config/firebaseAdmin.js";
 import apiRoutes from "./routes/index.js";
 import healthRoutes from "./routes/health.routes.js";
@@ -24,7 +25,6 @@ import { loadRates } from "./services/riderPay.service.js";
 import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js";
 import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
-import { loadReferralConfig } from "./services/referralConfig.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
 
 // Fix: Node.js on Windows uses local router DNS (fe80::1) which blocks SRV record queries.
@@ -34,6 +34,7 @@ if (process.env.NODE_ENV === "development") {
 
 // Validate before connecting to MongoDB or starting any background work.
 validateRuntimeConfig();
+validateCloudinaryStartupConfig();
 if (process.env.FCM_MODE === "live") {
   validateFirebaseAdminConfig();
   getFirebaseApp();
@@ -101,8 +102,6 @@ const start = async () => {
   await loadCoinConfig().catch((e) => console.warn('[COIN CONFIG] using defaults:', e.message));
   // Same reasoning, for the Same-Day/seller/rider radius ceilings.
   await loadRadiusSetting().catch((e) => console.warn('[RADIUS SETTING] using env defaults:', e.message));
-  // Same reasoning, for the Referral Program's reward/limit configuration.
-  await loadReferralConfig().catch((e) => console.warn('[REFERRAL CONFIG] using defaults:', e.message));
   // Auto-seed default role privacy policies if missing
   await seedPrivacyPolicies().catch((e) => console.warn('[PRIVACY POLICY SEED] error:', e.message));
 

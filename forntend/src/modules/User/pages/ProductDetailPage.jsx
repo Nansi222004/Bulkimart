@@ -66,6 +66,8 @@ const ProductDetailPage = () => {
   const selectedMrp = selectedVariant?.mrp ?? product?.mrp;
   const selectedStock = selectedVariant?.stock ?? product?.stock;
   const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
+  const [cartActionPending, setCartActionPending] = useState(false);
+  const [cartActionError, setCartActionError] = useState('');
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -275,9 +277,21 @@ const ProductDetailPage = () => {
 
   if (!product) return null;
 
-  const handleAddToCart = () => {
-    addToCart(product.id, 1, selectedVariantId || undefined);
-    setQty(q => q + 1);
+  const handleAddToCart = async () => {
+    if (cartActionPending) return;
+    setCartActionPending(true);
+    setCartActionError('');
+    const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+    setCartActionPending(false);
+    if (!result?.ok) {
+      setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.');
+      return;
+    }
+    // Only reflect a quantity the server actually accepted. The previous
+    // optimistic increment turned the CTA into “GO TO CART (1)” after a failed
+    // request, which then led to an empty basket.
+    setQty(result.data?.items?.find((item) => String(item.productId) === String(product.id)
+      && String(item.variantId || '') === String(result.variantId || ''))?.qty || 1);
   };
 
   /** Close the detail view and land on the basket. */
@@ -293,8 +307,20 @@ const ProductDetailPage = () => {
    * the moment it took to arrive.
    */
   const handleBuyNow = async () => {
-    if (qty === 0) await addToCart(product.id, 1, selectedVariantId || undefined);
-    goToCart();
+    if (cartActionPending) return;
+    setCartActionPending(true);
+    setCartActionError('');
+    if (qty === 0) {
+      const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+      if (!result?.ok) {
+        setCartActionPending(false);
+        setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.');
+        return;
+      }
+    }
+    setCartActionPending(false);
+    setSelectedProduct(null);
+    setActiveNav('checkout');
   };
 
   return (
@@ -753,6 +779,11 @@ const ProductDetailPage = () => {
       {/* Sticky bottom CTA — the price is not repeated here; it already sits
           in the product header a few hundred pixels up, and this bar is for
           the two decisions a shopper makes at this point. */}
+      {cartActionError && (
+        <div className="cart-action-feedback" role="alert" style={{ position: 'absolute', left: 12, right: 12, bottom: 72, zIndex: 101 }}>
+          {cartActionError}
+        </div>
+      )}
       <div className="pd-sticky-cta">
         {unavailable ? (
           <button className="pd-flipkart-btn disabled" disabled>
@@ -761,9 +792,9 @@ const ProductDetailPage = () => {
         ) : (
           <>
             {qty === 0 ? (
-              <button className="pd-flipkart-btn add-cart" onClick={handleAddToCart} disabled={!(selectedStock > 0) || (productVariants.length > 1 && !selectedVariantId)}>
+              <button className="pd-flipkart-btn add-cart" onClick={handleAddToCart} disabled={cartActionPending || !(selectedStock > 0) || (productVariants.length > 1 && !selectedVariantId)}>
                 <CartIcon />
-                ADD TO CART
+                {cartActionPending ? 'ADDING…' : 'ADD TO CART'}
               </button>
             ) : (
               <button className="pd-flipkart-btn go-cart" onClick={goToCart}>
@@ -772,11 +803,11 @@ const ProductDetailPage = () => {
               </button>
             )}
 
-            <button className="pd-flipkart-btn buy-now" onClick={handleBuyNow}>
+            <button className="pd-flipkart-btn buy-now" onClick={handleBuyNow} disabled={cartActionPending || !(selectedStock > 0) || (productVariants.length > 1 && !selectedVariantId)}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
               </svg>
-              BUY NOW
+              {cartActionPending ? 'PLEASE WAIT…' : 'BUY NOW'}
             </button>
           </>
         )}

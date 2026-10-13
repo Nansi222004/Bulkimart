@@ -31,11 +31,6 @@ import {
   cancelBroadcastAdmin, deleteBroadcastAdmin, exportBroadcastsCsvAdmin,
 } from '../controllers/broadcast.controller.js';
 import {
-  getReferralConfigForAdmin, setReferralConfigForAdmin,
-  listReferralsAdmin, getReferralAdmin, blockReferralAdmin, approveReferralAdmin,
-  getReferralCostReport,
-} from '../controllers/referralAdmin.controller.js';
-import {
   listCoupons, createCoupon, updateCoupon, toggleCoupon, deleteCoupon, getCouponRedemptions,
 } from '../controllers/coupon.controller.js';
 import {
@@ -107,17 +102,6 @@ router.post('/delivery-charge', setDeliveryChargeSettingForAdmin);
 
 router.get('/radius-settings', getRadiusSettingForAdmin);
 router.post('/radius-settings', setRadiusSettingForAdmin);
-
-// ---- Referral Program -------------------------------------------------------
-// `/cost-report` and `/referral-settings` are registered before `/referrals/:id`
-// for the same "static segment before :id" reason as `deliveryFleetStats` above.
-router.get('/referral-settings', getReferralConfigForAdmin);
-router.post('/referral-settings', setReferralConfigForAdmin);
-router.get('/referrals/cost-report', getReferralCostReport);
-router.get('/referrals', listReferralsAdmin);
-router.get('/referrals/:id', getReferralAdmin);
-router.patch('/referrals/:id/block', blockReferralAdmin);
-router.patch('/referrals/:id/approve', approveReferralAdmin);
 
 // ---- Dynamic Tip Setting ----------------------------------------------------
 router.get('/tip-setting', getTipSettingForAdmin);

@@ -324,9 +324,8 @@ export const COIN_REFERENCE_TYPE = {
   PAYMENT: 'PAYMENT',
   ADMIN: 'ADMIN',
   SYSTEM: 'SYSTEM',
-  // Referral Program — every Coin credited under this reference type is
-  // funded entirely by Admin (see metadata.fundedBy on the credit itself),
-  // never by the referred order's own margin.
+  // Historical compatibility only. Existing immutable ledger rows may carry
+  // this value; keeping it readable does not enable any new reward path.
   REFERRAL: 'REFERRAL',
 };
 export const COIN_REFERENCE_TYPES = Object.values(COIN_REFERENCE_TYPE);
@@ -571,59 +570,3 @@ export const RETURN_PICKUP_STATUS = {
   CANCELLED:           'CANCELLED',
 };
 export const RETURN_PICKUP_STATUSES = Object.values(RETURN_PICKUP_STATUS);
-
-// ------------------------------------------------------------ Referral Program
-/**
- * One row per referred person (Referral model). Mirrors the shape of
- * COIN_REWARD_STATUS above on purpose — same "resolve once, credit once"
- * lifecycle, just at the referral level instead of the order-item level.
- *
- *   PENDING   — referee signed up, first qualifying order not yet resolved
- *   QUALIFIED — atomically claimed by the sweeper; payout in progress
- *   CREDITED  — Coins actually in the referrer's wallet (terminal)
- *   BLOCKED   — fraud flag / budget exhausted / admin rejection (terminal)
- *   EXPIRED   — referee never placed a qualifying order within the window (terminal)
- */
-export const REFERRAL_STATUS = {
-  PENDING:   'PENDING',
-  QUALIFIED: 'QUALIFIED',
-  CREDITED:  'CREDITED',
-  BLOCKED:   'BLOCKED',
-  EXPIRED:   'EXPIRED',
-};
-export const REFERRAL_STATUSES = Object.values(REFERRAL_STATUS);
-
-/** Terminal states — a referral in one of these is never re-evaluated by the sweeper. */
-export const REFERRAL_TERMINAL_STATUSES = [
-  REFERRAL_STATUS.CREDITED, REFERRAL_STATUS.BLOCKED, REFERRAL_STATUS.EXPIRED,
-];
-
-export const REFERRAL_BLOCKED_REASON = {
-  SELF_REFERRAL:              'SELF_REFERRAL',
-  BUDGET_EXHAUSTED:           'BUDGET_EXHAUSTED',
-  VELOCITY_LIMIT:             'VELOCITY_LIMIT',
-  ADMIN_REJECTED:             'ADMIN_REJECTED',
-  PROGRAM_DISABLED:           'PROGRAM_DISABLED',
-  BELOW_MINIMUM_ORDER_VALUE:  'BELOW_MINIMUM_ORDER_VALUE',
-  ZERO_REWARD:                'ZERO_REWARD',
-};
-
-/** Pre-configuration defaults — same role COIN_DEFAULTS plays for CoinConfig. */
-export const REFERRAL_DEFAULTS = {
-  PER_REFERRAL_COINS: 100,
-  MILESTONES: [
-    { count: 5, bonusCoins: 500 },
-    { count: 10, bonusCoins: 1000 },
-    { count: 25, bonusCoins: 2500 },
-    { count: 50, bonusCoins: 5000 },
-  ],
-  MIN_QUALIFYING_ORDER_VALUE: 299,
-  // Credited to the REFEREE (B), same eligibility gate and same moment as
-  // the referrer's own reward — NOT an instant signup bonus. See
-  // referral.service.js::payoutReferral.
-  REFEREE_REWARD_COINS: 50,
-  REFERRAL_VALIDITY_DAYS: 30, // referee must place a qualifying order within this window
-  MAX_REFERRALS_PER_USER_PER_MONTH: 50,
-  MONTHLY_BUDGET_COINS: 0, // 0 = unlimited
-  REQUIRE_MANUAL_APPROVAL_ABOVE: 0, // 0 = never require manual approval
-};

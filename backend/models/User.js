@@ -89,15 +89,11 @@ const userSchema = new Schema(
 
     isActive: { type: Boolean, default: true },
 
-    // ---------------------------------------------------------- Referral Program
-    // Lazily generated the first time this user opens "Refer & Earn" — see
-    // referral.service.js::getOrCreateReferralCode. `sparse` so every
-    // pre-existing user keeps working with no backfill migration.
-    referralCode: { type: String, unique: true, sparse: true, index: true, uppercase: true, trim: true },
-    // Set exactly once, at signup, inside auth.controller.js::verifyAndLogin's
-    // `if (!user)` branch — never editable afterward, and never set on an
-    // already-existing account.
-    referredBy: { type: ObjectId, ref: "User" },
+    // Legacy, read-disabled fields retained solely so old user documents and
+    // their existing index remain compatible. No active code reads or writes
+    // them, and no database cleanup is performed by this removal.
+    referralCode: { type: String, unique: true, sparse: true, index: true, uppercase: true, trim: true, select: false, immutable: true },
+    referredBy: { type: ObjectId, ref: "User", select: false, immutable: true },
   },
   { timestamps: true }
 );

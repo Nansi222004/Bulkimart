@@ -146,20 +146,6 @@ export const UserProvider = ({ children }) => {
     localStorage.setItem(STOREFRONT_KEY, activeMode);
   }, [activeMode]);
 
-  /**
-   * Referral Program — captures `?ref=<code>` off the very first landing
-   * (a shared referral link), once, into localStorage. `verifyOtp` above
-   * reads and clears it at signup — this is only a short-lived carrier,
-   * never the source of truth: the backend's Referral row, created inside
-   * auth.controller.js's `if (!user)` branch, is what actually counts.
-   */
-  useEffect(() => {
-    try {
-      const ref = new URLSearchParams(window.location.search).get('ref');
-      if (ref) localStorage.setItem('pendingReferralCode', ref.toUpperCase().trim());
-    } catch { /* URL parsing best-effort — never blocks app load */ }
-  }, []);
-
   const getCategoryFromPath = () => {
     const pathname = window.location.pathname;
     const parts = pathname.split('/').filter(Boolean);
@@ -254,8 +240,13 @@ export const UserProvider = ({ children }) => {
   // --- Authentication ---
   const [currentUser, setCurrentUser] = useState(() => {
     try {
+      const token = localStorage.getItem('userToken');
       const saved = localStorage.getItem('userProfile');
-      return saved ? JSON.parse(saved) : null;
+      if (!token || !saved) {
+        if (!token) localStorage.removeItem('userProfile');
+        return null;
+      }
+      return JSON.parse(saved);
     } catch {
       return null;
     }
@@ -443,13 +434,11 @@ export const UserProvider = ({ children }) => {
 
   const verifyOtp = async (phone, otp, isLogin, name, email) => {
     try {
-      const referralCode = localStorage.getItem('pendingReferralCode') || undefined;
       const response = await fetch(apiUrl('/api/auth/verify-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp, referralCode, isLogin, name, email }),
+        body: JSON.stringify({ phone, otp, isLogin, name, email }),
       });
-      localStorage.removeItem('pendingReferralCode');
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.message || 'OTP verification failed');
@@ -496,27 +485,6 @@ export const UserProvider = ({ children }) => {
       console.error(err);
       return { success: false, message: err.message };
     }
-  };
-
-  // Keep compatibility for older code
-  const loginUser = (email, password) => {
-    const user = {
-      name: '',
-      email: email || '',
-      phone: '',
-    };
-    setCurrentUser(user);
-    return { success: true };
-  };
-
-  const registerUser = (details = {}) => {
-    const user = {
-      name: details.name || '',
-      email: details.email || '',
-      phone: details.phone || '',
-    };
-    setCurrentUser(user);
-    return { success: true };
   };
 
   const logoutUser = () => {
@@ -732,19 +700,25 @@ export const UserProvider = ({ children }) => {
     let product = productOrId && typeof productOrId === 'object' ? productOrId : null;
     const productId = product?.id || product?._id || productOrId;
     let variants = product?.variants || product?.raw?.variants || [];
-    // Some discovery endpoints return compact product rows without variants.
-    // Resolve the public detail record before allowing a card quick-add to
-    // choose a variant implicitly.
-    if (product && !variants.length) {
-      try {
-        const response = await fetch(apiUrl(`/api/products/${productId}`));
-        const detail = await response.json();
-        if (response.ok && Array.isArray(detail?.variants)) {
-          variants = detail.variants.map((variant) => ({ ...variant, id: String(variant._id) }));
-          product = { ...product, id: String(productId), _id: String(productId), variants, raw: detail };
-        }
-      } catch { /* The cart API remains authoritative if detail lookup is unavailable. */ }
-    }
+    // Resolve the live detail record before choosing a variant. Legacy product
+    // rows can acquire their durable variant IDs on this endpoint, while a
+    // listing already open in the browser may still carry the old transient ID.
+    // In particular, the detail page calls this function with only a product
+    // ID, so limiting this lookup to compact product objects left that path
+    // sending a stale variant identifier to the cart API.
+    try {
+      const response = await fetch(apiUrl(`/api/products/${productId}`));
+      const detail = await response.json();
+      if (response.ok && Array.isArray(detail?.variants)) {
+        const liveVariants = detail.variants.map((variant) => ({ ...variant, id: String(variant._id) }));
+        // A single variant is unambiguous, so prefer its live ID even when the
+        // caller supplied an older one. Multiple variants must keep the exact
+        // shopper selection and are still validated by the server.
+        if (liveVariants.length === 1) variantId = liveVariants[0].id;
+        variants = liveVariants;
+        product = { ...(product || {}), id: String(productId), _id: String(productId), variants, raw: detail };
+      }
+    } catch { /* The cart API remains authoritative if detail lookup is unavailable. */ }
     if (!variantId && variants.length > 1) {
       setSelectedProduct(product);
       return { ok: false, message: 'Choose a product variant to add it to your cart.' };
@@ -755,7 +729,7 @@ export const UserProvider = ({ children }) => {
       // it went into the other storefront's basket; keep both views honest
       refreshCart();
     }
-    return r;
+    return { ...r, variantId: resolvedVariantId };
   };
 
   const setCartItemQty = async (itemId, qty) => cartCall('PUT', `/${itemId}`, { qty });
@@ -1447,7 +1421,7 @@ export const UserProvider = ({ children }) => {
     <UserContext.Provider
       value={{
         // Authentication
-        currentUser, loginUser, registerUser, logoutUser,
+        currentUser, logoutUser,
         sendOtp, verifyOtp, updateUserProfile,
 
         // Navigation

@@ -4,6 +4,14 @@ import { asyncHandler } from "../middlewares/error.middleware.js";
 import { ok, paginated, getPagination, httpError } from "../utils/response.js";
 import { registerPushToken, removePushToken } from "../services/notification.service.js";
 
+// Historical rows remain untouched, but retired-program messages no longer
+// appear in customer notification lists or unread badges.
+const RETIRED_EVENT_TYPES = [
+  'REFERRAL_SIGNUP',
+  'REFERRAL_REWARD_CREDITED',
+  'REFERRAL_MILESTONE_REACHED',
+];
+
 // @desc    Register/refresh the caller's device push token (upserts by token
 //          value, so re-registering the same device just bumps lastUsedAt
 //          instead of creating a duplicate entry). Multi-device: a user may
@@ -36,7 +44,7 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query, 20, 50);
   // req.user._id — never a client-supplied id — is the only identity this
   // query is ever scoped to, so one user can never page into another's list.
-  const filter = { userId: req.user._id };
+  const filter = { userId: req.user._id, event: { $nin: RETIRED_EVENT_TYPES } };
   if (req.query.isRead === "true") filter.isRead = true;
   if (req.query.isRead === "false") filter.isRead = false;
 
@@ -52,7 +60,11 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
 // @route   GET /api/notifications/unread-count
 // @access  Private
 export const getUnreadCount = asyncHandler(async (req, res) => {
-  const count = await Notification.countDocuments({ userId: req.user._id, isRead: false });
+  const count = await Notification.countDocuments({
+    userId: req.user._id,
+    isRead: false,
+    event: { $nin: RETIRED_EVENT_TYPES },
+  });
   ok(res, { count });
 });
 

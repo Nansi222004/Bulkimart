@@ -4,9 +4,57 @@ import { httpError } from '../utils/response.js';
 
 const hasVariants = (product) => Array.isArray(product?.variants) && product.variants.length > 0;
 
+/**
+ * Persist subdocument IDs that Mongoose generated while hydrating legacy
+ * products whose stored variants pre-date variant identity.
+ *
+ * Without this repair, every read invents a different `_id`: the catalogue
+ * sends one ID, the detail endpoint sends another, and add-to-cart hydrates a
+ * third before correctly rejecting the first two as foreign. The guarded,
+ * per-index update never changes price or stock and loses a race harmlessly if
+ * another request has already repaired that variant.
+ */
+export const persistLegacyVariantIds = async (product) => {
+  if (!product?._id || !hasVariants(product)) return product;
+
+  const stored = await Product.collection.findOne(
+    { _id: product._id },
+    { projection: { variants: 1 } },
+  );
+  if (!stored?.variants?.length) return product;
+
+  let raced = false;
+  for (let index = 0; index < stored.variants.length; index += 1) {
+    if (stored.variants[index]?._id) continue;
+    const generatedId = product.variants[index]?._id;
+    if (!generatedId) continue;
+    const result = await Product.collection.updateOne(
+      { _id: product._id, [`variants.${index}._id`]: { $exists: false } },
+      { $set: { [`variants.${index}._id`]: generatedId } },
+    );
+    if (result.modifiedCount !== 1) raced = true;
+  }
+
+  // If another request won a repair race, copy the winner's durable IDs onto
+  // this already-populated document. Refetching through the model here would
+  // discard any category/seller populations the calling endpoint requested.
+  if (raced) {
+    const repaired = await Product.collection.findOne(
+      { _id: product._id },
+      { projection: { variants: 1 } },
+    );
+    repaired?.variants?.forEach((variant, index) => {
+      if (variant?._id && product.variants[index]) product.variants[index]._id = variant._id;
+    });
+  }
+  return product;
+};
+
 /** Resolve authoritative identity, price and stock. Missing variant IDs are
  * tolerated only for a single-variant product; multi-variant products require
- * explicit selection. The backfill migration must run before serving old rows. */
+ * explicit selection. Public product reads repair legacy missing IDs before a
+ * shopper can select them; the standalone backfill remains available for bulk
+ * maintenance. */
 export const resolveInventoryItem = (product, variantId, { allowLegacyPrimary = false } = {}) => {
   if (!product) throw httpError(404, 'Product not found');
   if (!hasVariants(product)) {

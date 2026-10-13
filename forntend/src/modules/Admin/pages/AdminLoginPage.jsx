@@ -24,7 +24,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await response.json();
@@ -80,7 +80,8 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
             <label style={styles.label}>Email Address</label>
             <input
               type="email"
-              placeholder="admin@admin.com"
+              placeholder="you@company.com"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={styles.input}
@@ -99,6 +100,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 style={styles.passwordInput}
                 disabled={loading}
+                autoComplete="current-password"
                 required
               />
               <button

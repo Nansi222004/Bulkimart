@@ -62,9 +62,9 @@ const notificationSchema = new Schema(
       // it, so read/open-rate stats can be counted without a second,
       // duplicated tracking table.
       broadcastId:    { type: ObjectId, ref: "NotificationBroadcast" },
-      // Referral Program — links a reward/milestone notification back to
-      // the Referral row that earned it.
-      referralId:     { type: ObjectId, ref: "Referral" },
+      // Legacy metadata retained so historical notification documents can be
+      // deserialized without modifying or deleting stored records.
+      referralId:     { type: ObjectId, select: false },
     },
     expiresAt: { type: Date },
   },

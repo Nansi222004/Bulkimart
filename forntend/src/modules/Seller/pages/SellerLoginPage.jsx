@@ -16,9 +16,11 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack }) => {
     sellerPhone,
     setSellerPhone,
     otpSent,
+    setOtpSent,
     otpCode,
     setOtpCode,
     otpTimer,
+    setOtpTimer,
     sendOtp,
     verifyOtpAndLogin,
     notAMember,
@@ -26,6 +28,13 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack }) => {
   } = useSeller();
 
   const [busy, setBusy] = React.useState(false);
+
+  const changePhone = () => {
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpTimer(0);
+    setSellerPhone('');
+  };
 
   const handleSend = async () => {
     setBusy(true);
@@ -168,6 +177,9 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack }) => {
               disabled={otpCode.length < 4 || busy}
             >
               {busy ? 'Verifying…' : (mode === 'register' ? 'Verify & Continue' : 'Sign In')}
+            </button>
+            <button type="button" className="otp-resend-btn" onClick={changePhone} disabled={busy}>
+              Change mobile number
             </button>
           </>
         )}

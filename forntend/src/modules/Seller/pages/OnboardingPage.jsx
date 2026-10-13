@@ -78,6 +78,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
     setSelectedTypes,
     activeMode,
     setActiveMode,
+    userProfile,
+    logoutSeller,
   } = useSeller();
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
 
@@ -211,8 +213,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
         {/* SCREEN 2: MOBILE VERIFICATION */}
         {onboardingStep === 2 && (() => {
-          let signedInPhone = '';
-          try { signedInPhone = JSON.parse(localStorage.getItem('userProfile') || '{}').phone || ''; } catch { /* ignore */ }
+          const signedInPhone = userProfile?.phone || '';
 
           if (signedInPhone) {
             return (
@@ -240,6 +241,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
                 <button className="primary-onboarding-btn" onClick={() => setOnboardingStep(3)}>
                   Continue
+                </button>
+                <button type="button" className="otp-resend-btn" onClick={logoutSeller}>
+                  Use a different mobile number
                 </button>
               </>
             );

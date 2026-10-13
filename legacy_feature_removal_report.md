@@ -2,7 +2,7 @@
 
 ## Outcome
 
-SHG/NHC franchise selling, recurring grocery subscriptions, donations, and Premium Membership no longer have active routes, controllers, services, scheduled jobs, seed catalogs, or frontend management/purchase surfaces. Shared commerce, PhonePe, wallet, NHCONE coin, referral, seller promotion, delivery, refund, and checkout paths remain.
+SHG/NHC franchise selling, recurring grocery subscriptions, donations, and Premium Membership no longer have active routes, controllers, services, scheduled jobs, seed catalogs, or frontend management/purchase surfaces. Shared commerce, PhonePe, wallet, NHCONE coin, seller promotion, delivery, refund, and checkout paths remain.
 
 No MongoDB connection, query, migration, index change, document update, or cleanup script was run.
 

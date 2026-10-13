@@ -665,7 +665,7 @@ const CheckoutPage = () => {
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="checkout-content">
         
         {/* Address Selection Section */}
         <div className="profile-menu-card" style={{ padding: 16 }}>
@@ -683,27 +683,12 @@ const CheckoutPage = () => {
           </div>
 
           {showAddressForm ? (
-            <form onSubmit={handleAddAddress} style={{ display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 12 }}>
+            <form onSubmit={handleAddAddress} className="checkout-address-form">
               <button
                 type="button"
                 onClick={handleUseCurrentLocation}
                 disabled={locating}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '12px 16px',
-                  background: 'var(--primary-light)',
-                  border: '1.5px dashed var(--primary)',
-                  borderRadius: '12px',
-                  color: 'var(--primary)',
-                  fontWeight: '800',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  marginBottom: '8px'
-                }}
+                className="checkout-location-btn"
               >
                 <span>📍</span>
                 <span>{locating ? 'Fetching Live Location...' : 'Use Current Location'}</span>
@@ -714,23 +699,25 @@ const CheckoutPage = () => {
                 </span>
               )}
 
-              <div className="shg-form-row" style={{ margin: 0 }}>
-                <div className="shg-form-group" style={{ margin: 0 }}>
-                  <label className="shg-label" style={{ fontSize: 10 }}>Full Name</label>
+              <div className="checkout-form-row">
+                <div className="checkout-form-group">
+                  <label className="checkout-form-label" htmlFor="checkout-name">Full Name</label>
                   <input 
+                    id="checkout-name"
                     type="text" 
-                    className="shg-input" 
+                    className="checkout-form-input"
                     placeholder="e.g. Rahul Sharma"
                     value={addrName}
                     onChange={(e) => setAddrName(e.target.value)}
                     required
                   />
                 </div>
-                <div className="shg-form-group" style={{ margin: 0 }}>
-                  <label className="shg-label" style={{ fontSize: 10 }}>Mobile Number</label>
+                <div className="checkout-form-group">
+                  <label className="checkout-form-label" htmlFor="checkout-phone">Mobile Number</label>
                   <input 
+                    id="checkout-phone"
                     type="tel" 
-                    className="shg-input" 
+                    className="checkout-form-input"
                     placeholder="10-digit number"
                     maxLength={10}
                     value={addrPhone}
@@ -739,45 +726,49 @@ const CheckoutPage = () => {
                   />
                 </div>
               </div>
-              <div className="shg-form-group" style={{ margin: 0 }}>
-                <label className="shg-label" style={{ fontSize: 10 }}>Flat / House / Block No.</label>
+              <div className="checkout-form-group">
+                <label className="checkout-form-label" htmlFor="checkout-house">Flat / House / Block No.</label>
                 <input 
+                  id="checkout-house"
                   type="text" 
-                  className="shg-input" 
+                  className="checkout-form-input"
                   placeholder="e.g. Flat 304, Block C"
                   value={house}
                   onChange={(e) => setHouse(e.target.value)}
                   required
                 />
               </div>
-              <div className="shg-form-group" style={{ margin: 0 }}>
-                <label className="shg-label" style={{ fontSize: 10 }}>Street / Area / Sector</label>
+              <div className="checkout-form-group">
+                <label className="checkout-form-label" htmlFor="checkout-street">Street / Area / Sector</label>
                 <input 
+                  id="checkout-street"
                   type="text" 
-                  className="shg-input" 
+                  className="checkout-form-input"
                   placeholder="e.g. Regal Circle, MG Road"
                   value={street}
                   onChange={(e) => setStreet(e.target.value)}
                   required
                 />
               </div>
-              <div className="shg-form-row" style={{ margin: 0 }}>
-                <div className="shg-form-group" style={{ margin: 0 }}>
-                  <label className="shg-label" style={{ fontSize: 10 }}>City</label>
+              <div className="checkout-form-row">
+                <div className="checkout-form-group">
+                  <label className="checkout-form-label" htmlFor="checkout-city">City</label>
                   <input 
+                    id="checkout-city"
                     type="text" 
-                    className="shg-input" 
+                    className="checkout-form-input"
                     placeholder="e.g. Lucknow"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     required
                   />
                 </div>
-                <div className="shg-form-group" style={{ margin: 0 }}>
-                  <label className="shg-label" style={{ fontSize: 10 }}>Pincode</label>
+                <div className="checkout-form-group">
+                  <label className="checkout-form-label" htmlFor="checkout-pincode">Pincode</label>
                   <input 
+                    id="checkout-pincode"
                     type="text" 
-                    className="shg-input" 
+                    className="checkout-form-input"
                     placeholder="e.g. 226001"
                     maxLength={6}
                     value={pincode}
@@ -787,33 +778,24 @@ const CheckoutPage = () => {
                 </div>
               </div>
               
-              <div className="shg-form-group" style={{ margin: 0 }}>
-                <label className="shg-label" style={{ fontSize: 10 }}>Address Type</label>
-                <div style={{ display: 'flex', gap: 10 }}>
+              <fieldset className="checkout-form-group checkout-address-type">
+                <legend className="checkout-form-label">Address Type</legend>
+                <div className="checkout-address-type-options">
                   {['Home', 'Work'].map(type => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setAddressType(type)}
-                      style={{ 
-                        flex: 1, 
-                        padding: 8, 
-                        background: addressType === type ? 'var(--primary)' : '#fff',
-                        color: addressType === type ? '#fff' : 'var(--text-secondary)',
-                        border: '1.5px solid var(--border-color)',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
+                      className={`checkout-address-type-btn ${addressType === type ? 'active' : ''}`}
+                      aria-pressed={addressType === type}
                     >
                       {type}
                     </button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
-              <div className="shg-form-group" style={{ margin: 0, backgroundColor: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div className="checkout-landmark-panel">
                 <LandmarkImagePicker
                   value={landmarkImgUrl}
                   onChange={(url) => setLandmarkImgUrl(url)}
@@ -823,7 +805,7 @@ const CheckoutPage = () => {
                 />
               </div>
 
-              <button type="submit" className="shg-primary-btn" style={{ margin: '8px 0 0 0', padding: 10 }}>
+              <button type="submit" className="checkout-save-address-btn">
                 Save & Select Address
               </button>
             </form>
@@ -1550,19 +1532,7 @@ const CheckoutPage = () => {
 
 
         {/* Checkout CTA Bar */}
-        <div style={{ 
-          position: 'sticky', 
-          bottom: 0, 
-          margin: '0 -16px -16px -16px',
-          background: '#fff', 
-          borderTop: '1.5px solid var(--border-color)',
-          boxShadow: '0 -4px 10px rgba(0,0,0,0.06)', 
-          padding: '12px 16px', 
-          display: 'flex', 
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          zIndex: 100
-        }}>
+        <div className="checkout-cta-bar">
           <div onClick={() => setShowBillBreakdown(prev => !prev)} style={{ cursor: 'pointer' }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <span>Payable Amount</span>
@@ -1576,11 +1546,7 @@ const CheckoutPage = () => {
             className="pd-add-to-cart-btn"
             onClick={handlePlaceOrder}
             disabled={isOrdering || cartLoading}
-            style={{
-              width: 'auto', padding: '12px 42px', margin: 0,
-              opacity: (isOrdering || cartLoading) ? 0.5 : 1,
-              cursor: (isOrdering || cartLoading) ? 'not-allowed' : 'pointer',
-            }}
+            style={{ opacity: (isOrdering || cartLoading) ? 0.5 : 1 }}
           >
             {isOrdering ? 'Placing order…'
               : cartLoading ? 'Updating…'
