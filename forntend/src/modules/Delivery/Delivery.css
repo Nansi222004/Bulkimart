@@ -7,6 +7,8 @@
   /* Standard premium mobile frame */
   height: 100vh;
   min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
   margin: 0 auto;
   background-color: #f7fafc;
   display: flex;
@@ -18,9 +20,11 @@
   box-sizing: border-box;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 768px) {
   .delivery-app-container {
-    max-width: 100%;
+    width: 100vw;
+    max-width: none;
+    margin: 0;
     box-shadow: none;
   }
 }
@@ -43,6 +47,8 @@
 .delivery-onboarding-viewport {
   padding: 0;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
+  scroll-padding-bottom: max(32px, calc(16px + env(safe-area-inset-bottom)));
+  overscroll-behavior-y: auto;
 }
 
 .delivery-main-viewport::-webkit-scrollbar {
@@ -161,7 +167,7 @@
 /* 1. ONBOARDING PAGE STYLES */
 /* ---------------------------------------------------- */
 .delivery-onboarding-wrapper {
-  padding: 24px 16px;
+  padding: max(16px, env(safe-area-inset-top)) 16px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -169,6 +175,8 @@
   width: 100%;
   min-width: 0;
   padding-bottom: max(40px, calc(24px + env(safe-area-inset-bottom)));
+  min-height: 100%;
+  overflow-x: hidden;
 }
 
 .delivery-onboarding-card,
@@ -384,6 +392,44 @@
 
 .delivery-btn-row button {
   flex: 1;
+  min-height: 48px;
+}
+
+.delivery-inline-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.delivery-text-input[aria-invalid="true"] {
+  border-color: #ef4444;
+  background-color: #fff7f7;
+}
+
+@media (max-width: 430px) {
+  .delivery-onboarding-wrapper {
+    padding-left: 12px;
+    padding-right: 12px;
+    gap: 14px;
+  }
+
+  .delivery-onboarding-card {
+    border-radius: 16px;
+    padding: 18px 14px;
+  }
+
+  .delivery-step-indicator-row {
+    gap: clamp(10px, 5vw, 20px);
+    margin: 4px 0;
+  }
+
+  .delivery-btn-row {
+    position: relative;
+    z-index: 1;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
 }
 
 /* Application Under Review Details */

@@ -184,6 +184,17 @@ export const submitStep3 = asyncHandler(async (req, res) => {
   if (!accountNo || !ifsc || !holderName || !bankName) {
     throw httpError(400, 'Bank account details are required so we can pay you');
   }
+  if (!/^\d{6,18}$/.test(String(accountNo))) {
+    throw httpError(400, 'Bank account number must contain 6 to 18 digits');
+  }
+  if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(ifsc).trim().toUpperCase())) {
+    throw httpError(400, 'Please provide a valid 11-character IFSC code');
+  }
+  if (String(holderName).trim().length < 2) throw httpError(400, 'Please provide the account holder name');
+  if (String(bankName).trim().length < 2) throw httpError(400, 'Please provide the bank name');
+  if (upiId && !/^[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}$/.test(String(upiId).trim())) {
+    throw httpError(400, 'Please provide a valid UPI ID');
+  }
 
   // Where the rider is based. Two ways in, and both are legitimate:
   //   - the GPS button filled lat/lng for them
@@ -203,12 +214,20 @@ export const submitStep3 = asyncHandler(async (req, res) => {
   const passbookUrl = req.file
     ? await uploadToCloudinary(req.file.buffer, `delivery-bank/${req.user._id}`)
     : partner.bankDetails?.passbookUrl;
+  if (!passbookUrl) throw httpError(400, 'Please upload a passbook page or cancelled cheque');
 
   partner.zones = [...new Set(list)];
   // Merge, so a rider editing only their bank details does not blank the
   // coordinates the GPS captured on an earlier pass.
   partner.baseLocation = { ...(partner.baseLocation?.toObject?.() ?? partner.baseLocation ?? {}), ...loc };
-  partner.bankDetails = { accountNo, ifsc: String(ifsc).toUpperCase(), holderName, bankName, upiId, passbookUrl };
+  partner.bankDetails = {
+    accountNo: String(accountNo),
+    ifsc: String(ifsc).trim().toUpperCase(),
+    holderName: String(holderName).trim(),
+    bankName: String(bankName).trim(),
+    upiId: upiId ? String(upiId).trim() : undefined,
+    passbookUrl,
+  };
   if (partner.onboardingStep < 4) partner.onboardingStep = 4;
 
   await partner.save();
@@ -239,6 +258,7 @@ export const submitApplication = asyncHandler(async (req, res) => {
   if (!partner.aadhaar?.frontUrl || !partner.aadhaar?.backUrl) missing.push('Aadhaar documents');
   if (!partner.zones?.length) missing.push('service pincodes');
   if (!partner.bankDetails?.accountNo) missing.push('bank account');
+  if (!partner.bankDetails?.passbookUrl) missing.push('payout document');
   if (!hasUsableLocation(partner.baseLocation)) missing.push('your base location');
   if (missing.length) throw httpError(400, `Still missing: ${missing.join(', ')}`);
 

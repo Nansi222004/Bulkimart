@@ -3,6 +3,7 @@ import { useSeller } from '../context/SellerContext';
 import { LocationPicker } from '../../../components/LocationPicker';
 import BrandLogo from '../../../components/BrandLogo';
 import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
+import { normalizePhoneInput } from '../utils/sellerAuth';
 
 /** A real file picker — opens the device's storage and keeps the actual File. */
 const DocRow = ({ label, hint, docKey, file, onPick, onDelete, required }) => {
@@ -263,15 +264,15 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   type="tel"
                   className="onboarding-input"
                   placeholder="Enter 10-digit number"
-                  maxLength={10}
+                  maxLength={18}
                   value={sellerPhone}
                   disabled={otpSent}
-                  onChange={(e) => setSellerPhone(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
                 />
               </div>
 
               {!otpSent ? (
-                <button className="primary-onboarding-btn" onClick={sendOtp} disabled={sellerPhone.length !== 10}>
+                <button type="button" className="primary-onboarding-btn" onClick={() => sendOtp('register')} disabled={sellerPhone.length !== 10}>
                   Send OTP
                 </button>
               ) : (
@@ -289,14 +290,14 @@ export const OnboardingPage = ({ onSubmitted }) => {
                     {otpTimer > 0 ? (
                       <span className="otp-countdown-lbl">Resend code in {otpTimer}s</span>
                     ) : (
-                      <button className="otp-resend-btn" onClick={sendOtp}>Resend Code</button>
+                      <button type="button" className="otp-resend-btn" onClick={() => sendOtp('register')}>Resend Code</button>
                     )}
                   </div>
 
                   <button
                     className="primary-onboarding-btn"
                     onClick={async () => {
-                      const res = await verifyOtpAndLogin();
+                      const res = await verifyOtpAndLogin('register');
                       if (res.ok) setOnboardingStep(3);
                     }}
                     disabled={otpCode.length < 4}

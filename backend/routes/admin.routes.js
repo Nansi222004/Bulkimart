@@ -2,7 +2,7 @@ import express from 'express';
 import {
   listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, decideSellerWholesaleChannel, getWholesaleManagementSummary,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
-  listProducts, approveProduct, rejectProduct, featureProduct, sponsorProduct,
+  listProducts, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
   getPendingCounts,
   listDeliveryPartners,
@@ -86,6 +86,7 @@ router.patch('/products/:id/approve', approveProduct);
 router.patch('/products/:id/reject', rejectProduct);
 router.patch('/products/:id/feature', featureProduct);
 router.patch('/products/:id/sponsor', sponsorProduct);
+router.delete('/products/:id', deleteProductAdmin);
 
 // ---- delivery partners -----------------------------------------------------
 router.get('/delivery-partners', listDeliveryPartners);

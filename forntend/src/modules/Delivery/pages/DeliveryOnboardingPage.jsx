@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import BrandLogo from '../../../components/BrandLogo';
 import { LocationPicker } from '../../../components/LocationPicker';
+import { submitDeliveryPayoutStep } from '../utils/onboarding';
 
 /** What the server accepts, with labels a rider recognises. */
 const VEHICLES = [
@@ -91,6 +92,8 @@ export const DeliveryOnboardingPage = () => {
 
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState({ license: null, aadhaarFront: null, aadhaarBack: null, passbook: null });
+  const [stepErrors, setStepErrors] = useState({});
+  const submissionLock = useRef(false);
 
   const set = (field, value) => setOnboardingForm((prev) => ({ ...prev, [field]: value }));
   const setFile = (key) => (file) => setFiles((prev) => ({ ...prev, [key]: file }));
@@ -153,46 +156,28 @@ export const DeliveryOnboardingPage = () => {
   };
 
   const doStep3 = async () => {
-    const loc = onboardingForm.location || {};
-    const hasFix = loc.lat !== undefined && loc.lng !== undefined;
-
-    // Mirrors the server rule: a GPS fix stands alone, and so does a typed
-    // address with a pincode. The server re-checks either way.
-    if (!hasFix && !(loc.address && loc.pincode)) {
-      triggerToast('Share your current location, or type your address with a pincode.');
-      return;
-    }
-    if (loc.pincode && !/^\d{6}$/.test(loc.pincode)) {
-      triggerToast('A pincode is 6 digits.');
-      return;
-    }
-
-    const zones = (onboardingForm.zones || '').split(',').map((z) => z.trim()).filter(Boolean);
-    if (zones.length === 0) { triggerToast('Add at least one pincode you can deliver to.'); return; }
-    const badZone = zones.find((z) => !/^\d{6}$/.test(z));
-    if (badZone) { triggerToast(`"${badZone}" is not a valid 6-digit pincode.`); return; }
-
-    if (!onboardingForm.bankName || !onboardingForm.bankAccount || !onboardingForm.bankIfsc || !onboardingForm.bankHolder) {
-      triggerToast('Please fill in all payout details.');
-      return;
-    }
-
+    if (submissionLock.current) return;
+    setStepErrors({});
     setBusy(true);
-    const res = await submitServiceArea({
-      zones: zones.join(','),
-      location: loc,
-      bank: {
-        accountNo: onboardingForm.bankAccount,
-        ifsc: onboardingForm.bankIfsc,
-        holderName: onboardingForm.bankHolder,
-        bankName: onboardingForm.bankName,
-        upiId: onboardingForm.upiId,
-      },
+    const res = await submitDeliveryPayoutStep({
+      form: onboardingForm,
       passbookFile: files.passbook,
+      existingPassbookUrl: riderProfile?.bankDetails?.passbookUrl,
+      submit: submitServiceArea,
+      lock: submissionLock,
     });
     setBusy(false);
 
-    if (!res.ok) { triggerToast(res.message); return; }
+    if (!res.ok) {
+      if (res.code === 'VALIDATION') {
+        setStepErrors(res.errors);
+        triggerToast(Object.values(res.errors)[0]);
+      } else if (res.code !== 'IN_PROGRESS') {
+        setStepErrors({ form: res.message });
+        triggerToast(res.message);
+      }
+      return;
+    }
     triggerToast('Service area and payout details saved.');
     setOnboardingStep(4);
   };
@@ -401,6 +386,7 @@ export const DeliveryOnboardingPage = () => {
               buttonLabel="Use my current location"
               addressLabel="Your address"
             />
+            {stepErrors.location && <p className="delivery-inline-error" role="alert">{stepErrors.location}</p>}
 
             <div className="delivery-location-divider" style={{ margin: '20px 0 4px' }}>
               <span>Delivery pincodes</span>
@@ -416,8 +402,10 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.zones}
                 disabled={busy}
                 onChange={(e) => set('zones', e.target.value)}
+                aria-invalid={Boolean(stepErrors.zones)}
               />
               <p className="delivery-file-meta">Separate them with commas.</p>
+              {stepErrors.zones && <p className="delivery-inline-error" role="alert">{stepErrors.zones}</p>}
             </div>
 
             <div className="delivery-location-divider" style={{ margin: '20px 0 4px' }}>
@@ -436,7 +424,9 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.bankHolder || ''}
                 disabled={busy}
                 onChange={(e) => set('bankHolder', e.target.value)}
+                aria-invalid={Boolean(stepErrors.bankHolder)}
               />
+              {stepErrors.bankHolder && <p className="delivery-inline-error" role="alert">{stepErrors.bankHolder}</p>}
             </div>
 
             <div className="delivery-input-group">
@@ -450,7 +440,9 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.bankName}
                 disabled={busy}
                 onChange={(e) => set('bankName', e.target.value)}
+                aria-invalid={Boolean(stepErrors.bankName)}
               />
+              {stepErrors.bankName && <p className="delivery-inline-error" role="alert">{stepErrors.bankName}</p>}
             </div>
 
             <div className="delivery-input-group">
@@ -465,7 +457,9 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.bankAccount}
                 disabled={busy}
                 onChange={(e) => set('bankAccount', e.target.value.replace(/\D/g, ''))}
+                aria-invalid={Boolean(stepErrors.bankAccount)}
               />
+              {stepErrors.bankAccount && <p className="delivery-inline-error" role="alert">{stepErrors.bankAccount}</p>}
             </div>
 
             <div className="delivery-input-group">
@@ -479,7 +473,9 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.bankIfsc}
                 disabled={busy}
                 onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())}
+                aria-invalid={Boolean(stepErrors.bankIfsc)}
               />
+              {stepErrors.bankIfsc && <p className="delivery-inline-error" role="alert">{stepErrors.bankIfsc}</p>}
             </div>
 
             <div className="delivery-input-group">
@@ -491,21 +487,29 @@ export const DeliveryOnboardingPage = () => {
                 value={onboardingForm.upiId || ''}
                 disabled={busy}
                 onChange={(e) => set('upiId', e.target.value)}
+                aria-invalid={Boolean(stepErrors.upiId)}
               />
+              {stepErrors.upiId && <p className="delivery-inline-error" role="alert">{stepErrors.upiId}</p>}
             </div>
 
             <FileField
               label="Passbook or Cancelled Cheque"
+              required
               file={files.passbook}
               onPick={setFile('passbook')}
               disabled={busy}
             />
+            {riderProfile?.bankDetails?.passbookUrl && !files.passbook && (
+              <p className="delivery-location-notice">A payout document is already on file. Select a new file only to replace it.</p>
+            )}
+            {stepErrors.passbook && <p className="delivery-inline-error" role="alert">{stepErrors.passbook}</p>}
+            {stepErrors.form && <p className="delivery-inline-error" role="alert">{stepErrors.form}</p>}
 
             <div className="delivery-btn-row">
-              <button className="delivery-secondary-action-btn" onClick={() => setOnboardingStep(2)} disabled={busy}>
+              <button type="button" className="delivery-secondary-action-btn" onClick={() => setOnboardingStep(2)} disabled={busy}>
                 Back
               </button>
-              <button className="delivery-primary-action-btn" onClick={doStep3} disabled={busy}>
+              <button type="button" className="delivery-primary-action-btn" onClick={doStep3} disabled={busy}>
                 {busy ? 'Saving…' : 'Continue'}
               </button>
             </div>

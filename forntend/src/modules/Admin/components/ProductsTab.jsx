@@ -41,6 +41,7 @@ export const ProductsTab = () => {
     takeDownProduct,
     toggleProductFeatured,
     toggleProductSponsored,
+    removeProduct,
     selectedProduct,
     setSelectedProduct,
   } = useAdmin();
@@ -48,6 +49,18 @@ export const ProductsTab = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('approved');
   const [channel, setChannel] = useState('');
+  const [deletingProductId, setDeletingProductId] = useState(null);
+
+  const confirmDeleteProduct = async (product) => {
+    if (!product || deletingProductId) return;
+    const confirmed = window.confirm(
+      `Delete product "${product.name}"? It will be removed from every storefront and cannot be restored from the admin panel. Existing order and financial history will be preserved.`
+    );
+    if (!confirmed) return;
+    setDeletingProductId(product.id);
+    await removeProduct(product.id);
+    setDeletingProductId(null);
+  };
 
   const load = useCallback(() => {
     const filters = { status, type: channel, search };
@@ -179,6 +192,14 @@ export const ProductsTab = () => {
                 </button>
                 <button
                   className="admin-btn-sm details"
+                  style={{ background: '#fff', borderColor: '#fecaca', color: '#b91c1c' }}
+                  onClick={() => confirmDeleteProduct(p)}
+                  disabled={deletingProductId === p.id}
+                >
+                  {deletingProductId === p.id ? 'Deleting…' : 'Delete'}
+                </button>
+                <button
+                  className="admin-btn-sm details"
                   onClick={() => toggleProductFeatured(p.id, !p.isFeatured)}
                 >
                   {p.isFeatured ? 'Unfeature' : 'Feature'}
@@ -261,6 +282,14 @@ export const ProductsTab = () => {
             </div>
 
             <div style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <button
+                className="admin-btn-sm details"
+                style={{ background: '#fff', borderColor: '#fecaca', color: '#b91c1c' }}
+                onClick={() => confirmDeleteProduct(selectedProduct)}
+                disabled={deletingProductId === selectedProduct.id}
+              >
+                {deletingProductId === selectedProduct.id ? 'Deleting…' : 'Delete product'}
+              </button>
               <button
                 className="admin-btn-sm details"
                 style={{ flex: 1 }}

@@ -730,6 +730,20 @@ export const DeliveryProvider = ({ children }) => {
         setRiderStatus(d.status || '');
         setRiderRejection(d.rejectionReason || '');
         setRiderProfile(d);
+        setOnboardingForm((previous) => ({
+          ...previous,
+          vehicleType: d.vehicleType || previous.vehicleType,
+          vehicleNumber: d.vehicleNo || previous.vehicleNumber,
+          dlNumber: d.drivingLicense?.no || previous.dlNumber,
+          dlExpiry: d.drivingLicense?.expiryDate ? String(d.drivingLicense.expiryDate).slice(0, 10) : previous.dlExpiry,
+          zones: Array.isArray(d.zones) ? d.zones.join(', ') : previous.zones,
+          location: d.baseLocation || previous.location,
+          bankHolder: d.bankDetails?.holderName || previous.bankHolder || '',
+          bankName: d.bankDetails?.bankName || previous.bankName,
+          bankAccount: d.bankDetails?.accountNo || previous.bankAccount,
+          bankIfsc: d.bankDetails?.ifsc || previous.bankIfsc,
+          upiId: d.bankDetails?.upiId || previous.upiId || '',
+        }));
         setPhoneVerified(true);
         setIsOnline(d.isAvailable || false);
         // The money is already in Mongo — this is what makes it survive F5.

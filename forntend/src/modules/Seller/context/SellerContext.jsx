@@ -12,6 +12,7 @@ import {
   selectedModesToChannels,
   writeSellerDraft,
 } from '../utils/onboardingDraft';
+import { normalizePhoneInput, normalizeSellerIntent, safeErrorMessage, sellerOtpPayload } from '../utils/sellerAuth';
 
 const SellerContext = createContext();
 const getUserId = (profile) => {
@@ -747,7 +748,8 @@ export const SellerProvider = ({ children }) => {
    * session at all, so submitting the application failed with "please log in".
    */
   const sendOtp = async (intent = 'login') => {
-    const phone = (sellerPhone || '').trim();
+    const phone = normalizePhoneInput(sellerPhone);
+    const safeIntent = normalizeSellerIntent(intent);
     if (phone.length !== 10) {
       triggerToast('Please enter a valid 10-digit mobile number.');
       return { ok: false, message: 'Please enter a valid 10-digit mobile number.' };
@@ -761,7 +763,7 @@ export const SellerProvider = ({ children }) => {
       const res = await fetch(apiUrl('/api/auth/seller/send-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, intent }),
+        body: JSON.stringify(sellerOtpPayload(phone, safeIntent)),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -782,14 +784,16 @@ export const SellerProvider = ({ children }) => {
       triggerToast(body.otp ? `OTP sent. Test code: ${body.otp}` : 'OTP sent to your mobile.');
       return { ok: true };
     } catch (err) {
-      triggerToast(err.message);
-      return { ok: false, message: err.message };
+      const message = safeErrorMessage(err, 'Could not send OTP');
+      triggerToast(message);
+      return { ok: false, message };
     }
   };
 
   /** Verify the OTP and store the session the rest of the flow depends on. */
   const verifyOtpAndLogin = async (intent = 'login') => {
-    const phone = (sellerPhone || '').trim();
+    const phone = normalizePhoneInput(sellerPhone);
+    const safeIntent = normalizeSellerIntent(intent);
     if (!otpCode) {
       triggerToast('Please enter the OTP.');
       return { ok: false };
@@ -798,7 +802,7 @@ export const SellerProvider = ({ children }) => {
       const res = await fetch(apiUrl('/api/auth/seller/verify-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp: otpCode, intent }),
+        body: JSON.stringify(sellerOtpPayload(phone, safeIntent, otpCode)),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -828,8 +832,9 @@ export const SellerProvider = ({ children }) => {
 
       return { ok: true, user: body.user };
     } catch (err) {
-      triggerToast(err.message);
-      return { ok: false };
+      const message = safeErrorMessage(err, 'OTP verification failed');
+      triggerToast(message);
+      return { ok: false, message };
     }
   };
 

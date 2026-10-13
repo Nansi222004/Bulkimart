@@ -7,6 +7,21 @@ import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
 import { JWT_SECRET } from "../config/jwt.js";
 import { isMockIntegrationEnabled } from "../config/runtime.js";
+import { normalizePhone, phoneLookupCandidates } from "../utils/phone.js";
+
+const findUserByPhone = async (rawPhone) => {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return { phone: '', user: null };
+
+  // Canonical records take the indexed exact-match path. Only databases with
+  // legacy formatted values pay for the compatibility lookup.
+  let user = await User.findOne({ phone });
+  if (!user) {
+    const legacy = phoneLookupCandidates(rawPhone).filter((candidate) => candidate !== phone);
+    if (legacy.length) user = await User.findOne({ phone: { $in: legacy } });
+  }
+  return { phone, user };
+};
 
 /**
  * `role`, when given, is a claim the caller has already verified at THIS
@@ -52,13 +67,12 @@ export const publicUser = (user) => ({
 // @route   POST /api/auth/send-otp
 // @access  Public
 export const requestOTP = asyncHandler(async (req, res) => {
-  const { phone, isLogin } = req.body;
-  if (!phone || phone.length < 10) {
+  const { isLogin } = req.body;
+  const { phone, user: existingUser } = await findUserByPhone(req.body.phone);
+  if (!phone) {
     res.status(400);
     throw new Error("Please provide a valid phone number");
   }
-
-  const existingUser = await User.findOne({ phone });
 
   // Strict DB check based on login mode
   if (isLogin === true) {
@@ -99,21 +113,23 @@ export const requestOTP = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/verify-otp
 // @access  Public
 export const verifyAndLogin = asyncHandler(async (req, res) => {
-  const { phone, otp, isLogin, name, email } = req.body;
+  const { otp, isLogin, name, email } = req.body;
+  const normalized = normalizePhone(req.body.phone);
 
-  if (!phone || !otp) {
+  if (!normalized || !otp) {
     res.status(400);
     throw new Error("Please provide phone and OTP");
   }
 
-  const verification = verifyOTP(phone, otp);
+  const verification = verifyOTP(normalized, otp);
   if (!verification.valid) {
     res.status(400);
     throw new Error(verification.message || "Invalid OTP verification");
   }
 
   // Find or Create User
-  let user = await User.findOne({ phone });
+  const { phone, user: foundUser } = await findUserByPhone(req.body.phone);
+  let user = foundUser;
   let isNewUser = false;
 
   if (isLogin === true) {
@@ -179,13 +195,14 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/seller/send-otp
 // @access  Public
 export const requestSellerOTP = asyncHandler(async (req, res) => {
-  const { phone, intent } = req.body;
-  if (!phone || phone.length < 10) {
+  const { intent } = req.body;
+  const sellerIntent = intent === 'register' ? 'register' : 'login';
+  const { phone, user } = await findUserByPhone(req.body.phone);
+  if (!phone) {
     res.status(400);
     throw new Error("Please provide a valid phone number");
   }
 
-  const user = await User.findOne({ phone });
   if (!user) {
     // A machine-readable `code` (not just the human message) so the seller
     // login screen can render the specific "not a member" CTA rather than a
@@ -198,12 +215,12 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
   }
 
   const seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
-  if (intent === 'register' && seller) {
+  if (sellerIntent === 'register' && seller) {
     throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue that application or open the seller dashboard.', {
       code: 'SELLER_EXISTS', sellerStatus: seller.status,
     });
   }
-  if (intent === 'login' && !seller) {
+  if (sellerIntent === 'login' && !seller) {
     throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
       code: 'SELLER_NOT_FOUND',
     });
@@ -222,7 +239,7 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message: "OTP sent successfully",
-    sellerState: seller ? { exists: true, status: seller.status } : { exists: false },
+    sellerState: seller ? { exists: true, status: seller.status, onboardingStep: seller.onboardingStep } : { exists: false },
   });
 });
 
@@ -232,14 +249,16 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
 // @route   POST /api/auth/seller/verify-otp
 // @access  Public
 export const verifySellerOTP = asyncHandler(async (req, res) => {
-  const { phone, otp, intent } = req.body;
+  const { otp, intent } = req.body;
+  const sellerIntent = intent === 'register' ? 'register' : 'login';
+  const normalized = normalizePhone(req.body.phone);
 
-  if (!phone || !otp) {
+  if (!normalized || !otp) {
     res.status(400);
     throw new Error("Please provide phone and OTP");
   }
 
-  const user = await User.findOne({ phone });
+  const { phone, user } = await findUserByPhone(req.body.phone);
   if (!user) {
     throw httpError(
       404,
@@ -260,12 +279,12 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   }
 
   const seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
-  if (intent === 'register' && seller) {
+  if (sellerIntent === 'register' && seller) {
     throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue.', {
       code: 'SELLER_EXISTS', sellerStatus: seller.status,
     });
   }
-  if (intent === 'login' && !seller) {
+  if (sellerIntent === 'login' && !seller) {
     throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
       code: 'SELLER_NOT_FOUND',
     });
@@ -282,7 +301,7 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
     success: true,
     token,
     user: publicUser(user),
-    sellerState: seller ? { exists: true, status: seller.status } : { exists: false },
+    sellerState: seller ? { exists: true, status: seller.status, onboardingStep: seller.onboardingStep } : { exists: false },
   });
 });
 

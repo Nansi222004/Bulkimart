@@ -478,6 +478,26 @@ export const sponsorProduct = asyncHandler(async (req, res) => {
   }, 'Sponsored placement updated');
 });
 
+// @desc    Remove a product from every storefront while preserving order history
+// @route   DELETE /api/admin/products/:id
+// @access  Private/Admin
+export const deleteProductAdmin = asyncHandler(async (req, res) => {
+  const product = await Product.findById(req.params.id);
+  if (!product || product.isDeleted) throw httpError(404, 'Product not found');
+
+  // Products are snapshots in historical orders and may also be referenced by
+  // carts, reviews, returns, and financial records. Follow the catalogue's
+  // existing deletion convention instead of physically removing the document.
+  product.isDeleted = true;
+  product.isActive = false;
+  product.isFeatured = false;
+  product.isSponsored = false;
+  product.sponsoredRank = 0;
+  await product.save();
+
+  return ok(res, { _id: product._id, action: 'deleted' }, 'Product deleted from the catalogue. Historical records were preserved.');
+});
+
 /* ============================================================================
  * USER MANAGEMENT — BRD §6 User Management
  * ========================================================================== */

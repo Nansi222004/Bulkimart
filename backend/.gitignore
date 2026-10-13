@@ -16,8 +16,13 @@ __tests__/*
 !__tests__/api/
 __tests__/api/*
 !__tests__/api/account-management.http.test.js
+!__tests__/api/admin-product-delete.http.test.js
+!__tests__/api/seller-phone-auth.http.test.js
+!__tests__/api/delivery-onboarding-upload.http.test.js
 !__tests__/services/
 __tests__/services/*
 !__tests__/services/account-lifecycle.test.js
+!__tests__/services/onboarding-regressions.test.js
+!__tests__/services/phone-normalization.test.js
 test/
 tests/

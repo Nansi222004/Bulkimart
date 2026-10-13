@@ -10,6 +10,7 @@ node_modules/
 **/.env
 /backend/private-data/ebooks/
 /backend/backups/account-cleanup/
+/backend/backups/account-hard-delete/
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
@@ -25,8 +26,13 @@ backend/__tests__/*
 !backend/__tests__/api/
 backend/__tests__/api/*
 !backend/__tests__/api/account-management.http.test.js
+!backend/__tests__/api/admin-product-delete.http.test.js
+!backend/__tests__/api/seller-phone-auth.http.test.js
+!backend/__tests__/api/delivery-onboarding-upload.http.test.js
 !backend/__tests__/services/
 backend/__tests__/services/*
 !backend/__tests__/services/account-lifecycle.test.js
+!backend/__tests__/services/onboarding-regressions.test.js
+!backend/__tests__/services/phone-normalization.test.js
 test/
 tests/

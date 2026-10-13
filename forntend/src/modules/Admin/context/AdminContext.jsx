@@ -446,6 +446,20 @@ export const AdminProvider = ({ children }) => {
       triggerToast(err.message);
     }
   };
+
+  const removeProduct = async (id) => {
+    try {
+      const { message } = await adminDelete(`/products/${id}`);
+      triggerToast(message || 'Product deleted from the catalogue.');
+      addLog(`Product ${id} deleted from the catalogue.`);
+      setSelectedProduct(null);
+      await fetchAdminProducts(productFilters);
+      return true;
+    } catch (err) {
+      triggerToast(err.message);
+      return false;
+    }
+  };
   // 3. PAYOUTS STATE
   // Seller payouts: no backend endpoint yet (Day 3). Empty, not fabricated.
   const [payouts, setPayouts] = useState([]);
@@ -1098,6 +1112,7 @@ export const AdminProvider = ({ children }) => {
       takeDownProduct,
       toggleProductFeatured,
       toggleProductSponsored,
+      removeProduct,
       payouts,
       processPayout,
       riderPayouts,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSeller } from '../context/SellerContext';
 import BrandLogo from '../../../components/BrandLogo';
 import { apiUrl } from '../../../utils/api';
+import { normalizePhoneInput, safeErrorMessage } from '../utils/sellerAuth';
 
 /**
  * Seller sign-in and store registration entry.
@@ -86,7 +87,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
 
   // Instant Account Activation for brand-new users registering as sellers
   const handleQuickRegisterSend = async () => {
-    const phone = (sellerPhone || '').trim();
+    const phone = normalizePhoneInput(sellerPhone);
     if (phone.length !== 10) {
       triggerToast?.('Please enter a valid 10-digit mobile number.');
       return;
@@ -104,15 +105,16 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       setRegOtpSent(true);
       triggerToast?.(data.otp ? `OTP sent. Test code: ${data.otp}` : 'OTP sent to your mobile number.');
     } catch (err) {
-      triggerToast?.(err.message);
-      setFormError(err.message);
+      const message = safeErrorMessage(err, 'Could not send OTP.');
+      triggerToast?.(message);
+      setFormError(message);
     } finally {
       setRegBusy(false);
     }
   };
 
   const handleQuickRegisterVerify = async () => {
-    const phone = (sellerPhone || '').trim();
+    const phone = normalizePhoneInput(sellerPhone);
     if (!regOtpCode || regOtpCode.length < 4) {
       triggerToast?.('Please enter the OTP code.');
       return;
@@ -139,8 +141,9 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
       triggerToast?.('Account created successfully! Starting store registration…');
       onLoggedIn?.();
     } catch (err) {
-      triggerToast?.(err.message);
-      setFormError(err.message);
+      const message = safeErrorMessage(err, 'OTP verification failed.');
+      triggerToast?.(message);
+      setFormError(message);
     } finally {
       setRegBusy(false);
     }
@@ -367,10 +370,10 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
             type="tel"
             className="onboarding-input"
             placeholder="Enter 10-digit number"
-            maxLength={10}
+            maxLength={18}
             value={sellerPhone}
             disabled={otpSent || busy}
-            onChange={(e) => setSellerPhone(e.target.value.replace(/\D/g, ''))}
+            onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
             onKeyDown={(e) => { if (e.key === 'Enter' && sellerPhone.length === 10) handleSend(); }}
           />
         </div>
