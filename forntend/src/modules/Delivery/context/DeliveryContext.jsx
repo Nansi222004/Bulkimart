@@ -56,6 +56,7 @@ export const DeliveryProvider = ({ children }) => {
     bankAccount: '',
     bankIfsc: '',
     zones: '',
+    deliveryRadius: 10,
     // Filled by LocationPicker — either a GPS fix or a typed address.
     location: {},
   });
@@ -743,6 +744,7 @@ export const DeliveryProvider = ({ children }) => {
           bankAccount: d.bankDetails?.accountNo || previous.bankAccount,
           bankIfsc: d.bankDetails?.ifsc || previous.bankIfsc,
           upiId: d.bankDetails?.upiId || previous.upiId || '',
+          deliveryRadius: d.deliveryRadiusKm !== undefined && d.deliveryRadiusKm !== null ? d.deliveryRadiusKm : (previous.deliveryRadius || 10),
         }));
         setPhoneVerified(true);
         setIsOnline(d.isAvailable || false);
@@ -854,9 +856,12 @@ export const DeliveryProvider = ({ children }) => {
    * The location travels with this step rather than through its own endpoint, so
    * a rider cannot end up with pincodes saved and no location, or the reverse.
    */
-  const submitServiceArea = async ({ zones, location, bank, passbookFile }) => {
+  const submitServiceArea = async ({ zones, deliveryRadius, location, bank, passbookFile }) => {
     const fd = new FormData();
     fd.append('zones', zones || '');
+    if (deliveryRadius !== undefined && deliveryRadius !== null && deliveryRadius !== '') {
+      fd.append('deliveryRadiusKm', deliveryRadius);
+    }
     fd.append('accountNo', bank?.accountNo || '');
     fd.append('ifsc', bank?.ifsc || '');
     fd.append('holderName', bank?.holderName || '');

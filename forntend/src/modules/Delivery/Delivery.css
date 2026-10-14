@@ -22,10 +22,14 @@
 
 @media (max-width: 768px) {
   .delivery-app-container {
-    width: 100vw;
-    max-width: none;
+    width: 100%;
+    max-width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100%;
     margin: 0;
     box-shadow: none;
+    border-radius: 0;
   }
 }
 

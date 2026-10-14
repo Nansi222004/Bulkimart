@@ -6,6 +6,7 @@ process.env.JWT_SECRET = 'seller-phone-test-secret-that-is-not-used-outside-test
 process.env.OTP_MODE = 'live';
 
 const findUser = jest.fn();
+const createUser = jest.fn();
 const sendOTP = jest.fn();
 const verifyOTP = jest.fn();
 const findSeller = jest.fn();
@@ -14,7 +15,7 @@ jest.unstable_mockModule('../../models/User.js', () => ({
   default: {
     findOne: findUser,
     findById: jest.fn(),
-    create: jest.fn(),
+    create: createUser,
   },
 }));
 
@@ -177,3 +178,31 @@ test.each(['incomplete', 'rejected', 'suspended', 'approved'])(
     expect(response.body.sellerState).toMatchObject({ exists: true, status });
   },
 );
+
+test('new user can send OTP to register their store directly without NOT_A_MEMBER error', async () => {
+  findUser.mockResolvedValue(null);
+  sendOTP.mockResolvedValue({});
+
+  const response = await request(app).post('/send').send({ phone: '9876543210', intent: 'register' });
+
+  expect(response.status).toBe(200);
+  expect(sendOTP).toHaveBeenCalledWith('9876543210');
+});
+
+test('new user verifies OTP during store registration and user profile is created', async () => {
+  findUser.mockResolvedValue(null);
+  verifyOTP.mockReturnValue({ valid: true });
+  const created = registeredUser('9876543210');
+  createUser.mockResolvedValue(created);
+
+  const response = await request(app).post('/verify').send({ phone: '9876543210', otp: '1234', intent: 'register' });
+
+  expect(response.status).toBe(200);
+  expect(createUser).toHaveBeenCalledWith({
+    phone: '9876543210',
+    roles: ['buyer', 'seller'],
+    wallet: { balance: 0, transactions: [] },
+  });
+  expect(response.body.token).toBeTruthy();
+});
+

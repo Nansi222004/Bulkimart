@@ -378,132 +378,197 @@ export const DeliveryOnboardingPage = () => {
               We use your base location to send you orders that start nearby.
             </p>
 
-            <LocationPicker
-              value={onboardingForm.location || {}}
-              onChange={(loc) => set('location', loc)}
-              onLookup={lookupAddress}
-              disabled={busy}
-              buttonLabel="Use my current location"
-              addressLabel="Your address"
-            />
-            {stepErrors.location && <p className="delivery-inline-error" role="alert">{stepErrors.location}</p>}
-
-            <div className="delivery-location-divider" style={{ margin: '20px 0 4px' }}>
-              <span>Delivery pincodes</span>
-            </div>
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Pincodes you can deliver to <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="440010, 440012, 440015"
-                value={onboardingForm.zones}
+            {/* Section 1: Location */}
+            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 14, border: '1px solid #e2e8f0', marginBottom: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#166534', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>📍</span> BASE LOCATION & ADDRESS
+              </div>
+              <LocationPicker
+                value={onboardingForm.location || {}}
+                onChange={(loc) => set('location', loc)}
+                onLookup={lookupAddress}
                 disabled={busy}
-                onChange={(e) => set('zones', e.target.value)}
-                aria-invalid={Boolean(stepErrors.zones)}
+                buttonLabel="Use my current location"
+                addressLabel="Your address"
               />
-              <p className="delivery-file-meta">Separate them with commas.</p>
-              {stepErrors.zones && <p className="delivery-inline-error" role="alert">{stepErrors.zones}</p>}
+              {stepErrors.location && <p className="delivery-inline-error" role="alert">{stepErrors.location}</p>}
             </div>
 
-            <div className="delivery-location-divider" style={{ margin: '20px 0 4px' }}>
-              <span>Payout account</span>
-            </div>
-            <p className="delivery-step-desc">Earnings and tips go straight to this account.</p>
+            {/* Section 2: Coverage & Radius */}
+            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 14, border: '1px solid #e2e8f0', marginBottom: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#073b78', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🛵</span> SERVICE COVERAGE & RADIUS
+              </div>
 
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Account Holder Name <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="Exactly as it appears at the bank"
-                value={onboardingForm.bankHolder || ''}
+              <div className="delivery-input-group" style={{ marginBottom: 14 }}>
+                <label className="delivery-input-label">
+                  Pincodes you can deliver to <span className="delivery-required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="delivery-text-input"
+                  placeholder="e.g. 452001, 452010, 452015"
+                  value={onboardingForm.zones}
+                  disabled={busy}
+                  onChange={(e) => set('zones', e.target.value)}
+                  aria-invalid={Boolean(stepErrors.zones)}
+                />
+                <p className="delivery-file-meta">Separate multiple pincodes with commas.</p>
+                {stepErrors.zones && <p className="delivery-inline-error" role="alert">{stepErrors.zones}</p>}
+              </div>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">
+                  Preferred Delivery Radius <span className="delivery-required">*</span>
+                </label>
+                <p className="delivery-file-meta" style={{ marginTop: 2, marginBottom: 8 }}>
+                  Maximum distance from your base location you are willing to travel for deliveries.
+                </p>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="0.5"
+                    className="delivery-text-input"
+                    placeholder="e.g. 10"
+                    style={{ flex: 1 }}
+                    value={onboardingForm.deliveryRadius !== undefined ? onboardingForm.deliveryRadius : ''}
+                    disabled={busy}
+                    onChange={(e) => set('deliveryRadius', e.target.value)}
+                    aria-invalid={Boolean(stepErrors.deliveryRadius)}
+                  />
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#166534', padding: '10px 14px', background: '#dcfce7', borderRadius: 10, flexShrink: 0 }}>
+                    KM
+                  </span>
+                </div>
+                {/* Quick preset chips */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                  {[5, 10, 15, 20, 25].map((km) => (
+                    <button
+                      key={km}
+                      type="button"
+                      onClick={() => !busy && set('deliveryRadius', km)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 16,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        border: Number(onboardingForm.deliveryRadius) === km ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                        background: Number(onboardingForm.deliveryRadius) === km ? '#ebfdf2' : '#ffffff',
+                        color: Number(onboardingForm.deliveryRadius) === km ? '#15803d' : '#475569',
+                      }}
+                    >
+                      {km} KM
+                    </button>
+                  ))}
+                </div>
+                {stepErrors.deliveryRadius && <p className="delivery-inline-error" role="alert">{stepErrors.deliveryRadius}</p>}
+              </div>
+            </div>
+
+            {/* Section 3: Bank / Payout */}
+            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 14, border: '1px solid #e2e8f0', marginBottom: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#6d28d9', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>🏦</span> PAYOUT BANK ACCOUNT
+              </div>
+              <p className="delivery-step-desc" style={{ marginBottom: 14 }}>
+                Earnings and tips go straight to this account.
+              </p>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">
+                  Account Holder Name <span className="delivery-required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="delivery-text-input"
+                  placeholder="Exactly as it appears at the bank"
+                  value={onboardingForm.bankHolder || ''}
+                  disabled={busy}
+                  onChange={(e) => set('bankHolder', e.target.value)}
+                  aria-invalid={Boolean(stepErrors.bankHolder)}
+                />
+                {stepErrors.bankHolder && <p className="delivery-inline-error" role="alert">{stepErrors.bankHolder}</p>}
+              </div>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">
+                  Bank Name <span className="delivery-required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="delivery-text-input"
+                  placeholder="e.g. State Bank of India"
+                  value={onboardingForm.bankName}
+                  disabled={busy}
+                  onChange={(e) => set('bankName', e.target.value)}
+                  aria-invalid={Boolean(stepErrors.bankName)}
+                />
+                {stepErrors.bankName && <p className="delivery-inline-error" role="alert">{stepErrors.bankName}</p>}
+              </div>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">
+                  Account Number <span className="delivery-required">*</span>
+                </label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  className="delivery-text-input"
+                  placeholder="Your account number"
+                  value={onboardingForm.bankAccount}
+                  disabled={busy}
+                  onChange={(e) => set('bankAccount', e.target.value.replace(/\D/g, ''))}
+                  aria-invalid={Boolean(stepErrors.bankAccount)}
+                />
+                {stepErrors.bankAccount && <p className="delivery-inline-error" role="alert">{stepErrors.bankAccount}</p>}
+              </div>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">
+                  IFSC Code <span className="delivery-required">*</span>
+                </label>
+                <input
+                  type="text"
+                  className="delivery-text-input"
+                  placeholder="e.g. SBIN0001234"
+                  value={onboardingForm.bankIfsc}
+                  disabled={busy}
+                  onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())}
+                  aria-invalid={Boolean(stepErrors.bankIfsc)}
+                />
+                {stepErrors.bankIfsc && <p className="delivery-inline-error" role="alert">{stepErrors.bankIfsc}</p>}
+              </div>
+
+              <div className="delivery-input-group">
+                <label className="delivery-input-label">UPI ID</label>
+                <input
+                  type="text"
+                  className="delivery-text-input"
+                  placeholder="Optional — e.g. name@upi"
+                  value={onboardingForm.upiId || ''}
+                  disabled={busy}
+                  onChange={(e) => set('upiId', e.target.value)}
+                  aria-invalid={Boolean(stepErrors.upiId)}
+                />
+                {stepErrors.upiId && <p className="delivery-inline-error" role="alert">{stepErrors.upiId}</p>}
+              </div>
+
+              <FileField
+                label="Passbook or Cancelled Cheque"
+                required
+                file={files.passbook}
+                onPick={setFile('passbook')}
                 disabled={busy}
-                onChange={(e) => set('bankHolder', e.target.value)}
-                aria-invalid={Boolean(stepErrors.bankHolder)}
               />
-              {stepErrors.bankHolder && <p className="delivery-inline-error" role="alert">{stepErrors.bankHolder}</p>}
+              {riderProfile?.bankDetails?.passbookUrl && !files.passbook && (
+                <p className="delivery-location-notice">A payout document is already on file. Select a new file only to replace it.</p>
+              )}
+              {stepErrors.passbook && <p className="delivery-inline-error" role="alert">{stepErrors.passbook}</p>}
+              {stepErrors.form && <p className="delivery-inline-error" role="alert">{stepErrors.form}</p>}
             </div>
-
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Bank Name <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="e.g. State Bank of India"
-                value={onboardingForm.bankName}
-                disabled={busy}
-                onChange={(e) => set('bankName', e.target.value)}
-                aria-invalid={Boolean(stepErrors.bankName)}
-              />
-              {stepErrors.bankName && <p className="delivery-inline-error" role="alert">{stepErrors.bankName}</p>}
-            </div>
-
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Account Number <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="tel"
-                inputMode="numeric"
-                className="delivery-text-input"
-                placeholder="Your account number"
-                value={onboardingForm.bankAccount}
-                disabled={busy}
-                onChange={(e) => set('bankAccount', e.target.value.replace(/\D/g, ''))}
-                aria-invalid={Boolean(stepErrors.bankAccount)}
-              />
-              {stepErrors.bankAccount && <p className="delivery-inline-error" role="alert">{stepErrors.bankAccount}</p>}
-            </div>
-
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                IFSC Code <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="e.g. SBIN0001234"
-                value={onboardingForm.bankIfsc}
-                disabled={busy}
-                onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())}
-                aria-invalid={Boolean(stepErrors.bankIfsc)}
-              />
-              {stepErrors.bankIfsc && <p className="delivery-inline-error" role="alert">{stepErrors.bankIfsc}</p>}
-            </div>
-
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">UPI ID</label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="Optional — e.g. name@upi"
-                value={onboardingForm.upiId || ''}
-                disabled={busy}
-                onChange={(e) => set('upiId', e.target.value)}
-                aria-invalid={Boolean(stepErrors.upiId)}
-              />
-              {stepErrors.upiId && <p className="delivery-inline-error" role="alert">{stepErrors.upiId}</p>}
-            </div>
-
-            <FileField
-              label="Passbook or Cancelled Cheque"
-              required
-              file={files.passbook}
-              onPick={setFile('passbook')}
-              disabled={busy}
-            />
-            {riderProfile?.bankDetails?.passbookUrl && !files.passbook && (
-              <p className="delivery-location-notice">A payout document is already on file. Select a new file only to replace it.</p>
-            )}
-            {stepErrors.passbook && <p className="delivery-inline-error" role="alert">{stepErrors.passbook}</p>}
-            {stepErrors.form && <p className="delivery-inline-error" role="alert">{stepErrors.form}</p>}
 
             <div className="delivery-btn-row">
               <button type="button" className="delivery-secondary-action-btn" onClick={() => setOnboardingStep(2)} disabled={busy}>
@@ -551,6 +616,10 @@ export const DeliveryOnboardingPage = () => {
               </div>
               <div className="delivery-summary-item">
                 <span>Delivers to:</span><strong>{onboardingForm.zones || '—'}</strong>
+              </div>
+              <div className="delivery-summary-item">
+                <span>Delivery radius:</span>
+                <strong>{onboardingForm.deliveryRadius ? `${onboardingForm.deliveryRadius} KM` : '10 KM'}</strong>
               </div>
               <div className="delivery-summary-item">
                 <span>Payout:</span>

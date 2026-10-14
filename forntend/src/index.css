@@ -52,7 +52,7 @@ body {
   color: var(--text-primary);
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   min-height: 100vh;
   box-sizing: border-box;
 }
@@ -99,7 +99,9 @@ body {
   width: 100%;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* PREMIUM MOBILE VIEWPORT FRAME (DESKTOP) */
@@ -120,9 +122,19 @@ body {
 }
 
 /* On mobile viewports, remove the phone frame styles */
-@media (max-width: 480px) {
+@media (max-width: 768px) {
   body {
     background-color: var(--bg-page);
+    display: block;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  #root {
+    display: block;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .user-landing-page-container {

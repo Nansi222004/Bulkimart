@@ -265,6 +265,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   className="onboarding-input"
                   placeholder="Enter 10-digit number"
                   maxLength={18}
+                  autoComplete="off"
                   value={sellerPhone}
                   disabled={otpSent}
                   onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
@@ -284,6 +285,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                       className="onboarding-input"
                       placeholder="Enter the OTP code"
                       maxLength={6}
+                      autoComplete="one-time-code"
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                     />
@@ -324,6 +326,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 className="onboarding-input" 
                 placeholder="0000 0000 0000" 
                 maxLength={12} 
+                autoComplete="off"
                 value={aadhaarNo}
                 onChange={(e) => setAadhaarNo(e.target.value)}
               />
@@ -368,6 +371,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 type="text" 
                 className="onboarding-input" 
                 placeholder="e.g. Sharma Kirana Store" 
+                autoComplete="off"
                 value={bizForm.storeName}
                 onChange={(e) => setBizForm({ ...bizForm, storeName: e.target.value })}
               />
@@ -461,6 +465,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 type="text" 
                 className="onboarding-input" 
                 placeholder="Name as in bank passbook" 
+                autoComplete="off"
                 value={bankForm.holderName}
                 onChange={(e) => setBankForm({ ...bankForm, holderName: e.target.value })}
               />
@@ -472,6 +477,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 type="text" 
                 className="onboarding-input" 
                 placeholder="e.g. HDFC Bank / SBI" 
+                autoComplete="off"
                 value={bankForm.bankName}
                 onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
               />
@@ -483,6 +489,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 type="password" 
                 className="onboarding-input" 
                 placeholder="Account Number" 
+                autoComplete="off"
                 value={bankForm.accountNumber}
                 onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
               />
@@ -495,6 +502,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 className="onboarding-input" 
                 placeholder="e.g. HDFC0001234" 
                 maxLength={11} 
+                autoComplete="off"
                 value={bankForm.ifscCode}
                 onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value })}
               />
@@ -532,6 +540,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 className="onboarding-input"
                 placeholder="e.g. ABCPV1234K"
                 maxLength={10}
+                autoComplete="off"
                 value={panNumber}
                 onChange={(e) => setPanNumber(e.target.value.toUpperCase())}
               />

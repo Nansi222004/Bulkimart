@@ -191,7 +191,7 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
  * requires already holding the seller role.
  */
 
-// @desc    Send OTP for seller entry — phone must already be a registered Bulkimart user
+// @desc    Send OTP for seller entry — allows new sellers to register directly or existing sellers to sign in
 // @route   POST /api/auth/seller/send-otp
 // @access  Public
 export const requestSellerOTP = asyncHandler(async (req, res) => {
@@ -204,26 +204,30 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
   }
 
   if (!user) {
-    // A machine-readable `code` (not just the human message) so the seller
-    // login screen can render the specific "not a member" CTA rather than a
-    // generic error toast.
-    throw httpError(
-      404,
-      "You are not a member of Bulkimart Shopping App. Please open the Bulkimart Shopping App and create your account first.",
-      { code: "NOT_A_MEMBER" }
-    );
+    if (sellerIntent === 'register') {
+      // New user registering a store — allow OTP to be sent directly so they can onboard immediately.
+    } else {
+      throw httpError(
+        404,
+        "No seller account found with this mobile number. Please choose 'Register Store' to begin onboarding.",
+        { code: "NOT_A_MEMBER" }
+      );
+    }
   }
 
-  const seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
-  if (sellerIntent === 'register' && seller) {
-    throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue that application or open the seller dashboard.', {
-      code: 'SELLER_EXISTS', sellerStatus: seller.status,
-    });
-  }
-  if (sellerIntent === 'login' && !seller) {
-    throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
-      code: 'SELLER_NOT_FOUND',
-    });
+  let seller = null;
+  if (user) {
+    seller = await Seller.findOne({ userId: user._id }).select('status onboardingStep').lean();
+    if (sellerIntent === 'register' && seller) {
+      throw httpError(409, 'A seller profile already exists for this mobile number. Sign in to continue that application or open the seller dashboard.', {
+        code: 'SELLER_EXISTS', sellerStatus: seller.status,
+      });
+    }
+    if (sellerIntent === 'login' && !seller) {
+      throw httpError(404, 'No seller profile is linked to this mobile number. Choose Register Store to begin onboarding.', {
+        code: 'SELLER_NOT_FOUND',
+      });
+    }
   }
 
   const result = await sendOTP(phone);
@@ -243,9 +247,7 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Verify OTP for seller entry — re-checks the user still exists (the
-//          OTP was already sent to a known number by requestSellerOTP, but
-//          this must never trust that alone as proof of membership).
+// @desc    Verify OTP for seller entry — authenticates existing sellers or creates account for new store registration
 // @route   POST /api/auth/seller/verify-otp
 // @access  Public
 export const verifySellerOTP = asyncHandler(async (req, res) => {
@@ -258,12 +260,14 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
     throw new Error("Please provide phone and OTP");
   }
 
-  const { phone, user } = await findUserByPhone(req.body.phone);
-  if (!user) {
+  const { phone, user: foundUser } = await findUserByPhone(req.body.phone);
+  let user = foundUser;
+
+  if (!user && sellerIntent !== 'register') {
     throw httpError(
       404,
-      "You are not a member of Bulkimart Shopping App. Please open the Bulkimart Shopping App and create your account first.",
-      { code: "NOT_A_MEMBER" }
+      "No seller account found with this mobile number. Please choose 'Register Store' to begin onboarding.",
+      { code: "SELLER_NOT_FOUND" }
     );
   }
 
@@ -271,6 +275,20 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   if (!verification.valid) {
     res.status(400);
     throw new Error(verification.message || "Invalid OTP verification");
+  }
+
+  if (!user) {
+    // Automatically create user account for a new seller registering their store
+    user = await User.create({
+      phone,
+      roles: ["buyer", "seller"],
+      wallet: { balance: 0, transactions: [] }
+    });
+  } else if (Array.isArray(user.roles) && !user.roles.includes('seller')) {
+    user.roles.push('seller');
+    if (typeof user.save === 'function') {
+      await user.save();
+    }
   }
 
   if (!user.isActive) {
@@ -291,10 +309,7 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   }
 
   // "seller" here means "authenticated through the seller entry point" —
-  // not yet proof of an *approved* Seller record. Anything that trusts this
-  // claim (ticket.service.js::resolveRequester) re-checks approval status
-  // itself before acting on it; this just saves that re-check a guess at
-  // which vendor collection to look in.
+  // not yet proof of an *approved* Seller record.
   const token = generateToken(user._id, "user", "seller");
 
   res.status(200).json({

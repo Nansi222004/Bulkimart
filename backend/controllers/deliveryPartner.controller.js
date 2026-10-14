@@ -220,6 +220,18 @@ export const submitStep3 = asyncHandler(async (req, res) => {
   // Merge, so a rider editing only their bank details does not blank the
   // coordinates the GPS captured on an earlier pass.
   partner.baseLocation = { ...(partner.baseLocation?.toObject?.() ?? partner.baseLocation ?? {}), ...loc };
+  if (loc.lat !== undefined && loc.lng !== undefined) {
+    partner.currentLocation = { lat: loc.lat, lng: loc.lng, updatedAt: new Date() };
+  }
+
+  const radiusRaw = req.body.deliveryRadiusKm ?? req.body.deliveryRadius ?? req.body.radius;
+  if (radiusRaw !== undefined && radiusRaw !== null && radiusRaw !== '') {
+    const r = Number(radiusRaw);
+    if (Number.isFinite(r) && r > 0) {
+      partner.deliveryRadiusKm = r;
+    }
+  }
+
   partner.bankDetails = {
     accountNo: String(accountNo),
     ifsc: String(ifsc).trim().toUpperCase(),
@@ -231,7 +243,7 @@ export const submitStep3 = asyncHandler(async (req, res) => {
   if (partner.onboardingStep < 4) partner.onboardingStep = 4;
 
   await partner.save();
-  return ok(res, partner, 'Service area and payout details saved');
+  return ok(res, partner, 'Service area, radius and payout details saved');
 });
 
 // @desc    Submit for admin verification
@@ -306,9 +318,16 @@ export const updateLocation = asyncHandler(async (req, res) => {
   if (loc.lat !== undefined && loc.lng !== undefined) {
     partner.currentLocation = { lat: loc.lat, lng: loc.lng, updatedAt: new Date() };
   }
+  const radiusRaw = req.body.deliveryRadiusKm ?? req.body.deliveryRadius ?? req.body.radius;
+  if (radiusRaw !== undefined && radiusRaw !== null && radiusRaw !== '') {
+    const r = Number(radiusRaw);
+    if (Number.isFinite(r) && r > 0) {
+      partner.deliveryRadiusKm = r;
+    }
+  }
   await partner.save();
 
-  return ok(res, partner.baseLocation, 'Location saved');
+  return ok(res, { baseLocation: partner.baseLocation, deliveryRadiusKm: partner.deliveryRadiusKm }, 'Location and radius saved');
 });
 
 /**

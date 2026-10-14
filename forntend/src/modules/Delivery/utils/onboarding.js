@@ -14,6 +14,15 @@ export const validateDeliveryPayoutStep = ({ form = {}, passbookFile, existingPa
   if (!zones.length) errors.zones = 'Add at least one delivery pincode.';
   else if (zones.some((zone) => !/^\d{6}$/.test(zone))) errors.zones = 'Every delivery pincode must contain exactly 6 digits.';
 
+  const radius = Number(form.deliveryRadius);
+  if (form.deliveryRadius === '' || form.deliveryRadius === undefined || form.deliveryRadius === null) {
+    errors.deliveryRadius = 'Please enter your delivery radius in KM (e.g. 5, 10, 15).';
+  } else if (!Number.isFinite(radius) || radius <= 0) {
+    errors.deliveryRadius = 'Please enter a valid delivery radius greater than 0 KM.';
+  } else if (radius > 100) {
+    errors.deliveryRadius = 'Delivery radius cannot exceed 100 KM.';
+  }
+
   if (String(form.bankHolder || '').trim().length < 2) errors.bankHolder = 'Enter the account holder name shown by the bank.';
   if (String(form.bankName || '').trim().length < 2) errors.bankName = 'Enter the bank name.';
   if (!/^\d{6,18}$/.test(String(form.bankAccount || ''))) errors.bankAccount = 'Account number must contain 6 to 18 digits.';
@@ -39,6 +48,7 @@ export const submitDeliveryPayoutStep = async ({
   try {
     const result = await submit({
       zones: zones.join(','),
+      deliveryRadius: form.deliveryRadius,
       location: form.location,
       bank: {
         accountNo: form.bankAccount,

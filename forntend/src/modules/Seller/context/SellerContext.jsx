@@ -768,7 +768,7 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.meta?.code === 'NOT_A_MEMBER') {
-          setNotAMember(true);
+          triggerToast(body.message || 'Mobile number not registered. Please register your store.');
           return { ok: false, code: 'NOT_A_MEMBER', message: body.message };
         }
         if (body.meta?.code === 'SELLER_EXISTS' || body.meta?.code === 'SELLER_NOT_FOUND') {
@@ -807,7 +807,7 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (body.meta?.code === 'NOT_A_MEMBER') {
-          setNotAMember(true);
+          triggerToast(body.message || 'Mobile number not registered. Please register your store.');
           return { ok: false, code: 'NOT_A_MEMBER' };
         }
         if (body.meta?.code === 'SELLER_EXISTS' || body.meta?.code === 'SELLER_NOT_FOUND') {

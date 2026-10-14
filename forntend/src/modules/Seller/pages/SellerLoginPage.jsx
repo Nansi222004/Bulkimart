@@ -33,11 +33,6 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
 
-  // Registration states when user is not yet a member in Bulkimart
-  const [regOtpSent, setRegOtpSent] = useState(false);
-  const [regOtpCode, setRegOtpCode] = useState('');
-  const [regBusy, setRegBusy] = useState(false);
-
   useEffect(() => {
     if (mode && mode !== currentMode) {
       setCurrentMode(mode);
@@ -51,9 +46,6 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
     setOtpCode('');
     setOtpTimer(0);
     setSellerPhone('');
-    setNotAMember(false);
-    setRegOtpSent(false);
-    setRegOtpCode('');
     setFormError('');
   };
 
@@ -72,7 +64,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
     if (!result?.ok) {
       setFormError(result?.message || 'Could not send OTP.');
       if (result?.code === 'SELLER_EXISTS') setCurrentMode('login');
-      if (result?.code === 'SELLER_NOT_FOUND') setCurrentMode('register');
+      if (result?.code === 'SELLER_NOT_FOUND' || result?.code === 'NOT_A_MEMBER') setCurrentMode('register');
     }
   };
 
@@ -84,148 +76,6 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
     if (res.ok) onLoggedIn?.();
     else setFormError(res.message || 'OTP verification failed.');
   };
-
-  // Instant Account Activation for brand-new users registering as sellers
-  const handleQuickRegisterSend = async () => {
-    const phone = normalizePhoneInput(sellerPhone);
-    if (phone.length !== 10) {
-      triggerToast?.('Please enter a valid 10-digit mobile number.');
-      return;
-    }
-    setRegBusy(true);
-    setFormError('');
-    try {
-      const res = await fetch(apiUrl('/api/auth/send-otp'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to send OTP');
-      setRegOtpSent(true);
-      triggerToast?.(data.otp ? `OTP sent. Test code: ${data.otp}` : 'OTP sent to your mobile number.');
-    } catch (err) {
-      const message = safeErrorMessage(err, 'Could not send OTP.');
-      triggerToast?.(message);
-      setFormError(message);
-    } finally {
-      setRegBusy(false);
-    }
-  };
-
-  const handleQuickRegisterVerify = async () => {
-    const phone = normalizePhoneInput(sellerPhone);
-    if (!regOtpCode || regOtpCode.length < 4) {
-      triggerToast?.('Please enter the OTP code.');
-      return;
-    }
-    setRegBusy(true);
-    setFormError('');
-    try {
-      const res = await fetch(apiUrl('/api/auth/verify-otp'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp: regOtpCode }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'OTP verification failed');
-
-      if (data.token) {
-        localStorage.setItem('userToken', data.token);
-      }
-      if (data.user) {
-        localStorage.setItem('userProfile', JSON.stringify(data.user));
-      }
-
-      setNotAMember(false);
-      triggerToast?.('Account created successfully! Starting store registration…');
-      onLoggedIn?.();
-    } catch (err) {
-      const message = safeErrorMessage(err, 'OTP verification failed.');
-      triggerToast?.(message);
-      setFormError(message);
-    } finally {
-      setRegBusy(false);
-    }
-  };
-
-  // When a non-member phone is entered, offer instant account creation right here
-  if (notAMember) {
-    return (
-      <div className="seller-main-content seller-auth-page">
-        <div className="seller-header-row">
-          <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
-        </div>
-
-        <div className="onboarding-container">
-          <div style={{ textAlign: 'center', marginBottom: 8 }}>
-            <div style={{
-              width: 54, height: 54, borderRadius: 14, margin: '0 auto 14px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: '#ecfdf5', color: '#059669', fontSize: 24, fontWeight: 900,
-            }}>
-              🏪
-            </div>
-          </div>
-
-          <h3 className="onboarding-title" style={{ textAlign: 'center' }}>
-            New to Bulkimart?
-          </h3>
-          <p className="onboarding-subtitle" style={{ textAlign: 'center' }}>
-            Mobile number <strong>{sellerPhone}</strong> is not registered yet. Activate your account now to start your store onboarding.
-          </p>
-          {formError && <div className="seller-auth-error" role="alert">{formError}</div>}
-
-          {!regOtpSent ? (
-            <div style={{ marginTop: 20 }}>
-              <button
-                className="primary-onboarding-btn"
-                onClick={handleQuickRegisterSend}
-                disabled={regBusy}
-              >
-                {regBusy ? 'Sending OTP…' : '⚡ Activate Account & Register Store'}
-              </button>
-            </div>
-          ) : (
-            <div style={{ marginTop: 16 }}>
-              <div className="onboarding-form-group">
-                <label className="onboarding-label">Enter Verification OTP</label>
-                <input
-                  type="text"
-                  className="onboarding-input"
-                  placeholder="Enter OTP (Test: 1234)"
-                  maxLength={6}
-                  autoComplete="one-time-code"
-                  autoFocus
-                  value={regOtpCode}
-                  onChange={(e) => setRegOtpCode(e.target.value.replace(/\D/g, ''))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickRegisterVerify(); }}
-                />
-              </div>
-
-              <button
-                className="primary-onboarding-btn"
-                style={{ marginTop: 8 }}
-                onClick={handleQuickRegisterVerify}
-                disabled={regOtpCode.length < 4 || regBusy}
-              >
-                {regBusy ? 'Verifying…' : 'Verify & Open Store Registration'}
-              </button>
-            </div>
-          )}
-
-          <div style={{ textAlign: 'center', marginTop: 18 }}>
-            <button
-              className="otp-resend-btn"
-              onClick={() => { setNotAMember(false); setSellerPhone(''); setRegOtpSent(false); }}
-            >
-              ← Use a different mobile number
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const isRegister = currentMode === 'register';
 
@@ -327,99 +177,65 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
           </div>
         )}
 
-        {/* Demo Helper in Sign In Mode */}
-        {!isRegister && (
-          <div style={{
-            backgroundColor: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: '10px',
-            padding: '8px 12px',
-            marginBottom: '16px',
-            fontSize: '11px',
-            color: '#475569',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <div>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>Approved Demo Seller: </span>
-              <code>9000000011</code>
-            </div>
-            <button
-              type="button"
-              onClick={() => { setSellerPhone('9000000011'); }}
-              style={{
-                background: '#e2e8f0',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '3px 8px',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                color: '#0f172a',
-              }}
-            >
-              ⚡ Fill
-            </button>
+        <form autoComplete="off" onSubmit={(e) => { e.preventDefault(); if (!otpSent) handleSend(); else handleVerify(); }}>
+          <div className="onboarding-form-group">
+            <label className="onboarding-label">Mobile Number</label>
+            <input
+              type="tel"
+              className="onboarding-input"
+              placeholder="Enter 10-digit number"
+              maxLength={18}
+              autoComplete="off"
+              value={sellerPhone}
+              disabled={otpSent || busy}
+              onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && sellerPhone.length === 10) handleSend(); }}
+            />
           </div>
-        )}
 
-        <div className="onboarding-form-group">
-          <label className="onboarding-label">Mobile Number</label>
-          <input
-            type="tel"
-            className="onboarding-input"
-            placeholder="Enter 10-digit number"
-            maxLength={18}
-            value={sellerPhone}
-            disabled={otpSent || busy}
-            onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
-            onKeyDown={(e) => { if (e.key === 'Enter' && sellerPhone.length === 10) handleSend(); }}
-          />
-        </div>
-
-        {!otpSent ? (
-          <button
-            className="primary-onboarding-btn"
-            onClick={handleSend}
-            disabled={sellerPhone.length !== 10 || busy}
-          >
-            {busy ? 'Sending OTP…' : (isRegister ? 'Send OTP to Register' : 'Send OTP')}
-          </button>
-        ) : (
-          <>
-            <div className="onboarding-form-group" style={{ marginTop: 12 }}>
-              <label className="onboarding-label">Enter OTP Code</label>
-              <input
-                type="text"
-                className="onboarding-input"
-                placeholder="Enter 4-digit code (e.g. 1234)"
-                maxLength={6}
-                autoComplete="one-time-code"
-                autoFocus
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length >= 4) handleVerify(); }}
-              />
-              {otpTimer > 0 ? (
-                <span className="otp-countdown-lbl">Resend code in {otpTimer}s</span>
-              ) : (
-                <button className="otp-resend-btn" onClick={handleSend}>Resend Code</button>
-              )}
-            </div>
-
+          {!otpSent ? (
             <button
+              type="submit"
               className="primary-onboarding-btn"
-              onClick={handleVerify}
-              disabled={otpCode.length < 4 || busy}
+              disabled={sellerPhone.length !== 10 || busy}
             >
-              {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Sign In')}
+              {busy ? 'Sending OTP…' : (isRegister ? 'Send OTP to Register' : 'Send OTP')}
             </button>
-            <button type="button" className="otp-resend-btn" onClick={changePhone} disabled={busy}>
-              Change mobile number
-            </button>
-          </>
-        )}
+          ) : (
+            <>
+              <div className="onboarding-form-group" style={{ marginTop: 12 }}>
+                <label className="onboarding-label">Enter OTP Code</label>
+                <input
+                  type="text"
+                  className="onboarding-input"
+                  placeholder="Enter 4-digit code"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length >= 4) handleVerify(); }}
+                />
+                {otpTimer > 0 ? (
+                  <span className="otp-countdown-lbl">Resend code in {otpTimer}s</span>
+                ) : (
+                  <button type="button" className="otp-resend-btn" onClick={handleSend}>Resend Code</button>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="primary-onboarding-btn"
+                disabled={otpCode.length < 4 || busy}
+              >
+                {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Sign In')}
+              </button>
+              <button type="button" className="otp-resend-btn" onClick={changePhone} disabled={busy}>
+                Change mobile number
+              </button>
+            </>
+          )}
+        </form>
 
         {/* Toggle mode helper links */}
         <div style={{ textAlign: 'center', marginTop: 18, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
