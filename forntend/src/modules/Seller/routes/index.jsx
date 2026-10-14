@@ -37,7 +37,7 @@ const SellerRoutesContent = () => {
   // Default to 'login' mode (single phone number authentication)
   const [intent, setIntent] = useState('login');
 
-  const loadStatus = useCallback(async () => {
+  const loadStatus = useCallback(async (activeIntent) => {
     setState((p) => ({ ...p, loading: true }));
     const token = localStorage.getItem('userToken');
 
@@ -60,9 +60,16 @@ const SellerRoutesContent = () => {
         return;
       }
 
-      // Signed in, but no seller profile yet → start onboarding.
+      // Signed in, but no seller profile yet
       if (res.status === 404) {
-        setState({ loading: false, authed: true, status: 'none', storeName: null, rejectionReason: null });
+        const effectiveIntent = activeIntent || intent;
+        if (effectiveIntent === 'register') {
+          // User just completed phone OTP for registering a new store, continue to onboarding
+          setState({ loading: false, authed: true, status: 'incomplete', storeName: null, rejectionReason: null });
+        } else {
+          // Standard visit or customer account without a seller profile: show SellerLoginPage
+          setState({ loading: false, authed: false, status: 'none', storeName: null, rejectionReason: null });
+        }
         return;
       }
 
@@ -74,9 +81,9 @@ const SellerRoutesContent = () => {
         rejectionReason: body?.seller?.rejectionReason || null,
       });
     } catch {
-      setState({ loading: false, authed: true, status: 'none', storeName: null, rejectionReason: null });
+      setState({ loading: false, authed: false, status: 'none', storeName: null, rejectionReason: null });
     }
-  }, []);
+  }, [intent]);
 
   useEffect(() => {
     if (window.location.pathname === '/seller/logout') {
@@ -113,12 +120,15 @@ const SellerRoutesContent = () => {
       );
     }
 
-    // Not signed in → show SellerLoginPage directly (Phone OTP login)
+    // Not signed in as a seller → show SellerLoginPage directly (Phone OTP login / register)
     if (!state.authed) {
       return (
         <SellerLoginPage
           mode={intent || 'login'}
-          onLoggedIn={loadStatus}
+          onLoggedIn={(registeredIntent) => {
+            if (registeredIntent) setIntent(registeredIntent);
+            loadStatus(registeredIntent);
+          }}
           onBack={() => setIntent('login')}
           onToggleMode={setIntent}
         />
@@ -126,7 +136,6 @@ const SellerRoutesContent = () => {
     }
 
     // Signed in via "Login" but this number has no store registered.
-    // Don't silently drop them into the wizard — explain, and offer to register.
     if (intent === 'login' && state.status === 'none') {
       return (
         <div className="seller-main-content">
