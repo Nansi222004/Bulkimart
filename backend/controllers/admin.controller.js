@@ -32,6 +32,7 @@ import { assertAdminTransition } from '../services/ticket.service.js';
 import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, LEGACY_TICKET_STATUS_MAP } from '../constants/enums.js';
 import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
 import { assertEbookReadyForApproval } from '../services/digitalProduct.service.js';
+import { openStoredEbook } from '../services/ebookStorage.service.js';
 
 /* ============================================================================
  * SELLER (GENERAL VENDOR) MANAGEMENT — BRD §6 Seller Management
@@ -408,6 +409,42 @@ export const listProducts = asyncHandler(async (req, res) => {
   ]);
 
   return paginated(res, products, { page, limit, total });
+});
+
+// @desc    Securely view or download a private e-book while moderating it
+// @route   GET /api/admin/products/:id/digital-file?download=true
+// @access  Private/Admin
+export const reviewDigitalProductFile = asyncHandler(async (req, res) => {
+  const product = await Product.findById(req.params.id).select('+digital.file.fileId');
+  if (!product || product.isDeleted || product.fulfillmentType !== 'digital') {
+    throw httpError(404, 'E-book listing not found');
+  }
+
+  const file = product.digital?.file;
+  if (!file?.fileId || file.status !== 'uploaded' || !file.sha256 || !(file.sizeBytes > 0)) {
+    throw httpError(409, 'This e-book does not have a reviewable PDF');
+  }
+
+  const opened = await openStoredEbook({
+    fileId: file.fileId,
+    sha256: file.sha256,
+    sizeBytes: file.sizeBytes,
+  });
+  const safeName = String(product.name || 'ebook').replace(/[^a-z0-9 _.-]/gi, '').trim() || 'ebook';
+  const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Length': String(opened.sizeBytes),
+    'Content-Disposition': `${disposition}; filename="${safeName}.pdf"`,
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  opened.stream.on('error', () => {
+    if (!res.headersSent) res.status(503).end();
+    else res.destroy();
+  });
+  opened.stream.pipe(res);
 });
 
 // @desc    Approve a product — this is what actually makes it publicly visible

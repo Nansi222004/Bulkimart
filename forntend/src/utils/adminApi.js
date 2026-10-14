@@ -53,6 +53,22 @@ const handle = async (response) => {
 export const adminGet = async (path) =>
   handle(await fetch(apiUrl(`/api/admin${path}`), { headers: authHeaders(false) }));
 
+/** Fetch a private admin-only file without ever turning it into a public URL. */
+export const adminGetBlob = async (path) => {
+  const response = await fetch(apiUrl(`/api/admin${path}`), { headers: authHeaders(false) });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminUser');
+    }
+    throw new Error(body.message || `File request failed (${response.status})`);
+  }
+  const disposition = response.headers.get('content-disposition') || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'ebook.pdf';
+  return { blob: await response.blob(), filename };
+};
+
 export const adminPatch = async (path, payload = {}) =>
   handle(
     await fetch(apiUrl(`/api/admin${path}`), {

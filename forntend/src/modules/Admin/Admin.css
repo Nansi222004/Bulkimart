@@ -670,6 +670,60 @@
   grid-column: 1 / -1;
 }
 
+.admin-ebook-review-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-ebook-review-actions .admin-btn-sm {
+  min-width: 0;
+  width: 100%;
+}
+
+.admin-ebook-review-error {
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-ebook-preview {
+  overflow: hidden;
+  border: 1px solid var(--admin-border-color);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.admin-ebook-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--admin-text-primary);
+  font-size: 12px;
+}
+
+.admin-ebook-preview-header button {
+  border: 0;
+  background: transparent;
+  color: var(--admin-primary);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-ebook-preview iframe {
+  display: block;
+  width: 100%;
+  height: min(65vh, 620px);
+  border: 0;
+  background: #fff;
+}
+
 .admin-modal-header {
   display: flex;
   justify-content: space-between;

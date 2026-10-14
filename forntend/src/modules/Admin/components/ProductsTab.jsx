@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { adminGetBlob } from '../../../utils/adminApi';
 
 /**
  * Catalogue moderation — live from GET /api/admin/products.
@@ -56,6 +57,47 @@ export const ProductsTab = () => {
   const [status, setStatus] = useState('approved');
   const [channel, setChannel] = useState('');
   const [deletingProductId, setDeletingProductId] = useState(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
+  const [pdfBusyAction, setPdfBusyAction] = useState('');
+  const [pdfError, setPdfError] = useState('');
+
+  useEffect(() => () => {
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+  }, [pdfPreviewUrl]);
+
+  const closeProductDetails = () => {
+    setPdfPreviewUrl('');
+    setPdfError('');
+    setSelectedProduct(null);
+  };
+
+  const reviewPdf = async (download = false) => {
+    if (!selectedProduct || pdfBusyAction) return;
+    const action = download ? 'download' : 'view';
+    setPdfBusyAction(action);
+    setPdfError('');
+    try {
+      const { blob, filename } = await adminGetBlob(
+        `/products/${selectedProduct.id}/digital-file${download ? '?download=true' : ''}`
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      if (download) {
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+      } else {
+        setPdfPreviewUrl(objectUrl);
+      }
+    } catch (error) {
+      setPdfError(error.message || 'Could not open this PDF.');
+    } finally {
+      setPdfBusyAction('');
+    }
+  };
 
   const confirmDeleteProduct = async (product) => {
     if (!product || deletingProductId) return;
@@ -246,7 +288,7 @@ export const ProductsTab = () => {
                   {selectedProduct.sellerName} • {CHANNEL_LABEL[selectedProduct.channel] || selectedProduct.channel}
                 </span>
               </div>
-              <button className="admin-modal-close" onClick={() => setSelectedProduct(null)}>✕</button>
+              <button className="admin-modal-close" onClick={closeProductDetails}>✕</button>
             </div>
 
             <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -283,6 +325,24 @@ export const ProductsTab = () => {
                     {selectedProduct.digital?.format?.toUpperCase() || 'PDF'} · {selectedProduct.digital?.fileStatus || 'missing'} · {fileSize(selectedProduct.digital?.fileSizeBytes)}
                   </span>
                 </div>
+                <div className="admin-ebook-review-actions">
+                  <button type="button" className="admin-btn-sm details" onClick={() => reviewPdf(false)} disabled={!!pdfBusyAction}>
+                    {pdfBusyAction === 'view' ? 'Opening…' : 'View PDF'}
+                  </button>
+                  <button type="button" className="admin-btn-sm details" onClick={() => reviewPdf(true)} disabled={!!pdfBusyAction}>
+                    {pdfBusyAction === 'download' ? 'Downloading…' : 'Download PDF'}
+                  </button>
+                </div>
+                {pdfError && <div className="admin-ebook-review-error" role="alert">{pdfError}</div>}
+                {pdfPreviewUrl && (
+                  <div className="admin-ebook-preview">
+                    <div className="admin-ebook-preview-header">
+                      <strong>PDF content preview</strong>
+                      <button type="button" onClick={() => setPdfPreviewUrl('')}>Close preview</button>
+                    </div>
+                    <iframe src={pdfPreviewUrl} title={`${selectedProduct.name} PDF preview`} />
+                  </div>
+                )}
               </>}
               <div className="admin-item-row">
                 <span className="admin-item-label">Price / MRP</span>
