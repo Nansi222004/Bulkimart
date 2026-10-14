@@ -736,17 +736,32 @@ body {
 
 .seller-auth-page {
   background:
-    radial-gradient(circle at 100% 0, rgba(255, 133, 0, .10), transparent 28rem),
-    linear-gradient(180deg, #f4fcff 0%, #f8fafc 48%);
+    radial-gradient(circle at 100% 0, rgba(255, 133, 0, .08), transparent 30rem),
+    radial-gradient(circle at 0% 100%, rgba(8, 185, 232, .08), transparent 30rem),
+    linear-gradient(180deg, #f4fcff 0%, #f8fafc 100%);
   overflow-x: hidden;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .seller-auth-page .seller-header-row {
-  min-height: 58px;
-  padding: 8px 16px;
-  border-bottom-color: rgba(8, 185, 232, .16);
+  width: 100%;
+  min-height: 64px;
+  height: 64px;
+  padding: 0 24px;
+  background-color: #ffffff;
+  border-bottom: 1.5px solid rgba(8, 185, 232, .16);
+  box-shadow: 0 2px 10px rgba(7, 59, 120, .04);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-sizing: border-box;
 }
 
 .seller-auth-logo.brand-logo--compact {
@@ -760,10 +775,14 @@ body {
 
 .seller-auth-page .onboarding-container {
   flex: 0 0 auto;
-  width: min(100%, 520px);
+  width: min(100% - 32px, 480px);
   box-sizing: border-box;
-  margin: 0 auto;
-  padding: 20px 16px max(32px, env(safe-area-inset-bottom));
+  margin: 32px auto 48px auto;
+  padding: 32px 28px 36px;
+  background: #ffffff;
+  border: 1px solid rgba(8, 185, 232, .16);
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(7, 59, 120, .08);
 }
 
 .seller-auth-page .onboarding-input {
@@ -810,23 +829,16 @@ body {
 
 @media (min-width: 768px) {
   .seller-auth-page {
-    padding: 28px 20px 48px;
+    padding: 0 0 48px 0;
   }
 
   .seller-auth-page .seller-header-row {
-    width: min(100%, 620px);
-    margin: 0 auto;
-    border: 1px solid rgba(8, 185, 232, .14);
-    border-bottom: 0;
-    border-radius: 20px 20px 0 0;
+    padding: 0 40px;
   }
 
   .seller-auth-page .onboarding-container {
-    padding: 32px 40px 40px;
-    background: #fff;
-    border: 1px solid rgba(8, 185, 232, .14);
-    border-radius: 0 0 20px 20px;
-    box-shadow: 0 20px 50px rgba(7, 59, 120, .08);
+    padding: 36px 40px 40px;
+    margin: 44px auto 60px auto;
   }
 }
 

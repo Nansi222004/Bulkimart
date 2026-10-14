@@ -8,6 +8,7 @@ import {
 const validForm = () => ({
   location: { lat: 21.1458, lng: 79.0882, source: 'gps' },
   zones: '440010, 440012',
+  deliveryRadius: 10,
   bankHolder: 'Test Rider',
   bankName: 'Test Bank',
   bankAccount: '1234567890',

@@ -329,7 +329,13 @@ export const SellerProvider = ({ children }) => {
    * `sameDay` is always sent, including when switched off, because leaving it out
    * means "no change" to the server — which would make disabling impossible.
    */
-  const submitProductEdit = async (form, ebookFile = null) => {
+  const submitProductEdit = async (form, files = null, ebookFile = null) => {
+    let actualFiles = files;
+    let actualEbookFile = ebookFile;
+    if (files instanceof File || (files && !Array.isArray(files) && files.name)) {
+      actualEbookFile = files;
+      actualFiles = null;
+    }
     setSavingProduct(true);
     setProductError('');
     try {
@@ -344,14 +350,28 @@ export const SellerProvider = ({ children }) => {
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName !== undefined) fd.append('brandName', form.brandName);
       fd.append('gstRate', form.gstRate || 0);
+
       // Wholesale terms have their own narrow endpoint so normal retail
       // product saves cannot accidentally rewrite those fields.
       const editVariants = form.fulfillmentType === 'digital'
         ? [{ ...(editingProduct?.variants?.[0]?._id ? { _id: editingProduct.variants[0]._id } : {}), name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
-        : form.variants.map(({ wholesalePricing, ...variant }) => variant);
+        : form.variants.map(({ wholesalePricing, ...variant }) => ({
+            ...(variant._id ? { _id: variant._id } : {}),
+            name: String(variant.name || '').trim(),
+            price: Number(variant.price),
+            mrp: variant.mrp !== '' && variant.mrp !== undefined ? Number(variant.mrp) : Number(variant.price),
+            stock: Number(variant.stock),
+            unit: variant.unit || 'piece',
+            ...(variant.weight !== '' && variant.weight !== undefined ? { weight: Number(variant.weight) } : {}),
+          }));
       fd.append('variants', JSON.stringify(editVariants));
       if (form.fulfillmentType === 'digital') {
-        fd.append('digital', JSON.stringify({ author: form.author, language: form.language, format: 'pdf', licenseTerms: form.licenseTerms }));
+        fd.append('digital', JSON.stringify({
+          author: String(form.author || '').trim(),
+          language: String(form.language || '').trim(),
+          format: 'pdf',
+          licenseTerms: String(form.licenseTerms || '').trim(),
+        }));
       }
 
       if (activeChannel === 'ecommerce') {
@@ -369,6 +389,10 @@ export const SellerProvider = ({ children }) => {
         fd.append('returnable', form.returnable ? 'true' : 'false');
       }
 
+      if (Array.isArray(actualFiles) && actualFiles.length > 0) {
+        actualFiles.forEach(({ file }) => { if (file) fd.append('images', file); });
+      }
+
       const res = await fetch(apiUrl(`/api/products/${editingProductId}`), {
         method: 'PUT',
         headers: authHeader(),
@@ -377,9 +401,9 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || 'Could not save your changes');
 
-      if (ebookFile) {
+      if (actualEbookFile) {
         const fileData = new FormData();
-        fileData.append('file', ebookFile);
+        fileData.append('file', actualEbookFile);
         const fileRes = await fetch(apiUrl(`/api/products/${editingProductId}/digital-file`), {
           method: 'POST', headers: authHeader(), body: fileData,
         });
@@ -394,6 +418,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: true };
     } catch (err) {
       setProductError(err.message);
+      triggerToast(err.message);
       return { ok: false };
     } finally {
       setSavingProduct(false);
@@ -1092,10 +1117,22 @@ export const SellerProvider = ({ children }) => {
       // seller can never collide with, or guess, another listing's code.
       const createVariants = form.fulfillmentType === 'digital'
         ? [{ name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
-        : form.variants;
+        : form.variants.map((v) => ({
+            name: String(v.name || '').trim(),
+            price: Number(v.price),
+            mrp: v.mrp !== '' && v.mrp !== undefined ? Number(v.mrp) : Number(v.price),
+            stock: Number(v.stock),
+            unit: v.unit || 'piece',
+            ...(v.weight !== '' && v.weight !== undefined ? { weight: Number(v.weight) } : {}),
+          }));
       fd.append('variants', JSON.stringify(createVariants));
       if (form.fulfillmentType === 'digital') {
-        fd.append('digital', JSON.stringify({ author: form.author, language: form.language, format: 'pdf', licenseTerms: form.licenseTerms }));
+        fd.append('digital', JSON.stringify({
+          author: String(form.author || '').trim(),
+          language: String(form.language || '').trim(),
+          format: 'pdf',
+          licenseTerms: String(form.licenseTerms || '').trim(),
+        }));
       }
 
       /**
@@ -1147,7 +1184,7 @@ export const SellerProvider = ({ children }) => {
       }
 
       triggerToast(form.fulfillmentType === 'digital'
-        ? 'E-book submitted for admin review. Purchasing and downloads are not available.'
+        ? 'E-book listing created and submitted for admin review.'
         : 'Product published — it is live for customers now.');
       setShowAddProductModal(false);
       setNewProductForm({
@@ -1162,6 +1199,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: true };
     } catch (err) {
       setProductError(err.message);
+      triggerToast(err.message);
       return { ok: false };
     } finally {
       setSavingProduct(false);

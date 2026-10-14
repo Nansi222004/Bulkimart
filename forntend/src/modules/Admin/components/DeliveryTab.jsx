@@ -37,6 +37,31 @@ const VEHICLE_LABEL = {
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
+const tileStyle = {
+  backgroundColor: '#f8fafc',
+  border: '1px solid #e2e8f0',
+  borderRadius: 10,
+  padding: '10px 14px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const labelStyle = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#64748b',
+  textTransform: 'uppercase',
+  letterSpacing: '0.4px',
+};
+
+const valueStyle = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#0f172a',
+  wordBreak: 'break-word',
+};
+
 export const DeliveryTab = ({ defaultStatusFilter }) => {
   const {
     riders,
@@ -269,25 +294,190 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
 
       {/* ---------------- APPLICATION DOSSIER ---------------- */}
       {(riderDetail || riderDetailLoading) && (
-        <div className="admin-modal-overlay">
-          <div className="admin-modal-sheet" style={{ maxWidth: 680 }}>
+        <div
+          className="admin-modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(6px)',
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setRiderDetail(null);
+          }}
+        >
+          <div
+            className="admin-modal-sheet"
+            style={{
+              maxWidth: 680,
+              width: '100%',
+              maxHeight: '90vh',
+              borderRadius: 20,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0,0,0,0.06)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              padding: 0,
+              margin: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             {riderDetailLoading || !riderDetail ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-                Loading application…
+              <div style={{ padding: '60px 24px', textAlign: 'center', color: '#64748b' }}>
+                <div style={{ fontSize: 26, marginBottom: 12 }}>⏳</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Loading application dossier…</div>
               </div>
             ) : (
               <>
-                <div className="admin-modal-header">
-                  <div>
-                    <h3 className="admin-modal-title">{riderDetail.account?.name || '—'}</h3>
-                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>
-                      {riderDetail.account?.phone} • {riderDetail.status}
-                    </span>
+                {/* Header */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '18px 24px',
+                    borderBottom: '1px solid #e2e8f0',
+                    backgroundColor: '#ffffff',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        background: 'linear-gradient(135deg, #08b9e8, #0284c7)',
+                        color: '#ffffff',
+                        fontWeight: 800,
+                        fontSize: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        letterSpacing: 0.5,
+                        boxShadow: '0 4px 10px rgba(8, 185, 232, 0.25)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {(riderDetail.account?.name || 'R').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}>
+                          {riderDetail.account?.name || '—'}
+                        </h3>
+                        {riderDetail.status === 'pending' && (
+                          <span
+                            style={{
+                              background: '#fef3c7',
+                              color: '#92400e',
+                              border: '1px solid #fde68a',
+                              padding: '2px 8px',
+                              borderRadius: 9999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                            }}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#d97706' }} />
+                            Pending Verification
+                          </span>
+                        )}
+                        {riderDetail.status === 'approved' && (
+                          <span
+                            style={{
+                              background: '#dcfce7',
+                              color: '#166534',
+                              border: '1px solid #bbf7d0',
+                              padding: '2px 8px',
+                              borderRadius: 9999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓ Approved
+                          </span>
+                        )}
+                        {['rejected', 'suspended'].includes(riderDetail.status) && (
+                          <span
+                            style={{
+                              background: '#fee2e2',
+                              color: '#991b1b',
+                              border: '1px solid #fecaca',
+                              padding: '2px 8px',
+                              borderRadius: 9999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              textTransform: 'capitalize',
+                            }}
+                          >
+                            {riderDetail.status}
+                          </span>
+                        )}
+                        {riderDetail.status === 'incomplete' && (
+                          <span
+                            style={{
+                              background: '#f1f5f9',
+                              color: '#475569',
+                              border: '1px solid #cbd5e1',
+                              padding: '2px 8px',
+                              borderRadius: 9999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                            }}
+                          >
+                            Incomplete
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginTop: 3 }}>
+                        📞 {riderDetail.account?.phone} • Registered: {fmtDate(riderDetail.registeredAt)}
+                      </div>
+                    </div>
                   </div>
-                  <button className="admin-modal-close" onClick={() => setRiderDetail(null)}>✕</button>
+                  <button
+                    onClick={() => setRiderDetail(null)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: '#f8fafc',
+                      color: '#64748b',
+                      fontSize: 14,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      transition: 'all 0.15s ease',
+                    }}
+                    title="Close"
+                  >
+                    ✕
+                  </button>
                 </div>
 
-                <div style={{ display: 'flex', gap: 6, padding: '10px 0', borderBottom: '1px solid #e2e8f0', overflowX: 'auto' }}>
+                {/* Tabs */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    padding: '10px 24px',
+                    borderBottom: '1px solid #e2e8f0',
+                    backgroundColor: '#f8fafc',
+                    overflowX: 'auto',
+                    flexShrink: 0,
+                  }}
+                >
                   {[
                     { id: 'application', label: 'Application' },
                     { id: 'documents', label: `Documents (${riderDetail.documents?.length || 0})` },
@@ -301,15 +491,17 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                       key={t.id}
                       onClick={() => setDossierTab(t.id)}
                       style={{
-                        padding: '6px 12px',
-                        borderRadius: 16,
-                        border: dossierTab === t.id ? '1.5px solid #10b981' : '1px solid #cbd5e1',
-                        backgroundColor: dossierTab === t.id ? '#ebfdf2' : '#ffffff',
-                        color: dossierTab === t.id ? '#047857' : '#475569',
-                        fontWeight: dossierTab === t.id ? 800 : 600,
-                        fontSize: 11,
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: dossierTab === t.id ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                        backgroundColor: dossierTab === t.id ? '#0284c7' : '#ffffff',
+                        color: dossierTab === t.id ? '#ffffff' : '#475569',
+                        fontWeight: dossierTab === t.id ? 700 : 600,
+                        fontSize: 11.5,
                         cursor: 'pointer',
                         whiteSpace: 'nowrap',
+                        transition: 'all 0.15s ease',
+                        boxShadow: dossierTab === t.id ? '0 2px 4px rgba(2, 132, 199, 0.2)' : 'none',
                       }}
                     >
                       {t.label}
@@ -317,73 +509,134 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                   ))}
                 </div>
 
-                <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
-
+                {/* Body Content */}
+                <div
+                  style={{
+                    padding: '20px 24px',
+                    flex: 1,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                  }}
+                >
                   {dossierTab === 'application' && (
-                    <>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Full Name</span>
-                        <span className="admin-item-value" style={{ fontWeight: 800 }}>{riderDetail.account?.name || '—'}</span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Mobile (OTP login)</span>
-                        <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>{riderDetail.account?.phone}</span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Vehicle</span>
-                        <span className="admin-item-value">
-                          {VEHICLE_LABEL[riderDetail.vehicle?.type] || riderDetail.vehicle?.type || '—'}
-                          {riderDetail.vehicle?.number ? ` · ${riderDetail.vehicle.number}` : ''}
-                        </span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Licence Number</span>
-                        <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>
-                          {riderDetail.vehicle?.licenceNo || 'Not required (bicycle)'}
-                        </span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Licence Expiry</span>
-                        <span
-                          className="admin-item-value"
-                          style={riderDetail.vehicle?.licenceExpired ? { color: '#b91c1c', fontWeight: 800 } : undefined}
-                        >
-                          {riderDetail.vehicle?.licenceExpiry
-                            ? new Date(riderDetail.vehicle.licenceExpiry).toLocaleDateString('en-IN', { dateStyle: 'medium' })
-                            : '—'}
-                          {riderDetail.vehicle?.licenceExpired ? '  ⚠️ EXPIRED' : ''}
-                        </span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Aadhaar</span>
-                        <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>
-                          {riderDetail.aadhaar?.number || '—'}
-                        </span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Serves Pincodes</span>
-                        <span className="admin-item-value">{riderDetail.serviceZones?.join(', ') || '—'}</span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Registered</span>
-                        <span className="admin-item-value">{fmtDate(riderDetail.registeredAt)}</span>
-                      </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Submitted</span>
-                        <span className="admin-item-value">{fmtDate(riderDetail.submittedAt)}</span>
-                      </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                       {riderDetail.rejectionReason && (
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Rejection Reason</span>
-                          <span className="admin-item-value" style={{ color: '#b91c1c' }}>{riderDetail.rejectionReason}</span>
+                        <div
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: 10,
+                            backgroundColor: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            color: '#991b1b',
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            display: 'flex',
+                            gap: 8,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <span>⚠️</span>
+                          <span><strong>Rejection Reason:</strong> {riderDetail.rejectionReason}</span>
                         </div>
                       )}
-                    </>
+
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                          gap: 12,
+                        }}
+                      >
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Full Name</span>
+                          <span style={{ ...valueStyle, fontWeight: 700 }}>{riderDetail.account?.name || '—'}</span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Mobile (OTP Login)</span>
+                          <span style={{ ...valueStyle, fontFamily: 'monospace' }}>{riderDetail.account?.phone || '—'}</span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Vehicle</span>
+                          <span style={valueStyle}>
+                            {VEHICLE_LABEL[riderDetail.vehicle?.type] || riderDetail.vehicle?.type || '—'}
+                            {riderDetail.vehicle?.number ? ` · ${riderDetail.vehicle.number}` : ''}
+                          </span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Licence Number</span>
+                          <span style={{ ...valueStyle, fontFamily: 'monospace' }}>
+                            {riderDetail.vehicle?.licenceNo || 'Not required (bicycle)'}
+                          </span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Licence Expiry</span>
+                          <span
+                            style={{
+                              ...valueStyle,
+                              color: riderDetail.vehicle?.licenceExpired ? '#b91c1c' : '#0f172a',
+                              fontWeight: riderDetail.vehicle?.licenceExpired ? 800 : 600,
+                            }}
+                          >
+                            {riderDetail.vehicle?.licenceExpiry
+                              ? new Date(riderDetail.vehicle.licenceExpiry).toLocaleDateString('en-IN', { dateStyle: 'medium' })
+                              : '—'}
+                            {riderDetail.vehicle?.licenceExpired ? '  ⚠️ EXPIRED' : ''}
+                          </span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Aadhaar Number</span>
+                          <span style={{ ...valueStyle, fontFamily: 'monospace' }}>
+                            {riderDetail.aadhaar?.number || '—'}
+                          </span>
+                        </div>
+
+                        <div style={{ ...tileStyle, gridColumn: '1 / -1' }}>
+                          <span style={labelStyle}>Serves Pincodes</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                            {riderDetail.serviceZones?.length ? (
+                              riderDetail.serviceZones.map((pin) => (
+                                <span
+                                  key={pin}
+                                  style={{
+                                    backgroundColor: '#e0f2fe',
+                                    color: '#0369a1',
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    fontFamily: 'monospace',
+                                  }}
+                                >
+                                  {pin}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={valueStyle}>—</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Registered At</span>
+                          <span style={valueStyle}>{fmtDate(riderDetail.registeredAt)}</span>
+                        </div>
+
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Submitted At</span>
+                          <span style={valueStyle}>{fmtDate(riderDetail.submittedAt)}</span>
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {dossierTab === 'documents' && (
                     riderDetail.documents?.length ? (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14 }}>
                         {riderDetail.documents.map((d) => (
                           <a
                             key={d.label}
@@ -391,252 +644,376 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                             target="_blank"
                             rel="noreferrer"
                             style={{
-                              display: 'block', padding: 10, borderRadius: 8,
-                              border: '1px solid #e2e8f0', backgroundColor: '#f8fafc',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              padding: 10,
+                              borderRadius: 12,
+                              border: '1px solid #e2e8f0',
+                              backgroundColor: '#f8fafc',
                               textDecoration: 'none',
+                              transition: 'transform 0.15s, box-shadow 0.15s',
                             }}
                           >
-                            {/* An image preview beats a filename — the point of this
-                                screen is to actually look at the document. */}
                             <img
                               src={d.url}
                               alt={d.label}
                               style={{
-                                width: '100%', height: 90, objectFit: 'cover',
-                                borderRadius: 6, backgroundColor: '#e2e8f0', display: 'block',
+                                width: '100%',
+                                height: 110,
+                                objectFit: 'cover',
+                                borderRadius: 8,
+                                backgroundColor: '#e2e8f0',
+                                display: 'block',
                               }}
                               onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
-                            <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800, color: '#0f172a' }}>{d.label}</div>
-                            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>{d.category} · open ↗</div>
+                            <div style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
+                              {d.label}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                              <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600, textTransform: 'capitalize' }}>
+                                {d.category}
+                              </span>
+                              <span style={{ fontSize: 11, color: '#0284c7', fontWeight: 700 }}>
+                                View ↗
+                              </span>
+                            </div>
                           </a>
                         ))}
                       </div>
                     ) : (
-                      <div style={{ padding: 20, textAlign: 'center', color: '#64748b', fontSize: 12 }}>
-                        This rider has not uploaded any documents yet.
+                      <div style={{ padding: '48px 24px', textAlign: 'center', color: '#64748b' }}>
+                        <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>This rider has not uploaded any documents yet.</div>
                       </div>
                     )
                   )}
 
                   {dossierTab === 'location' && (
-                    riderDetail.baseLocation ? (
-                      <>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Address</span>
-                          <span className="admin-item-value">{riderDetail.baseLocation.address || '—'}</span>
-                        </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Landmark</span>
-                          <span className="admin-item-value">{riderDetail.baseLocation.landmark || '—'}</span>
-                        </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">City / State</span>
-                          <span className="admin-item-value">
-                            {riderDetail.baseLocation.city || '—'}
-                            {riderDetail.baseLocation.state ? `, ${riderDetail.baseLocation.state}` : ''}
-                          </span>
-                        </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Pincode</span>
-                          <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>
-                            {riderDetail.baseLocation.pincode || '—'}
-                          </span>
-                        </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {riderDetail.baseLocation ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                          <div style={{ ...tileStyle, gridColumn: '1 / -1' }}>
+                            <span style={labelStyle}>Address</span>
+                            <span style={{ ...valueStyle, fontWeight: 700 }}>{riderDetail.baseLocation.address || '—'}</span>
+                          </div>
 
-                        {/* How the location was captured decides how much it is
-                            worth: a GPS fix was taken on the device, a typed
-                            address is only the rider's claim. */}
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Captured via</span>
-                          <span
-                            className="admin-item-value"
-                            style={{ fontWeight: 800, color: riderDetail.baseLocation.source === 'gps' ? '#166534' : '#b45309' }}
-                          >
-                            {riderDetail.baseLocation.source === 'gps'
-                              ? `Device GPS${riderDetail.baseLocation.accuracy ? ` · ±${riderDetail.baseLocation.accuracy} m` : ''}`
-                              : 'Typed by the rider (unverified)'}
-                          </span>
-                        </div>
+                          <div style={tileStyle}>
+                            <span style={labelStyle}>Landmark</span>
+                            <span style={valueStyle}>{riderDetail.baseLocation.landmark || '—'}</span>
+                          </div>
 
-                        {riderDetail.baseLocation.lat !== undefined && (
-                          <div className="admin-item-row">
-                            <span className="admin-item-label">Coordinates</span>
-                            <span className="admin-item-value">
-                              <a
-                                href={`https://www.google.com/maps?q=${riderDetail.baseLocation.lat},${riderDetail.baseLocation.lng}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ color: '#2563eb', fontWeight: 800, fontFamily: 'monospace' }}
-                              >
-                                {riderDetail.baseLocation.lat}, {riderDetail.baseLocation.lng} ↗
-                              </a>
+                          <div style={tileStyle}>
+                            <span style={labelStyle}>City / State</span>
+                            <span style={valueStyle}>
+                              {riderDetail.baseLocation.city || '—'}
+                              {riderDetail.baseLocation.state ? `, ${riderDetail.baseLocation.state}` : ''}
                             </span>
                           </div>
-                        )}
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Captured at</span>
-                          <span className="admin-item-value">{fmtDate(riderDetail.baseLocation.capturedAt)}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div style={{ padding: 20, textAlign: 'center', color: '#64748b', fontSize: 12 }}>
-                        No base location saved yet.
-                      </div>
-                    )
-                  )}
 
-                  {dossierTab === 'location' && (
-                    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--admin-border, #e2e8f0)' }}>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                        Delivery Radius
-                      </div>
-                      {!riderDetail.baseLocation?.lat && (
-                        <div style={{ fontSize: 11, color: '#b45309', marginBottom: 8 }}>
-                          This rider has no pinned location yet — a radius cannot be enforced until they do.
+                          <div style={tileStyle}>
+                            <span style={labelStyle}>Pincode</span>
+                            <span style={{ ...valueStyle, fontFamily: 'monospace' }}>
+                              {riderDetail.baseLocation.pincode || '—'}
+                            </span>
+                          </div>
+
+                          <div style={tileStyle}>
+                            <span style={labelStyle}>Captured via</span>
+                            <span
+                              style={{
+                                ...valueStyle,
+                                fontWeight: 800,
+                                color: riderDetail.baseLocation.source === 'gps' ? '#166534' : '#b45309',
+                              }}
+                            >
+                              {riderDetail.baseLocation.source === 'gps'
+                                ? `Device GPS${riderDetail.baseLocation.accuracy ? ` · ±${riderDetail.baseLocation.accuracy} m` : ''}`
+                                : 'Typed by the rider (unverified)'}
+                            </span>
+                          </div>
+
+                          {riderDetail.baseLocation.lat !== undefined && (
+                            <div style={tileStyle}>
+                              <span style={labelStyle}>Coordinates</span>
+                              <span style={valueStyle}>
+                                <a
+                                  href={`https://www.google.com/maps?q=${riderDetail.baseLocation.lat},${riderDetail.baseLocation.lng}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ color: '#0284c7', fontWeight: 800, fontFamily: 'monospace', textDecoration: 'none' }}
+                                >
+                                  {riderDetail.baseLocation.lat}, {riderDetail.baseLocation.lng} ↗
+                                </a>
+                              </span>
+                            </div>
+                          )}
+
+                          <div style={tileStyle}>
+                            <span style={labelStyle}>Captured at</span>
+                            <span style={valueStyle}>{fmtDate(riderDetail.baseLocation.capturedAt)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
+                          <div style={{ fontSize: 24, marginBottom: 6 }}>📍</div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>No base location saved yet.</div>
                         </div>
                       )}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                          type="number" min="0.1" step="0.1" value={riderRadiusInput}
-                          onChange={(e) => setRiderRadiusInput(e.target.value)}
-                          placeholder="Unrestricted"
-                          style={{ width: 100, padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--admin-border, #cbd5e1)', fontSize: 12.5 }}
-                        />
-                        <span style={{ fontSize: 12, color: 'var(--admin-text-muted)' }}>KM</span>
-                        <button
-                          className="admin-btn-sm approve"
-                          onClick={() => setDeliveryPartnerRadius(riderDetail._id, riderRadiusInput === '' ? null : Number(riderRadiusInput))}
-                        >
-                          Save
-                        </button>
-                      </div>
-                      <div style={{ fontSize: 10.5, color: 'var(--admin-text-muted)', marginTop: 6 }}>
-                        Leave blank for unrestricted — dispatch falls back to the platform's shared search radius, exactly as before.
+
+                      <div
+                        style={{
+                          marginTop: 10,
+                          padding: 14,
+                          borderRadius: 12,
+                          backgroundColor: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: 6, letterSpacing: '0.4px' }}>
+                          Delivery Radius
+                        </div>
+                        {!riderDetail.baseLocation?.lat && (
+                          <div style={{ fontSize: 11, color: '#b45309', marginBottom: 8, fontWeight: 600 }}>
+                            ⚠️ This rider has no pinned location yet — a radius cannot be enforced until they do.
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <input
+                            type="number"
+                            min="0.1"
+                            step="0.1"
+                            value={riderRadiusInput}
+                            onChange={(e) => setRiderRadiusInput(e.target.value)}
+                            placeholder="Unrestricted"
+                            style={{
+                              width: 120,
+                              padding: '7px 12px',
+                              borderRadius: 8,
+                              border: '1.5px solid #cbd5e1',
+                              fontSize: 13,
+                              outline: 'none',
+                            }}
+                          />
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>KM</span>
+                          <button
+                            type="button"
+                            onClick={() => setDeliveryPartnerRadius(riderDetail._id, riderRadiusInput === '' ? null : Number(riderRadiusInput))}
+                            style={{
+                              backgroundColor: '#0284c7',
+                              color: '#ffffff',
+                              border: 'none',
+                              padding: '7px 16px',
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Save Radius
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                          Leave blank for unrestricted — dispatch falls back to the platform's shared search radius.
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {dossierTab === 'bank' && (
                     riderDetail.bank ? (
-                      <>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Account Holder</span>
-                          <span className="admin-item-value">{riderDetail.bank.holderName || '—'}</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Account Holder</span>
+                          <span style={{ ...valueStyle, fontWeight: 700 }}>{riderDetail.bank.holderName || '—'}</span>
                         </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Bank</span>
-                          <span className="admin-item-value">{riderDetail.bank.bankName || '—'}</span>
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Bank</span>
+                          <span style={valueStyle}>{riderDetail.bank.bankName || '—'}</span>
                         </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">Account Number</span>
-                          <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>Account Number</span>
+                          <span style={{ ...valueStyle, fontFamily: 'monospace' }}>
                             {riderDetail.bank.accountNo || '—'}
                           </span>
                         </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">IFSC</span>
-                          <span className="admin-item-value" style={{ fontFamily: 'monospace' }}>
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>IFSC</span>
+                          <span style={{ ...valueStyle, fontFamily: 'monospace' }}>
                             {riderDetail.bank.ifsc || '—'}
                           </span>
                         </div>
-                        <div className="admin-item-row">
-                          <span className="admin-item-label">UPI ID</span>
-                          <span className="admin-item-value">{riderDetail.bank.upiId || '—'}</span>
+                        <div style={tileStyle}>
+                          <span style={labelStyle}>UPI ID</span>
+                          <span style={valueStyle}>{riderDetail.bank.upiId || '—'}</span>
                         </div>
-                      </>
+                      </div>
                     ) : (
-                      <div style={{ padding: 20, textAlign: 'center', color: '#64748b', fontSize: 12 }}>
-                        No payout account saved yet.
+                      <div style={{ padding: '48px 24px', textAlign: 'center', color: '#64748b' }}>
+                        <div style={{ fontSize: 28, marginBottom: 8 }}>🏦</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>No payout account saved yet.</div>
                       </div>
                     )
                   )}
 
                   {dossierTab === 'metrics' && (
-                    <>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Total Deliveries</span>
-                        <span className="admin-item-value" style={{ fontWeight: 800 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      <div style={tileStyle}>
+                        <span style={labelStyle}>Total Deliveries</span>
+                        <span style={{ ...valueStyle, fontSize: 18, fontWeight: 800, color: '#0284c7' }}>
                           {riderDetail.metrics?.totalDeliveries || 0}
                         </span>
                       </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Rating</span>
-                        <span className="admin-item-value">
+                      <div style={tileStyle}>
+                        <span style={labelStyle}>Rating</span>
+                        <span style={{ ...valueStyle, fontWeight: 700 }}>
                           {riderDetail.metrics?.rating ? `⭐ ${riderDetail.metrics.rating}` : 'No ratings yet'}
                         </span>
                       </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Currently Available</span>
-                        <span className="admin-item-value">{riderDetail.metrics?.isAvailable ? 'Yes' : 'No'}</span>
+                      <div style={tileStyle}>
+                        <span style={labelStyle}>Currently Available</span>
+                        <span style={{ ...valueStyle, fontWeight: 700, color: riderDetail.metrics?.isAvailable ? '#166534' : '#64748b' }}>
+                          {riderDetail.metrics?.isAvailable ? '✓ Yes (Online)' : '✕ No (Offline)'}
+                        </span>
                       </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Earnings (total / pending / paid)</span>
-                        <span className="admin-item-value" style={{ fontWeight: 700 }}>
+                      <div style={tileStyle}>
+                        <span style={labelStyle}>Earnings (Total / Pending / Paid)</span>
+                        <span style={{ ...valueStyle, fontWeight: 700 }}>
                           ₹{riderDetail.metrics?.earnings?.total || 0} / ₹{riderDetail.metrics?.earnings?.pending || 0} / ₹{riderDetail.metrics?.earnings?.paid || 0}
                         </span>
                       </div>
-                      <div className="admin-item-row">
-                        <span className="admin-item-label">Approved At</span>
-                        <span className="admin-item-value">{fmtDate(riderDetail.approvedAt)}</span>
+                      <div style={tileStyle}>
+                        <span style={labelStyle}>Approved At</span>
+                        <span style={valueStyle}>{fmtDate(riderDetail.approvedAt)}</span>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
 
-                {/* Decisions live at the bottom of the dossier, so they are taken
-                    after reading it rather than from the list at a glance. */}
-                <div className="admin-modal-actions" style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                {/* Footer / Action Controls */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '16px 24px',
+                    borderTop: '1px solid #e2e8f0',
+                    backgroundColor: '#ffffff',
+                    flexWrap: 'wrap',
+                    flexShrink: 0,
+                  }}
+                >
                   <button
-                    className="admin-btn-sm details"
-                    style={{ background: '#fff', borderColor: '#fecaca', color: '#b91c1c' }}
+                    type="button"
                     onClick={removeRider}
                     disabled={removing}
                     title="Permanently deletes only reference-free accounts; otherwise deactivates while preserving history"
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #fecaca',
+                      color: '#b91c1c',
+                      padding: '8px 14px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: removing ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                    }}
                   >
                     {removing ? 'Checking…' : 'Delete / Deactivate Partner'}
                   </button>
-                  {riderDetail.status === 'pending' && (
-                    <>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    {riderDetail.status === 'pending' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => rejectRider(riderDetail._id)}
+                          style={{
+                            backgroundColor: '#fee2e2',
+                            color: '#991b1b',
+                            border: '1px solid #fca5a5',
+                            padding: '9px 18px',
+                            borderRadius: 8,
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => approveRider(riderDetail._id)}
+                          style={{
+                            backgroundColor: '#16a34a',
+                            color: '#ffffff',
+                            border: 'none',
+                            padding: '9px 20px',
+                            borderRadius: 8,
+                            fontSize: 12.5,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            boxShadow: '0 4px 10px rgba(22, 163, 74, 0.25)',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          ✓ Approve & Unlock Rider App
+                        </button>
+                      </>
+                    )}
+
+                    {riderDetail.status === 'approved' && (
                       <button
-                        className="admin-btn-sm details"
-                        style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
+                        type="button"
+                        onClick={() => suspendRider(riderDetail._id)}
+                        style={{
+                          backgroundColor: '#fee2e2',
+                          color: '#b91c1c',
+                          border: '1px solid #fca5a5',
+                          padding: '9px 18px',
+                          borderRadius: 8,
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Suspend Partner
+                      </button>
+                    )}
+
+                    {['rejected', 'suspended'].includes(riderDetail.status) && (
+                      <button
+                        type="button"
                         onClick={() => approveRider(riderDetail._id)}
+                        style={{
+                          backgroundColor: '#16a34a',
+                          color: '#ffffff',
+                          border: 'none',
+                          padding: '9px 20px',
+                          borderRadius: 8,
+                          fontSize: 12.5,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
                       >
-                        Approve & Unlock Rider App
+                        Reinstate & Approve
                       </button>
-                      <button
-                        className="admin-btn-sm details"
-                        style={{ background: '#fee2e2', color: '#b91c1c', flex: 1 }}
-                        onClick={() => rejectRider(riderDetail._id)}
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  {riderDetail.status === 'approved' && (
-                    <button
-                      className="admin-btn-sm details"
-                      style={{ background: '#fee2e2', color: '#b91c1c', flex: 1 }}
-                      onClick={() => suspendRider(riderDetail._id)}
-                    >
-                      Suspend Partner
-                    </button>
-                  )}
-                  {['rejected', 'suspended'].includes(riderDetail.status) && (
-                    <button
-                      className="admin-btn-sm details"
-                      style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
-                      onClick={() => approveRider(riderDetail._id)}
-                    >
-                      Reinstate & Approve
-                    </button>
-                  )}
-                  {riderDetail.status === 'incomplete' && (
-                    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700, padding: '8px 0' }}>
-                      This rider has not finished registering, so there is nothing to decide yet.
-                    </div>
-                  )}
+                    )}
+
+                    {riderDetail.status === 'incomplete' && (
+                      <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+                        Application incomplete — pending rider completion.
+                      </span>
+                    )}
+                  </div>
                 </div>
               </>
             )}

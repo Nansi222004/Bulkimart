@@ -90,6 +90,28 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
     <div className="seller-main-content seller-auth-page">
       <div className="seller-header-row">
         <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
+        <button
+          type="button"
+          onClick={onBack || (() => { window.location.href = '/'; })}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12.5px',
+            fontWeight: '700',
+            color: '#0284c7',
+            backgroundColor: '#f0f9ff',
+            border: '1px solid #bae6fd',
+            padding: '7px 14px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e0f2fe'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0f9ff'; }}
+        >
+          ← Back to store
+        </button>
       </div>
 
       <div className="onboarding-container">

@@ -25,12 +25,7 @@ const IMAGE_TYPES = ['Front', 'Back', 'Side', 'Detail', 'Packaging'];
 const ADDITIONAL_SLOTS = 4; // + 1 cover = 5, the same cap Product.images has always had
 const BRAND_SUGGESTIONS = ['Local Make', 'House Brand', 'Unbranded'];
 
-const TABS = [
-  { id: 'general', label: 'General Info' },
-  { id: 'variants', label: 'Item Variants' },
-  { id: 'groups', label: 'Groups' },
-  { id: 'photos', label: 'Photos' },
-];
+
 
 const slugify = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
@@ -95,12 +90,25 @@ export const ProductModal = () => {
   const l2List = l1Node ? (l1Node.children || []) : [];
   const l2Node = useMemo(() => l2List.find((c) => c._id === pickL2) || null, [l2List, pickL2]);
   const l3List = l2Node ? (l2Node.children || []) : [];
-  const effectiveCategoryId = pickL3 || (l3List.length === 0 ? pickL2 : '');
+  const effectiveCategoryId = useMemo(() => {
+    if (pickL3) return pickL3;
+    if (pickL2 && l3List.length === 0) return pickL2;
+    if (pickL1 && l2List.length === 0) return pickL1;
+    return '';
+  }, [pickL1, pickL2, pickL3, l2List.length, l3List.length]);
+
+  const categoryBreadcrumb = useMemo(() => {
+    const parts = [];
+    if (l1Node) parts.push(l1Node.name);
+    if (l2Node) parts.push(l2Node.name);
+    const l3Node = l3List.find((c) => c._id === pickL3);
+    if (l3Node) parts.push(l3Node.name);
+    return parts.join(' > ');
+  }, [l1Node, l2Node, l3List, pickL3]);
 
   useEffect(() => {
     setNewProductForm((f) => ({ ...f, categoryId: effectiveCategoryId }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveCategoryId]);
+  }, [effectiveCategoryId, setNewProductForm]);
 
   const resetCategoryPicks = () => { setPickL1(''); setPickL2(''); setPickL3(''); };
 
@@ -295,11 +303,98 @@ export const ProductModal = () => {
     if (v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) return 'price cannot be higher than its MRP';
     return '';
   });
-  const firstVariantError = variantErrors.find(Boolean) || (variants.length === 0 ? 'Add at least one variant with pricing and stock.' : '');
+
+  const tabs = useMemo(() => [
+    { id: 'general', label: 'General Info' },
+    { id: 'groups', label: isDigital ? 'Category' : 'Category & Groups' },
+    ...(!isDigital ? [{ id: 'variants', label: 'Item Variants' }] : []),
+    { id: 'photos', label: isDigital ? 'Cover & PDF' : 'Photos' },
+  ], [isDigital]);
+
+  const tabErrors = useMemo(() => {
+    const errs = { general: [], groups: [], variants: [], photos: [] };
+
+    // General Info validation
+    const trimmedName = String(newProductForm.name || '').trim();
+    if (!trimmedName) {
+      errs.general.push('Product Title is required');
+    } else if (trimmedName.length < 3) {
+      errs.general.push('Product Title must be at least 3 characters');
+    }
+
+    if (isDigital) {
+      if (!String(newProductForm.author || '').trim()) {
+        errs.general.push('Author name is required for e-books');
+      }
+      if (!String(newProductForm.language || '').trim()) {
+        errs.general.push('Language is required for e-books');
+      }
+      const ep = Number(newProductForm.ebookPrice);
+      if (newProductForm.ebookPrice === '' || newProductForm.ebookPrice === undefined || !Number.isFinite(ep) || ep <= 0) {
+        errs.general.push('Valid e-book price (₹) is required');
+      }
+    }
+
+    // Category / Groups validation
+    if (!pickL1) {
+      errs.groups.push('Please select a header category');
+    } else if (l2List.length > 0 && !pickL2) {
+      errs.groups.push('Please select a main category');
+    } else if (l3List.length > 0 && !pickL3) {
+      errs.groups.push('Please select a specific sub-category');
+    } else if (!effectiveCategoryId) {
+      errs.groups.push('Please select a valid category leaf');
+    }
+
+    // Variants validation (physical only)
+    if (!isDigital) {
+      if (!Array.isArray(variants) || variants.length === 0) {
+        errs.variants.push('Add at least one variant with pricing and stock');
+      } else {
+        variants.forEach((v, i) => {
+          const label = v.name ? `"${v.name}"` : `Variant ${i + 1}`;
+          if (!v.name || !String(v.name).trim()) errs.variants.push(`${label} requires a name`);
+          if (v.price === '' || v.price === undefined || Number(v.price) <= 0) errs.variants.push(`${label} requires a valid selling price (> 0)`);
+          if (v.stock === '' || v.stock === undefined || Number(v.stock) < 0) errs.variants.push(`${label} stock cannot be negative`);
+          if (v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) errs.variants.push(`${label} price cannot exceed MRP`);
+        });
+      }
+    }
+
+    // Photos / Media validation
+    const hasCover = Boolean(coverImage?.file || (isEditing && editingProduct?.images?.[0]));
+    if (!hasCover) {
+      errs.photos.push(isDigital ? 'Main e-book cover photo is required' : 'Main product cover photo is required');
+    }
+    if (isDigital) {
+      const hasPdf = Boolean(ebookFile || editingProduct?.digital?.file?.status === 'uploaded');
+      if (!hasPdf) {
+        errs.photos.push('Digital e-book PDF file is required');
+      }
+    }
+
+    return errs;
+  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, coverImage, isEditing, editingProduct, ebookFile]);
+
+  const allErrors = useMemo(() => Object.values(tabErrors).flat(), [tabErrors]);
+  const canSubmit = !savingProduct && allErrors.length === 0;
+
+  const navigateToFirstError = () => {
+    for (const tab of tabs) {
+      if (tabErrors[tab.id]?.length > 0) {
+        setActiveTab(tab.id);
+        break;
+      }
+    }
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isEditing) await submitProductEdit(newProductForm, ebookFile);
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (!canSubmit) {
+      navigateToFirstError();
+      return;
+    }
+    if (isEditing) await submitProductEdit(newProductForm, collectedFiles, ebookFile);
     else await submitNewProduct(newProductForm, collectedFiles, ebookFile);
   };
 
@@ -308,15 +403,6 @@ export const ProductModal = () => {
   if (!showAddProductModal) return null;
 
   const slugPreview = slugify(newProductForm.name);
-  const canSubmit = !savingProduct
-    && (isEditing || collectedFiles.length > 0)
-    && !!newProductForm.categoryId
-    && (isDigital
-      ? Number(newProductForm.ebookPrice) > 0
-        && String(newProductForm.author || '').trim().length > 0
-        && String(newProductForm.language || '').trim().length > 0
-        && Boolean(ebookFile || editingProduct?.digital?.file?.status === 'uploaded')
-      : !firstVariantError);
 
   // A listing's primary channel is fixed forever once created (the backend
   // doesn't even accept a `type` change on update) — only whether it's ALSO
@@ -350,19 +436,27 @@ export const ProductModal = () => {
               <span style={S.sidebarBrandLabel}>Listing Editor</span>
             </div>
             <nav style={S.tabNav}>
-            {TABS.filter((tab) => !isDigital || !['variants', 'groups'].includes(tab.id)).map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setActiveTab(t.id)}
-                  style={{ ...S.tabBtn, ...(activeTab === t.id ? S.tabBtnActive : {}) }}
-                >
-                  {t.label}
-                  {t.id === 'variants' && variants.length > 0 && (
-                    <span style={S.tabCount}>{variants.length}</span>
-                  )}
-                </button>
-              ))}
+              {tabs.map((t) => {
+                const hasError = tabErrors[t.id]?.length > 0;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveTab(t.id)}
+                    style={{ ...S.tabBtn, ...(activeTab === t.id ? S.tabBtnActive : {}) }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t.label}
+                      {hasError && (
+                        <span style={S.tabErrorDot} title={`${tabErrors[t.id].length} item(s) need attention`}>●</span>
+                      )}
+                    </span>
+                    {t.id === 'variants' && variants.length > 0 && (
+                      <span style={S.tabCount}>{variants.length}</span>
+                    )}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -410,21 +504,66 @@ export const ProductModal = () => {
                 {!isEditing && (
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Listing type *</label>
-                    <select className="onboarding-select" value={newProductForm.fulfillmentType || 'physical'}
-                      onChange={(event) => { setNewProductForm({ ...newProductForm, fulfillmentType: event.target.value }); setActiveTab('general'); }}>
-                      <option value="physical">Physical product</option>
-                      <option value="digital" disabled={activeChannel === 'quick' || activeChannel === 'grocery'}>E-book (PDF){activeChannel === 'quick' || activeChannel === 'grocery' ? ' — switch to Shop All' : ''}</option>
+                    <select
+                      className="onboarding-select"
+                      value={newProductForm.fulfillmentType || 'physical'}
+                      onChange={(event) => {
+                        const nextType = event.target.value;
+                        resetCategoryPicks();
+                        setNewProductForm((prev) => ({
+                          ...prev,
+                          fulfillmentType: nextType,
+                          categoryId: '',
+                        }));
+                        setActiveTab('general');
+                      }}
+                    >
+                      <option value="physical">Physical product (Standard retail / inventory)</option>
+                      <option value="digital" disabled={activeChannel === 'quick' || activeChannel === 'grocery'}>
+                        E-book (PDF digital file){activeChannel === 'quick' || activeChannel === 'grocery' ? ' — switch to Shop All' : ''}
+                      </option>
                     </select>
                   </div>
                 )}
+
+                <div className="onboarding-form-group">
+                  <label className="onboarding-label">Category *</label>
+                  {effectiveCategoryId ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 8, background: 'var(--bg-page)', border: '1.5px solid var(--primary)', gap: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 800, color: 'var(--text-muted)', display: 'block' }}>Selected Category Leaf</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{categoryBreadcrumb}</span>
+                      </div>
+                      <button type="button" onClick={() => setActiveTab('groups')} style={{ border: '1px solid var(--primary)', background: 'var(--bg-card)', color: 'var(--primary)', padding: '6px 12px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 11.5 }}>
+                        Change Category →
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1.5px dashed #f59e0b', gap: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309' }}>⚠️ No category selected yet</span>
+                        <span style={{ fontSize: 11, color: '#78350f', display: 'block' }}>Choose a category in the Category tab to enable submission</span>
+                      </div>
+                      <button type="button" onClick={() => setActiveTab('groups')} style={{ border: 'none', background: 'var(--primary)', color: '#fff', padding: '6px 14px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 11.5 }}>
+                        Select Category →
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">Product Title *</label>
                   <input
-                    type="text" className="onboarding-input" placeholder="e.g. Stainless Steel Peeler"
+                    type="text" className="onboarding-input" placeholder={isDigital ? 'e.g. 1984 by George Orwell' : 'e.g. Stainless Steel Peeler'}
                     value={newProductForm.name}
                     onChange={(e) => setNewProductForm({ ...newProductForm, name: e.target.value })}
                     minLength={3} required
                   />
+                  {newProductForm.name && newProductForm.name.trim().length < 3 && (
+                    <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
+                      * Title must be at least 3 characters
+                    </span>
+                  )}
                 </div>
 
                 <div className="onboarding-form-group">
@@ -437,7 +576,7 @@ export const ProductModal = () => {
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">About This Item</label>
                   <textarea className="onboarding-input" rows={4}
-                    placeholder="Material, size, what makes it good..."
+                    placeholder={isDigital ? 'Book summary, chapters, target audience...' : 'Material, size, what makes it good...'}
                     value={newProductForm.desc}
                     onChange={(e) => setNewProductForm({ ...newProductForm, desc: e.target.value })} />
                 </div>
@@ -458,25 +597,45 @@ export const ProductModal = () => {
                 {isDigital && <>
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Author *</label>
-                    <input className="onboarding-input" maxLength={160} value={newProductForm.author || ''}
+                    <input className="onboarding-input" maxLength={160} placeholder="e.g. George Orwell" value={newProductForm.author || ''}
                       onChange={(event) => setNewProductForm({ ...newProductForm, author: event.target.value })} />
+                    {!String(newProductForm.author || '').trim() && (
+                      <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
+                        * Author is required
+                      </span>
+                    )}
                   </div>
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Language *</label>
-                    <input className="onboarding-input" maxLength={80} value={newProductForm.language || ''}
+                    <input className="onboarding-input" maxLength={80} placeholder="e.g. English, Hindi, Marathi" value={newProductForm.language || ''}
                       onChange={(event) => setNewProductForm({ ...newProductForm, language: event.target.value })} />
+                    {!String(newProductForm.language || '').trim() && (
+                      <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
+                        * Language is required
+                      </span>
+                    )}
                   </div>
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Price (₹) *</label>
-                    <input type="number" min="0.01" step="0.01" className="onboarding-input" value={newProductForm.ebookPrice || ''}
+                    <input type="number" min="0.01" step="0.01" className="onboarding-input" placeholder="e.g. 199" value={newProductForm.ebookPrice || ''}
                       onChange={(event) => setNewProductForm({ ...newProductForm, ebookPrice: event.target.value })} />
+                    {(newProductForm.ebookPrice === '' || Number(newProductForm.ebookPrice) <= 0) && (
+                      <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
+                        * Valid selling price greater than ₹0 is required
+                      </span>
+                    )}
                   </div>
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">License / permitted use (optional)</label>
-                    <textarea className="onboarding-input" rows={3} maxLength={2000} value={newProductForm.licenseTerms || ''}
+                    <textarea className="onboarding-input" rows={3} maxLength={2000} placeholder="e.g. Standard personal use license. Redistribution prohibited." value={newProductForm.licenseTerms || ''}
                       onChange={(event) => setNewProductForm({ ...newProductForm, licenseTerms: event.target.value })} />
                   </div>
-                  <div style={S.hintBox}>E-books use no physical stock or shipping. Purchasing and downloads are not enabled.</div>
+                  <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0369a1', fontSize: 12, lineHeight: 1.5 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>📖</span> Digital E-book Listing Guide
+                    </div>
+                    E-books are fulfilled digitally and require zero physical stock or shipping. Next, pick a category in the <strong>Category</strong> tab and upload the cover image plus your original PDF file in the <strong>Cover & PDF</strong> tab. Once submitted, your listing is sent for admin review. <em>(Customer storefront purchase and secure download delivery will open following platform approval rollout).</em>
+                  </div>
                 </>}
 
                 {!isDigital && <div className="onboarding-form-group">
@@ -694,9 +853,18 @@ export const ProductModal = () => {
 
             {activeTab === 'groups' && (
               <div style={S.tabPanel}>
+                <div style={{ marginBottom: 12 }}>
+                  <h4 style={S.sectionTitle}>{isDigital ? 'E-book Category' : 'Product Category & Taxonomy'}</h4>
+                  <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    {isDigital
+                      ? 'Select the category leaf under the E-Commerce catalogue where your e-book will appear.'
+                      : `Select the category hierarchy in the ${(activeChannel === 'quick' || activeChannel === 'grocery') ? 'Quick Commerce' : 'Shop All'} catalogue.`}
+                  </p>
+                </div>
+
                 <div className="onboarding-form-group">
                   <label className="onboarding-label">
-                    Main Group (Header) * <span style={{ fontWeight: 600, opacity: 0.7 }}>({(activeChannel === 'quick' || activeChannel === 'grocery') ? 'Quick Commerce' : 'Shop All'} catalogue)</span>
+                    Main Group (Header) * <span style={{ fontWeight: 600, opacity: 0.7 }}>({categoryTreeType === 'ecommerce' ? 'Shop All' : 'Quick Commerce'} catalogue)</span>
                   </label>
                   <select className="onboarding-select" value={pickL1}
                     onChange={(e) => { setPickL1(e.target.value); setPickL2(''); setPickL3(''); }} required>
@@ -705,7 +873,7 @@ export const ProductModal = () => {
                   </select>
                 </div>
 
-                {pickL1 && (
+                {pickL1 && l2List.length > 0 && (
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Main Category *</label>
                     <select className="onboarding-select" value={pickL2}
@@ -713,7 +881,7 @@ export const ProductModal = () => {
                       <option value="">Select main category *</option>
                       {l2List.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
                     </select>
-                    {!pickL2 && l2List.length > 0 && (
+                    {!pickL2 && (
                       <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
                         * Main Category is required.
                       </span>
@@ -723,26 +891,43 @@ export const ProductModal = () => {
 
                 {pickL2 && l3List.length > 0 && (
                   <div className="onboarding-form-group">
-                    <label className="onboarding-label">Sub-Category (Optional)</label>
+                    <label className="onboarding-label">Sub-Category *</label>
                     <select className="onboarding-select" value={pickL3}
-                      onChange={(e) => setPickL3(e.target.value)}>
-                      <option value="">Select sub category</option>
+                      onChange={(e) => setPickL3(e.target.value)} required>
+                      <option value="">Select sub-category *</option>
                       {l3List.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
                     </select>
+                    {!pickL3 && (
+                      <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
+                        * Specific sub-category is required to complete listing taxonomy.
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {pickL1 && l2List.length === 0 && (
+                  <div style={{ padding: '10px 14px', background: '#ecfdf5', borderRadius: 8, border: '1px solid #a7f3d0', color: '#065f46', fontSize: 12, fontWeight: 600 }}>
+                    ℹ️ This header category has no sub-categories and will be used directly as your listing category leaf.
                   </div>
                 )}
 
                 {pickL2 && l3List.length === 0 && (
-                  <span style={{ fontSize: 11, opacity: 0.65 }}>
-                    This category has no sub-categories, so it will be used directly.
-                  </span>
+                  <div style={{ padding: '10px 14px', background: '#ecfdf5', borderRadius: 8, border: '1px solid #a7f3d0', color: '#065f46', fontSize: 12, fontWeight: 600 }}>
+                    ℹ️ This category has no further sub-categories and will be used directly as your listing category leaf.
+                  </div>
                 )}
 
-                {effectiveCategoryId && (
-                  <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>
-                    Selected: {l1Node && l1Node.name}
-                    {l2Node ? ' > ' + l2Node.name : ''}
-                    {pickL3 ? ' > ' + ((l3List.find((c) => c._id === pickL3) || {}).name || '') : ''}
+                {effectiveCategoryId ? (
+                  <div style={{ marginTop: 14, padding: '12px 16px', borderRadius: 10, background: 'var(--primary-light)', border: '1.5px solid var(--primary)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>✅</span>
+                    <div>
+                      <span style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 800, color: 'var(--primary)', letterSpacing: '0.4px', display: 'block' }}>Active Listing Leaf Category</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{categoryBreadcrumb}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#b45309', fontSize: 12, fontWeight: 600 }}>
+                    ⚠️ Please complete the selection above until a specific category leaf is determined.
                   </div>
                 )}
               </div>
@@ -750,77 +935,169 @@ export const ProductModal = () => {
 
             {activeTab === 'photos' && (
               <div style={S.tabPanel}>
-                {isDigital && <div className="onboarding-form-group" style={{ marginBottom: 18 }}>
-                  <label className="onboarding-label">Private PDF file {!editingProduct?.digital?.file?.status && '*'}</label>
-                  <input type="file" accept="application/pdf,.pdf" onChange={(event) => setEbookFile(event.target.files?.[0] || null)} />
-                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-                    {ebookFile ? `Selected: ${ebookFile.name} (${Math.ceil(ebookFile.size / 1024)} KB)`
-                      : editingProduct?.digital?.file?.status === 'uploaded' ? 'Private PDF uploaded. Choose another file only to replace it.' : 'PDF only; private backend storage, not Cloudinary.'}
-                  </div>
-                </div>}
-                <div className="onboarding-form-group">
-                  <label className="onboarding-label">Main Cover Photo {!isEditing && '*'}</label>
-                  <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
-                    onChange={(e) => { pickCover(e.target.files?.[0]); e.target.value = ''; }} />
-                  <div
-                    onClick={() => coverInputRef.current?.click()}
-                    style={S.coverBox}
-                  >
-                    {coverImage ? (
-                      <img src={coverImage.url} alt="Cover" style={S.coverImg} />
-                    ) : isEditing && editingProduct?.images?.[0] ? (
-                      <img src={editingProduct.images[0]} alt="Current cover" style={S.coverImg} />
-                    ) : (
-                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>Click to upload cover photo</span>
-                    )}
-                  </div>
-                  {isEditing && (
-                    <span style={{ fontSize: 10, opacity: 0.65, display: 'block', marginTop: 6 }}>
-                      Attaching a new cover or any additional photo replaces the entire photo set.
-                    </span>
-                  )}
-                </div>
+                {isDigital ? (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <h4 style={S.sectionTitle}>E-book Media & Digital Assets</h4>
+                      <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                        Provide a storefront cover image and upload your private original PDF document.
+                      </p>
+                    </div>
 
-                <div className="onboarding-form-group">
-                  <label className="onboarding-label">Additional Product Photos ({ADDITIONAL_SLOTS} slots)</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-                    {slots.map((slot, i) => (
-                      <div key={i} style={S.slotCard}>
-                        <select
-                          value={slot.type}
-                          onChange={(e) => setSlotType(i, e.target.value)}
-                          style={S.slotTypeSelect}
-                        >
-                          <option value="">Image type…</option>
-                          {IMAGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
-
-                        <input
-                          ref={(el) => { slotInputRefs.current[i] = el; }}
-                          type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
-                          onChange={(e) => { pickSlotFile(i, e.target.files?.[0]); e.target.value = ''; }}
-                        />
-
-                        <div
-                          onClick={() => slot.type && slotInputRefs.current[i]?.click()}
-                          style={{
-                            ...S.slotUpload,
-                            opacity: slot.type ? 1 : 0.45,
-                            cursor: slot.type ? 'pointer' : 'not-allowed',
-                          }}
-                        >
-                          {slot.url ? (
-                            <img src={slot.url} alt={slot.type} style={S.coverImg} />
-                          ) : (
-                            <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center', padding: 6 }}>
-                              {slot.type ? 'Click to upload' : 'Choose a type first'}
+                    <div className="onboarding-form-group">
+                      <label className="onboarding-label">E-book Cover Photo {!isEditing && '*'}</label>
+                      <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                        onChange={(e) => { pickCover(e.target.files?.[0]); e.target.value = ''; }} />
+                      <div onClick={() => coverInputRef.current?.click()} style={S.coverBox}>
+                        {coverImage ? (
+                          <img src={coverImage.url} alt="Cover" style={S.coverImg} />
+                        ) : isEditing && editingProduct?.images?.[0] ? (
+                          <img src={editingProduct.images[0]} alt="Current cover" style={S.coverImg} />
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: 16 }}>
+                            <span style={{ fontSize: 32, display: 'block', marginBottom: 6 }}>📚</span>
+                            <span style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontWeight: 700, display: 'block' }}>
+                              Click to upload e-book cover photo *
                             </span>
-                          )}
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>JPG, PNG or WEBP (Max 5 MB)</span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                        This cover image is published to Cloudinary and displayed to buyers on catalogue cards and book details.
+                      </div>
+                    </div>
+
+                    <div className="onboarding-form-group" style={{ marginTop: 14 }}>
+                      <label className="onboarding-label">
+                        Original Digital E-book File (PDF) {!editingProduct?.digital?.file?.status && '*'}
+                      </label>
+                      <div style={{ border: '1.5px dashed var(--border-color)', borderRadius: 12, padding: 18, background: 'var(--bg-page)' }}>
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          id="ebook-pdf-file-input"
+                          style={{ display: 'none' }}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) {
+                              if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                                triggerToast('Only PDF files are allowed for e-books.');
+                                return;
+                              }
+                              setEbookFile(file);
+                            }
+                          }}
+                        />
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+                          <div style={{ flex: 1, minWidth: 220 }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 20 }}>🔒</span>
+                              {ebookFile ? (
+                                <span style={{ color: 'var(--primary)' }}>{ebookFile.name} ({Math.ceil(ebookFile.size / 1024)} KB)</span>
+                              ) : editingProduct?.digital?.file?.status === 'uploaded' ? (
+                                <span style={{ color: '#16a34a' }}>PDF already securely stored ({Math.ceil((editingProduct.digital.file.sizeBytes || 0) / 1024)} KB)</span>
+                              ) : (
+                                <span>No PDF file attached yet *</span>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                              Secured in private backend storage with SHA-256 verification. Never exposed through public URLs or CDNs.
+                            </div>
+                          </div>
+                          <label
+                            htmlFor="ebook-pdf-file-input"
+                            style={{
+                              border: '1px solid var(--primary)',
+                              background: 'var(--bg-card)',
+                              color: 'var(--primary)',
+                              padding: '9px 18px',
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-block',
+                            }}
+                          >
+                            {ebookFile || editingProduct?.digital?.file?.status === 'uploaded' ? 'Change PDF File' : 'Select PDF File *'}
+                          </label>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="onboarding-form-group">
+                      <label className="onboarding-label">Main Cover Photo {!isEditing && '*'}</label>
+                      <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                        onChange={(e) => { pickCover(e.target.files?.[0]); e.target.value = ''; }} />
+                      <div
+                        onClick={() => coverInputRef.current?.click()}
+                        style={S.coverBox}
+                      >
+                        {coverImage ? (
+                          <img src={coverImage.url} alt="Cover" style={S.coverImg} />
+                        ) : isEditing && editingProduct?.images?.[0] ? (
+                          <img src={editingProduct.images[0]} alt="Current cover" style={S.coverImg} />
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: 16 }}>
+                            <span style={{ fontSize: 32, display: 'block', marginBottom: 6 }}>📷</span>
+                            <span style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontWeight: 700, display: 'block' }}>
+                              Click to upload main cover photo *
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>JPG, PNG or WEBP (Max 5 MB)</span>
+                          </div>
+                        )}
+                      </div>
+                      {isEditing && (
+                        <span style={{ fontSize: 10, opacity: 0.65, display: 'block', marginTop: 6 }}>
+                          Attaching a new cover or any additional photo replaces the entire photo set.
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="onboarding-form-group">
+                      <label className="onboarding-label">Additional Product Photos ({ADDITIONAL_SLOTS} optional slots)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                        {slots.map((slot, i) => (
+                          <div key={i} style={S.slotCard}>
+                            <select
+                              value={slot.type}
+                              onChange={(e) => setSlotType(i, e.target.value)}
+                              style={S.slotTypeSelect}
+                            >
+                              <option value="">Image type…</option>
+                              {IMAGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+
+                            <input
+                              ref={(el) => { slotInputRefs.current[i] = el; }}
+                              type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                              onChange={(e) => { pickSlotFile(i, e.target.files?.[0]); e.target.value = ''; }}
+                            />
+
+                            <div
+                              onClick={() => slot.type && slotInputRefs.current[i]?.click()}
+                              style={{
+                                ...S.slotUpload,
+                                opacity: slot.type ? 1 : 0.45,
+                                cursor: slot.type ? 'pointer' : 'not-allowed',
+                              }}
+                            >
+                              {slot.url ? (
+                                <img src={slot.url} alt={slot.type} style={S.coverImg} />
+                              ) : (
+                                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center', padding: 6 }}>
+                                  {slot.type ? 'Click to upload' : 'Choose a type first'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -829,8 +1106,28 @@ export const ProductModal = () => {
 
           {/* ---- footer ---- */}
           <div style={S.footer}>
+            {!canSubmit && !savingProduct && allErrors.length > 0 && (
+              <div style={S.footerErrorHint} onClick={navigateToFirstError} title="Click to fix missing fields">
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626' }}>
+                  ⚠️ {allErrors[0]} {allErrors.length > 1 ? `(+${allErrors.length - 1} more)` : ''}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginLeft: 8, textDecoration: 'underline' }}>
+                  Fix in {tabs.find((t) => tabErrors[t.id]?.length > 0)?.label} →
+                </span>
+              </div>
+            )}
             <button type="button" onClick={close} style={S.footerCloseBtn}>Close</button>
-            <button type="button" onClick={handleSubmit} disabled={!canSubmit} style={{ ...S.footerSaveBtn, ...(canSubmit ? {} : S.footerSaveBtnDisabled) }}>
+            <button
+              type="button"
+              onClick={canSubmit ? handleSubmit : navigateToFirstError}
+              disabled={savingProduct}
+              style={{
+                ...S.footerSaveBtn,
+                ...(canSubmit ? {} : S.footerSaveBtnDisabled),
+                ...(savingProduct ? { opacity: 0.7, cursor: 'wait' } : {}),
+              }}
+              title={canSubmit ? 'Submit listing' : 'Resolve required fields to submit'}
+            >
               {savingProduct ? 'Saving…' : (isEditing ? 'Save Changes' : 'Save & Submit Listing')}
             </button>
           </div>
@@ -915,12 +1212,17 @@ const S = {
   errorText: { fontSize: 11, color: 'var(--error)', fontWeight: 700 },
   errorBox: { padding: 10, borderRadius: 8, marginTop: 14, fontSize: 11.5, background: 'var(--bg-page)', border: '1px solid var(--error)', color: 'var(--error)' },
   footer: {
-    display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '16px 24px',
-    borderTop: '1px solid var(--border-color)', flexShrink: 0, background: 'var(--bg-card)',
+    display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, padding: '16px 24px',
+    borderTop: '1px solid var(--border-color)', flexShrink: 0, background: 'var(--bg-card)', flexWrap: 'wrap',
   },
   footerCloseBtn: { border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', borderRadius: 10, padding: '10px 20px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' },
   footerSaveBtn: { border: 'none', background: 'var(--primary)', color: 'var(--text-white)', borderRadius: 10, padding: '10px 24px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' },
-  footerSaveBtnDisabled: { background: 'var(--text-muted)', cursor: 'not-allowed' },
+  footerSaveBtnDisabled: { background: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.8 },
+  tabErrorDot: { color: '#dc2626', fontSize: 13, lineHeight: 1, fontWeight: 900 },
+  footerErrorHint: {
+    display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '6px 14px', borderRadius: 8,
+    background: '#fef2f2', border: '1px solid #fee2e2', marginRight: 'auto', flexWrap: 'wrap',
+  },
 };
 
 export default ProductModal;
