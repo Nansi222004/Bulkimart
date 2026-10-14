@@ -9,6 +9,7 @@ node_modules/
 .env.*.local
 **/.env
 /backend/private-data/ebooks/
+/backend/private-data/services/
 /backend/backups/account-cleanup/
 /backend/backups/account-hard-delete/
 branch_structure.json
@@ -36,3 +37,4 @@ backend/__tests__/services/*
 !backend/__tests__/services/phone-normalization.test.js
 test/
 tests/
+!backend/__tests__/api/service-management.http.test.js

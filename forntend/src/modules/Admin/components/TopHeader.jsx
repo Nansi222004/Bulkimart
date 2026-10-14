@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { createAdminNotificationOpener } from '../utils/serviceNotifications';
 
 const timeAgo = (iso) => {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -20,6 +21,7 @@ export const TopHeader = ({ onLogout }) => {
 
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const panelRef = useRef(null);
+  const notificationOpener = useRef(createAdminNotificationOpener());
 
   useEffect(() => {
     if (showNotifPanel) fetchAdminNotifications();
@@ -33,16 +35,14 @@ export const TopHeader = ({ onLogout }) => {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  const handleOpenNotification = async (n) => {
-    if (!n.isRead) markAdminNotificationRead(n._id);
-    if (n.metadata?.ticketId) {
-      setActiveTab('tickets');
-      setShowNotifPanel(false);
-      // TicketsTab reads full ticket rows from its own list, not this
-      // notification payload — opening by id re-fetches the real thing.
-      await openTicketDetail({ id: n.metadata.ticketId, ticketNumber: n.metadata.ticketId, userName: '', requesterRole: '', subject: n.title, category: '' });
-    }
-  };
+  const handleOpenNotification = n => notificationOpener.current(n, {
+    markRead: markAdminNotificationRead, setTab: setActiveTab,
+    close: () => setShowNotifPanel(false), openTicket: openTicketDetail, toast: triggerToast,
+    openService: id => {
+      window.history.pushState(null, '', `/admin/services?application=${encodeURIComponent(id)}`);
+      window.dispatchEvent(new Event('service-application-open'));
+    },
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>

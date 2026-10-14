@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ServicesPanel from '../../../components/services/ServicesPanel';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
 import LeftNav from '../components/LeftNav';
@@ -27,6 +28,7 @@ import NotificationPopup from '../../../components/NotificationPopup';
  * broadcast.service.js's own allowlist) onto this dashboard's own tab ids. */
 const resolvePopupNav = (route) => {
   if (!route) return null;
+  if (route.startsWith('/seller/services')) return 'services';
   if (route.startsWith('/seller/returns')) return 'item-returns';
   if (route.startsWith('/seller/orders')) return 'orders';
   if (route.startsWith('/seller')) return 'dashboard';
@@ -34,6 +36,7 @@ const resolvePopupNav = (route) => {
 };
 
 const TAB_TITLES = {
+  services: 'Services',
   dashboard: 'Dashboard',
   products: 'Products',
   stock: 'Stocks',
@@ -70,6 +73,7 @@ export const DashboardPage = () => {
 
   const renderActiveTab = () => {
     switch (activeTab) {
+      case 'services': return <ServicesPanel />;
       case 'dashboard':     return <DashboardTab />;
       case 'products':      return <ProductsTab />;
       case 'stock':         return <StockTab />;

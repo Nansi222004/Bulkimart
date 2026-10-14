@@ -1,4 +1,5 @@
 import express from "express";
+import serviceRoutes, { serviceRouter } from './serviceManagement.routes.js';
 import authRoutes from "./auth.routes.js";
 import userRoutes from "./user.routes.js";
 import sellerRoutes from "./seller.routes.js";
@@ -27,6 +28,8 @@ import shiprocketRoutes from "./shiprocket.routes.js";
 import digitalCommerceRoutes from './digitalCommerce.routes.js';
 
 const router = express.Router();
+router.use('/admin/services', serviceRouter(true));
+router.use('/services', serviceRoutes);
 
 // Register active Day 1 routers
 router.use("/auth", authRoutes);

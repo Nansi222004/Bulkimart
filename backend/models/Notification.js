@@ -51,6 +51,7 @@ const notificationSchema = new Schema(
     route:   { type: String },
     media: { type: notificationMediaSchema, default: undefined },
     metadata:{
+      applicationId: { type: ObjectId, ref: 'ServiceApplication' },
       orderId:        { type: ObjectId, ref: "Order" },
       subscriptionId: { type: ObjectId, ref: "Subscription" },
       productId:      { type: ObjectId, ref: "Product" },
