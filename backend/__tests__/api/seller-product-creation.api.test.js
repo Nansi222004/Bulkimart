@@ -338,7 +338,7 @@ describe('Seller Product Creation & E-book Flow API', () => {
       expect(res.body.message).toBe('This product is not available');
     });
 
-    test('verifies that an approved e-book is explicitly gated in customer cart with 409', async () => {
+    test('allows an approved e-book into the customer cart as a quantity-one digital line', async () => {
       // Simulate admin approval of the e-book listing
       await Product.findByIdAndUpdate(createdEbookId, { status: 'approved', isActive: true });
 
@@ -347,8 +347,11 @@ describe('Seller Product Creation & E-book Flow API', () => {
         .set(auth(buyerToken))
         .send({ productId: createdEbookId, qty: 1 });
 
-      expect(res.status).toBe(409);
-      expect(res.body.message).toBe('E-book purchasing is not available yet');
+      expect(res.status).toBe(200);
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].fulfillmentType).toBe('digital');
+      expect(res.body.data.items[0].qty).toBe(1);
+      expect(res.body.data.pricing.deliveryCharge).toBe(0);
     });
   });
 });

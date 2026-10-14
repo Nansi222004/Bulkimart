@@ -58,7 +58,7 @@ const loadReconciledCart = async (userId, channel) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || p.isDeleted || !p.isActive || p.status !== 'approved') {
       warnings.push(`"${line.name}" is no longer available and was removed.`);
       mutated = true;
       continue;
@@ -70,7 +70,8 @@ const loadReconciledCart = async (userId, channel) => {
       mutated = true;
       continue;
     }
-    if (inventory.stock <= 0) {
+    const isDigital = p.fulfillmentType === 'digital';
+    if (!isDigital && inventory.stock <= 0) {
       warnings.push(`"${p.name}" is out of stock and was removed.`);
       mutated = true;
       continue;
@@ -80,7 +81,7 @@ const loadReconciledCart = async (userId, channel) => {
       line.price = inventory.price;
       mutated = true;
     }
-    if (inventory.stock < line.qty) {
+    if (!isDigital && inventory.stock < line.qty) {
       warnings.push(`Only ${inventory.stock} left of "${p.name}" — quantity reduced.`);
       line.qty = inventory.stock;
       mutated = true;
@@ -119,10 +120,16 @@ const loadReconciledCart = async (userId, channel) => {
       qty: line.qty,
       unit: inventory.unit,
       type: product.type,
+      fulfillmentType: product.fulfillmentType || 'physical',
+      digital: product.fulfillmentType === 'digital' ? {
+        author: product.digital?.author,
+        language: product.digital?.language,
+        licenseTerms: product.digital?.licenseTerms,
+      } : undefined,
       sellerId: product.sellerId,
       shgStoreId: product.shgStoreId,
       category: product.category?.name || '',
-      stock: inventory.stock,
+      stock: product.fulfillmentType === 'digital' ? 1 : inventory.stock,
       deliveryMode: line.deliveryMode,
       additionalMessage: line.additionalMessage || '',
       lineTotal: Math.round(effectivePrice * line.qty * 100) / 100,
@@ -141,6 +148,7 @@ const loadReconciledCart = async (userId, channel) => {
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const shape = async (channel, items, warnings, user, code, delivery = {}, useCoins = false) => {
+  const allDigital = items.length > 0 && items.every((item) => item.fulfillmentType === 'digital');
   const hasDestination = delivery.lat !== undefined && delivery.lng !== undefined;
   const destination = hasDestination ? { lat: Number(delivery.lat), lng: Number(delivery.lng) } : null;
 
@@ -158,7 +166,7 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
    * told "unavailable", which would be a different and wronger claim.
    */
   let sameDayVerdict = null;
-  if (channel === CHANNEL.ECOM && items.length > 0 && destination) {
+  if (channel === CHANNEL.ECOM && items.length > 0 && destination && !allDigital) {
     const lines = [];
     const sellers = new Map();
     for (const i of items) {
@@ -197,6 +205,11 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
   }
 
   const base = priceOrder(items, user, null, null, cartDistanceKm);
+  if (allDigital) {
+    base.deliveryCharge = 0;
+    base.standardFee = 0;
+    base.totalAmount = base.subtotal;
+  }
   let applied = null;
   let couponError = null;
 
@@ -212,6 +225,11 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
 
   // Each channel is priced on its own — separate fulfilment, separate delivery fee.
   const pricing = priceOrder(items, user, applied, sameDayChosen, cartDistanceKm);
+  if (allDigital) {
+    pricing.deliveryCharge = 0;
+    pricing.standardFee = 0;
+    pricing.totalAmount = round2(Math.max(0, pricing.subtotal - pricing.discount - pricing.couponDiscount));
+  }
 
   /**
    * NHCONE Coins — an optional, additive layer on top of the pricing above.
@@ -281,7 +299,7 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
      * are different promises, so choosing on their behalf is choosing wrong half
      * the time.
      */
-    deliveryOptions: channel === CHANNEL.ECOM ? {
+    deliveryOptions: channel === CHANNEL.ECOM && !allDigital ? {
       sameDay: sameDayVerdict,
       scheduled: { available: items.length > 0 },
       selected: sameDayChosen ? DELIVERY_MODE.SAME_DAY
@@ -380,10 +398,11 @@ export const addToCart = asyncHandler(async (req, res) => {
   if (product.type === 'shg' || product.shgStoreId) {
     throw httpError(404, 'This product is not available');
   }
-  if (product.fulfillmentType === 'digital') throw httpError(409, 'E-book purchasing is not available yet');
   const inventory = resolveInventoryItem(product, variantId);
-  if (inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
-  if (quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
+  const isDigital = product.fulfillmentType === 'digital';
+  if (isDigital && quantity !== 1) throw httpError(400, 'An e-book can only appear once in your cart');
+  if (!isDigital && inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
+  if (!isDigital && quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
   if (quantity > MAX_QTY_PER_LINE) {
     throw httpError(400, `You can order at most ${MAX_QTY_PER_LINE} of one item`);
   }
@@ -397,7 +416,7 @@ export const addToCart = asyncHandler(async (req, res) => {
    * rather than blocking every add-to-cart for someone who hasn't set an
    * address yet — that's an existing, unrelated flow this must not break.
    */
-  if (product.sellerId) {
+  if (product.sellerId && !isDigital) {
     const seller = await Seller.findById(product.sellerId).select('storeDetails serviceRadiusKm').lean();
     if (seller?.serviceRadiusKm !== undefined && seller?.serviceRadiusKm !== null) {
       const bodyLat = req.body.lat !== undefined ? Number(req.body.lat) : undefined;
@@ -447,6 +466,7 @@ export const addToCart = asyncHandler(async (req, res) => {
     sellerId: product.sellerId,
     shgStoreId: product.shgStoreId,
     type: product.type,
+    fulfillmentType: product.fulfillmentType || 'physical',
   };
 
   // Apply each increment/push atomically. If another request changes the
@@ -460,6 +480,10 @@ export const addToCart = asyncHandler(async (req, res) => {
     const existing = cart.items.find((line) => inventoryIdentityKey(line) === identity);
 
     if (existing) {
+      if (isDigital) {
+        committed = true;
+        continue;
+      }
       const desired = existing.qty + quantity;
       if (desired > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
       if (desired > MAX_QTY_PER_LINE) {
@@ -535,7 +559,8 @@ export const updateCartItem = asyncHandler(async (req, res) => {
         throw httpError(400, 'This product is no longer available');
       }
       const inventory = resolveInventoryItem(product, line.variantId);
-      if (quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
+      if (product.fulfillmentType === 'digital' && quantity !== 1) throw httpError(400, 'An e-book can only appear once in your cart');
+      if (product.fulfillmentType !== 'digital' && quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
       line.qty = quantity;
     }
 

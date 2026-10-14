@@ -43,11 +43,8 @@ const OrdersPage = () => {
   const { setActiveNav, orders, ordersLoading, setSelectedOrder, fetchOrders } = useUser();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // PhonePe sends the shopper back to /orders?payment=paid|failed&order=...
-  // (backend/controllers/payment.controller.js: paymentReturn). The redirect
-  // itself is never trusted as proof of payment — the backend already
-  // reconciled with the gateway before issuing it; this only refreshes the
-  // list and surfaces a message.
+  // Razorpay checkout returns here only after the authenticated backend
+  // verification call. The query is a UX cue, never payment proof.
   const [paymentBanner, setPaymentBanner] = useState(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

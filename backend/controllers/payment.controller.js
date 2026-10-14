@@ -25,6 +25,7 @@ import { settleWalletTopupPayment } from './wallet.controller.js';
 import { settleRazorpayRefundWebhook } from '../services/return.service.js';
 import { redeemReservedCoins, releaseReservedCoins } from '../services/coin.service.js';
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
+import { activateDigitalEntitlements } from '../services/digitalEntitlement.service.js';
 
 /**
  * PhonePe payments.
@@ -106,6 +107,10 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
           ? await Order.findOne({ groupRef: fresh.groupRef }).sort({ createdAt: 1 }).session(session)
           : (fresh.orderId ? await Order.findById(fresh.orderId).session(session) : null);
 
+        // A signed/captured server-side payment is the sole entitlement
+        // boundary. The unique purchase index makes webhook/browser races safe.
+        await activateDigitalEntitlements({ payment: fresh, session });
+
         result = { changed: true, status: 'paid' };
       } else if (state === 'FAILED') {
         fresh.status = PAYMENT_STATUS.FAILED;
@@ -140,9 +145,7 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
 // @access  Private
 export const initiatePayment = asyncHandler(async (req, res) => {
   const provider = getPaymentGateway();
-  if (provider === 'phonepe' && !isPhonePeConfigured()) {
-    throw httpError(503, 'Online payment is not available right now');
-  }
+  if (provider !== 'razorpay') throw httpError(503, 'Razorpay is not configured for customer payments');
 
   const { orderId } = req.body;
   if (!orderId) throw httpError(400, 'orderId is required');
@@ -194,18 +197,11 @@ export const initiatePayment = asyncHandler(async (req, res) => {
   const redirectUrl = `${base}/api/payments/return/${merchantOrderId}`;
 
   const amountPaise = rupeesToPaise(amountRupees);
-  const gw = provider === 'razorpay'
-    ? await createRazorpayOrder({
-        merchantOrderId,
-        amountPaise,
-        notes: { bulkimartOrderId: String(order._id), orderNo: order.orderNo },
-      })
-    : await createPhonePePayment({
-        merchantOrderId,
-        amountPaise,
-        redirectUrl,
-        message: `Bulkimart order ${order.orderNo}`,
-      });
+  const gw = await createRazorpayOrder({
+    merchantOrderId,
+    amountPaise,
+    notes: { bulkimartOrderId: String(order._id), orderNo: order.orderNo },
+  });
 
   payment.attempts = attempt;
   payment.gateway = {
@@ -217,7 +213,7 @@ export const initiatePayment = asyncHandler(async (req, res) => {
   payment.status = PAYMENT_STATUS.PENDING;
   await payment.save();
 
-  return ok(res, provider === 'razorpay' ? {
+  return ok(res, {
     provider,
     keyId: gw.keyId,
     razorpayOrderId: gw.orderId,
@@ -227,13 +223,7 @@ export const initiatePayment = asyncHandler(async (req, res) => {
     currency: gw.currency,
     name: 'Bulkimart',
     description: `Bulkimart order ${order.orderNo}`,
-  } : {
-    provider,
-    redirectUrl: gw.redirectUrl,
-    merchantOrderId,
-    expireAt: gw.expireAt,
-    amount: order.pricing.totalAmount,
-  }, provider === 'razorpay' ? 'Razorpay checkout ready' : 'Redirecting to PhonePe');
+  }, 'Razorpay checkout ready');
 });
 
 // @desc    PhonePe server-to-server callback — the source of truth
@@ -326,6 +316,9 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
 
   if (evt.amountPaise && evt.amountPaise !== rupeesToPaise(payment.amount)) {
     return res.status(400).json({ success: false, message: 'Payment amount mismatch' });
+  }
+  if (evt.currency && evt.currency !== 'INR') {
+    return res.status(400).json({ success: false, message: 'Payment currency mismatch' });
   }
 
   await settle({

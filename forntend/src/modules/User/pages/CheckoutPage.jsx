@@ -62,7 +62,11 @@ const CheckoutPage = () => {
    */
   const unified = useUnifiedCart(getDeliveryPoint(), couponCode);
   const groups = unified.data?.groups || [];
-  const isUnified = groups.length > 1;
+  const isDigitalCart = (serverCart?.items?.length || 0) > 0
+    && serverCart.items.every((item) => item.fulfillmentType === 'digital');
+  const hasMixedFulfillment = (serverCart?.items || []).some((item) => item.fulfillmentType === 'digital')
+    && (serverCart?.items || []).some((item) => item.fulfillmentType !== 'digital');
+  const isUnified = !isDigitalCart && groups.length > 1;
   const unifiedNeedsChoice = Boolean(unified.data?.needsDeliveryChoice);
 
   const deliveryOptions = serverCart?.deliveryOptions || null;
@@ -75,12 +79,15 @@ const CheckoutPage = () => {
    * All has two and the customer must say which — Place Order stays disabled
    * until they do, rather than one being picked for them.
    */
-  const mustChooseDelivery = isEcom;
+  const mustChooseDelivery = isEcom && !isDigitalCart;
   const deliveryChosen = isUnified
     ? !unifiedNeedsChoice                       // every group must have been answered
     : (!mustChooseDelivery || Boolean(deliveryMode));
 
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
+  useEffect(() => {
+    if (isDigitalCart) setPaymentMethod('Online Payment');
+  }, [isDigitalCart]);
   const [isOrdering, setIsOrdering] = useState(false);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
@@ -373,6 +380,10 @@ const CheckoutPage = () => {
   const [orderError, setOrderError] = useState('');
 
   const handlePlaceOrder = async () => {
+    if (hasMixedFulfillment) {
+      setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
+      return;
+    }
     if (isCustomTip && customTipError) {
       setOrderError(customTipError);
       return;
@@ -686,7 +697,7 @@ const CheckoutPage = () => {
       <div className="checkout-content">
         
         {/* Address Selection Section */}
-        <div className="profile-menu-card" style={{ padding: 16 }}>
+        {!isDigitalCart ? (<div className="profile-menu-card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Select Delivery Address
@@ -894,7 +905,14 @@ const CheckoutPage = () => {
               );
             })}
           </div>
-        </div>
+        </div>) : (
+          <div className="profile-menu-card" style={{ padding: 16, border: '1px solid rgba(14,165,233,.3)', background: '#f0f9ff' }}>
+            <strong style={{ color: '#0369a1' }}>Digital delivery</strong>
+            <div style={{ marginTop: 5, fontSize: 12, color: '#475569' }}>
+              No delivery address or shipping fee is required. Your e-books appear in My E-books after Razorpay verifies payment.
+            </div>
+          </div>
+        )}
 
 
 
@@ -913,7 +931,7 @@ const CheckoutPage = () => {
                 }
               }}
               style={{ 
-                display: 'flex', 
+                display: isDigitalCart ? 'none' : 'flex',
                 gap: 12, 
                 padding: 12, 
                 borderRadius: 10, 
@@ -962,7 +980,7 @@ const CheckoutPage = () => {
             <div 
               onClick={() => setPaymentMethod('Cash on Delivery')}
               style={{ 
-                display: 'flex', 
+                display: isDigitalCart ? 'none' : 'flex',
                 gap: 12, 
                 padding: 12, 
                 borderRadius: 10, 
@@ -1012,8 +1030,8 @@ const CheckoutPage = () => {
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <span style={{ fontSize: 20 }}>💳</span>
                 <div>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Online Payment</span>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, Cards, Wallet & NetBanking (PhonePe integrated)</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Razorpay Online Payment</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, cards and supported payment methods via Razorpay</span>
                 </div>
               </div>
             </div>
@@ -1222,7 +1240,7 @@ const CheckoutPage = () => {
         )}
 
         {/* Tip your delivery partner */}
-        {Boolean(tipSetting?.isEnabled) && (tipOptions.length > 0 || tipSetting?.allowCustom) && (
+        {!isDigitalCart && Boolean(tipSetting?.isEnabled) && (tipOptions.length > 0 || tipSetting?.allowCustom) && (
           <div className="profile-menu-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 20 }}>🛵</span>

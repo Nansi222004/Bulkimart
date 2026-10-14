@@ -120,7 +120,10 @@ const SearchPage = () => {
       id: p._id, _id: p._id, name: p.name,
       image: p.images?.[0] || '', images: p.images || [],
       price: p.price, mrp: p.mrp, discountPercent: p.discountPercent,
-      stock: p.stock, type: p.type,
+      stock: p.fulfillmentType === 'digital' ? 1 : p.stock, type: p.type,
+      fulfillmentType: p.fulfillmentType || 'physical',
+      digital: p.digital || null,
+      raw: p,
     });
   };
 

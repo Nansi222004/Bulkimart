@@ -55,6 +55,7 @@ const ProductDetailPage = () => {
     isWishlisted, toggleWishlist,
   } = useUser();
   const product = selectedProduct;
+  const isDigital = product?.fulfillmentType === 'digital' || product?.raw?.fulfillmentType === 'digital';
   const [loadedVariants, setLoadedVariants] = useState([]);
   const [loadedProductId, setLoadedProductId] = useState('');
   const productVariants = loadedProductId === String(product?.id)
@@ -64,7 +65,7 @@ const ProductDetailPage = () => {
   const selectedVariant = productVariants.find((variant) => String(variant.id || variant._id) === String(selectedVariantId)) || productVariants[0] || null;
   const selectedPrice = selectedVariant?.price ?? product?.price;
   const selectedMrp = selectedVariant?.mrp ?? product?.mrp;
-  const selectedStock = selectedVariant?.stock ?? product?.stock;
+  const selectedStock = isDigital ? 1 : (selectedVariant?.stock ?? product?.stock);
   const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
   const [cartActionPending, setCartActionPending] = useState(false);
   const [cartActionError, setCartActionError] = useState('');
@@ -261,7 +262,7 @@ const ProductDetailPage = () => {
   const deliveryPoint = getDeliveryPoint();
   const isEcom = product?.type === 'ecommerce';
   const { options: deliveryOptions, loading: deliveryLoading } =
-    useProductDeliveryOptions(isEcom ? product?.id : null, deliveryPoint, Math.max(1, qty), selectedVariantId || null);
+    useProductDeliveryOptions(isEcom && !isDigital ? product?.id : null, deliveryPoint, Math.max(1, qty), selectedVariantId || null);
   const sameDay = deliveryOptions?.sameDay;
 
   useEffect(() => {
@@ -388,7 +389,7 @@ const ProductDetailPage = () => {
         <div className="pd-info-top">
           <div>
             <h1 className="pd-product-name">{product.name}</h1>
-            <p className="pd-pack-info">1 Pack • 250g</p>
+            <p className="pd-pack-info">{isDigital ? `Digital E-book · ${product.digital?.author || product.raw?.digital?.author || 'Author not listed'}` : '1 Pack • 250g'}</p>
           </div>
           <button className="pd-view-details-btn">View details</button>
         </div>
@@ -400,7 +401,7 @@ const ProductDetailPage = () => {
               {productVariants.map((variant) => {
                 const id = String(variant.id || variant._id || '');
                 const attrs = (variant.attributes || []).map((attribute) => `${attribute.name}: ${attribute.value}`).join(', ');
-                return <option key={id} value={id} disabled={Number(variant.stock) < 1}>{variant.name}{attrs ? ` · ${attrs}` : ''} · {formatCurrency(variant.price)}{Number(variant.stock) < 1 ? ' · Out of stock' : ''}</option>;
+                return <option key={id} value={id} disabled={!isDigital && Number(variant.stock) < 1}>{variant.name}{attrs ? ` · ${attrs}` : ''} · {formatCurrency(variant.price)}{!isDigital && Number(variant.stock) < 1 ? ' · Out of stock' : ''}</option>;
               })}
             </select>
           </label>
@@ -437,11 +438,11 @@ const ProductDetailPage = () => {
         <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
 
         {unavailable && <UnavailableBadge style={{ marginTop: 10 }} />}
-        <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>
+        <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? 'Digital download · available after verified payment' : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>
       </div>
 
       {/* Offers section */}
-      <div className="pd-section-card">
+      {!isDigital ? <div className="pd-section-card">
         <h3 className="pd-section-title">
           <span style={{ color: '#FF8500' }}>%</span> Offers &amp; Coupons
         </h3>
@@ -453,7 +454,17 @@ const ProductDetailPage = () => {
           </div>
         </div>
         <button className="pd-see-all-btn">See all offers →</button>
-      </div>
+      </div> : (
+        <div className="pd-section-card">
+          <h3 className="pd-section-title">📘 E-book details</h3>
+          <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.6 }}>
+            <div><strong>Author:</strong> {product.digital?.author || product.raw?.digital?.author || '—'}</div>
+            <div><strong>Language:</strong> {product.digital?.language || product.raw?.digital?.language || '—'}</div>
+            <div><strong>Format:</strong> PDF</div>
+            {(product.digital?.licenseTerms || product.raw?.digital?.licenseTerms) && <div><strong>License:</strong> {product.digital?.licenseTerms || product.raw?.digital?.licenseTerms}</div>}
+          </div>
+        </div>
+      )}
 
       {/*
         Delivery, for this address and this product.
@@ -464,7 +475,7 @@ const ProductDetailPage = () => {
         server's verdict, including the reason when same-day is not on offer.
         A refusal with a reason is worth more than a missing row.
       */}
-      <div className="pd-section-card">
+      {!isDigital && <div className="pd-section-card">
         <h3 className="pd-section-title">🚚 Delivery Details</h3>
         <div className="pd-delivery-row">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
@@ -533,7 +544,7 @@ const ProductDetailPage = () => {
             </div>
           )
         )}
-      </div>
+      </div>}
 
       {/*
         Return Policy — QUICK COMMERCE ONLY.

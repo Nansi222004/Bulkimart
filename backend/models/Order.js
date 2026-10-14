@@ -90,6 +90,22 @@ const orderItemSchema = new Schema({
   sellerId:   { type: ObjectId, ref: "Seller" },
   shgStoreId: { type: ObjectId, ref: "SHGStore" },
   type:       String,
+  fulfillmentType: { type: String, enum: ['physical', 'digital'], default: 'physical' },
+  digitalSnapshot: {
+    author: String,
+    language: String,
+    licenseTerms: String,
+    format: String,
+  },
+  digitalFile: {
+    type: new Schema({
+      fileId: String,
+      sha256: String,
+      sizeBytes: Number,
+      status: { type: String, enum: ['uploaded'] },
+    }, { _id: false }),
+    select: false,
+  },
   additionalMessage: { type: String, default: "" },
 
   /**

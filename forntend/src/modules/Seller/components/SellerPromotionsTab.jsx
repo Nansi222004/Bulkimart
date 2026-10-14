@@ -3,7 +3,7 @@ import { apiUrl } from '../../../utils/api';
 
 /**
  * Promotion / Advertisement — paid visibility a seller buys through Admin
- * verification + PhonePe payment. Kept entirely separate from
+ * verification and payment. Kept entirely separate from
  * SellerCampaignsTab.jsx (free admin-run discount invitations): nothing
  * here is a discount, and nothing there costs the seller anything.
  *
@@ -35,7 +35,6 @@ const api = {
   submit: (id) => fetch(apiUrl(`/api/sellers/promotions/${id}/submit`), { method: 'POST', headers: authHeaders() }).then((r) => r.json()),
   resubmit: (id) => fetch(apiUrl(`/api/sellers/promotions/${id}/resubmit`), { method: 'POST', headers: authHeaders() }).then((r) => r.json()),
   cancel: (id) => fetch(apiUrl(`/api/sellers/promotions/${id}/cancel`), { method: 'POST', headers: authHeaders() }).then((r) => r.json()),
-  pay: (id) => fetch(apiUrl(`/api/sellers/promotions/${id}/payment`), { method: 'POST', headers: authHeaders() }).then((r) => r.json()),
 };
 
 const STATUS_BADGE = {
@@ -206,9 +205,8 @@ export const SellerPromotionsTab = () => {
   };
 
   const payNow = async (id) => {
-    const res = await api.pay(id);
-    if (!res.success) { alert(res.message || 'Could not start payment'); return; }
-    window.location.href = res.data.redirectUrl;
+    void id;
+    alert('Seller promotion payments are temporarily unavailable while billing is migrated to Razorpay.');
   };
 
   const cancelIt = async (id) => {
@@ -456,7 +454,7 @@ export const SellerPromotionsTab = () => {
 
             <div style={{ display: 'flex', gap: 10 }}>
               {d.status === 'DRAFT' && <button style={btnPrimary} onClick={() => openWizard(d)}>Edit / Submit</button>}
-              {d.status === 'APPROVED' && <button style={btnPrimary} onClick={() => payNow(d._id)}>Pay Now</button>}
+              {d.status === 'APPROVED' && <button style={{ ...btnPrimary, opacity: .55, cursor: 'not-allowed' }} disabled onClick={() => payNow(d._id)}>Payment unavailable</button>}
               {['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(d.status) && (
                 <button style={btnGhost} onClick={() => cancelIt(d._id)}>Cancel</button>
               )}

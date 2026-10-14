@@ -1,18 +1,10 @@
 import express from 'express';
-import {
-  getActivePromotionsPublic, getPromotionPublic, promotionPaymentReturn,
-} from '../controllers/sellerPromotion.controller.js';
+import { getActivePromotionsPublic, getPromotionPublic } from '../controllers/sellerPromotion.controller.js';
 
 const router = express.Router();
 
-/**
- * Where PhonePe sends the seller back — before any auth, same placement
- * payment return handlers use: the browser returns
- * without the app's Authorization header, and the real state is re-checked
- * against PhonePe itself, never trusted from the redirect alone.
- */
-router.get('/payment/return/:merchantOrderId', promotionPaymentReturn);
-
+// Promotion payment callbacks are retired until seller billing is migrated to
+// Razorpay. Public promotion catalogue reads remain available.
 router.get('/', getActivePromotionsPublic);
 router.get('/:id', getPromotionPublic);
 

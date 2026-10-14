@@ -12,7 +12,7 @@ Routing is handled via clean path-based routing in `src/App.jsx`:
 * **Super Admin Panel (`/admin`):** Operations workspace for managing vendors, KYC, orders, payouts, delivery zones, categories, and promotions.
 * **Seller Panel (`/seller`):** Vendor portal for store profile registration, product catalog, bulk Excel upload, order management, and advertising.
 * **Delivery Partner Panel (`/delivery`):** Mobile-first driver interface for order pings, active delivery navigation, return pickups, and earnings.
-* **Mock Payment Gateway (`/mock-phonepe`):** Development utility for simulating PhonePe payments in test environments.
+* **Razorpay Checkout:** Customer online payments use the backend-created Razorpay order and server-side verification flow.
 
 ---
 

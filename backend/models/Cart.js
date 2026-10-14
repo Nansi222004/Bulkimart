@@ -19,6 +19,7 @@ const cartItemSchema = new Schema({
   sellerId:   { type: ObjectId, ref: "Seller" },
   shgStoreId: { type: ObjectId, ref: "SHGStore" },
   type:       String,   // ecommerce | grocery | shg
+  fulfillmentType: { type: String, enum: ['physical', 'digital'], default: 'physical' },
 
   /**
    * How the customer wants this particular line delivered.

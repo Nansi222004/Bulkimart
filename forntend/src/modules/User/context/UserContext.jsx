@@ -66,7 +66,7 @@ export const UserProvider = ({ children }) => {
     if (parts.length === 0) return 'home';
     const firstPart = parts[0];
     // Retired legacy storefront URLs intentionally fall back to Bulkimart home.
-    if (['categories', 'orders', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search', 'wholesale'].includes(firstPart)) {
+    if (['categories', 'orders', 'ebooks', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search', 'wholesale'].includes(firstPart)) {
       if (firstPart === 'profile') return 'account';
       return firstPart;
     }
@@ -1227,6 +1227,32 @@ export const UserProvider = ({ children }) => {
   const placeOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
     if ((serverCart.items || []).length === 0) return { ok: false, message: 'Your cart is empty.' };
+
+    const digitalItems = serverCart.items.filter((item) => item.fulfillmentType === 'digital');
+    if (digitalItems.length > 0) {
+      if (digitalItems.length !== serverCart.items.length) {
+        return { ok: false, message: 'Digital and physical items require separate checkout. Remove one type and check out each group separately.' };
+      }
+      if (paymentMethod !== 'Online Payment') {
+        return { ok: false, message: 'E-books can only be purchased using Razorpay.' };
+      }
+      try {
+        const checkoutPayload = { paymentMethod: 'online', coupon: couponCode || undefined };
+        const requestHeaders = checkoutHeaders('digital', checkoutPayload);
+        const res = await fetch(apiUrl('/api/digital/checkout'), {
+          method: 'POST', headers: requestHeaders, body: JSON.stringify(checkoutPayload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, message: body.message || 'Could not create the e-book order' };
+        clearCheckoutKey('digital');
+        setCouponCode('');
+        setAppliedCoupon(null);
+        await Promise.all([refreshCart(cartChannel, ''), fetchOrders()]);
+        return { ok: true, order: body.data.order, message: body.message };
+      } catch (err) {
+        return { ok: false, message: err.message };
+      }
+    }
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };

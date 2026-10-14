@@ -22,7 +22,7 @@ import {
 } from '../controllers/campaign.controller.js';
 import {
   listActivePromotionPackages, listMyPromotions, getMyPromotionDetail, createPromotion, updatePromotion,
-  submitPromotion, resubmitPromotion, cancelPromotion, initiatePromotionPayment,
+  submitPromotion, resubmitPromotion, cancelPromotion,
 } from '../controllers/sellerPromotion.controller.js';
 import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } from '../controllers/return.controller.js';
 import {
@@ -134,7 +134,6 @@ router.put('/promotions/:id', requireApprovedSeller, uploadSingle('bannerImage')
 router.post('/promotions/:id/submit', requireApprovedSeller, submitPromotion);
 router.post('/promotions/:id/resubmit', requireApprovedSeller, resubmitPromotion);
 router.post('/promotions/:id/cancel', requireApprovedSeller, cancelPromotion);
-router.post('/promotions/:id/payment', requireApprovedSeller, initiatePromotionPayment);
 
 // ---- Packaging Material -------------------------------------------------
 // Registered before /packaging/packages/:id so "orders" is never parsed as an id.

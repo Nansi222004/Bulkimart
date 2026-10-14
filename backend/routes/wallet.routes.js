@@ -3,9 +3,6 @@ import { protect, requireAdmin } from "../middlewares/auth.middleware.js";
 import {
   getMyWallet,
   getMyWalletTransactions,
-  initiateWalletTopup,
-  walletTopupReturn,
-  getWalletTopupStatus,
   devQuickTopup,
   adminGetOverview,
   adminGetUserWallets,
@@ -22,10 +19,7 @@ const router = express.Router();
 // ============================================================================
 router.get("/", protect, getMyWallet);
 router.get("/transactions", protect, getMyWalletTransactions);
-router.post("/topup/initiate", protect, initiateWalletTopup);
 router.post("/dev-topup", protect, devQuickTopup);
-router.get("/topup/return/:merchantOrderId", walletTopupReturn);
-router.get("/topup/status/:merchantOrderId", protect, getWalletTopupStatus);
 
 // ============================================================================
 // ADMIN WALLET ROUTES (Protected - Admin Only)

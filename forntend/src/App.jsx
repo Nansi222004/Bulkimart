@@ -3,7 +3,6 @@ import UserRoutes from './modules/User/routes'
 import SellerRoutes from './modules/Seller/routes'
 import AdminRoutes from './modules/Admin/routes'
 import DeliveryRoutes from './modules/Delivery/routes'
-import MockPhonePePage from './components/MockPhonePePage'
 
 function App() {
   const [path, setPath] = useState(window.location.pathname)
@@ -33,10 +32,6 @@ function App() {
       window.history.replaceState = originalReplaceState
     }
   }, [])
-
-  if (path === '/mock-phonepe' || path.startsWith('/mock-phonepe')) {
-    return <MockPhonePePage />
-  }
 
   if (path === '/delivery' || path.startsWith('/delivery/')) {
     return <DeliveryRoutes />

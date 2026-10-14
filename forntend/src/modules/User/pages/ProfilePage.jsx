@@ -32,7 +32,7 @@ const ProfilePage = () => {
 
 
 
-  // Top-Up PhonePe states
+  // Wallet top-up UI is retired until a Razorpay implementation is approved.
   const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
   const [addMoneyAmount, setAddMoneyAmount] = useState('');
   const [isInitiatingTopup, setIsInitiatingTopup] = useState(false);
@@ -56,33 +56,8 @@ const ProfilePage = () => {
   }, [fetchWalletBalance]);
 
   const handleInitiateTopup = async (customAmt) => {
-    const amt = Number(customAmt || addMoneyAmount);
-    if (!Number.isFinite(amt) || amt < 1) {
-      setTopupError('Please enter a valid amount of at least ₹1');
-      return;
-    }
-    setIsInitiatingTopup(true);
-    setTopupError('');
-    try {
-      const res = await fetch(apiUrl('/api/wallet/topup/initiate'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + localStorage.getItem('userToken')
-        },
-        body: JSON.stringify({ amount: amt })
-      });
-      const body = await res.json();
-      if (body.success && body.data?.redirectUrl) {
-        window.location.href = body.data.redirectUrl;
-      } else {
-        setTopupError(body.message || 'Could not initiate PhonePe payment.');
-        setIsInitiatingTopup(false);
-      }
-    } catch (err) {
-      setTopupError('Network error initiating PhonePe top-up.');
-      setIsInitiatingTopup(false);
-    }
+    void customAmt;
+    setTopupError('Wallet top-up is temporarily unavailable while this flow is migrated to Razorpay.');
   };
 
   const handleDevQuickTopup = async (customAmt) => {
@@ -565,6 +540,13 @@ const ProfilePage = () => {
       action: () => setActiveNav('orders') // Handled natively, bypasses Day 2
     },
     {
+      id: 'ebooks',
+      label: 'My E-books',
+      icon: <span style={{ fontSize: 20 }}>📚</span>,
+      badge: null,
+      action: () => setActiveNav('ebooks')
+    },
+    {
       id: 'addresses',
       label: 'My Addresses',
       icon: (
@@ -696,13 +678,13 @@ const ProfilePage = () => {
               </div>
 
               <div style={{ marginTop: '8px' }}>
-                <button
+                {false && <button
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
                   style={{ background: 'none', border: 'none', color: '#078CCB', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                 >
                   Upload Custom Photo
-                </button>
+                </button>}
               </div>
 
               {/* Preset Avatars Bar */}
@@ -844,8 +826,8 @@ const ProfilePage = () => {
               </div>
             </div>
 
-            {/* ADD MONEY PHONEPE MODAL */}
-            {showAddMoneyModal && (
+            {/* Retired add-money modal retained temporarily for layout-safe removal. */}
+            {false && showAddMoneyModal && (
               <div style={{
                 position: 'fixed',
                 inset: 0,
@@ -879,7 +861,7 @@ const ProfilePage = () => {
                   </div>
 
                   <p style={{ fontSize: '12.5px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                    Top up your Bulkimart Wallet instantly using UPI, Cards, NetBanking or PhonePe.
+                    Wallet top-up is temporarily unavailable while billing moves to Razorpay.
                   </p>
 
                   {topupError && (
@@ -972,7 +954,7 @@ const ProfilePage = () => {
                           gap: '8px'
                         }}
                       >
-                        {isInitiatingTopup ? 'Redirecting to PhonePe...' : `Pay ₹${addMoneyAmount || 0} via PhonePe`}
+                        {isInitiatingTopup ? 'Starting payment...' : `Pay ₹${addMoneyAmount || 0}`}
                       </button>
 
                       <button

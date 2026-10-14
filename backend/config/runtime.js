@@ -13,7 +13,7 @@ const INTEGRATION_MODES = {
   MAPS_MODE: ["live", "mock"],
 };
 
-const PAYMENT_GATEWAYS = ["phonepe", "razorpay"];
+const PAYMENT_GATEWAYS = ["razorpay"];
 
 const LIVE_BULKIMART_HOSTS = new Set([
   "bulkimart.in",
@@ -90,7 +90,7 @@ export const validateRuntimeConfig = (env = process.env) => {
   }
 
   if (env.NODE_ENV === "production" && !PAYMENT_GATEWAYS.includes(env.PAYMENT_GATEWAY)) {
-    throw new Error("PAYMENT_GATEWAY must explicitly be phonepe or razorpay in production");
+    throw new Error("PAYMENT_GATEWAY must be razorpay in production");
   }
 
   const mocks = getMockIntegrations(env);
@@ -137,6 +137,6 @@ export const isMockIntegrationEnabled = (key, env = process.env) => {
 
 export const getPaymentGateway = (env = process.env) => {
   validateRuntimeConfig(env);
-  return env.PAYMENT_GATEWAY || (env.NODE_ENV === "production" ? undefined : "phonepe");
+  return env.PAYMENT_GATEWAY || (env.NODE_ENV === "production" ? undefined : "razorpay");
 };
 

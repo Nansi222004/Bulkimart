@@ -76,7 +76,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   const { type, category, subCategory, minPrice, maxPrice, inStock, isFeatured, page = 1, limit = 20 } = req.query;
 
   // Public search query — must be approved and active
-  const filter = { status: 'approved', isActive: true, isDeleted: false, fulfillmentType: { $ne: 'digital' } };
+  const filter = { status: 'approved', isActive: true, isDeleted: false };
 
   /**
    * A storefront never wants "everything".
@@ -88,6 +88,7 @@ export const getProducts = asyncHandler(async (req, res) => {
    * older client degrades to the default storefront instead of breaking.
    */
   const resolvedType = [CHANNEL.GROCERY, CHANNEL.ECOM].includes(type) ? type : CHANNEL.GROCERY;
+  if (resolvedType === CHANNEL.GROCERY) filter.fulfillmentType = { $ne: 'digital' };
   Object.assign(filter, await withCustomerLegacyExclusions([buildChannelMatch(resolvedType, category, subCategory)]));
 
   if (minPrice || maxPrice) {
@@ -97,7 +98,11 @@ export const getProducts = asyncHandler(async (req, res) => {
   }
 
   if (inStock === 'true') {
-    filter.stock = { $gt: 0 };
+    if (resolvedType === CHANNEL.ECOM) {
+      filter.$and.push({ $or: [{ fulfillmentType: 'digital' }, { stock: { $gt: 0 } }] });
+    } else {
+      filter.stock = { $gt: 0 };
+    }
   }
 
   if (isFeatured === 'true') {
@@ -105,7 +110,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   }
 
   const skip = (Number(page) - 1) * Number(limit);
-  let products = await Product.find(filter)
+  let products = await Product.find(filter).select('-digital.file')
     .populate('category', 'name')
     .populate('sellerId', 'storeDetails businessName serviceRadiusKm')
     .sort({ isSponsored: -1, sponsoredRank: 1, createdAt: -1 })
@@ -174,7 +179,7 @@ export const getFeaturedProducts = asyncHandler(async (req, res) => {
       buildChannelMatch(resolvedType),
       { $or: [{ isFeatured: true }, { isSponsored: true }] },
     ])),
-  })
+  }).select('-digital.file')
     .populate('category', 'name')
     .sort({ sponsoredRank: 1, createdAt: -1 })
     .limit(10);
@@ -190,7 +195,7 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
     status: 'approved',
     isActive: true,
     isDeleted: false,
-    fulfillmentType: { $ne: 'digital' },
+    ...(resolvedType === CHANNEL.GROCERY ? { fulfillmentType: { $ne: 'digital' } } : {}),
     ...(await withCustomerLegacyExclusions([buildChannelMatch(CHANNEL.GROCERY)])),
   };
 
@@ -240,7 +245,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
     status: 'approved',
     isActive: true,
     isDeleted: false,
-    fulfillmentType: { $ne: 'digital' },
+    ...(resolvedType === CHANNEL.GROCERY ? { fulfillmentType: { $ne: 'digital' } } : {}),
     ...(await withCustomerLegacyExclusions([buildChannelMatch(resolvedType)])),
     $or: [{ name: containsRegex }, { sellerName: containsRegex }, { tags: containsRegex }],
   };
@@ -271,6 +276,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
     },
     { $sort: { boostRank: 1, nameMatches: 1, name: 1 } },
     { $limit: 60 },
+    { $project: { 'digital.file': 0 } },
   ]);
 
   await Product.populate(products, [
@@ -303,7 +309,7 @@ export const getCategoryReturnPolicyForSeller = asyncHandler(async (req, res) =>
 // @route   GET /api/products/:id
 // @access  Public
 export const getProductById = asyncHandler(async (req, res) => {
-  let product = await Product.findById(req.params.id)
+  let product = await Product.findById(req.params.id).select('-digital.file')
     .populate('category', 'name')
     .populate('channels.category', 'name')
     .populate('sellerId', 'storeDetails businessName');
@@ -311,7 +317,6 @@ export const getProductById = asyncHandler(async (req, res) => {
   if (
     !product ||
     product.isDeleted ||
-    product.fulfillmentType === 'digital' ||
     product.type === 'shg' ||
     product.shgStoreId
   ) {
@@ -838,7 +843,9 @@ export const uploadDigitalProductFile = asyncHandler(async (req, res) => {
     await removeStoredEbook(stored.fileId).catch(() => {});
     throw error;
   }
-  if (previousId && previousId !== stored.fileId) await removeStoredEbook(previousId).catch(() => {});
+  // Keep the prior immutable file version: paid order snapshots and existing
+  // entitlements may still reference it. A separately approved, manifest-based
+  // retention cleanup can remove only proven-unreferenced versions later.
 
   return created(res, {
     productId: product._id,

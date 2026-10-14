@@ -21,6 +21,7 @@ import PromotionLandingPage from './PromotionLandingPage';
 import SearchPage from './SearchPage';
 import WholesalePage from './WholesalePage';
 import WriteReviewPage from './WriteReviewPage';
+import DigitalLibraryPage from './DigitalLibraryPage';
 import VegetablesSection from '../components/VegetablesSection';
 import MilkSection from '../components/MilkSection';
 import ElectronicsSection from '../components/ElectronicsSection';
@@ -89,6 +90,7 @@ const LandingPageContent = () => {
     'account',
     'checkout',
     'orders',
+    'ebooks',
     'wishlist',
     'wholesale',
   ]);
@@ -205,6 +207,8 @@ const LandingPageContent = () => {
         return <CategoriesPage />;
       case 'orders':
         return <OrdersPage />;
+      case 'ebooks':
+        return <DigitalLibraryPage />;
       case 'account':
         return <ProfilePage />;
       case 'wishlist':

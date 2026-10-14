@@ -81,6 +81,11 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
       >
         {product.name}
       </h4>
+      {product.fulfillmentType === 'digital' && (
+        <span style={{ alignSelf: 'flex-start', marginTop: 3, padding: '2px 6px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontSize: 8.5, fontWeight: 900 }}>
+          DIGITAL E-BOOK
+        </span>
+      )}
       <span className="grid-product-shg" style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600, marginTop: 2 }}>
         {product.shg || product.brandName || ''}
       </span>

@@ -424,7 +424,9 @@ const CartPage = () => {
                   </span>
 
                   {/* Quantity controls */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--primary-light)', borderRadius: 20, padding: '2px 8px', border: '1px solid var(--border-color)' }}>
+                  {item.fulfillmentType === 'digital' ? (
+                    <span style={{ padding: '4px 9px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontSize: 9, fontWeight: 900 }}>DIGITAL</span>
+                  ) : <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--primary-light)', borderRadius: 20, padding: '2px 8px', border: '1px solid var(--border-color)' }}>
                     <button
                       onClick={() => dropOne(item._id, item.qty)}
                       style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 800, fontSize: 14, cursor: 'pointer', padding: '0 4px' }}
@@ -442,7 +444,7 @@ const CartPage = () => {
                     >
                       +
                     </button>
-                  </div>
+                  </div>}
                 </div>
 
                 {/* Remove button — opens the Remove/Move-to-Wishlist choice below */}

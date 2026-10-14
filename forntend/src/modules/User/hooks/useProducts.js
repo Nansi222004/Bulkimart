@@ -23,7 +23,7 @@ export const normalizeProduct = (p) => ({
   mrp: p.mrp,
   discountPercent: p.discountPercent,
   unit: p.unit,
-  stock: p.stock,
+  stock: p.fulfillmentType === 'digital' ? 1 : p.stock,
   variants: (p.variants || []).map((variant) => ({
     id: variant._id,
     name: variant.name,
@@ -40,6 +40,13 @@ export const normalizeProduct = (p) => ({
   category: p.category?.name || '',
   categoryId: p.category?._id || p.category,
   type: p.type,
+  fulfillmentType: p.fulfillmentType || 'physical',
+  digital: p.digital ? {
+    author: p.digital.author,
+    language: p.digital.language,
+    licenseTerms: p.digital.licenseTerms,
+    format: p.digital.format,
+  } : null,
   rating: p.ratings?.average || 0,
   raw: p,
 });

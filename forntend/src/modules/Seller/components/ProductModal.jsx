@@ -634,7 +634,7 @@ export const ProductModal = () => {
                     <div style={{ fontWeight: 800, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span>📖</span> Digital E-book Listing Guide
                     </div>
-                    E-books are fulfilled digitally and require zero physical stock or shipping. Next, pick a category in the <strong>Category</strong> tab and upload the cover image plus your original PDF file in the <strong>Cover & PDF</strong> tab. Once submitted, your listing is sent for admin review. <em>(Customer storefront purchase and secure download delivery will open following platform approval rollout).</em>
+                    E-books are fulfilled digitally and require zero physical stock or shipping. Next, pick a category in the <strong>Category</strong> tab and upload the cover image plus your original PDF file in the <strong>Cover & PDF</strong> tab. Once submitted, your listing is sent for admin review. Approved listings can be purchased through Razorpay and delivered through the customer’s private Digital Library.
                   </div>
                 </>}
 
