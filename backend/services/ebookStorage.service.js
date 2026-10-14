@@ -7,7 +7,14 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_STORAGE_DIR = fileURLToPath(new URL('../private-data/ebooks/', import.meta.url));
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const ebookStorageDirectory = () => path.resolve(process.env.EBOOK_STORAGE_DIR || DEFAULT_STORAGE_DIR);
+export const ebookStorageDirectory = () => {
+  const configured = String(process.env.EBOOK_STORAGE_DIR || '').trim();
+  const production = process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_ENV === 'production';
+  if (!configured && production) {
+    throw Object.assign(new Error('Private e-book storage is not configured.'), { status: 503 });
+  }
+  return path.resolve(configured || DEFAULT_STORAGE_DIR);
+};
 
 const isInside = (root, candidate) => {
   const relative = path.relative(root, candidate);
@@ -29,7 +36,12 @@ const assertNotPublicStorage = async (root) => {
   if (publicRoots.some((publicRoot) => isInside(publicRoot, path.resolve(root)))) {
     throw Object.assign(new Error('E-book storage must be outside frontend public and build directories'), { status: 500 });
   }
-  const actualRoot = await realpath(root);
+  let actualRoot;
+  try {
+    actualRoot = await realpath(root);
+  } catch {
+    throw Object.assign(new Error('Private e-book storage is unavailable.'), { status: 503 });
+  }
   if (publicRoots.some((publicRoot) => isInside(publicRoot, actualRoot))) {
     throw Object.assign(new Error('E-book storage must be outside frontend public and build directories'), { status: 500 });
   }
@@ -101,11 +113,12 @@ export const storeEbookPdf = async (file) => {
 
 /** Resolve and verify a trusted private file reference before download. */
 export const openStoredEbook = async ({ fileId, sha256, sizeBytes }) => {
-  const target = resolveFilePath(fileId);
-  const root = ebookStorageDirectory();
-  await assertNotPublicStorage(root);
   let fileStat;
+  let target;
   try {
+    target = resolveFilePath(fileId);
+    const root = ebookStorageDirectory();
+    await assertNotPublicStorage(root);
     fileStat = await stat(target);
     if (!fileStat.isFile() || fileStat.size !== Number(sizeBytes)) throw new Error('size mismatch');
     const contents = await readFile(target);
