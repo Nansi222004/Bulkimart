@@ -29,6 +29,12 @@ const CHANNEL_TABS = [
 const CHANNEL_LABEL = { ecommerce: 'E-Commerce', grocery: 'Quick Commerce', shg: 'SHG' };
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const fileSize = (bytes) => {
+  const value = Number(bytes || 0);
+  if (!value) return '—';
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export const ProductsTab = () => {
   const {
@@ -198,12 +204,15 @@ export const ProductsTab = () => {
                 >
                   {deletingProductId === p.id ? 'Deleting…' : 'Delete'}
                 </button>
-                <button
-                  className="admin-btn-sm details"
-                  onClick={() => toggleProductFeatured(p.id, !p.isFeatured)}
-                >
-                  {p.isFeatured ? 'Unfeature' : 'Feature'}
-                </button>
+                {p.fulfillmentType !== 'digital' && p.status === 'approved' && p.isActive && (
+                  <button
+                    className="admin-btn-sm details"
+                    onClick={() => toggleProductFeatured(p.id, !p.isFeatured)}
+                    title="Show or remove this live product from featured storefront sections"
+                  >
+                    {p.isFeatured ? 'Unfeature' : 'Feature'}
+                  </button>
+                )}
                 {p.status === 'rejected' || p.status === 'pending' ? (
                   <button
                     className="admin-btn-sm details"
@@ -250,6 +259,32 @@ export const ProductsTab = () => {
               )}
 
               <div className="admin-item-row">
+                <span className="admin-item-label">Seller</span>
+                <span className="admin-item-value">{selectedProduct.sellerName}</span>
+              </div>
+              <div className="admin-item-row">
+                <span className="admin-item-label">Listing type</span>
+                <span className="admin-item-value">
+                  {selectedProduct.fulfillmentType === 'digital' ? 'E-book' : 'Physical product'} · {CHANNEL_LABEL[selectedProduct.channel] || selectedProduct.channel}
+                </span>
+              </div>
+              {selectedProduct.fulfillmentType === 'digital' && <>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Author</span>
+                  <span className="admin-item-value">{selectedProduct.digital?.author || '—'}</span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Language</span>
+                  <span className="admin-item-value">{selectedProduct.digital?.language || '—'}</span>
+                </div>
+                <div className="admin-item-row">
+                  <span className="admin-item-label">Digital file</span>
+                  <span className="admin-item-value">
+                    {selectedProduct.digital?.format?.toUpperCase() || 'PDF'} · {selectedProduct.digital?.fileStatus || 'missing'} · {fileSize(selectedProduct.digital?.fileSizeBytes)}
+                  </span>
+                </div>
+              </>}
+              <div className="admin-item-row">
                 <span className="admin-item-label">Price / MRP</span>
                 <span className="admin-item-value">
                   {money(selectedProduct.price)} / {money(selectedProduct.mrp)}
@@ -257,7 +292,9 @@ export const ProductsTab = () => {
               </div>
               <div className="admin-item-row">
                 <span className="admin-item-label">Stock</span>
-                <span className="admin-item-value">{selectedProduct.stock} {selectedProduct.unit || 'units'}</span>
+                <span className="admin-item-value">
+                  {selectedProduct.fulfillmentType === 'digital' ? 'Not applicable' : `${selectedProduct.stock} ${selectedProduct.unit || 'units'}`}
+                </span>
               </div>
               <div className="admin-item-row">
                 <span className="admin-item-label">Category</span>
@@ -281,7 +318,7 @@ export const ProductsTab = () => {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: 8, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+            <div className="admin-product-modal-actions">
               <button
                 className="admin-btn-sm details"
                 style={{ background: '#fff', borderColor: '#fecaca', color: '#b91c1c' }}
@@ -290,16 +327,17 @@ export const ProductsTab = () => {
               >
                 {deletingProductId === selectedProduct.id ? 'Deleting…' : 'Delete product'}
               </button>
-              <button
-                className="admin-btn-sm details"
-                style={{ flex: 1 }}
-                onClick={() => toggleProductSponsored(selectedProduct.id, !selectedProduct.isSponsored, selectedProduct.isSponsored ? 0 : 1)}
-              >
-                {selectedProduct.isSponsored ? 'Remove sponsorship' : 'Sponsor this listing'}
-              </button>
-              {selectedProduct.status === 'rejected' || selectedProduct.status === 'pending' ? (
+              {selectedProduct.fulfillmentType !== 'digital' && selectedProduct.status === 'approved' && selectedProduct.isActive && (
                 <button
                   className="admin-btn-sm details"
+                  onClick={() => toggleProductSponsored(selectedProduct.id, !selectedProduct.isSponsored, selectedProduct.isSponsored ? 0 : 1)}
+                >
+                  {selectedProduct.isSponsored ? 'Remove sponsorship' : 'Sponsor this listing'}
+                </button>
+              )}
+              {selectedProduct.status === 'rejected' || selectedProduct.status === 'pending' ? (
+                <button
+                  className="admin-btn-sm details admin-product-primary-action"
                   style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
                   onClick={() => restoreProduct(selectedProduct.id)}
                 >
@@ -307,7 +345,7 @@ export const ProductsTab = () => {
                 </button>
               ) : (
                 <button
-                  className="admin-btn-sm details"
+                  className="admin-btn-sm details admin-product-primary-action"
                   style={{ background: '#fee2e2', color: '#b91c1c', flex: 1 }}
                   onClick={() => takeDownProduct(selectedProduct.id)}
                 >
