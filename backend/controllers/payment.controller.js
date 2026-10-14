@@ -67,31 +67,20 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
         await fresh.save({ session });
 
         /**
-         * Confirm everything this payment covers, not just the first order.
-         *
-         * A unified checkout takes one payment for several fulfilment orders.
-         * This confirmed `fresh.orderId` alone, so the other orders would have
-         * sat at `placed` after the customer had already paid — unpaid-looking,
-         * never dispatched, and eventually swept away by the acceptance timer.
-         *
-         * `updateMany` over the group when there is one; the identical
-         * single-order update when there is not, which is every payment taken
-         * so far. The `status: PLACED` guard is unchanged and still makes this
-         * idempotent — the webhook and the status poll routinely both arrive.
+         * Payment and vendor acceptance are independent facts. Earlier code
+         * changed an order to CONFIRMED here, so a successful gateway webhook
+         * looked exactly like the seller had accepted the order. Keep the
+         * order PLACED and add a timeline event instead; the seller transition
+         * is the only operation that may move it to CONFIRMED.
          */
         const target = fresh.groupRef
           ? { groupRef: fresh.groupRef, status: ORDER_STATUS.PLACED }
           : (fresh.orderId ? { _id: fresh.orderId, status: ORDER_STATUS.PLACED } : null);
 
         if (target) {
-          await Order.updateMany(
-            target,
-            {
-              $set: { status: ORDER_STATUS.CONFIRMED },
-              $push: { timeline: { status: ORDER_STATUS.CONFIRMED, note: 'Payment received', timestamp: new Date() } },
-            },
-            { session }
-          );
+          await Order.updateMany(target, {
+            $push: { timeline: { status: ORDER_STATUS.PLACED, note: 'Online payment verified', timestamp: new Date() } },
+          }, { session });
         }
 
         /**

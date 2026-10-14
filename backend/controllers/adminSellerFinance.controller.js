@@ -1,0 +1,122 @@
+import mongoose from 'mongoose';
+import Seller from '../models/Seller.js';
+import Order from '../models/Order.js';
+import SellerPayout from '../models/SellerPayout.js';
+import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
+import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnapshot.js';
+import { asyncHandler } from '../middlewares/error.middleware.js';
+import { ok, httpError, paginated } from '../utils/response.js';
+import { getQuickCommerceConfig, saveQuickCommerceDraft } from '../services/quickCommerceFinance.service.js';
+import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
+
+export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
+  return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
+});
+
+export const updateQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
+  const config = await saveQuickCommerceDraft({ fee: req.body?.fee, enabled: req.body?.enabled, adminId: req.user._id });
+  return ok(res, { ...(await getQuickCommerceConfig()), config }, 'Draft configuration saved; live activation remains disabled');
+});
+
+export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const query = {};
+  if (mongoose.Types.ObjectId.isValid(req.query.sellerId)) query.sellerId = req.query.sellerId;
+  if (req.query.bucket) query.bucket = req.query.bucket;
+  if (req.query.type) query.type = req.query.type;
+  const [rows, total] = await Promise.all([
+    SellerLedgerEntry.find(query).populate('sellerId', 'businessName storeDetails.name').sort({ createdAt: -1 })
+      .skip((page - 1) * limit).limit(limit).lean(),
+    SellerLedgerEntry.countDocuments(query),
+  ]);
+  return paginated(res, rows, { page, limit, total });
+});
+
+export const getSellerBalancesAdmin = asyncHandler(async (req, res) => {
+  const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name bankDetails').lean();
+  const rows = await Promise.all(sellers.map(async (seller) => ({
+    sellerId: seller._id, businessName: seller.businessName,
+    storeName: seller.storeDetails?.name || seller.businessName,
+    bankDetails: seller.bankDetails || {}, balances: await sellerBalances(seller._id),
+  })));
+  return ok(res, { rows, coverage: { historicalOrdersIncluded: false, authoritativeFrom: 'seller-ledger-v1' } });
+});
+
+export const getOrderFinanceAdmin = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id).select('_id orderNo groupRef type pricing fulfillment shiprocket').lean();
+  if (!order) throw httpError(404, 'Order not found');
+  const [snapshot, entries] = await Promise.all([
+    QuickCommerceFinancialSnapshot.findOne({ orderId: order._id }).lean(),
+    SellerLedgerEntry.find({ orderId: order._id }).sort({ createdAt: 1 }).lean(),
+  ]);
+  return ok(res, { order, snapshot, entries });
+});
+
+export const listFinancialReconciliationAdmin = asyncHandler(async (req, res) => {
+  const snapshots = await QuickCommerceFinancialSnapshot.find({
+    $or: [
+      { accountingStatus: { $in: ['pending', 'held'] } },
+      { finalProviderFreight: { $exists: false } },
+    ],
+  }).sort({ createdAt: -1 }).limit(100).lean();
+  return ok(res, snapshots.map((snapshot) => ({
+    ...snapshot,
+    discrepancy: snapshot.finalProviderFreight == null ? 'Final provider freight not verified'
+      : Number((snapshot.finalProviderFreight - snapshot.quotedCourierFreight).toFixed(2)),
+    retryAllowed: false,
+    reason: 'Automated reconciliation and provider cancellation are not approved',
+  })));
+});
+
+export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
+  const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name bankDetails').sort({ createdAt: -1 }).lean();
+  const rows = await Promise.all(payouts.map(async (payout) => {
+    const reservation = await SellerLedgerEntry.findOne({
+      payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
+    }).select('_id').lean();
+    return {
+      ...payout, status: payout.status.toLowerCase(), payoutRef: payout.payoutNo,
+      storeName: payout.sellerId?.storeDetails?.name || payout.sellerId?.businessName,
+      bankAccount: payout.bankDetails, settlementEligible: Boolean(reservation),
+      settlementBlocker: reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
+    };
+  }));
+  return ok(res, rows);
+});
+
+export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
+  const transactionRef = String(req.body?.transactionRef || '').trim();
+  if (transactionRef.length < 4) throw httpError(400, 'Confirmed bank transaction reference is required');
+  const session = await mongoose.startSession();
+  let payout;
+  try {
+    await session.withTransaction(async () => {
+      payout = await SellerPayout.findOne({ _id: req.params.id, status: 'PENDING' }).session(session);
+      if (!payout) {
+        const existing = await SellerPayout.findById(req.params.id).session(session);
+        if (existing?.status === 'APPROVED') { payout = existing; return; }
+        throw httpError(409, 'Payout is not pending');
+      }
+      const reservation = await SellerLedgerEntry.findOne({
+        payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
+      }).session(session);
+      if (!reservation) throw httpError(409, 'Payout has no matching ledger reservation and cannot be marked paid');
+      const out = await postLedgerEntry({
+        idempotencyKey: `PAYOUT:${payout._id}:SETTLE_OUT`, sellerId: payout.sellerId, payoutId: payout._id,
+        type: 'payout_settlement', direction: 'debit', bucket: 'reserved', amount: payout.amount,
+        reference: transactionRef, description: `Payout ${payout.payoutNo} sent`, postedBy: req.user._id, postedByRole: 'admin',
+      }, { session });
+      const paid = await postLedgerEntry({
+        idempotencyKey: `PAYOUT:${payout._id}:SETTLED`, sellerId: payout.sellerId, payoutId: payout._id,
+        type: 'payout_settlement', direction: 'credit', bucket: 'settled', amount: payout.amount,
+        reference: transactionRef, description: `Payout ${payout.payoutNo} confirmed`, postedBy: req.user._id, postedByRole: 'admin',
+      }, { session });
+      payout.status = 'APPROVED'; payout.transactionRef = transactionRef;
+      payout.processedAt = new Date(); payout.processedBy = req.user._id;
+      payout.ledgerEntryIds.push(out.entry._id, paid.entry._id);
+      await payout.save({ session });
+    });
+  } finally { await session.endSession(); }
+  return ok(res, payout, 'Payout settlement recorded');
+});

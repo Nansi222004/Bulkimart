@@ -23,6 +23,7 @@ import coinRoutes from "./coin.routes.js";
 import returnRoutes from "./return.routes.js";
 import privacyPolicyRoutes from "./privacyPolicy.routes.js";
 import walletRoutes from "./wallet.routes.js";
+import shiprocketRoutes from "./shiprocket.routes.js";
 
 const router = express.Router();
 
@@ -49,6 +50,8 @@ router.use("/coins", coinRoutes);
 router.use("/returns", returnRoutes);
 router.use("/privacy-policy", privacyPolicyRoutes);
 router.use("/wallet", walletRoutes);
+// Shiprocket explicitly disallows its brand keywords in callback URLs.
+router.use("/courier-events", shiprocketRoutes);
 
 // Placeholder stub lists for Day 2 modules
 router.use("/notifications", notificationRoutes);

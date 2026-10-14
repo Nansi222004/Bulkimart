@@ -2,6 +2,7 @@ import Seller from '../models/Seller.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Order from '../models/Order.js';
+import Payment from '../models/Payment.js';
 import Notification from '../models/Notification.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
@@ -628,6 +629,10 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       .lean(),
     Order.countDocuments(filter),
   ]);
+  const paymentIds = [...new Set(orders.map((o) => String(o.paymentId || '')).filter(Boolean))];
+  const payments = paymentIds.length
+    ? new Map((await Payment.find({ _id: { $in: paymentIds } }).select('status method').lean()).map((p) => [String(p._id), p]))
+    : new Map();
 
   /**
    * Reshape before answering, for two separate reasons.
@@ -650,6 +655,8 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       channel: o.type,
       status: o.status,
       paymentMethod: o.paymentMethod,
+      paymentStatus: payments.get(String(o.paymentId))?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
+      vendorDecision: o.vendorDecision || { status: 'pending' },
       placedAt: o.createdAt,
       items: mine.map((i) => ({
         productId: i.productId,
@@ -681,6 +688,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
        * reached `dispatched`, and no rider was ever rung.
        */
       deliveryType: o.deliveryType,
+      fulfillment: o.fulfillment,
       deliveryMode: o.delivery?.mode,
       promisedBy: o.delivery?.promisedBy,
       // Courier and waybill for a Shop All parcel, so the shop can read back
@@ -728,6 +736,15 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   const currentStatus = order.status;
+
+  // A duplicate vendor decision returns the result already committed. This is
+  // important on mobile connections where the first response is often lost.
+  if (status === ORDER_STATUS.CONFIRMED && order.vendorDecision?.status === 'accepted') {
+    return res.status(200).json({ success: true, message: 'Order already accepted.', data: order });
+  }
+  if (status === ORDER_STATUS.CANCELLED && order.vendorDecision?.status === 'rejected') {
+    return res.status(200).json({ success: true, message: 'Order already rejected.', data: order });
+  }
   // Shop All parcels travel further under the shop's own reporting than Quick
   // ones do, because no rider takes over. The order's channel picks the rules.
   /**
@@ -741,19 +758,17 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    */
   /**
    * "Accept" on an order the customer paid online can lose a race with the
-   * payment itself.
-   *
-   * The seller is rung the moment an order is placed — before an online
-   * payment has necessarily finished — but PhonePe's webhook (or the
-   * customer's own return trip) can confirm the payment, and with it the
-   * order (see payment.controller.js: settle()), before the seller taps
-   * Accept. The tap still arrives as `status: 'confirmed'`; the order is
-   * already `confirmed`. That is not an invalid transition to reject — it is
-   * the seller agreeing to fulfil an order that has, in the meantime,
-   * already been confirmed on their behalf by payment. Treated as a no-op
-   * success rather than a same-state error.
+   * payment itself. New orders keep payment state separate, while the
+   * same-state branch remains for legacy orders that older payment code had
+   * already moved to CONFIRMED before the vendor responded.
    */
   if (status === ORDER_STATUS.CONFIRMED && currentStatus === ORDER_STATUS.CONFIRMED) {
+    const payment = order.paymentId ? await Payment.findById(order.paymentId).select('status method') : null;
+    if (order.paymentMethod !== 'cod' && payment?.status !== 'paid') {
+      throw httpError(409, 'Online payment has not been verified yet. Accept the order after payment succeeds.');
+    }
+    order.vendorDecision = { status: 'accepted', sellerId: seller._id, decidedAt: new Date() };
+    await order.save();
     return res.status(200).json({
       success: true,
       message: 'Order already confirmed.',
@@ -788,6 +803,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
       reason: `Declined by the store: ${reason}`,
       allowedFrom: VENDOR_CANCELLABLE_STATUSES,
       cancelledBy: 'seller',
+      vendorDecision: { status: 'rejected', sellerId: seller._id, reason, decidedAt: new Date() },
     });
 
     if (!result.ok) {
@@ -801,6 +817,16 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
       message: 'Order declined. Stock has been returned to your shelf.',
       data: cancelled,
     });
+  }
+
+
+  if (status === ORDER_STATUS.CONFIRMED) {
+    const payment = order.paymentId ? await Payment.findById(order.paymentId).select('status method') : null;
+    const paymentVerified = order.paymentMethod === 'cod' || payment?.status === 'paid';
+    if (!paymentVerified) {
+      throw httpError(409, 'Online payment has not been verified yet. Accept the order after payment succeeds.');
+    }
+    order.vendorDecision = { status: 'accepted', sellerId: seller._id, decidedAt: new Date() };
   }
 
   /**
@@ -828,8 +854,8 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    */
   const goesByCourier = order.deliveryType === 'shiprocket';
   if (goesByCourier && status === ORDER_STATUS.DISPATCHED) {
-    const courier = (req.body.courier || '').trim();
-    const awb = (req.body.awb || '').trim();
+    const courier = (req.body.courier || order.shiprocket?.courier || '').trim();
+    const awb = (req.body.awb || order.shiprocket?.awb || '').trim();
 
     if (!courier || !awb) {
       res.status(400);
@@ -920,16 +946,11 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
      * The test used to be the channel, which excluded every Shop All order. A
      * Same-Day order is Shop All and does need a rider, so the carrier decides.
      *
-     * The two moments differ on purpose. Quick rings at `confirmed`, before the
-     * shop has packed, because thirty minutes does not allow a rider to be found
-     * afterwards. Same-Day rings at `dispatched` — packed and ready — so a rider
-     * is not left standing in a shop waiting for a parcel that is still being
-     * put together.
+     * Both channels ring at `dispatched`: accepted, prepared, and explicitly
+     * ready for pickup.
      */
     const usesOwnRiders = order.deliveryType !== 'shiprocket';
-    const isQuick = order.type === CHANNEL.GROCERY;
-    if (usesOwnRiders
-      && ((status === ORDER_STATUS.CONFIRMED && isQuick) || status === ORDER_STATUS.DISPATCHED)) {
+    if (usesOwnRiders && status === ORDER_STATUS.DISPATCHED) {
       const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
       // Run in background asynchronously so it doesn't block response
       broadcastNewOrderToRiders(order._id).catch(console.error);

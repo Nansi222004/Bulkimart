@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, decideSellerWholesaleChannel, getWholesaleManagementSummary,
+  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
   listProducts, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
@@ -52,6 +52,12 @@ import { uploadSingle, uploadMultiple } from '../middlewares/upload.middleware.j
 import {
   deleteCustomerAccount, deleteSellerAccount, deleteDeliveryAccount,
 } from '../controllers/accountManagement.controller.js';
+import { getManualAssignmentQueue, assignDeliveryPartner } from '../controllers/deliveryAssignment.controller.js';
+import {
+  getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
+  listSellerLedgerAdmin, getSellerBalancesAdmin, getOrderFinanceAdmin,
+  listFinancialReconciliationAdmin, listSellerPayoutsLedgerAdmin, settleSellerPayoutLedgerAdmin,
+} from '../controllers/adminSellerFinance.controller.js';
 
 const router = express.Router();
 
@@ -68,12 +74,19 @@ router.get('/vendor-dashboard', vendorDashboard);
 router.get('/vendor-orders', getVendorOrdersAdmin);
 router.get('/vendor-sales', getVendorSalesAdmin);
 router.get('/vendor-earnings', getVendorEarningsAdmin);
-router.get('/vendor-payouts', getVendorPayoutsAdmin);
-router.patch('/vendor-payouts/:id/settle', settleVendorPayoutAdmin);
+router.get('/seller-balances', getSellerBalancesAdmin);
+router.get('/vendor-payouts', listSellerPayoutsLedgerAdmin);
+router.patch('/vendor-payouts/:id/settle', settleSellerPayoutLedgerAdmin);
+router.get('/seller-ledger', listSellerLedgerAdmin);
+router.get('/orders/:id/financial-breakdown', getOrderFinanceAdmin);
+router.get('/financial-reconciliation', listFinancialReconciliationAdmin);
+router.get('/quick-commerce-third-party-config', getQuickCommerceDeliveryConfigAdmin);
+router.patch('/quick-commerce-third-party-config', updateQuickCommerceDeliveryConfigAdmin);
 router.get('/sellers', listSellers);              // ?status=pending | approved | rejected | suspended
 router.get('/wholesale/summary', getWholesaleManagementSummary);
 router.get('/sellers/:id', getSellerDetail);      // full registration data + documents
 router.patch('/sellers/:id/radius', setSellerRadius);
+router.patch('/sellers/:id/third-party-fulfillment', setSellerThirdPartyFulfillment);
 router.patch('/sellers/:id/wholesale', decideSellerWholesaleChannel);
 router.patch('/sellers/:id/approve', approveSeller);
 router.patch('/sellers/:id/reject', rejectSeller);
@@ -93,6 +106,8 @@ router.get('/delivery-partners', listDeliveryPartners);
 // Registered before /:id — Express matches in order, so ":id" would otherwise
 // swallow "stats" and try to look it up as an ObjectId.
 router.get('/delivery-partners/stats', deliveryFleetStats);
+router.get('/delivery-assignments', getManualAssignmentQueue);
+router.post('/delivery-assignments/:id', assignDeliveryPartner);
 
 // ---- rider pay rates (Delivery Fleet) ----------------------------------
 // Above /delivery-partners/:id would not clash, but these are their own thing.

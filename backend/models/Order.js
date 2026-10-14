@@ -301,6 +301,16 @@ const orderSchema = new Schema(
     paymentMethod: { type: String, enum: PAYMENT_METHODS },
     paymentId:     { type: ObjectId, ref: "Payment" },
 
+    // Vendor acceptance is deliberately separate from payment state. Online
+    // payment may complete before the shop responds; it must never count as
+    // the shop accepting the work.
+    vendorDecision: {
+      status: { type: String, enum: ["pending", "accepted", "rejected"], default: "pending" },
+      sellerId: { type: ObjectId, ref: "Seller" },
+      reason: String,
+      decidedAt: Date,
+    },
+
     /**
      * Delivery routing — who carries this parcel.
      *
@@ -323,11 +333,48 @@ const orderSchema = new Schema(
       labelUrl:    String,
       trackingUrl: String,
       status:      String,
+      idempotencyKey: String,
+      requestedAt: Date,
+      lastError: String,
+      lastErrorAt: Date,
+      pickupScheduledAt: Date,
+      webhookEvents: [{
+        eventId: String,
+        status: String,
+        receivedAt: Date,
+      }],
+    },
+
+    fulfillment: {
+      method: { type: String, enum: ["manual", "shiprocket", "third_party"] },
+      selectedBy: { type: String, enum: ["seller", "admin", "system"] },
+      selectedAt: Date,
+      quote: {
+        provider: String,
+        courierCharge: Number,
+        serviceFee: Number,
+        currency: { type: String, default: "INR" },
+        expiresAt: Date,
+      },
+      vendorConfirmedAt: Date,
+      feeRuleVersion: String,
+      chargeStatus: { type: String, enum: ["not_applicable", "pending", "blocked", "collected", "refunded"] },
+      failureReason: String,
+      financialSnapshotId: { type: ObjectId, ref: "QuickCommerceFinancialSnapshot" },
     },
 
     // Internal delivery (QCommerce + SHG)
     deliveryPartnerId: { type: ObjectId, ref: "DeliveryPartner" },
     deliveryId:        { type: ObjectId, ref: "Delivery" },
+
+    assignmentHistory: [{
+      partnerId: { type: ObjectId, ref: "DeliveryPartner" },
+      assignedBy: { type: ObjectId },
+      assignedByRole: { type: String, enum: ["admin", "seller", "system", "rider"] },
+      assignedAt: { type: Date, default: Date.now },
+      unassignedAt: Date,
+      reason: String,
+    }],
 
     // Every rider this order was offered to, and how each one resolved.
     // Empty on every order today — nothing writes to it yet.

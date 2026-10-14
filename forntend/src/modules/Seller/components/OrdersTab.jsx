@@ -37,21 +37,26 @@ const byCourier = (order) =>
 
 /** What the shop may do next, mirroring vendorTransitions() on the server. */
 const NEXT_ACTIONS = {
-  placed:    [{ to: 'confirmed', label: 'Accept order' }],
-  confirmed: [{ to: 'dispatched', label: 'Hand to courier', courierOnly: true },
-              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true }],
+  placed:    [{ to: 'confirmed', label: 'Accept order' }, { to: 'cancelled', label: 'Reject', reject: true }],
+  confirmed: [{ to: 'preparing', label: 'Start preparing' }, { to: 'cancelled', label: 'Reject', reject: true }],
   preparing: [{ to: 'dispatched', label: 'Hand to courier', courierOnly: true },
-              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true }],
+              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true },
+              { to: 'cancelled', label: 'Reject', reject: true }],
   // A rider reports everything after pickup, so the shop's moves end at
   // `dispatched`. A courier reports nothing, so the shop carries on.
   dispatched:       [{ to: 'out_for_delivery', label: 'Out for delivery', courierOnly: true }],
   out_for_delivery: [{ to: 'delivered', label: 'Mark delivered', courierOnly: true }],
 };
 
-const actionsFor = (status, courier) =>
-  (NEXT_ACTIONS[status] || []).filter((a) =>
+const actionsFor = (order) => {
+  if (order.status === 'preparing' && !order.fulfillment?.method) return [
+    { setup: true, label: 'Choose delivery' }, { to: 'cancelled', label: 'Reject', reject: true },
+  ];
+  const courier = byCourier(order);
+  return (NEXT_ACTIONS[order.status] || []).filter((a) =>
     (!a.courierOnly || courier) && (!a.riderOnly || !courier)
   );
+};
 const STATUS_TABS = [
   { label: 'All', value: 'all' },
   { label: 'New', value: 'placed' },
@@ -92,7 +97,7 @@ const fmt = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
 export const OrdersTab = () => {
-  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, triggerToast, selectedTypes, activeMode, setActiveMode } = useSeller();
+  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode } = useSeller();
   const [tab, setTab] = useState('all');
   const [selected, setSelected] = useState(null);
   // Which order is mid-request, so its buttons can be disabled rather than
@@ -102,6 +107,9 @@ export const OrdersTab = () => {
   const [dispatching, setDispatching] = useState(null);
   const [courier, setCourier] = useState('');
   const [awb, setAwb] = useState('');
+  const [fulfilling, setFulfilling] = useState(null);
+  const [fulfillmentOptions, setFulfillmentOptions] = useState(null);
+  const [packageSize, setPackageSize] = useState({ length: '', breadth: '', height: '' });
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -113,11 +121,30 @@ export const OrdersTab = () => {
     return res.ok;
   };
 
-  const onAction = (order, action) => {
+  const onAction = async (order, action) => {
+    if (action.reject) {
+      const reason = window.prompt('Reason for rejection (required):')?.trim();
+      if (!reason) return;
+      run(order, 'cancelled', { reason });
+      return;
+    }
+    if (action.setup) {
+      setBusyId(order._id);
+      const result = await getFulfillmentOptions(order._id);
+      setBusyId(null);
+      if (!result.ok) return triggerToast?.(result.message);
+      setFulfilling(order);
+      setFulfillmentOptions(result.data);
+      return;
+    }
     // Only a genuine courier hand-off needs a waybill. A rider pickup is a
     // straight status change — asking for a tracking number there is asking for
     // something that does not exist.
     if (byCourier(order) && action.to === 'dispatched') {
+      if (order.shiprocket?.awb && order.shiprocket?.courier) {
+        run(order, action.to);
+        return;
+      }
       setCourier('');
       setAwb('');
       setDispatching(order);
@@ -541,7 +568,7 @@ export const OrdersTab = () => {
                   <button className="order-action-btn-sm details" onClick={() => setSelected(order)}>
                     Details
                   </button>
-                  {actionsFor(order.status, byCourier(order)).map((action) => (
+                  {actionsFor(order).map((action) => (
                     <button
                       key={action.to + action.label}
                       className="order-action-btn-sm"
@@ -604,6 +631,66 @@ export const OrdersTab = () => {
         </div>
       )}
 
+      {fulfilling && fulfillmentOptions && (
+        <div className="seller-modal-overlay">
+          <div className="seller-modal-sheet">
+            <div className="modal-sheet-header">
+              <h3 className="modal-sheet-title">Choose fulfillment</h3>
+              <button className="modal-close-btn" onClick={() => setFulfilling(null)}>✕</button>
+            </div>
+            <p style={{ fontSize: 12, color: '#64748b' }}>{fulfilling.orderNo} · {fulfilling.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</p>
+            <button className="primary-onboarding-btn" style={{ width: '100%', marginTop: 12 }}
+              disabled={!fulfillmentOptions.manual?.available || busyId === fulfilling._id}
+              onClick={async () => {
+                setBusyId(fulfilling._id);
+                const result = await selectManualFulfillment(fulfilling._id);
+                setBusyId(null); triggerToast?.(result.message);
+                if (result.ok) setFulfilling(null);
+              }}>
+              Manual Bulkimart delivery ({fulfillmentOptions.manual?.eligibleRiderCount || 0} riders online)
+            </button>
+            {!fulfillmentOptions.manual?.available && <p style={{ fontSize: 11, color: '#b45309' }}>{fulfillmentOptions.manual?.reason}</p>}
+
+            <div style={{ borderTop: '1px solid #e2e8f0', margin: '16px 0', paddingTop: 14 }}>
+              <strong>Shiprocket / third-party courier</strong>
+              <p style={{ fontSize: 11, color: '#64748b' }}>{fulfillmentOptions.shiprocket?.reason || 'Serviceability is checked before any shipment is created.'}</p>
+              {fulfillmentOptions.shiprocket?.quote && (
+                <div style={{ fontSize: 12, marginBottom: 10, padding: 10, background: '#f8fafc', borderRadius: 8 }}>
+                  <div><strong>Estimated courier freight:</strong> {money(fulfillmentOptions.shiprocket.quote.courierCharge)}</div>
+                  {fulfilling.channel === 'grocery' && fulfillmentOptions.shiprocket.quote.optionB && <>
+                    <div>Customer delivery-charge contribution: {money(fulfillmentOptions.shiprocket.quote.optionB.customerFreightContribution)}</div>
+                    <div>Estimated vendor freight share: {money(fulfillmentOptions.shiprocket.quote.optionB.vendorFreightShare)}</div>
+                    <div>Bulkimart service fee: {money(fulfillmentOptions.shiprocket.quote.optionB.bulkimartServiceFee)}</div>
+                    <div style={{ marginTop: 4, fontWeight: 800 }}>Estimated vendor obligation: {money(fulfillmentOptions.shiprocket.quote.optionB.vendorDeliveryFeeObligation)}</div>
+                    <div style={{ color: '#64748b', fontSize: 10 }}>Estimate only · Rule {fulfillmentOptions.shiprocket.quote.feeRule?.version || 'pending'} · final freight may differ after reconciliation.</div>
+                  </>}
+                </div>
+              )}
+              {fulfillmentOptions.shiprocket?.activation?.blockers?.length > 0 && <div style={{ padding: 10, marginBottom: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 11 }}>
+                Live Quick third-party shipping is disabled: {fulfillmentOptions.shiprocket.activation.blockers.join('; ')}.
+              </div>}
+              {['length', 'breadth', 'height'].map((field) => (
+                <input key={field} className="onboarding-input" style={{ marginBottom: 8 }} type="number" min="0.1"
+                  placeholder={`${field[0].toUpperCase() + field.slice(1)} (cm)`} value={packageSize[field]}
+                  onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} />
+              ))}
+              <button className="primary-onboarding-btn" style={{ width: '100%' }}
+                disabled={!fulfillmentOptions.shiprocket?.available || busyId === fulfilling._id}
+                onClick={async () => {
+                  if (Object.values(packageSize).some((value) => Number(value) <= 0)) return triggerToast?.('Enter all package dimensions');
+                  if (!window.confirm('Create this paid courier shipment with Shiprocket?')) return;
+                  setBusyId(fulfilling._id);
+                  const result = await createShiprocketShipment(fulfilling._id, packageSize);
+                  setBusyId(null); triggerToast?.(result.message);
+                  if (result.ok) setFulfilling(null);
+                }}>
+                Create Shiprocket shipment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selected && (
         <div className="seller-modal-overlay">
           <div className="seller-modal-sheet">
@@ -632,7 +719,7 @@ export const OrdersTab = () => {
               <div className="review-item-row">
                 <span className="review-item-key">Payment</span>
                 <span className="review-item-val" style={{ textTransform: 'uppercase' }}>
-                  {selected.paymentMethod || '—'}
+                  {selected.paymentMethod || '—'} · {selected.paymentStatus || 'pending'}
                 </span>
               </div>
             </div>

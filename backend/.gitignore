@@ -24,5 +24,7 @@ __tests__/services/*
 !__tests__/services/account-lifecycle.test.js
 !__tests__/services/onboarding-regressions.test.js
 !__tests__/services/phone-normalization.test.js
+!__tests__/services/order-fulfillment-lifecycle.test.js
+!__tests__/services/quick-commerce-finance.test.js
 test/
 tests/

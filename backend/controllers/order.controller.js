@@ -107,10 +107,10 @@ const pushTimeline = (order, status, note) => {
   order.timeline.push({ status, timestamp: new Date(), note });
 };
 
-const claimCancellation = async (order, reason, session) => {
+const claimCancellation = async (order, reason, session, extraSet = {}) => {
   const result = await Order.updateOne(
     { _id: order._id, status: { $in: CANCELLABLE_STATUSES } },
-    { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } } },
+    { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason, ...extraSet }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } } },
     { session }
   );
   if (result.modifiedCount !== 1) throw httpError(409, 'This order has already changed and cannot be cancelled again');
@@ -1095,6 +1095,9 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   if (!CANCELLABLE_STATUSES.includes(order.status)) {
     throw httpError(400, `An order that is already "${order.status}" cannot be cancelled`);
   }
+  if (order.shiprocket?.orderId) {
+    throw httpError(409, 'This order already has a courier shipment. Cancel it with the provider before cancelling the Bulkimart order.');
+  }
 
   const session = await mongoose.startSession();
   const cancelReason = req.body.reason || 'Cancelled by customer';
@@ -1220,18 +1223,21 @@ export const requestReturn = asyncHandler(async (req, res) => {
  *
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
-export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy }) => {
+export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision }) => {
   const order = await Order.findById(orderId);
   if (!order) return { ok: false, reason: 'Order not found' };
 
   if (allowedFrom && !allowedFrom.includes(order.status)) {
     return { ok: false, reason: `An order that is already ${order.status} cannot be cancelled` };
   }
+  if (order.shiprocket?.orderId) {
+    return { ok: false, reason: 'A courier shipment already exists; provider cancellation must be confirmed first' };
+  }
 
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      await claimCancellation(order, reason, session);
+      await claimCancellation(order, reason, session, vendorDecision ? { vendorDecision } : {});
       order.cancelReason = reason;
       // Put every unit back
       for (const item of order.items) {
@@ -1245,7 +1251,21 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
       if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
-          if (payment.groupRef) {
+          const refundAmount = payment.groupRef ? (order.pricing?.totalAmount || 0) : payment.amount;
+          if (payment.method === PAYMENT_METHOD.WALLET) {
+            await refundToWallet({
+              userId: order.userId,
+              amount: refundAmount,
+              reason: `Refund for cancelled order #${order.orderNo}`,
+              referenceType: WALLET_REFERENCE_TYPE.ORDER,
+              referenceId: String(order._id),
+              idempotencyKey: `CANCEL_REFUND:${order._id}`,
+              session,
+            });
+            payment.refund = { amount: refundAmount, reason, status: 'processed', processedAt: new Date() };
+            if (!payment.groupRef) payment.status = PAYMENT_STATUS.REFUNDED;
+            await payment.save({ session });
+          } else if (payment.groupRef) {
             /**
              * One payment, several fulfilment orders — leave the payment alone.
              *

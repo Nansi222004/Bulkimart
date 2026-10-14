@@ -1,20 +1,35 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { adminGet, adminPost } from '../../../utils/adminApi';
 
 export const DeliveryAssignmentTab = () => {
   const { triggerToast } = useAdmin();
 
-  // No dispatch-assignment endpoint exists yet — empty until one is wired up.
   const [unassignedOrders, setUnassignedOrders] = useState([]);
-
+  const [nearbyRiders, setNearbyRiders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const eligibleRiders = selectedOrder
+    ? nearbyRiders.filter((rider) => (selectedOrder.eligiblePartnerIds || []).includes(String(rider._id)))
+    : [];
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await adminGet('/delivery-assignments');
+      setUnassignedOrders(data.orders || []);
+      setNearbyRiders(data.partners || []);
+    } catch (error) { triggerToast(error.message); }
+    finally { setLoading(false); }
+  }, [triggerToast]);
+  useEffect(() => { load(); }, [load]);
 
-  const nearbyRiders = [];
-
-  const handleAssign = (riderName) => {
-    setUnassignedOrders(unassignedOrders.filter(o => o.id !== selectedOrder.id));
-    triggerToast(`Order ${selectedOrder.id} successfully assigned to ${riderName}!`);
-    setSelectedOrder(null);
+  const handleAssign = async (rider) => {
+    try {
+      const { message } = await adminPost(`/delivery-assignments/${selectedOrder._id}`, { partnerId: rider._id });
+      triggerToast(message || `Order assigned to ${rider.name}`);
+      setSelectedOrder(null);
+      await load();
+    } catch (error) { triggerToast(error.message); }
   };
 
   return (
@@ -22,7 +37,7 @@ export const DeliveryAssignmentTab = () => {
       
       {/* Top Header */}
       <div>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Unassigned Delivery Orders Queue</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Manual Delivery Assignment Queue</h2>
         <p style={{ margin: '4px 0 0 0', fontSize: 12, color: '#64748b' }}>Manual order dispatch and nearest available delivery partner allocation panel.</p>
       </div>
 
@@ -41,7 +56,9 @@ export const DeliveryAssignmentTab = () => {
             </tr>
           </thead>
           <tbody>
-            {unassignedOrders.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 35 }}>Loading assignment queue…</td></tr>
+            ) : unassignedOrders.length === 0 ? (
               <tr>
                 <td colSpan={7} style={{ textAlign: 'center', padding: '35px 0', color: '#10b981', fontWeight: 800 }}>
                   ✓ All orders currently assigned to delivery partners!
@@ -49,22 +66,22 @@ export const DeliveryAssignmentTab = () => {
               </tr>
             ) : (
               unassignedOrders.map(ord => (
-                <tr key={ord.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontWeight: 800 }}>{ord.id}</td>
-                  <td style={{ padding: '12px 16px', fontWeight: 800, color: '#0f172a' }}>{ord.customer}</td>
-                  <td style={{ padding: '12px 16px', color: '#475569' }}>{ord.location}</td>
-                  <td style={{ padding: '12px 16px', color: '#6366f1', fontWeight: 700 }}>{ord.type}</td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700 }}>{ord.distance}</td>
+                <tr key={ord._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontWeight: 800 }}>{ord.orderNo}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 800, color: '#0f172a' }}>Ready for pickup</td>
+                  <td style={{ padding: '12px 16px', color: '#475569' }}>{ord.city} · {ord.pincode}</td>
+                  <td style={{ padding: '12px 16px', color: '#6366f1', fontWeight: 700 }}>{ord.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700 }}>Validated on assignment</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{
                       padding: '3px 10px',
                       borderRadius: 12,
                       fontSize: 10,
                       fontWeight: 800,
-                      backgroundColor: ord.priority.includes('High') ? '#fffbe6' : '#ebfdf2',
-                      color: ord.priority.includes('High') ? '#d48806' : '#047857'
+                      backgroundColor: ord.needsManualAssignment ? '#fffbe6' : '#ebfdf2',
+                      color: ord.needsManualAssignment ? '#d48806' : '#047857'
                     }}>
-                      {ord.priority}
+                      {ord.needsManualAssignment ? 'Needs attention' : 'Normal'}
                     </span>
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
@@ -72,7 +89,7 @@ export const DeliveryAssignmentTab = () => {
                       onClick={() => setSelectedOrder(ord)}
                       style={{ padding: '6px 12px', borderRadius: 6, backgroundColor: '#10b981', color: '#ffffff', border: 'none', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
                     >
-                      + Assign Partner
+                      {ord.deliveryPartnerId ? 'Reassign Partner' : '+ Assign Partner'}
                     </button>
                   </td>
                 </tr>
@@ -89,26 +106,26 @@ export const DeliveryAssignmentTab = () => {
             
             <div className="admin-modal-header">
               <div>
-                <h3 className="admin-modal-title">Assign Partner for Order {selectedOrder.id}</h3>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>Customer: {selectedOrder.customer} • {selectedOrder.location}</span>
+                <h3 className="admin-modal-title">Assign Partner for Order {selectedOrder.orderNo}</h3>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{selectedOrder.city} • {selectedOrder.pincode}</span>
               </div>
               <button className="admin-modal-close" onClick={() => setSelectedOrder(null)}>✕</button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Available Nearby Riders ({nearbyRiders.length})</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Eligible Nearby Riders ({eligibleRiders.length})</span>
 
-              {nearbyRiders.length === 0 ? (
+              {eligibleRiders.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: 12 }}>No nearby riders available.</div>
-              ) : nearbyRiders.map(rider => (
-                <div key={rider.id} style={{ padding: 12, borderRadius: 10, backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              ) : eligibleRiders.map(rider => (
+                <div key={rider._id} style={{ padding: 12, borderRadius: 10, backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>{rider.name} ({rider.vehicle})</div>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>📍 {rider.distance} • Rating: {rider.rating}</span>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>{rider.name}</div>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>{rider.phone || 'No phone'} • zones: {(rider.zones || []).join(', ') || 'unrestricted'}</span>
                   </div>
 
                   <button
-                    onClick={() => handleAssign(rider.name)}
+                    onClick={() => handleAssign(rider)}
                     style={{
                       padding: '6px 12px',
                       borderRadius: 6,

@@ -783,6 +783,8 @@ body {
 }
 
 .seller-auth-page .primary-onboarding-btn:disabled {
+  color: #ffffff;
+  opacity: .62;
   box-shadow: none;
 }
 

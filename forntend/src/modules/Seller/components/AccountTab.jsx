@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
 import productHoney from '../../../assets/product_honey.png';
@@ -14,6 +14,8 @@ export const AccountTab = () => {
     setPayoutAmount,
     handleRequestPayout,
     payouts,
+    financeSummary,
+    fetchSellerFinances,
     supportTicketSubject,
     setSupportTicketSubject,
     supportTicketDesc,
@@ -25,6 +27,8 @@ export const AccountTab = () => {
     selectedTypes,
     toggleSellerType
   } = useSeller();
+  useEffect(() => { fetchSellerFinances(); }, [fetchSellerFinances]);
+  const ledgerBalances = financeSummary?.balances || {};
 
   // Local states for additional account interactions
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -112,7 +116,7 @@ export const AccountTab = () => {
           <div style={{ padding: 16 }}>
             <div className="finance-bank-card">
               <div className="finance-bank-header">Connected Payout Account</div>
-              <div className="finance-bank-number">**** **** 4567</div>
+              <div className="finance-bank-number">{bankForm.accountNumber ? `•••• ${String(bankForm.accountNumber).slice(-4)}` : 'No payout account saved'}</div>
               <div className="finance-bank-footer">
                 <span>{bankForm.holderName || '—'}</span>
                 <span>{bankForm.bankName || '—'}</span>
@@ -124,20 +128,20 @@ export const AccountTab = () => {
           <div className="earnings-breakdown-box">
             <h4 className="section-card-title">EARNINGS BREAKDOWN</h4>
             <div className="finance-breakdown-row">
-              <span className="finance-row-key">Product Sales Revenue</span>
-              <span className="finance-row-val">₹25,680</span>
+              <span className="finance-row-key">Ledger Earnings</span>
+              <span className="finance-row-val">₹{Number(ledgerBalances.earnedEarnings || 0).toLocaleString('en-IN')}</span>
             </div>
             <div className="finance-breakdown-row">
-              <span className="finance-row-key">Commission Deductions (10%)</span>
-              <span className="finance-row-val">-₹2,568</span>
+              <span className="finance-row-key">Quick Delivery Obligations</span>
+              <span className="finance-row-val">-₹{Number((ledgerBalances.quickFreightObligations || 0) + (ledgerBalances.bulkimartServiceFees || 0)).toLocaleString('en-IN')}</span>
             </div>
             <div className="finance-breakdown-row">
-              <span className="finance-row-key">Tax / Logistics Fees</span>
-              <span className="finance-row-val">-₹4,362</span>
+              <span className="finance-row-key">Held / Pending</span>
+              <span className="finance-row-val">₹{Number((ledgerBalances.held || 0) + (ledgerBalances.pending || 0)).toLocaleString('en-IN')}</span>
             </div>
             <div className="finance-breakdown-row">
-              <span className="finance-row-key">Net Available Balance</span>
-              <span className="finance-row-val">₹18,750</span>
+              <span className="finance-row-key">Settlement-Eligible Balance</span>
+              <span className="finance-row-val">₹{Number(ledgerBalances.eligible || 0).toLocaleString('en-IN')}</span>
             </div>
           </div>
 
@@ -157,7 +161,7 @@ export const AccountTab = () => {
         <div style={{ padding: 16 }}>
           <div className="earnings-breakdown-box" style={{ margin: 0, marginBottom: 16 }}>
             <span className="finance-row-key" style={{ fontSize: 11 }}>Total Withdrawable Sales</span>
-            <h2 className="onboarding-title" style={{ fontSize: 26, margin: '8px 0' }}>₹12,450</h2>
+            <h2 className="onboarding-title" style={{ fontSize: 26, margin: '8px 0' }}>₹{Number(ledgerBalances.eligible || 0).toLocaleString('en-IN')}</h2>
           </div>
 
           <form onSubmit={handleRequestPayout}>
@@ -186,7 +190,7 @@ export const AccountTab = () => {
               ))}
             </div>
 
-            <button type="submit" className="primary-onboarding-btn">
+            <button type="submit" className="primary-onboarding-btn" disabled={Number(ledgerBalances.eligible || 0) <= 0 || Number(payoutAmount) > Number(ledgerBalances.eligible || 0)}>
               Submit Money Request
             </button>
           </form>
@@ -194,13 +198,13 @@ export const AccountTab = () => {
           {/* Request Payout Logs history list */}
           <h4 className="onboarding-title" style={{ fontSize: 13, marginTop: 24, marginBottom: 12 }}>REQUEST HISTORY</h4>
           {payouts.map(pay => (
-            <div key={pay.id} className="review-summary-card" style={{ margin: '0 0 10px 0' }}>
+            <div key={pay._id} className="review-summary-card" style={{ margin: '0 0 10px 0' }}>
               <div className="review-item-row">
-                <span className="review-item-key">Request ID: {pay.id}</span>
-                <span className="review-item-val" style={{ color: pay.status === 'Successful' ? 'var(--primary)' : 'var(--warning)' }}>{pay.status}</span>
+                <span className="review-item-key">Request ID: {pay.payoutNo}</span>
+                <span className="review-item-val" style={{ color: pay.status === 'APPROVED' ? 'var(--primary)' : 'var(--warning)' }}>{pay.status}</span>
               </div>
               <div className="review-item-row" style={{ marginTop: 4 }}>
-                <span className="review-item-key">{pay.date}</span>
+                <span className="review-item-key">{pay.createdAt ? new Date(pay.createdAt).toLocaleDateString('en-IN') : '—'}</span>
                 <span className="review-item-val">₹{pay.amount}</span>
               </div>
             </div>

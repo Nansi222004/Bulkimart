@@ -12,8 +12,10 @@ const STATUS_COLORS = {
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
-  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus, removeSellerAccount } = useAdmin();
+  const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus, setSellerThirdPartyFulfillment, removeSellerAccount } = useAdmin();
   const [radiusInput, setRadiusInput] = useState(seller?.business?.store?.radiusKm ?? '');
+  const [courierEnabled, setCourierEnabled] = useState(Boolean(seller?.thirdPartyFulfillment?.enabled));
+  const [pickupLocation, setPickupLocation] = useState(seller?.thirdPartyFulfillment?.shiprocketPickupLocation || '');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -46,6 +48,12 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
   const handleSaveRadius = async () => {
     if (!d._id) return;
     await setSellerRadius(d._id, radiusInput === '' ? null : Number(radiusInput));
+  };
+
+  const handleSaveCourier = async () => {
+    if (!d._id) return;
+    const result = await setSellerThirdPartyFulfillment(d._id, { enabled: courierEnabled, shiprocketPickupLocation: pickupLocation.trim() });
+    if (result?.ok && onRefresh) onRefresh();
   };
 
   const handleWholesaleDecision = async (status) => {
@@ -304,6 +312,17 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                         Save
                       </button>
                     </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 4 }}>
+                    <label style={{ color: '#64748b', fontSize: 11, fontWeight: 700, display: 'flex', gap: 7, alignItems: 'center' }}>
+                      <input type="checkbox" checked={courierEnabled} onChange={(e) => setCourierEnabled(e.target.checked)} />
+                      Enable Shiprocket for this vendor
+                    </label>
+                    <input value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)}
+                      placeholder="Registered Shiprocket pickup location code"
+                      style={{ width: '100%', marginTop: 7, padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }} />
+                    <button onClick={handleSaveCourier} style={{ marginTop: 7, padding: '5px 12px', borderRadius: 6, border: 'none', backgroundColor: '#3b82f6', color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Save courier link</button>
                   </div>
 
                 </div>

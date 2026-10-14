@@ -638,6 +638,39 @@ export const SellerProvider = ({ children }) => {
     }
   }, [fetchSellerOrders]);
 
+  const getFulfillmentOptions = useCallback(async (orderId) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment-options`), { headers: authHeader() });
+      const body = await res.json().catch(() => ({}));
+      return res.ok ? { ok: true, data: body.data } : { ok: false, message: body.message || 'Could not evaluate fulfillment options' };
+    } catch (err) { return { ok: false, message: err.message }; }
+  }, []);
+
+  const selectManualFulfillment = useCallback(async (orderId) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/manual`), {
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: body.message || 'Could not select manual delivery' };
+      await fetchSellerOrders();
+      return { ok: true, message: body.message };
+    } catch (err) { return { ok: false, message: err.message }; }
+  }, [fetchSellerOrders]);
+
+  const createShiprocketShipment = useCallback(async (orderId, packageSize) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/shiprocket`), {
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, package: packageSize }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: body.message || 'Shipment creation failed' };
+      await fetchSellerOrders();
+      return { ok: true, message: body.message, data: body.data };
+    } catch (err) { return { ok: false, message: err.message }; }
+  }, [fetchSellerOrders]);
+
   // Its own effect rather than a line in the one above, because that effect is
   // declared before this callback exists — naming it there would read the
   // binding before initialisation.
@@ -645,8 +678,43 @@ export const SellerProvider = ({ children }) => {
     if (localStorage.getItem('userToken')) fetchSellerOrders();
   }, [fetchSellerOrders]);
 
-  // payouts: no backend endpoint yet (Day 2). Empty rather than fabricated.
   const [payouts, setPayouts] = useState([]);
+  const [financeSummary, setFinanceSummary] = useState(null);
+  const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financeError, setFinanceError] = useState('');
+
+  const fetchSellerFinances = useCallback(async () => {
+    setFinanceLoading(true); setFinanceError('');
+    try {
+      const [summaryRes, ledgerRes] = await Promise.all([
+        fetch(apiUrl('/api/sellers/finances/summary'), { headers: authHeader() }),
+        fetch(apiUrl('/api/sellers/finances/ledger?limit=50'), { headers: authHeader() }),
+      ]);
+      const summaryBody = await summaryRes.json().catch(() => ({}));
+      const ledgerBody = await ledgerRes.json().catch(() => ({}));
+      if (!summaryRes.ok) throw new Error(summaryBody.message || 'Could not load seller balances');
+      if (!ledgerRes.ok) throw new Error(ledgerBody.message || 'Could not load seller ledger');
+      setFinanceSummary(summaryBody.data || null);
+      setPayouts(summaryBody.data?.payouts || []);
+      setLedgerEntries(ledgerBody.data || []);
+    } catch (error) {
+      setFinanceError(error.message || 'Could not load seller finances');
+      setFinanceSummary(null); setPayouts([]); setLedgerEntries([]);
+    } finally { setFinanceLoading(false); }
+  }, []);
+
+  const getOrderFinancialBreakdown = useCallback(async (orderId) => {
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/financial-breakdown`), { headers: authHeader() });
+      const body = await res.json().catch(() => ({}));
+      return res.ok ? { ok: true, data: body.data } : { ok: false, message: body.message || 'Could not load financial breakdown' };
+    } catch (error) { return { ok: false, message: error.message }; }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'earnings' && localStorage.getItem('userToken')) fetchSellerFinances();
+  }, [activeTab, fetchSellerFinances]);
 
   // campaigns: no backend endpoint yet (Day 2). Empty rather than fabricated.
   const [campaigns, setCampaigns] = useState([]);
@@ -1180,28 +1248,29 @@ export const SellerProvider = ({ children }) => {
   // is worse than no button, so it is gone until there is an endpoint behind it.
 
   // SUBMIT PAYOUT REQUEST
-  const handleRequestPayout = (e) => {
+  const handleRequestPayout = async (e) => {
     e.preventDefault();
     const amount = Number(payoutAmount);
     if (!amount || amount <= 0) {
       triggerToast('Please enter a valid amount');
       return;
     }
-    if (amount > 12450) {
+    if (amount > Number(financeSummary?.balances?.eligible || 0)) {
       triggerToast('Insufficient withdrawable balance!');
-      return;
+      return { ok: false };
     }
-    const request = {
-      id: 'PAY' + Math.floor(100000 + Math.random() * 900000),
-      method: 'Bank Transfer (HDFC)',
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      amount: amount,
-      status: 'Pending'
-    };
-    setPayouts([request, ...payouts]);
-    setPayoutAmount('');
-    setActiveFinanceTab('Overview');
-    triggerToast('Payout request submitted successfully!');
+    const idempotencyKey = `seller-payout:${Date.now()}:${amount}`;
+    try {
+      const res = await fetch(apiUrl('/api/sellers/payouts'), {
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ amount }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || 'Payout request failed');
+      setPayoutAmount(''); setActiveFinanceTab('Overview');
+      await fetchSellerFinances(); triggerToast('Payout request submitted.');
+      return { ok: true };
+    } catch (error) { triggerToast(error.message); return { ok: false, message: error.message }; }
   };
 
   // SUBMIT MARKETING CAMPAIGN
@@ -1351,6 +1420,10 @@ export const SellerProvider = ({ children }) => {
         ordersError,
         fetchSellerOrders,
         updateOrderStatus,
+        getFulfillmentOptions,
+        selectManualFulfillment,
+        createShiprocketShipment,
+        getOrderFinancialBreakdown,
         fetchSellerKpis,
         sellerProfile,
         requestWholesaleChannel,
@@ -1365,6 +1438,11 @@ export const SellerProvider = ({ children }) => {
         submitProductEdit,
         orders,
         payouts,
+        financeSummary,
+        ledgerEntries,
+        financeLoading,
+        financeError,
+        fetchSellerFinances,
         campaigns,
         incomingOrder,
         setIncomingOrder,

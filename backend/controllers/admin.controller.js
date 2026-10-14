@@ -112,6 +112,7 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     serviceRadiusKm: seller.serviceRadiusKm,
     salesChannels: seller.salesChannels || [CHANNEL.ECOM],
     wholesaleChannel: seller.wholesaleChannel || { status: WHOLESALE_REQUEST_STATUS.NOT_REQUESTED },
+    thirdPartyFulfillment: seller.thirdPartyFulfillment || { enabled: false },
 
     // --- account (login identity) --------------------------------------
     account: {
@@ -203,6 +204,17 @@ export const setSellerRadius = asyncHandler(async (req, res) => {
     serviceRadiusKm: seller.serviceRadiusKm,
     hasLocation: seller.storeDetails?.lat !== undefined && seller.storeDetails?.lng !== undefined,
   }, 'Seller radius updated');
+});
+
+export const setSellerThirdPartyFulfillment = asyncHandler(async (req, res) => {
+  const seller = await Seller.findById(req.params.id);
+  if (!seller) throw httpError(404, 'Seller not found');
+  const enabled = req.body?.enabled === true;
+  const pickupLocation = String(req.body?.shiprocketPickupLocation || '').trim();
+  if (enabled && !pickupLocation) throw httpError(400, 'A registered Shiprocket pickup location is required');
+  seller.thirdPartyFulfillment = { enabled, shiprocketPickupLocation: pickupLocation || undefined };
+  await seller.save();
+  return ok(res, { sellerId: seller._id, thirdPartyFulfillment: seller.thirdPartyFulfillment }, enabled ? 'Third-party fulfillment enabled' : 'Third-party fulfillment disabled');
 });
 
 // @desc    Approve a seller — moves them to the Approved Vendors list
@@ -2783,7 +2795,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
   const { mode = 'active', status, search, sellerId } = req.query;
   const { page, limit, skip } = getPagination(req.query);
 
-  const ACTIVE_STATUSES = ['pending', 'placed', 'accepted', 'processing', 'packing', 'ready_for_pickup', 'out_for_delivery', 'in_transit', 'dispatch'];
+  const ACTIVE_STATUSES = ['pending', 'placed', 'confirmed', 'preparing', 'dispatched', 'accepted', 'processing', 'packing', 'ready_for_pickup', 'out_for_delivery', 'in_transit', 'dispatch'];
   const HISTORY_STATUSES = ['delivered', 'completed', 'cancelled', 'rejected', 'refunded'];
 
   const filter = {};
@@ -2813,6 +2825,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
     Order.find(filter)
       .populate('userId', 'name phone email')
       .populate('items.sellerId', 'businessName storeDetails.name storeDetails.city')
+      .populate('paymentId', 'status method refund')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -2843,7 +2856,17 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       itemCount: (o.items || []).reduce((sum, i) => sum + (i.qty || 1), 0),
       totalAmount: o.pricing?.totalAmount || o.pricing?.subtotal || 0,
       paymentMethod: o.paymentMethod || 'Online',
+      paymentStatus: o.paymentId?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
+      paymentRefund: o.paymentId?.refund,
       deliveryMode: o.delivery?.mode || o.deliveryType || 'Standard',
+      vendorDecision: o.vendorDecision || { status: 'pending' },
+      fulfillment: o.fulfillment,
+      shiprocket: o.shiprocket,
+      deliveryPartnerId: o.deliveryPartnerId,
+      deliveryId: o.deliveryId,
+      assignmentHistory: o.assignmentHistory || [],
+      needsManualAssignment: Boolean(o.needsManualAssignment),
+      refundPending: o.refundPending,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
       items: o.items || [],

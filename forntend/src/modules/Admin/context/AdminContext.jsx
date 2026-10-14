@@ -283,6 +283,14 @@ export const AdminProvider = ({ children }) => {
     }
   };
 
+  const setSellerThirdPartyFulfillment = async (id, payload) => {
+    try {
+      const { message } = await adminPatch(`/sellers/${id}/third-party-fulfillment`, payload);
+      triggerToast(message || 'Third-party fulfillment updated.');
+      return { ok: true };
+    } catch (error) { triggerToast(error.message); return { ok: false }; }
+  };
+
   const setSellerWholesaleStatus = async (id, status, reason) => {
     try {
       const payload = { status, ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }) };
@@ -1100,6 +1108,7 @@ export const AdminProvider = ({ children }) => {
       suspendSeller,
       setSellerRadius,
       setSellerWholesaleStatus,
+        setSellerThirdPartyFulfillment,
       fetchRadiusSettings,
       setRadiusSettings,
       products,

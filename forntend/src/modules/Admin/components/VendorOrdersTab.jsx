@@ -14,6 +14,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
   const [error, setError] = useState('');
   const [pagination, setPagination] = useState({ page: 1, limit: 15, totalPages: 1, total: 0 });
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [financialAudit, setFinancialAudit] = useState(null);
 
   const getAuthHeader = () => ({
     'Content-Type': 'application/json',
@@ -64,11 +65,21 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
     return () => clearTimeout(timer);
   }, [mode, statusFilter, search, fetchOrders]);
 
+  useEffect(() => {
+    if (!selectedOrder?._id) { setFinancialAudit(null); return undefined; }
+    let active = true;
+    fetch(apiUrl(`/api/admin/orders/${selectedOrder._id}/financial-breakdown`), { headers: getAuthHeader() })
+      .then(async (response) => ({ response, body: await response.json().catch(() => ({})) }))
+      .then(({ response, body }) => { if (active) setFinancialAudit(response.ok ? body.data : { error: body.message }); })
+      .catch((err) => { if (active) setFinancialAudit({ error: err.message }); });
+    return () => { active = false; };
+  }, [selectedOrder?._id]);
+
   const getStatusBadgeStyle = (st) => {
     const s = String(st || '').toLowerCase();
     if (s === 'delivered' || s === 'completed') return { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' };
     if (s === 'out_for_delivery' || s === 'in_transit' || s === 'dispatch') return { bg: '#e0e7ff', color: '#3730a3', border: '#c7d2fe' };
-    if (s === 'accepted' || s === 'processing' || s === 'packing') return { bg: '#fef3c7', color: '#b45309', border: '#fde68a' };
+    if (s === 'confirmed' || s === 'preparing' || s === 'accepted' || s === 'processing' || s === 'packing') return { bg: '#fef3c7', color: '#b45309', border: '#fde68a' };
     if (s === 'cancelled' || s === 'rejected') return { bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' };
     return { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   };
@@ -76,7 +87,9 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
   const activeStatusOptions = [
     { value: 'all', label: 'All Active Orders' },
     { value: 'placed', label: 'Placed / New' },
-    { value: 'accepted', label: 'Accepted / Packing' },
+    { value: 'confirmed', label: 'Accepted' },
+    { value: 'preparing', label: 'Preparing' },
+    { value: 'dispatched', label: 'Ready / Dispatched' },
     { value: 'out_for_delivery', label: 'Out for Delivery' },
   ];
 
@@ -243,7 +256,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                         {money(o.totalAmount)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#475569', fontSize: '12.5px' }}>
-                        {prettyStatus(o.paymentMethod)}
+                        {prettyStatus(o.paymentMethod)} · {prettyStatus(o.paymentStatus)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '12px' }}>
                         {fmtDate(o.createdAt)}
@@ -350,6 +363,39 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                     {[selectedOrder.shippingAddress.line1, selectedOrder.shippingAddress.line2, selectedOrder.shippingAddress.city, selectedOrder.shippingAddress.state, selectedOrder.shippingAddress.pincode].filter(Boolean).join(', ')}
                   </div>
                 )}
+              </div>
+
+              {/* Items List */}
+              <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Lifecycle & Fulfillment</span>
+                <div style={{ fontSize: 12.5, lineHeight: 1.8, marginTop: 4 }}>
+                  <div>Channel: {selectedOrder.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</div>
+                  <div>Vendor decision: {prettyStatus(selectedOrder.vendorDecision?.status || 'pending')}{selectedOrder.vendorDecision?.reason ? ` — ${selectedOrder.vendorDecision.reason}` : ''}</div>
+                  <div>Method: {prettyStatus(selectedOrder.fulfillment?.method || selectedOrder.deliveryMode || 'not selected')}</div>
+                  <div>Rider: {selectedOrder.deliveryPartnerId || 'Not assigned'}</div>
+                  <div>Provider: {selectedOrder.shiprocket?.courier || '—'}</div>
+                  <div>AWB: {selectedOrder.shiprocket?.awb || '—'}</div>
+                  <div>Tracking status: {selectedOrder.shiprocket?.status || '—'}</div>
+                  {selectedOrder.shiprocket?.lastError && <div style={{ color: '#b91c1c' }}>Shipment failure: {selectedOrder.shiprocket.lastError}</div>}
+                  {selectedOrder.needsManualAssignment && <div style={{ color: '#b45309' }}>Manual assignment required</div>}
+                  {selectedOrder.fulfillment?.quote && <div>Courier {money(selectedOrder.fulfillment.quote.courierCharge)} + service fee {money(selectedOrder.fulfillment.quote.serviceFee)} · {selectedOrder.fulfillment.chargeStatus}</div>}
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Seller financial audit</span>
+                {financialAudit?.error ? <div style={{ color: '#b91c1c', marginTop: 6 }}>{financialAudit.error}</div>
+                  : !financialAudit ? <div style={{ color: '#64748b', marginTop: 6 }}>Loading financial audit…</div>
+                    : financialAudit.snapshot ? <div style={{ fontSize: 12.5, lineHeight: 1.8, marginTop: 4 }}>
+                      <div>Accounting status: {prettyStatus(financialAudit.snapshot.accountingStatus)}</div>
+                      <div>Customer delivery charge available: {money(financialAudit.snapshot.customerDeliveryChargeAvailableForFreight)}</div>
+                      <div>Allocated to freight: {money(financialAudit.snapshot.customerFreightContribution)}</div>
+                      <div>Quoted / final freight: {money(financialAudit.snapshot.quotedCourierFreight)} / {financialAudit.snapshot.finalProviderFreight == null ? 'Pending' : money(financialAudit.snapshot.finalProviderFreight)}</div>
+                      <div>Vendor freight share: {money(financialAudit.snapshot.vendorFreightShare)}</div>
+                      <div>Bulkimart fee: {money(financialAudit.snapshot.serviceFee?.amount)} · {financialAudit.snapshot.serviceFee?.version}</div>
+                      <div style={{ fontWeight: 800 }}>Vendor obligation: {money(financialAudit.snapshot.vendorDeliveryFeeObligation)}</div>
+                      <div>Ledger postings: {financialAudit.entries?.length || 0}</div>
+                    </div> : <div style={{ color: '#64748b', marginTop: 6 }}>No immutable Quick third-party financial snapshot. Provisional quotes are not charges.</div>}
               </div>
 
               {/* Items List */}

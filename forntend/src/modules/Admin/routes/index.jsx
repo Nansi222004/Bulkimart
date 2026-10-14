@@ -42,6 +42,8 @@ import PrivacyPolicyTab from '../components/PrivacyPolicyTab';
 import UserWalletsTab from '../components/UserWalletsTab';
 import AdminLoginPage from '../pages/AdminLoginPage';
 import WholesaleManagementTab from '../components/WholesaleManagementTab';
+import QuickThirdPartySettingsTab from '../components/QuickThirdPartySettingsTab';
+import SellerLedgerAdminTab from '../components/SellerLedgerAdminTab';
 
 import '../SuperAdmin.css';
 import '../Admin.css'; // Toast alert styles
@@ -111,9 +113,10 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'vendor-orders':      return <VendorOrdersTab defaultMode="active" />;
       case 'vendor-order-history': return <VendorOrdersTab defaultMode="history" />;
       case 'vendor-sales':       return <VendorFinancialsTab defaultSubTab="sales" />;
-      case 'vendor-earnings':    return <VendorFinancialsTab defaultSubTab="earnings" />;
+      case 'vendor-earnings':    return <SellerLedgerAdminTab view="earnings" />;
       case 'payouts':           
-      case 'vendor-payouts':    return <VendorFinancialsTab defaultSubTab="payouts" />;
+      case 'vendor-payouts':    return <SellerLedgerAdminTab view="payouts" />;
+      case 'quick-third-party-settings': return <QuickThirdPartySettingsTab />;
       case 'tickets':           return <TicketsTab />;
       default:                  return <SectionModuleTab moduleId={activeTab} />;
     }

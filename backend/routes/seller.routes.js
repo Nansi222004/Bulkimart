@@ -25,8 +25,14 @@ import {
   submitPromotion, resubmitPromotion, cancelPromotion, initiatePromotionPayment,
 } from '../controllers/sellerPromotion.controller.js';
 import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } from '../controllers/return.controller.js';
+import {
+  getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
+} from '../controllers/fulfillment.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
+import {
+  getSellerFinanceSummary, listSellerLedger, getSellerOrderFinance, requestSellerPayout,
+} from '../controllers/sellerFinance.controller.js';
 import { uploadFields, uploadSingle } from '../middlewares/upload.middleware.js';
 import Seller from '../models/Seller.js';
 
@@ -99,6 +105,13 @@ router.put('/profile', uploadFields([
 router.get('/dashboard', requireApprovedSeller, getDashboard);
 router.get('/orders', requireApprovedSeller, getSellerOrders);
 router.patch('/orders/:id/status', requireApprovedSeller, updateOrderStatus);
+router.get('/orders/:id/fulfillment-options', requireApprovedSeller, getFulfillmentOptions);
+router.post('/orders/:id/fulfillment/manual', requireApprovedSeller, selectManualFulfillment);
+router.post('/orders/:id/fulfillment/shiprocket', requireApprovedSeller, createShiprocketShipment);
+router.get('/orders/:id/financial-breakdown', requireApprovedSeller, getSellerOrderFinance);
+router.get('/finances/summary', requireApprovedSeller, getSellerFinanceSummary);
+router.get('/finances/ledger', requireApprovedSeller, listSellerLedger);
+router.post('/payouts', requireApprovedSeller, requestSellerPayout);
 router.patch('/channels', requireApprovedSeller, updateSalesChannels);
 router.post('/wholesale-request', requireApprovedSeller, requestWholesaleChannel);
 router.post('/promo-request', requireApprovedSeller, requestPromo);

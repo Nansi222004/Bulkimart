@@ -110,22 +110,15 @@ export const VENDOR_CANCELLABLE_STATUSES = [
  * When a rider may claim an order — one definition, used by both the offer and
  * the accept.
  *
- * These were two separate lists in two files, and they disagreed: riders were
- * being rung the moment a Quick order was confirmed, while accept still
- * insisted on `dispatched`. Every one of those offers ended in a 400, and the
- * rider had no way to tell why.
- *
- * Quick Commerce rings early on purpose. The rider starts towards the shop
- * while the order is still being packed, which is most of what makes ten-minute
- * delivery possible — waiting for the parcel to be ready before looking for
- * somebody to carry it adds the whole journey to the clock.
- *
- * Shop All has no such urgency: it is claimable only once it is actually ready.
+ * Assignment is intentionally after preparation for every channel. Quick may
+ * search automatically, but it cannot hand ownership to a rider while the
+ * vendor is still deciding whether it can fulfill the order.
  */
-export const riderClaimableStatuses = (channel) =>
-  channel === CHANNEL.GROCERY
-    ? [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING, ORDER_STATUS.DISPATCHED]
-    : [ORDER_STATUS.DISPATCHED];
+// A rider may only be assigned once the vendor has accepted, prepared, and
+// explicitly marked the parcel ready. This is intentionally the same for
+// Quick and Shop All manual delivery; early offer/claim made assignment look
+// successful while the parcel was still being packed.
+export const riderClaimableStatuses = () => [ORDER_STATUS.DISPATCHED];
 
 /**
  * One rider's response to being offered one order — distinct from

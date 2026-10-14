@@ -181,7 +181,8 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
         links: [
           { id: 'vendor-sales', label: 'Sales', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
           { id: 'vendor-earnings', label: 'Earnings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
-          { id: 'vendor-payouts', label: 'Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M12 8v8m-4-4h8"/></svg> }
+          { id: 'vendor-payouts', label: 'Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M12 8v8m-4-4h8"/></svg> },
+          { id: 'quick-third-party-settings', label: 'Quick 3P Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12h18M12 3v18"/><circle cx="12" cy="12" r="9"/></svg> }
         ]
       },
       {

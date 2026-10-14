@@ -26,6 +26,10 @@ const sellerPayoutSchema = new Schema(
     processedAt: { type: Date },
     processedBy: { type: ObjectId, ref: "Admin" },
     rejectionReason: { type: String },
+    idempotencyKey: { type: String, unique: true, sparse: true, index: true },
+    ledgerEntryIds: [{ type: ObjectId, ref: "SellerLedgerEntry" }],
+    requestedBy: { type: ObjectId, ref: "User" },
+    failureReason: String,
   },
   { timestamps: true, collection: "seller_payouts" }
 );

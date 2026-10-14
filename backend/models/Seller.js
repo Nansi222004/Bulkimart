@@ -184,6 +184,13 @@ const sellerSchema = new Schema(
       enum: SELLER_SALES_CHANNELS,
       default: [CHANNEL.ECOM],
     },
+    // Provider-side pickup location identifier. It is intentionally optional:
+    // Shiprocket must not be offered for a shop until an administrator has
+    // registered and linked that pickup in the provider account.
+    thirdPartyFulfillment: {
+      shiprocketPickupLocation: { type: String, trim: true },
+      enabled: { type: Boolean, default: false },
+    },
 
     // A seller cannot activate Wholesale by submitting salesChannels. The
     // seller requests it, and an administrator changes this status; approval
@@ -225,6 +232,9 @@ const sellerSchema = new Schema(
     rating:         { type: Number, default: 0 },
     totalOrders:    { type: Number, default: 0 },
     totalRevenue:   { type: Number, default: 0 },
+    // Serialization point for seller-ledger reservations. It is never a balance;
+    // balances are derived exclusively from append-only SellerLedgerEntry rows.
+    financialLedgerVersion: { type: Number, default: 0, select: false },
 
     // Promotion / Brand
     brandRequests: [brandRequestSchema],
