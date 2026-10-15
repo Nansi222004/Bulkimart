@@ -2,6 +2,8 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Admin from "../models/Admin.js";
 import Seller from "../models/Seller.js";
+import DeliveryPartner from "../models/DeliveryPartner.js";
+import { resolveLoginSession } from "../services/loginSession.service.js";
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
@@ -29,9 +31,8 @@ const findUserByPhone = async (rawPhone) => {
  * an approved Seller record) — never a value handed straight through from
  * request input. It rides in the JWT so later requests (e.g. creating a
  * support ticket) can trust "this session authenticated as a seller"
- * without re-deriving it from a client-supplied hint. Omitted for the base
- * customer/shared login, where no such claim exists yet — see
- * ticket.service.js::resolveRequester for how an absent claim is handled.
+ * without re-deriving it from a client-supplied hint. Shared login resolves
+ * buyer/Delivery membership; dedicated entry points verify their own profiles.
  */
 const generateToken = (id, type, role) => {
   return jwt.sign(
@@ -170,11 +171,13 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
     throw new Error("Access denied — user account is deactivated");
   }
 
-  const token = generateToken(user._id, "user");
+  const session = await resolveLoginSession(user);
+  const token = generateToken(user._id, "user", session.sessionRole);
 
   res.status(200).json({
     success: true,
     isNewUser,
+    ...session,
     token,
     user: publicUser(user),
   });
@@ -320,6 +323,54 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   });
 });
 
+// Login must not silently create a Delivery profile. Registration remains explicit.
+const deliveryEntry = async (req, verify) => {
+  const intent = req.body.intent;
+  if (!['login', 'register'].includes(intent)) throw httpError(400, 'Choose login or register.');
+  const { phone, user } = await findUserByPhone(req.body.phone);
+  if (!phone) throw httpError(400, 'Please provide a valid phone number');
+  if (user && !user.isActive) throw httpError(403, 'Access denied — user account is deactivated');
+  const partner = user ? await DeliveryPartner.findOne({ userId: user._id }) : null;
+  if (intent === 'login' && !partner) throw httpError(404, 'No delivery profile found. Choose Register to apply.');
+  if (intent === 'register' && partner) throw httpError(409, 'A delivery profile already exists. Choose Sign In.');
+  if (user && (!Array.isArray(user.roles) || !user.roles.length || user.roles.some(role => !['buyer', 'seller', 'shg', 'delivery'].includes(role)))) {
+    throw httpError(403, 'Account has no supported login role. Please contact support.');
+  }
+  if (verify) {
+    if (!req.body.otp) throw httpError(400, 'Please provide phone and OTP');
+    const result = verifyOTP(phone, req.body.otp);
+    if (!result.valid) throw httpError(400, result.message || 'Invalid OTP verification');
+  }
+  return { phone, user, partner };
+};
+
+export const requestDeliveryOTP = asyncHandler(async (req, res) => {
+  const { phone } = await deliveryEntry(req, false);
+  const result = await sendOTP(phone);
+  res.json({ success: true, message: 'OTP sent successfully', ...(isMockIntegrationEnabled('OTP_MODE') ? { otp: result.otp } : {}) });
+});
+
+export const verifyDeliveryOTP = asyncHandler(async (req, res) => {
+  const entry = await deliveryEntry(req, true);
+  const user = entry.user || await User.create({ phone: entry.phone, roles: ['buyer'], wallet: { balance: 0, transactions: [] } });
+  if (!entry.partner) {
+    // Explicit registration creates only an incomplete application, never approval.
+    const partner = await DeliveryPartner.findOneAndUpdate({ userId: user._id },
+      { $setOnInsert: { status: 'incomplete', onboardingStep: 1 } }, { upsert: true, new: true, setDefaultsOnInsert: true });
+    await User.updateOne({ _id: user._id }, { $set: { deliveryPartnerId: partner._id } });
+  }
+  const session = await resolveLoginSession(user, 'delivery');
+  res.json({ success: true, token: generateToken(user._id, 'user', session.sessionRole), user: publicUser(user), ...session });
+});
+
+// Existing dual-role people may intentionally shop; the server verifies buyer
+// membership instead of accepting an arbitrary role supplied by the browser.
+export const customerSession = asyncHandler(async (req, res) => {
+  if (req.userType !== 'user') throw httpError(403, 'A customer account is required.');
+  const session = await resolveLoginSession(req.user, 'buyer');
+  res.json({ success: true, token: generateToken(req.user._id, 'user', 'buyer'), user: publicUser(req.user), ...session });
+});
+
 // @desc    Admin login (email/password)
 // @route   POST /api/auth/admin/login
 // @access  Public
@@ -383,7 +434,8 @@ export const getMe = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     userType: 'user',
-    profile: req.user
+    ...(await resolveLoginSession(req.user, req.tokenRole)),
+    profile: publicUser(req.user)
   });
 });
 

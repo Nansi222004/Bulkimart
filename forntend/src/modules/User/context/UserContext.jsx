@@ -3,6 +3,7 @@ import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
+import { saveUserSession, clearUserSession, openSessionDashboard, captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 
 const UserContext = createContext();
 
@@ -435,6 +436,7 @@ export const UserProvider = ({ children }) => {
   };
 
   const verifyOtp = async (phone, otp, isLogin, name, email) => {
+    const snapshot = captureUserSession();
     try {
       const response = await fetch(apiUrl('/api/auth/verify-otp'), {
         method: 'POST',
@@ -445,11 +447,10 @@ export const UserProvider = ({ children }) => {
       if (!response.ok) {
         throw new Error(data.message || 'OTP verification failed');
       }
-      if (data.token) {
-        localStorage.setItem('userToken', data.token);
-      }
-      if (data.user) {
-        localStorage.setItem('userProfile', JSON.stringify(data.user));
+      if (!isCurrentUserSession(snapshot)) throw new Error('Your session changed. Please sign in again.');
+      saveUserSession(data);
+      openSessionDashboard(data.sessionRole);
+      if (data.sessionRole === 'buyer') {
         setCurrentUser(data.user);
         connectSocket(data.token, 'buyer', data.user._id);
         refreshWishlist();
@@ -476,6 +477,7 @@ export const UserProvider = ({ children }) => {
       if (!response.ok) {
         throw new Error(data.message || 'Profile update failed');
       }
+      if (token !== localStorage.getItem('userToken')) return { success: false, message: 'Your session changed. Please sign in again.' };
       if (data.user) {
         const currentProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
         const updatedProfile = { ...currentProfile, ...data.user };
@@ -498,6 +500,7 @@ export const UserProvider = ({ children }) => {
       });
       if (!res.ok) return;
       const data = await res.json();
+      if (token !== localStorage.getItem('userToken')) return;
       if (data.user) {
         const currentProfile = JSON.parse(localStorage.getItem('userProfile') || '{}');
         const updatedProfile = { ...currentProfile, ...data.user };
@@ -513,8 +516,7 @@ export const UserProvider = ({ children }) => {
 
   const logoutUser = () => {
     deregisterPushToken().catch(() => {});
-    localStorage.removeItem('userToken');
-    localStorage.removeItem('userProfile');
+    clearUserSession();
     setCurrentUser(null);
     setActiveNav('home');
     disconnectSocket();

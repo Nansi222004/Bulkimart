@@ -39,3 +39,4 @@ test/
 tests/
 !backend/__tests__/api/service-management.http.test.js
 !backend/__tests__/api/image-search.http.test.js
+!backend/__tests__/api/delivery-login-role.http.test.js

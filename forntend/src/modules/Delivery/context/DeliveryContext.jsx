@@ -3,6 +3,8 @@ import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
+import { clearUserSession } from '../../../utils/userSession';
+import { completeDeliveryLogin } from '../utils/deliveryAuth';
 
 const DeliveryContext = createContext();
 
@@ -114,6 +116,7 @@ export const DeliveryProvider = ({ children }) => {
         : null;
     if (key) startRing(key);
     else stopRing();
+    return () => stopRing();
   }, [riderPingOrder, returnPickupPingOffer]);
 
   // Push registration is independent of the on-duty toggle — an approved
@@ -706,12 +709,18 @@ export const DeliveryProvider = ({ children }) => {
     let cancelled = false;
     (async () => {
       try {
+        const session = await fetch(apiUrl('/api/auth/me'), { headers: authHeaders() });
+        if (cancelled) return;
+        if ([401, 403].includes(session.status)) { clearUserSession(); return; }
+        if (!session.ok) return;
+        const identity = await session.json();
+        if (cancelled || identity.userType !== 'user' || identity.sessionRole !== 'delivery') return;
         const res = await fetch(apiUrl('/api/delivery/me'), { headers: authHeaders() });
+        if (cancelled) return;
 
         if (res.status === 401) {
           // Expired or tampered — drop it rather than half-trusting it.
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('userProfile');
+          clearUserSession();
           return;
         }
         if (!res.ok) {
@@ -929,19 +938,18 @@ export const DeliveryProvider = ({ children }) => {
   });
 
   /**
-   * Send a login OTP. Same endpoint the shopper and seller apps use — one phone
-   * is one identity across the whole platform, so a rider who already shops
-   * here signs in with the number they already have.
+   * One phone remains one identity; the Delivery entry point verifies whether
+   * it is signing in to an existing profile or explicitly registering one.
    */
-  const sendRiderOtp = async (phone) => {
+  const sendRiderOtp = async (phone, intent) => {
     if (!/^\d{10}$/.test(phone || '')) {
       return { ok: false, message: 'Please enter a valid 10-digit mobile number.' };
     }
     try {
-      const res = await fetch(apiUrl('/api/auth/send-otp'), {
+      const res = await fetch(apiUrl('/api/auth/delivery/send-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, intent }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not send OTP' };
@@ -958,49 +966,13 @@ export const DeliveryProvider = ({ children }) => {
    * A rider who already finished onboarding must not be dropped back at step 1,
    * so this reads their existing application status and hands it back.
    */
-  const verifyRiderOtp = async (phone, otp, name) => {
+  const verifyRiderOtp = async (phone, otp, name, intent) => {
     if (!otp) return { ok: false, message: 'Please enter the OTP.' };
     try {
-      const res = await fetch(apiUrl('/api/auth/verify-otp'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, message: body.message || 'OTP verification failed' };
+      const { body, profile: d } = await completeDeliveryLogin(phone, otp, name, intent);
 
-      localStorage.setItem('userToken', body.token);
-      if (body.user) localStorage.setItem('userProfile', JSON.stringify(body.user));
-
-      const resolvedName = name || body.user?.name || '';
-      setPhoneVerified(true);
-      setRiderPhone(phone);
-      setRiderName(resolvedName);
-      // Only a named rider is registered; a returning shopper still owes us one.
-      setRiderAuthed(Boolean(resolvedName));
-
-      // Create or fetch the partner profile, passing the name if this is a
-      // registration. /start is idempotent, so a returning rider just gets theirs.
-      const started = await fetch(apiUrl('/api/delivery/start'), {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(name ? { name } : {}),
-      });
-      const profile = await started.json().catch(() => ({}));
-      const status = profile?.data?.status;
-
-      // An approved rider goes straight to the dashboard rather than re-running
-      // an application they already completed. Anyone else goes to the steps —
-      // and the stale flag that would have skipped them is cleared.
-      if (status === 'approved') {
-        setIsOnboarded(true);
-        localStorage.setItem('delivery_onboarded', 'true');
-      } else {
-        setIsOnboarded(false);
-        localStorage.removeItem('delivery_onboarded');
-      }
-
-      return { ok: true, status, step: profile?.data?.onboardingStep || 1, user: body.user };
+      // Session change remounts the provider and restores all rider state from the server.
+      return { ok: true, status: d.status, step: d.onboardingStep || 1, user: body.user };
     } catch (err) {
       return { ok: false, message: err.message || 'Network error — is the server running?' };
     }
@@ -1068,10 +1040,18 @@ export const DeliveryProvider = ({ children }) => {
     // The session has to go too. Clearing only the onboarding flag left the
     // token in place, so the next person to open the app landed straight back
     // inside the previous rider's account.
-    localStorage.removeItem('userToken');
-    localStorage.removeItem('userProfile');
-    localStorage.removeItem('deliveryDebitWallet');
-    localStorage.removeItem('deliveryEarningsDaily');
+    clearUserSession();
+    disconnectSocket();
+    stopLocationBroadcast();
+    setRiderProfile(null);
+    setRiderStatus('');
+    setRiderRejection('');
+    setRiderPingOrder(null);
+    setReturnPickupPingOffer(null);
+    setReturnPickups({ pending: [], active: [] });
+    setPayoutBalance(0);
+    setPayoutHistory([]);
+    setDebitWallet(0);
     setPhoneVerified(false);
     setRiderAuthed(false);
     setRiderName('');

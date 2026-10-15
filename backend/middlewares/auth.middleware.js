@@ -26,18 +26,20 @@ export const protect = asyncHandler(async (req, res, next) => {
     throw new Error('Not authorized — invalid token');
   }
 
+  // Older signed user tokens omitted type/role. Retain their existing user-only
+  // interpretation; /auth/me resolves their role from live membership records.
+  if ((decoded.type !== undefined && !['admin', 'user'].includes(decoded.type)) || (decoded.role !== undefined && !['buyer', 'seller', 'delivery'].includes(decoded.role))) {
+    res.status(401);
+    throw new Error('Not authorized — unsupported session');
+  }
+
   if (decoded.type === 'admin') {
     req.user = await Admin.findById(decoded.id).select('-password');
     req.userType = 'admin';
   } else {
     req.user = await User.findById(decoded.id).select('-wallet.transactions');
     req.userType = 'user';
-    // Set only by the seller/SHG entry-point logins (auth.controller.js),
-    // at the moment they already know that context — never anything a
-    // client can set directly. Absent (undefined) for the base customer/
-    // shared login, including Delivery Partner, which has no gated login
-    // of its own yet. See ticket.service.js::resolveRequester for how an
-    // absent claim is handled.
+    // Signed entry-point context; live membership/approval is checked separately.
     req.tokenRole = decoded.role;
   }
 

@@ -31,3 +31,4 @@ __tests__/services/*
 !__tests__/services/quick-commerce-finance.test.js
 test/
 tests/
+!__tests__/api/delivery-login-role.http.test.js

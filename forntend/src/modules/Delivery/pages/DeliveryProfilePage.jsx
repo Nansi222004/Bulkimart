@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
+import { enterCustomerSession } from '../../../utils/userSession';
 
 export const DeliveryProfilePage = () => {
   const { onboardingForm, logoutDelivery, triggerToast, earningsData, riderName, riderProfile,
           saveRiderLocation, refreshRiderStatus, lookupAddress } = useDelivery();
 
   const [locating, setLocating] = useState(false);  // button loading state
+  const [switching, setSwitching] = useState(false);
 
   /**
    * Fetch device GPS → reverse-geocode with Google Maps → save to backend.
@@ -250,6 +252,11 @@ export const DeliveryProfilePage = () => {
 
       {/* Support and action list */}
       <div className="delivery-card delivery-profile-actions-card">
+        <button className="profile-support-btn outline" disabled={switching} onClick={async () => {
+          setSwitching(true);
+          try { await enterCustomerSession(); }
+          catch (error) { triggerToast(error.message); setSwitching(false); }
+        }}>{switching ? 'Opening shop…' : 'Shop as customer'}</button>
         <button 
           className="profile-support-btn"
           onClick={() => triggerToast('Dialing Emergency Helpline (Mock Call)...')}

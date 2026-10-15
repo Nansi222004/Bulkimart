@@ -12,6 +12,7 @@ import DeliverySupportPage from '../pages/DeliverySupportPage';
 import DeliveryNavbar from '../components/DeliveryNavbar';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
+import { SESSION_CHANGED } from '../../../utils/userSession';
 
 const DeliveryRoutesContent = () => {
   const {
@@ -153,8 +154,18 @@ const DeliveryRoutesContent = () => {
 };
 
 export const DeliveryRoutes = () => {
+  const [session, setSession] = useState(() => ({ token: localStorage.getItem('userToken'), revision: 0 }));
+  useEffect(() => {
+    const sync = event => {
+      if (event.type === 'storage' && event.key && event.key !== 'userToken') return;
+      setSession(previous => ({ token: localStorage.getItem('userToken'), revision: previous.revision + 1 }));
+    };
+    window.addEventListener(SESSION_CHANGED, sync);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener(SESSION_CHANGED, sync); window.removeEventListener('storage', sync); };
+  }, []);
   return (
-    <DeliveryProvider>
+    <DeliveryProvider key={`${session.token || 'guest'}:${session.revision}`}>
       <DeliveryRoutesContent />
     </DeliveryProvider>
   );

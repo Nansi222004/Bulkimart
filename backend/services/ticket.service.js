@@ -29,9 +29,7 @@ import {
  *      their token was issued must not keep filing seller tickets on an
  *      old token) — the claim only decides *which* collection to check
  *      first, never skips the check.
- *   2. Auto-detected fallback — Delivery Partner has no gated login of its
- *      own (it shares the base customer/shared `verifyAndLogin`, see
- *      auth.controller.js), so there is no JWT claim to lean on for it;
+ *   2. Auto-detected fallback for legacy sessions without a role claim;
  *      checked directly against the real DeliveryPartner record instead.
  *      Falls through to `customer`, which every authenticated User
  *      qualifies for with no further lookup.
@@ -47,7 +45,7 @@ export const resolveRequester = async (user, tokenRole, requestedRole) => {
     const partner = await DeliveryPartner.findOne({ userId: user._id, status: 'approved' }).select('_id');
     if (partner) return { role: TICKET_REQUESTER_ROLE.DELIVERY, name: user.name || 'Delivery Partner', email: user.email, vendorId: partner._id };
   }
-  if (roleToTest === TICKET_REQUESTER_ROLE.CUSTOMER) {
+  if (roleToTest === TICKET_REQUESTER_ROLE.CUSTOMER || roleToTest === 'buyer') {
     return { role: TICKET_REQUESTER_ROLE.CUSTOMER, name: user.name || 'Customer', email: user.email, vendorId: null };
   }
 

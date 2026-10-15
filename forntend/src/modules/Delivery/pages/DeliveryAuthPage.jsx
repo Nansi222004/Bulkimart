@@ -18,7 +18,7 @@ export const DeliveryAuthPage = () => {
     phoneVerified, riderPhone, setOnboardingStep, triggerToast,
   } = useDelivery();
 
-  const [mode, setMode] = useState('register');   // 'register' | 'login'
+  const [mode, setMode] = useState('login');   // 'register' | 'login'
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -43,7 +43,7 @@ export const DeliveryAuthPage = () => {
       return;
     }
     setBusy(true);
-    const res = await sendRiderOtp(phone);
+    const res = await sendRiderOtp(phone, mode);
     setBusy(false);
 
     if (!res.ok) { triggerToast(res.message); return; }
@@ -54,7 +54,7 @@ export const DeliveryAuthPage = () => {
 
   const handleVerify = async () => {
     setBusy(true);
-    const res = await verifyRiderOtp(phone, otp, isRegister ? name.trim() : undefined);
+    const res = await verifyRiderOtp(phone, otp, isRegister ? name.trim() : undefined, mode);
     setBusy(false);
 
     if (!res.ok) { triggerToast(res.message); return; }

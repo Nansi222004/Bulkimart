@@ -69,6 +69,10 @@ export const requireApprovedSeller = asyncHandler(async (req, res, next) => {
 export const requireApprovedPartner = asyncHandler(async (req, res, next) => {
   if (req.userType === 'admin') return next();
 
+  if (req.tokenRole && req.tokenRole !== 'delivery') {
+    return res.status(403).json({ success: false, message: 'Sign in through the Delivery panel to continue.' });
+  }
+
   const partner = await DeliveryPartner.findOne({ userId: req.user._id });
 
   if (!partner) {

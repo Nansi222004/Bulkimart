@@ -3,13 +3,14 @@ import React from 'react';
 // Controlled hook/effect execution for the actual components. Fetch deliberately
 // ignores AbortSignal, exercising generation guards as well as cancellation.
 // This is not a DOM/browser E2E harness.
-export function hookHarness(Component, props = {}, path = '/admin/services', contextValue) {
-  const previous = { window: globalThis.window, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
+export function hookHarness(Component, props = {}, path = '/admin/services', contextValue, storage) {
+  const previous = { window: globalThis.window, fetch: globalThis.fetch, localStorage: globalThis.localStorage, sessionStorage: globalThis.sessionStorage };
   const target = new EventTarget(); let url = new URL(path, 'http://localhost');
   globalThis.window = { location: { get search() { return url.search; }, get pathname() { return url.pathname; } },
     history: { pushState(_s, _t, next) { url = new URL(next, url); }, replaceState(_s, _t, next) { url = new URL(next, url); } },
     addEventListener: target.addEventListener.bind(target), removeEventListener: target.removeEventListener.bind(target), dispatchEvent: target.dispatchEvent.bind(target), confirm: () => true };
-  globalThis.localStorage = { getItem: () => 'fixture-only-token' };
+  globalThis.localStorage = storage?.localStorage || { getItem: () => 'fixture-only-token' };
+  if (storage?.sessionStorage) globalThis.sessionStorage = storage.sessionStorage;
   const requests = [], slots = []; let cursor = 0, dirty = true, tree, effects = [], updates = 0, unmounted = false;
   globalThis.fetch = (requestUrl, options = {}) => new Promise((resolve, reject) => requests.push({ url: requestUrl, options, reject,
     resolve(data, status = 200) { resolve({ ok: status < 400, status, json: async () => data }); } }));

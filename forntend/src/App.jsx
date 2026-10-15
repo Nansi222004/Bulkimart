@@ -3,6 +3,7 @@ import UserRoutes from './modules/User/routes'
 import SellerRoutes from './modules/Seller/routes'
 import AdminRoutes from './modules/Admin/routes'
 import DeliveryRoutes from './modules/Delivery/routes'
+import CustomerSessionGate from './components/CustomerSessionGate'
 
 function App() {
   const [path, setPath] = useState(window.location.pathname)
@@ -45,7 +46,7 @@ function App() {
     return <AdminRoutes />
   }
 
-  return <UserRoutes />
+  return <CustomerSessionGate><UserRoutes /></CustomerSessionGate>
 }
 
 export default App
