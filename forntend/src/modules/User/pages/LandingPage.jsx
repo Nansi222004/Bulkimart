@@ -1,4 +1,5 @@
 import React from 'react';
+import RealtimeNotice from '../../../components/RealtimeNotice';
 import { UserProvider, useUser } from '../context/UserContext';
 import '../User.css';
 import UnifiedHeader from '../components/UnifiedHeader';
@@ -226,6 +227,7 @@ const LandingPageContent = () => {
 
   return (
     <div className={`user-landing-page-container mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode}>
+      {currentUser && <RealtimeNotice />}
       {/* Scrollable Main Area */}
       <main className={`user-main-content page-${activeNav}`}>
         {renderContent()}

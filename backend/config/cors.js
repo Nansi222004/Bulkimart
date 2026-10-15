@@ -32,4 +32,5 @@ export const getCorsOptions = (env = process.env) => ({
   credentials: true,
   methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   optionsSuccessStatus: 204,
+  exposedHeaders: ['X-Request-ID'],
 });

@@ -2,6 +2,7 @@ import express from 'express';
 import {
   createOrder,
   createUnifiedOrder,
+  getCheckoutStatus,
   getMyOrders,
   getOrderById,
   trackOrder,
@@ -22,6 +23,7 @@ router.route('/')
 // Above /:id, or "unified" is read as an order id. Additive: POST /api/orders
 // is untouched and every existing single-storefront checkout still uses it.
 router.post('/unified', createUnifiedOrder);
+router.post('/checkout-status', getCheckoutStatus);
 
 router.get('/:id', getOrderById);
 router.get('/:id/track', trackOrder);

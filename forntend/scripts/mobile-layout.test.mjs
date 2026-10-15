@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'vite';
+import { preview } from 'vite';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,6 +8,10 @@ import { existsSync } from 'node:fs';
 
 const audit = process.argv.includes('--audit');
 const dialogsOnly = process.argv.includes('--dialogs');
+const sellerOnly = process.argv.includes('--seller');
+const startupOnly = process.argv.includes('--startup');
+const livePublic = process.argv.includes('--live-public');
+let startupScenario = '', authRequests = 0, authSettled = false;
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const viewport = html.match(/<meta\s+name="viewport"\s+content="([^"]+)"/i)?.[1];
 assert.match(viewport || '', /width=device-width/);
@@ -17,12 +21,15 @@ const executable = process.env.CHROME_BIN || ['C:/Program Files/Google/Chrome/Ap
 assert.ok(executable, 'Set CHROME_BIN to an installed Chrome/Chromium executable.');
 assert.equal(typeof WebSocket, 'function', 'Browser checks require Node with built-in WebSocket support.');
 const profileDir = await mkdtemp(join(tmpdir(), 'bulkimart-mobile-browser-'));
-const vite = await createServer({ server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
-await vite.listen();
-const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
+assert.ok(existsSync(resolve('dist/index.html')), 'Run npm run build before browser regressions.');
+// Exercise the production artifact. Development module interception can stall
+// across many reloads and does not represent the deployed asset pipeline.
+const vite = await preview({ preview: { host: '127.0.0.1', port: 0, strictPort: false } });
+const origin = livePublic ? 'https://bulkimart.in' : `http://127.0.0.1:${vite.httpServer.address().port}`;
 const browser = spawn(executable, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profileDir}`, '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-sync', '--disable-component-update', 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 let socket, sequence = 0;
 const pending = new Map(), errors = [], rows = [];
+const browserDiagnostics = [];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const address = { _id: '507f1f77bcf86cd799439019', name: 'Fixture Customer', phone: '9876500000', line1: 'Fixture street', city: 'Mumbai', state: 'Maharashtra', pincode: '400001', lat: 19.11, lng: 72.91, isDefault: true };
 const customer = { _id: '507f1f77bcf86cd799439011', name: 'Fixture Customer', phone: '9876500000', roles: ['buyer'], isActive: true, addresses: [address] };
@@ -32,6 +39,9 @@ const seller = { _id: product.sellerId, name: 'Fixture Store', city: 'Mumbai' };
 const pricing = { subtotal: 100, deliveryCharge: 40, totalAmount: 140, standardFee: 40 };
 function fixture(raw) {
   const path = new URL(raw).pathname;
+  if (path === '/api/sellers/me') return { success: true, seller: { ...seller, status: 'approved', salesChannels: ['ecommerce', 'grocery'], storeDetails: { name: 'Fixture Store' } } };
+  if (path === '/api/sellers/dashboard') return { success: true, kpis: { totalRevenue: 100, totalOrders: 1, lowStockCount: 1 } };
+  if (path === '/api/sellers/orders') return { success: true, data: [{ _id: '507f1f77bcf86cd799439022', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'placed', pricing, items: [line], createdAt: new Date().toISOString(), shippingAddress: address }] };
   if (path === '/api/auth/me') return { success: true, userType: 'user', sessionRole: 'buyer', profile: customer };
   if (path === '/api/auth/send-otp') return { success: true, message: 'Fixture OTP sent' };
   if (path === '/api/auth/verify-otp') return { success: true, user: customer, token: 'browser-fixture-token', sessionRole: 'buyer' };
@@ -61,8 +71,8 @@ async function evaluate(expression) {
   return result.result.value;
 }
 async function waitFor(expression) {
-  for (let i = 0; i < 100; i++) { if (await evaluate(expression)) return; await pause(100); }
-  throw new Error('Page not ready: ' + expression + '\n' + JSON.stringify(errors.slice(-3)) + '\n' + await evaluate('document.body.innerText'));
+  for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await pause(100); }
+  throw new Error('Page not ready: ' + expression + '\n' + JSON.stringify(errors.slice(-3)) + '\n' + JSON.stringify(browserDiagnostics.slice(-8)) + '\n' + await evaluate('JSON.stringify({ready:document.readyState,title:document.title,html:document.body.innerHTML.slice(0,1500)})'));
 }
 try {
   let port;
@@ -77,27 +87,60 @@ try {
     const message = JSON.parse(event.data);
     if (message.id) { const task = pending.get(message.id); pending.delete(message.id); if (message.error) task?.reject(new Error(message.error.message)); else task?.resolve(message.result); return; }
     if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text);
+    if (!livePublic && message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') browserDiagnostics.push(message.params.args.map(arg => arg.value || arg.description || '').join(' ').slice(0, 1000));
     if (message.method === 'Fetch.requestPaused') {
       const { requestId, request } = message.params;
       try {
+        if (livePublic) {
+          // A fresh guest profile, public reads only. Block every mutation,
+          // including any unexpected analytics/auth/payment POST.
+          await command(['GET', 'HEAD', 'OPTIONS'].includes(request.method) ? 'Fetch.continueRequest' : 'Fetch.failRequest',
+            ['GET', 'HEAD', 'OPTIONS'].includes(request.method) ? { requestId } : { requestId, errorReason: 'BlockedByClient' });
+          return;
+        }
         // Intercept every API origin before any request is sent. Test tokens,
         // checkout actions and payment requests never reach a real backend.
-        if (new URL(request.url).pathname.startsWith('/api/')) await command('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Access-Control-Allow-Origin', value: origin }, { name: 'Access-Control-Allow-Headers', value: 'authorization,content-type' }], body: Buffer.from(JSON.stringify(fixture(request.url))).toString('base64') });
+        if (new URL(request.url).pathname.startsWith('/api/')) {
+          if (request.method === 'OPTIONS') {
+            await command('Fetch.fulfillRequest', { requestId, responseCode: 204, responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: origin }, { name: 'Access-Control-Allow-Headers', value: 'authorization,content-type' }, { name: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,PATCH,DELETE,OPTIONS' }] });
+            return;
+          }
+          let body = fixture(request.url), status = 200;
+          if (new URL(request.url).pathname === '/api/auth/me' && startupOnly) {
+            authRequests++;
+            await pause(1800);
+            if (startupScenario === 'expired') { status = 401; body = { success: false }; }
+            if (startupScenario === 'failed') { status = 500; body = { success: false }; }
+            authSettled = true;
+          }
+          await command('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Access-Control-Allow-Origin', value: origin }, { name: 'Access-Control-Allow-Headers', value: 'authorization,content-type' }], body: Buffer.from(JSON.stringify(body)).toString('base64') });
+        }
         else if (request.url.startsWith(origin) || request.url.startsWith('data:')) await command('Fetch.continueRequest', { requestId });
         else await command('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
       } catch (error) { if (!error.message.includes('Invalid InterceptionId')) errors.push(error.message); }
     }
   };
   await command('Page.enable'); await command('Runtime.enable'); await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-  await command('Page.addScriptToEvaluateOnNewDocument', { source: `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');} else {localStorage.setItem('userToken','browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
-  const widths = dialogsOnly ? [320, 390] : audit ? [320, 390, 430, 1280] : [320, 360, 375, 390, 412, 430, 768, 1280, 1440];
+  await command('Page.addScriptToEvaluateOnNewDocument', { source: livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');} else {localStorage.setItem('userToken','browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
+  const selectedWidth = Number(process.argv.find(arg => arg.startsWith('--width='))?.split('=')[1]);
+  const widths = selectedWidth ? [selectedWidth] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
   for (const width of widths) {
-    await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: width <= 430 });
-    const paths = dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
+    await command('Emulation.setDeviceMetricsOverride', { width, height: 956, deviceScaleFactor: 1, mobile: width <= 440 });
+    const paths = livePublic ? ['/', '/seller', '/checkout'] : startupOnly ? ['/?guest=startup', '/?startup=slow', '/?startup=expired', '/?startup=failed'] : sellerOnly ? ['/seller?guest=1', '/seller', '/seller/orders', '/seller/products'] : dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
     for (const path of paths) {
       console.log(`Checking ${width}px ${path}`);
+      startupScenario = new URL(path, origin).searchParams.get('startup') || 'guest'; authRequests = 0; authSettled = false;
       await command('Page.navigate', { url: origin + path });
-      await waitFor(`!!document.querySelector('.user-landing-page-container,.auth-page-container') && !document.querySelector('.customer-splash')`);
+      await waitFor(`!!document.querySelector('.user-landing-page-container,.auth-page-container,.seller-auth-page,.seller-dashboard-layout') && !document.querySelector('.customer-splash')`);
+      if (startupOnly) {
+        const publicMs = await evaluate('Math.round(performance.now())');
+        if (startupScenario !== 'guest') assert.equal(authSettled, false, 'Public shell renders before slow verification finishes');
+        rows.push({ path, viewport: width, publicMs, verificationDelayMs: startupScenario === 'guest' ? 0 : 1800 });
+        if (startupScenario !== 'guest') await waitFor(`!!localStorage.getItem('userProfile') && ${startupScenario === 'slow' ? "!document.body.innerText.includes('Unable to verify')" : 'true'}`);
+        await pause(1900);
+        assert.equal(authRequests, startupScenario === 'guest' ? 0 : 1, 'One startup verification per session');
+        continue;
+      }
       await pause(250);
       if (path.includes('layout=message')) {
         await waitFor(`!![...document.querySelectorAll('button')].find(b => b.textContent.includes('Add message'))`);
@@ -129,17 +172,19 @@ try {
         const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
         const controls = [...document.querySelectorAll('input,select,textarea')].filter(el => visible(el) && !['radio','checkbox','hidden','range','button','submit','reset','color'].includes(el.type));
         return { width: innerWidth, root: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, scale: visualViewport?.scale,
-          shellHeight: document.querySelector('.user-landing-page-container,.auth-page-container').getBoundingClientRect().height,
+          shellHeight: document.querySelector('.user-landing-page-container,.auth-page-container,.seller-app-container').getBoundingClientRect().height,
           controls: controls.map(el => ({ name: el.placeholder || el.name || el.type, size: parseFloat(getComputedStyle(el).fontSize), width: el.getBoundingClientRect().width })),
-          wide: [...document.querySelectorAll('main,section,form,.profile-menu-card,.checkout-content,.unified-header-container,.product-grid')].filter(visible).filter(el => el.getBoundingClientRect().right > innerWidth+1 || el.getBoundingClientRect().left < -1).map(el => el.className),
-          body: document.body.innerText.slice(0,120) };
+          wide: [...document.querySelectorAll('main,section,form,.profile-menu-card,.checkout-content,.unified-header-container,.product-grid,.seller-header-row,.seller-tab-content-container,.seller-kpi-grid')].filter(visible).filter(el => el.getBoundingClientRect().right > innerWidth+1 || el.getBoundingClientRect().left < -1).map(el => el.className),
+          drawerOpen: !!document.querySelector('.seller-sidebar-backdrop') && getComputedStyle(document.querySelector('.seller-sidebar-backdrop')).display !== 'none',
+          ${livePublic ? '' : 'body: document.body.innerText.slice(0,120)'} };
       })()`);
       rows.push({ viewport: width, path, ...measure });
       if (!audit) {
         assert.ok(measure.scroll <= width + 1, `${width} ${path}: page overflow ${JSON.stringify(measure)}`);
         assert.deepEqual(measure.wide, [], `${width} ${path}: overflowing layout`);
         assert.equal(measure.scale, 1, `${width} ${path}: initial scale`);
-        if (width <= 430) for (const control of measure.controls) assert.ok(control.size >= 16, `${width} ${path}: undersized control ${JSON.stringify(control)}`);
+        if (width <= 440) for (const control of measure.controls) assert.ok(control.size >= 16, `${width} ${path}: undersized control ${JSON.stringify(control)}`);
+        if (sellerOnly && !path.includes('guest') && width < 768) assert.equal(measure.drawerOpen, false, 'Mobile navigation starts closed');
         if (path.includes('guest=otp') && width <= 768) assert.equal(measure.controls[0].size, 28, 'OTP keeps its large type');
         // A shortened viewport approximates available keyboard space; it does
         // not emulate an actual mobile keyboard or Safari focus zoom.
@@ -165,11 +210,13 @@ try {
     }
   }
   const artifacts = resolve('../test-artifacts/mobile-layout'); await mkdir(artifacts, { recursive: true });
-  await writeFile(join(artifacts, audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
+  await writeFile(join(artifacts, livePublic ? 'live-public.json' : startupOnly ? 'startup.json' : sellerOnly ? (audit ? 'seller-baseline.json' : 'seller-results.json') : audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
   console.log(JSON.stringify({ audit, checks: rows.length, rows: audit ? rows : undefined, errors }, null, 2));
   if (!audit) assert.deepEqual(errors, [], 'Unexpected application errors in browser fixtures');
 } finally {
-  socket?.close(); browser.kill(); await vite.close();
+  socket?.close(); browser.kill();
+  vite.httpServer.closeAllConnections?.();
+  await new Promise(resolve => vite.httpServer.close(resolve));
   for (const task of pending.values()) task.reject(new Error('Browser closed')); pending.clear();
   // Only remove this test's generated profile, never an existing user profile.
   assert.equal(dirname(resolve(profileDir)), resolve(tmpdir())); assert.ok(basename(profileDir).startsWith('bulkimart-mobile-browser-'));

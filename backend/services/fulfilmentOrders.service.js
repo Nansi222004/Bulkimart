@@ -152,7 +152,7 @@ const deliverySnapshotOf = (group) => buildDeliverySnapshot({
  * @returns {{ orders: Order[], payment: Payment, groupRef: string }}
  */
 export const createOrdersFromGroups = async ({
-  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0,
+  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, beforeWrite = () => {},
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
 
@@ -194,6 +194,7 @@ export const createOrdersFromGroups = async ({
   // ---- stock, all of it, before any of it -------------------------------
   for (const g of groups) {
     for (const l of linesOf(g)) {
+      beforeWrite('inventory.update');
       await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session });
     }
   }
@@ -213,6 +214,7 @@ export const createOrdersFromGroups = async ({
   const payable = Number((groups.reduce((t, g) => t + g.total, 0) + tipAmount).toFixed(2));
 
   if (paymentMethod === PAYMENT_METHOD.WALLET) {
+    beforeWrite('wallet.debit');
     await debitWallet({
       userId: user._id,
       amount: payable,
@@ -225,6 +227,7 @@ export const createOrdersFromGroups = async ({
     });
   }
 
+  beforeWrite('payment.create');
   const [payment] = await Payment.create([{
     userId: user._id,
     amount: payable,
@@ -244,6 +247,7 @@ export const createOrdersFromGroups = async ({
     const thisOrdersTip = !tipAttached && tipAmount > 0 ? tipAmount : 0;
     if (thisOrdersTip > 0) tipAttached = true;
 
+    beforeWrite('order.create');
     const [doc] = await Order.create([{
       userId: user._id,
       type: g.channel,
@@ -288,12 +292,14 @@ export const createOrdersFromGroups = async ({
    * a new shape for those paths to learn. Pointing it at the first order costs
    * nothing and keeps every legacy reader working.
    */
+  beforeWrite('payment.link_order');
   await Payment.updateOne({ _id: payment._id }, { $set: { orderId: orders[0]._id } }, { session });
 
 
 
   // Only the storefronts that were actually ordered from are emptied.
   const channels = [...new Set(groups.map((g) => g.channel))];
+  beforeWrite('cart.clear');
   await Cart.updateMany(
     { userId: user._id, channel: { $in: channels } },
     { $set: { items: [] } },

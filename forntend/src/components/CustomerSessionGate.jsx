@@ -1,22 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { apiUrl } from '../utils/api';
 import { clearUserSession, SESSION_CHANGED } from '../utils/userSession';
+import { acquireCustomerSession, CustomerSessionContext, isPublicCustomerPath } from '../utils/customerSession';
 
 // A cached profile is display data, never proof of an authenticated role.
 export default function CustomerSessionGate({ children }) {
-  const [session, setSession] = useState({ loading: true });
+  const [session, setSession] = useState(() => ({ loading: Boolean(localStorage.getItem('userToken')) }));
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    let generation = 0, controller;
+    let generation = 0, active;
     const restore = async () => {
       const request = ++generation;
-      controller?.abort(); controller = new AbortController();
+      active?.release(); active = null;
       const token = localStorage.getItem('userToken');
       if (!token) { localStorage.removeItem('userProfile'); setSession({ token: '', loading: false }); return; }
       setSession({ loading: true });
       try {
-        const res = await fetch(apiUrl('/api/auth/me'), { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
-        const body = await res.json().catch(() => ({}));
+        active = acquireCustomerSession(token);
+        const { res, body } = await active.promise;
         if (request !== generation || token !== localStorage.getItem('userToken')) return;
         if ([401, 403].includes(res.status)) { clearUserSession(false); setSession({ token: '', loading: false }); return; }
         if (!res.ok) throw new Error('Unable to verify your session. Please retry.');
@@ -29,7 +29,7 @@ export default function CustomerSessionGate({ children }) {
           setSession({ loading: true }); return;
         }
         if (!body.profile.roles?.includes('buyer')) { setSession({ error: 'A customer account is required to open this portal.' }); return; }
-        setSession({ token, loading: false });
+        setSession({ token, profile: body.profile, loading: false });
       } catch (error) {
         if (request === generation && error.name !== 'AbortError') setSession({ error: 'Unable to verify your session. Please retry.' });
       }
@@ -38,9 +38,15 @@ export default function CustomerSessionGate({ children }) {
     restore();
     window.addEventListener(SESSION_CHANGED, restore);
     window.addEventListener('storage', storage);
-    return () => { generation++; controller?.abort(); window.removeEventListener(SESSION_CHANGED, restore); window.removeEventListener('storage', storage); };
+    return () => { generation++; active?.release(); window.removeEventListener(SESSION_CHANGED, restore); window.removeEventListener('storage', storage); };
   }, [retry]);
-  if (session.error) return <div role="alert">{session.error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>;
-  if (session.loading) return <div role="status">Verifying your session…</div>;
-  return <React.Fragment key={session.token || 'guest'}>{children}</React.Fragment>;
+  const publicPage = isPublicCustomerPath(window.location.pathname);
+  const error = session.error && <div role="alert">{session.error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>;
+  if (!publicPage && session.error) return error;
+  if (!publicPage && session.loading) return <div role="status">Verifying your session…</div>;
+  const verified = Boolean(!session.loading && !session.error && session.token && session.token === localStorage.getItem('userToken'));
+  return <CustomerSessionContext.Provider value={{ verified, profile: verified ? session.profile : null }}>
+    {error}
+    <React.Fragment key={verified ? session.token : 'guest'}>{children}</React.Fragment>
+  </CustomerSessionContext.Provider>;
 }

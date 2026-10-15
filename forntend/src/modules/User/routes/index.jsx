@@ -1,6 +1,5 @@
 import React from 'react';
 import LandingPage from '../pages/LandingPage';
-import CustomerSplashScreen from '../components/CustomerSplashScreen';
 
 /**
  * User module routes entry point.
@@ -10,7 +9,6 @@ export const UserRoutes = () => {
   return (
     <>
       <LandingPage />
-      <CustomerSplashScreen />
     </>
   );
 };

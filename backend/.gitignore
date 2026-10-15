@@ -35,3 +35,5 @@ tests/
 !__tests__/api/seller-first-checkout.http.test.js
 !__tests__/api/checkout-workflow.http.test.js
 !__tests__/api/checkout-address-contact.test.js
+!__tests__/api/socket-transport.http.test.js
+private-data/maintenance/

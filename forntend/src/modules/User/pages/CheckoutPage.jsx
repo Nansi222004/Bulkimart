@@ -16,6 +16,7 @@ const CheckoutPage = () => {
     getCartItems,
     placeOrder,
     placeUnifiedOrder,
+    checkCheckoutStatus,
     initiateOnlinePayment,
     setActiveNav,
     setSelectedOrder,
@@ -66,7 +67,12 @@ const CheckoutPage = () => {
     && serverCart.items.every((item) => item.fulfillmentType === 'digital');
   const hasMixedFulfillment = (serverCart?.items || []).some((item) => item.fulfillmentType === 'digital')
     && (serverCart?.items || []).some((item) => item.fulfillmentType !== 'digital');
-  const isUnified = !isDigitalCart && groups.length > 1;
+  // Neutral URLs (/checkout, /cart) can restore a different storefront from
+  // the basket's only remaining group. Submit the basket actually displayed,
+  // rather than that storefront's empty cart. Grouped checkout already owns
+  // cross-channel pricing/validation and does not require a carrier choice.
+  const isUnified = !isDigitalCart && (groups.length > 1
+    || (groups.length === 1 && groups[0].channel !== cartChannel));
   const checkoutBlocked = !isDigitalCart && (unified.loading || Boolean(unified.error) || !unified.data);
 
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
@@ -366,9 +372,27 @@ const CheckoutPage = () => {
   };
 
   const [orderError, setOrderError] = useState('');
+  const [orderConflict, setOrderConflict] = useState(null);
+  const [checkingCheckout, setCheckingCheckout] = useState(false);
+  const recoveryCodes = ['CHECKOUT_DATA_CONFLICT', 'CHECKOUT_OUTCOME_UNCERTAIN', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_SAVE_FAILED', 'CHECKOUT_RESULT_UNAVAILABLE'];
+  const recoveryRequired = Boolean(orderConflict && recoveryCodes.includes(orderConflict.code) && !orderConflict.retryAllowed);
+
+  const handleCheckoutRecovery = async () => {
+    if (checkingCheckout) return;
+    setCheckingCheckout(true);
+    try {
+      const result = await checkCheckoutStatus(orderConflict.operation || (isUnified ? 'unified' : 'single'));
+      if (!result.ok) { setOrderError(result.message); return; }
+      const retryAllowed = result.data?.state === 'not_found' && result.data.canRetrySameKey === true;
+      setOrderConflict(current => ({ ...current, retryAllowed }));
+      setOrderError(result.data?.state === 'not_found'
+        ? 'No committed checkout was found. Once the conflict is resolved, you can retry using the same checkout session.'
+        : result.message);
+    } finally { setCheckingCheckout(false); }
+  };
 
   const handlePlaceOrder = async () => {
-    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked) return;
+    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired) return;
     if (hasMixedFulfillment) {
       setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
       return;
@@ -381,6 +405,7 @@ const CheckoutPage = () => {
     orderingRef.current = true;
     setIsOrdering(true);
     setOrderError('');
+    setOrderConflict(null);
 
     // Real checkout: the server reprices the cart from live product data, holds
     // the stock in a transaction, and returns the created order.
@@ -394,6 +419,7 @@ const CheckoutPage = () => {
       orderingRef.current = false;
       setIsOrdering(false);
       setOrderError(res.message || 'Could not place your order');
+      setOrderConflict(res.status === 409 || recoveryCodes.includes(res.code) ? res : null);
       return;
     }
 
@@ -432,6 +458,15 @@ const CheckoutPage = () => {
     <div style={{ margin: '0 16px 12px', padding: 12, borderRadius: 8, fontSize: 12.5, lineHeight: 1.5,
                   background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#b91c1c' }}>
       {orderError}
+      {orderConflict && <div style={{ marginTop: 8 }}>
+        <button type="button" onClick={() => setActiveNav('orders')}>Check My Orders</button>
+        {recoveryCodes.includes(orderConflict.code) && <button type="button" disabled={checkingCheckout} onClick={handleCheckoutRecovery}>
+          {checkingCheckout ? 'Checking order status…' : 'Check checkout status'}
+        </button>}
+        {![...recoveryCodes, 'IDEMPOTENCY_KEY_REUSED'].includes(orderConflict.code) &&
+          <button type="button" onClick={() => unified.reload()}>Refresh basket</button>}
+        {orderConflict.requestId && <small style={{ display: 'block' }}>Support reference: {orderConflict.requestId}</small>}
+      </div>}
     </div>
   ) : null;
 
@@ -1596,8 +1631,8 @@ const CheckoutPage = () => {
           <button
             className="pd-add-to-cart-btn"
             onClick={handlePlaceOrder}
-            disabled={isOrdering || cartLoading || checkoutBlocked}
-            style={{ opacity: (isOrdering || cartLoading || checkoutBlocked) ? 0.5 : 1 }}
+            disabled={isOrdering || cartLoading || checkoutBlocked || recoveryRequired}
+            style={{ opacity: (isOrdering || cartLoading || checkoutBlocked || recoveryRequired) ? 0.5 : 1 }}
           >
             {isOrdering ? 'Placing order…'
               : cartLoading ? 'Updating…'

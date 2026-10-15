@@ -61,14 +61,18 @@ export const initSocket = (httpServer) => {
     }
   });
 
+  io.engine.on('connection_error', (error) => {
+    // Engine.IO codes distinguish unknown SID (1), bad request (3), origin
+    // rejection (4), etc. Never log the request URL, SID, token or headers.
+    console.warn(JSON.stringify({ event: 'socket_transport_error', code: Number(error.code), instance: process.pid }));
+  });
+
   io.on("connection", (socket) => {
-    console.log(`[SOCKET] connected ${socket.id} (user ${socket.userId})`);
 
     // ── Buyer ────────────────────────────────────────────────────────────
     // The JWT already says who this is; the argument is discarded.
     socket.on("join_user", () => {
       socket.join(`user:${socket.userId}`);
-      console.log(`[SOCKET] ${socket.id} → user:${socket.userId}`);
     });
 
     // ── Seller ───────────────────────────────────────────────────────────
@@ -81,9 +85,8 @@ export const initSocket = (httpServer) => {
           return socket.emit("join_denied", { room: "seller", reason: `Seller is ${seller.status}` });
         }
         socket.join(`seller:${seller._id}`);
-        console.log(`[SOCKET] ${socket.id} → seller:${seller._id}`);
       } catch (err) {
-        console.error("[SOCKET] join_seller failed:", err.message);
+        console.error('[SOCKET] Seller room lookup failed');
       }
     });
 
@@ -96,9 +99,8 @@ export const initSocket = (httpServer) => {
           return socket.emit("join_denied", { room: "rider", reason: `Rider is ${partner.status}` });
         }
         socket.join(`rider:${partner._id}`);
-        console.log(`[SOCKET] ${socket.id} → rider:${partner._id}`);
       } catch (err) {
-        console.error("[SOCKET] join_rider failed:", err.message);
+        console.error('[SOCKET] Rider room lookup failed');
       }
     });
 
@@ -115,12 +117,8 @@ export const initSocket = (httpServer) => {
         return socket.emit("join_denied", { room: "admin", reason: "Not an admin session" });
       }
       socket.join("admin:all");
-      console.log(`[SOCKET] ${socket.id} → admin:all`);
     });
 
-    socket.on("disconnect", () => {
-      console.log(`[SOCKET] disconnected ${socket.id}`);
-    });
   });
 
   console.log("Socket.io initialised");

@@ -355,6 +355,16 @@ describe('checkout HTTP workflow with mocked persistence', () => {
     expect(Product.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  test('unrelated duplicate database keys are not misreported as checkout-key reuse', async () => {
+    setCart('ecommerce');
+    const error = Object.assign(new Error('fixture-only unique index conflict'), { code: 11000, keyPattern: { orderNo: 1 } });
+    CheckoutAttempt.create.mockRejectedValueOnce(error);
+    const response = await request(app).post('/api/orders').set(auth).send({ channel: 'ecommerce', shippingAddress: address }).expect(409);
+    expect(response.body.meta.code).toBe('CHECKOUT_DATA_CONFLICT');
+    expect(response.body.message).not.toMatch(/checkout key|different details/i);
+    expect(persistedOrders).toHaveLength(0);
+  });
+
   test('repeated cancellation restores stock once and refuses a terminal repeat', async () => {
     const product = setCart('grocery');
     const created = await request(app).post('/api/orders').set(auth)

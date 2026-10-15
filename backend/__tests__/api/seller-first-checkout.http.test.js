@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { randomUUID } from 'node:crypto';
+import { requestContext } from '../../middlewares/requestContext.middleware.js';
+import { reconcileCheckoutIndexes } from '../../services/checkoutIndexCompatibility.service.js';
 
 const checkServiceability = jest.fn(); const createShiprocketOrder = jest.fn(); const assignCourier = jest.fn();
 const generateLabel = jest.fn(); const schedulePickup = jest.fn(); const broadcast = jest.fn(async () => {});
@@ -24,7 +26,7 @@ const [{ default: orderRoutes }, { updateOrderStatus }, fulfillment, { protect, 
   import('../../middlewares/auth.middleware.js'), import('../../middlewares/vendor.middleware.js'), import('../../middlewares/error.middleware.js'), import('../../config/jwt.js'),
   import('../../models/User.js'), import('../../models/Seller.js'), import('../../models/Product.js'), import('../../models/Cart.js'), import('../../models/Order.js'), import('../../models/Payment.js'), import('../../models/WalletLedger.js'), import('../../services/fulfilmentGroups.service.js'),
 ]);
-const app = express(); app.use(express.json()); app.use('/orders', orderRoutes);
+const app = express(); app.use(requestContext); app.use(express.json()); app.use('/orders', orderRoutes);
 const vendor = express.Router(); vendor.use(protect, requireRole('seller'), requireApprovedSeller);
 vendor.patch('/:id/status', updateOrderStatus); vendor.get('/:id/options', fulfillment.getFulfillmentOptions);
 vendor.post('/:id/manual', fulfillment.selectManualFulfillment); vendor.post('/:id/shiprocket', fulfillment.createShiprocketShipment);
@@ -53,6 +55,29 @@ async function cart(channel = 'ecommerce', mode) {
 beforeAll(async () => {
   db = await MongoMemoryReplSet.create({ replSet: { count: 1 } }); await mongoose.connect(db.getUri());
   await Promise.all(Object.values(mongoose.models).map(model => model.init()));
+  // Production requires this explicit index too; autoIndex is disabled on
+  // CheckoutAttempt. Exercise the real uniqueness boundary in this fixture.
+  await mongoose.models.CheckoutAttempt.createIndexes();
+});
+
+test.each([
+  ['/orders', 'cod'], ['/orders', 'online'],
+  ['/orders/unified', 'cod'], ['/orders/unified', 'online'],
+])('ambiguous response retry recovers the persisted %s %s order without duplicating writes', async (path, paymentMethod) => {
+  const key = randomUUID();
+  const extra = { channel: 'ecommerce', paymentMethod };
+  const first = await checkout(path, extra, key).expect(201);
+  // Treat this first successful response as lost. The server has already
+  // cleared the cart, so replay must run before empty-cart validation.
+  const retry = await checkout(path, extra, key).expect(201);
+  const firstId = first.body.data.order?._id || first.body.data.orders[0]._id;
+  const retryId = retry.body.data.order?._id || retry.body.data.orders[0]._id;
+  expect(retryId).toBe(firstId);
+  expect(await Order.countDocuments({ userId: buyer._id })).toBe(1);
+  expect(await Payment.countDocuments({ userId: buyer._id })).toBe(1);
+  const persisted = await Order.findById(firstId);
+  expect(persisted.fulfillment.assignmentPolicy).toBe('seller_after_acceptance');
+  expect(persisted.paymentMethod).toBe(paymentMethod);
 });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); });
 beforeEach(async () => {
@@ -69,6 +94,154 @@ beforeEach(async () => {
   seller = await Seller.findById(sellerId);
   product = { _id: id(), sellerId, type: 'ecommerce', category: id(), name: 'Fixture item', price: 100, stock: 10, isActive: true, status: 'approved', fulfillmentType: 'physical', images: [], variants: [{ _id: id(), name: 'One pack', sku: 'FIXTURE-1', price: 100, mrp: 100, stock: 10, weight: 500, unit: 'piece' }] };
   await Product.collection.insertOne(product); await cart();
+});
+
+test('reproduces gatewayOrderId_1 null collision, rolls back, and repairs optional legacy indexes without losing identifier uniqueness', async () => {
+  await Payment.collection.insertOne({ userId: id(), amount: 1, method: 'cod', status: 'pending' });
+  await Payment.collection.createIndex({ gatewayOrderId: 1 }, { name: 'gatewayOrderId_1', unique: true });
+  await Order.collection.insertMany([
+    { userId: id(), orderNo: 'LEGACY-FIXTURE-1', orderId: 'LEGACY-REAL-ID' },
+    { userId: id(), orderNo: 'LEGACY-FIXTURE-2' },
+  ]);
+  await Order.collection.createIndex({ orderId: 1 }, { name: 'orderId_1', unique: true });
+  buyer.addresses.push({ ...address, isDefault: true }); await buyer.save();
+  const key = randomUUID(); const payload = { channel: 'ecommerce', paymentMethod: 'cod', addressId: buyer.addresses[0]._id };
+  const logs = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const failed = await checkout('/orders', payload, key).expect(409);
+    expect(failed.body.meta.code).toBe('CHECKOUT_DATA_CONFLICT');
+    const diagnostic = logs.mock.calls.map(([line]) => JSON.parse(line)).find(line => line.event === 'checkout_database_failure');
+    expect(diagnostic).toMatchObject({ stage: 'payment.create', databaseCode: 11000, index: 'gatewayOrderId_1', keyPattern: { gatewayOrderId: 1 }, keyValue: { gatewayOrderId: null }, requestId: failed.headers['x-request-id'] });
+    expect(diagnostic.transactionState).toBe('TRANSACTION_ABORTED');
+    expect(await Order.countDocuments({ userId: buyer._id })).toBe(0);
+    expect(await Payment.countDocuments({ userId: buyer._id })).toBe(0);
+    expect(await mongoose.models.CheckoutAttempt.countDocuments()).toBe(0);
+    expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+    expect((await Cart.findOne({ userId: buyer._id })).items).toHaveLength(1);
+    const plan = await reconcileCheckoutIndexes(mongoose.connection.db);
+    expect(plan.every(item => item.legacyPresent)).toBe(true);
+    await reconcileCheckoutIndexes(mongoose.connection.db, { apply: true });
+    for (const collection of ['orders', 'payments']) {
+      const indexes = await mongoose.connection.db.collection(collection).indexes();
+      expect(indexes.filter(index => index.unique && index.partialFilterExpression)).not.toHaveLength(0);
+    }
+    const placed = await checkout('/orders', payload, key).expect(201);
+    const retry = await checkout('/orders', payload, key).expect(201);
+    expect(retry.body.data.order._id).toBe(placed.body.data.order._id);
+    expect(await Order.countDocuments({ userId: buyer._id })).toBe(1);
+    expect(await Payment.countDocuments({ userId: buyer._id })).toBe(1);
+    expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
+    // Constraints still reject duplicate real IDs after replacement.
+    await expect(Order.collection.insertOne({ orderNo: 'DUPLICATE-LEGACY', orderId: 'LEGACY-REAL-ID' })).rejects.toMatchObject({ code: 11000 });
+    await Payment.collection.insertOne({ gatewayOrderId: 'provider-real-fixture' });
+    await expect(Payment.collection.insertOne({ gatewayOrderId: 'provider-real-fixture' })).rejects.toMatchObject({ code: 11000 });
+  } finally {
+    logs.mockRestore();
+    // Isolated fixture only. Always leave a canonical optional-field index for
+    // later cases, even if a reproduction assertion fails.
+    await reconcileCheckoutIndexes(mongoose.connection.db, { apply: true });
+  }
+});
+
+test('legacy orderId_1 collision occurs after payment creation and the whole transaction rolls back', async () => {
+  await Order.collection.insertOne({ userId: id(), orderNo: 'HISTORICAL-FIXTURE' });
+  await Order.collection.createIndex({ orderId: 1 }, { name: 'orderId_1', unique: true });
+  const logs = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    await checkout('/orders', { channel: 'ecommerce' }).expect(409);
+    const diagnostic = logs.mock.calls.map(([line]) => JSON.parse(line)).find(line => line.event === 'checkout_database_failure');
+    expect(diagnostic).toMatchObject({ stage: 'order.create', databaseCode: 11000, index: 'orderId_1', keyValue: { orderId: null } });
+    expect(await Payment.countDocuments()).toBe(0);
+    expect(await mongoose.models.CheckoutAttempt.countDocuments()).toBe(0);
+    expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+  } finally { logs.mockRestore(); await reconcileCheckoutIndexes(mongoose.connection.db, { apply: true }); }
+});
+
+test.each(['cod', 'wallet', 'online'])('%s failure after order insertion rolls back all checkout writes and exposes no database details in production', async paymentMethod => {
+  const key = randomUUID();
+  const previousEnv = process.env.NODE_ENV;
+  const logs = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const failure = Object.assign(new Error('fixture-private-database-detail'), { name: 'MongoServerError', code: 121 });
+  const update = jest.spyOn(Cart, 'updateOne').mockRejectedValueOnce(failure);
+  try {
+    process.env.NODE_ENV = 'production';
+    const response = await checkout('/orders', { channel: 'ecommerce', paymentMethod }, key).expect(500);
+    expect(response.body.meta.code).toBe('CHECKOUT_SAVE_FAILED');
+    expect(response.body.meta.requestId).toBe(response.headers['x-request-id']);
+    expect(response.body.stack).toBeUndefined();
+    expect(JSON.stringify(response.body)).not.toMatch(/fixture-private|MongoServerError|121|E11000/);
+    const diagnostic = logs.mock.calls.map(([line]) => JSON.parse(line)).find(line => line.event === 'checkout_database_failure');
+    expect(diagnostic).toMatchObject({ stage: 'cart.clear', databaseCode: 121, transactionState: 'TRANSACTION_ABORTED' });
+    expect(await Order.countDocuments()).toBe(0);
+    expect(await Payment.countDocuments()).toBe(0);
+    expect(await WalletLedger.countDocuments()).toBe(0);
+    expect((await User.findById(buyer._id)).wallet.balance).toBe(10000);
+    expect(await mongoose.models.CheckoutAttempt.countDocuments()).toBe(0);
+    expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+    expect((await Cart.findOne({ userId: buyer._id })).items).toHaveLength(1);
+    await checkout('/orders', { channel: 'ecommerce', paymentMethod }, key).expect(201);
+    await checkout('/orders', { channel: 'ecommerce', paymentMethod }, key).expect(201);
+    expect(await Order.countDocuments()).toBe(1);
+    expect(await Payment.countDocuments()).toBe(1);
+    expect(await WalletLedger.countDocuments()).toBe(paymentMethod === 'wallet' ? 1 : 0);
+  } finally {
+    update.mockRestore(); logs.mockRestore();
+    if (previousEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousEnv;
+  }
+});
+
+test('checkout recovery is authenticated, read-only, owner-scoped and returns a committed result without resubmitting', async () => {
+  const key = randomUUID();
+  const status = (operation = 'single') => auth(request(app).post('/orders/checkout-status')).set('Idempotency-Key', key).send({ operation });
+  await request(app).post('/orders/checkout-status').send({ operation: 'single' }).expect(401);
+  await auth(request(app).post('/orders/checkout-status')).set('Idempotency-Key', key).expect(400);
+  await auth(request(app).post('/orders/checkout-status')).set('Idempotency-Key', 'bad').send({ operation: 'single' }).expect(400);
+  const missing = await status().expect(200);
+  expect(missing.body.data).toEqual({ state: 'not_found', canRetrySameKey: true });
+  expect(await Order.countDocuments()).toBe(0);
+  const placed = await checkout('/orders', { channel: 'ecommerce' }, key).expect(201);
+  const result = await status().expect(200);
+  expect(result.body.data).toMatchObject({ state: 'completed', canRetrySameKey: false, orders: [{ _id: placed.body.data.order._id }], payment: { status: 'pending' } });
+  expect(JSON.stringify(result.body)).not.toMatch(/shippingAddress|Fixture Buyer|gatewayOrderId|requestHash/);
+  await status('unified').expect(409);
+  const other = await User.create({ name: 'Other Fixture', phone: '9876500099', roles: ['buyer'], isActive: true });
+  const isolated = await auth(request(app).post('/orders/checkout-status'), other).set('Idempotency-Key', key).send({ operation: 'single' }).expect(200);
+  expect(isolated.body.data).toEqual({ state: 'not_found', canRetrySameKey: true });
+  await checkout('/orders', { channel: 'ecommerce' }, key).expect(201);
+  expect(await Order.countDocuments()).toBe(1);
+  expect(await Payment.countDocuments()).toBe(1);
+  expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
+  // An incomplete or corrupt reference must never authorize another submission.
+  await mongoose.models.CheckoutAttempt.updateOne({ key }, { $set: { status: 'processing' } });
+  expect((await status()).body.data).toEqual({ state: 'processing', canRetrySameKey: false });
+  await mongoose.models.CheckoutAttempt.updateOne({ key }, { $set: { status: 'completed', paymentId: id() } });
+  expect((await status()).body.data).toEqual({ state: 'unavailable', canRetrySameKey: false });
+});
+
+test('a lost commit acknowledgement reports uncertainty and recovers the one committed online order and payment', async () => {
+  const key = randomUUID();
+  const session = await mongoose.startSession();
+  const commit = session.withTransaction.bind(session);
+  const uncertain = Object.assign(new Error('fixture acknowledgement lost'), { errorLabels: ['UnknownTransactionCommitResult'] });
+  jest.spyOn(session, 'withTransaction').mockImplementation(async callback => {
+    await commit(callback); // Real replica-set commit, followed by a lost acknowledgement.
+    throw uncertain;
+  });
+  const start = jest.spyOn(mongoose, 'startSession').mockResolvedValueOnce(session);
+  const logs = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const response = await checkout('/orders', { channel: 'ecommerce', paymentMethod: 'online' }, key).expect(503);
+    expect(response.body.meta.code).toBe('CHECKOUT_OUTCOME_UNCERTAIN');
+    expect(await Order.countDocuments()).toBe(1);
+    expect(await Payment.countDocuments()).toBe(1);
+    const recovery = await auth(request(app).post('/orders/checkout-status')).set('Idempotency-Key', key).send({ operation: 'single' }).expect(200);
+    expect(recovery.body.data).toMatchObject({ state: 'completed', canRetrySameKey: false, payment: { status: 'pending' } });
+    const retry = await checkout('/orders', { channel: 'ecommerce', paymentMethod: 'online' }, key).expect(201);
+    expect(retry.body.data.order._id).toBe(recovery.body.data.orders[0]._id);
+    expect(await Order.countDocuments()).toBe(1);
+    expect(await Payment.countDocuments()).toBe(1);
+    expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
+  } finally { start.mockRestore(); logs.mockRestore(); }
 });
 
 test.each(['cod', 'wallet', 'online'])('grouped %s checkout requires no provider and freezes customer price', async paymentMethod => {

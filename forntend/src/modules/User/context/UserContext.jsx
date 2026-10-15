@@ -4,6 +4,7 @@ import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { saveUserSession, clearUserSession, openSessionDashboard, captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
+import { CustomerSessionContext } from '../../../utils/customerSession';
 
 const UserContext = createContext();
 
@@ -12,6 +13,7 @@ const UserContext = createContext();
 const genOrderId = () => 'NHC' + Date.now().toString().slice(-6);
 
 export const UserProvider = ({ children }) => {
+  const restoredSession = useContext(CustomerSessionContext);
   // --- Navigation & Mode ---
   /**
    * Which storefront a path belongs to — or nothing, when it belongs to neither.
@@ -242,6 +244,7 @@ export const UserProvider = ({ children }) => {
 
   // --- Authentication ---
   const [currentUser, setCurrentUser] = useState(() => {
+    if (restoredSession) return restoredSession.verified ? restoredSession.profile : null;
     try {
       const token = localStorage.getItem('userToken');
       const saved = localStorage.getItem('userProfile');
@@ -328,7 +331,7 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('userToken');
     const profile = localStorage.getItem('userProfile');
-    if (token && profile) {
+    if ((!restoredSession || restoredSession.verified) && token && profile) {
       try {
         const parsed = JSON.parse(profile);
         connectSocket(token, 'buyer', parsed._id);
@@ -492,6 +495,7 @@ export const UserProvider = ({ children }) => {
   };
 
   const fetchProfile = useCallback(async () => {
+    if (restoredSession && !restoredSession.verified) return;
     const token = localStorage.getItem('userToken');
     if (!token) return;
     try {
@@ -511,7 +515,9 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    fetchProfile();
+    // /auth/me already returns the verified full profile; avoid a second
+    // startup profile lookup. Explicit profile refresh remains available.
+    if (!restoredSession) fetchProfile();
   }, [fetchProfile]);
 
   const logoutUser = () => {
@@ -591,7 +597,7 @@ export const UserProvider = ({ children }) => {
    */
   const [useCoinsSelected, setUseCoinsSelected] = useState(false);
 
-  const isSignedIn = () => Boolean(localStorage.getItem('userToken'));
+  const isSignedIn = () => (!restoredSession || restoredSession.verified) && Boolean(localStorage.getItem('userToken'));
 
   const refreshCartSummary = useCallback(async () => {
     if (!isSignedIn()) { setCartSummary({}); return; }
@@ -1297,16 +1303,19 @@ export const UserProvider = ({ children }) => {
         body: JSON.stringify(checkoutPayload),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, message: body.message || 'Could not place your order' };
+      if (!res.ok) return { ok: false, operation: 'single', status: res.status, code: body.meta?.code, requestId: body.meta?.requestId, message: body.message || 'Could not place your order' };
+      // A proxy can return a successful status with an unreadable/truncated
+      // body. Retain the key until the persisted result is actually confirmed.
+      if (!body.data?.order?._id || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
       clearCheckoutKey('single');
       setCouponCode('');
       setAppliedCoupon(null);
       setUseCoinsSelected(false);
-      await Promise.all([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
+      await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
       return { ok: true, order: body.data.order, coinsUsed: body.data.coinsUsed, coinDiscount: body.data.coinDiscount, message: body.message };
     } catch (err) {
-      return { ok: false, message: err.message };
+      return { ok: false, operation: 'single', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'We could not confirm the checkout result. Check its status before trying again.' };
     }
   };
 
@@ -1355,10 +1364,11 @@ export const UserProvider = ({ children }) => {
         body: JSON.stringify(checkoutPayload),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, message: body.message || 'Could not place your order' };
+      if (!res.ok) return { ok: false, operation: 'unified', status: res.status, code: body.meta?.code, requestId: body.meta?.requestId, message: body.message || 'Could not place your order' };
+      if (!body.data?.orders?.length || body.data.orders.some(order => !order?._id) || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
       clearCheckoutKey('unified');
-      await Promise.all([refreshCart(cartChannel, ''), fetchOrders()]);
+      await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders()]);
       return {
         ok: true,
         orders: body.data.orders,
@@ -1367,8 +1377,20 @@ export const UserProvider = ({ children }) => {
         message: body.message,
       };
     } catch (err) {
-      return { ok: false, message: err.message };
+      return { ok: false, operation: 'unified', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'We could not confirm the checkout result. Check its status before trying again.' };
     }
+  };
+
+  const checkCheckoutStatus = async (operation = 'single') => {
+    if (!isSignedIn()) return { ok: false, message: 'Please sign in to check your order.' };
+    try {
+      const storageKey = `bulkimart:checkout:${operation}:${currentUser?._id || currentUser?.id || 'customer'}`;
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+      if (!saved?.key) return { ok: false, message: 'The checkout session is unavailable. Review My Orders or contact support before ordering again.' };
+      const res = await fetch(apiUrl('/api/orders/checkout-status'), { method: 'POST', headers: { ...authHeaders(), 'Idempotency-Key': saved.key }, body: JSON.stringify({ operation }) });
+      const body = await res.json().catch(() => ({}));
+      return { ok: res.ok, data: body.data, message: body.message || 'Could not check your order status.' };
+    } catch { return { ok: false, message: 'Could not check your order status. Please retry the status check.' }; }
   };
 
   /** Start the server-selected gateway. Only backend verification marks paid. */
@@ -1559,6 +1581,7 @@ export const UserProvider = ({ children }) => {
         returnPickupOtp,
         placeOrder,
         placeUnifiedOrder,
+        checkCheckoutStatus,
         initiateOnlinePayment,
         cancelOrder,
         fetchOrders,

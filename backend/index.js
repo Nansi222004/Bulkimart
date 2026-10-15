@@ -7,6 +7,7 @@ import path from "path";
 import fs from "fs";
 import express from "express";
 import cors from "cors";
+import { requestContext } from './middlewares/requestContext.middleware.js';
 import morgan from "morgan";
 import helmet from "helmet";
 import compression from "compression";
@@ -63,6 +64,7 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 app.use(cors(getCorsOptions()));
+app.use(requestContext);
 app.use(express.json({
   verify: (req, _res, buffer) => {
     if (req.originalUrl?.startsWith('/api/payments/razorpay/webhook')) {

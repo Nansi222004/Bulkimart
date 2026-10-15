@@ -2,10 +2,73 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Checkout, OrdersTab;
-before(async () => { vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' }); Checkout = (await vite.ssrLoadModule('/src/modules/User/pages/CheckoutPage.jsx')).default; OrdersTab = (await vite.ssrLoadModule('/src/modules/Seller/components/OrdersTab.jsx')).default; });
+let vite, Checkout, OrdersTab, UserProvider;
+before(async () => {
+  vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  Checkout = (await vite.ssrLoadModule('/src/modules/User/pages/CheckoutPage.jsx')).default;
+  OrdersTab = (await vite.ssrLoadModule('/src/modules/Seller/components/OrdersTab.jsx')).default;
+  UserProvider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
+  const { socket } = await vite.ssrLoadModule('/src/utils/socket.js');
+  socket.connect = () => socket; // Never connect to a live server in this fixture.
+});
 after(async () => { await vite.close(); });
 const noop = () => {};
+function storage(values = {}) {
+  const entries = { ...values };
+  return { getItem: key => entries[key] ?? null, setItem: (key, value) => { entries[key] = String(value); }, removeItem: key => { delete entries[key]; } };
+}
+
+test('provider recovery reuses the stored checkout key without creating or rotating an order attempt', async () => {
+  const key = 'fixture-checkout-key-unchanged';
+  const storageKey = 'bulkimart:checkout:single:fixture-buyer';
+  const saved = JSON.stringify({ key, fingerprint: 'original-payload' });
+  const profile = { _id: 'fixture-buyer', roles: ['buyer'] };
+  const h = hookHarness(UserProvider, {}, '/checkout', { verified: true, profile }, {
+    localStorage: storage({ userToken: 'fixture-token', userProfile: JSON.stringify(profile) }),
+    sessionStorage: storage({ [storageKey]: saved }),
+  });
+  try {
+    const checking = h.tree.props.value.checkCheckoutStatus('single');
+    const request = h.requests.find(request => request.url.endsWith('/api/orders/checkout-status'));
+    assert.ok(request); assert.equal(request.options.headers['Idempotency-Key'], key);
+    assert.deepEqual(JSON.parse(request.options.body), { operation: 'single' });
+    request.resolve({ success: true, data: { state: 'completed', canRetrySameKey: false } });
+    assert.equal((await checking).data.state, 'completed');
+    assert.equal(sessionStorage.getItem(storageKey), saved);
+    assert.equal(h.requests.filter(request => request.options.method === 'POST' && /\/api\/orders$/.test(request.url)).length, 0);
+    const before = h.requests.length;
+    assert.equal((await h.tree.props.value.checkCheckoutStatus('unified')).ok, false);
+    assert.equal(h.requests.length, before);
+  } finally { h.close(); }
+});
+
+test('lost or malformed checkout responses preserve the key for a read-only recovery check', async () => {
+  for (const operation of ['single', 'unified']) {
+    const profile = { _id: 'fixture-buyer', name: 'Fixture', phone: '9876500000', roles: ['buyer'] };
+    const h = hookHarness(UserProvider, {}, '/checkout', { verified: true, profile }, {
+      localStorage: storage({ userToken: 'fixture-token', userProfile: JSON.stringify(profile) }), sessionStorage: storage(),
+    });
+    try {
+      h.requests.find(request => request.url.endsWith('/api/users/addresses')).resolve({ data: [{ _id: 'fixture-address', name: 'Fixture', phone: '9876500000', line1: 'Fixture', city: 'Mumbai', pincode: '400001' }] });
+      h.requests.find(request => request.url.includes('/api/cart?')).resolve({ data: { items: [{ name: 'Fixture', qty: 1, fulfillmentType: 'physical' }], pricing: { totalAmount: 140 } } });
+      await h.settle();
+      const placing = operation === 'single' ? h.tree.props.value.placeOrder() : h.tree.props.value.placeUnifiedOrder();
+      const endpoint = operation === 'single' ? '/api/orders' : '/api/orders/unified';
+      const attempt = h.requests.find(request => request.url.endsWith(endpoint) && request.options.method === 'POST');
+      assert.ok(attempt);
+      const key = attempt.options.headers['Idempotency-Key'];
+      if (operation === 'single') attempt.reject(new Error('fixture connection lost'));
+      else attempt.resolve({ unexpected: 'truncated response' }, 201);
+      assert.equal((await placing).code, 'CHECKOUT_OUTCOME_UNCERTAIN');
+      assert.equal(JSON.parse(sessionStorage.getItem(`bulkimart:checkout:${operation}:fixture-buyer`)).key, key);
+      const checking = h.tree.props.value.checkCheckoutStatus(operation);
+      const recovery = h.requests.find(request => request.url.endsWith('/api/orders/checkout-status'));
+      assert.equal(recovery.options.headers['Idempotency-Key'], key);
+      recovery.resolve({ data: { state: 'completed', canRetrySameKey: false } }); await checking;
+      assert.equal(h.requests.filter(request => request.url.endsWith(endpoint) && request.options.method === 'POST').length, 1);
+    } finally { h.close(); }
+  }
+});
 function userFixture(overrides = {}) {
   const calls = [];
   const address = { _id: 'address', name: 'Fixture Buyer', phone: '9876500000', line1: 'Fixture', city: 'Mumbai', pincode: '400001', lat: 19.11, lng: 72.91 };
@@ -49,8 +112,74 @@ test('a rapid double tap starts only one checkout request', async () => {
     await Promise.all([first, second]);
   } finally { h.close(); }
 });
+test('a genuine conflict offers order review and basket refresh without repeating checkout', async () => {
+  let writes = 0; const navigations = [];
+  const { h } = harness({ placeOrder: async () => { writes++; return { ok: false, status: 409, code: 'STOCK_CHANGED', requestId: 'fixture-reference', message: 'Stock changed. Review your basket.' }; }, setActiveNav: next => navigations.push(next) });
+  try {
+    await load(h); await placeButton(h).props.onClick(); h.flush();
+    assert.equal(writes, 1); assert.match(text(h.tree), /fixture-reference/);
+    h.click('Check My Orders'); assert.deepEqual(navigations, ['orders']);
+    h.click('Refresh basket'); assert.equal(writes, 1); assert.equal(h.requests.length, 2);
+  } finally { h.close(); }
+});
+test('uncertain idempotency conflict requests order review rather than automatic resubmission', async () => {
+  const { h } = harness({ placeOrder: async () => ({ ok: false, status: 409, code: 'CHECKOUT_IN_PROGRESS', message: 'Order still processing' }) });
+  try {
+    await load(h); await placeButton(h).props.onClick(); h.flush();
+    assert.ok(h.find(n => n.type === 'button' && n.props.children === 'Check My Orders'));
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Refresh basket'), undefined);
+  } finally { h.close(); }
+});
+
+test('data conflict requires a read-only status check before a manual same-session retry', async () => {
+  let writes = 0, checks = 0;
+  const { h } = harness({
+    placeOrder: async () => { writes++; return { ok: false, status: 409, operation: 'single', code: 'CHECKOUT_DATA_CONFLICT', message: 'Checkout data conflict' }; },
+    checkCheckoutStatus: async operation => { checks++; assert.equal(operation, 'single'); return { ok: true, data: { state: 'not_found', canRetrySameKey: true } }; },
+  });
+  try {
+    await load(h); await placeButton(h).props.onClick(); h.flush();
+    assert.equal(placeButton(h).props.disabled, true);
+    await placeButton(h).props.onClick(); assert.equal(writes, 1);
+    await h.click('Check checkout status'); h.flush();
+    assert.equal(checks, 1); assert.equal(writes, 1); assert.equal(placeButton(h).props.disabled, false);
+    assert.match(text(h.tree), /same checkout session/);
+    await placeButton(h).props.onClick(); assert.equal(writes, 2);
+  } finally { h.close(); }
+});
+
+test('committed, pending and failed recovery checks never automatically submit another order', async () => {
+  for (const result of [
+    { ok: true, data: { state: 'completed', canRetrySameKey: false }, message: 'Your order already exists. Open My Orders.' },
+    { ok: true, data: { state: 'processing', canRetrySameKey: false }, message: 'Checkout is processing.' },
+    { ok: false, message: 'Status check is unavailable.' },
+  ]) {
+    let writes = 0;
+    const { h } = harness({
+      placeOrder: async () => { writes++; return { ok: false, operation: 'single', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'Check checkout status' }; },
+      checkCheckoutStatus: async () => result,
+    });
+    try {
+      await load(h); await placeButton(h).props.onClick(); h.flush();
+      await h.click('Check checkout status'); h.flush();
+      assert.equal(writes, 1); assert.equal(placeButton(h).props.disabled, true);
+      assert.match(text(h.tree), new RegExp(result.message.replace(/[.]/g, '\\.')));
+      await placeButton(h).props.onClick(); assert.equal(writes, 1);
+    } finally { h.close(); }
+  }
+});
 test('multi-store basket submits grouped checkout without customer-selected carriers', async () => {
   const { h, calls } = harness(); try { await load(h, [group('first'), group('second')]); await placeButton(h).props.onClick(); assert.deepEqual(calls, [['unified', 'Cash on Delivery', 0]]); } finally { h.close(); }
+});
+
+test('neutral checkout submits the displayed e-commerce basket when the remembered channel is Quick', async () => {
+  const { h, calls } = harness({ cartChannel: 'grocery', serverCart: { items: [], pricing: { totalAmount: 0 } } });
+  try {
+    await load(h, [group('ecommerce-only', 'ecommerce')]);
+    assert.equal(placeButton(h).props.disabled, false);
+    await placeButton(h).props.onClick();
+    assert.deepEqual(calls, [['unified', 'Cash on Delivery', 0]]);
+  } finally { h.close(); }
 });
 test('wallet and online payment stay independent of carrier assignment', async () => {
   for (const [value, label] of [['Bulkimart Wallet', 'wallet'], ['Razorpay Online Payment', 'Online Payment']]) {

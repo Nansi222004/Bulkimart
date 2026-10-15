@@ -43,3 +43,4 @@ tests/
 !backend/__tests__/api/seller-first-checkout.http.test.js
 !backend/__tests__/api/checkout-workflow.http.test.js
 !backend/__tests__/api/checkout-address-contact.test.js
+!backend/__tests__/api/socket-transport.http.test.js

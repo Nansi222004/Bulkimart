@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { createHash } from 'node:crypto';
 import Order from '../models/Order.js';
 import CheckoutAttempt from '../models/CheckoutAttempt.js';
+import { logCheckoutFailure } from '../services/checkoutDiagnostics.service.js';
 import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
@@ -95,11 +96,34 @@ const findClaimedCheckout = async ({ userId, key, requestHash, operation }) => {
 };
 
 const checkoutClaimError = (checkout, requestHash, operation) => {
+  if (!checkout) return httpError(409, 'We could not confirm the order because of a data conflict. Check My Orders before trying again. Contact support if this continues.', { code: 'CHECKOUT_DATA_CONFLICT' });
   if (checkout?.requestHash === requestHash && checkout.operation === operation) {
     return httpError(409, 'Your order is still being processed. Please wait a moment and try again.', { code: 'CHECKOUT_IN_PROGRESS' });
   }
   return httpError(409, 'This checkout session is no longer valid for the current order details. Refresh checkout and try again.', { code: 'IDEMPOTENCY_KEY_REUSED' });
 };
+
+// Read-only recovery: never creates an order, changes a payment or rotates a
+// key. The authenticated owner is part of every lookup.
+export const getCheckoutStatus = asyncHandler(async (req, res) => {
+  const { operation } = req.body || {};
+  const key = req.get('Idempotency-Key');
+  if (!['single', 'unified', 'digital'].includes(operation) || typeof key !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(key)) {
+    throw httpError(400, 'A valid checkout session is required', { code: 'INVALID_CHECKOUT_SESSION' });
+  }
+  const attempt = await CheckoutAttempt.findOne({ userId: req.user._id, key }).lean();
+  if (!attempt) return ok(res, { state: 'not_found', canRetrySameKey: true }, 'No committed checkout was found for this session.');
+  if (attempt.operation !== operation) throw httpError(409, 'This checkout session belongs to different order details.', { code: 'IDEMPOTENCY_KEY_REUSED' });
+  if (attempt.status !== 'completed') return ok(res, { state: 'processing', canRetrySameKey: false }, 'Your checkout is still processing. Check again shortly.');
+  const [orders, payment] = await Promise.all([
+    Promise.all((attempt.orderIds || []).map(id => Order.findById(id))),
+    Payment.findById(attempt.paymentId),
+  ]);
+  if (!orders.length || orders.some(order => !order || String(order.userId) !== String(req.user._id)) || !payment || String(payment.userId) !== String(req.user._id)) {
+    return ok(res, { state: 'unavailable', canRetrySameKey: false }, 'The checkout result needs support review. Do not submit another order.');
+  }
+  return ok(res, { state: 'completed', canRetrySameKey: false, orders: orders.map(order => ({ _id: order._id, orderNo: order.orderNo, status: order.status })), payment: { id: payment._id, status: payment.status } }, 'Your order already exists. Open My Orders to continue.');
+});
 
 /**
  * Checkout.
@@ -511,9 +535,11 @@ export const createOrder = asyncHandler(async (req, res) => {
   // ---- commit -------------------------------------------------------------
   const session = await mongoose.startSession();
   let order;
+  let writeStage = 'checkout_attempt.create';
 
   const executeOrderCommit = async (txnSession = null) => {
     const opts = txnSession ? { session: txnSession } : {};
+    writeStage = 'checkout_attempt.create';
     await CheckoutAttempt.create([{
       userId: req.user._id,
       key: idempotency.key,
@@ -522,10 +548,12 @@ export const createOrder = asyncHandler(async (req, res) => {
       status: 'processing',
     }], opts);
     for (const l of lines) {
+      writeStage = 'inventory.update';
       await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session: txnSession });
     }
 
     if (coinsToUse > 0) {
+      writeStage = 'coins.reserve';
       await reserveCoins({
         userId: req.user._id, amount: coinsToUse,
         referenceType: COIN_REFERENCE_TYPE.ORDER, referenceId: String(orderId),
@@ -534,6 +562,7 @@ export const createOrder = asyncHandler(async (req, res) => {
         session: txnSession,
       });
       if (paymentMethod === PAYMENT_METHOD.COD || paymentMethod === PAYMENT_METHOD.WALLET) {
+        writeStage = 'coins.redeem';
         await redeemReservedCoins({
           userId: req.user._id, amount: coinsToUse,
           referenceType: COIN_REFERENCE_TYPE.ORDER, referenceId: String(orderId),
@@ -545,6 +574,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
 
     if (paymentMethod === PAYMENT_METHOD.WALLET) {
+      writeStage = 'wallet.debit';
       await debitWallet({
         userId: req.user._id,
         amount: payableAmount,
@@ -557,6 +587,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
+    writeStage = 'payment.create';
     const [payment] = await Payment.create([{
       userId: req.user._id,
       amount: payableAmount,
@@ -567,6 +598,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       coinDiscount,
     }], opts);
 
+    writeStage = 'order.create';
     const [doc] = await Order.create([{
       _id: orderId,
       userId: req.user._id,
@@ -606,9 +638,11 @@ export const createOrder = asyncHandler(async (req, res) => {
       notes,
     }], opts);
 
+    writeStage = 'payment.link_order';
     await Payment.updateOne({ _id: payment._id }, { $set: { orderId: doc._id } }, opts);
 
     if (applied?.ok) {
+      writeStage = 'coupon.redeem';
       await redeemCoupon({
         coupon: applied.coupon,
         userId: req.user._id,
@@ -617,8 +651,10 @@ export const createOrder = asyncHandler(async (req, res) => {
         orderTotal: pricing.totalAmount,
       }, txnSession);
     }
+    writeStage = 'cart.clear';
     await Cart.updateOne({ userId: req.user._id, channel }, { $set: { items: [] } }, opts);
 
+    writeStage = 'checkout_attempt.complete';
     await CheckoutAttempt.updateOne(
       { userId: req.user._id, key: idempotency.key },
       { $set: {
@@ -639,6 +675,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       order = await executeOrderCommit(session);
     });
   } catch (txnErr) {
+    logCheckoutFailure(txnErr, { requestId: req.requestId, operation: 'single', stage: writeStage, session });
     if (txnErr?.code === 11000) {
       const retry = await findClaimedCheckout({ userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash, operation: 'single' });
       if (retry?.requestHash === idempotency.requestHash && retry.operation === 'single' && retry.status === 'completed') {
@@ -656,6 +693,11 @@ export const createOrder = asyncHandler(async (req, res) => {
     if (isTransactionUnavailable(txnErr)) {
       throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });
     }
+    if (['ValidationError', 'CastError'].includes(txnErr.name)) throw httpError(400, 'The order details could not be validated. Review your basket and address.', { code: 'CHECKOUT_VALIDATION_FAILED' });
+    if (txnErr.hasErrorLabel?.('UnknownTransactionCommitResult') || txnErr.errorLabels?.includes('UnknownTransactionCommitResult')) {
+      throw httpError(503, 'The checkout result is not confirmed yet. Check the order status before trying again.', { code: 'CHECKOUT_OUTCOME_UNCERTAIN' });
+    }
+    if (!txnErr.status && !txnErr.statusCode) throw httpError(500, 'The order could not be saved. Check the order status before trying again.', { code: 'CHECKOUT_SAVE_FAILED' });
     throw txnErr;
   } finally {
     await session.endSession();
@@ -816,17 +858,21 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   const session = await mongoose.startSession();
   let result;
+  let writeStage = 'checkout_attempt.create';
 
   try {
     await session.withTransaction(async () => {
+      writeStage = 'checkout_attempt.create';
       await CheckoutAttempt.create([{
         userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash,
         operation: 'unified', status: 'processing',
       }], { session });
       result = await createOrdersFromGroups({
         user: req.user, address, groups, paymentMethod, notes, session, tip,
+        beforeWrite: stage => { writeStage = stage; },
       });
       const { orders, payment, groupRef } = result;
+      writeStage = 'checkout_attempt.complete';
       await CheckoutAttempt.updateOne(
         { userId: req.user._id, key: idempotency.key },
         { $set: {
@@ -840,6 +886,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
       );
     });
   } catch (txnErr) {
+    logCheckoutFailure(txnErr, { requestId: req.requestId, operation: 'unified', stage: writeStage, session });
     if (txnErr?.code === 11000) {
       const retry = await findClaimedCheckout({ userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash, operation: 'unified' });
       if (retry?.requestHash === idempotency.requestHash && retry.operation === 'unified' && retry.status === 'completed') {
@@ -864,6 +911,11 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
     if (isTransactionUnavailable(txnErr)) {
       throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });
     }
+    if (['ValidationError', 'CastError'].includes(txnErr.name)) throw httpError(400, 'The order details could not be validated. Review your basket and address.', { code: 'CHECKOUT_VALIDATION_FAILED' });
+    if (txnErr.hasErrorLabel?.('UnknownTransactionCommitResult') || txnErr.errorLabels?.includes('UnknownTransactionCommitResult')) {
+      throw httpError(503, 'The checkout result is not confirmed yet. Check the order status before trying again.', { code: 'CHECKOUT_OUTCOME_UNCERTAIN' });
+    }
+    if (!txnErr.status && !txnErr.statusCode) throw httpError(500, 'The order could not be saved. Check the order status before trying again.', { code: 'CHECKOUT_SAVE_FAILED' });
     throw txnErr;
   } finally {
     await session.endSession();

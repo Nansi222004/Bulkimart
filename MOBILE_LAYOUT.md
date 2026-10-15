@@ -1,5 +1,7 @@
 # Mobile viewport and form controls
 
+The subsequent production investigation extends seller coverage, removes public-session startup blocking, and adds Socket.IO/order diagnostics. Current results and remaining live-verification gaps are in [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md); the initial verification record below is retained for context.
+
 ## Findings
 
 The existing `forntend/index.html` already declares `width=device-width, initial-scale=1.0`. It has no restriction on pinch zoom and was left unchanged. The initial headless Chromium audit measured scale 1 and no document overflow on the storefront, cart, checkout and account at 320, 390, 430 and 1280 CSS pixels. The reported initial Android zoom was not reproduced in this environment.
@@ -23,7 +25,7 @@ The control rule deliberately overrides legacy inline font sizes only within the
 
 ## Running browser checks
 
-Run `cd forntend` then `npm run test:mobile`. Requires Node with built-in WebSocket support (verified with Node 24) and Chrome/Chromium/Edge installed. Set `CHROME_BIN` if its location is not detected. This uses the browser's DevTools protocol without adding dependencies. The runner serves Vite on a local ephemeral port and uses a temporary browser profile that is removed afterward. Every `/api/` request is intercepted before network dispatch; external resources are blocked. No real accounts, OTP messages, orders or payments are used.
+Run `cd forntend` then `npm run test:mobile`. Requires Node with built-in WebSocket support (verified with Node 24) and Chrome/Chromium/Edge installed. Set `CHROME_BIN` if its location is not detected. This uses the browser's DevTools protocol without adding dependencies. The command builds the frontend, serves the production artifact through Vite preview, and uses a temporary browser profile that is removed afterward. Every `/api/` request is intercepted before network dispatch; external resources are blocked. No real accounts, OTP messages, orders or payments are used. Customer, dialog, seller and startup matrices run sequentially. The current matrix uses 440 px in place of the original 430 px sample.
 
 The main run covers nine states at 320, 360, 375, 390, 412, 430, 768, 1280 and 1440 px: home, search with product cards, cart, checkout, checkout address entry, authenticated account, guest login, registration and OTP. It checks document/container overflow, scale and mobile control sizes. Registration and address forms are also focused after resizing to 420 px high. A second run checks cart-message and image-search dialogs at 320 and 390 px wide, including a 320 px-high viewport. The viewport meta tag is checked for device width, initial scale and accessible zoom settings. Ignored JSON reports are written under `test-artifacts/mobile-layout`.
 

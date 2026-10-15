@@ -39,7 +39,7 @@ body {
 
 /* RESPONSIVE FULL SCREEN CONTAINER FOR SELLER PANEL */
 .seller-app-container {
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   height: 100dvh;
   min-height: 100svh;
@@ -2054,6 +2054,21 @@ body {
 
 /* MOBILE DRAWER OVERLAY & RESPONSIVE ENHANCEMENTS */
 @media (max-width: 767px) {
+  .seller-app-container {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .seller-app-container :where(input:not([type="radio"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="range"]), select, textarea) {
+    font-size: 16px !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .seller-header-title { overflow-wrap: anywhere; }
+  .seller-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+
   .seller-left-nav {
     position: fixed;
     top: 0;

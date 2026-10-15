@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import RealtimeNotice from '../../../components/RealtimeNotice';
 import ServicesPanel from '../../../components/services/ServicesPanel';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
@@ -95,7 +96,7 @@ export const DashboardPage = () => {
     }
   };
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => window.innerWidth < 768);
 
   return (
     <div className={`seller-dashboard-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -109,6 +110,7 @@ export const DashboardPage = () => {
       <LeftNav isCollapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
 
       <div className="seller-main-content">
+        <RealtimeNotice />
         {/* Header — layout lives in Seller.css (.seller-header-row etc.) */}
         <div className="seller-header-row">
           <div className="seller-header-left">

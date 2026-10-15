@@ -36,11 +36,18 @@ export const errorHandler = (err, req, res, next) => {
     err.message = 'Private e-book storage is unavailable. Check local storage configuration and permissions.';
   }
 
+  if (req.requestId && req.method === 'POST' && /^\/api\/orders(?:\/unified)?\/?$/.test(req.originalUrl?.split('?')[0] || '')) {
+    // Correlatable diagnostics with no identities, bodies, keys, money or raw
+    // database/provider errors. Log only bounded internal classifications.
+    console.warn(JSON.stringify({ event: 'checkout_failed', requestId: req.requestId, status: statusCode,
+      code: /^[A-Z_]{1,64}$/.test(err.meta?.code || '') ? err.meta.code : 'CHECKOUT_FAILED',
+      ...(err.code === 11000 ? { databaseConflict: true } : {}) }));
+  }
   res.status(statusCode).json({
     success: false,
     data: null,
     message: publicMessage,
-    meta: err.meta || {},
+    meta: { ...(err.meta || {}), ...(req.requestId ? { requestId: req.requestId } : {}) },
     // Only expose stacks when explicitly in development. Any other NODE_ENV value
     // (unset, "prod", "staging") is treated as non-development and leaks nothing.
     ...(process.env.NODE_ENV === 'development' && err.code !== 11000 ? { stack: err.stack } : {}),

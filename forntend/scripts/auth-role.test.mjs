@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket;
+let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket, customerSession;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Gate = (await vite.ssrLoadModule('/src/components/CustomerSessionGate.jsx')).default;
   session = await vite.ssrLoadModule('/src/utils/userSession.js');
+  customerSession = await vite.ssrLoadModule('/src/utils/customerSession.js');
   delivery = await vite.ssrLoadModule('/src/modules/Delivery/utils/deliveryAuth.js');
   DeliveryRoutes = (await vite.ssrLoadModule('/src/modules/Delivery/routes/index.jsx')).default;
   UserProvider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
@@ -31,6 +32,52 @@ function harness(Component = Gate, values = { userToken: 'old-token', userProfil
 }
 const identity = (role = 'buyer', id = 'current') => ({ success: true, userType: 'user', sessionRole: role, profile: { _id: id, roles: role === 'delivery' ? ['buyer', 'delivery'] : ['buyer'] } });
 const loginBody = (role = 'delivery', id = 'rider') => ({ success: true, token: `${id}-token`, sessionRole: role, user: { _id: id, name: 'Fixture', roles: role === 'delivery' ? ['buyer', 'delivery'] : ['buyer'] }, deliveryState: { status: 'approved', onboardingStep: 4 } });
+
+test('first visitor sees public content immediately with no verification request', () => {
+  const h = harness(Gate, {}, '/');
+  try { assert.ok(h.find(n => n.type === 'main')); assert.equal(h.requests.length, 0); }
+  finally { h.close(); }
+});
+test('slow session verification does not block public content or trust cached profile', async () => {
+  const h = harness(Gate, undefined, '/');
+  try {
+    assert.ok(h.find(n => n.type === 'main')); assert.equal(h.tree.props.value.verified, false);
+    h.requests[0].resolve(identity()); await h.settle(); assert.equal(h.tree.props.value.verified, true);
+  } finally { h.close(); }
+});
+test('public 500/offline failures keep browsing available and expose recovery', async () => {
+  for (const offline of [false, true]) {
+    const h = harness(Gate, undefined, '/search');
+    try {
+      if (offline) h.requests[0].reject(new Error('offline')); else h.requests[0].resolve({}, 500);
+      await h.settle(); assert.ok(h.find(n => n.type === 'main')); assert.ok(h.find(n => n.props?.role === 'alert')); assert.equal(h.tree.props.value.verified, false);
+    } finally { h.close(); }
+  }
+});
+test('effect replay shares one pending verification without caching completed results', async () => {
+  const h = harness(() => null, {}, '/');
+  let first, second;
+  try {
+    first = customerSession.acquireCustomerSession('dedup-fixture'); first.release();
+    second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 1);
+    h.requests[0].resolve(identity()); await second.promise;
+    second.release(); second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 2);
+    h.requests[1].resolve(identity()); await second.promise;
+  } finally { second?.release(); h.close(); }
+});
+test('hung verification times out even when the transport never settles', async () => {
+  const h = harness(() => null, {}, '/');
+  const request = customerSession.acquireCustomerSession('timeout-fixture', 15);
+  try { await assert.rejects(request.promise, /timed out/); assert.equal(h.requests[0].options.signal.aborted, true); }
+  finally { request.release(); h.close(); }
+});
+test('unverified public provider never reads cached identity or fetches protected startup APIs', () => {
+  const h = hookHarness(UserProvider, {}, '/', { verified: false }, { localStorage: storage({ userToken: 'pending-token', userProfile: JSON.stringify(identity().profile) }) });
+  try {
+    assert.equal(h.tree.props.value.currentUser, null);
+    assert.equal(h.requests.filter(r => /\/api\/(users\/profile|wallet|orders|users\/addresses|cart|wishlist)/.test(r.url)).length, 0);
+  } finally { h.close(); }
+});
 
 test('direct customer protected route waits for trusted buyer session before displaying children', async () => {
   const h = harness();
