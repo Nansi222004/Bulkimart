@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import Service from '../models/Service.js';
 import Application, { APPLICATION_STATUSES } from '../models/ServiceApplication.js';
 import { fail, text, validateDefinition, validateAnswers } from '../services/serviceForms.service.js';
-import { SERVICE_ANSWER_BYTES } from '../../shared/serviceLimits.mjs';
+import { SERVICE_ANSWER_BYTES } from '../shared/serviceLimits.mjs';
 import { transition } from '../services/serviceWorkflow.service.js';
 import { validateServiceFile, storeServiceFiles, removeServiceFiles, readServiceFile } from '../services/serviceStorage.service.js';
 import { notifyAllAdmins, notifyUser } from '../services/notification.service.js';

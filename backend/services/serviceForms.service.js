@@ -1,4 +1,4 @@
-import { SERVICE_TEXT_CHARS, SERVICE_ANSWER_BYTES, serializedAnswerBytes } from '../../shared/serviceLimits.mjs';
+import { SERVICE_TEXT_CHARS, SERVICE_ANSWER_BYTES, serializedAnswerBytes } from '../shared/serviceLimits.mjs';
 export const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'radio', 'checkbox', 'email', 'phone', 'file'];
 export const fail = (message, status = 400, meta = {}) => { throw Object.assign(new Error(message), { status, meta }); };
 export const text = (value, label, max = 2000, required = false) => {

@@ -116,7 +116,7 @@ All five actionable audit defects are fixed and locally regression-tested. This 
 
 ### Exact limits and rationale
 
-`shared/serviceLimits.mjs` is the browser/backend source of truth. The explicit `.mjs` extension avoids relying on Node's automatic module detection outside the backend package.
+`backend/shared/serviceLimits.mjs` is the source of truth, included inside backend-only deployments. `shared/serviceLimits.mjs` re-exports it for the browser and existing tests. The explicit `.mjs` extension avoids relying on Node's automatic module detection.
 
 | Limit | Value | Rationale |
 | --- | --- | --- |
@@ -158,3 +158,15 @@ The complete backend suite includes the existing e-book storage, auth and unrela
 Rate and concurrency budgets are per process, using the same in-memory limiter infrastructure as the existing app. Restarts reset rate budgets, and multiple processes each have their own budget. Distributed limits and real proxy behavior remain unverified. No malware scanner, durable notification outbox, production storage changes or orphan-deletion automation was added by these fixes. Storage persistence, ACLs, shared-volume behavior, backup recovery and live notification delivery still require independent verification.
 
 The initial dirty worktree was inspected before editing. Existing ignore rules, models, route registration, package script and admin/seller navigation changes were preserved. No reset, checkout, cleanup, reformat, commit or deployment was performed. Most service feature files were already untracked at the start, so plain `git diff --stat` does not include their contents; the exact focused file inventory above includes those files. Production data and business policies for pricing, payments, refunds and cancellation were not changed.
+
+## Backend-only deployment import fix — 2026-10-15
+
+The supplied Hostinger runtime log reports `ERR_MODULE_NOT_FOUND` for a sibling `shared/serviceLimits.mjs`, imported from the deployed `nodejs/services/serviceForms.service.js`. The backend package had imported a file outside its deployable directory. That startup failure explains the previously observed Hostinger 503 response and the browser's missing-CORS-header symptom; changing the CORS allowlist would not repair this import failure.
+
+Canonical limits now live at `backend/shared/serviceLimits.mjs`. The four backend consumers (service forms, private storage, upload middleware and service controller) use backend-local imports. The repository-level shared module remains a re-export so React/tests use the exact same definitions. No size limits, authorization, pricing or storage policies changed.
+
+`backend/scripts/checkServicePackage.mjs` copies the form validator and limits into an isolated temporary `nodejs` directory with no repository-level shared folder, then executes the formerly failing import. Backend `npm run build` now runs this packaging smoke check after the existing syntax check. This checks the specific deployment dependency, not a full live server startup or all hosting prerequisites.
+
+Verified locally: backend package build/import smoke check passed; Service Management API suite 33 passed, 0 failed; service UI suite 16 passed, 0 failed; frontend production build passed; `git diff --check` passed. The worktree was clean before this fix, and unrelated feature files were preserved. No production deployment or database changes were performed. The deployment artifact must include `backend/shared/serviceLimits.mjs` (deployed as `nodejs/shared/serviceLimits.mjs`) and the new build script. Release the corrected backend through the authorized hosting deployment process, then verify startup, `/api/health`, and the authenticated-origin preflight.
+
+The Hostinger `proxy-addr` security finding shown alongside the log is a separate dependency advisory. This packaging fix does not remediate or independently verify that advisory; no dependency upgrades or lockfile changes were made.

@@ -1,7 +1,7 @@
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { Transform } from 'node:stream';
-import { SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, SERVICE_MULTIPART_FIELD_BYTES, SERVICE_REQUEST_BYTES } from '../../shared/serviceLimits.mjs';
+import { SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, SERVICE_MULTIPART_FIELD_BYTES, SERVICE_REQUEST_BYTES } from '../shared/serviceLimits.mjs';
 
 const error = (message, status) => Object.assign(new Error(message), { status });
 const accountKey = req => `${req.userType}:${req.user._id}`;

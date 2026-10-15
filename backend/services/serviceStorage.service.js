@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fail } from './serviceForms.service.js';
 import { validateEbookPdf } from './ebookStorage.service.js';
-import { SERVICE_FILE_BYTES } from '../../shared/serviceLimits.mjs';
+import { SERVICE_FILE_BYTES } from '../shared/serviceLimits.mjs';
 export const MAX_SERVICE_FILE = SERVICE_FILE_BYTES;
 const project = fileURLToPath(new URL('../../', import.meta.url));
 const inside = (root, target) => { const relative = path.relative(root, target); return !relative || (!relative.startsWith('..') && !path.isAbsolute(relative)); };

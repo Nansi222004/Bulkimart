@@ -5,7 +5,7 @@
   "engines": { "node": ">=20.9.0" },
   "main": "index.js",
   "scripts": {
-    "build": "node --check index.js",
+    "build": "node --check index.js && node scripts/checkServicePackage.mjs",
     "start": "node index.js",
     "dev": "nodemon index.js",
     "seed": "node seed/index.js",
