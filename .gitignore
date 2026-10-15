@@ -38,3 +38,4 @@ backend/__tests__/services/*
 test/
 tests/
 !backend/__tests__/api/service-management.http.test.js
+!backend/__tests__/api/image-search.http.test.js

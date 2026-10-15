@@ -3,7 +3,7 @@ import React from 'react';
 // Controlled hook/effect execution for the actual components. Fetch deliberately
 // ignores AbortSignal, exercising generation guards as well as cancellation.
 // This is not a DOM/browser E2E harness.
-export function hookHarness(Component, props = {}, path = '/admin/services') {
+export function hookHarness(Component, props = {}, path = '/admin/services', contextValue) {
   const previous = { window: globalThis.window, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
   const target = new EventTarget(); let url = new URL(path, 'http://localhost');
   globalThis.window = { location: { get search() { return url.search; }, get pathname() { return url.pathname; } },
@@ -15,6 +15,7 @@ export function hookHarness(Component, props = {}, path = '/admin/services') {
     resolve(data, status = 200) { resolve({ ok: status < 400, status, json: async () => data }); } }));
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const dispatcher = {
+    useContext(context) { cursor++; return contextValue ?? context._currentValue; },
     useState(init) {
       const i = cursor++; if (!(i in slots)) slots[i] = { value: typeof init === 'function' ? init() : init };
       return [slots[i].value, next => { const v = typeof next === 'function' ? next(slots[i].value) : next; if (!Object.is(v, slots[i].value)) { slots[i].value = v; dirty = true; updates++; } }];

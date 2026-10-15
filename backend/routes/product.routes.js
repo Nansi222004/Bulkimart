@@ -1,4 +1,5 @@
 import express from 'express';
+import { imageSearchRouter } from './imageSearch.routes.js';
 import {
   getProducts,
   getFeaturedProducts,
@@ -31,6 +32,7 @@ import { uploadProductImages, uploadBulkFiles } from '../middlewares/upload.midd
 import { uploadEbookFile } from '../middlewares/ebookUpload.middleware.js';
 
 const router = express.Router();
+router.use('/search-by-image', imageSearchRouter());
 
 // Bulk Product Upload & Template routes (declared before /:id)
 router.get('/bulk/template', protect, requireRole('seller', 'admin'), downloadBulkTemplate);

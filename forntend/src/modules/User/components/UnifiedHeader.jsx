@@ -3,6 +3,7 @@ import { useUser } from '../context/UserContext';
 import { useCategoryTree } from '../hooks/useCategoryTree';
 import { useNotifications } from '../../../utils/useNotifications';
 import NotificationDrawer from './NotificationDrawer';
+import { ImageSearchButton } from './ImageSearchSheet';
 import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
 
 /**
@@ -56,6 +57,7 @@ const UnifiedHeader = () => {
     setShowLocationModal,
     wishlist,
     openVoiceSearch,
+    openImageSearch,
   } = useUser();
   const cartCount = getCartCount();
   const wishlistCount = wishlist?.size || 0;
@@ -277,15 +279,16 @@ const UnifiedHeader = () => {
 
   const renderSearch = (modifier) => (
     <div className={`header-search-row ${modifier}`}>
-      <button type="button" className="search-bar-pill" onClick={() => setActiveNav('search')} aria-label="Open search">
+      <div className="search-bar-pill" onClick={() => setActiveNav('search')}>
         <span className="search-pill-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
         </span>
-        <span className="search-pill-input search-pill-placeholder">Search products and categories</span>
-        <span
+        <button type="button" className="search-pill-input search-pill-placeholder" aria-label="Open search" onClick={event => { event.stopPropagation(); setActiveNav('search'); }}>Search products and categories</button>
+        <ImageSearchButton className="search-image-control" onClick={event => { event.stopPropagation(); openImageSearch(); }} />
+        <button type="button"
           className="search-voice-control"
           onClick={(event) => {
             event.stopPropagation();
@@ -300,8 +303,8 @@ const UnifiedHeader = () => {
             <line x1="12" y1="19" x2="12" y2="23" />
             <line x1="8" y1="23" x2="16" y2="23" />
           </svg>
-        </span>
-      </button>
+        </button>
+      </div>
     </div>
   );
 

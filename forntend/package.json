@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test:services": "node --test scripts/service-ui.test.mjs",
+    "test:image-search": "node --test scripts/image-search-ui.test.mjs",
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview"

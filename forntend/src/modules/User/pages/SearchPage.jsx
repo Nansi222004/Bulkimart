@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 import { formatCurrency } from '../utils/helpers';
+import ImageSearchSheet, { ImageSearchButton } from '../components/ImageSearchSheet';
+import { searchProductsByImage, validateSearchImage } from '../utils/imageSearch';
+import { createLatestRequest } from '../../../components/services/serviceRequests';
 
 const RECENT_KEY = 'nhcone_recent_searches';
 const MAX_RECENT = 10;
@@ -36,6 +39,7 @@ const SearchPage = () => {
     openVoiceSearch,
     pendingVoiceQuery,
     setPendingVoiceQuery,
+    imageSearchRequest, setImageSearchRequest,
   } = useUser();
   const searchType = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const module = activeMode === 'shop-all' ? 'ECOMMERCE' : 'QUICK';
@@ -49,6 +53,36 @@ const SearchPage = () => {
   const [stores, setStores] = useState([]);
   const [featured, setFeatured] = useState([]);
   const [defaultsLoading, setDefaultsLoading] = useState(true);
+  const [imageSheetOpen, setImageSheetOpen] = useState(false), [imageMode, setImageMode] = useState(false);
+  const [imageFile, setImageFile] = useState(null), [imagePreview, setImagePreview] = useState('');
+  const [imageMeta, setImageMeta] = useState({ page: 1, limit: 20, total: 0 }), [searchError, setSearchError] = useState('');
+  const [imageMaxBytes, setImageMaxBytes] = useState(5 * 1024 * 1024);
+  const imageRequests = useRef(createLatestRequest());
+  const closeImageSheet = () => { imageRequests.current.cancel(); if (imageMode) { setLoading(false); if (loading) { setImageMode(false); setImageFile(null); setResults([]); } } setImageSheetOpen(false); };
+  const useTextSearch = value => { imageRequests.current.cancel(); setImageMode(false); setImageFile(null); setSearchError(''); setTerm(value); };
+  useEffect(() => {
+    if (imageSearchRequest) { setImageSheetOpen(true); setImageSearchRequest(0); }
+  }, [imageSearchRequest, setImageSearchRequest]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(apiUrl('/api/products/search-by-image/config'), { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(body => { if (!controller.signal.aborted && body?.data?.maxBytes) setImageMaxBytes(body.data.maxBytes); }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+  useEffect(() => { imageRequests.current.cancel(); setImageMode(false); setImageFile(null); setResults([]); setSearchError(''); return () => imageRequests.current.cancel(); }, [searchType]);
+  useEffect(() => { if (!imageFile) { setImagePreview(''); return; } const url = URL.createObjectURL(imageFile); setImagePreview(url); return () => URL.revokeObjectURL(url); }, [imageFile]);
+  const runImageSearch = async (file, page = 1) => {
+    validateSearchImage(file, imageMaxBytes);
+    const task = imageRequests.current.start();
+    setTerm(''); setImageMode(true); setLoading(true); setSearchError(''); setResults([]); setImageFile(file);
+    try {
+      const body = await searchProductsByImage(file, { type: searchType, page, signal: task.signal });
+      if (!task.isCurrent()) return false;
+      setResults(body.data || []); setImageMeta(body.meta); return true;
+    } catch (error) {
+      if (task.isCurrent()) { setSearchError(error.message || 'Image search failed. Please try again.'); throw error; }
+      return false;
+    } finally { if (task.isCurrent()) setLoading(false); }
+  };
 
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -56,7 +90,7 @@ const SearchPage = () => {
   // Handle incoming voice search queries from global mic button
   useEffect(() => {
     if (pendingVoiceQuery) {
-      setTerm(pendingVoiceQuery);
+      useTextSearch(pendingVoiceQuery);
       rememberSearch(pendingVoiceQuery, '');
       setPendingVoiceQuery('');
     }
@@ -94,6 +128,7 @@ const SearchPage = () => {
    * caught AbortError is deliberately swallowed, not shown as "no results").
    */
   useEffect(() => {
+    if (imageMode) return;
     const q = term.trim();
     if (q.length < 2) { setResults([]); setLoading(false); return; }
     setLoading(true);
@@ -101,12 +136,12 @@ const SearchPage = () => {
     const handle = setTimeout(() => {
       fetch(apiUrl(`/api/products/search?q=${encodeURIComponent(q)}&type=${searchType}`), { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : []))
-        .then((rows) => setResults(Array.isArray(rows) ? rows : []))
-        .catch((err) => { if (err.name !== 'AbortError') setResults([]); })
+        .then((rows) => { if (!controller.signal.aborted) setResults(Array.isArray(rows) ? rows : []); })
+        .catch((err) => { if (!controller.signal.aborted && err.name !== 'AbortError') setResults([]); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 300);
     return () => { clearTimeout(handle); controller.abort(); };
-  }, [term, searchType]);
+  }, [term, searchType, imageMode]);
 
   const rememberSearch = (label, image) => {
     const next = [{ label, image }, ...recent.filter((r) => r.label.toLowerCase() !== label.toLowerCase())].slice(0, MAX_RECENT);
@@ -133,7 +168,7 @@ const SearchPage = () => {
     writeRecent(next);
   };
 
-  const showingResults = term.trim().length >= 2;
+  const showingResults = imageMode || term.trim().length >= 2;
 
   return (
     <div className="search-page">
@@ -151,17 +186,18 @@ const SearchPage = () => {
             ref={inputRef}
             type="text"
             value={term}
-            onChange={(e) => setTerm(e.target.value)}
+            onChange={(e) => useTextSearch(e.target.value)}
             placeholder={`Search ${activeMode === 'shop-all' ? 'Shop All' : 'Quick'} products or shops`}
             aria-label="Search"
           />
           {term ? (
-            <button type="button" aria-label="Clear" onClick={() => setTerm('')} className="search-page-clear">
+            <button type="button" aria-label="Clear" onClick={() => useTextSearch('')} className="search-page-clear">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
             </button>
           ) : null}
+          <ImageSearchButton onClick={() => setImageSheetOpen(true)} />
           <button
             type="button"
             aria-label="Voice search"
@@ -180,13 +216,15 @@ const SearchPage = () => {
       </div>
 
       <div className="search-page-body">
+        {imageMode && <div className="image-search-summary">{imagePreview && <img src={imagePreview} alt="Image used for product search" />}<span>Similar product photos</span><button type="button" onClick={() => useTextSearch('')}>Remove image</button></div>}
+        {searchError && <p className="image-search-error" role="alert">{searchError} {imageFile && <button disabled={loading} type="button" onClick={() => { void runImageSearch(imageFile, imageMeta.page).catch(() => {}); }}>Retry image search</button>}</p>}
         {showingResults ? (
           loading ? (
             <p className="search-page-empty">Searching…</p>
           ) : results.length === 0 ? (
-            <p className="search-page-empty">No results for "{term}"</p>
+            <p className="search-page-empty">{searchError ? 'Image search could not finish. Please try again.' : imageMode ? 'No similar product photos found. Try a clearer photo or search by name.' : `No results for "${term}"`}</p>
           ) : (
-            <div className="search-page-results-grid">
+            <><div className="search-page-results-grid">
               {results.map((p) => (
                 <div key={p._id} className="search-page-result-card" onClick={() => openProduct(p)}>
                   <div className="search-page-result-img-wrap">
@@ -200,7 +238,7 @@ const SearchPage = () => {
                   <p className="search-page-result-price">{formatCurrency(p.price)}</p>
                 </div>
               ))}
-            </div>
+            </div>{imageMode && imageMeta.total > imageMeta.limit && <div className="image-search-pagination"><button disabled={loading || imageMeta.page <= 1} onClick={() => { void runImageSearch(imageFile, imageMeta.page - 1).catch(() => {}); }}>Previous</button><span>Page {imageMeta.page}</span><button disabled={loading || imageMeta.page * imageMeta.limit >= imageMeta.total} onClick={() => { void runImageSearch(imageFile, imageMeta.page + 1).catch(() => {}); }}>Next</button></div>}</>
           )
         ) : (
           <>
@@ -267,6 +305,7 @@ const SearchPage = () => {
           </>
         )}
       </div>
+      <ImageSearchSheet open={imageSheetOpen} onClose={closeImageSheet} onSearch={runImageSearch} loading={loading && imageMode} maxBytes={imageMaxBytes} />
     </div>
   );
 };

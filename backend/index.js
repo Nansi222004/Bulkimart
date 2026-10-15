@@ -26,6 +26,7 @@ import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js"
 import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
+import { startImageSearchIndexer } from './services/imageSearchIndexer.service.js';
 
 // Fix: Node.js on Windows uses local router DNS (fe80::1) which blocks SRV record queries.
 if (process.env.NODE_ENV === "development") {
@@ -100,6 +101,7 @@ app.use(errorHandler);
 
 const start = async () => {
   await connectDB();
+  startImageSearchIndexer();
   const httpServer = http.createServer(app);
   initSocket(httpServer);
   // Started after the database is up: the sweeper queries on every tick.

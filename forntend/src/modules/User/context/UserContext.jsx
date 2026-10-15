@@ -205,6 +205,8 @@ export const UserProvider = ({ children }) => {
   const [pendingVoiceQuery, setPendingVoiceQuery] = useState('');
   const openVoiceSearch = () => setIsVoiceModalOpen(true);
   const closeVoiceSearch = () => setIsVoiceModalOpen(false);
+  const [imageSearchRequest, setImageSearchRequest] = useState(0);
+  const openImageSearch = () => { setImageSearchRequest(value => value + 1); setActiveNav('search'); };
 
   const setSelectedCategoryFilter = (category) => {
     setSelectedCategoryFilterState(category);
@@ -1511,6 +1513,7 @@ export const UserProvider = ({ children }) => {
         activeNav, setActiveNav,
         activeSubNav, setActiveSubNav,
         isVoiceModalOpen, setIsVoiceModalOpen, openVoiceSearch, closeVoiceSearch,
+        imageSearchRequest, setImageSearchRequest, openImageSearch,
         pendingVoiceQuery, setPendingVoiceQuery,
         selectedCategoryFilter, setSelectedCategoryFilter,
         location, setLocation, saveDeliveryLocation, lookupTypedLocation,
