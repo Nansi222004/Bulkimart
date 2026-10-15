@@ -28,6 +28,8 @@ const [{ default: orderRoutes }, { updateOrderStatus }, fulfillment, { protect, 
   import('../../middlewares/auth.middleware.js'), import('../../middlewares/vendor.middleware.js'), import('../../middlewares/error.middleware.js'), import('../../config/jwt.js'),
   import('../../models/User.js'), import('../../models/Seller.js'), import('../../models/Product.js'), import('../../models/Cart.js'), import('../../models/Order.js'), import('../../models/Payment.js'), import('../../models/WalletLedger.js'), import('../../services/fulfilmentGroups.service.js'),
 ]);
+const { getProductDetailAdmin } = await import('../../controllers/admin.controller.js');
+const { requireAdmin } = await import('../../middlewares/auth.middleware.js');
 const app = express(); app.use(requestContext); app.use(express.json()); app.use('/orders', orderRoutes);
 const { getSellerOrders } = await import('../../controllers/seller.controller.js');
 const { notifySeller } = await import('../../services/notification.service.js');
@@ -35,7 +37,7 @@ const vendor = express.Router(); vendor.use(protect, requireRole('seller'), requ
 vendor.patch('/:id/status', updateOrderStatus); vendor.get('/:id/options', fulfillment.getFulfillmentOptions);
 vendor.get('/:id', getSellerOrders);
 vendor.post('/:id/manual', fulfillment.selectManualFulfillment); vendor.post('/:id/shiprocket', fulfillment.createShiprocketShipment);
-app.use('/seller', vendor); app.use(errorHandler);
+app.use('/seller', vendor); app.get('/admin/products/:id', protect, requireAdmin, getProductDetailAdmin); app.use(errorHandler);
 let db, buyer, sellerUser, seller, product;
 const id = () => new mongoose.Types.ObjectId();
 const address = { name: 'Fixture Buyer', phone: '9876500000', line1: 'Fixture address', city: 'Mumbai', state: 'Maharashtra', pincode: '400001', lat: 19.11, lng: 72.91 };
@@ -548,4 +550,32 @@ test('no rider availability is actionable and pre-ready states explain why both 
   expect(ready.body.data.manual.riders).toEqual([]);
   expect(ready.body.data.shiprocket.available).toBe(false);
   expect(ready.body.data.shiprocket.reason).toMatch(/approval/);
+});
+
+
+test('dedicated admin product detail requires admin and exposes latest physical listing metadata', async () => {
+  const Admin = (await import('../../models/Admin.js')).default;
+  const admin = await Admin.create({ name: 'Fixture admin', email: 'product-fixture@example.invalid', password: 'IsolatedFixturePassword123!', role: 'superAdmin', isActive: true });
+  const token = jwt.sign({ id: admin._id, type: 'admin' }, JWT_SECRET);
+  const path = '/admin/products/' + product._id;
+  await request(app).get(path).expect(401);
+  await auth(request(app).get(path)).expect(403);
+  await sellerAuth(request(app).get(path)).expect(403);
+  const response = await request(app).get(path).set('Authorization', 'Bearer ' + token).expect(200);
+  expect(response.body.data).toMatchObject({ _id: String(product._id), name: 'Fixture item', price: 100, stock: 10, status: 'approved' });
+  expect(response.body.data.variants[0].sku).toBe('FIXTURE-1');
+  expect(response.body.data.sellerId.businessName).toBe('Fixture Store');
+  await request(app).get('/admin/products/invalid').set('Authorization', 'Bearer ' + token).expect(400);
+});
+
+test('admin ebook details return metadata only without private file identifiers, checksum, paths or PDF links', async () => {
+  const Admin = (await import('../../models/Admin.js')).default;
+  const admin = await Admin.create({ name: 'Fixture admin', email: 'ebook-fixture@example.invalid', password: 'IsolatedFixturePassword123!', role: 'superAdmin', isActive: true });
+  const token = jwt.sign({ id: admin._id, type: 'admin' }, JWT_SECRET);
+  await Product.collection.updateOne({ _id: product._id }, { $set: { fulfillmentType: 'digital', digital: { author: 'Fixture Author', language: 'en', format: 'pdf', file: { fileId: 'private-fixture-id', status: 'uploaded', sizeBytes: 123, sha256: 'private-fixture-checksum', path: '/private/fixture.pdf' } } } });
+  const response = await request(app).get('/admin/products/' + product._id).set('Authorization', 'Bearer ' + token).expect(200);
+  expect(response.body.data.digital).toEqual({ author: 'Fixture Author', language: 'en', format: 'pdf', file: { status: 'uploaded', sizeBytes: 123 } });
+  expect(JSON.stringify(response.body)).not.toMatch(/private-fixture|sha256|fileId|fixture\.pdf|downloadUrl|signedUrl/);
+  await Product.updateOne({ _id: product._id }, { $set: { isDeleted: true } });
+  await request(app).get('/admin/products/' + product._id).set('Authorization', 'Bearer ' + token).expect(404);
 });

@@ -82,7 +82,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div style={styles.container}>
+    <div className="admin-auth-page" style={styles.container}>
       <div style={styles.card}>
         <div style={styles.header}>
           <BrandLogo variant="full" portal="Admin" />
@@ -237,7 +237,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100vw',
+    width: '100%',
     height: '100vh',
     background: 'linear-gradient(135deg, #eaf9fe 0%, #ffffff 55%, #fff3e5 100%)',
     fontFamily: "'Inter', sans-serif",

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { rememberLocationChoice } from '../../../utils/locationState';
 import { useUser } from '../context/UserContext';
 
 const LocationPromptModal = () => {
@@ -18,6 +19,23 @@ const LocationPromptModal = () => {
   const [manualLocation, setManualLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const operation = useRef(0), locked = useRef(false), dialog = useRef(null), gpsDeadline = useRef(null);
+  useEffect(() => {
+    if (!showLocationModal) return;
+    const previous = document.activeElement;
+    dialog.current?.querySelector('button')?.focus();
+    const keyboard = event => {
+      if (event.key === 'Escape') setShowLocationModal(false);
+      if (event.key === 'Tab') {
+        const controls = [...(dialog.current?.querySelectorAll('button:not(:disabled), input, a[href]') || [])];
+        const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener('keydown', keyboard);
+    return () => { clearTimeout(gpsDeadline.current); operation.current++; locked.current = false; setLoading(false); document.removeEventListener('keydown', keyboard); previous?.focus?.(); };
+  }, [showLocationModal]);
 
   if (!showLocationModal) return null;
 
@@ -25,17 +43,30 @@ const LocationPromptModal = () => {
    * Fetch live GPS coordinates from the browser & update backend/local state.
    */
   const handleAllowAccess = () => {
+    if (locked.current) return;
     if (!navigator.geolocation) {
       setError('This browser cannot read your location. Please enter it manually.');
       setMode('select');
+      rememberLocationChoice('unavailable');
       return;
     }
 
     setLoading(true);
+    locked.current = true;
+    const current = ++operation.current;
+    gpsDeadline.current = setTimeout(() => {
+      if (current !== operation.current) return;
+      operation.current++; locked.current = false; setLoading(false); setMode('select');
+      setError('Location access did not finish. Enter your location manually or try again.');
+      rememberLocationChoice('unavailable');
+    }, 20000);
     setError(null);
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        if (current !== operation.current) return;
+        clearTimeout(gpsDeadline.current);
+        try {
         const res = await saveDeliveryLocation(
           {
             lat: Number(position.coords.latitude.toFixed(6)),
@@ -45,7 +76,8 @@ const LocationPromptModal = () => {
           'gps'
         );
 
-        setLoading(false);
+        if (current !== operation.current) return;
+        setLoading(false); locked.current = false;
 
         if (!res.ok) {
           setError(res.message || 'Could not save your location.');
@@ -54,8 +86,13 @@ const LocationPromptModal = () => {
 
         localStorage.setItem('locationAsked', 'true');
         setShowLocationModal(false);
+        } catch { if (current === operation.current) { setLoading(false); locked.current = false; setError('Could not save your location. Try manual entry.'); } }
       },
       (err) => {
+        if (current !== operation.current) return;
+        clearTimeout(gpsDeadline.current);
+        locked.current = false;
+        rememberLocationChoice(err.code === 1 ? 'denied' : 'unavailable');
         setLoading(false);
         const messages = {
           1: 'You blocked location access. Allow it, or enter your location manually.',
@@ -74,6 +111,7 @@ const LocationPromptModal = () => {
    */
   const handleSaveManual = async (e) => {
     if (e) e.preventDefault();
+    if (locked.current) return;
     const typed = manualLocation.trim();
     if (!typed) {
       setError('Please enter an area or street name.');
@@ -85,10 +123,15 @@ const LocationPromptModal = () => {
     }
 
     setLoading(true);
+    locked.current = true;
+    const current = ++operation.current;
     setError(null);
 
-    const res = await lookupTypedLocation(typed);
-    setLoading(false);
+    let res;
+    try { res = await lookupTypedLocation(typed); }
+    catch { res = { ok: false, message: 'Could not find this location. Check your connection and retry.' }; }
+    if (current !== operation.current) return;
+    setLoading(false); locked.current = false;
 
     if (!res.ok) {
       setError(res.message || 'We could not find that place. Try a nearby landmark or pincode.');
@@ -107,7 +150,8 @@ const LocationPromptModal = () => {
       setLoading(true);
       setError(null);
       if (setDefaultAddress && addr._id) {
-        await setDefaultAddress(addr._id);
+        const result = await setDefaultAddress(addr._id);
+        if (!result?.ok) throw new Error('Address could not be selected');
       }
       const label = [addr.placeName || addr.line1, addr.city, addr.pincode].filter(Boolean).join(', ');
       setLocation(label);
@@ -117,7 +161,7 @@ const LocationPromptModal = () => {
       setShowLocationModal(false);
     } catch {
       setLoading(false);
-      setShowLocationModal(false);
+      setError('Could not select the address. Please retry.');
     }
   };
 
@@ -133,7 +177,8 @@ const LocationPromptModal = () => {
 
   return (
     <div style={styles.overlay} onClick={() => setShowLocationModal(false)}>
-      <div style={styles.card} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialog} style={styles.card} role="dialog" aria-modal="true" aria-label="Choose your location" onClick={(e) => e.stopPropagation()}>
+        <button type="button" onClick={() => setShowLocationModal(false)} style={styles.closeBtn} aria-label="Dismiss location selection">✕</button>
         {mode === 'options' ? (
           /* ==========================================
              SCREEN 1: Location Access Required (Image 2)
@@ -146,10 +191,10 @@ const LocationPromptModal = () => {
               </svg>
             </div>
 
-            <h2 style={styles.title}>Location Access Required</h2>
+            <h2 style={styles.title}>Choose your delivery location</h2>
 
             <p style={styles.description}>
-              We need your location to show you products available near you and enable delivery services. Location access is required to continue.
+              Choose a location to check nearby availability and delivery. You can keep browsing without granting GPS access.
             </p>
 
             {error && <p style={styles.error}>{error}</p>}
@@ -171,6 +216,7 @@ const LocationPromptModal = () => {
 
               <button
                 onClick={() => {
+                  clearTimeout(gpsDeadline.current); operation.current++; locked.current = false; setLoading(false);
                   setMode('select');
                   setError(null);
                 }}
@@ -233,7 +279,7 @@ const LocationPromptModal = () => {
             {/* Option Cards */}
             <div style={styles.actionCardsGroup}>
               {/* Option 1: Use Current Location */}
-              <div style={styles.actionCard} onClick={handleAllowAccess}>
+              <div style={styles.actionCard} role="button" tabIndex={0} onKeyDown={event => { if (['Enter',' '].includes(event.key)) { event.preventDefault(); handleAllowAccess(); } }} onClick={handleAllowAccess}>
                 <div style={styles.purpleIconCircle}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
@@ -254,7 +300,7 @@ const LocationPromptModal = () => {
               </div>
 
               {/* Option 2: Add New Address */}
-              <div style={styles.actionCard} onClick={handleAddNewAddress}>
+              <div style={styles.actionCard} role="button" tabIndex={0} onKeyDown={event => { if (['Enter',' '].includes(event.key)) { event.preventDefault(); handleAddNewAddress(); } }} onClick={handleAddNewAddress}>
                 <div style={styles.purpleIconCircle}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-hover)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19" />
@@ -284,6 +330,8 @@ const LocationPromptModal = () => {
                     return (
                       <div
                         key={addr._id || addr.id}
+                        role="button" tabIndex={0}
+                        onKeyDown={event => { if (['Enter',' '].includes(event.key)) { event.preventDefault(); handleSelectSavedAddress(addr); } }}
                         style={{
                           ...styles.savedAddrCard,
                           borderColor: isSelected ? 'var(--primary)' : '#f1f5f9',

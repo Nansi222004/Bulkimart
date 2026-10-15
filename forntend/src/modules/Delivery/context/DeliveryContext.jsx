@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { portalRequest } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
@@ -25,6 +26,8 @@ export const DeliveryProvider = ({ children }) => {
    * approved; the bootstrap below asks it.
    */
   const [isOnboarded, setIsOnboarded] = useState(false);
+  const [sessionError, setSessionError] = useState('');
+  const [sessionRetry, setSessionRetry] = useState(0);
   
   /**
    * Two separate facts, deliberately not collapsed into one flag:
@@ -707,16 +710,18 @@ export const DeliveryProvider = ({ children }) => {
     if (!localStorage.getItem('userToken')) return;
 
     let cancelled = false;
+    const sessionToken = localStorage.getItem('userToken');
+    setBootstrapping(true); setSessionError('');
     (async () => {
       try {
-        const session = await fetch(apiUrl('/api/auth/me'), { headers: authHeaders() });
-        if (cancelled) return;
+        const session = await portalRequest('delivery', sessionToken, '/api/auth/me', { cacheMs: 60000, fresh: sessionRetry > 0 });
+        if (cancelled || sessionToken !== localStorage.getItem('userToken')) return;
         if ([401, 403].includes(session.status)) { clearUserSession(); return; }
-        if (!session.ok) return;
+        if (!session.ok) throw new Error('Session unavailable');
         const identity = await session.json();
-        if (cancelled || identity.userType !== 'user' || identity.sessionRole !== 'delivery') return;
-        const res = await fetch(apiUrl('/api/delivery/me'), { headers: authHeaders() });
-        if (cancelled) return;
+        if (cancelled || sessionToken !== localStorage.getItem('userToken') || identity.userType !== 'user' || identity.sessionRole !== 'delivery') return;
+        const res = await portalRequest('delivery', sessionToken, '/api/delivery/me');
+        if (cancelled || sessionToken !== localStorage.getItem('userToken')) return;
 
         if (res.status === 401) {
           // Expired or tampered — drop it rather than half-trusting it.
@@ -724,6 +729,7 @@ export const DeliveryProvider = ({ children }) => {
           return;
         }
         if (!res.ok) {
+          if (res.status >= 500) throw new Error('Delivery profile unavailable');
           // 404: signed in, but has never registered as a rider. They go
           // through the whole flow, starting with their number — and any flag
           // claiming otherwise goes with it.
@@ -776,14 +782,14 @@ export const DeliveryProvider = ({ children }) => {
           localStorage.removeItem('delivery_onboarded');
         }
       } catch {
-        // Offline: leave the session alone and let the rider retry.
+        if (!cancelled) setSessionError('Unable to verify your delivery session. Check your connection and retry.');
       } finally {
         if (!cancelled) setBootstrapping(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [sessionRetry]);
 
   /** Attach a name to an already-verified phone. */
   const saveRiderName = async (name) => {
@@ -1477,6 +1483,7 @@ export const DeliveryProvider = ({ children }) => {
       riderAuthed,
       phoneVerified,
       bootstrapping,
+      sessionError, retrySession: () => setSessionRetry(value => value + 1),
       saveRiderName,
       riderStatus,
       riderRejection,

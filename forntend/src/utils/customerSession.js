@@ -1,25 +1,24 @@
 import { createContext } from 'react';
-import { apiUrl } from './api';
+import { portalRequest, clearPortalRequests } from './portalRequests';
 
 export const CustomerSessionContext = createContext(null);
 export const SESSION_TIMEOUT_MS = 10000;
 const pending = new Map();
+export function resetCustomerSessions() {
+  for (const entry of pending.values()) { clearTimeout(entry.dispose); }
+  pending.clear();
+}
 
-// Share only in-flight verification. Completed identities are never cached as
-// authorization. Delayed disposal permits StrictMode's cleanup/remount cycle.
+// Share verification within this app lifecycle for up to one minute. Protected
+// APIs remain server-authorized. Logout/switch invalidates it; disposal permits
+// StrictMode's cleanup/remount cycle without cancelling another subscriber.
 export function acquireCustomerSession(token, timeoutMs = SESSION_TIMEOUT_MS) {
   let entry = pending.get(token);
   if (!entry) {
-    const controller = new AbortController();
-    entry = { users: 0, controller };
-    const timeout = new Promise((_, reject) => {
-      entry.timer = setTimeout(() => { reject(new Error('Session verification timed out')); controller.abort(); }, timeoutMs);
-    });
-    entry.promise = Promise.race([
-      fetch(apiUrl('/api/auth/me'), { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
-        .then(async res => ({ res, body: await res.json().catch(() => ({})) })),
-      timeout,
-    ]).finally(() => { clearTimeout(entry.timer); if (pending.get(token) === entry) pending.delete(token); });
+    entry = { users: 0, finished: false };
+    entry.promise = portalRequest('customer', token, '/api/auth/me', { cacheMs: 60000, timeoutMs })
+      .then(async res => ({ res, body: await res.json().catch(() => ({})) }))
+      .finally(() => { entry.finished = true; if (pending.get(token) === entry) pending.delete(token); });
     pending.set(token, entry);
   }
   entry.users++;
@@ -28,7 +27,7 @@ export function acquireCustomerSession(token, timeoutMs = SESSION_TIMEOUT_MS) {
     entry.users--;
     if (!entry.users) entry.dispose = setTimeout(() => {
       if (entry.users) return;
-      entry.controller.abort(); clearTimeout(entry.timer);
+      if (!entry.finished) clearPortalRequests('customer', token);
       if (pending.get(token) === entry) pending.delete(token);
     }, 0);
   } };

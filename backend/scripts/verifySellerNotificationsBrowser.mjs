@@ -147,11 +147,12 @@ try {
         const headers = Object.fromEntries(Object.entries(request.headers).filter(([key]) => ['authorization', 'content-type', 'idempotency-key'].includes(key.toLowerCase())));
         // Transport proxy only; every API response is produced by the running
         // application's real router/controllers/models, never by UI fixtures.
+        const apiStarted = performance.now();
         const response = await fetch(apiOrigin + url.pathname + url.search, { method: request.method, headers, ...(request.postData ? { body: request.postData } : {}) });
         const body = await response.text();
         if (url.pathname === '/api/auth/seller/send-otp') uiSellerOtp = JSON.parse(body).otp;
         if (url.pathname === '/api/auth/send-otp') uiCustomerOtp = JSON.parse(body).otp;
-        apiCalls.push({ method: request.method, path: url.pathname, status: response.status });
+        apiCalls.push({ method: request.method, path: url.pathname, status: response.status, durationMs: Math.round(performance.now() - apiStarted) });
         if (request.method === 'POST' && ['/api/orders', '/api/orders/unified'].includes(url.pathname)) checkouts.push({ path: url.pathname.slice(4), headers, payload: request.postData, status: response.status, result: JSON.parse(body) });
         await command('Fetch.fulfillRequest', { requestId, responseCode: response.status, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Access-Control-Allow-Origin', value: origin }, { name: 'Access-Control-Allow-Headers', value: 'authorization,content-type,idempotency-key' }], body: Buffer.from(body).toString('base64') });
       } else if (request.url.startsWith(origin) || url.origin === apiOrigin || request.url.startsWith('data:')) await command('Fetch.continueRequest', { requestId });
@@ -324,6 +325,25 @@ try {
   await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent === 'Correct pickup address/contact').click()`);
   const pickupGeometry = await evaluate(`(() => { const el = document.querySelector('.seller-pickup-sync'); const r = el.getBoundingClientRect(); return { left:r.left,right:r.right,width:innerWidth,overflow:el.scrollWidth-el.clientWidth }; })()`);
   assert.ok(pickupGeometry.left >= 0 && pickupGeometry.right <= pickupGeometry.width + 1 && pickupGeometry.overflow <= 1);
+  phase = 'admin dedicated product details with actual local authentication';
+  const adminLogin = await api('/auth/admin/login', { method:'POST', body:{email:'checkout-fixture@example.invalid',password:adminPassword} });
+  assert.equal(adminLogin.status,200);
+  await evaluate(`localStorage.setItem('adminToken',${JSON.stringify(adminLogin.body.token)})`);
+  await command('Page.navigate',{url:origin+'/admin/products/'+productId});
+  await waitFor(`!!document.querySelector('[aria-label="Product details"]')`);
+  assert.match(await evaluate(`document.querySelector('[aria-label="Product details"]').innerText`),/Isolated Browser Checkout Item/);
+  await command('Page.reload'); await waitFor(`!!document.querySelector('[aria-label="Product details"]')`);
+  for (const width of [320,390,768,1280]) {
+    await command('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:width<768});
+    const productGeometry=await evaluate(`(()=>{const r=document.querySelector('[aria-label="Product details"]').getBoundingClientRect();return {left:r.left,right:r.right,scroll:document.documentElement.scrollWidth,width:innerWidth}})()`);
+    assert.ok(productGeometry.left>=0 && productGeometry.right<=width+1 && productGeometry.scroll<=width+1,'Admin product details fit viewport');
+  }
+  const adminTab=await command('Target.createTarget',{url:origin+'/admin/products/'+productId});
+  const adminSession=await command('Target.attachToTarget',{targetId:adminTab.targetId,flatten:true});
+  for(let i=0;i<100;i++){if(await evaluate(`!!document.querySelector('[aria-label="Product details"]')`,adminSession.sessionId))break;await pause(100);}
+  assert.equal(await evaluate(`!!document.querySelector('[aria-label="Product details"]')`,adminSession.sessionId),true);
+  await command('Target.closeTarget',{targetId:adminTab.targetId});
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   phase = 'separate customer tab while seller remains signed in';
   const customerTab = await command('Target.createTarget', { url: origin + '/account' });
   const { sessionId: customerSessionId } = await command('Target.attachToTarget', { targetId: customerTab.targetId, flatten: true });
@@ -356,7 +376,7 @@ try {
   await command('Target.closeTarget', { targetId: customerTab.targetId });
   await command('Page.navigate', { url: origin + '/account' });
   await waitFor(`document.body.innerText.includes(${JSON.stringify(buyer.phone)})`);
-  const result = { passed: true, database: 'isolated-local-replica-set', browser: 'headless Chrome', viewport: '390x844',
+  const result = { sessionRequestTimingsMs: apiCalls.filter(call => call.path === '/api/auth/me').map(call => call.durationMs), adminChecks: ['dedicated product route', 'server-authorized metadata', 'refresh', 'new tab', '320/390/768/1280 layout'], passed: true, database: 'isolated-local-replica-set', browser: 'headless Chrome', viewport: '390x844',
     checks: ['seller OTP UI login preserves customer credentials', 'new order while seller on dashboard', 'actual Socket.IO new_order frame received', 'automatic in-app popup', 'view opens correct dedicated order page', 'drawer closes and opens latest detail', 'notification persisted/read', 'same-key replay has one notification', 'deep-link refresh', 'buyer denied seller details', 'separate customer tab retains customer identity', 'customer navigation and refresh retain identity', 'customer API role isolation', 'seller logout preserves customer session and other tab'],
     fulfillmentChecks: ['preparation', 'ready before delivery selection', 'eligible rider display', 'manual offer', 'authorized rider acceptance', 'duplicate acceptance denied', 'assigned rider details refreshed', 'details geometry at 390 and 1280px'],
     pickupChecks: ['profile pending/attention state', 'owner retry', 'durable sweeper registration', 'mock provider confirmed reference', 'shipping approval unchanged', 'responsive pickup correction form'],

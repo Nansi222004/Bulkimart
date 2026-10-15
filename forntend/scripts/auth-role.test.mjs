@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket, customerSession, portal;
+let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket, customerSession, portal, portalRequests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Gate = (await vite.ssrLoadModule('/src/components/CustomerSessionGate.jsx')).default;
   session = await vite.ssrLoadModule('/src/utils/userSession.js');
   portal = await vite.ssrLoadModule('/src/utils/portalSession.js');
   customerSession = await vite.ssrLoadModule('/src/utils/customerSession.js');
+  portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
   delivery = await vite.ssrLoadModule('/src/modules/Delivery/utils/deliveryAuth.js');
   DeliveryRoutes = (await vite.ssrLoadModule('/src/modules/Delivery/routes/index.jsx')).default;
   UserProvider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
@@ -28,6 +29,7 @@ function storage(values = {}) {
   return result;
 }
 function harness(Component = Gate, values = { userToken: 'old-token', userProfile: '{"_id":"stale"}' }, path = '/account') {
+  customerSession.resetCustomerSessions(); for (const name of ['customer','seller','admin','delivery']) portalRequests.clearPortalRequests(name);
   return hookHarness(Component, { children: React.createElement('main', { id: 'protected-child' }) }, path, undefined,
     { localStorage: storage(values), sessionStorage: storage({ 'bulkimart:checkout:create:previous': 'private-data', unrelated: 'keep' }) });
 }
@@ -88,15 +90,16 @@ test('public 500/offline failures keep browsing available and expose recovery', 
     } finally { h.close(); }
   }
 });
-test('effect replay shares one pending verification without caching completed results', async () => {
+test('effect replay shares pending verification and safe in-memory results until explicit invalidation', async () => {
   const h = harness(() => null, {}, '/');
   let first, second;
   try {
     first = customerSession.acquireCustomerSession('dedup-fixture'); first.release();
     second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 1);
     h.requests[0].resolve(identity()); await second.promise;
-    second.release(); second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 2);
-    h.requests[1].resolve(identity()); await second.promise;
+    second.release(); second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 1); await second.promise;
+    second.release(); customerSession.resetCustomerSessions(); portalRequests.clearPortalRequests('customer');
+    second = customerSession.acquireCustomerSession('dedup-fixture'); assert.equal(h.requests.length, 2); h.requests[1].resolve(identity()); await second.promise;
   } finally { second?.release(); h.close(); }
 });
 test('hung verification times out even when the transport never settles', async () => {

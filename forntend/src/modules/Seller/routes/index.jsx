@@ -1,3 +1,4 @@
+import { portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import React, { useCallback, useEffect, useState } from 'react';
 import { SellerProvider, useSeller } from '../context/SellerContext';
 import DashboardPage from '../pages/DashboardPage';
@@ -48,16 +49,15 @@ const SellerRoutesContent = () => {
     }
 
     try {
-      const verified = await fetch(apiUrl('/api/auth/me'), { headers: { Authorization: `Bearer ${token}` } });
+      const verified = await portalRequest('seller', token, '/api/auth/me', { cacheMs: 60000 });
       const identity = await verified.json().catch(() => ({}));
       if (token !== localStorage.getItem('sellerToken')) return;
+      if (verified.status >= 500) throw new Error('Session unavailable');
       if (!verified.ok || !identity.success || identity.sessionRole !== 'seller' || !identity.profile?._id) {
         setState(SIGNED_OUT); return;
       }
       localStorage.setItem('sellerUserProfile', JSON.stringify(identity.profile));
-      const res = await fetch(apiUrl('/api/sellers/me'), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await portalRequest('seller', token, '/api/sellers/me', { cacheMs: 1000 });
       const body = await res.json().catch(() => ({}));
       if (token !== localStorage.getItem('sellerToken')) return;
 
@@ -82,6 +82,7 @@ const SellerRoutesContent = () => {
         return;
       }
 
+      if (res.status >= 500) throw new Error('Seller profile unavailable');
       if (!res.ok) { setState(SIGNED_OUT); return; }
 
       setState({
@@ -92,7 +93,8 @@ const SellerRoutesContent = () => {
         rejectionReason: body?.seller?.rejectionReason || null,
       });
     } catch {
-      setState({ loading: false, authed: false, status: 'none', storeName: null, rejectionReason: null });
+      if (token !== localStorage.getItem('sellerToken')) return;
+      setState({ loading: false, verificationError: true });
     }
   }, [intent]);
 
@@ -122,7 +124,7 @@ const SellerRoutesContent = () => {
         }).catch(() => {});
       }
     } finally {
-      localStorage.removeItem('sellerToken');
+      clearPortalRequests('seller'); localStorage.removeItem('sellerToken');
       localStorage.removeItem('sellerUserProfile');
       setIntent('login');
       setState(SIGNED_OUT);
@@ -130,6 +132,7 @@ const SellerRoutesContent = () => {
   };
 
   const renderBody = () => {
+    if (state.verificationError) return <div role="alert">Unable to verify your seller session. Check your connection.<button type="button" onClick={() => loadStatus()}>Retry verification</button></div>;
     if (state.loading) {
       return (
         <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.7, fontSize: 13 }}>

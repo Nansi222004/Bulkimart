@@ -1,3 +1,4 @@
+import { productView } from '../utils/productView';
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { adminGet, adminPatch, adminPost, adminDelete, qs } from '../../../utils/adminApi';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
@@ -56,7 +57,7 @@ export const AdminProvider = ({ children }) => {
 
   // Back/forward move between tabs like any other navigation.
   useEffect(() => {
-    const onPopState = () => setActiveTabInternal(tabFromPath());
+    const onPopState = () => { setActiveTabInternal(tabFromPath()); setProductRoute(window.location.pathname.split('/')[3] || ''); };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
@@ -67,6 +68,10 @@ export const AdminProvider = ({ children }) => {
   // Modals & sub-state
   const [selectedSeller, setSelectedSeller] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [productRevision, setProductRevision] = useState(0);
+  const [productRoute, setProductRoute] = useState(() => window.location.pathname.split('/')[3] || '');
+  const openAdminProduct = id => { setSelectedProduct(null); window.history.pushState(null, '', '/admin/products/' + encodeURIComponent(id)); setProductRoute(String(id)); setActiveTabInternal('products'); };
+  const closeAdminProduct = () => { setSelectedProduct(null); window.history.pushState(null, '', '/admin/products'); setProductRoute(''); setActiveTabInternal('products'); };
   const [selectedPayout, setSelectedPayout] = useState(null);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [ticketReply, setTicketReply] = useState('');
@@ -351,6 +356,8 @@ export const AdminProvider = ({ children }) => {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState('');
   const [productFilters, setProductFilters] = useState({ status: 'all', type: '', search: '' });
+  const productListRequest = useRef(null);
+  useEffect(() => () => productListRequest.current?.abort(), []);
 
   /**
    * One product belongs to one storefront.
@@ -360,45 +367,20 @@ export const AdminProvider = ({ children }) => {
    * of ecommerce or grocery, and a seller who wants both creates two.
    */
   const fetchAdminProducts = useCallback(async (filters = {}) => {
+    productListRequest.current?.abort();
+    const controller = new AbortController(); productListRequest.current = controller;
     setProductsLoading(true);
     setProductsError('');
     try {
-      const { data } = await adminGet(`/products${qs({ limit: 100, ...filters })}`);
-      setProducts((data || []).map((p) => ({
-        id: p._id,
-        name: p.name,
-        channel: p.type,
-        fulfillmentType: p.fulfillmentType || 'physical',
-        digital: p.fulfillmentType === 'digital' ? {
-          author: p.digital?.author,
-          language: p.digital?.language,
-          format: p.digital?.format,
-          fileStatus: p.digital?.file?.status || 'missing',
-          fileSizeBytes: p.digital?.file?.sizeBytes || 0,
-        } : undefined,
-        sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName
-                 || p.shgStoreId?.groupName || '—',
-        category: p.category?.name || '—',
-        desc: p.description,
-        price: p.price,
-        mrp: p.mrp,
-        stock: p.stock,
-        unit: p.unit,
-        image: p.images?.[0] || null,
-        status: p.status,
-        isActive: p.isActive,
-        isFeatured: p.isFeatured,
-        isSponsored: p.isSponsored,
-        sponsoredRank: p.sponsoredRank,
-        rejectionReason: p.rejectionReason,
-        createdAt: p.createdAt,
-        raw: p,
-      })));
+      const { data } = await adminGet(`/products${qs({ limit: 100, ...filters })}`, { signal: controller.signal });
+      if (productListRequest.current !== controller || controller.signal.aborted) return;
+      setProducts((data || []).map(productView));
     } catch (err) {
+      if (productListRequest.current !== controller || controller.signal.aborted) return;
       setProductsError(err.message);
       setProducts([]);
     } finally {
-      setProductsLoading(false);
+      if (productListRequest.current === controller && !controller.signal.aborted) setProductsLoading(false);
     }
   }, []);
 
@@ -414,7 +396,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Product is live again.');
       addLog(`Product ${id} restored to live.`);
       setSelectedProduct(null);
-      await fetchAdminProducts(productFilters);
+      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
       triggerToast(err.message);
     }
@@ -429,7 +411,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Product taken down.');
       addLog(`Product ${id} taken down: ${finalReason}`);
       setSelectedProduct(null);
-      await fetchAdminProducts(productFilters);
+      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
       triggerToast(err.message);
     }
@@ -439,7 +421,7 @@ export const AdminProvider = ({ children }) => {
     try {
       const { message } = await adminPatch(`/products/${id}/feature`, { isFeatured });
       triggerToast(message || 'Updated.');
-      await fetchAdminProducts(productFilters);
+      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
       triggerToast(err.message);
     }
@@ -449,7 +431,7 @@ export const AdminProvider = ({ children }) => {
     try {
       const { message } = await adminPatch(`/products/${id}/sponsor`, { isSponsored, sponsoredRank });
       triggerToast(message || 'Updated.');
-      await fetchAdminProducts(productFilters);
+      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
       triggerToast(err.message);
     }
@@ -461,7 +443,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Product deleted from the catalogue.');
       addLog(`Product ${id} deleted from the catalogue.`);
       setSelectedProduct(null);
-      await fetchAdminProducts(productFilters);
+      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
       return true;
     } catch (err) {
       triggerToast(err.message);
@@ -1222,7 +1204,7 @@ export const AdminProvider = ({ children }) => {
       // Modal selection wrappers
       selectedSeller,
       setSelectedSeller,
-      selectedProduct,
+      selectedProduct, productRoute, productRevision, openAdminProduct, closeAdminProduct, productFilters,
       setSelectedProduct,
       selectedPayout,
       setSelectedPayout,

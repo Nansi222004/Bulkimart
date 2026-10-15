@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import AdminSessionGate from '../../../components/AdminSessionGate';
+import { clearPortalRequests } from '../../../utils/portalRequests';
+import AdminProductDetailsPage from '../pages/AdminProductDetailsPage';
 import ServicesPanel from '../../../components/services/ServicesPanel';
 import { AdminProvider, useAdmin } from '../context/AdminContext';
 import LeftSidebar from '../components/LeftSidebar';
@@ -51,7 +54,7 @@ import '../Admin.css'; // Toast alert styles
 
 const AdminRoutesContent = ({ onLogout }) => {
   const { toastMessage, activeTab } = useAdmin();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 768);
 
   const renderActiveTabContent = () => {
     if (activeTab === 'overview' || activeTab === 'dashboard') {
@@ -111,7 +114,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'vendors-suspended': return <SellersTab defaultStatusFilter="suspended" />;
       case 'seller-kyc':        return <SellerKYCTab />;
       case 'products':          
-      case 'vendor-products':   return <ProductsTab />;
+      case 'vendor-products':   return window.location.pathname.startsWith('/admin/products/') ? <AdminProductDetailsPage /> : <ProductsTab />;
       case 'vendor-orders':      return <VendorOrdersTab defaultMode="active" />;
       case 'vendor-order-history': return <VendorOrdersTab defaultMode="history" />;
       case 'vendor-sales':       return <VendorFinancialsTab defaultSubTab="sales" />;
@@ -138,6 +141,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       )}
 
       {/* Sidebar navigation */}
+      {!sidebarCollapsed && <button type="button" className="sa-mobile-backdrop" aria-label="Close navigation" onClick={() => setSidebarCollapsed(true)} />}
       <LeftSidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
 
       {/* Main Workspace content */}
@@ -156,18 +160,20 @@ const AdminRoutesContent = ({ onLogout }) => {
 export const AdminRoutes = () => {
   const [token, setToken] = useState(localStorage.getItem('adminToken'));
 
+  useEffect(() => {
+    const changed = event => { if (!event.key || event.key === 'adminToken') { clearPortalRequests('admin'); setToken(localStorage.getItem('adminToken')); } };
+    window.addEventListener('storage', changed); window.addEventListener('bulkimart:admin-session-changed', changed);
+    return () => { window.removeEventListener('storage', changed); window.removeEventListener('bulkimart:admin-session-changed', changed); };
+  }, []);
+  const logout = () => { clearPortalRequests('admin'); localStorage.removeItem('adminToken'); localStorage.removeItem('adminUser'); setToken(null); };
   return (
-    <AdminProvider>
+    <>
       {!token ? (
         <AdminLoginPage onLoginSuccess={setToken} />
       ) : (
-        <AdminRoutesContent onLogout={() => {
-          localStorage.removeItem('adminToken');
-          localStorage.removeItem('adminUser');
-          setToken(null);
-        }} />
+        <AdminSessionGate token={token} onInvalid={logout}><AdminProvider key={token}><AdminRoutesContent onLogout={logout} /></AdminProvider></AdminSessionGate>
       )}
-    </AdminProvider>
+    </>
   );
 };
 

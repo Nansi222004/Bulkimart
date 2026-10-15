@@ -1,3 +1,5 @@
+import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint, revokeBrowsingGps } from '../../../utils/locationState';
+import { boundedFetch, portalRequest } from '../../../utils/portalRequests';
 import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
@@ -275,11 +277,32 @@ export const UserProvider = ({ children }) => {
    * answer rather than "we do not know yet".
    */
   const [location, setLocation] = useState(() => {
-    return localStorage.getItem('userLocation') || 'Set your location';
+    return readBrowsingLocation()?.label || 'Set your location';
   });
-  const [showLocationModal, setShowLocationModal] = useState(() => {
-    return !localStorage.getItem('locationAsked');
+  const [showLocationModal, setLocationModalOpen] = useState(() => {
+    return window.location.pathname === '/' && shouldPromptForLocation();
   });
+  const setShowLocationModal = value => {
+    if (!value) rememberLocationChoice('dismissed');
+    setLocationModalOpen(value);
+  };
+  useEffect(() => {
+    let active = true, permission;
+    localStorage.removeItem('guestLocationCoords'); // Retire untimestamped, permanent guest GPS cache.
+    // Querying permission never invokes a browser prompt or requests GPS.
+    navigator.permissions?.query({ name: 'geolocation' }).then(result => {
+      if (!active) return;
+      permission = result;
+      const changed = () => {
+        if (result.state === 'denied') {
+          const wasGps = readBrowsingLocation()?.source === 'gps';
+          revokeBrowsingGps(); rememberLocationChoice('denied'); if (wasGps) setLocation('Set your location');
+        }
+      };
+      changed(); result.onchange = changed;
+    }).catch(() => {});
+    return () => { active = false; if (permission) permission.onchange = null; };
+  }, []);
 
   // --- Product Detail ---
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -302,7 +325,7 @@ export const UserProvider = ({ children }) => {
   const fetchWalletBalance = useCallback(async () => {
     if (!isSignedIn()) { setWalletBalance(0); return; }
     try {
-      const res = await fetch(apiUrl('/api/wallet'), { headers: authHeaders(false) });
+      const res = await portalRequest('customer', localStorage.getItem('userToken'), '/api/wallet');
       if (!res.ok) return;
       const body = await res.json();
       if (body.data?.balance !== undefined) {
@@ -887,7 +910,7 @@ export const UserProvider = ({ children }) => {
   const refreshAddresses = useCallback(async () => {
     if (!isSignedIn()) { setSavedAddresses([]); return; }
     try {
-      const res = await fetch(apiUrl('/api/users/addresses'), { headers: authHeaders(false) });
+      const res = await portalRequest('customer', localStorage.getItem('userToken'), '/api/users/addresses');
       if (!res.ok) return;
       const body = await res.json();
       const rawList = body.data || body.addresses || [];
@@ -1026,6 +1049,8 @@ export const UserProvider = ({ children }) => {
    * @param {'gps'|'manual'} source
    */
   const saveDeliveryLocation = async (coords, source = 'gps') => {
+    const session = captureUserSession();
+    if (!validPoint(coords)) return { ok: false, message: 'Invalid coordinates. Enter your location manually.' };
     /**
      * LocationPromptModal is shown on first landing-page visit — before
      * anyone has signed in (gated only by a `locationAsked` localStorage
@@ -1044,8 +1069,7 @@ export const UserProvider = ({ children }) => {
     if (!isSignedIn()) {
       const label = `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
       setLocation(label);
-      localStorage.setItem('userLocation', label);
-      localStorage.setItem('guestLocationCoords', JSON.stringify({ lat: coords.lat, lng: coords.lng }));
+      saveBrowsingLocation(label, coords, source);
       return { ok: true, label, resolved: {} };
     }
 
@@ -1053,13 +1077,14 @@ export const UserProvider = ({ children }) => {
     // cached and rate limited server-side, so the same spot is not billed twice.
     let resolved = {};
     try {
-      const res = await fetch(apiUrl(`/api/geo/reverse?lat=${coords.lat}&lng=${coords.lng}${coords.accuracy ? `&accuracy=${Math.round(coords.accuracy)}` : ''}`), {
+      const res = await boundedFetch(apiUrl(`/api/geo/reverse?lat=${coords.lat}&lng=${coords.lng}${coords.accuracy ? `&accuracy=${Math.round(coords.accuracy)}` : ''}`), {
         headers: authHeaders(false),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok) resolved = body.data || {};
     } catch { /* the pin is still worth saving without a street name */ }
 
+    if (!isCurrentUserSession(session)) return { ok: false, message: 'Your session changed. Please select the location again.' };
     const existing = savedAddresses.find((a) => a.isDefault) || savedAddresses[0];
 
     const payload = {
@@ -1080,16 +1105,17 @@ export const UserProvider = ({ children }) => {
 
     try {
       const res = existing
-        ? await fetch(apiUrl(`/api/users/addresses/${existing._id}`), {
+        ? await boundedFetch(apiUrl(`/api/users/addresses/${existing._id}`), {
           method: 'PUT', headers: authHeaders(), body: JSON.stringify(payload),
         })
-        : await fetch(apiUrl('/api/users/addresses'), {
+        : await boundedFetch(apiUrl('/api/users/addresses'), {
           method: 'POST', headers: authHeaders(), body: JSON.stringify(payload),
         });
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not save your location' };
 
+      if (!isCurrentUserSession(session)) return { ok: false, message: 'Your session changed. Select your location again.' };
       await refreshAddresses();
 
       // The header label, derived from what was actually saved.
@@ -1116,23 +1142,25 @@ export const UserProvider = ({ children }) => {
    * `manual` so nobody later mistakes it for a reading taken at the door.
    */
   const lookupTypedLocation = async (text) => {
+    const session = captureUserSession();
     // Same guest gap as saveDeliveryLocation above: /api/geo/forward also
     // requires auth. A guest's typed text is saved as-is, as a label with
     // no resolved coordinates — honest about what it is, rather than
     // failing the whole "enter manually" fallback for anyone not signed in.
     if (!isSignedIn()) {
       setLocation(text);
-      localStorage.setItem('userLocation', text);
+      saveBrowsingLocation(text, null, 'manual');
       return { ok: true, label: text, resolved: {} };
     }
 
     try {
-      const res = await fetch(apiUrl(`/api/geo/forward?q=${encodeURIComponent(text)}`), {
+      const res = await boundedFetch(apiUrl(`/api/geo/forward?q=${encodeURIComponent(text)}`), {
         headers: authHeaders(false),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'We could not find that place' };
 
+      if (!isCurrentUserSession(session)) return { ok: false, message: 'Your session changed. Enter the location again.' };
       return saveDeliveryLocation({ lat: body.data.lat, lng: body.data.lng }, 'manual');
     } catch (err) {
       return { ok: false, message: err.message || 'Network error — is the server running?' };
@@ -1140,10 +1168,13 @@ export const UserProvider = ({ children }) => {
   };
 
   const setDefaultAddress = async (id) => {
+    const session = captureUserSession();
     try {
-      await fetch(apiUrl(`/api/users/addresses/${id}/default`), {
+      const response = await boundedFetch(apiUrl(`/api/users/addresses/${id}/default`), {
         method: 'PUT', headers: authHeaders(false),
       });
+      if (!response.ok) return { ok: false, message: 'Could not select the address. Please retry.' };
+      if (!isCurrentUserSession(session)) return { ok: false, message: 'Your session changed.' };
       await refreshAddresses();
       return { ok: true };
     } catch (err) {
@@ -1164,7 +1195,7 @@ export const UserProvider = ({ children }) => {
    */
   const getDeliveryPoint = () => {
     const addr = getSelectedAddress();
-    if (!addr || addr.lat === undefined || addr.lng === undefined) return null;
+    if (!addr || addr.lat === undefined || addr.lng === undefined) return readBrowsingLocation()?.coords || null;
     return { lat: addr.lat, lng: addr.lng };
   };
 
@@ -1439,7 +1470,7 @@ export const UserProvider = ({ children }) => {
     if (!isSignedIn()) { setWishlist(new Set()); setWishlistItems([]); return; }
     setWishlistLoading(true);
     try {
-      const res = await fetch(apiUrl('/api/wishlist'), { headers: authHeaders(false) });
+      const res = await portalRequest('customer', localStorage.getItem('userToken'), '/api/wishlist');
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.message || 'Could not load your wishlist');
       setWishlistItems(payload.data?.items || []);

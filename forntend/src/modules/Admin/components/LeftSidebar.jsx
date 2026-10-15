@@ -261,7 +261,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
             <span className="sa-logo-subtitle">Super Admin</span>
           </div>
         </div>
-        <button className="sa-collapse-btn" onClick={() => setCollapsed(!collapsed)} title="Collapse Menu">
+        <button className="sa-collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expand menu' : 'Collapse menu'} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!collapsed}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             {collapsed ? (
               <>

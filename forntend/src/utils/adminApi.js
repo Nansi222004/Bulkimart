@@ -1,4 +1,5 @@
 import { apiUrl } from './api';
+import { boundedFetch, clearPortalRequests } from './portalRequests';
 
 /**
  * Thin client for the /api/admin surface.
@@ -29,9 +30,11 @@ const handle = async (response) => {
   const body = await response.json().catch(() => ({}));
 
   if (response.status === 401) {
+    clearPortalRequests('admin');
     // token expired or invalid — force a re-login
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminUser');
+    window.dispatchEvent(new Event('bulkimart:admin-session-changed'));
     throw new Error(body.message || 'Session expired. Please sign in again.');
   }
 
@@ -50,8 +53,12 @@ const handle = async (response) => {
   return { data: body.data, meta: body.meta || {}, message: body.message };
 };
 
-export const adminGet = async (path) =>
-  handle(await fetch(apiUrl(`/api/admin${path}`), { headers: authHeaders(false) }));
+export const adminGet = async (path, options = {}) => {
+  const token = localStorage.getItem('adminToken');
+  const response = await boundedFetch(apiUrl(`/api/admin${path}`), { ...options, headers: authHeaders(false) });
+  if (token !== localStorage.getItem('adminToken')) throw new Error('Admin session changed. Sign in again.');
+  return handle(response);
+};
 
 /** Fetch a private admin-only file without ever turning it into a public URL. */
 export const adminGetBlob = async (path) => {

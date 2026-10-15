@@ -2,7 +2,7 @@ import express from 'express';
 import {
   listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
-  listProducts, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
+  listProducts, getProductDetailAdmin, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
   getPendingCounts,
   listDeliveryPartners,
@@ -95,6 +95,7 @@ router.delete('/sellers/:id', deleteSellerAccount);
 
 // ---- product moderation ----------------------------------------------------
 router.get('/products', listProducts);
+router.get('/products/:id', getProductDetailAdmin);
 router.get('/products/:id/digital-file', reviewDigitalProductFile);
 router.patch('/products/:id/approve', approveProduct);
 router.patch('/products/:id/reject', rejectProduct);

@@ -29,7 +29,7 @@ export default function PickupSyncCard({ seller, refreshSeller }) {
     try {
       if (save) { await request('/api/sellers/profile', { method: 'PUT', body: JSON.stringify(draft) }); if (alive.current) setEditing(false); }
       else await request('/api/sellers/pickup-sync/retry', { method: 'POST', body: '{}' });
-      if (alive.current) { await load(); await refreshSeller?.(); }
+      if (alive.current) { await load(); await refreshSeller?.({ fresh: true }); }
     } catch (failure) { if (alive.current) setError(failure.message); }
     finally { inFlight.current = false; if (alive.current) setBusy(false); }
   };

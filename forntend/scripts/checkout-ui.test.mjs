@@ -2,12 +2,13 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Checkout, OrdersTab, UserProvider;
+let vite, Checkout, OrdersTab, UserProvider, portalRequests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Checkout = (await vite.ssrLoadModule('/src/modules/User/pages/CheckoutPage.jsx')).default;
   OrdersTab = (await vite.ssrLoadModule('/src/modules/Seller/components/OrdersTab.jsx')).default;
   UserProvider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
+  portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
   const { socket } = await vite.ssrLoadModule('/src/utils/socket.js');
   socket.connect = () => socket; // Never connect to a live server in this fixture.
 });
@@ -19,6 +20,7 @@ function storage(values = {}) {
 }
 
 test('provider recovery reuses the stored checkout key without creating or rotating an order attempt', async () => {
+  portalRequests.clearPortalRequests('customer');
   const key = 'fixture-checkout-key-unchanged';
   const storageKey = 'bulkimart:checkout:single:fixture-buyer';
   const saved = JSON.stringify({ key, fingerprint: 'original-payload' });
@@ -44,6 +46,7 @@ test('provider recovery reuses the stored checkout key without creating or rotat
 
 test('lost or malformed checkout responses preserve the key for a read-only recovery check', async () => {
   for (const operation of ['single', 'unified']) {
+    portalRequests.clearPortalRequests('customer');
     const profile = { _id: 'fixture-buyer', name: 'Fixture', phone: '9876500000', roles: ['buyer'] };
     const h = hookHarness(UserProvider, {}, '/checkout', { verified: true, profile }, {
       localStorage: storage({ userToken: 'fixture-token', userProfile: JSON.stringify(profile) }), sessionStorage: storage(),

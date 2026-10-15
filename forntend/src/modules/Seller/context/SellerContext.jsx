@@ -1,3 +1,4 @@
+import { portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
 // Import image assets for product listings
@@ -463,16 +464,19 @@ export const SellerProvider = ({ children }) => {
    */
   const [sellerProfile, setSellerProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const profileEpoch = React.useRef(0);
+  useEffect(() => () => { profileEpoch.current++; }, []);
 
-  const fetchSellerProfile = useCallback(async () => {
+  const fetchSellerProfile = useCallback(async (options = {}) => {
+    const generation = ++profileEpoch.current;
     const token = localStorage.getItem('sellerToken');
     setProfileLoading(true);
     try {
-      const res = await fetch(apiUrl('/api/sellers/me'), { headers: authHeader() });
-      if (token !== localStorage.getItem('sellerToken')) return;
+      const res = await portalRequest('seller', token, '/api/sellers/me', { cacheMs: 1000, fresh: options.fresh });
+      if (generation !== profileEpoch.current || token !== localStorage.getItem('sellerToken')) return;
       if (!res.ok) { setSellerProfile(null); return; }
       const body = await res.json();
-      if (token !== localStorage.getItem('sellerToken')) return;
+      if (generation !== profileEpoch.current || token !== localStorage.getItem('sellerToken')) return;
       const seller = body.seller || null;
       if (seller?.userId?._id) {
         setUserProfile(seller.userId);
@@ -494,9 +498,9 @@ export const SellerProvider = ({ children }) => {
         setActiveMode((cur) => (modes.includes(cur) ? cur : modes[0]));
       }
     } catch {
-      if (token === localStorage.getItem('sellerToken')) setSellerProfile(null);
+      if (generation === profileEpoch.current && token === localStorage.getItem('sellerToken')) setSellerProfile(null);
     } finally {
-      setProfileLoading(false);
+      if (generation === profileEpoch.current) setProfileLoading(false);
     }
   }, [draftKey]);
 
@@ -596,6 +600,7 @@ export const SellerProvider = ({ children }) => {
     const changed = () => {
       const token = localStorage.getItem('sellerToken');
       if (token === sessionToken.current) return;
+      clearPortalRequests('seller', sessionToken.current);
       sessionToken.current = token;
       detailGeneration.current++; detailRequests.current.clear();
       disconnectSocket(); setSelectedOrder(null); setOrders([]); setSellerProfile(null);
@@ -1393,6 +1398,7 @@ export const SellerProvider = ({ children }) => {
 
   // SUBMIT SUPPORT TICKET
   const logoutSeller = useCallback(async () => {
+    clearPortalRequests('seller');
     stopRing();
     detailGeneration.current++;
     setSelectedOrder(null);

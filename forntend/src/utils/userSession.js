@@ -1,3 +1,5 @@
+import { clearPortalRequests } from './portalRequests';
+import { resetCustomerSessions } from './customerSession';
 import { apiUrl } from './api';
 
 export const SESSION_CHANGED = 'bulkimart:session-changed';
@@ -6,8 +8,8 @@ export const captureUserSession = () => ({ token: localStorage.getItem('userToke
 export const isCurrentUserSession = snapshot => snapshot.token === localStorage.getItem('userToken') && snapshot.revision === sessionRevision;
 
 export function clearUserSession(notify = true) {
-  sessionRevision++;
-  for (const key of ['userToken', 'userProfile', 'delivery_onboarded', 'deliveryDebitWallet', 'deliveryEarningsDaily', 'userLocation', 'guestLocationCoords', 'locationAsked']) localStorage.removeItem(key);
+  sessionRevision++; resetCustomerSessions(); clearPortalRequests('customer'); clearPortalRequests('delivery');
+  for (const key of ['userToken', 'userProfile', 'delivery_onboarded', 'deliveryDebitWallet', 'deliveryEarningsDaily', 'userLocation', 'guestLocationCoords']) localStorage.removeItem(key);
   try {
     for (const key of Object.keys(sessionStorage)) if (key.startsWith('bulkimart:checkout:')) sessionStorage.removeItem(key);
   } catch { /* Storage may be disabled; the server remains authoritative. */ }

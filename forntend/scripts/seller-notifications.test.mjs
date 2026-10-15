@@ -1,10 +1,10 @@
-import { before, after, test } from 'node:test';
+import { before, beforeEach, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Alerts, Drawer, Orders, SellerProvider, socket, push, PushControl, createPushRegistration, PickupCard;
+let vite, Alerts, Drawer, Orders, SellerProvider, socket, push, PushControl, createPushRegistration, PickupCard, portalRequests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Alerts = (await vite.ssrLoadModule('/src/modules/Seller/components/SellerOrderAlerts.jsx')).default;
@@ -16,8 +16,10 @@ before(async () => {
   push = await vite.ssrLoadModule('/src/utils/firebaseMessaging.js');
   PushControl = (await vite.ssrLoadModule('/src/modules/Seller/components/SellerPushControl.jsx')).default;
   PickupCard = (await vite.ssrLoadModule('/src/modules/Seller/components/PickupSyncCard.jsx')).default;
+  portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
   ({ createPushRegistration } = await vite.ssrLoadModule('/src/utils/pushRegistration.js'));
 });
+beforeEach(() => portalRequests.clearPortalRequests('seller'));
 after(async () => { await vite.close(); });
 const id = '507f1f77bcf86cd799439011', notificationId = '507f1f77bcf86cd799439012';
 const row = { _id: id, orderNo: 'ORDER-FIXTURE', status: 'placed', channel: 'grocery', itemCount: 2, subtotal: 100, paymentMethod: 'cod', paymentStatus: 'pending', customer: { name: 'Fixture customer' }, items: [{ name: 'Fixture item', qty: 2, price: 50 }], shippingAddress: { city: 'Fixture city' } };

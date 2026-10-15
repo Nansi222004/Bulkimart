@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:startup": "node --test scripts/portal-startup.test.mjs",
     "test:seller-notifications": "node --test scripts/seller-notifications.test.mjs",
     "test:socket": "node --test scripts/socket-ui.test.mjs",
     "test:mobile": "npm run build && node scripts/mobile-layout.test.mjs && node scripts/mobile-layout.test.mjs --dialogs && node scripts/mobile-layout.test.mjs --seller && node scripts/mobile-layout.test.mjs --startup",

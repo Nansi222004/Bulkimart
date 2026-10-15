@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 
+const locationOnly = process.argv.includes('--location');
+const allPortals = process.argv.includes('--portals');
 const audit = process.argv.includes('--audit');
 const dialogsOnly = process.argv.includes('--dialogs');
 const sellerOnly = process.argv.includes('--seller');
@@ -39,6 +41,12 @@ const seller = { _id: product.sellerId, name: 'Fixture Store', city: 'Mumbai' };
 const pricing = { subtotal: 100, deliveryCharge: 40, totalAmount: 140, standardFee: 40 };
 function fixture(raw) {
   const path = new URL(raw).pathname;
+  if (path === '/api/delivery/orders/active') return { success:true,data:null };
+  if (path === '/api/delivery/return-pickups') return { success:true,data:{pending:[],active:[]} };
+  if (path === '/api/delivery/me') return { success:true,data:{ _id:'507f1f77bcf86cd799439027',name:'Fixture Rider',phone:'9876500002',status:'approved',onboardingStep:4,isAvailable:false } };
+  if (path === '/api/admin/products') return { success:true,data:[{...product,sellerId:{storeDetails:{name:'Fixture Store'}},category:{name:'Fixture Category'},status:'approved',isActive:true,sku:'FIXTURE-SKU'}] };
+  if (path === '/api/admin/products/' + product._id) return { success:true,data:{...product,sellerId:{storeDetails:{name:'Fixture Store'}},category:{name:'Fixture Category'},status:'approved',isActive:true,sku:'FIXTURE-SKU',description:'Fixture listing description'} };
+  if (path.startsWith('/api/sellers/orders/')) return { success:true,data:{ _id:'507f1f77bcf86cd799439022',orderNo:'ORD-FIXTURE',channel:'ecommerce',status:'placed',pricing,items:[line],shippingAddress:address,permittedActions:[] } };
   if (path === '/api/sellers/me') return { success: true, seller: { ...seller, status: 'approved', salesChannels: ['ecommerce', 'grocery'], storeDetails: { name: 'Fixture Store' } } };
   if (path === '/api/sellers/dashboard') return { success: true, kpis: { totalRevenue: 100, totalOrders: 1, lowStockCount: 1 } };
   if (path === '/api/sellers/orders') return { success: true, data: [{ _id: '507f1f77bcf86cd799439022', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'placed', pricing, items: [line], createdAt: new Date().toISOString(), shippingAddress: address }] };
@@ -107,6 +115,8 @@ try {
           }
           let body = fixture(request.url), status = 200;
           if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer seller-browser-fixture-token')) body = { success: true, userType: 'user', sessionRole: 'seller', profile: { _id: 'seller-account-fixture', roles: ['buyer', 'seller'] } };
+          if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer admin-browser-fixture-token')) body = { success:true,userType:'admin',profile:{_id:'507f1f77bcf86cd799439028',role:'superAdmin'} };
+          if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer rider-browser-fixture-token')) body = { success:true,userType:'user',sessionRole:'delivery',profile:{...customer,roles:['delivery']} };
           if (new URL(request.url).pathname === '/api/auth/me' && startupOnly) {
             authRequests++;
             await pause(1800);
@@ -122,17 +132,48 @@ try {
     }
   };
   await command('Page.enable'); await command('Runtime.enable'); await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-  await command('Page.addScriptToEvaluateOnNewDocument', { source: livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');localStorage.removeItem('sellerToken');localStorage.removeItem('sellerUserProfile');} else {localStorage.setItem('sellerToken','seller-browser-fixture-token');localStorage.setItem('userToken','browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
+  await command('Page.addScriptToEvaluateOnNewDocument', { source: locationOnly ? `if(!sessionStorage.getItem('location-fixture')) {localStorage.clear();sessionStorage.clear();sessionStorage.setItem('location-fixture','1');} window.fixtureGpsCalls=0;const originalGps=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);navigator.geolocation.getCurrentPosition=(...args)=>{window.fixtureGpsCalls++;return originalGps(...args);};` : livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');localStorage.removeItem('sellerToken');localStorage.removeItem('sellerUserProfile');} else {localStorage.setItem('sellerToken','seller-browser-fixture-token');localStorage.setItem('adminToken','admin-browser-fixture-token');localStorage.setItem('userToken',location.pathname.startsWith('/delivery')?'rider-browser-fixture-token':'browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
   const selectedWidth = Number(process.argv.find(arg => arg.startsWith('--width='))?.split('=')[1]);
-  const widths = selectedWidth ? [selectedWidth] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
-  for (const width of widths) {
+  const widths = selectedWidth ? [selectedWidth] : allPortals ? [320,360,390,430,768,1280] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
+  if (locationOnly) {
+    await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await command('Page.navigate',{url:origin+'/'});
+    await waitFor(`!!document.querySelector('[aria-label="Choose your location"]')`);
+    assert.equal(await evaluate('window.fixtureGpsCalls'),0);
+    await evaluate(`document.querySelector('[aria-label="Dismiss location selection"]').click()`);
+    await command('Page.reload'); await waitFor(`!!document.querySelector('.header-address-block')`); await pause(250);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Choose your location"]')`),false);
+    await command('Browser.setPermission',{permission:{name:'geolocation'},setting:'denied',origin});
+    await evaluate(`document.querySelector('.header-address-block').click()`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Allow Location Access')).click()`);
+    await waitFor(`!!document.querySelector('input[placeholder="Search for area, street name.."]')`);
+    assert.equal(await evaluate(`sessionStorage.getItem('bulkimart:browsing-location')`),null);
+    await evaluate(`document.querySelector('input[placeholder="Search for area, street name.."]').focus()`);
+    await command('Input.insertText',{text:'Fixture manual area'});
+    await evaluate(`document.querySelector('[aria-label="Choose your location"] form').requestSubmit()`);
+    await waitFor(`!document.querySelector('[aria-label="Choose your location"]')`);
+    await command('Page.reload'); await waitFor(`document.querySelector('.header-address-block')?.textContent.includes('Fixture manual area')`);
+    await command('Browser.setPermission',{permission:{name:'geolocation'},setting:'granted',origin});
+    await command('Emulation.setGeolocationOverride',{latitude:19.1,longitude:72.9,accuracy:10});
+    await evaluate(`document.querySelector('.header-address-block').click()`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Allow Location Access')).click()`);
+    await waitFor(`!document.querySelector('[aria-label="Choose your location"]')`);
+    assert.equal(await evaluate(`JSON.parse(sessionStorage.getItem('bulkimart:browsing-location')).coords.lat`),19.1);
+    await command('Page.reload');await waitFor(`!!document.querySelector('.header-address-block')`);await pause(250);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Choose your location"]')`),false);
+    assert.equal(await evaluate('window.fixtureGpsCalls'),0);
+    await command('Browser.setPermission',{permission:{name:'geolocation'},setting:'denied',origin});
+    await waitFor(`!sessionStorage.getItem('bulkimart:browsing-location')`);
+    rows.push({scenario:'location-dismiss-deny-manual-grant-refresh-revoke',viewport:390,passed:true,realGps:false});
+  }
+  for (const width of locationOnly ? [] : widths) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 956, deviceScaleFactor: 1, mobile: width <= 440 });
-    const paths = livePublic ? ['/', '/seller', '/checkout'] : startupOnly ? ['/?guest=startup', '/?startup=slow', '/?startup=expired', '/?startup=failed'] : sellerOnly ? ['/seller?guest=1', '/seller', '/seller/orders', '/seller/products'] : dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
+    const paths = allPortals ? ['/', '/account?guest=1', '/cart', '/checkout', '/seller', '/seller/orders', '/seller/orders/507f1f77bcf86cd799439022', '/admin/products', '/admin/products/'+product._id, '/delivery/dashboard', '/delivery/profile'] : livePublic ? ['/', '/seller', '/checkout'] : startupOnly ? ['/?guest=startup', '/?startup=slow', '/?startup=expired', '/?startup=failed'] : sellerOnly ? ['/seller?guest=1', '/seller', '/seller/orders', '/seller/products'] : dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
     for (const path of paths) {
       console.log(`Checking ${width}px ${path}`);
       startupScenario = new URL(path, origin).searchParams.get('startup') || 'guest'; authRequests = 0; authSettled = false;
       await command('Page.navigate', { url: origin + path });
-      await waitFor(`!!document.querySelector('.user-landing-page-container,.auth-page-container,.seller-auth-page,.seller-dashboard-layout') && !document.querySelector('.customer-splash')`);
+      await waitFor(`!!document.querySelector('.user-landing-page-container,.auth-page-container,.seller-auth-page,.seller-dashboard-layout,.sa-layout-container,.delivery-app-container') && !document.querySelector('.customer-splash')`);
       if (startupOnly) {
         const publicMs = await evaluate('Math.round(performance.now())');
         if (startupScenario !== 'guest') assert.equal(authSettled, false, 'Public shell renders before slow verification finishes');
@@ -187,7 +228,7 @@ try {
         const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
         const controls = [...document.querySelectorAll('input,select,textarea')].filter(el => visible(el) && !['radio','checkbox','hidden','range','button','submit','reset','color'].includes(el.type));
         return { width: innerWidth, root: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, scale: visualViewport?.scale,
-          shellHeight: document.querySelector('.user-landing-page-container,.auth-page-container,.seller-app-container').getBoundingClientRect().height,
+          shellHeight: document.querySelector('.user-landing-page-container,.auth-page-container,.seller-app-container,.sa-layout-container,.delivery-app-container').getBoundingClientRect().height,
           controls: controls.map(el => ({ name: el.placeholder || el.name || el.type, size: parseFloat(getComputedStyle(el).fontSize), width: el.getBoundingClientRect().width })),
           wide: [...document.querySelectorAll('main,section,form,.profile-menu-card,.checkout-content,.unified-header-container,.product-grid,.seller-header-row,.seller-tab-content-container,.seller-kpi-grid')].filter(visible).filter(el => el.getBoundingClientRect().right > innerWidth+1 || el.getBoundingClientRect().left < -1).map(el => el.className),
           drawerOpen: !!document.querySelector('.seller-sidebar-backdrop') && getComputedStyle(document.querySelector('.seller-sidebar-backdrop')).display !== 'none',
@@ -225,7 +266,7 @@ try {
     }
   }
   const artifacts = resolve('../test-artifacts/mobile-layout'); await mkdir(artifacts, { recursive: true });
-  await writeFile(join(artifacts, livePublic ? 'live-public.json' : startupOnly ? 'startup.json' : sellerOnly ? (audit ? 'seller-baseline.json' : 'seller-results.json') : audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
+  await writeFile(join(artifacts, locationOnly ? 'location.json' : allPortals ? 'portals.json' : livePublic ? 'live-public.json' : startupOnly ? 'startup.json' : sellerOnly ? (audit ? 'seller-baseline.json' : 'seller-results.json') : audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
   console.log(JSON.stringify({ audit, checks: rows.length, rows: audit ? rows : undefined, errors }, null, 2));
   if (!audit) assert.deepEqual(errors, [], 'Unexpected application errors in browser fixtures');
 } finally {

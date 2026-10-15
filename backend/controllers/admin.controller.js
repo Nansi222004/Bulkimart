@@ -411,6 +411,21 @@ export const listProducts = asyncHandler(async (req, res) => {
   return paginated(res, products, { page, limit, total });
 });
 
+// Dedicated moderation details deliberately serialize metadata, never storage
+// references, checksums, signed links or private PDF bytes.
+export const getProductDetailAdmin = asyncHandler(async (req, res) => {
+  if (!/^[a-f\d]{24}$/i.test(String(req.params.id))) throw httpError(400, 'Invalid product reference');
+  const product = await Product.findById(req.params.id).populate('category', 'name').populate('sellerId', 'businessName storeDetails.name').lean();
+  if (!product || product.isDeleted) throw httpError(404, 'Product unavailable');
+  const keys = ['_id','name','description','type','fulfillmentType','images','sellerId','sellerName','category','price','mrp','stock','unit','sku','variants','status','isActive','isFeatured','isSponsored','sponsoredRank','rejectionReason','createdAt','updatedAt'];
+  const data = Object.fromEntries(keys.map(key => [key, product[key]]));
+  if (product.fulfillmentType === 'digital') data.digital = {
+    author: product.digital?.author, language: product.digital?.language, format: product.digital?.format,
+    file: { status: product.digital?.file?.status || 'missing', sizeBytes: product.digital?.file?.sizeBytes || 0 },
+  };
+  return ok(res, data);
+});
+
 // @desc    Securely view or download a private e-book while moderating it
 // @route   GET /api/admin/products/:id/digital-file?download=true
 // @access  Private/Admin

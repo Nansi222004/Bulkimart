@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { adminGetBlob } from '../../../utils/adminApi';
+import { adminGet } from '../../../utils/adminApi';
+import { productView } from '../utils/productView';
 
 /**
  * Catalogue moderation — live from GET /api/admin/products.
@@ -37,7 +38,7 @@ const fileSize = (bytes) => {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const ProductsTab = () => {
+export const ProductsTab = ({ detailPage = false }) => {
   const {
     products,
     productsLoading,
@@ -50,55 +51,26 @@ export const ProductsTab = () => {
     toggleProductSponsored,
     removeProduct,
     selectedProduct,
-    setSelectedProduct,
+    setSelectedProduct, productRoute, productRevision, openAdminProduct, closeAdminProduct, productFilters,
   } = useAdmin();
 
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('approved');
-  const [channel, setChannel] = useState('');
+  const [search, setSearch] = useState(productFilters?.search || '');
+  const [status, setStatus] = useState(productFilters?.status || 'approved');
+  const [channel, setChannel] = useState(productFilters?.type || '');
   const [deletingProductId, setDeletingProductId] = useState(null);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-  const [pdfBusyAction, setPdfBusyAction] = useState('');
-  const [pdfError, setPdfError] = useState('');
-
-  useEffect(() => () => {
-    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-  }, [pdfPreviewUrl]);
-
-  const closeProductDetails = () => {
-    setPdfPreviewUrl('');
-    setPdfError('');
-    setSelectedProduct(null);
-  };
-
-  const reviewPdf = async (download = false) => {
-    if (!selectedProduct || pdfBusyAction) return;
-    const action = download ? 'download' : 'view';
-    setPdfBusyAction(action);
-    setPdfError('');
-    try {
-      const { blob, filename } = await adminGetBlob(
-        `/products/${selectedProduct.id}/digital-file${download ? '?download=true' : ''}`
-      );
-      const objectUrl = URL.createObjectURL(blob);
-      if (download) {
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(objectUrl);
-      } else {
-        setPdfPreviewUrl(objectUrl);
-      }
-    } catch (error) {
-      setPdfError(error.message || 'Could not open this PDF.');
-    } finally {
-      setPdfBusyAction('');
-    }
-  };
-
+  const [detailError, setDetailError] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailRetry, setDetailRetry] = useState(0);
+  useEffect(() => {
+    if (!detailPage || !productRoute) return;
+    const controller = new AbortController(); let active = true;
+    setDetailLoading(true); setDetailError(''); setSelectedProduct(null);
+    adminGet('/products/' + encodeURIComponent(productRoute), { signal: controller.signal }).then(body => {
+      if (active) setSelectedProduct(productView(body.data));
+    }).catch(error => { if (active) setDetailError(error.message || 'Product unavailable. Retry.'); })
+      .finally(() => { if (active) setDetailLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [detailPage, productRoute, productRevision, detailRetry]);
   const confirmDeleteProduct = async (product) => {
     if (!product || deletingProductId) return;
     const confirmed = window.confirm(
@@ -106,7 +78,8 @@ export const ProductsTab = () => {
     );
     if (!confirmed) return;
     setDeletingProductId(product.id);
-    await removeProduct(product.id);
+    const removed = await removeProduct(product.id);
+    if (removed && detailPage) closeAdminProduct();
     setDeletingProductId(null);
   };
 
@@ -119,12 +92,14 @@ export const ProductsTab = () => {
   // Debounced, because the search runs on the server rather than over a local
   // array — one request per keystroke otherwise.
   useEffect(() => {
+    if (detailPage) return;
     const id = setTimeout(load, search ? 350 : 0);
     return () => clearTimeout(id);
   }, [load, search]);
 
   return (
     <>
+      {!detailPage && <>
       <div className="admin-action-row">
         <div className="admin-search-wrapper">
           <input
@@ -235,7 +210,7 @@ export const ProductsTab = () => {
               </div>
 
               <div className="admin-item-actions">
-                <button className="admin-btn-sm details" onClick={() => setSelectedProduct(p)}>
+                <button className="admin-btn-sm details" onClick={() => openAdminProduct(p.id)}>
                   Details
                 </button>
                 <button
@@ -278,17 +253,23 @@ export const ProductsTab = () => {
         )}
       </div>
 
-      {selectedProduct && (
-        <div className="admin-modal-overlay">
-          <div className="admin-modal-sheet" style={{ maxWidth: 560 }}>
+      </>}
+      {detailPage && <div className="admin-product-detail-page">
+        <button type="button" className="admin-btn-sm details" onClick={closeAdminProduct}>← Back to Products</button>
+        {detailLoading && <p role="status">Loading latest product…</p>}
+        {detailError && <div role="alert">{detailError}<button type="button" onClick={() => setDetailRetry(value => value + 1)}>Retry product details</button></div>}
+      </div>}
+      {detailPage && selectedProduct && (
+        <section className="admin-product-detail-page" aria-label="Product details">
+          <div>
             <div className="admin-modal-header">
               <div>
-                <h3 className="admin-modal-title">{selectedProduct.name}</h3>
+                <h1 className="admin-modal-title">{selectedProduct.name}</h1>
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>
                   {selectedProduct.sellerName} • {CHANNEL_LABEL[selectedProduct.channel] || selectedProduct.channel}
                 </span>
               </div>
-              <button className="admin-modal-close" onClick={closeProductDetails}>✕</button>
+
             </div>
 
             <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -325,24 +306,6 @@ export const ProductsTab = () => {
                     {selectedProduct.digital?.format?.toUpperCase() || 'PDF'} · {selectedProduct.digital?.fileStatus || 'missing'} · {fileSize(selectedProduct.digital?.fileSizeBytes)}
                   </span>
                 </div>
-                <div className="admin-ebook-review-actions">
-                  <button type="button" className="admin-btn-sm details" onClick={() => reviewPdf(false)} disabled={!!pdfBusyAction}>
-                    {pdfBusyAction === 'view' ? 'Opening…' : 'View PDF'}
-                  </button>
-                  <button type="button" className="admin-btn-sm details" onClick={() => reviewPdf(true)} disabled={!!pdfBusyAction}>
-                    {pdfBusyAction === 'download' ? 'Downloading…' : 'Download PDF'}
-                  </button>
-                </div>
-                {pdfError && <div className="admin-ebook-review-error" role="alert">{pdfError}</div>}
-                {pdfPreviewUrl && (
-                  <div className="admin-ebook-preview">
-                    <div className="admin-ebook-preview-header">
-                      <strong>PDF content preview</strong>
-                      <button type="button" onClick={() => setPdfPreviewUrl('')}>Close preview</button>
-                    </div>
-                    <iframe src={pdfPreviewUrl} title={`${selectedProduct.name} PDF preview`} />
-                  </div>
-                )}
               </>}
               <div className="admin-item-row">
                 <span className="admin-item-label">Price / MRP</span>
@@ -368,6 +331,9 @@ export const ProductsTab = () => {
                     : '—'}
                 </span>
               </div>
+              <p>Status: {selectedProduct.status} · {selectedProduct.isActive ? 'Active' : 'Inactive'}</p>
+              <p>SKU: {selectedProduct.raw?.sku || 'Not recorded'} · Updated: {selectedProduct.raw?.updatedAt ? new Date(selectedProduct.raw.updatedAt).toLocaleString() : 'Not recorded'}</p>
+              {(selectedProduct.raw?.variants || []).map(variant => <article key={variant._id || variant.sku}><strong>{variant.name || variant.sku}</strong><p>SKU: {variant.sku} · Stock: {variant.stock} · Price: {money(variant.price)}</p></article>)}
               {selectedProduct.desc && (
                 <div>
                   <div className="admin-item-label" style={{ marginBottom: 4 }}>Description</div>
@@ -414,7 +380,7 @@ export const ProductsTab = () => {
               )}
             </div>
           </div>
-        </div>
+        </section>
       )}
     </>
   );

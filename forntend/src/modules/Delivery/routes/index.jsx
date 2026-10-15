@@ -16,7 +16,7 @@ import { SESSION_CHANGED } from '../../../utils/userSession';
 
 const DeliveryRoutesContent = () => {
   const {
-    isOnboarded, riderAuthed, bootstrapping, activeOrder, toastMessage,
+    isOnboarded, riderAuthed, bootstrapping, activeOrder, toastMessage, sessionError, retrySession,
     returnPickupPingOffer, acceptReturnPickup, declineReturnPickup, expireReturnPickup,
   } = useDelivery();
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -62,6 +62,7 @@ const DeliveryRoutesContent = () => {
 
   // An existing token is still being checked. Rendering the sign-in form now
   // would flash it at a rider who is already signed in.
+  if (sessionError) return <div className="delivery-app-container" role="alert">{sessionError}<button type="button" onClick={retrySession}>Retry verification</button></div>;
   if (bootstrapping) {
     return (
       <div className="delivery-app-container">

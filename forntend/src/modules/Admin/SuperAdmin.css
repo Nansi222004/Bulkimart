@@ -28,7 +28,7 @@
 /* Outer layout frame */
 .sa-layout-container {
   display: flex;
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   overflow: hidden;
   background-color: var(--sa-bg-workspace);
@@ -200,6 +200,7 @@
 
 /* Workspace main content canvas */
 .sa-workspace {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -787,4 +788,25 @@
   border-color: var(--sa-primary);
   box-shadow: 0 0 0 3px var(--sa-primary-glow);
   outline: none;
+}
+
+/* Mobile navigation is a drawer; it must not squeeze the workspace to 80px. */
+.sa-mobile-backdrop { display: none; }
+.admin-product-detail-page { padding: clamp(12px, 3vw, 24px); width: 100%; max-width: 1100px; margin: 0 auto; box-sizing: border-box; overflow-wrap: anywhere; }
+.admin-product-detail-page .admin-modal-title { font-size: clamp(20px, 4vw, 28px); }
+.admin-product-detail-page .admin-item-row { flex-wrap: wrap; gap: 8px; }
+@media(max-width:767px) {
+  .sa-layout-container { min-height: 100dvh; height: 100dvh; }
+  .sa-sidebar:not(.collapsed) { position: fixed; inset: 0 auto 0 0; width: min(280px, 85%); z-index: 110; }
+  .sa-sidebar.collapsed { width: 56px; }
+  .sa-mobile-backdrop { display: block; position: fixed; inset: 0; border: 0; background: #0006; z-index: 105; }
+  .sa-header { padding: max(8px, env(safe-area-inset-top)) 10px 8px; min-height: 64px; height: auto; gap: 8px; flex-wrap: wrap; }
+  .sa-header-left, .sa-header-right { min-width: 0; flex-wrap: wrap; gap: 6px; }
+  .sa-workspace { padding-bottom: env(safe-area-inset-bottom); }
+  .sa-header-title { font-size: 18px; overflow-wrap: anywhere; }
+  .sa-header-subtitle { display: none; }
+  .sa-layout-container :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea), .admin-auth-page :is(input,select,textarea) { font-size: 16px !important; min-width: 0; max-width: 100%; }
+  .sa-nav-link, .sa-collapse-btn { min-height: 44px; }
+  .admin-product-detail-page .admin-btn-sm { min-height: 44px; white-space: normal; }
+  .sa-workspace img { max-width: 100%; }
 }
