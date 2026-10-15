@@ -335,10 +335,8 @@ describe('checkout HTTP workflow with mocked persistence', () => {
       request(app).post('/api/orders').set(auth).send(payload),
     ]);
     const successful = [first, second].filter((res) => res.status === 201);
-    const rejected = [first, second].filter((res) => res.status === 409);
-    expect(successful).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0].body.meta.code || rejected[0].body.meta).toBeTruthy();
+    expect(successful).toHaveLength(2);
+    expect(first.body.data.order._id).toBe(second.body.data.order._id);
     expect(persistedOrders).toHaveLength(1);
     expect(persistedPayments).toHaveLength(1);
     expect(Product.updateOne).toHaveBeenCalledTimes(1);

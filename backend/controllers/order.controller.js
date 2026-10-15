@@ -79,6 +79,28 @@ const checkoutIdentity = async (req, operation) => {
 const isTransactionUnavailable = (err) =>
   /Transaction numbers are only allowed|replica set|does not support transactions/i.test(err?.message || '');
 
+const findClaimedCheckout = async ({ userId, key, requestHash, operation }) => {
+  // A duplicate-key error can be the second half of two requests which both
+  // passed the initial lookup. Give the request which won the unique claim a
+  // brief chance to finish, then replay its result instead of showing a false
+  // "different details" error to the customer.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const checkout = await CheckoutAttempt.findOne({ userId, key }).lean();
+    if (!checkout) return null;
+    if (checkout.requestHash !== requestHash || checkout.operation !== operation) return checkout;
+    if (checkout.status === 'completed') return checkout;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return CheckoutAttempt.findOne({ userId, key }).lean();
+};
+
+const checkoutClaimError = (checkout, requestHash, operation) => {
+  if (checkout?.requestHash === requestHash && checkout.operation === operation) {
+    return httpError(409, 'Your order is still being processed. Please wait a moment and try again.', { code: 'CHECKOUT_IN_PROGRESS' });
+  }
+  return httpError(409, 'This checkout session is no longer valid for the current order details. Refresh checkout and try again.', { code: 'IDEMPOTENCY_KEY_REUSED' });
+};
+
 /**
  * Checkout.
  *
@@ -618,7 +640,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     });
   } catch (txnErr) {
     if (txnErr?.code === 11000) {
-      const retry = await CheckoutAttempt.findOne({ userId: req.user._id, key: idempotency.key }).lean();
+      const retry = await findClaimedCheckout({ userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash, operation: 'single' });
       if (retry?.requestHash === idempotency.requestHash && retry.operation === 'single' && retry.status === 'completed') {
         const [existingOrder] = await Promise.all((retry.orderIds || []).map((id) => Order.findById(id)));
         if (existingOrder && String(existingOrder.userId) === String(req.user._id)) {
@@ -629,7 +651,7 @@ export const createOrder = asyncHandler(async (req, res) => {
           }, `Order ${existingOrder.orderNo} placed`);
         }
       }
-      throw httpError(409, 'This checkout key is already being processed or was used for different details', { code: 'IDEMPOTENCY_CONFLICT' });
+      throw checkoutClaimError(retry, idempotency.requestHash, 'single');
     }
     if (isTransactionUnavailable(txnErr)) {
       throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });
@@ -819,7 +841,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
     });
   } catch (txnErr) {
     if (txnErr?.code === 11000) {
-      const retry = await CheckoutAttempt.findOne({ userId: req.user._id, key: idempotency.key }).lean();
+      const retry = await findClaimedCheckout({ userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash, operation: 'unified' });
       if (retry?.requestHash === idempotency.requestHash && retry.operation === 'unified' && retry.status === 'completed') {
         const orders = await Promise.all((retry.orderIds || []).map((id) => Order.findById(id)));
         if (orders.length && orders.every((order) => order && String(order.userId) === String(req.user._id))) {
@@ -837,7 +859,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
           }, `${orders.length} order${orders.length > 1 ? 's' : ''} placed`);
         }
       }
-      throw httpError(409, 'This checkout key is already being processed or was used for different details', { code: 'IDEMPOTENCY_CONFLICT' });
+      throw checkoutClaimError(retry, idempotency.requestHash, 'unified');
     }
     if (isTransactionUnavailable(txnErr)) {
       throw httpError(503, 'Checkout requires database transaction support. Please retry later.', { code: 'CHECKOUT_TRANSACTIONS_UNAVAILABLE' });

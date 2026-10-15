@@ -57,6 +57,7 @@ Confirmed AWBs are saved before optional label/pickup calls. Label failures or u
 | --- | --- |
 | `backend/constants/enums.js` | Regular carrier remains unassigned; retain Same-Day internal requirement |
 | `backend/controllers/order.controller.js` | Remove premature unified choice requirement; align single/grouped snapshots, seller/channel/radius checks and cancellation race guards |
+| `backend/controllers/user.controller.js` | Normalize saved-address identity, reuse an existing destination and hide historical duplicate cards without deleting data |
 | `backend/controllers/fulfillment.controller.js` | Post-acceptance selection, quote confirmation/snapshot, operation locks, failure safety, Quick/Same-Day restrictions |
 | `backend/controllers/seller.controller.js` | Require delivery setup for new regular orders, protect status writes from races and expose shipment state |
 | `backend/models/Cart.js` | Document optional regular delivery mode semantics |
@@ -67,6 +68,7 @@ Confirmed AWBs are saved before optional label/pickup calls. Label failures or u
 | `backend/services/inventory.service.js` | Required Mongoose pipeline option for real variant stock projection updates |
 | `backend/services/shiprocket.service.js` | Bounded create-request timeout and safe error logging |
 | `forntend/src/modules/User/pages/CheckoutPage.jsx` | Explain later delivery assignment; enable valid checkout after server basket validation; show retry errors |
+| `forntend/src/modules/User/context/UserContext.jsx` | Select the address returned by add/reuse and preserve checkout idempotency across retries |
 | `forntend/src/modules/User/pages/CartPage.jsx` | Label regular delivery without demanding a customer carrier choice |
 | `forntend/src/modules/User/hooks/useUnifiedCart.js` | Cancel obsolete quote requests and guard stale results during address/account changes |
 | `forntend/src/modules/Seller/components/OrdersTab.jsx` | Explain quote/customer-price boundary and confirm the courier estimate |
@@ -87,8 +89,8 @@ The new API suite uses genuine JWT/auth/approved-seller middleware, real models,
 | --- | --- |
 | Initial focused baseline: lifecycle + Quick Commerce finance | 2 suites, 15 passed, 0 failed |
 | Backend `npm test -- --runInBand __tests__/api/seller-first-checkout.http.test.js __tests__/api/checkout-workflow.http.test.js __tests__/services/order-fulfillment-lifecycle.test.js __tests__/services/quick-commerce-finance.test.js --silent` | 4 suites, 52 passed, 0 failed |
-| Backend `npm test -- --runInBand --silent` | 49 suites passed; 382 passed, 7 skipped, 0 failed; 389 total |
-| Frontend `npm run test:checkout` | 8 passed, 0 failed |
+| Backend `npm test -- --runInBand` | 49 suites passed; 384 passed, 7 skipped, 0 failed; 391 total |
+| Frontend `npm run test:checkout` | 9 passed, 0 failed |
 | Frontend `npm run test:auth` | 23 passed, 0 failed |
 | Frontend `npm run test:services` | 16 passed, 0 failed |
 | Frontend `npm run test:image-search` | 12 passed, 0 failed |
@@ -97,6 +99,12 @@ The new API suite uses genuine JWT/auth/approved-seller middleware, real models,
 | `git diff --check` | Passed |
 
 Coverage includes both checkout paths, three payment modes, repeated/multi-store submissions, stock and wallet rollback, acceptance/rejection, delivery selection/dispatch gates, ownership, seller service radius, invalid modes and unavailable Same-Day, Quick restrictions, quotes and price increases, discounts/tips, concurrent provider requests, uncertain outcomes, partial IDs and label/pickup failures. Frontend coverage includes no-choice submission, payment independence, loading/retry, stale address quotes and seller quote confirmation.
+
+### Repeated checkout and duplicate-address correction
+
+A rapid second tap could enter `handlePlaceOrder` before React rendered the `isOrdering` state change. Both requests correctly shared an idempotency key, but the losing backend request immediately returned the combined “processing or different details” conflict while the winning request was still committing. Checkout now acquires a synchronous component-level single-flight guard. The backend briefly resolves a concurrent claim and replays the one committed order, while retaining the request-hash check that rejects genuine key reuse with changed details. Stock, payment and order writes still happen once.
+
+Address creation previously appended every request. It now compares normalized address line, area, city, state and pincode, returns/selects the existing address for the same destination, and does not save another embedded record. Address listing also collapses historical duplicates for display while retaining the underlying data; no production cleanup or deletion was performed. Regression coverage includes case/whitespace variants, legacy duplicate display, rapid double taps and concurrent HTTP submissions.
 
 The first expanded full run exposed ten failures in the existing mock checkout suite because its Seller lookup always returned no seller. The fixture now returns an approved seller; the original assertions remain, all 12 tests in that suite pass, and the final full run above is green. The separate real-database tests exposed the inventory pipeline issue before it was fixed. No unresolved failing tests remain. Seven existing skipped backend tests were not executed. Parallel frontend suites emitted harmless Vite HMR-port warnings; all test assertions passed. Neither package has a lint script.
 

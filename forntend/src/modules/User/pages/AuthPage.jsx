@@ -289,7 +289,7 @@ const AuthPage = () => {
                   margin: '16px auto',
                   display: 'block'
                 }}
-                className={errors.otp ? 'has-error' : ''}
+                className={`auth-otp-input${errors.otp ? ' has-error' : ''}`}
                 required
               />
               {errors.otp && <span className="auth-error-msg" style={{ display: 'block' }}>{errors.otp}</span>}

@@ -74,6 +74,9 @@ const CheckoutPage = () => {
     if (isDigitalCart) setPaymentMethod('Online Payment');
   }, [isDigitalCart]);
   const [isOrdering, setIsOrdering] = useState(false);
+  // State updates after a render; this ref closes the small interval in which
+  // a double tap could start two requests with the same checkout key.
+  const orderingRef = useRef(false);
   const [showBillBreakdown, setShowBillBreakdown] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [placedOrderDetails, setPlacedOrderDetails] = useState(null);
@@ -365,7 +368,7 @@ const CheckoutPage = () => {
   const [orderError, setOrderError] = useState('');
 
   const handlePlaceOrder = async () => {
-    if (isOrdering || cartLoading || checkoutBlocked) return;
+    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked) return;
     if (hasMixedFulfillment) {
       setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
       return;
@@ -375,6 +378,7 @@ const CheckoutPage = () => {
       return;
     }
 
+    orderingRef.current = true;
     setIsOrdering(true);
     setOrderError('');
 
@@ -387,6 +391,7 @@ const CheckoutPage = () => {
       : await placeOrder(paymentMethod, tipAmount);
 
     if (!res.ok) {
+      orderingRef.current = false;
       setIsOrdering(false);
       setOrderError(res.message || 'Could not place your order');
       return;
@@ -399,6 +404,7 @@ const CheckoutPage = () => {
     // only its signed/server-side verification can mark the payment paid.
     if (paymentMethod === 'Online Payment') {
       const pay = await initiateOnlinePayment(firstOrder._id);
+      orderingRef.current = false;
       setIsOrdering(false);
       if (pay.ok && pay.redirectUrl) {
         window.location.href = pay.redirectUrl;
@@ -412,6 +418,7 @@ const CheckoutPage = () => {
       return;
     }
 
+    orderingRef.current = false;
     setIsOrdering(false);
     fetchWalletBalance();
     // The confirmation screen shows one order; for a unified checkout that is
@@ -1055,6 +1062,7 @@ const CheckoutPage = () => {
                 disabled={applying}
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   padding: '10px 14px',
                   border: '1.5px solid var(--border-color)',
                   borderRadius: 8,

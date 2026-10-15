@@ -6013,3 +6013,44 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); 
   .customer-splash,
   .customer-splash__brand { animation: none; transition: none; }
 }
+
+/* Mobile controls must remain readable when focused in iOS Safari. Keep this
+   scoped to the customer portal: labels, cards and desktop typography retain
+   their existing sizes. Important also covers legacy inline control sizes. */
+@media (max-width: 768px) {
+  :is(.user-landing-page-container, .auth-page-container)
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="hidden"]):not([type="button"]):not([type="submit"]), select, textarea) {
+    font-size: 16px !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .auth-page-container .auth-otp-input {
+    font-size: 28px !important;
+  }
+
+  .user-main-content {
+    min-width: 0;
+    min-height: 0;
+    scroll-padding-block: 20px 100px;
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bottom-nav-bar {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .auth-page-container {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .auth-card-wrapper {
+    flex-shrink: 0;
+    margin-block: auto;
+  }
+}

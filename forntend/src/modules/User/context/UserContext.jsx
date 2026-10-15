@@ -932,7 +932,9 @@ export const UserProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not save the address' };
       await refreshAddresses();
-      return { ok: true, message: body.message || 'Address saved' };
+      const addressId = body.data?.addressId;
+      if (addressId) setSelectedAddressId(String(addressId));
+      return { ok: true, addressId, duplicate: Boolean(body.data?.duplicate), message: body.message || 'Address saved' };
     } catch (err) {
       return { ok: false, message: err.message };
     }

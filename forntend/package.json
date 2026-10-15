@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:mobile": "node scripts/mobile-layout.test.mjs && node scripts/mobile-layout.test.mjs --dialogs",
     "test:checkout": "node --test scripts/checkout-ui.test.mjs",
     "test:auth": "node --test scripts/auth-role.test.mjs",
     "test:services": "node --test scripts/service-ui.test.mjs",

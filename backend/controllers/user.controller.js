@@ -3,6 +3,32 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { registerPushToken } from '../services/notification.service.js';
 
+const normalizeAddressPart = (value) => String(value ?? '')
+  .trim()
+  .replace(/\s+/g, ' ')
+  .toLocaleLowerCase('en-IN');
+
+// Recipient names, phone numbers, labels, coordinates and landmark photos do
+// not make a physical destination different. This key deliberately describes
+// only the address customers see and type.
+const addressIdentity = (address = {}) => [
+  address.line1,
+  address.line2,
+  address.city,
+  address.state,
+  address.pincode,
+].map(normalizeAddressPart).join('|');
+
+const uniqueAddresses = (addresses = []) => {
+  const seen = new Set();
+  return addresses.filter((address) => {
+    const key = addressIdentity(address);
+    if (!key.replaceAll('|', '') || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 // @desc    Get user profile
 // @route   GET /api/users/profile
 // @access  Private
@@ -53,8 +79,11 @@ export const getAddresses = asyncHandler(async (req, res) => {
 
   // Default first, so the checkout screen can pick list[0] and be right.
   const sorted = [...list].sort((a, b) => (b.isDefault === true) - (a.isDefault === true));
+  // Older versions allowed the same destination to be appended repeatedly.
+  // Hide those historical duplicates without deleting production data.
+  const unique = uniqueAddresses(sorted);
 
-  res.status(200).json({ success: true, data: sorted, message: '', meta: { total: sorted.length } });
+  res.status(200).json({ success: true, data: unique, message: '', meta: { total: unique.length } });
 });
 
 // @desc    Upload landmark image for customer address
@@ -118,6 +147,18 @@ export const addAddress = asyncHandler(async (req, res) => {
     landmarkImage: landmarkImage || null,
   };
 
+  const duplicate = user.addresses.find((address) =>
+    addressIdentity(address) === addressIdentity(newAddress)
+  );
+  if (duplicate) {
+    return res.status(200).json({
+      success: true,
+      addresses: uniqueAddresses(user.addresses),
+      data: { addressId: duplicate._id, duplicate: true },
+      message: 'This address is already saved and has been selected.',
+    });
+  }
+
   if (isDefault) {
     user.addresses.forEach(addr => addr.isDefault = false);
   } else if (user.addresses.length === 0) {
@@ -129,7 +170,9 @@ export const addAddress = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     success: true,
-    addresses: user.addresses
+    addresses: user.addresses,
+    data: { addressId: user.addresses[user.addresses.length - 1]?._id, duplicate: false },
+    message: 'Address saved',
   });
 });
 

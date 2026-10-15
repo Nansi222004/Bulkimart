@@ -35,6 +35,20 @@ test('regular checkout can submit without provider choice after authoritative pr
     await placeButton(h).props.onClick(); h.flush(); assert.deepEqual(calls, [['single', 'Cash on Delivery', 0]]);
   } finally { h.close(); }
 });
+test('a rapid double tap starts only one checkout request', async () => {
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const { h, calls } = harness({ placeOrder: async (...args) => { calls.push(['single', ...args]); return pending; } });
+  try {
+    await load(h);
+    const button = placeButton(h);
+    const first = button.props.onClick();
+    const second = button.props.onClick();
+    assert.equal(calls.length, 1);
+    finish({ ok: false, message: 'Fixture completed' });
+    await Promise.all([first, second]);
+  } finally { h.close(); }
+});
 test('multi-store basket submits grouped checkout without customer-selected carriers', async () => {
   const { h, calls } = harness(); try { await load(h, [group('first'), group('second')]); await placeButton(h).props.onClick(); assert.deepEqual(calls, [['unified', 'Cash on Delivery', 0]]); } finally { h.close(); }
 });
