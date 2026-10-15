@@ -6,7 +6,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
 import crypto from 'crypto';
-import { distanceKm } from '../utils/geo.js';
+import { riderIneligibility } from '../services/riderEligibility.service.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
 import { pickupReadyForShipping, pickupStatus, pickupDefinition } from '../services/sellerPickupSync.service.js';
 import {
@@ -49,34 +49,19 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   const pickup = seller.storeDetails || {};
   const drop = order.shippingAddress || {};
   const packageWeightKg = totalWeightKg(order);
-  const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).populate('userId', 'name phone isActive').lean();
+  const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).populate('userId', 'name phone isActive roles').lean();
   const eligibleRiders = [];
-  let manualRiderCount = 0;
   for (const rider of onlineRiders) {
-    if (!rider.userId?.isActive) continue;
-    const zones = rider.zones || [];
-    const origin = rider.baseLocation?.point?.coordinates?.length === 2
-      ? { lat: rider.baseLocation.point.coordinates[1], lng: rider.baseLocation.point.coordinates[0] } : rider.baseLocation;
-    const pickupDistance = distanceKm(origin, pickup);
-    // E-commerce offers use the bounded geo search; Quick has existing zone/
-    // general on-duty fallbacks. This list never reserves or assigns a rider.
-    if (order.type === CHANNEL.ECOM && (pickupDistance === undefined || pickupDistance > ((Number(process.env.PICKUP_RADIUS_METERS) || 5000) * 3 / 1000))) continue;
-    if (order.type !== CHANNEL.ECOM && zones.length && !zones.includes(pickup.pincode) && !zones.includes(drop.pincode)) continue;
-    if (rider.deliveryRadiusKm != null) {
-      const origin = rider.currentLocation?.lat !== undefined ? rider.currentLocation : rider.baseLocation;
-      const pickupDistance = distanceKm(origin, pickup);
-      if (pickupDistance !== undefined && pickupDistance > rider.deliveryRadiusKm) continue;
-    }
-    if ((await canTakeAnother(rider._id)).ok) {
-      manualRiderCount += 1;
-      eligibleRiders.push({ name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? `••••••${String(rider.userId.phone).slice(-4)}` : null, availability: 'On duty, capacity available' });
-    }
+    if (riderIneligibility(rider, rider.userId, order, pickup)) continue;
+    if ((await canTakeAnother(rider._id)).ok) eligibleRiders.push({ name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? '••••••' + String(rider.userId.phone).slice(-4) : null, online: true, availability: 'On duty, capacity available' });
   }
+  const manualRiderCount = eligibleRiders.length;
   const prepared = order.status === ORDER_STATUS.PREPARING && Boolean(order.fulfillment?.readyAt || order.fulfillment?.method || !order.fulfillment?.assignmentPolicy);
   const shipmentLocked = Boolean(order.shiprocket?.orderId || order.shiprocket?.shipmentId
     || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status));
   const accepted = order.vendorDecision?.status === 'accepted';
   const paymentVerified = await paymentIsReady(order);
+  const stateReason = !accepted ? 'Accept this order before arranging delivery.' : !prepared ? 'Start preparation and mark the parcel Ready for pickup before choosing delivery.' : !paymentVerified ? 'Payment must be verified before fulfillment.' : order.deliveryId || order.deliveryPartnerId ? 'A rider has already been assigned. Refresh the order to see the assignment.' : null;
   const syncReady = pickupReadyForShipping(seller, req.user);
   const pickupLinked = Boolean(syncReady && seller.thirdPartyFulfillment?.enabled && seller.thirdPartyFulfillment?.shiprocketPickupLocation);
   let verifiedPickup = null;
@@ -138,27 +123,29 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   return ok(res, {
     orderId: order._id,
     channel: order.type,
-    stateReady: accepted && prepared && paymentVerified,
+    stateReady: accepted && prepared && paymentVerified && !order.deliveryId && !order.deliveryPartnerId,
+    stateReason,
     pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, pincode: pickup.pincode, phone: pickup.phone, registeredLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation },
     destination: order.shippingAddress,
     manual: {
-      available: accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked,
+      available: accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked && !order.deliveryId && !order.deliveryPartnerId,
       eligibleRiderCount: manualRiderCount,
       assignmentMode: 'rider_acceptance',
       riders: eligibleRiders.slice(0, 30),
-      reason: shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No eligible, approved on-duty delivery partners currently have capacity. Refresh availability to retry.',
+      reason: stateReason || (shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No eligible on-duty riders have capacity and coverage for this pickup. Approval alone does not put a rider on duty. Refresh availability or contact support to check the rider duty, location and service pincodes.'),
     },
     shiprocket: {
       available: Boolean(order.type === CHANNEL.ECOM && order.delivery?.mode !== 'same_day' && shiprocketEligible && accepted && prepared && paymentVerified
         && !['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)),
       configured: capabilities.configured,
       pickupLinked,
-      pickupSync: pickupStatus(seller),
+      pickupSync: pickupStatus(seller, req.user),
+      shippingApproved: Boolean(seller.thirdPartyFulfillment?.enabled),
       verifiedPickup,
       packageWeightKg,
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
-      reason: shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
+      reason: stateReason || (shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
         : order.type === CHANNEL.GROCERY ? 'Quick Commerce third-party shipping remains disabled pending policy approvals and reconciliation verification'
         : order.delivery?.mode === 'same_day' ? 'Same-Day requires Bulkimart delivery'
         : !capabilities.configured ? 'Shiprocket is not configured'
@@ -171,7 +158,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
               : order.type === CHANNEL.GROCERY && !quickConfigState?.activationReady ? `Activation blocked: ${quickConfigState?.blockers?.join('; ')}`
                 : order.type === CHANNEL.GROCERY && !quickConfigState?.config?.enabled ? 'Quick Commerce third-party delivery is disabled'
                 : !addressReady ? 'Pickup or destination address is incomplete'
-                  : providerFailure,
+                  : providerFailure),
       activation: order.type === CHANNEL.GROCERY ? {
         enabled: Boolean(quickConfigState?.config?.enabled),
         ready: Boolean(quickConfigState?.activationReady),

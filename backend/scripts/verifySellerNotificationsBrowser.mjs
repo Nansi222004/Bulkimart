@@ -53,7 +53,7 @@ const evaluate = async (expression, sessionId) => {
 };
 const waitFor = async expression => {
   for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await pause(100); }
-  const flags = await evaluate(`({path:location.pathname,ready:document.readyState,hasCheckout:!!document.querySelector('.pd-add-to-cart-btn'),hasAuth:!!document.querySelector('.auth-page-container'),verificationFailure:document.body.innerText.includes('Unable to verify'),button:document.querySelector('.pd-add-to-cart-btn')?.textContent,alerts:[...document.querySelectorAll('[role=alert],[role=status]')].map(node=>node.textContent)})`);
+  const flags = await evaluate(`({path:location.pathname,ready:document.readyState,hasCheckout:!!document.querySelector('.pd-add-to-cart-btn'),hasAuth:!!document.querySelector('.auth-page-container'),orderActions:[...document.querySelectorAll('[aria-label="Order details"] button')].map(b=>b.textContent),hasOrderPage:!!document.querySelector('.seller-order-page'),verificationFailure:document.body.innerText.includes('Unable to verify'),button:document.querySelector('.pd-add-to-cart-btn')?.textContent,alerts:[...document.querySelectorAll('[role=alert],[role=status]')].map(node=>node.textContent)})`);
   console.error(JSON.stringify({ browserState: flags, apiCalls }));
   throw new Error('Expected browser state did not appear.');
 };
@@ -235,8 +235,8 @@ try {
   phase = 'popup view order';
   await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent === 'View order').click()`);
   await waitFor(`!!document.querySelector('[aria-label="Order details"]')`);
-  assert.equal(await evaluate('location.pathname'), '/seller/orders');
-  assert.equal(await evaluate(`new URLSearchParams(location.search).get('order')`), order._id);
+  assert.equal(await evaluate('location.pathname'), '/seller/orders/' + order._id);
+  assert.equal(await evaluate(`new URLSearchParams(location.search).get('order')`), null);
   assert.match(await evaluate(`document.querySelector('[aria-label="Order details"]').innerText`), /Isolated Browser Checkout Item/);
   phase = 'drawer click after current status changes';
   assert.equal((await api(`/sellers/orders/${order._id}/status`, { method: 'PATCH', token: sellerLogin.body.token, body: { status: 'confirmed' } })).status, 200);
@@ -258,20 +258,36 @@ try {
   phase = 'deep-link refresh';
   await command('Page.reload'); await waitFor(`!!document.querySelector('[aria-label="Order details"]')`);
   assert.match(await evaluate(`document.querySelector('[aria-label="Order details"]').innerText`), /Confirmed/);
+  assert.equal(await evaluate('location.pathname'), '/seller/orders/' + order._id);
+  phase = 'dedicated order page in new tab';
+  const orderTab = await command('Target.createTarget', { url: origin + '/seller/orders/' + order._id });
+  const attachedOrder = await command('Target.attachToTarget', { targetId: orderTab.targetId, flatten: true });
+  for (let i=0;i<100;i++) { if (await evaluate(`!!document.querySelector('[aria-label="Order details"]')`, attachedOrder.sessionId)) break; await pause(100); }
+  assert.match(await evaluate(`document.querySelector('[aria-label="Order details"]').innerText`, attachedOrder.sessionId), /Confirmed/);
+  await command('Target.closeTarget', { targetId: orderTab.targetId });
   phase = 'seller isolation';
   assert.equal((await api(`/sellers/orders/${order._id}`, { token: login.body.token })).status, 403);
   assert.equal(await Order.countDocuments(), 1); assert.equal(await Payment.countDocuments(), 1);
   phase = 'seller preparation readiness and manual rider fulfillment';
-  for (const label of ['Start preparing', 'Ready for pickup', 'Choose delivery']) {
-    await waitFor(`!![...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === ${JSON.stringify(label)})`);
+  for (const label of ['Start preparing', 'Ready for pickup']) {
+    await waitFor(`!![...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === ${JSON.stringify(label)} && !button.disabled)`);
     await evaluate(`[...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
   }
   await waitFor(`!![...document.querySelectorAll('button')].find(button => button.textContent.includes('Manual Bulkimart delivery') && !button.disabled)`);
   assert.match(await evaluate('document.body.innerText'), /Isolated Fixture Rider/);
   await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.includes('Manual Bulkimart delivery')).click()`);
-  await waitFor(`!![...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === 'Offer to Bulkimart riders')`);
+  phase = 'manual method selected and offer action refreshed';
+  await waitFor(`!![...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === 'Offer to Bulkimart riders' && !button.disabled)`);
   await evaluate(`[...document.querySelectorAll('[aria-label="Order details"] button')].find(button => button.textContent === 'Offer to Bulkimart riders').click()`);
   await waitFor(`document.querySelector('[aria-label="Order details"]')?.innerText.includes('Awaiting rider acceptance')`);
+  // A seller method choice is not an assignment. Dispatch must create a real
+  // offer for this eligible rider, even with the store's legacy lat/lng profile.
+  let offerRecorded = false;
+  for (let i=0;i<50;i++) {
+    if (await Order.exists({ _id: order._id, 'offerAttempts.status': 'OFFERED', deliveryPartnerId: null })) { offerRecorded = true; break; }
+    await pause(100);
+  }
+  assert.ok(offerRecorded, 'Dispatch records a real rider offer before acceptance');
   const riderOtp = await api('/auth/delivery/send-otp', { method: 'POST', body: { phone: riderUser.phone, intent: 'login' } });
   const riderLogin = await api('/auth/delivery/verify-otp', { method: 'POST', body: { phone: riderUser.phone, intent: 'login', otp: riderOtp.body.otp } });
   assert.equal(riderLogin.status, 200);
@@ -283,7 +299,7 @@ try {
   assert.match(await evaluate(`document.querySelector('[aria-label="Order details"]').innerText`), /Delivery assigned/);
   for (const width of [390, 1280]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: width === 390 });
-    const geometry = await evaluate(`(() => { const el = document.querySelector('[aria-label="Order details"] > .seller-modal-sheet'); const r = el.getBoundingClientRect(); return { left:r.left,right:r.right,width:innerWidth, overflow:el.scrollWidth-el.clientWidth }; })()`);
+    const geometry = await evaluate(`(() => { const el = document.querySelector('.seller-order-page'); const r = el.getBoundingClientRect(); return { left:r.left,right:r.right,width:innerWidth, overflow:el.scrollWidth-el.clientWidth }; })()`);
     assert.ok(geometry.left >= 0 && geometry.right <= geometry.width + 1 && geometry.overflow <= 1, 'Order details fit the viewport');
   }
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -341,7 +357,7 @@ try {
   await command('Page.navigate', { url: origin + '/account' });
   await waitFor(`document.body.innerText.includes(${JSON.stringify(buyer.phone)})`);
   const result = { passed: true, database: 'isolated-local-replica-set', browser: 'headless Chrome', viewport: '390x844',
-    checks: ['seller OTP UI login preserves customer credentials', 'new order while seller on dashboard', 'actual Socket.IO new_order frame received', 'automatic in-app popup', 'view opens correct order modal', 'drawer closes and opens latest detail', 'notification persisted/read', 'same-key replay has one notification', 'deep-link refresh', 'buyer denied seller details', 'separate customer tab retains customer identity', 'customer navigation and refresh retain identity', 'customer API role isolation', 'seller logout preserves customer session and other tab'],
+    checks: ['seller OTP UI login preserves customer credentials', 'new order while seller on dashboard', 'actual Socket.IO new_order frame received', 'automatic in-app popup', 'view opens correct dedicated order page', 'drawer closes and opens latest detail', 'notification persisted/read', 'same-key replay has one notification', 'deep-link refresh', 'buyer denied seller details', 'separate customer tab retains customer identity', 'customer navigation and refresh retain identity', 'customer API role isolation', 'seller logout preserves customer session and other tab'],
     fulfillmentChecks: ['preparation', 'ready before delivery selection', 'eligible rider display', 'manual offer', 'authorized rider acceptance', 'duplicate acceptance denied', 'assigned rider details refreshed', 'details geometry at 390 and 1280px'],
     pickupChecks: ['profile pending/attention state', 'owner retry', 'durable sweeper registration', 'mock provider confirmed reference', 'shipping approval unchanged', 'responsive pickup correction form'],
     push: pushSmoke ? pushEvidence : 'FCM mock mode; actual push delivery not tested', atlasWrites: 0 };

@@ -349,6 +349,8 @@ test('invalid or inaccessible vendor calls cannot create shipments', async () =>
   await auth(request(app).post('/seller/' + order._id + '/shiprocket')).expect(403);
   const other = await User.create({ name: 'Other Fixture Seller', phone: '9876500002', roles: ['seller'] });
   await Seller.collection.insertOne({ userId: other._id, businessName: 'Other Store', status: 'approved' });
+  await auth(request(app).get('/seller/' + order._id), other, 'seller').expect(404);
+  await auth(request(app).get('/seller/' + order._id + '/options'), other, 'seller').expect(403);
   await auth(request(app).post('/seller/' + order._id + '/shiprocket'), other, 'seller').send({ confirm: true }).expect(403);
   expect(createShiprocketOrder).not.toHaveBeenCalled();
 });
@@ -511,4 +513,39 @@ test('address resynchronization never recreates an existing shipment or replaces
   await ship(order).expect(200);
   const after = (await Order.findById(order._id)).shiprocket.toObject();
   expect(after.pickupLocation).toBe(before.pickupLocation); expect(after.pickupAddress).toEqual(before.pickupAddress); expect(createShiprocketOrder).toHaveBeenCalledTimes(1);
+});
+
+
+test('ready order exposes both delivery choices and lists only active on-duty covered riders', async () => {
+  const order = await prepared();
+  const Partner = mongoose.models.DeliveryPartner || (await import('../../models/DeliveryPartner.js')).default;
+  for (const [i, changes] of [{}, { isAvailable: false }, { status: 'suspended' }, { zones: ['110001'] }, { inactive: true }, { missingRole: true }].entries()) {
+    const u = await User.create({ name: 'Operational fixture ' + i, phone: '98765001' + String(i).padStart(2, '0'), roles: changes.missingRole ? ['buyer'] : ['delivery'], isActive: !changes.inactive });
+    await Partner.create({ userId: u._id, status: changes.status || 'approved', isAvailable: changes.isAvailable !== false, zones: changes.zones || ['400001'], baseLocation: { lat: 19.1, lng: 72.9 } });
+  }
+  const options = await sellerAuth(request(app).get('/seller/' + order._id + '/options')).expect(200);
+  expect(options.body.data.stateReady).toBe(true);
+  expect(options.body.data.manual.available).toBe(true);
+  expect(options.body.data.manual.assignmentMode).toBe('rider_acceptance');
+  expect(options.body.data.manual.riders.map(r => r.name)).toEqual(['Operational fixture 0']);
+  expect(options.body.data.manual.riders[0]).toMatchObject({ online: true, contact: '••••••0100' });
+  const detail = await sellerAuth(request(app).get('/seller/' + order._id)).expect(200);
+  expect(detail.body.data.permittedActions.some(a => a.setup)).toBe(true);
+});
+
+test('no rider availability is actionable and pre-ready states explain why both methods are unavailable', async () => {
+  const order = await placed();
+  const before = await sellerAuth(request(app).get('/seller/' + order._id + '/options')).expect(200);
+  expect(before.body.data.manual.available).toBe(false);
+  expect(before.body.data.manual.reason).toMatch(/Accept this order/);
+  await state(order, 'confirmed').expect(200); await state(order, 'preparing').expect(200);
+  const preparing = await sellerAuth(request(app).get('/seller/' + order._id + '/options')).expect(200);
+  expect(preparing.body.data.stateReason).toMatch(/Ready for pickup/);
+  await state(order, 'ready_for_pickup').expect(200);
+  await Seller.updateOne({ _id: seller._id }, { $set: { 'thirdPartyFulfillment.enabled': false } });
+  const ready = await sellerAuth(request(app).get('/seller/' + order._id + '/options')).expect(200);
+  expect(ready.body.data.manual.reason).toMatch(/Refresh availability/);
+  expect(ready.body.data.manual.riders).toEqual([]);
+  expect(ready.body.data.shiprocket.available).toBe(false);
+  expect(ready.body.data.shiprocket.reason).toMatch(/approval/);
 });

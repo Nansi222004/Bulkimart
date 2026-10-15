@@ -332,7 +332,7 @@ export const notifySeller = async (sellerId, opts) => {
   if (!seller?.userId) return null;
   const orderId = String(opts.metadata?.orderId || '');
   const options = /^[a-f\d]{24}$/i.test(orderId) ? { ...opts,
-    route: `/seller/orders?order=${orderId}`, metadata: { ...opts.metadata, sellerId: String(sellerId) } } : opts;
+    route: `/seller/orders/${orderId}`, metadata: { ...opts.metadata, sellerId: String(sellerId) } } : opts;
   return notifyCore(seller.userId, 'seller', sellerId, options);
 };
 

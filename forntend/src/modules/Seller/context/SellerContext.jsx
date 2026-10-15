@@ -59,7 +59,7 @@ export const SellerProvider = ({ children }) => {
   }
 
   const setActiveTab = (tabId) => {
-    if (tabId !== 'orders') { detailGeneration.current++; setSelectedOrder(null); }
+    detailGeneration.current++; setSelectedOrder(null); setOrderDetailId(null); setOrderDetailLoading(false); setOrderDetailError('');
     const newPath = tabId === 'dashboard' ? '/seller' : `/seller/${tabId}`;
     if (window.location.pathname !== newPath) {
       window.history.pushState(null, '', newPath);
@@ -581,6 +581,11 @@ export const SellerProvider = ({ children }) => {
    * shared basket never leaks a competitor's sales into this list.
    */
   const [orders, setOrders] = useState([]);
+  const [orderListState, setOrderListState] = useState({ tab: 'all', search: '' });
+  const [orderDetailId, setOrderDetailId] = useState(() => window.location.pathname.match(/^\/seller\/orders\/([^/]+)$/)?.[1] || null);
+  const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+  const [orderDetailError, setOrderDetailError] = useState('');
+  const orderReturnPath = React.useRef('/seller/orders');
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState('');
 
@@ -594,6 +599,7 @@ export const SellerProvider = ({ children }) => {
       sessionToken.current = token;
       detailGeneration.current++; detailRequests.current.clear();
       disconnectSocket(); setSelectedOrder(null); setOrders([]); setSellerProfile(null);
+      setOrderDetailId(null); setOrderDetailError(''); setOrderDetailLoading(false); setOrderListState({ tab: 'all', search: '' });
       try { setUserProfile(JSON.parse(localStorage.getItem('sellerUserProfile') || 'null')); } catch { setUserProfile(null); }
       if (token) fetchSellerProfile();
     };
@@ -620,12 +626,19 @@ export const SellerProvider = ({ children }) => {
   const openSellerOrder = useCallback(async (id, notificationId) => {
     const generation = ++detailGeneration.current;
     const token = localStorage.getItem('sellerToken');
+    if (!window.location.pathname.startsWith('/seller/orders/')) orderReturnPath.current = window.location.pathname === '/seller/orders' ? window.location.pathname + window.location.search : '/seller/orders';
+    const path = '/seller/orders/' + encodeURIComponent(id);
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+    setOrderDetailId(String(id)); setOrderDetailLoading(true); setOrderDetailError('');
+    setSelectedOrder(current => String(current?._id) === String(id) ? current : null);
+    setActiveTabState('orders');
     const result = await fetchSellerOrder(id);
     if (generation !== detailGeneration.current || token !== localStorage.getItem('sellerToken')) return false;
-    if (!result.ok) { triggerToast(result.message); return false; }
+    setOrderDetailLoading(false);
+    if (!result.ok) { setSelectedOrder(null); setOrderDetailError(result.message); triggerToast(result.message); return false; }
     setSelectedOrder(result.data);
     setActiveMode(result.data.channel === 'grocery' ? 'quick' : 'ecommerce');
-    window.history.pushState(null, '', `/seller/orders?order=${encodeURIComponent(id)}`);
+    if (window.location.search) window.history.replaceState(null, '', path);
     setActiveTabState('orders');
     if (/^[a-f\d]{24}$/i.test(String(notificationId || ''))) {
       try {
@@ -638,14 +651,16 @@ export const SellerProvider = ({ children }) => {
   const closeSellerOrder = useCallback(() => {
     detailGeneration.current++;
     setSelectedOrder(null);
-    if (window.location.pathname === '/seller/orders') window.history.replaceState(null, '', '/seller/orders');
+    setOrderDetailId(null); setOrderDetailError(''); setOrderDetailLoading(false);
+    window.history.pushState(null, '', orderReturnPath.current); setActiveTabState('orders');
   }, []);
   useEffect(() => {
     if (sellerProfile?.status !== 'approved') return;
     const openLink = () => {
       const params = new URLSearchParams(window.location.search);
-      const id = params.get('order');
-      if (window.location.pathname === '/seller/orders' && id) openSellerOrder(id, params.get('notification'));
+      const id = window.location.pathname.match(/^\/seller\/orders\/([^/]+)$/)?.[1] || (window.location.pathname === '/seller/orders' && params.get('order'));
+      if (id) openSellerOrder(id, params.get('notification'));
+      else { detailGeneration.current++; setSelectedOrder(null); setOrderDetailId(null); setOrderDetailLoading(false); setActiveTabState(getTabFromPath()); }
     };
     openLink(); window.addEventListener('popstate', openLink);
     return () => { detailGeneration.current++; window.removeEventListener('popstate', openLink); };
@@ -1481,7 +1496,7 @@ export const SellerProvider = ({ children }) => {
         setShowAddProductModal,
         selectedOrder,
         setSelectedOrder,
-        openSellerOrder, closeSellerOrder, fetchSellerOrder,
+        openSellerOrder, closeSellerOrder, fetchSellerOrder, orderDetailId, orderDetailLoading, orderDetailError, orderListState, setOrderListState,
         trackingOrder,
         setTrackingOrder,
         showReturnPanel,

@@ -218,9 +218,10 @@ test('seller reviews the courier estimate and sends its confirmed limit with shi
     ordersLoading: false, fetchSellerOrders: noop, selectedTypes: ['ecommerce'], activeMode: 'ecommerce', setActiveMode: noop,
     getFulfillmentOptions: async () => ({ ok: true, data: { manual: { available: false }, shiprocket: { available: true, quote: { courierCharge: 65.25 } } } }),
     openSellerOrder: noop, createShiprocketShipment: async (...args) => { calls.push(args); return { ok: true, message: 'Fixture shipment created' }; } };
-  const h = hookHarness(OrdersTab, {}, '/seller', context);
+  context.selectedOrder = context.orders[0];
+  const h = hookHarness(OrdersTab, { detailPage: true }, '/seller/orders/order', context);
   try {
-    await h.click('Choose delivery'); h.flush(); assert.match(text(h.tree), /customer's checkout delivery charge stays unchanged/);
+    await h.settle(); assert.match(text(h.tree), /customer's checkout delivery charge stays unchanged/);
     for (const field of ['Length', 'Breadth', 'Height']) { h.find(n => n.type === 'input' && n.props.placeholder === `${field} (cm)`).props.onChange({ target: { value: '10' } }); h.flush(); }
     let confirmation = ''; window.confirm = message => { confirmation = message; return true; };
     await h.click('Create Shiprocket shipment');

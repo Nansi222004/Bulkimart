@@ -9,6 +9,7 @@ import DashboardTab from '../components/DashboardTab';
 import ProductsTab from '../components/ProductsTab';
 import StockTab from '../components/StockTab';
 import OrdersTab from '../components/OrdersTab';
+import OrderDetailsPage from './OrderDetailsPage';
 import TrackOrderTab from '../components/TrackOrderTab';
 import SalesReportTab from '../components/SalesReportTab';
 import MoneyRequestTab from '../components/MoneyRequestTab';
@@ -61,7 +62,7 @@ const TAB_TITLES = {
 export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
-    openSellerOrder,
+    openSellerOrder, orderDetailId,
     sellerProfile, userProfile, bizForm, requestWholesaleChannel,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -79,7 +80,7 @@ export const DashboardPage = () => {
       case 'dashboard':     return <DashboardTab />;
       case 'products':      return <ProductsTab />;
       case 'stock':         return <StockTab />;
-      case 'orders':        return <OrdersTab />;
+      case 'orders':        return orderDetailId ? <OrderDetailsPage /> : <OrdersTab />;
       case 'track':         return <TrackOrderTab />;
       case 'salesreport':   return <SalesReportTab />;
       case 'moneyrequest':  return <MoneyRequestTab />;

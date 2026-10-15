@@ -17,3 +17,35 @@ test('assignment prevents cancellation; internal delivery completion is rider-on
   expect(sellerOrderActions({ ...order('preparing'), deliveryId: 'assigned' }).some(a => a.reject)).toBe(false);
   expect(sellerOrderActions({ ...order('preparing', 'shiprocket'), fulfillment: { assignmentPolicy: 'seller_after_acceptance', method: 'shiprocket' }, shiprocket: { orderId: 'real', shipmentId: 'real', awb: 'real', courier: 'real' } }).map(a => a.to)).toEqual(['dispatched']);
 });
+
+
+import { riderIneligibility } from '../../services/riderEligibility.service.js';
+const pickup = { lat: 19.1, lng: 72.9, pincode: '400001' };
+const eligible = { status: 'approved', isAvailable: true, zones: ['400001'], baseLocation: { lat: 19.1, lng: 72.9 } };
+const account = { isActive: true, roles: ['delivery'] };
+const parcel = { type: 'ecommerce', shippingAddress: { pincode: '400002' } };
+test.each([
+  [{}, {}, null],
+  [{ isAvailable: false }, {}, 'off_duty'],
+  [{ status: 'suspended' }, {}, 'not_approved'],
+  [{}, { isActive: false }, 'inactive_account'],
+  [{}, { roles: ['buyer'] }, 'inactive_account'],
+  [{ zones: ['110001'] }, {}, 'outside_coverage'],
+  [{ baseLocation: {} }, {}, 'outside_pickup_radius'],
+  [{ baseLocation: { lat: 28.6, lng: 77.2 } }, {}, 'outside_pickup_radius'],
+  [{ currentLocation: { lat: 19.2, lng: 73 }, deliveryRadiusKm: 1 }, {}, 'outside_rider_radius'],
+])('rider eligibility enforces operational data independently of approval: %p', (changes, user, reason) => {
+  expect(riderIneligibility({ ...eligible, ...changes }, { ...account, ...user }, parcel, pickup)).toBe(reason);
+});
+test('Quick zone coverage and geo-only base points use the same eligibility predicate', () => {
+  expect(riderIneligibility({ ...eligible, baseLocation: { point: { coordinates: [72.9,19.1] } } }, account, parcel, pickup)).toBeNull();
+  expect(riderIneligibility({ ...eligible, zones: ['110001'] }, account, { ...parcel, type: 'grocery' }, pickup)).toBe('outside_coverage');
+});
+
+
+test('legacy preparing orders expose readiness and delivery setup instead of skipping straight to dispatch', () => {
+  const legacy = { status: 'preparing', deliveryType: 'internal', vendorDecision: { status: 'accepted' } };
+  expect(sellerOrderActions(legacy).map(a => a.to)).toEqual(['ready_for_pickup','cancelled']);
+  expect(sellerOrderActions({ ...legacy, fulfillment: { readyAt: new Date() } }).some(a => a.setup)).toBe(true);
+  expect(sellerOrderActions({ ...legacy, deliveryType: 'shiprocket', shiprocket: { orderId: 'recorded-order', shipmentId: 'recorded-shipment', awb: 'existing-awb', courier: 'existing-courier' } }).map(a => a.to)).toEqual(['dispatched']);
+});

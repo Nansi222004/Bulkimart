@@ -1,3 +1,4 @@
+import { riderIneligibility } from '../services/riderEligibility.service.js';
 import mongoose from 'mongoose';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
@@ -401,12 +402,14 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   if (!sellerItem) return;
 
   const seller = await Seller.findById(sellerItem.sellerId);
-  if (!seller || !seller.storeDetails?.point) {
+  const storePoint = seller?.storeDetails?.point?.coordinates;
+  const storePosition = storePoint?.length === 2 ? { lat: storePoint[1], lng: storePoint[0] } : seller?.storeDetails;
+  if (!seller || !Number.isFinite(storePosition?.lat) || !Number.isFinite(storePosition?.lng)) {
     console.warn(`[RIDER BROADCAST] ${order.orderNo}: store has no pinned location — cannot find riders`);
     return;
   }
 
-  const [lng, lat] = seller.storeDetails.point.coordinates;
+  const { lng, lat } = storePosition;
   const baseRadius = Number(process.env.PICKUP_RADIUS_METERS) || 5000;
 
   // 5 km, then 10, then 15. Beyond that the trip stops being worth a rider's
@@ -426,7 +429,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
           $maxDistance: radiusMeters
         }
       }
-    }).limit(5);
+    }).limit(50);
   } catch (err) {
     console.warn(`[RIDER BROADCAST] Geo search failed: ${err.message}. Trying fallback search...`);
   }
@@ -463,6 +466,20 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
    */
   const promisedRadius = order.type === CHANNEL.ECOM;
 
+  // Older profiles can have valid coordinates without a GeoJSON point. Use a
+  // bounded numeric-coordinate search, then exact distance, rather than listing
+  // an eligible rider to the seller but silently never offering that rider work.
+  if (riders.length === 0 && promisedRadius) {
+    const deltaLat = radiusMeters / 111000;
+    const deltaLng = deltaLat / Math.max(0.1, Math.cos(lat * Math.PI / 180));
+    const legacy = await DeliveryPartner.find({ status: 'approved', isAvailable: true,
+      'baseLocation.point': { $exists: false },
+      'baseLocation.lat': { $gte: lat - deltaLat, $lte: lat + deltaLat },
+      'baseLocation.lng': { $gte: lng - deltaLng, $lte: lng + deltaLng },
+    }).limit(50);
+    riders = legacy.filter(rider => distanceKm(rider.baseLocation, storePosition) <= radiusMeters / 1000);
+  }
+
   if (riders.length === 0 && !promisedRadius) {
     // Fallback 1: match by zones (pincode of seller or shipping destination)
     const storePincode = seller.storeDetails?.pincode;
@@ -476,7 +493,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
         status: 'approved',
         isAvailable: true,
         $or: orConditions
-      }).limit(5);
+      }).limit(50);
     }
 
     if (riders.length === 0) {
@@ -484,9 +501,18 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
       riders = await DeliveryPartner.find({
         status: 'approved',
         isAvailable: true
-      }).limit(5);
+      }).limit(50);
     }
   }
+
+  // Apply the same account/coverage/capacity rules shown to sellers, including
+  // after Quick fallback queries. Never offer jobs to inactive user accounts.
+  const operational = [];
+  for (const rider of riders) {
+    const user = await User.findById(rider.userId).select('isActive roles');
+    if (!riderIneligibility(rider, user, order, seller.storeDetails) && (await canTakeAnother(rider._id)).ok) operational.push(rider);
+  }
+  riders = operational.slice(0, 5);
 
   if (riders.length === 0) {
     console.log(`[RIDER BROADCAST] ${order.orderNo}: nobody within ${radiusMeters}m (attempt ${attempt}/${MAX_ATTEMPTS})`);
@@ -818,13 +844,16 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type deliveryPartnerId');
+  const candidate = await Order.findById(req.params.id).select('items status type deliveryPartnerId shippingAddress');
   if (!candidate) throw httpError(404, 'Order not found');
 
   const pickupSeller = await Seller.findById(candidate.items.find(i => i.sellerId)?.sellerId)
     .select('businessName storeDetails');
 
   const shop = pickupSeller?.storeDetails;
+  if (riderIneligibility(partner, req.user, candidate, shop || {}, { requireDuty: false })) {
+    throw httpError(409, 'Your account, service coverage or pickup radius is not eligible for this order');
+  }
   if (shop?.lat === undefined || shop?.lng === undefined) {
     // Refuse rather than guess. A rider sent to the wrong place wastes a trip
     // and the customer waits for an order that was never collected.

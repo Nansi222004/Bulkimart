@@ -12,7 +12,7 @@ export function sellerOrderActions(order, paymentReady = true) {
   if (order.status === 'confirmed' && order.vendorDecision?.status !== 'accepted' && paymentReady) actions.push({ to: 'confirmed', label: 'Accept order' });
   if (transitions.includes('preparing') && order.vendorDecision?.status === 'accepted' && paymentReady) actions.push({ to: 'preparing', label: 'Start preparing' });
   if (order.status === 'preparing' && order.vendorDecision?.status === 'accepted' && paymentReady) {
-    if (!order.fulfillment?.assignmentPolicy) actions.push({ to: 'dispatched', label: order.deliveryType === 'shiprocket' ? 'Hand to courier' : 'Ready for pickup' });
+    if (order.deliveryType === 'shiprocket' && order.shiprocket?.awb && order.shiprocket?.courier) actions.push({ to: 'dispatched', label: 'Confirm courier hand-off' });
     else if (!order.fulfillment?.readyAt && !order.fulfillment?.method) actions.push({ to: 'ready_for_pickup', label: 'Ready for pickup' });
     else if (!order.fulfillment?.method) actions.push({ setup: true, label: 'Choose delivery' });
     else if (order.deliveryType !== 'shiprocket') actions.push({ to: 'dispatched', label: 'Offer to Bulkimart riders' });

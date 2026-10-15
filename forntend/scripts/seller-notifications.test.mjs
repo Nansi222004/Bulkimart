@@ -190,8 +190,8 @@ test('drawer uses keyboard-native action, closes and opens the referenced order 
   } finally { h.close(); }
 });
 
-test('existing details modal exposes fresh status, payment, items and order actions even without a list row', () => {
-  const h = hookHarness(Orders, {}, '/seller/orders', context({ orders: [], selectedOrder: { ...row, status: 'confirmed', paymentStatus: 'paid', permittedActions: [{ to: 'preparing', label: 'Start preparing' }] }, selectedTypes: ['quick'], activeMode: 'quick', setActiveMode: () => {}, closeSellerOrder: () => {} }));
+test('dedicated details page exposes fresh status, payment, items and order actions even without a list row', () => {
+  const h = hookHarness(Orders, { detailPage: true }, '/seller/orders/'+id, context({ orders: [], selectedOrder: { ...row, status: 'confirmed', paymentStatus: 'paid', permittedActions: [{ to: 'preparing', label: 'Start preparing' }] }, selectedTypes: ['quick'], activeMode: 'quick', setActiveMode: () => {}, closeSellerOrder: () => {} }));
   try { assert.ok(h.find(n => n.props?.['aria-label'] === 'Order details')); assert.match(text(h.tree), /paid/); assert.match(text(h.tree), /Fixture item/); assert.match(text(h.tree), /Start preparing/); }
   finally { h.close(); }
 });
@@ -217,7 +217,7 @@ test('details show authoritative customer/store/item/payment/rider/shipment sect
     pricing: { subtotal: 100, deliveryCharge: 20, totalAmount: 120 }, store: { name: 'Fixture Store', pickupAddress: { address: 'Fixture store pickup', city: 'Store City' }, pickupLocation: 'registered-store' },
     deliveryAssignment: { status: 'assigned', rider: { name: 'Fixture Rider', phone: 'masked fixture contact' }, assignedAt: '2026-10-15T00:00:00Z' },
     shiprocket: { awb: 'FIXTURE-AWB', shipmentId: 'FIXTURE-SHIPMENT', trackingUrl: 'javascript:alert(1)', labelUrl: 'https://provider.invalid/label', pickupLocation: 'registered-store', status: 'awb_assigned' } };
-  const h = hookHarness(Orders, {}, '/seller/orders', context({ orders: [], selectedOrder: order }));
+  const h = hookHarness(Orders, { detailPage: true }, '/seller/orders/'+id, context({ orders: [], selectedOrder: order }));
   try {
     for (const label of ['Order summary','Customer and delivery address','Your items in this order','Store and pickup location','Bulkimart delivery','Courier shipment','Status timeline','Fixture customer destination','Fixture store pickup','Fixture Rider','FIXTURE-AWB']) assert.ok(text(h.tree).includes(label), label);
     assert.equal(h.find(n => n.type === 'a' && n.props.href?.startsWith('javascript:')), undefined);
@@ -228,10 +228,10 @@ test('details show authoritative customer/store/item/payment/rider/shipment sect
 test('fulfillment view distinguishes pickup/destination and explains rider acceptance before manual delivery', async () => {
   let reopened;
   const order = { ...row, status: 'preparing', permittedActions: [{ setup: true, label: 'Choose delivery' }] };
-  const h = hookHarness(Orders, {}, '/seller/orders', context({ orders: [], selectedOrder: order,
+  const h = hookHarness(Orders, { detailPage: true }, '/seller/orders/'+id, context({ orders: [], selectedOrder: order,
     getFulfillmentOptions: async () => ({ ok: true, data: { pickup: { address: 'Store pickup fixture' }, destination: { line1: 'Customer destination fixture' }, manual: { available: false, eligibleRiderCount: 0, riders: [], reason: 'No eligible on-duty riders' }, shiprocket: { available: false, reason: 'Pickup is not registered' } } }), closeSellerOrder: () => {}, openSellerOrder: async id => { reopened = id; } }));
   try {
-    await h.click('Choose delivery'); await h.settle();
+    await h.settle();
     assert.match(text(h.tree), /Store pickup fixture/); assert.match(text(h.tree), /Customer destination fixture/);
     assert.match(text(h.tree), /riders accept offers/i); assert.match(text(h.tree), /No eligible on-duty riders/);
     assert.ok(h.find(n => n.type === 'button' && n.props.children?.includes?.('Create Shiprocket shipment')).props.disabled);
@@ -262,7 +262,7 @@ test('direct seller deep link fetches fresh authorized detail, selects its chann
     assert.equal(h.tree.props.value.selectedOrder.status, 'preparing'); assert.equal(h.tree.props.value.activeMode, 'quick');
     const read = h.requests.find(request => request.url.endsWith(`/api/notifications/${notificationId}/read`)); assert.ok(read);
     read.resolve({ success: true }); await h.settle();
-    assert.equal(window.location.pathname, '/seller/orders'); assert.equal(new URLSearchParams(window.location.search).get('order'), id);
+    assert.equal(window.location.pathname, '/seller/orders/' + id); assert.equal(h.tree.props.value.orderDetailId, id);
   } finally { h.close(); }
 });
 
@@ -305,9 +305,58 @@ test('service-worker data-only display and existing/new-tab clicks retain a safe
   await background({ data }); assert.equal(shown[0].options.tag, `seller-order-${id}`);
   await background({ data, notification: { title: 'SDK automatic' } }); assert.equal(shown.length, 1);
   async function click() { let done; handlers.notificationclick({ notification: { data, close() {} }, stopImmediatePropagation() {}, waitUntil: promise => { done = promise; } }); await done; }
-  await click(); assert.match(opened[0], new RegExp(`/seller/orders\\?order=${id}`));
+  await click(); assert.match(opened[0], new RegExp(`/seller/orders/${id}`));
   self.clients.matchAll = async () => [{ url: 'https://fixture.invalid/seller/products', navigate: async route => { navigated.push(route); }, focus: async () => {} }];
   await click(); assert.equal(navigated[0], opened[0]);
   assert.equal(self.notificationTarget({ route: 'https://attacker.invalid' }), '/');
   assert.equal(self.notificationTarget({ audience: 'seller', orderId: '../private' }), '/seller/orders');
+});
+
+
+test('dedicated route restores from the authorized API without list memory and shows safe unavailable recovery', async () => {
+  const local = storage(); local.setItem('sellerToken', 'fixture-token');
+  const h = hookHarness(SellerProvider, {}, '/seller/orders/' + id, undefined, { localStorage: local });
+  try {
+    assert.equal(h.tree.props.value.orderDetailId, id);
+    h.requests.find(r => r.url.endsWith('/api/sellers/me')).resolve({ seller: { _id: 'seller-fixture', status: 'approved', salesChannels: ['ecommerce'] } });
+    await h.settle();
+    assert.equal(h.tree.props.value.orderDetailLoading, true);
+    h.requests.find(r => r.url.endsWith('/api/sellers/orders/' + id)).resolve({}, 404); await h.settle();
+    assert.equal(h.tree.props.value.orderDetailLoading, false);
+    assert.equal(h.tree.props.value.selectedOrder, null);
+    assert.match(h.tree.props.value.orderDetailError, /unavailable|denied/i);
+    const retry = h.tree.props.value.openSellerOrder(id);
+    h.requests.at(-1).resolve({ data: { ...row, channel: 'ecommerce' } }); await retry; h.flush();
+    assert.equal(h.tree.props.value.selectedOrder._id, id);
+    assert.equal(window.location.pathname, '/seller/orders/' + id);
+    h.tree.props.value.closeSellerOrder(); h.flush();
+    assert.equal(window.location.pathname, '/seller/orders');
+    assert.equal(h.tree.props.value.orderDetailId, null);
+  } finally { h.close(); }
+});
+
+test('order list opens details through navigation and never renders a primary detail modal', async () => {
+  let opened;
+  const h = hookHarness(Orders, {}, '/seller/orders', context({ orders: [row], activeMode: 'quick', selectedTypes: ['quick'], selectedOrder: row, openSellerOrder: async value => { opened = value; } }));
+  try {
+    const button = h.find(n => n.type === 'button' && n.props.className === 'order-action-btn-sm details');
+    await button.props.onClick(); assert.equal(opened, id);
+    assert.equal(h.find(n => n.props?.role === 'dialog' && n.props['aria-label'] === 'Order details'), undefined);
+    assert.equal(h.find(n => n.props?.['aria-label'] === 'Order details'), undefined);
+  } finally { h.close(); }
+});
+
+test('dedicated page automatically exposes real riders and both method explanations after readiness', async () => {
+  let calls = 0;
+  const order = { ...row, version: 3, status: 'preparing', permittedActions: [{ setup: true, label: 'Choose delivery' }] };
+  const h = hookHarness(Orders, { detailPage: true }, '/seller/orders/' + id, context({ selectedOrder: order,
+    getFulfillmentOptions: async () => { calls++; return { ok: true, data: { manual: { available: true, eligibleRiderCount: 1, riders: [{ name: 'Server fixture rider', online: true, contact: 'masked contact', availability: 'Capacity available' }] }, shiprocket: { available: false, reason: 'Shipping approval is required', pickupLinked: false } } }; } }));
+  try {
+    await h.settle(); assert.equal(calls, 1);
+    assert.ok(h.find(n => n.props?.['aria-label'] === 'Choose delivery method'));
+    assert.match(text(h.tree), /Server fixture rider/); assert.match(text(h.tree), /On duty/);
+    assert.match(text(h.tree), /Shipping approval is required/);
+    assert.ok(h.find(n => n.type === 'a' && n.props.href === '/seller/profile'));
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Create Shiprocket shipment').props.disabled, true);
+  } finally { h.close(); }
 });
