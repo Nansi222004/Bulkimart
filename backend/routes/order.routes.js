@@ -10,11 +10,11 @@ import {
   requestReturn,
 } from '../controllers/order.controller.js';
 import { getOrderItemReturnEligibility } from '../controllers/return.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.use(protect);
+router.use(protect, requireCustomerSession);
 
 router.route('/')
   .post(createOrder)

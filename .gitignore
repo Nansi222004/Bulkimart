@@ -44,3 +44,11 @@ tests/
 !backend/__tests__/api/checkout-workflow.http.test.js
 !backend/__tests__/api/checkout-address-contact.test.js
 !backend/__tests__/api/socket-transport.http.test.js
+!backend/__tests__/services/notification-push.test.js
+!backend/__tests__/services/fcm.service.test.js
+!backend/__tests__/api/retired-notifications.http.test.js
+
+!backend/__tests__/services/seller-order-actions.test.js
+!backend/__tests__/services/shiprocket-pickup.test.js
+!backend/__tests__/api/seller-order-lifecycle.http.test.js
+!backend/__tests__/api/seller-pickup-sync.http.test.js

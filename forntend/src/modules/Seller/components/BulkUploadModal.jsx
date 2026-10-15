@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('userToken') || localStorage.getItem('token');
+  const token = localStorage.getItem('sellerToken');
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 

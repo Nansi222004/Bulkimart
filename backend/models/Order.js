@@ -355,6 +355,9 @@ const orderSchema = new Schema(
       lastError: String,
       lastErrorAt: Date,
       pickupScheduledAt: Date,
+      pickupLocation: String,
+      pickupAddress: { address: String, address_2: String, city: String, state: String, pin_code: String, pickup_location: String, verificationMode: String },
+      package: { length: Number, breadth: Number, height: Number, weight: Number },
       webhookEvents: [{
         eventId: String,
         status: String,
@@ -363,6 +366,7 @@ const orderSchema = new Schema(
     },
 
     fulfillment: {
+      readyAt: Date,
       assignmentPolicy: { type: String, enum: ['seller_after_acceptance'] },
       method: { type: String, enum: ["manual", "shiprocket", "third_party"] },
       selectedBy: { type: String, enum: ["seller", "admin", "system"] },

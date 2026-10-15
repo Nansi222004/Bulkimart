@@ -1,3 +1,4 @@
+import { getPortalToken } from '../../utils/portalSession';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../utils/api';
 import './services.css';
@@ -103,7 +104,7 @@ export default function ServicesPanel({ admin = false }) {
   const onDirty = useCallback(value => { detailDirty.current = value; }, []);
   const allowDiscard = () => !detailDirty.current || window.confirm('Discard your unsaved application message and selected files and reload or leave this application?');
   const request = useCallback(async (suffix = '', options = {}, blob = false) => {
-    const token = localStorage.getItem(admin ? 'adminToken' : 'userToken');
+    const token = (admin ? localStorage.getItem('adminToken') : getPortalToken('seller'));
     const response = await fetch(apiUrl(`/api/${admin ? 'admin/' : ''}services${suffix}`), { ...options, headers: { Authorization: `Bearer ${token || ''}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
     if (blob && response.ok) return response.blob();
     const body = await response.json().catch(() => ({}));

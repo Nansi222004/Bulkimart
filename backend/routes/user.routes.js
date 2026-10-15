@@ -11,13 +11,13 @@ import {
   getWallet,
   updateFCMToken
 } from '../controllers/user.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 import { uploadSingle } from '../middlewares/upload.middleware.js';
 
 const router = express.Router();
 
 // Apply auth guard to all user routes
-router.use(protect);
+router.use(protect, requireCustomerSession);
 
 router.get('/profile', getProfile);
 router.put('/profile', uploadSingle('avatar'), updateProfile);

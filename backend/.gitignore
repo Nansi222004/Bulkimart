@@ -37,3 +37,11 @@ tests/
 !__tests__/api/checkout-address-contact.test.js
 !__tests__/api/socket-transport.http.test.js
 private-data/maintenance/
+!__tests__/services/notification-push.test.js
+!__tests__/services/fcm.service.test.js
+!__tests__/api/retired-notifications.http.test.js
+
+!__tests__/services/seller-order-actions.test.js
+!__tests__/services/shiprocket-pickup.test.js
+!__tests__/api/seller-order-lifecycle.http.test.js
+!__tests__/api/seller-pickup-sync.http.test.js

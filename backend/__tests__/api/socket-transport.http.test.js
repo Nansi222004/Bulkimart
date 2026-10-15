@@ -39,3 +39,16 @@ test.each([undefined, 'invalid-token'])('denies missing or invalid authenticatio
   try { const [error] = await once(socket, 'connect_error'); expect(error.message).toMatch(/Authentication required|Invalid or expired/); expect(socket.connected).toBe(false); }
   finally { socket.disconnect(); }
 });
+
+test('seller subscription discards a forged seller ID and cannot receive another seller room event', async () => {
+  const socket = client(url, { auth: { token }, forceNew: true, reconnection: false });
+  let received = false;
+  socket.on('new_order', () => { received = true; });
+  try {
+    await once(socket, 'connect'); socket.emit('join_seller', 'victim-seller');
+    await waitFor(() => io.sockets.sockets.get(socket.id)?.rooms.has('seller:seller-fixture'));
+    expect(io.sockets.sockets.get(socket.id).rooms.has('seller:victim-seller')).toBe(false);
+    io.to('seller:victim-seller').emit('new_order', { orderId: 'private' });
+    await new Promise(resolve => setTimeout(resolve, 30)); expect(received).toBe(false);
+  } finally { socket.disconnect(); await waitFor(() => io.sockets.sockets.size === 0); }
+});

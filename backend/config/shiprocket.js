@@ -18,10 +18,10 @@ export const getShiprocketToken = async () => {
   }
 
   try {
-    const response = await axios.post(`${process.env.SHIPROCKET_BASE_URL}/api/v1/external/auth/login`, {
+    const response = await axios.post(`${(process.env.SHIPROCKET_BASE_URL || 'https://apiv2.shiprocket.in').replace(/\/$/, '')}/v1/external/auth/login`, {
       email: process.env.SHIPROCKET_EMAIL,
       password: process.env.SHIPROCKET_PASSWORD
-    });
+    }, { timeout: 15000 });
 
     if (response.data && response.data.token) {
       shiprocketToken = response.data.token;
@@ -31,7 +31,7 @@ export const getShiprocketToken = async () => {
     }
     throw new Error('Token not found in response');
   } catch (error) {
-    console.error('Shiprocket Authentication Failed:', error.message);
+    console.error('Shiprocket Authentication Failed:', error.response?.status || 'provider_unavailable');
     throw new Error('Shiprocket Auth Failed');
   }
 };

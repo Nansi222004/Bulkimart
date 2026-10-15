@@ -11,7 +11,7 @@ export const FaqsTab = () => {
   const fetchFaqs = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       const res = await fetch(apiUrl('/api/sellers/faqs'), {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -31,7 +31,7 @@ export const FaqsTab = () => {
     if (!answer) return;
     setSubmittingId(faqId);
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       const res = await fetch(apiUrl(`/api/sellers/faqs/${faqId}/answer`), {
         method: 'PATCH',
         headers: {

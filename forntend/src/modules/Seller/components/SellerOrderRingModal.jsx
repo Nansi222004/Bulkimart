@@ -23,7 +23,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
   const handleAccept = async () => {
     setAccepting(true);
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       const res = await fetch(apiUrl(`/api/sellers/orders/${order.orderId}/status`), {
         method: 'PATCH',
         headers: {

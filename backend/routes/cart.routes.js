@@ -10,13 +10,13 @@ import {
   getUnifiedCart,
   updateCartItemMessage,
 } from '../controllers/cart.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 import { httpError } from '../utils/response.js';
 
 const router = express.Router();
 
 // A cart belongs to a signed-in account — there is no guest cart.
-router.use(protect);
+router.use(protect, requireCustomerSession);
 router.use((req, res, next) => {
   if (req.userType !== 'user' || !mongoose.isValidObjectId(req.user?._id)) {
     return next(httpError(403, 'A valid customer account is required to use the cart'));

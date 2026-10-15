@@ -1,3 +1,4 @@
+import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
@@ -35,28 +36,8 @@ import { EmptyState } from './EmptyState';
 const byCourier = (order) =>
   order.deliveryType ? order.deliveryType === 'shiprocket' : order.channel === 'ecommerce';
 
-/** What the shop may do next, mirroring vendorTransitions() on the server. */
-const NEXT_ACTIONS = {
-  placed:    [{ to: 'confirmed', label: 'Accept order' }, { to: 'cancelled', label: 'Reject', reject: true }],
-  confirmed: [{ to: 'preparing', label: 'Start preparing' }, { to: 'cancelled', label: 'Reject', reject: true }],
-  preparing: [{ to: 'dispatched', label: 'Hand to courier', courierOnly: true },
-              { to: 'dispatched', label: 'Ready for pickup', riderOnly: true },
-              { to: 'cancelled', label: 'Reject', reject: true }],
-  // A rider reports everything after pickup, so the shop's moves end at
-  // `dispatched`. A courier reports nothing, so the shop carries on.
-  dispatched:       [{ to: 'out_for_delivery', label: 'Out for delivery', courierOnly: true }],
-  out_for_delivery: [{ to: 'delivered', label: 'Mark delivered', courierOnly: true }],
-};
-
-const actionsFor = (order) => {
-  if (order.status === 'preparing' && !order.fulfillment?.method) return [
-    { setup: true, label: 'Choose delivery' }, { to: 'cancelled', label: 'Reject', reject: true },
-  ];
-  const courier = byCourier(order);
-  return (NEXT_ACTIONS[order.status] || []).filter((a) =>
-    (!a.courierOnly || courier) && (!a.riderOnly || !courier)
-  );
-};
+// Actions are supplied by the authorized order API; absent data fails closed.
+export const actionsFor = order => Array.isArray(order.permittedActions) ? order.permittedActions : [];
 const STATUS_TABS = [
   { label: 'All', value: 'all' },
   { label: 'New', value: 'placed' },
@@ -97,9 +78,8 @@ const fmt = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
 export const OrdersTab = () => {
-  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode } = useSeller();
+  const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode, selectedOrder: selected, openSellerOrder, closeSellerOrder } = useSeller();
   const [tab, setTab] = useState('all');
-  const [selected, setSelected] = useState(null);
   // Which order is mid-request, so its buttons can be disabled rather than
   // letting an impatient double-tap fire the same transition twice.
   const [busyId, setBusyId] = useState(null);
@@ -115,7 +95,7 @@ export const OrdersTab = () => {
 
   const run = async (order, to, extra) => {
     setBusyId(order._id);
-    const res = await updateOrderStatus(order._id, to, extra);
+    const res = await updateOrderStatus(order._id, to, { version: order.version, ...extra });
     setBusyId(null);
     triggerToast?.(res.ok ? res.message || 'Order updated' : res.message);
     return res.ok;
@@ -123,9 +103,9 @@ export const OrdersTab = () => {
 
   const onAction = async (order, action) => {
     if (action.reject) {
-      const reason = window.prompt('Reason for rejection (required):')?.trim();
+      const reason = window.prompt(action.label === 'Reject' ? 'Reason for rejection (required):' : 'Reason for cancellation (required):')?.trim();
       if (!reason) return;
-      run(order, 'cancelled', { reason });
+      run(order, 'cancelled', { reason, version: order.version });
       return;
     }
     if (action.setup) {
@@ -134,7 +114,9 @@ export const OrdersTab = () => {
       setBusyId(null);
       if (!result.ok) return triggerToast?.(result.message);
       setFulfilling(order);
+      setPackageSize({ length: '', breadth: '', height: '' });
       setFulfillmentOptions(result.data);
+      closeSellerOrder?.();
       return;
     }
     // Only a genuine courier hand-off needs a waybill. A rider pickup is a
@@ -148,6 +130,7 @@ export const OrdersTab = () => {
       setCourier('');
       setAwb('');
       setDispatching(order);
+      closeSellerOrder?.();
       return;
     }
     run(order, action.to);
@@ -523,7 +506,7 @@ export const OrdersTab = () => {
                     className="order-f-status-pill"
                     style={{ backgroundColor: pill.bg, color: pill.fg }}
                   >
-                    {LABEL[order.status] || order.status}
+                    {order.displayStatus || LABEL[order.status] || order.status}
                   </span>
                 </div>
 
@@ -565,7 +548,7 @@ export const OrdersTab = () => {
                 )}
 
                 <div className="order-f-actions">
-                  <button className="order-action-btn-sm details" onClick={() => setSelected(order)}>
+                  <button className="order-action-btn-sm details" onClick={() => openSellerOrder(order._id)}>
                     Details
                   </button>
                   {actionsFor(order).map((action) => (
@@ -639,21 +622,28 @@ export const OrdersTab = () => {
               <button className="modal-close-btn" onClick={() => setFulfilling(null)}>✕</button>
             </div>
             <p style={{ fontSize: 12, color: '#64748b' }}>{fulfilling.orderNo} · {fulfilling.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</p>
+            <p><strong>Store pickup:</strong> {addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p>
+            <p><strong>Customer destination:</strong> {addressText(fulfillmentOptions.destination)}</p>
+            <p>Bulkimart riders accept offers automatically. You cannot reserve a named rider here.</p>
+            <ul>{fulfillmentOptions.manual?.riders?.map((rider, index) => <li key={index}>{rider.name} · {rider.contact} · {rider.availability}</li>)}</ul>
+            <button type="button" onClick={async () => { const result = await getFulfillmentOptions(fulfilling._id); if(result.ok) setFulfillmentOptions(result.data); else triggerToast?.(result.message); }}>Refresh delivery availability</button>
             <button className="primary-onboarding-btn" style={{ width: '100%', marginTop: 12 }}
               disabled={!fulfillmentOptions.manual?.available || busyId === fulfilling._id}
               onClick={async () => {
                 setBusyId(fulfilling._id);
                 const result = await selectManualFulfillment(fulfilling._id);
                 setBusyId(null); triggerToast?.(result.message);
-                if (result.ok) setFulfilling(null);
+                if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
               }}>
-              Manual Bulkimart delivery ({fulfillmentOptions.manual?.eligibleRiderCount || 0} riders online)
+              Manual Bulkimart delivery ({fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders)
             </button>
             {!fulfillmentOptions.manual?.available && <p style={{ fontSize: 11, color: '#b45309' }}>{fulfillmentOptions.manual?.reason}</p>}
 
             <div style={{ borderTop: '1px solid #e2e8f0', margin: '16px 0', paddingTop: 14 }}>
               <strong>Shiprocket / third-party courier</strong>
+              {!fulfillmentOptions.shiprocket?.pickupLinked && <p><a href="/seller/profile">Check or retry pickup synchronization in your store profile</a></p>}
               <p style={{ fontSize: 11, color: '#64748b' }}>{fulfillmentOptions.shiprocket?.reason || 'Serviceability is checked before any shipment is created.'}</p>
+              <p>Weight from order item snapshots: {fulfillmentOptions.shiprocket?.packageWeightKg || 'Unavailable'} kg</p>
               {fulfillmentOptions.shiprocket?.quote && (
                 <div style={{ fontSize: 12, marginBottom: 10, padding: 10, background: '#f8fafc', borderRadius: 8 }}>
                   <div><strong>Estimated courier freight:</strong> {money(fulfillmentOptions.shiprocket.quote.courierCharge)}</div>
@@ -671,19 +661,19 @@ export const OrdersTab = () => {
                 Live Quick third-party shipping is disabled: {fulfillmentOptions.shiprocket.activation.blockers.join('; ')}.
               </div>}
               {['length', 'breadth', 'height'].map((field) => (
-                <input key={field} className="onboarding-input" style={{ marginBottom: 8 }} type="number" min="0.1"
+                <input key={field} className="onboarding-input" style={{ marginBottom: 8 }} type="number" min="0.51" max="500"
                   placeholder={`${field[0].toUpperCase() + field.slice(1)} (cm)`} value={packageSize[field]}
                   onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} />
               ))}
               <button className="primary-onboarding-btn" style={{ width: '100%' }}
                 disabled={!fulfillmentOptions.shiprocket?.available || busyId === fulfilling._id}
                 onClick={async () => {
-                  if (Object.values(packageSize).some((value) => Number(value) <= 0)) return triggerToast?.('Enter all package dimensions');
+                  if (Object.values(packageSize).some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0.5 || Number(value) > 500)) return triggerToast?.('Enter dimensions greater than 0.5 cm and at most 500 cm');
                   if (!window.confirm(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`)) return;
                   setBusyId(fulfilling._id);
                   const result = await createShiprocketShipment(fulfilling._id, packageSize, fulfillmentOptions.shiprocket.quote.courierCharge);
                   setBusyId(null); triggerToast?.(result.message);
-                  if (result.ok) setFulfilling(null);
+                  if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
                 }}>
                 Create Shiprocket shipment
               </button>
@@ -693,74 +683,18 @@ export const OrdersTab = () => {
       )}
 
       {selected && (
-        <div className="seller-modal-overlay">
+        <div className="seller-modal-overlay" role="dialog" aria-modal="true" aria-label="Order details">
           <div className="seller-modal-sheet">
             <div className="modal-sheet-header">
               <h3 className="modal-sheet-title">{selected.orderNo}</h3>
-              <button className="modal-close-btn" onClick={() => setSelected(null)}>✕</button>
+              <button className="modal-close-btn" aria-label="Close order details" onClick={closeSellerOrder}>✕</button>
             </div>
 
-            <div className="review-summary-card">
-              <div className="review-item-row">
-                <span className="review-item-key">Placed</span>
-                <span className="review-item-val">{fmt(selected.placedAt)}</span>
-              </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Status</span>
-                <span className="review-item-val" style={{ color: 'var(--primary)' }}>
-                  {LABEL[selected.status] || selected.status}
-                </span>
-              </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Storefront</span>
-                <span className="review-item-val">
-                  {selected.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}
-                </span>
-              </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Payment</span>
-                <span className="review-item-val" style={{ textTransform: 'uppercase' }}>
-                  {selected.paymentMethod || '—'} · {selected.paymentStatus || 'pending'}
-                </span>
-              </div>
-            </div>
-
-            <div className="review-summary-card">
-              <h4 className="review-card-title" style={{ marginBottom: 8 }}>Your items in this order</h4>
-              {selected.items.map((i) => (
-                <div key={i.productId || i.name} style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 6 }}>
-                  <div className="review-item-row">
-                    <span className="review-item-key">
-                      {i.name} × {i.qty}
-                    </span>
-                    <span className="review-item-val">{money(i.lineTotal)}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: i.additionalMessage ? '#1d4ed8' : '#94a3b8', fontStyle: i.additionalMessage ? 'italic' : 'normal', fontWeight: i.additionalMessage ? 600 : 400 }}>
-                    📝 Customer Message: {i.additionalMessage ? `"${i.additionalMessage}"` : 'No additional message provided.'}
-                  </div>
-                </div>
-              ))}
-              <div className="review-item-row" style={{ borderTop: '1px dashed #e2e8f0', paddingTop: 8, marginTop: 4 }}>
-                <span className="review-item-key" style={{ fontWeight: 900 }}>Your total</span>
-                <span className="review-item-val" style={{ color: 'var(--primary)', fontWeight: 900 }}>
-                  {money(selected.subtotal)}
-                </span>
-              </div>
-            </div>
-
-            <div className="review-summary-card">
-              <h4 className="review-card-title" style={{ marginBottom: 8 }}>Delivery Address</h4>
-              <span className="review-item-val" style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                {selected.shippingAddress?.name}
-                {selected.shippingAddress?.phone ? ` · ${selected.shippingAddress.phone}` : ''}
-                <br />
-                {selected.shippingAddress?.line1}
-                {selected.shippingAddress?.line2 ? `, ${selected.shippingAddress.line2}` : ''}
-                <br />
-                {selected.shippingAddress?.city}
-                {selected.shippingAddress?.state ? `, ${selected.shippingAddress.state}` : ''}
-                {selected.shippingAddress?.pincode ? ` — ${selected.shippingAddress.pincode}` : ''}
-              </span>
+            {orderDetailSections(selected)}
+            <button type="button" className="order-action-btn-sm" onClick={() => openSellerOrder(selected._id)}>Refresh details</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {actionsFor(selected).map(action => <button type="button" key={action.label} disabled={busyId === selected._id}
+                className="order-action-btn-sm" onClick={() => onAction(selected, action)}>{action.label}</button>)}
             </div>
           </div>
         </div>

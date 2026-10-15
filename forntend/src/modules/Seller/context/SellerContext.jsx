@@ -3,7 +3,7 @@ import React, { createContext, useState, useContext, useEffect, useCallback } fr
 // Import image assets for product listings
 import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
-import { startRing, stopRing } from '../../../utils/notificationSoundManager';
+import { stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import {
   clearSellerDraft,
@@ -13,6 +13,7 @@ import {
   writeSellerDraft,
 } from '../utils/onboardingDraft';
 import { normalizePhoneInput, normalizeSellerIntent, safeErrorMessage, sellerOtpPayload } from '../utils/sellerAuth';
+import { SELLER_SESSION_CHANGED as SESSION_CHANGED, saveSellerSession } from '../../../utils/portalSession';
 
 const SellerContext = createContext();
 const getUserId = (profile) => {
@@ -25,7 +26,7 @@ const getBrowserStorage = () => {
 
 export const SellerProvider = ({ children }) => {
   const [userProfile, setUserProfile] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('userProfile') || 'null'); } catch { return null; }
+    try { return JSON.parse(localStorage.getItem('sellerUserProfile') || 'null'); } catch { return null; }
   });
   const userId = getUserId(userProfile);
   const draftKey = getSellerDraftKey(userId);
@@ -58,6 +59,7 @@ export const SellerProvider = ({ children }) => {
   }
 
   const setActiveTab = (tabId) => {
+    if (tabId !== 'orders') { detailGeneration.current++; setSelectedOrder(null); }
     const newPath = tabId === 'dashboard' ? '/seller' : `/seller/${tabId}`;
     if (window.location.pathname !== newPath) {
       window.history.pushState(null, '', newPath);
@@ -86,6 +88,7 @@ export const SellerProvider = ({ children }) => {
     vendorType: initialDraft?.bizForm?.vendorType || 'General Vendor',
     category: initialDraft?.bizForm?.category || 'Groceries',
     description: initialDraft?.bizForm?.description || '',
+    pickupEmail: '',
     leaderName: ''
   }));
 
@@ -148,6 +151,7 @@ export const SellerProvider = ({ children }) => {
           vendorType: draft?.bizForm?.vendorType || 'General Vendor',
           category: draft?.bizForm?.category || 'Groceries',
           description: draft?.bizForm?.description || '',
+          pickupEmail: '',
         }));
       }
       if (switchingAccounts) {
@@ -246,7 +250,7 @@ export const SellerProvider = ({ children }) => {
   });
 
   const authHeader = () => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('sellerToken');
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
@@ -461,12 +465,19 @@ export const SellerProvider = ({ children }) => {
   const [profileLoading, setProfileLoading] = useState(false);
 
   const fetchSellerProfile = useCallback(async () => {
+    const token = localStorage.getItem('sellerToken');
     setProfileLoading(true);
     try {
       const res = await fetch(apiUrl('/api/sellers/me'), { headers: authHeader() });
+      if (token !== localStorage.getItem('sellerToken')) return;
       if (!res.ok) { setSellerProfile(null); return; }
       const body = await res.json();
+      if (token !== localStorage.getItem('sellerToken')) return;
       const seller = body.seller || null;
+      if (seller?.userId?._id) {
+        setUserProfile(seller.userId);
+        localStorage.setItem('sellerUserProfile', JSON.stringify(seller.userId));
+      }
       setSellerProfile(seller);
       // Platform ceilings come from the server so the form cannot disagree with
       // the validation that actually enforces them.
@@ -483,20 +494,12 @@ export const SellerProvider = ({ children }) => {
         setActiveMode((cur) => (modes.includes(cur) ? cur : modes[0]));
       }
     } catch {
-      setSellerProfile(null);
+      if (token === localStorage.getItem('sellerToken')) setSellerProfile(null);
     } finally {
       setProfileLoading(false);
     }
   }, [draftKey]);
 
-  const [incomingOrder, setIncomingOrder] = useState(null);
-  const prevIncomingOrderKey = React.useRef(null);
-  useEffect(() => {
-    const key = incomingOrder ? `order:${incomingOrder.orderId || incomingOrder._id}` : null;
-    if (key) startRing(key);
-    else if (prevIncomingOrderKey.current) stopRing(prevIncomingOrderKey.current);
-    prevIncomingOrderKey.current = key;
-  }, [incomingOrder]);
 
   // Push registration, independent of whether the seller is currently
   // viewing the dashboard.
@@ -508,18 +511,12 @@ export const SellerProvider = ({ children }) => {
 
   // --- Socket IO connections and events for Seller ---
   useEffect(() => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('sellerToken');
     if (token && sellerProfile && sellerProfile.status === 'approved') {
       connectSocket(token, 'seller', sellerProfile._id);
     }
 
-    socket.on('new_order', (order) => {
-      // Ring alert! Show incoming order modal
-      setIncomingOrder(order);
-    });
-
     return () => {
-      socket.off('new_order');
       disconnectSocket();
     };
   }, [sellerProfile]);
@@ -570,7 +567,7 @@ export const SellerProvider = ({ children }) => {
   }, [activeChannel]);
 
   useEffect(() => {
-    if (localStorage.getItem('userToken')) {
+    if (localStorage.getItem('sellerToken')) {
       fetchMyProducts();
       fetchSellerKpis();
       fetchSellerProfile();
@@ -586,6 +583,73 @@ export const SellerProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState('');
+
+  const detailGeneration = React.useRef(0);
+  const detailRequests = React.useRef(new Map());
+  const sessionToken = React.useRef(localStorage.getItem('sellerToken'));
+  useEffect(() => {
+    const changed = () => {
+      const token = localStorage.getItem('sellerToken');
+      if (token === sessionToken.current) return;
+      sessionToken.current = token;
+      detailGeneration.current++; detailRequests.current.clear();
+      disconnectSocket(); setSelectedOrder(null); setOrders([]); setSellerProfile(null);
+      try { setUserProfile(JSON.parse(localStorage.getItem('sellerUserProfile') || 'null')); } catch { setUserProfile(null); }
+      if (token) fetchSellerProfile();
+    };
+    window.addEventListener('storage', changed); window.addEventListener(SESSION_CHANGED, changed);
+    return () => { detailGeneration.current++; window.removeEventListener('storage', changed); window.removeEventListener(SESSION_CHANGED, changed); };
+  }, [fetchSellerProfile]);
+  const fetchSellerOrder = useCallback((id) => {
+    if (!/^[a-f\d]{24}$/i.test(String(id))) return Promise.resolve({ ok: false, message: 'Order unavailable' });
+    const token = localStorage.getItem('sellerToken');
+    const key = `${token}:${id}`;
+    if (detailRequests.current.has(key)) return detailRequests.current.get(key);
+    const request = (async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/sellers/orders/${id}`), { headers: { Authorization: `Bearer ${token}` } });
+        const body = await response.json();
+        if (token !== localStorage.getItem('sellerToken')) return { ok: false, message: 'Session changed' };
+        return response.ok ? { ok: true, data: body.data } : { ok: false, message: 'Order unavailable or access denied' };
+      } catch { return { ok: false, message: 'Could not load order. Please retry.' }; }
+      finally { detailRequests.current.delete(key); }
+    })();
+    detailRequests.current.set(key, request);
+    return request;
+  }, []);
+  const openSellerOrder = useCallback(async (id, notificationId) => {
+    const generation = ++detailGeneration.current;
+    const token = localStorage.getItem('sellerToken');
+    const result = await fetchSellerOrder(id);
+    if (generation !== detailGeneration.current || token !== localStorage.getItem('sellerToken')) return false;
+    if (!result.ok) { triggerToast(result.message); return false; }
+    setSelectedOrder(result.data);
+    setActiveMode(result.data.channel === 'grocery' ? 'quick' : 'ecommerce');
+    window.history.pushState(null, '', `/seller/orders?order=${encodeURIComponent(id)}`);
+    setActiveTabState('orders');
+    if (/^[a-f\d]{24}$/i.test(String(notificationId || ''))) {
+      try {
+        const response = await fetch(apiUrl(`/api/notifications/${notificationId}/read`), { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+        if (response.ok && token === localStorage.getItem('sellerToken')) window.dispatchEvent(new CustomEvent('notification_read', { detail: { id: notificationId } }));
+      } catch { /* Opening the order must not depend on read-state delivery. */ }
+    }
+    return true;
+  }, [fetchSellerOrder]);
+  const closeSellerOrder = useCallback(() => {
+    detailGeneration.current++;
+    setSelectedOrder(null);
+    if (window.location.pathname === '/seller/orders') window.history.replaceState(null, '', '/seller/orders');
+  }, []);
+  useEffect(() => {
+    if (sellerProfile?.status !== 'approved') return;
+    const openLink = () => {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('order');
+      if (window.location.pathname === '/seller/orders' && id) openSellerOrder(id, params.get('notification'));
+    };
+    openLink(); window.addEventListener('popstate', openLink);
+    return () => { detailGeneration.current++; window.removeEventListener('popstate', openLink); };
+  }, [sellerProfile?._id, sellerProfile?.status, openSellerOrder]);
 
 
 
@@ -606,26 +670,6 @@ export const SellerProvider = ({ children }) => {
       const data = body.data || [];
       setOrders(data);
 
-      // Fallback: if a Quick order is sitting unaccepted, ring the seller — the
-      // socket may have been reconnecting when it arrived.
-      //
-      // This compared against 'quick', but `activeChannel` holds a channel value
-      // ('grocery'), never a mode name, so the branch was dead and the safety net
-      // behind the socket never fired.
-      if (activeChannel === 'grocery') {
-        const placed = data.find(o => o.status === 'placed');
-        if (placed) {
-          setIncomingOrder(curr => curr || {
-            orderId: placed._id,
-            orderNo: placed.orderNo,
-            items: placed.items,
-            pricing: placed.pricing,
-            shippingAddress: placed.shippingAddress,
-            paymentMethod: placed.paymentMethod,
-            placedAt: placed.createdAt,
-          });
-        }
-      }
     } catch (err) {
       setOrdersError(err.message || 'Network error — is the server running?');
       setOrders([]);
@@ -657,6 +701,8 @@ export const SellerProvider = ({ children }) => {
       if (!res.ok) return { ok: false, message: body.message || 'Could not update this order' };
 
       await fetchSellerOrders();
+      const fresh = await fetchSellerOrder(orderId);
+      if (fresh.ok) setSelectedOrder(current => String(current?._id) === String(orderId) ? fresh.data : current);
       return { ok: true, message: body.message };
     } catch (err) {
       return { ok: false, message: err.message || 'Network error — is the server running?' };
@@ -679,6 +725,8 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not select manual delivery' };
       await fetchSellerOrders();
+      const fresh = await fetchSellerOrder(orderId);
+      if (fresh.ok) setSelectedOrder(current => String(current?._id) === String(orderId) ? fresh.data : current);
       return { ok: true, message: body.message };
     } catch (err) { return { ok: false, message: err.message }; }
   }, [fetchSellerOrders]);
@@ -692,6 +740,8 @@ export const SellerProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Shipment creation failed' };
       await fetchSellerOrders();
+      const fresh = await fetchSellerOrder(orderId);
+      if (fresh.ok) setSelectedOrder(current => String(current?._id) === String(orderId) ? fresh.data : current);
       return { ok: true, message: body.message, data: body.data };
     } catch (err) { return { ok: false, message: err.message }; }
   }, [fetchSellerOrders]);
@@ -700,7 +750,7 @@ export const SellerProvider = ({ children }) => {
   // declared before this callback exists — naming it there would read the
   // binding before initialisation.
   useEffect(() => {
-    if (localStorage.getItem('userToken')) fetchSellerOrders();
+    if (localStorage.getItem('sellerToken')) fetchSellerOrders();
   }, [fetchSellerOrders]);
 
   const [payouts, setPayouts] = useState([]);
@@ -738,7 +788,7 @@ export const SellerProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'earnings' && localStorage.getItem('userToken')) fetchSellerFinances();
+    if (activeTab === 'earnings' && localStorage.getItem('sellerToken')) fetchSellerFinances();
   }, [activeTab, fetchSellerFinances]);
 
   // campaigns: no backend endpoint yet (Day 2). Empty rather than fabricated.
@@ -910,9 +960,9 @@ export const SellerProvider = ({ children }) => {
         throw new Error(body.message || 'OTP verification failed');
       }
 
-      localStorage.setItem('userToken', body.token);
+      saveSellerSession(body);
       if (body.user) {
-        localStorage.setItem('userProfile', JSON.stringify(body.user));
+        localStorage.setItem('sellerUserProfile', JSON.stringify(body.user));
         setUserProfile(body.user);
       }
 
@@ -972,7 +1022,7 @@ export const SellerProvider = ({ children }) => {
     setSubmitting(true);
     setSubmitError('');
 
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('sellerToken');
     if (!token) {
       setSubmitting(false);
       submitSellerApplicationLock.current = false;
@@ -983,7 +1033,7 @@ export const SellerProvider = ({ children }) => {
     const AUTH = { Authorization: `Bearer ${token}` };
     const JSON_H = { ...AUTH, 'Content-Type': 'application/json' };
     let profile = {};
-    try { profile = JSON.parse(localStorage.getItem('userProfile') || '{}'); } catch { /* ignore */ }
+    try { profile = JSON.parse(localStorage.getItem('sellerUserProfile') || '{}'); } catch { /* ignore */ }
 
     const call = async (path, options, label) => {
       const res = await fetch(apiUrl(path), options);
@@ -993,8 +1043,8 @@ export const SellerProvider = ({ children }) => {
       // account it belongs to no longer exists (e.g. the database was re-seeded).
       // Clear the dead session rather than leaving the user stuck on an error.
       if (res.status === 401) {
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('userProfile');
+        localStorage.removeItem('sellerToken');
+        localStorage.removeItem('sellerUserProfile');
         throw new Error('Your session has expired. Please log in again with your mobile number, then re-open Become a Seller.');
       }
 
@@ -1029,7 +1079,8 @@ export const SellerProvider = ({ children }) => {
             lng: addressForm.lng,
             accuracy: addressForm.accuracy,
             source: addressForm.source,
-            phone: profile.phone || ''
+            phone: profile.phone || '',
+            email: bizForm.pickupEmail || profile.email || ''
           }
         })
       }, 'Business details');
@@ -1094,7 +1145,7 @@ export const SellerProvider = ({ children }) => {
     setProductError('');
 
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       if (!token) throw new Error('Your session expired. Please sign in again.');
       if (!form.categoryId) throw new Error('Please select a category.');
       if (!files || files.length === 0) throw new Error('Please add at least one product image.');
@@ -1328,9 +1379,12 @@ export const SellerProvider = ({ children }) => {
   // SUBMIT SUPPORT TICKET
   const logoutSeller = useCallback(async () => {
     stopRing();
+    detailGeneration.current++;
+    setSelectedOrder(null);
+    disconnectSocket();
     await deregisterPushToken().catch(() => {});
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       if (token) {
         await fetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
@@ -1339,8 +1393,8 @@ export const SellerProvider = ({ children }) => {
       }
     } finally {
       clearSellerDraft(getBrowserStorage(), draftKey);
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('userProfile');
+      localStorage.removeItem('sellerToken');
+      localStorage.removeItem('sellerUserProfile');
       setIsOnboarded(false);
       setSellerProfile(null);
       setUserProfile(null);
@@ -1427,6 +1481,7 @@ export const SellerProvider = ({ children }) => {
         setShowAddProductModal,
         selectedOrder,
         setSelectedOrder,
+        openSellerOrder, closeSellerOrder, fetchSellerOrder,
         trackingOrder,
         setTrackingOrder,
         showReturnPanel,
@@ -1482,8 +1537,6 @@ export const SellerProvider = ({ children }) => {
         financeError,
         fetchSellerFinances,
         campaigns,
-        incomingOrder,
-        setIncomingOrder,
       }}
     >
       {children}

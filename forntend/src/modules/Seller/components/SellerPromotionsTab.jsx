@@ -18,7 +18,7 @@ const MODULE_TO_CHANNEL = { QUICK: 'grocery', ECOMMERCE: 'ecommerce' };
 const MODULE_LABEL = { QUICK: 'Quick Commerce', ECOMMERCE: 'E-Commerce / Shop All' };
 
 const money = (n) => '₹' + Math.round(Number(n) || 0);
-const token = () => localStorage.getItem('userToken');
+const token = () => localStorage.getItem('sellerToken');
 const authHeaders = (json = true) => ({
   ...(json ? { 'Content-Type': 'application/json' } : {}),
   Authorization: 'Bearer ' + token(),

@@ -19,7 +19,7 @@ jest.unstable_mockModule('../../models/Seller.js', () => ({ default: { findOne: 
 jest.unstable_mockModule('../../services/sms.service.js', () => ({ sendOTP, verifyOTP }));
 const pass = (_req, _res, next) => next();
 jest.unstable_mockModule('../../middlewares/rateLimit.middleware.js', () => ({ otpLimiter: pass, authLimiter: pass, adminLoginLimiter: pass }));
-const [{ default: routes }, { protect, requireRole }, { requireApprovedPartner }, { errorHandler }, { JWT_SECRET }] = await Promise.all([
+const [{ default: routes }, { protect, requireRole, requireCustomerSession, requireSellerSession }, { requireApprovedPartner }, { errorHandler }, { JWT_SECRET }] = await Promise.all([
   import('../../routes/auth.routes.js'), import('../../middlewares/auth.middleware.js'),
   import('../../middlewares/vendor.middleware.js'), import('../../middlewares/error.middleware.js'), import('../../config/jwt.js'),
 ]);
@@ -27,6 +27,8 @@ const app = express(); app.use(express.json()); app.use('/api/auth', routes);
 const { resolveRequester } = await import('../../services/ticket.service.js');
 app.get('/rider', protect, requireApprovedPartner, (_req, res) => res.json({ success: true }));
 app.get('/buyer', protect, requireRole('buyer'), (_req, res) => res.json({ success: true }));
+app.get('/customer-only', protect, requireCustomerSession, (req, res) => res.json({ id: req.user._id }));
+app.get('/seller-only', protect, requireSellerSession, requireRole('seller'), (req, res) => res.json({ id: req.user._id }));
 app.use(errorHandler);
 const token = (claims = {}, options = {}) => jwt.sign({ id: user._id, type: 'user', ...claims }, JWT_SECRET, { expiresIn: '1h', ...options });
 const login = (path = '/verify-otp', extra = {}) => request(app).post('/api/auth' + path).send({ phone: '9876500000', otp: '1234', isLogin: true, ...extra });
@@ -37,6 +39,14 @@ beforeEach(() => {
 test('shared buyer login returns buyer claim and existing storefront route', async () => {
   const res = await login(); expect(res.status).toBe(200); expect(res.body.sessionRole).toBe('buyer'); expect(res.body.dashboard).toBe('/');
   expect(jwt.verify(res.body.token, JWT_SECRET).role).toBe('buyer');
+});
+
+test('signed seller and buyer portal boundaries reject cross-role credentials for dual-role accounts', async () => {
+  user.roles = ['buyer', 'seller'];
+  await request(app).get('/customer-only').set('Authorization', `Bearer ${token({ role: 'seller' })}`).expect(403);
+  await request(app).get('/customer-only').set('Authorization', `Bearer ${token({ role: 'buyer' })}`).expect(200);
+  await request(app).get('/seller-only').set('Authorization', `Bearer ${token({ role: 'buyer' })}`).expect(403);
+  await request(app).get('/seller-only').set('Authorization', `Bearer ${token({ role: 'seller' })}`).expect(200);
 });
 test('shared Delivery login returns Delivery claim and existing dashboard', async () => {
   user.roles.push('delivery'); partner = { status: 'approved', onboardingStep: 4 };

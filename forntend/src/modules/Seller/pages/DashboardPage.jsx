@@ -22,7 +22,8 @@ import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
 import GrowTab from '../components/GrowTab';
 import AccountTab from '../components/AccountTab';
-import SellerOrderRingModal from '../components/SellerOrderRingModal';
+import SellerOrderAlerts from '../components/SellerOrderAlerts';
+import SellerPushControl from '../components/SellerPushControl';
 import NotificationPopup from '../../../components/NotificationPopup';
 
 /** Maps an Admin/business-event deep link (always `/seller/...` per
@@ -60,7 +61,7 @@ const TAB_TITLES = {
 export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
-    incomingOrder, setIncomingOrder, fetchSellerOrders,
+    openSellerOrder,
     sellerProfile, userProfile, bizForm, requestWholesaleChannel,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -182,6 +183,8 @@ export const DashboardPage = () => {
           </div>
         </div>
 
+        <SellerPushControl />
+
         {/* Tab content */}
         <div className="seller-tab-content-container">
           {sellerProfile?.status === 'approved' && (
@@ -220,26 +223,17 @@ export const DashboardPage = () => {
       </div>
 
       <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
-
-      {incomingOrder && (
-        <SellerOrderRingModal
-          order={incomingOrder}
-          onAccept={() => {
-            setIncomingOrder(null);
-            if (fetchSellerOrders) fetchSellerOrders();
-          }}
-          onDecline={() => setIncomingOrder(null)}
-        />
-      )}
-
-
+      <SellerOrderAlerts />
 
       {/* WhatsApp-style floating notification — reacts to the existing
           socket `notification_new` event; no new backend call besides the
           existing mark-read PATCH. Deliberately separate from
           SellerOrderRingModal/SubscriptionRequestRingModal above, which
           keep their own higher-priority urgent ping behavior untouched. */}
-      <NotificationPopup onNavigate={(route) => { const tab = resolvePopupNav(route); if (tab) setActiveTab(tab); }} />
+      <NotificationPopup excludeSellerOrders onNavigate={(route, notification) => {
+        if (notification?.metadata?.orderId) return openSellerOrder(notification.metadata.orderId);
+        const tab = resolvePopupNav(route); if (tab) setActiveTab(tab);
+      }} />
     </div>
   );
 };

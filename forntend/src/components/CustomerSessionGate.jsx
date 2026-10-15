@@ -28,6 +28,10 @@ export default function CustomerSessionGate({ children }) {
           window.history.replaceState(null, '', '/delivery/dashboard');
           setSession({ loading: true }); return;
         }
+        if (body.sessionRole !== 'buyer') {
+          clearUserSession(false);
+          setSession({ error: 'This is a seller session. Sign in to your customer account to continue.' }); return;
+        }
         if (!body.profile.roles?.includes('buyer')) { setSession({ error: 'A customer account is required to open this portal.' }); return; }
         setSession({ token, profile: body.profile, loading: false });
       } catch (error) {

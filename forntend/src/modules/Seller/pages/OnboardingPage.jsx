@@ -438,6 +438,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
               buttonLabel="Pin my store location"
               addressLabel="Shop address"
             />
+            <label>Pickup contact email (required by Shiprocket)
+              <input className="onboarding-input" type="email" maxLength="254" value={bizForm.pickupEmail || ''} onChange={event => setBizForm({ ...bizForm, pickupEmail: event.target.value })} placeholder="Store contact email" />
+            </label>
 
             <button
               className="primary-onboarding-btn"

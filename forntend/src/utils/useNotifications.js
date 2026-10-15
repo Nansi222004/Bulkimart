@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { getPortalToken } from './portalSession';
+import { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from './api';
 import { socket } from './socket';
 
@@ -13,15 +14,14 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const fetchedOnce = useRef(false);
 
   const authHeaders = useCallback(() => {
-    const token = localStorage.getItem('userToken');
+    const token = getPortalToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
   const fetchNotifications = useCallback(async (page = 1) => {
-    const token = localStorage.getItem('userToken');
+    const token = getPortalToken();
     if (!token) return;
     setLoading(true);
     try {
@@ -36,7 +36,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   }, [authHeaders]);
 
   const fetchUnreadCount = useCallback(async () => {
-    const token = localStorage.getItem('userToken');
+    const token = getPortalToken();
     if (!token) return;
     try {
       const res = await fetch(apiUrl('/api/notifications/unread-count'), { headers: authHeaders() });
@@ -48,13 +48,11 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   }, [authHeaders]);
 
   const markRead = useCallback(async (id) => {
-    setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
-    setUnreadCount((c) => Math.max(0, c - 1));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('notification_read', { detail: { id } }));
-    }
     try {
-      await fetch(apiUrl(`/api/notifications/${id}/read`), { method: 'PATCH', headers: authHeaders() });
+      const response = await fetch(apiUrl(`/api/notifications/${id}/read`), { method: 'PATCH', headers: authHeaders() });
+      if (!response.ok) return;
+      setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_read', { detail: { id } }));
     } catch (err) {
       console.error('[NOTIFICATIONS] mark-read failed:', err.message);
     }
@@ -89,11 +87,11 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   useEffect(() => {
     fetchUnreadCount();
 
-    const onNew = () => setUnreadCount((c) => c + 1);
+    const onNew = () => { fetchUnreadCount(); if (autoFetch) fetchNotifications(); };
 
     const onRead = (e) => {
       const id = e.detail?.id;
-      setUnreadCount((c) => Math.max(0, c - 1));
+      fetchUnreadCount();
       if (id) {
         setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
       }
@@ -123,11 +121,10 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
         window.removeEventListener('notifications_updated', onUpdate);
       }
     };
-  }, [fetchUnreadCount]);
+  }, [fetchUnreadCount, fetchNotifications, autoFetch]);
 
   useEffect(() => {
-    if (autoFetch && !fetchedOnce.current) {
-      fetchedOnce.current = true;
+    if (autoFetch) {
       fetchNotifications();
       fetchUnreadCount();
     }

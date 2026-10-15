@@ -318,6 +318,7 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     token,
+    sessionRole: 'seller',
     user: publicUser(user),
     sellerState: seller ? { exists: true, status: seller.status, onboardingStep: seller.onboardingStep } : { exists: false },
   });

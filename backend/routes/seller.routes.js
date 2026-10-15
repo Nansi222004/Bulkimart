@@ -1,4 +1,6 @@
+import { getProfile, updateProfile } from '../controllers/user.controller.js';
 import express from 'express';
+import { getPickupStatus, retryPickupSync } from '../controllers/sellerPickup.controller.js';
 import {
   startOnboarding,
   submitStep1,
@@ -28,7 +30,7 @@ import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } 
 import {
   getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
 } from '../controllers/fulfillment.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import {
   getSellerFinanceSummary, listSellerLedger, getSellerOrderFinance, requestSellerPayout,
@@ -70,7 +72,9 @@ router.get('/public/:id', async (req, res) => {
 });
 
 // Apply auth to all subsequent seller routes
-router.use(protect);
+router.use(protect, requireSellerSession);
+router.get('/account-profile', getProfile);
+router.put('/account-profile', uploadSingle('avatar'), updateProfile);
 
 router.post('/start', startOnboarding);
 router.put('/step/1', submitStep1);
@@ -91,6 +95,8 @@ router.put('/step/4', uploadFields([
 
 router.post('/submit', submitApplication);
 router.get('/me', getMySellerProfile);
+router.get('/pickup-sync', getPickupStatus);
+router.post('/pickup-sync/retry', retryPickupSync);
 
 router.put('/profile', uploadFields([
   { name: 'logo', maxCount: 1 },
@@ -104,6 +110,7 @@ router.put('/profile', uploadFields([
 // ---------------------------------------------------------------------------
 router.get('/dashboard', requireApprovedSeller, getDashboard);
 router.get('/orders', requireApprovedSeller, getSellerOrders);
+router.get('/orders/:id', requireApprovedSeller, getSellerOrders);
 router.patch('/orders/:id/status', requireApprovedSeller, updateOrderStatus);
 router.get('/orders/:id/fulfillment-options', requireApprovedSeller, getFulfillmentOptions);
 router.post('/orders/:id/fulfillment/manual', requireApprovedSeller, selectManualFulfillment);

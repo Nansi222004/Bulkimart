@@ -76,3 +76,17 @@ export const requireRole = (...roles) => (req, res, next) => {
   }
   next();
 };
+
+// Entry-point claims are signed by the server, not supplied in request data.
+export const requireSellerSession = (req, res, next) => {
+  if (req.tokenRole !== undefined && req.tokenRole !== 'seller') {
+    res.status(403); throw new Error('Sign in through the seller portal to continue');
+  }
+  next();
+};
+export const requireCustomerSession = (req, res, next) => {
+  if (req.userType !== 'user' || req.tokenRole === 'seller' || !req.user.roles?.includes('buyer')) {
+    res.status(403); throw new Error('A customer session is required');
+  }
+  next();
+};

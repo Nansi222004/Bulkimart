@@ -1,5 +1,5 @@
 import express from "express";
-import { protect, requireAdmin } from "../middlewares/auth.middleware.js";
+import { protect, requireAdmin, requireCustomerSession } from "../middlewares/auth.middleware.js";
 import {
   getMyWallet,
   getMyWalletTransactions,
@@ -17,9 +17,9 @@ const router = express.Router();
 // ============================================================================
 // CUSTOMER WALLET ROUTES & TOP-UP
 // ============================================================================
-router.get("/", protect, getMyWallet);
-router.get("/transactions", protect, getMyWalletTransactions);
-router.post("/dev-topup", protect, devQuickTopup);
+router.get("/", protect, requireCustomerSession, getMyWallet);
+router.get("/transactions", protect, requireCustomerSession, getMyWalletTransactions);
+router.post("/dev-topup", protect, requireCustomerSession, devQuickTopup);
 
 // ============================================================================
 // ADMIN WALLET ROUTES (Protected - Admin Only)

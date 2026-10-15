@@ -1,3 +1,4 @@
+import PickupSyncCard from './PickupSyncCard';
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
@@ -9,7 +10,7 @@ export const ProfileTab = () => {
   const [updatingLocation, setUpdatingLocation] = useState(false);
 
   let account = {};
-  try { account = JSON.parse(localStorage.getItem('userProfile') || '{}'); } catch { /* ignore */ }
+  try { account = JSON.parse(localStorage.getItem('sellerUserProfile') || '{}'); } catch { /* ignore */ }
 
   if (profileLoading && !sellerProfile) {
     return (
@@ -65,7 +66,7 @@ export const ProfileTab = () => {
           try {
             const res = await fetch(
               apiUrl(`/api/geo/reverse?lat=${lat}&lng=${lng}&accuracy=${accuracy}`),
-              { headers: { Authorization: 'Bearer ' + localStorage.getItem('userToken') } }
+              { headers: { Authorization: 'Bearer ' + localStorage.getItem('sellerToken') } }
             );
             const body = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -87,7 +88,7 @@ export const ProfileTab = () => {
           if (state) formData.append('state', state);
           if (pincode) formData.append('pincode', pincode);
           
-          const token = localStorage.getItem('userToken');
+          const token = localStorage.getItem('sellerToken');
           
           const res = await fetch(apiUrl('/api/sellers/profile'), {
             method: 'PUT',
@@ -472,6 +473,8 @@ export const ProfileTab = () => {
           </button>
         </div>
       </div>
+
+      <PickupSyncCard key={s._id} seller={s} refreshSeller={fetchSellerProfile} />
 
       {/* 3. LOWER SECTION: SHOP OPERATING HOURS */}
       <div style={{

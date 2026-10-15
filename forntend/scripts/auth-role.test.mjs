@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket, customerSession;
+let vite, Gate, session, delivery, DeliveryRoutes, UserProvider, DeliveryProvider, socket, customerSession, portal;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Gate = (await vite.ssrLoadModule('/src/components/CustomerSessionGate.jsx')).default;
   session = await vite.ssrLoadModule('/src/utils/userSession.js');
+  portal = await vite.ssrLoadModule('/src/utils/portalSession.js');
   customerSession = await vite.ssrLoadModule('/src/utils/customerSession.js');
   delivery = await vite.ssrLoadModule('/src/modules/Delivery/utils/deliveryAuth.js');
   DeliveryRoutes = (await vite.ssrLoadModule('/src/modules/Delivery/routes/index.jsx')).default;
@@ -32,6 +33,39 @@ function harness(Component = Gate, values = { userToken: 'old-token', userProfil
 }
 const identity = (role = 'buyer', id = 'current') => ({ success: true, userType: 'user', sessionRole: role, profile: { _id: id, roles: role === 'delivery' ? ['buyer', 'delivery'] : ['buyer'] } });
 const loginBody = (role = 'delivery', id = 'rider') => ({ success: true, token: `${id}-token`, sessionRole: role, user: { _id: id, name: 'Fixture', roles: role === 'delivery' ? ['buyer', 'delivery'] : ['buyer'] }, deliveryState: { status: 'approved', onboardingStep: 4 } });
+
+test('seller login cannot overwrite customer session or trigger customer verification in either tab', async () => {
+  const h = harness(Gate, { userToken: 'customer-fixture-token' });
+  try {
+    h.requests[0].resolve(identity('buyer', 'customer-fixture')); await h.settle();
+    portal.saveSellerSession({ success: true, token: 'seller-fixture-token', sessionRole: 'seller', user: { _id: 'seller-fixture', roles: ['buyer', 'seller'] } });
+    const changed = new Event('storage'); Object.defineProperty(changed, 'key', { value: 'sellerToken' }); window.dispatchEvent(changed); h.flush();
+    assert.equal(localStorage.getItem('userToken'), 'customer-fixture-token');
+    assert.equal(h.tree.props.value.profile._id, 'customer-fixture'); assert.equal(h.requests.length, 1);
+    window.history.pushState(null, '', '/seller/orders');
+    assert.equal(portal.getPortalToken(), 'seller-fixture-token');
+    window.history.pushState(null, '', '/account'); assert.equal(portal.getPortalToken(), 'customer-fixture-token');
+    session.clearUserSession(); assert.equal(localStorage.getItem('sellerToken'), 'seller-fixture-token');
+  } finally { h.close(); }
+});
+
+test('legacy seller credential in customer storage fails closed rather than showing seller buyer-membership profile', async () => {
+  const h = harness();
+  try {
+    h.requests[0].resolve({ ...identity('seller', 'seller-fixture'), profile: { _id: 'seller-fixture', roles: ['buyer', 'seller'] } });
+    await h.settle(); assert.equal(localStorage.getItem('userToken'), null);
+    assert.match(h.tree.props.children.flat().filter(x => typeof x === 'string').join(' '), /seller session/);
+    assert.equal(h.find(n => n.type === 'main'), undefined);
+  } finally { h.close(); }
+});
+
+test('malformed seller login cannot replace either authenticated principal', () => {
+  const h = harness(() => null, { userToken: 'customer', sellerToken: 'existing-seller' });
+  try {
+    for (const sessionRole of ['buyer', null, 'Seller']) assert.throws(() => portal.saveSellerSession({ success: true, token: 'new', sessionRole, user: { _id: 'fixture', roles: ['seller'] } }));
+    assert.equal(localStorage.getItem('userToken'), 'customer'); assert.equal(localStorage.getItem('sellerToken'), 'existing-seller');
+  } finally { h.close(); }
+});
 
 test('first visitor sees public content immediately with no verification request', () => {
   const h = harness(Gate, {}, '/');

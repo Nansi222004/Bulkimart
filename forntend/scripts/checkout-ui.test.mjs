@@ -199,7 +199,7 @@ test('Quick Commerce is shown separately and still submits without a customer ca
   const { h, calls } = harness({ cartChannel: 'grocery' }); try { await load(h, [group('quick', 'grocery')]); assert.match(text(h.tree), /Quick Commerce delivery/); await placeButton(h).props.onClick(); assert.equal(calls.length, 1); } finally { h.close(); }
 });
 test('seller acceptance and delivery setup remain separate actions', () => {
-  const context = { orders: [{ _id: 'order', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'placed', pricing: { totalAmount: 140 }, items: [{ name: 'Fixture', qty: 1 }], createdAt: new Date().toISOString() }], ordersLoading: false, fetchSellerOrders: noop, selectedTypes: ['ecommerce'], activeMode: 'ecommerce', setActiveMode: noop };
+  const context = { orders: [{ _id: 'order', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'placed', permittedActions: [{ to: 'confirmed', label: 'Accept order' }], pricing: { totalAmount: 140 }, items: [{ name: 'Fixture', qty: 1 }], createdAt: new Date().toISOString() }], ordersLoading: false, fetchSellerOrders: noop, selectedTypes: ['ecommerce'], activeMode: 'ecommerce', setActiveMode: noop };
   const h = hookHarness(OrdersTab, {}, '/seller', context); try { assert.match(text(h.tree), /Accept order/); assert.doesNotMatch(text(h.tree), /Create Shiprocket shipment/); } finally { h.close(); }
 });
 test('an obsolete basket quote cannot replace pricing for a newer address', async () => {
@@ -214,10 +214,10 @@ test('an obsolete basket quote cannot replace pricing for a newer address', asyn
 });
 test('seller reviews the courier estimate and sends its confirmed limit with shipment creation', async () => {
   const calls = [];
-  const context = { orders: [{ _id: 'order', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'preparing', fulfillment: { assignmentPolicy: 'seller_after_acceptance' }, pricing: { totalAmount: 140 }, items: [{ name: 'Fixture', qty: 1 }], createdAt: new Date().toISOString() }],
+  const context = { orders: [{ _id: 'order', orderNo: 'ORD-FIXTURE', channel: 'ecommerce', status: 'preparing', permittedActions: [{ setup: true, label: 'Choose delivery' }], fulfillment: { assignmentPolicy: 'seller_after_acceptance', readyAt: new Date().toISOString() }, pricing: { totalAmount: 140 }, items: [{ name: 'Fixture', qty: 1 }], createdAt: new Date().toISOString() }],
     ordersLoading: false, fetchSellerOrders: noop, selectedTypes: ['ecommerce'], activeMode: 'ecommerce', setActiveMode: noop,
     getFulfillmentOptions: async () => ({ ok: true, data: { manual: { available: false }, shiprocket: { available: true, quote: { courierCharge: 65.25 } } } }),
-    createShiprocketShipment: async (...args) => { calls.push(args); return { ok: true, message: 'Fixture shipment created' }; } };
+    openSellerOrder: noop, createShiprocketShipment: async (...args) => { calls.push(args); return { ok: true, message: 'Fixture shipment created' }; } };
   const h = hookHarness(OrdersTab, {}, '/seller', context);
   try {
     await h.click('Choose delivery'); h.flush(); assert.match(text(h.tree), /customer's checkout delivery charge stays unchanged/);

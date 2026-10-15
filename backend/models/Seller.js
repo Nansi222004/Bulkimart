@@ -113,6 +113,7 @@ const sellerSchema = new Schema(
       logo:        String, // Cloudinary URL
       banner:      String,
       description: String,
+      email:       String,
       address:     String,
       city:        String,
       state:       String,
@@ -191,6 +192,21 @@ const sellerSchema = new Schema(
       shiprocketPickupLocation: { type: String, trim: true },
       enabled: { type: Boolean, default: false },
     },
+    pickupSync: {
+      status: { type: String, enum: ['pending', 'syncing', 'registered', 'needs_attention', 'failed'] },
+      fingerprint: String,
+      locationName: String,
+      providerId: String,
+      attempts: Number,
+      nextAttemptAt: Date,
+      leaseUntil: Date,
+      operationId: String,
+      createStartedAt: Date,
+      registeredAt: Date,
+      lastError: String,
+      verificationMode: String,
+      history: [{ locationName: String, providerId: String, fingerprint: String, createStartedAt: Date, changedAt: Date }],
+    },
 
     // A seller cannot activate Wholesale by submitting salesChannels. The
     // seller requests it, and an administrator changes this status; approval
@@ -251,6 +267,7 @@ const sellerSchema = new Schema(
  * skipping it.
  */
 sellerSchema.index({ "storeDetails.point": "2dsphere" }, { sparse: true });
+sellerSchema.index({ 'pickupSync.status': 1, 'pickupSync.nextAttemptAt': 1 });
 
 // Preserve uniqueness for actual email strings while allowing any number of
 // seller records with no email, null, or an empty value. The explicit name lets

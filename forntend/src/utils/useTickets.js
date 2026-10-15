@@ -1,3 +1,4 @@
+import { getPortalToken } from './portalSession';
 import { useState, useCallback } from 'react';
 import { apiUrl } from './api';
 
@@ -17,7 +18,7 @@ export const useTickets = (defaultRole) => {
   const [error, setError] = useState('');
 
   const authHeaders = useCallback(() => {
-    const token = localStorage.getItem('userToken');
+    const token = getPortalToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 

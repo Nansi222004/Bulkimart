@@ -1,3 +1,4 @@
+import { getPortalToken } from '../utils/portalSession';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { socket } from '../utils/socket';
 import { apiUrl } from '../utils/api';
@@ -33,9 +34,9 @@ const timeLabel = (iso) => {
   return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
 };
 
-const authHeaders = () => ({ Authorization: 'Bearer ' + localStorage.getItem('userToken') });
+const authHeaders = () => ({ Authorization: 'Bearer ' + getPortalToken() });
 
-export const NotificationPopup = ({ onNavigate }) => {
+export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) => {
   const [stack, setStack] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const timers = useRef({});
@@ -48,6 +49,7 @@ export const NotificationPopup = ({ onNavigate }) => {
 
   useEffect(() => {
     const onNew = (payload) => {
+      if (excludeSellerOrders && payload?.event === 'ORDER_CREATED') return;
       const key = payload?._id || `${Date.now()}-${Math.random()}`;
       const entry = { ...payload, key, receivedAt: payload?.createdAt || new Date().toISOString() };
 
@@ -69,7 +71,7 @@ export const NotificationPopup = ({ onNavigate }) => {
       Object.values(timers.current).forEach(clearTimeout);
       timers.current = {};
     };
-  }, [dismiss]);
+  }, [dismiss, excludeSellerOrders]);
 
   const openNotification = async (n) => {
     dismiss(n.key);
@@ -80,7 +82,7 @@ export const NotificationPopup = ({ onNavigate }) => {
         window.dispatchEvent(new CustomEvent('notification_read', { detail: { id: n._id } }));
       }
     }
-    if (n.route && onNavigate) onNavigate(n.route);
+    if (n.route && onNavigate) onNavigate(n.route, n);
   };
 
   const openMedia = (e, n) => {

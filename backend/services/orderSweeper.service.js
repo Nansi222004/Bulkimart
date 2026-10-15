@@ -1,3 +1,4 @@
+import { sweepSellerPickupSync } from './sellerPickupSync.service.js';
 import Order from '../models/Order.js';
 import { cancelOrderAndRestore } from '../controllers/order.controller.js';
 import { processReturnWindowRewards } from './coin.service.js';
@@ -70,6 +71,7 @@ export const startOrderSweeper = () => {
   if (timer) return;
 
   timer = setInterval(() => {
+    sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
     sweepOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
     sweepCoinRewardsOnce().catch((err) => console.error('[COINS SWEEPER] failed:', err.message));
     // Admin Push Notifications Broadcaster — scheduled sends. Same sibling-

@@ -53,6 +53,7 @@ const notificationSchema = new Schema(
     metadata:{
       applicationId: { type: ObjectId, ref: 'ServiceApplication' },
       orderId:        { type: ObjectId, ref: "Order" },
+      sellerId:       { type: ObjectId, ref: 'Seller' },
       subscriptionId: { type: ObjectId, ref: "Subscription" },
       productId:      { type: ObjectId, ref: "Product" },
       campaignId:     { type: ObjectId, ref: "Campaign" },

@@ -1,150 +1,54 @@
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
-
-const TYPE_ICON = { order: '📦', delivery: '⚠', promotion: '🎉', system: '✓' };
+import { orderReference } from './SellerOrderAlerts';
 
 export const NotificationDrawer = ({ isOpen, onClose }) => {
-  const { triggerToast } = useSeller();
-
-  // Backed by the real GET /api/notifications API — the DB is the source of
-  // truth, not local state (a page refresh must still show the same list).
-  const {
-    notifications: rawNotifications, unreadCount, markRead, markAllRead, removeNotification,
-  } = useNotifications({ autoFetch: isOpen });
-
-  const visibleNotifications = rawNotifications.filter((n) => !['subscription', 'membership'].includes(n.type));
-  const notifications = visibleNotifications.map((n) => ({
-    id: n._id, type: n.type, title: n.title, desc: n.message, unread: !n.isRead,
-    // Only ever set on an Admin broadcast — absent on every event-driven
-    // notification, exactly as before this field existed.
-    media: n.media,
-    time: new Date(n.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-  }));
-
-  const handleMarkAllRead = () => {
-    markAllRead();
-    triggerToast('All notifications marked as read.');
-  };
-
-  const handleClearAll = () => {
-    rawNotifications.forEach((n) => removeNotification(n._id));
-    triggerToast('Notifications cleared.');
-  };
-
-  const handleToggleRead = (id) => {
-    const n = rawNotifications.find((x) => x._id === id);
-    if (n && !n.isRead) markRead(id);
-  };
-
+  const { triggerToast, openSellerOrder, setActiveTab } = useSeller();
+  const { notifications, markRead, markAllRead, removeNotification } = useNotifications({ autoFetch: isOpen });
   const [lightbox, setLightbox] = useState(null);
-
+  const [opening, setOpening] = useState(false);
   if (!isOpen) return null;
-
-  return (
-    <div className="seller-modal-overlay" style={{ zIndex: 100 }}>
-      <div className="seller-modal-sheet" style={{ maxHeight: '90%', animation: 'slideUp 0.3s ease-out' }}>
-        
-        {/* Header */}
-        <div className="modal-sheet-header">
-          <h3 className="modal-sheet-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            🔔 Notifications
-            {notifications.filter(n => n.unread).length > 0 && (
-              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, backgroundColor: 'var(--error)', color: '#ffffff' }}>
-                {notifications.filter(n => n.unread).length} New
-              </span>
-            )}
-          </h3>
-          <button className="modal-close-btn" onClick={onClose}>✕</button>
-        </div>
-
-        {/* Action Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-          <button 
-            style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
-            onClick={handleMarkAllRead}
-            disabled={notifications.length === 0}
-          >
-            Mark all read
-          </button>
-          <button 
-            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            onClick={handleClearAll}
-            disabled={notifications.length === 0}
-          >
-            Clear all
-          </button>
-        </div>
-
-        {/* Notification List Scroll box */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: 12 }}>
-          {notifications.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-              <span style={{ fontSize: 24, display: 'block', marginBottom: 8 }}>📭</span>
-              <p style={{ margin: 0, fontSize: 12 }}>No notifications found</p>
-            </div>
-          ) : (
-            notifications.map(n => (
-              <div
-                key={n.id}
-                className="review-summary-card"
-                style={{
-                  margin: '0 0 10px 0',
-                  padding: 12,
-                  backgroundColor: n.unread ? 'var(--primary-light)' : '#ffffff',
-                  borderColor: n.unread ? 'var(--primary)' : 'var(--border-color)',
-                  cursor: 'pointer',
-                  // WhatsApp-style read/unread contrast — same info, lower visual weight once read.
-                  opacity: n.unread ? 1 : 0.72,
-                }}
-                onClick={() => handleToggleRead(n.id)}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 16 }}>
-                      {n.type === 'broadcast' ? '📢' : n.type === 'order' ? '📦' : n.type === 'stock' ? '⚠' : n.type === 'payout' ? '💰' : '✓'}
-                    </span>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: 12, fontWeight: n.unread ? 800 : 700, color: 'var(--text-primary)' }}>{n.title}</h4>
-                      <p style={{ margin: '4px 0 0 0', fontSize: 10.5, color: 'var(--text-secondary)' }}>{n.desc}</p>
-                      {/* Only ever set on an Admin broadcast — absent on every
-                          event-driven notification, exactly as before this
-                          field existed. */}
-                      {n.media?.url && (
-                        <img
-                          src={n.media.url} alt=""
-                          style={{ display: 'block', width: '100%', maxWidth: 200, maxHeight: 110, objectFit: 'cover', borderRadius: 8, marginTop: 8, cursor: 'zoom-in' }}
-                          onClick={(e) => { e.stopPropagation(); setLightbox(n.media.url); }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700 }}>{n.time}</span>
-                    {n.unread && <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--error)' }} />}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
+  const visible = notifications.filter(n => !['subscription', 'membership'].includes(n.type));
+  const open = async notification => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      onClose();
+      const id = orderReference(notification);
+      if (id) await openSellerOrder(id, notification.isRead ? undefined : notification._id);
+      else {
+        if (!notification.isRead) await markRead(notification._id);
+        const route = notification.route || '';
+        const tab = route.startsWith('/seller/') ? route.split('/')[2].split('?')[0] : route === '/orders' ? 'orders' : null;
+        if (['orders', 'services', 'products', 'stock', 'support', 'promotions', 'item-returns', 'dashboard', 'earnings', 'paymenthistory', 'moneyrequest'].includes(tab)) setActiveTab(tab);
+        else if (notification.type === 'order') triggerToast('This order notification has no valid order reference. Open Orders to review.');
+      }
+    } finally { setOpening(false); }
+  };
+  return <div className="seller-modal-overlay" style={{ zIndex: 100 }} role="dialog" aria-modal="true" aria-label="Notifications">
+    <div className="seller-modal-sheet">
+      <div className="modal-sheet-header"><h3>Notifications</h3><button type="button" aria-label="Close notifications" onClick={onClose}>✕</button></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <button type="button" onClick={markAllRead}>Mark all read</button>
+        <button type="button" onClick={() => visible.forEach(n => removeNotification(n._id))}>Clear all</button>
       </div>
-
-      {lightbox && (
-        <div
-          onClick={() => setLightbox(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-        >
-          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
-          <button
-            type="button" onClick={() => setLightbox(null)} aria-label="Close"
-            style={{ position: 'absolute', top: 18, right: 18, border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', width: 36, height: 36, borderRadius: '50%', fontSize: 16, cursor: 'pointer' }}
-          >✕</button>
-        </div>
-      )}
+      <div style={{ overflowY: 'auto' }}>
+        {!visible.length && <p>No notifications found</p>}
+        {visible.map(n => <article key={n._id} className="seller-notification-row">
+          <button type="button" className="seller-notification-open" disabled={opening} onClick={() => open(n)}>
+            <strong>{!n.isRead && '● '}{n.title}</strong><span>{n.message}</span>
+            <small>{new Date(n.createdAt).toLocaleDateString('en-IN')}</small>
+          </button>
+          {n.media?.url && <button type="button" className="seller-notification-media" onClick={() => setLightbox(n.media.url)} aria-label="Preview notification image"><img src={n.media.url} alt="" /></button>}
+          <button type="button" aria-label="Dismiss notification" onClick={event => { event.stopPropagation(); removeNotification(n._id); }}>✕</button>
+        </article>)}
+      </div>
     </div>
-  );
+    {lightbox && <div className="seller-modal-overlay" style={{ zIndex: 101 }}>
+      <img src={lightbox} alt="Notification image" style={{ maxWidth: '90%', maxHeight: '80vh' }} />
+      <button type="button" aria-label="Close image" onClick={() => setLightbox(null)}>✕</button>
+    </div>}
+  </div>;
 };
-
 export default NotificationDrawer;

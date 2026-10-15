@@ -1,3 +1,7 @@
+import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
+import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
+import Delivery from '../models/Delivery.js';
+import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
@@ -29,6 +33,11 @@ const notifyAdmins = async (title, message) => {
 // @desc    Start seller onboarding
 // @route   POST /api/sellers/start
 // @access  Private
+const queuePickupSafely = async seller => {
+  try { const state = await queueSellerPickupSync(seller._id); if (state) seller.pickupSync = state; }
+  catch { console.warn('[PICKUP SYNC] Scheduling unavailable; retry from the seller profile.'); }
+};
+
 export const startOnboarding = asyncHandler(async (req, res) => {
   const hasChannelSelection = Object.prototype.hasOwnProperty.call(req.body || {}, 'salesChannels');
   let requestedChannels;
@@ -146,6 +155,7 @@ export const submitStep1 = asyncHandler(async (req, res) => {
   }
 
   await seller.save();
+  await queuePickupSafely(seller);
   res.status(200).json({ success: true, seller });
 });
 
@@ -283,6 +293,7 @@ export const submitApplication = asyncHandler(async (req, res) => {
 
   seller.status = 'pending';
   await seller.save();
+  await queuePickupSafely(seller);
 
   await notifyAdmins('New Seller Onboarding Application', `Seller "${seller.businessName}" has submitted KYC for approval.`);
 
@@ -332,7 +343,7 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
     throw new Error('Seller profile not found');
   }
 
-  const { name, description, address, phone, lat, lng, city, state, pincode, sameDay } = req.body;
+  const { name, description, address, phone, lat, lng, city, state, pincode, sameDay, email } = req.body;
 
   /**
    * The shop's Same-Day hours and reach.
@@ -353,6 +364,7 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
   if (description) seller.storeDetails.description = description;
   if (address) seller.storeDetails.address = address;
   if (phone) seller.storeDetails.phone = phone;
+  if (email !== undefined) seller.storeDetails.email = String(email).trim();
   if (city) seller.storeDetails.city = city;
   if (state) seller.storeDetails.state = state;
   if (pincode) seller.storeDetails.pincode = pincode;
@@ -376,6 +388,7 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
   }
 
   await seller.save();
+  await queuePickupSafely(seller);
 
   // Keep every one of this seller's products' denormalized `sellerName` in
   // sync — see Product.js's field comment. A no-op query (matches nothing)
@@ -618,6 +631,10 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const filter = { 'items.sellerId': seller._id };
+  if (req.params.id) {
+    if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid order reference');
+    filter._id = req.params.id;
+  }
   if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
   if (CHANNELS.includes(req.query.type)) filter.type = req.query.type;
 
@@ -645,12 +662,22 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
    * Contact detail: the seller needs a name and a delivery address to pack and
    * hand over the parcel, so those stay. Nothing else about the shopper does.
    */
+  const deliveryIds = orders.map(o => o.deliveryId).filter(Boolean);
+  const deliveries = deliveryIds.length ? await Delivery.find({ _id: { $in: deliveryIds } }).populate({ path: 'partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } }).lean() : [];
+  const deliveryMap = new Map(deliveries.map(d => [String(d._id), d]));
   const rows = orders.map((o) => {
     const mine = (o.items || []).filter((i) => String(i.sellerId) === String(seller._id));
     const subtotal = mine.reduce((sum, i) => sum + (i.price || 0) * (i.qty || 0), 0);
 
     return {
       _id: o._id,
+      version: o.__v,
+      permittedActions: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? sellerOrderActions(o, o.paymentMethod === 'cod' || payments.get(String(o.paymentId))?.status === 'paid') : [],
+      displayStatus: o.deliveryType !== 'shiprocket' && o.status === 'dispatched' ? (o.deliveryPartnerId ? 'Delivery assigned' : 'Awaiting rider acceptance') : o.status === 'preparing' && o.fulfillment?.readyAt ? 'Ready for pickup' : o.status,
+      pricing: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? o.pricing : undefined,
+      store: { name: seller.storeDetails?.name || seller.businessName, pickupAddress: seller.storeDetails, pickupLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation, pickupEnabled: seller.thirdPartyFulfillment?.enabled },
+      cancellationReason: o.cancelReason || o.vendorDecision?.reason,
+      deliveryAssignment: (() => { const d = deliveryMap.get(String(o.deliveryId)); return d && String(d.orderId) === String(o._id) ? { status: d.status, assignedAt: d.createdAt, completedAt: d.endTime, otpVerified: d.otpVerified, rider: { name: d.partnerId?.userId?.name, phone: d.partnerId?.userId?.phone }, timeline: d.timeline } : null; })(),
       orderNo: o.orderNo,
       channel: o.type,
       status: o.status,
@@ -659,7 +686,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       vendorDecision: o.vendorDecision || { status: 'pending' },
       placedAt: o.createdAt,
       items: mine.map((i) => ({
-        productId: i.productId,
+        productId: i.productId, sku: i.sku, variantName: i.variantName, variantAttributes: i.variantAttributes, unit: i.unitSnapshot,
         name: i.name,
         image: i.image,
         qty: i.qty,
@@ -697,6 +724,10 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
     };
   });
 
+  if (req.params.id) {
+    if (!rows.length) throw httpError(404, 'Order unavailable');
+    return res.status(200).json({ success: true, data: rows[0] });
+  }
   res.status(200).json({
     success: true,
     data: rows,
@@ -735,10 +766,23 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     throw new Error('You do not have permission to update this order');
   }
 
+  if (!order.items.every(item => String(item.sellerId) === String(seller._id))) throw httpError(409, 'Multi-store order changes require platform support');
+  if (req.body.version !== undefined && req.body.version !== order.__v) throw httpError(409, 'The order changed. Refresh before acting.');
+  if (status === 'ready_for_pickup') {
+    if (order.status !== 'preparing' || order.vendorDecision?.status !== 'accepted' || shipmentLocked(order) || order.deliveryId) throw httpError(409, 'Only an accepted, preparing order can be marked ready');
+    const payment = order.paymentId ? await Payment.findById(order.paymentId).select('status') : null;
+    if (order.paymentMethod !== 'cod' && payment?.status !== 'paid') throw httpError(409, 'Payment is not verified');
+    if (order.fulfillment?.readyAt) return res.json({ success: true, data: order, message: 'Parcel already ready for pickup' });
+    const updated = await Order.findOneAndUpdate({ _id: order._id, status: 'preparing', __v: order.__v, 'shiprocket.orderId': null, 'shiprocket.shipmentId': null, 'shiprocket.status': { $nin: ['creating', 'assigning', 'reconciliation_required'] }, deliveryId: null }, { $set: { 'fulfillment.readyAt': new Date() }, $inc: { __v: 1 }, $push: { timeline: { status: 'preparing', timestamp: new Date(), note: 'Seller marked the parcel ready for pickup' } } }, { returnDocument: 'after' });
+    if (!updated) throw httpError(409, 'Order changed. Refresh before acting.');
+    return res.json({ success: true, data: updated, message: 'Ready for pickup. Choose delivery.' });
+  }
+  if (status === 'cancelled' && (shipmentLocked(order) || order.deliveryId || order.deliveryPartnerId)) throw httpError(409, 'Delivery assignment or shipment exists. Contact support to cancel safely.');
+  if (status === 'preparing' && order.vendorDecision?.status !== 'accepted') throw httpError(409, 'Accept this order first');
   const currentStatus = order.status;
   // Include the state and courier lock in save's atomic predicate, so a stale
   // seller action cannot race shipment setup or overwrite a cancellation.
-  order.$where = { status: currentStatus, 'shiprocket.status': { $nin: ['creating', 'assigning', 'reconciliation_required'] } };
+  order.$where = { status: currentStatus, ...(req.body.version !== undefined ? { __v: order.__v } : {}), 'shiprocket.status': { $nin: ['creating', 'assigning', 'reconciliation_required'] } };
   const saveOrderState = async () => {
     try { await order.save(); }
     catch (error) {
@@ -871,8 +915,9 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    */
   const goesByCourier = order.deliveryType === 'shiprocket';
   if (goesByCourier && status === ORDER_STATUS.DISPATCHED) {
-    const courier = (req.body.courier || order.shiprocket?.courier || '').trim();
-    const awb = (req.body.awb || order.shiprocket?.awb || '').trim();
+    if (order.fulfillment?.assignmentPolicy && (!order.shiprocket?.orderId || !order.shiprocket?.shipmentId || !order.shiprocket?.awb || !order.shiprocket?.courier)) throw httpError(409, 'A confirmed provider shipment is required before hand-off');
+    const courier = (order.fulfillment?.assignmentPolicy ? order.shiprocket?.courier : req.body.courier || order.shiprocket?.courier || '').trim();
+    const awb = (order.fulfillment?.assignmentPolicy ? order.shiprocket?.awb : req.body.awb || order.shiprocket?.awb || '').trim();
 
     if (!courier || !awb) {
       res.status(400);
@@ -883,8 +928,8 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
       ...(order.shiprocket?.toObject?.() || order.shiprocket || {}),
       courier,
       awb,
-      trackingUrl: (req.body.trackingUrl || '').trim() || undefined,
-      status: 'dispatched',
+      trackingUrl: order.fulfillment?.assignmentPolicy ? order.shiprocket?.trackingUrl : (req.body.trackingUrl || order.shiprocket?.trackingUrl || '').trim() || undefined,
+      status: order.fulfillment?.assignmentPolicy ? order.shiprocket?.status : 'dispatched',
     };
   }
 

@@ -106,6 +106,7 @@ try {
             return;
           }
           let body = fixture(request.url), status = 200;
+          if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer seller-browser-fixture-token')) body = { success: true, userType: 'user', sessionRole: 'seller', profile: { _id: 'seller-account-fixture', roles: ['buyer', 'seller'] } };
           if (new URL(request.url).pathname === '/api/auth/me' && startupOnly) {
             authRequests++;
             await pause(1800);
@@ -121,7 +122,7 @@ try {
     }
   };
   await command('Page.enable'); await command('Runtime.enable'); await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
-  await command('Page.addScriptToEvaluateOnNewDocument', { source: livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');} else {localStorage.setItem('userToken','browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
+  await command('Page.addScriptToEvaluateOnNewDocument', { source: livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');localStorage.removeItem('sellerToken');localStorage.removeItem('sellerUserProfile');} else {localStorage.setItem('sellerToken','seller-browser-fixture-token');localStorage.setItem('userToken','browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
   const selectedWidth = Number(process.argv.find(arg => arg.startsWith('--width='))?.split('=')[1]);
   const widths = selectedWidth ? [selectedWidth] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
   for (const width of widths) {
@@ -168,6 +169,20 @@ try {
         await waitFor(`!!document.querySelector('.auth-otp-input')`);
       }
       await pause(100);
+      if (sellerOnly && !path.includes('guest')) {
+        await waitFor(`!!document.querySelector('.seller-main-content .seller-push-control button')`);
+        const pushLayout = await evaluate(`(() => {
+          const control = document.querySelector('.seller-push-control');
+          const button = control.querySelector('button');
+          const rect = button.getBoundingClientRect();
+          const main = document.querySelector('.seller-main-content').getBoundingClientRect();
+          return { height: rect.height, width: rect.width, left: rect.left, right: rect.right, mainLeft: main.left, mainRight: main.right, flex: getComputedStyle(button).flexGrow };
+        })()`);
+        assert.ok(pushLayout.height >= 36 && pushLayout.height <= 48, `Compact push button height: ${JSON.stringify(pushLayout)}`);
+        assert.ok(pushLayout.width <= 270, 'Push button must not expand to fill the main area');
+        assert.ok(pushLayout.left >= pushLayout.mainLeft && pushLayout.right <= Math.min(width, pushLayout.mainRight), 'Push control stays inside main content, beside no sidebar');
+        assert.equal(pushLayout.flex, '0');
+      }
       const measure = await evaluate(`(() => {
         const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
         const controls = [...document.querySelectorAll('input,select,textarea')].filter(el => visible(el) && !['radio','checkbox','hidden','range','button','submit','reset','color'].includes(el.type));

@@ -24,7 +24,7 @@ export const SellerCampaignsTab = () => {
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
 
-  const token = () => localStorage.getItem('userToken');
+  const token = () => localStorage.getItem('sellerToken');
 
   const fetchCampaigns = async () => {
     setLoading(true);

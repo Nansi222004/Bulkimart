@@ -5,7 +5,7 @@ import { useSeller } from '../context/SellerContext';
 /**
  * Seller — Returns: read-only visibility into returns on this seller's own products.
  */
-const token = () => localStorage.getItem('userToken');
+const token = () => localStorage.getItem('sellerToken');
 const authHeaders = () => ({ Authorization: 'Bearer ' + token() });
 
 const PICKUP_LABEL = {

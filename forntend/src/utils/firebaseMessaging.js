@@ -1,3 +1,4 @@
+import { getPortalToken, portalScope, pushTokenKey } from './portalSession';
 // firebaseMessaging.js — the frontend half of push notifications.
 //
 // Push is an enhancement, never a dependency: every function here is
@@ -7,6 +8,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { apiUrl } from './api';
+import { createPushRegistration } from './pushRegistration';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,7 +21,7 @@ const firebaseConfig = {
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY;
 const hasFirebaseWebConfig = Object.values(firebaseConfig).every(Boolean);
-const PUSH_TOKEN_KEY = 'nhcone_fcm_token';
+
 
 let appInstance = null;
 const getFirebaseApp = () => {
@@ -38,86 +40,94 @@ const getMessagingInstance = async () => {
   return messagingInstance;
 };
 
-export const registerTokenWithBackend = async (token) => {
-  const authToken = localStorage.getItem('userToken');
+export const registerTokenWithBackend = async (token, authToken = getPortalToken(), { signal, isCurrent = () => true, scope = portalScope() } = {}) => {
   if (!authToken || !token) return;
   try {
     const response = await fetch(apiUrl('/api/notifications/tokens'), {
-      method: 'POST',
+      method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ token, platform: 'web' }),
     });
     if (!response.ok) throw new Error('Backend rejected the push token');
-    localStorage.setItem(PUSH_TOKEN_KEY, token);
-  } catch (err) {
-    console.error('[PUSH] token registration failed (non-fatal):', err.message);
+    if (!isCurrent() || authToken !== getPortalToken(scope)) {
+      await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), { method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` } }).catch(() => {});
+      return false;
+    }
+    localStorage.setItem(pushTokenKey(scope), token);
+    return true;
+  } catch {
+    console.error('[PUSH] token registration failed (non-fatal)');
   }
 };
 
 /**
- * Registers the FCM service worker, requests permission if not already
- * decided, obtains a device token and saves it to the backend. Call once
- * per authenticated session (e.g. right after login) — it no-ops on repeat
- * calls within the same page load via `initialized`, so mounting effects
- * that re-run don't re-prompt or re-register.
+ * Restore a granted push subscription without prompting. Only an explicit
+ * user action may pass requestPermission=true. Registrations are scoped to
+ * the current authenticated session, including account switches.
  */
-let initialized = false;
-export const initPushNotifications = async () => {
-  if (initialized) return;
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return;
-  if (!VAPID_KEY || !hasFirebaseWebConfig) return; // not configured — silently skip
-  initialized = true;
+const registrations = new Map();
+const getRegistration = (scope) => {
+if (!registrations.has(scope)) registrations.set(scope, createPushRegistration({
+  getSession: () => typeof localStorage === 'undefined' ? null : getPortalToken(scope),
+  perform: async ({ requestPermission = false } = {}, { session: authToken, signal, isCurrent }) => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return { status: 'unsupported' };
+    if (Notification.permission === 'denied') return { status: 'denied' };
+    if (!VAPID_KEY || !hasFirebaseWebConfig) return { status: 'unconfigured' };
+    if (!authToken) return { status: 'unauthenticated' };
+    if (Notification.permission === 'default' && !requestPermission) return { status: 'prompt_required' };
 
-  try {
-    if (Notification.permission === 'denied') return; // never re-prompt
-
-    let permission = Notification.permission;
-    if (permission === 'default') {
-      permission = await Notification.requestPermission();
+    try {
+      const permission = Notification.permission === 'default'
+        ? await Notification.requestPermission() : Notification.permission;
+      if (permission !== 'granted') return { status: permission };
+      if (!isCurrent()) return { status: 'session_changed' };
+      let worker;
+      try {
+        worker = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${new URLSearchParams(firebaseConfig)}`);
+      } catch (error) { return { status: 'worker_registration_failed', code: error.name }; }
+      if (!isCurrent()) return { status: 'session_changed' };
+      const messaging = await getMessagingInstance();
+      if (!messaging) return { status: 'unsupported' };
+      if (!isCurrent()) return { status: 'session_changed' };
+      const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: worker });
+      if (!isCurrent()) return { status: 'session_changed' };
+      if (!token) return { status: 'unavailable' };
+      if (!await registerTokenWithBackend(token, authToken, { signal, isCurrent, scope })) return { status: 'registration_failed' };
+      return isCurrent() ? token : { status: 'session_changed' };
+    } catch (error) {
+      return { status: 'unavailable', code: typeof error.code === 'string' && /^[a-z\d/_-]{1,100}$/i.test(error.code) ? error.code : error.name };
     }
-    if (permission !== 'granted') return;
-
-    const workerParams = new URLSearchParams(firebaseConfig);
-    const registration = await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${workerParams}`);
-    const messaging = await getMessagingInstance();
-    if (!messaging) return;
-
-    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
-    if (!token) return;
-
-    await registerTokenWithBackend(token);
-    return token;
-  } catch (err) {
-    console.error('[PUSH] initialization failed (non-fatal):', err.message);
-  }
+  },
+}));
+return registrations.get(scope);
+};
+export const initPushNotifications = options => {
+  const registration = getRegistration(portalScope());
+  if (typeof Notification !== 'undefined' && Notification.permission === 'denied') registration.reset();
+  return registration.run(options);
 };
 
-/** Call on logout — deactivates this device's token server-side, clears the local record. */
+/** Deactivate this device on logout and invalidate any pending registration. */
 export const deregisterPushToken = async () => {
-  const authToken = localStorage.getItem('userToken');
-  const token = localStorage.getItem(PUSH_TOKEN_KEY);
+  const scope = portalScope();
+  getRegistration(scope).reset();
+  const authToken = getPortalToken(scope);
+  const token = localStorage.getItem(pushTokenKey(scope));
   if (!authToken || !token) return;
   try {
     const response = await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${authToken}` },
+      method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` },
     });
     if (!response.ok) throw new Error('Backend rejected push-token removal');
-  } catch (err) {
-    console.error('[PUSH] token removal failed (non-fatal):', err.message);
-  } finally {
-    localStorage.removeItem(PUSH_TOKEN_KEY);
-    initialized = false;
-  }
+  } catch {
+    console.error('[PUSH] token removal failed (non-fatal)');
+  } finally { localStorage.removeItem(pushTokenKey(scope)); }
 };
 
-/**
- * Foreground messages only — the DB notification already exists by the time
- * this fires (the backend persists before it pushes), so the callback must
- * only update UI (toast / unread count), never create another record.
- */
-export const onForegroundMessage = async (callback) => {
+/** Foreground pushes update UI only; notification persistence is server-side. */
+export const onForegroundMessage = async callback => {
+  if (!hasFirebaseWebConfig) return () => {};
   const messaging = await getMessagingInstance();
   if (!messaging) return () => {};
-  return onMessage(messaging, (payload) => callback(payload));
+  return onMessage(messaging, payload => callback(payload));
 };

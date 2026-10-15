@@ -148,7 +148,7 @@ export const ProductModal = () => {
     (async () => {
       try {
         const res = await fetch(apiUrl(`/api/products/category-return-policy?categoryId=${effectiveCategoryId}`), {
-          headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('sellerToken')}` },
         });
         const body = await res.json();
         if (!cancelled) setCatReturnPolicy(res.ok ? body.data : null);
@@ -278,7 +278,7 @@ export const ProductModal = () => {
       const response = await fetch(apiUrl(`/api/products/${editingProductId}/wholesale-pricing`), {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('userToken')}`,
+          Authorization: `Bearer ${localStorage.getItem('sellerToken')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ variants: configured }),

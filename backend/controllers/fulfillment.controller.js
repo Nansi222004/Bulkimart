@@ -8,8 +8,9 @@ import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
 import crypto from 'crypto';
 import { distanceKm } from '../utils/geo.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
+import { pickupReadyForShipping, pickupStatus, pickupDefinition } from '../services/sellerPickupSync.service.js';
 import {
-  getShiprocketCapabilities, checkServiceability, createShiprocketOrder,
+  getShiprocketCapabilities, verifyPickupLocation, checkServiceability, createShiprocketOrder,
   assignCourier, generateLabel, schedulePickup,
 } from '../services/shiprocket.service.js';
 import { calculateOptionB, getQuickCommerceConfig } from '../services/quickCommerceFinance.service.js';
@@ -48,24 +49,42 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   const pickup = seller.storeDetails || {};
   const drop = order.shippingAddress || {};
   const packageWeightKg = totalWeightKg(order);
-  const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).lean();
+  const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).populate('userId', 'name phone isActive').lean();
+  const eligibleRiders = [];
   let manualRiderCount = 0;
   for (const rider of onlineRiders) {
+    if (!rider.userId?.isActive) continue;
     const zones = rider.zones || [];
-    if (zones.length && !zones.includes(pickup.pincode) && !zones.includes(drop.pincode)) continue;
+    const origin = rider.baseLocation?.point?.coordinates?.length === 2
+      ? { lat: rider.baseLocation.point.coordinates[1], lng: rider.baseLocation.point.coordinates[0] } : rider.baseLocation;
+    const pickupDistance = distanceKm(origin, pickup);
+    // E-commerce offers use the bounded geo search; Quick has existing zone/
+    // general on-duty fallbacks. This list never reserves or assigns a rider.
+    if (order.type === CHANNEL.ECOM && (pickupDistance === undefined || pickupDistance > ((Number(process.env.PICKUP_RADIUS_METERS) || 5000) * 3 / 1000))) continue;
+    if (order.type !== CHANNEL.ECOM && zones.length && !zones.includes(pickup.pincode) && !zones.includes(drop.pincode)) continue;
     if (rider.deliveryRadiusKm != null) {
       const origin = rider.currentLocation?.lat !== undefined ? rider.currentLocation : rider.baseLocation;
       const pickupDistance = distanceKm(origin, pickup);
       if (pickupDistance !== undefined && pickupDistance > rider.deliveryRadiusKm) continue;
     }
-    if ((await canTakeAnother(rider._id)).ok) manualRiderCount += 1;
+    if ((await canTakeAnother(rider._id)).ok) {
+      manualRiderCount += 1;
+      eligibleRiders.push({ name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? `••••••${String(rider.userId.phone).slice(-4)}` : null, availability: 'On duty, capacity available' });
+    }
   }
-  const prepared = order.status === ORDER_STATUS.PREPARING;
+  const prepared = order.status === ORDER_STATUS.PREPARING && Boolean(order.fulfillment?.readyAt || order.fulfillment?.method || !order.fulfillment?.assignmentPolicy);
   const shipmentLocked = Boolean(order.shiprocket?.orderId || order.shiprocket?.shipmentId
     || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status));
   const accepted = order.vendorDecision?.status === 'accepted';
   const paymentVerified = await paymentIsReady(order);
-  const pickupLinked = Boolean(seller.thirdPartyFulfillment?.enabled && seller.thirdPartyFulfillment?.shiprocketPickupLocation);
+  const syncReady = pickupReadyForShipping(seller, req.user);
+  const pickupLinked = Boolean(syncReady && seller.thirdPartyFulfillment?.enabled && seller.thirdPartyFulfillment?.shiprocketPickupLocation);
+  let verifiedPickup = null;
+  let pickupError = null;
+  if (capabilities.configured && pickupLinked) {
+    try { verifiedPickup = await verifyPickupLocation(seller.thirdPartyFulfillment.shiprocketPickupLocation, pickup, seller.pickupSync?.status ? { payload: pickupDefinition(seller, req.user).payload, providerId: seller.pickupSync.providerId } : undefined); }
+    catch { pickupError = 'Could not verify the registered pickup with Shiprocket. Retry later.'; }
+  }
   const addressReady = Boolean(pickup.pincode && drop.pincode && drop.phone);
 
   const courierChannelAllowed = order.delivery?.mode !== 'same_day' && (order.type === CHANNEL.ECOM
@@ -78,7 +97,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   );
   let providerQuote = null;
   let providerFailure = null;
-  if (capabilities.configured && pickupLinked && addressReady && packageWeightKg && courierChannelAllowed) {
+  if (capabilities.configured && pickupLinked && verifiedPickup && addressReady && packageWeightKg && courierChannelAllowed) {
     try {
       const serviceability = await checkServiceability({
         pickupPostcode: pickup.pincode, deliveryPostcode: drop.pincode,
@@ -120,16 +139,22 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
     orderId: order._id,
     channel: order.type,
     stateReady: accepted && prepared && paymentVerified,
+    pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, pincode: pickup.pincode, phone: pickup.phone, registeredLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation },
+    destination: order.shippingAddress,
     manual: {
       available: accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked,
       eligibleRiderCount: manualRiderCount,
-      reason: shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No approved, available delivery partners are currently online',
+      assignmentMode: 'rider_acceptance',
+      riders: eligibleRiders.slice(0, 30),
+      reason: shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No eligible, approved on-duty delivery partners currently have capacity. Refresh availability to retry.',
     },
     shiprocket: {
       available: Boolean(order.type === CHANNEL.ECOM && order.delivery?.mode !== 'same_day' && shiprocketEligible && accepted && prepared && paymentVerified
         && !['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)),
       configured: capabilities.configured,
       pickupLinked,
+      pickupSync: pickupStatus(seller),
+      verifiedPickup,
       packageWeightKg,
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
@@ -137,7 +162,10 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
         : order.type === CHANNEL.GROCERY ? 'Quick Commerce third-party shipping remains disabled pending policy approvals and reconciliation verification'
         : order.delivery?.mode === 'same_day' ? 'Same-Day requires Bulkimart delivery'
         : !capabilities.configured ? 'Shiprocket is not configured'
+        : !syncReady ? pickupStatus(seller).message || 'Pickup synchronization is pending. Check the store profile.'
+        : !seller.thirdPartyFulfillment?.enabled ? 'Shiprocket delivery requires platform approval; pickup registration does not grant approval.'
         : !pickupLinked ? 'This vendor has no registered Shiprocket pickup location'
+          : !verifiedPickup ? pickupError || 'Pickup location is not eligible in Shiprocket. Contact platform support to register/link the store pickup address.'
           : !packageWeightKg ? 'Every item requires a package weight'
             : order.type === CHANNEL.GROCERY && !quickFeeRuleConfigured ? 'Quick Commerce third-party service fee is not configured'
               : order.type === CHANNEL.GROCERY && !quickConfigState?.activationReady ? `Activation blocked: ${quickConfigState?.blockers?.join('; ')}`
@@ -157,39 +185,49 @@ const activeShipmentStates = ['creating', 'assigning', 'reconciliation_required'
 
 export const selectManualFulfillment = asyncHandler(async (req, res) => {
   const { order } = await sellerAndOrder(req);
+  if (req.body?.riderId || req.body?.partnerId) throw httpError(400, 'Riders accept eligible offers; sellers cannot choose a rider');
+  if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) {
     throw httpError(409, 'Accept and prepare the order before selecting manual delivery');
   }
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
+  if (order.fulfillment?.method === 'manual' && !order.deliveryId) return ok(res, { deliveryType: order.deliveryType, fulfillment: order.fulfillment }, 'Manual delivery already selected');
   const updated = await Order.findOneAndUpdate({
     _id: order._id, status: ORDER_STATUS.PREPARING, 'vendorDecision.status': 'accepted',
+    __v: order.__v, 'fulfillment.method': order.fulfillment?.method || null,
     'shiprocket.orderId': null, 'shiprocket.shipmentId': null,
     'shiprocket.status': { $nin: activeShipmentStates }, deliveryId: null,
   }, { $set: {
     deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': 'seller',
     'fulfillment.selectedAt': new Date(), 'fulfillment.chargeStatus': 'not_applicable',
-  } }, { returnDocument: 'after', runValidators: true });
+  }, $push: { timeline: { status: order.status, timestamp: new Date(), note: 'Seller selected manual delivery; riders accept after the parcel is offered' } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
   if (!updated) throw httpError(409, 'Order changed or a courier shipment is already being set up. Refresh before choosing delivery.');
   return ok(res, { deliveryType: updated.deliveryType, fulfillment: updated.fulfillment }, 'Manual Bulkimart delivery selected');
 });
 
 export const createShiprocketShipment = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
+  if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (req.body?.confirm !== true) throw httpError(400, 'Vendor confirmation is required before shipment creation');
   if (order.type !== CHANNEL.ECOM) throw httpError(409, 'Quick Commerce third-party shipment creation remains disabled pending policy approvals and live reconciliation verification');
   if (order.delivery?.mode === 'same_day') throw httpError(409, 'Same-Day delivery requires Bulkimart delivery; it cannot be switched to a standard courier.');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) throw httpError(409, 'Accept and prepare the order before creating a shipment');
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
   if (order.shiprocket?.awb) return ok(res, { shiprocket: order.shiprocket, fulfillment: order.fulfillment }, 'Shipment already created');
+  if (!pickupReadyForShipping(seller, req.user)) throw httpError(409, 'Current store pickup is not synchronized. Check and retry pickup registration in the store profile.');
   if (activeShipmentStates.includes(order.shiprocket?.status)) throw httpError(409, 'Shipment setup is in progress or needs provider reconciliation. Do not create another shipment.');
   if (Boolean(order.shiprocket?.orderId) !== Boolean(order.shiprocket?.shipmentId)) throw httpError(409, 'Partial provider references require reconciliation before any shipment retry.');
   if (!getShiprocketCapabilities().configured) throw httpError(503, 'Shiprocket is not configured');
   const pickupLocation = seller.thirdPartyFulfillment?.enabled ? seller.thirdPartyFulfillment.shiprocketPickupLocation : null;
   if (!pickupLocation) throw httpError(409, 'This vendor has no registered Shiprocket pickup location');
+  let verifiedPickup;
+  try { verifiedPickup = await verifyPickupLocation(pickupLocation, seller.storeDetails || {}, seller.pickupSync?.status ? { payload: pickupDefinition(seller, req.user).payload, providerId: seller.pickupSync.providerId } : undefined); }
+  catch { throw httpError(502, 'Could not verify the pickup location. No shipment was created. Retry later.'); }
+  if (!verifiedPickup) throw httpError(409, 'Pickup location is not eligible in Shiprocket. Contact platform support.');
   const weight = totalWeightKg(order);
   if (!weight) throw httpError(400, 'Every shipment item must have a valid weight');
   const packageSize = Object.fromEntries(['length', 'breadth', 'height'].map(field => [field, Number(req.body?.package?.[field])]));
-  if (Object.values(packageSize).some(value => !Number.isFinite(value) || value <= 0.5)) throw httpError(400, 'Package dimensions must be greater than 0.5 cm');
+  if (Object.values(packageSize).some(value => !Number.isFinite(value) || value <= 0.5 || value > 500)) throw httpError(400, 'Package dimensions must be greater than 0.5 cm and at most 500 cm');
   let serviceability;
   try {
     serviceability = await checkServiceability({ pickupPostcode: seller.storeDetails?.pincode, deliveryPostcode: order.shippingAddress?.pincode, weight, cod: order.paymentMethod === 'cod' });
@@ -222,7 +260,7 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     'fulfillment.method': order.fulfillment?.method || null,
   }, { $set: { 'shiprocket.status': order.shiprocket?.shipmentId ? 'assigning' : 'creating',
     'shiprocket.operationId': operationId, 'shiprocket.idempotencyKey': 'shiprocket:' + order._id,
-    'shiprocket.requestedAt': new Date(), 'fulfillment.quote': quote } });
+    'shiprocket.requestedAt': new Date(), 'fulfillment.quote': quote, 'shiprocket.package': { ...packageSize, weight }, 'shiprocket.pickupLocation': pickupLocation, 'shiprocket.pickupAddress': verifiedPickup } });
   if (locked.modifiedCount !== 1) throw httpError(409, 'Order changed or shipment setup is already in progress. Refresh this order.');
 
   const owner = { _id: order._id, 'shiprocket.operationId': operationId };
@@ -276,7 +314,7 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     ...(pickup.status === 'fulfilled' && Number(pickup.value?.pickup_status) === 1 ? { 'shiprocket.pickupScheduledAt': new Date() } : {}),
     'shiprocket.lastError': label.status === 'rejected' || pickup.status === 'rejected' || Number(pickup.value?.pickup_status) !== 1
       ? 'Waybill created; label or pickup needs follow-up. Do not recreate the shipment.' : null,
-  } });
+  }, $push: { timeline: { status: order.status, timestamp: new Date(), note: 'Shiprocket waybill confirmed; provider pickup and label status recorded' } }, $inc: { __v: 1 } });
   return ok(res, await Order.findById(order._id).select('shiprocket fulfillment deliveryType'), 'Shiprocket waybill created; check pickup and label status');
 });
 

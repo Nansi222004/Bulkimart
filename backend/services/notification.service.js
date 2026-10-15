@@ -150,35 +150,37 @@ const deactivateToken = async (userId, token) => {
 
 export const pushToUser = async (userId, { title, message, data, image }) => {
   try {
-    const user = await User.findById(userId).select('pushTokens fcmToken');
+    const user = await User.findById(userId).select('pushTokens fcmToken fcmPlatform');
     if (!user) return;
 
-    let tokens = (user.pushTokens || []).filter((t) => t.active).map((t) => t.token);
+    let tokens = [...new Set((user.pushTokens || []).filter((t) => t.active).map((t) => t.token))];
     if (tokens.length === 0 && user.fcmToken) tokens = [user.fcmToken];
     if (tokens.length === 0) return;
 
     const fcmData = stringifyData(data);
 
-    if (tokens.length === 1) {
-      const result = await sendPushNotification(tokens[0], { title, body: message, data: fcmData, image });
-      if (!result.success) {
-        console.error(`[NOTIFICATION] FCM send failed for user ${userId}:`, result.error);
-        if (INVALID_TOKEN_CODES.has(result.errorCode)) await deactivateToken(userId, tokens[0]);
-      }
-    } else {
-      const result = await sendBulkNotification(tokens, { title, body: message, data: fcmData, image });
-      if (!result.success) {
-        console.error(`[NOTIFICATION] FCM bulk send failed for user ${userId}:`, result.error);
-      } else if (result.responses) {
-        result.responses.forEach((r, i) => {
-          if (!r.success && INVALID_TOKEN_CODES.has(r.errorCode)) {
-            deactivateToken(userId, tokens[i]).catch(() => {});
-          }
-        });
+    for (const web of [true, false]) {
+      const group = tokens.filter(token => (user.pushTokens?.find(t => t.token === token)?.platform === 'web' || (!user.pushTokens?.length && user.fcmPlatform === 'web')) === web);
+      if (!group.length) continue;
+      if (group.length === 1) {
+        const result = await sendPushNotification(group[0], { title, body: message, data: fcmData, image, web });
+        if (!result.success) {
+          console.error('[NOTIFICATION] FCM send failed:', result.errorCode || 'delivery_failed');
+          if (INVALID_TOKEN_CODES.has(result.errorCode)) await deactivateToken(userId, group[0]);
+        }
+      } else {
+        const result = await sendBulkNotification(group, { title, body: message, data: fcmData, image, web });
+        if (!result.success) {
+          console.error('[NOTIFICATION] FCM bulk send failed:', result.errorCode || 'delivery_failed');
+        } else if (result.responses) {
+          result.responses.forEach((r, i) => {
+            if (!r.success && INVALID_TOKEN_CODES.has(r.errorCode)) deactivateToken(userId, group[i]).catch(() => {});
+          });
+        }
       }
     }
   } catch (err) {
-    console.error(`[NOTIFICATION] push delivery failed for user ${userId}:`, err.message);
+    console.error('[NOTIFICATION] push delivery failed:', err.code || 'delivery_failed');
   }
 };
 
@@ -231,7 +233,8 @@ const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
     createdAt: record?.createdAt || new Date(),
   });
 
-  pushToUser(userId, { title, message, data: { event, route, ...metadata }, image: media?.url });
+  pushToUser(userId, { title: roomKind === 'seller' && event === 'ORDER_CREATED' ? 'New Bulkimart Order' : title,
+    message, data: { event, route, ...metadata, notificationId: record?._id, audience: roomKind }, image: media?.url });
 
   return record;
 };
@@ -327,7 +330,10 @@ export const notifySeller = async (sellerId, opts) => {
   if (!sellerId) return null;
   const seller = await Seller.findById(sellerId).select('userId').lean().catch(() => null);
   if (!seller?.userId) return null;
-  return notifyCore(seller.userId, 'seller', sellerId, opts);
+  const orderId = String(opts.metadata?.orderId || '');
+  const options = /^[a-f\d]{24}$/i.test(orderId) ? { ...opts,
+    route: `/seller/orders?order=${orderId}`, metadata: { ...opts.metadata, sellerId: String(sellerId) } } : opts;
+  return notifyCore(seller.userId, 'seller', sellerId, options);
 };
 
 export const notifyRider = async (partnerId, opts) => {

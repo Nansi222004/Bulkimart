@@ -721,10 +721,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       emitToSeller(sellerId, 'new_order', {
         orderId: order._id,
         orderNo: order.orderNo,
-        items: order.items,
-        pricing: order.pricing,
-        shippingAddress: order.shippingAddress,
-        paymentMethod: order.paymentMethod,
+        channel: order.type,
         placedAt: order.createdAt,
       });
       notifySeller(sellerId, {
@@ -933,10 +930,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         emitToSeller(sellerId, 'new_order', {
           orderId: order._id,
           orderNo: order.orderNo,
-          items: order.items,
-          pricing: order.pricing,
-          shippingAddress: order.shippingAddress,
-          paymentMethod: order.paymentMethod,
+          channel: order.type,
           placedAt: order.createdAt,
         });
         notifySeller(sellerId, {

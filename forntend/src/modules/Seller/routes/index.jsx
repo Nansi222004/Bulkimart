@@ -7,6 +7,7 @@ import SellerEntryPage from '../pages/SellerEntryPage';
 import SellerStatusGate from '../components/SellerStatusGate';
 import { clearSellerDraft, getSellerDraftKey } from '../utils/onboardingDraft';
 import { apiUrl } from '../../../utils/api';
+import { SELLER_SESSION_CHANGED } from '../../../utils/portalSession';
 import '../Seller.css';
 
 /**
@@ -39,7 +40,7 @@ const SellerRoutesContent = () => {
 
   const loadStatus = useCallback(async (activeIntent) => {
     setState((p) => ({ ...p, loading: true }));
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('sellerToken');
 
     if (!token) {
       setState(SIGNED_OUT);
@@ -47,15 +48,23 @@ const SellerRoutesContent = () => {
     }
 
     try {
+      const verified = await fetch(apiUrl('/api/auth/me'), { headers: { Authorization: `Bearer ${token}` } });
+      const identity = await verified.json().catch(() => ({}));
+      if (token !== localStorage.getItem('sellerToken')) return;
+      if (!verified.ok || !identity.success || identity.sessionRole !== 'seller' || !identity.profile?._id) {
+        setState(SIGNED_OUT); return;
+      }
+      localStorage.setItem('sellerUserProfile', JSON.stringify(identity.profile));
       const res = await fetch(apiUrl('/api/sellers/me'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       const body = await res.json().catch(() => ({}));
+      if (token !== localStorage.getItem('sellerToken')) return;
 
       // Dead session — expired token, or the account no longer exists.
       if (res.status === 401) {
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('userProfile');
+        localStorage.removeItem('sellerToken');
+        localStorage.removeItem('sellerUserProfile');
         setState(SIGNED_OUT);
         return;
       }
@@ -72,6 +81,8 @@ const SellerRoutesContent = () => {
         }
         return;
       }
+
+      if (!res.ok) { setState(SIGNED_OUT); return; }
 
       setState({
         loading: false,
@@ -93,10 +104,17 @@ const SellerRoutesContent = () => {
     }
   }, [loadStatus]);
 
+  useEffect(() => {
+    const changed = event => { if (!event.key || event.key === 'sellerToken') loadStatus(); };
+    window.addEventListener('storage', changed);
+    window.addEventListener(SELLER_SESSION_CHANGED, changed);
+    return () => { window.removeEventListener('storage', changed); window.removeEventListener(SELLER_SESSION_CHANGED, changed); };
+  }, [loadStatus]);
+
   const signOut = async () => {
     clearSellerDraft(window.localStorage, getSellerDraftKey(userProfile?._id || userProfile?.id || userProfile?.userId));
     try {
-      const token = localStorage.getItem('userToken');
+      const token = localStorage.getItem('sellerToken');
       if (token) {
         await fetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
@@ -104,8 +122,8 @@ const SellerRoutesContent = () => {
         }).catch(() => {});
       }
     } finally {
-      localStorage.removeItem('userToken');
-      localStorage.removeItem('userProfile');
+      localStorage.removeItem('sellerToken');
+      localStorage.removeItem('sellerUserProfile');
       setIntent('login');
       setState(SIGNED_OUT);
     }
@@ -200,10 +218,20 @@ const SellerRoutesContent = () => {
   );
 };
 
-export const SellerRoutes = () => (
-  <SellerProvider>
-    <SellerRoutesContent />
-  </SellerProvider>
-);
+export const SellerRoutes = () => {
+  const [session, setSession] = useState(() => ({ token: localStorage.getItem('sellerToken'), epoch: 0 }));
+  useEffect(() => {
+    const changed = () => setSession(previous => {
+      const token = localStorage.getItem('sellerToken');
+      if (token === previous.token) return previous;
+      // Keep initial onboarding intent when guest signs in, but discard all
+      // account-specific React state when an existing seller is replaced.
+      return { token, epoch: previous.epoch + (previous.token ? 1 : 0) };
+    });
+    window.addEventListener('storage', changed); window.addEventListener(SELLER_SESSION_CHANGED, changed);
+    return () => { window.removeEventListener('storage', changed); window.removeEventListener(SELLER_SESSION_CHANGED, changed); };
+  }, []);
+  return <SellerProvider key={session.epoch}><SellerRoutesContent /></SellerProvider>;
+};
 
 export default SellerRoutes;
