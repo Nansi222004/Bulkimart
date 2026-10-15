@@ -29,9 +29,8 @@ const cartItemSchema = new Schema({
    * fulfilment group is keyed on it, so two modes from one shop are two
    * journeys and must not be merged.
    *
-   * Absent means undecided, which is what keeps "the customer must choose"
-   * enforceable: checkout has no default to fall back on. Quick lines never
-   * carry one; they have only one way of arriving.
+   * Absent means regular delivery with carrier selection after seller
+   * acceptance. Quick lines never carry a customer-selected mode.
    */
   deliveryMode: { type: String, enum: DELIVERY_MODES },
 

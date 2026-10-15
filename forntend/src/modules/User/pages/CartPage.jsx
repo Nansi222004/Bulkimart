@@ -358,7 +358,7 @@ const CartPage = () => {
                           ? '⚡ Quick Commerce'
                           : `${item.sellerName || 'Shop All'} · ${
                               item.deliveryMode === 'same_day' ? '⚡ Same-Day'
-                              : item.modeChosen ? '📦 Scheduled' : 'Choose delivery'}`}
+                              : '📦 Regular delivery'}`}
                       </span>
                     );
                   })()}

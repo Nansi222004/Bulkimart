@@ -657,6 +657,7 @@ export const OrdersTab = () => {
               {fulfillmentOptions.shiprocket?.quote && (
                 <div style={{ fontSize: 12, marginBottom: 10, padding: 10, background: '#f8fafc', borderRadius: 8 }}>
                   <div><strong>Estimated courier freight:</strong> {money(fulfillmentOptions.shiprocket.quote.courierCharge)}</div>
+                  {fulfilling.channel === 'ecommerce' && <div>Provider estimate only. The customer's checkout delivery charge stays unchanged; no additional customer charge or new vendor deduction is applied here.</div>}
                   {fulfilling.channel === 'grocery' && fulfillmentOptions.shiprocket.quote.optionB && <>
                     <div>Customer delivery-charge contribution: {money(fulfillmentOptions.shiprocket.quote.optionB.customerFreightContribution)}</div>
                     <div>Estimated vendor freight share: {money(fulfillmentOptions.shiprocket.quote.optionB.vendorFreightShare)}</div>
@@ -678,9 +679,9 @@ export const OrdersTab = () => {
                 disabled={!fulfillmentOptions.shiprocket?.available || busyId === fulfilling._id}
                 onClick={async () => {
                   if (Object.values(packageSize).some((value) => Number(value) <= 0)) return triggerToast?.('Enter all package dimensions');
-                  if (!window.confirm('Create this paid courier shipment with Shiprocket?')) return;
+                  if (!window.confirm(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`)) return;
                   setBusyId(fulfilling._id);
-                  const result = await createShiprocketShipment(fulfilling._id, packageSize);
+                  const result = await createShiprocketShipment(fulfilling._id, packageSize, fulfillmentOptions.shiprocket.quote.courierCharge);
                   setBusyId(null); triggerToast?.(result.message);
                   if (result.ok) setFulfilling(null);
                 }}>

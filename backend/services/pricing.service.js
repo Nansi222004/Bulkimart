@@ -164,16 +164,15 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
  * because a local rider can carry a courier-able item but not the other way
  * round. That part is unchanged.
  *
- * What changed is the all-e-commerce case. It used to be "e-commerce means
- * courier", which was true while a channel implied a carrier. Shop All now has
- * two, so the customer's chosen mode decides — and by the time this runs, that
- * choice has already been re-validated against the eligibility service. Called
- * without a mode it still answers `shiprocket`, so every existing caller and
- * every order placed before Same-Day behaves exactly as before.
+ * Ordinary e-commerce has no carrier at placement. Its seller chooses one
+ * after acceptance and preparation. Explicit Same-Day still requires an
+ * internal rider and its eligibility must be checked by the caller.
  */
 export const resolveDeliveryType = (items = [], mode = null) => {
   const allEcom = items.length > 0 && items.every((i) => i.type === CHANNEL.ECOM);
   if (!allEcom) return 'internal';
+  // Regular e-commerce is accepted by its seller before a carrier is selected.
+  // Same-Day remains an explicit local-rider promise, not a courier fallback.
   return carrierForMode(mode);
 };
 

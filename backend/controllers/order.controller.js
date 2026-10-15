@@ -109,7 +109,9 @@ const pushTimeline = (order, status, note) => {
 
 const claimCancellation = async (order, reason, session, extraSet = {}) => {
   const result = await Order.updateOne(
-    { _id: order._id, status: { $in: CANCELLABLE_STATUSES } },
+    { _id: order._id, status: { $in: CANCELLABLE_STATUSES },
+      'shiprocket.orderId': { $exists: false },
+      'shiprocket.status': { $nin: ['creating', 'assigning', 'reconciliation_required'] } },
     { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason, ...extraSet }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } } },
     { session }
   );
@@ -267,6 +269,7 @@ export const createOrder = asyncHandler(async (req, res) => {
    * Same-Day existed.
    */
   const requestedMode = req.body.deliveryMode ?? null;
+  if (requestedMode !== null && channel !== CHANNEL.ECOM) throw httpError(400, 'Quick Commerce does not accept a customer-selected delivery mode');
   if (requestedMode !== null && !DELIVERY_MODES.includes(requestedMode)) {
     throw httpError(
       400,
@@ -297,7 +300,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     ? { lat: address.lat, lng: address.lng } : undefined;
   const sellerIdsInCart = [...new Set(products.map((p) => p.sellerId).filter(Boolean).map(String))];
   const sellersById = new Map(
-    (await Seller.find({ _id: { $in: sellerIdsInCart } }).select('storeDetails serviceRadiusKm').lean())
+    (await Seller.find({ _id: { $in: sellerIdsInCart } }).select('storeDetails serviceRadiusKm status').lean())
       .map((s) => [String(s._id), s])
   );
 
@@ -306,7 +309,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || p.type !== channel || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
       throw httpError(409, `"${line.name}" is no longer available. Please review your cart.`);
     }
     const inventory = resolveInventoryItem(p, line.variantId, { allowLegacyPrimary: !line.variantId });
@@ -317,7 +320,10 @@ export const createOrder = asyncHandler(async (req, res) => {
      * cart before the suspension, or posted straight to the API. Checked here,
      * with the rest of the line revalidation, before any money moves.
      */
-    if (p.sellerId && customerLoc) {
+    if (!p.sellerId || !sellersById.has(String(p.sellerId)) || sellersById.get(String(p.sellerId)).status !== 'approved') {
+      throw httpError(409, 'A store in your basket is unavailable. Please review your cart.');
+    }
+    if (p.sellerId) {
       const seller = sellersById.get(String(p.sellerId));
       if (seller?.serviceRadiusKm !== undefined && seller?.serviceRadiusKm !== null
         && !isWithinRadius(seller.storeDetails, customerLoc, seller.serviceRadiusKm)) {
@@ -449,6 +455,9 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   const pricing = priceOrder(lines, req.user, applied, sameDay, orderDistanceKm, tip);
   const deliveryType = resolveDeliveryType(lines, requestedMode);
+  if (new Set(lines.map(line => String(line.sellerId))).size > 1) {
+    throw httpError(409, 'Items from multiple stores require the grouped checkout. Please refresh your basket.');
+  }
 
   // A cart only ever holds one channel now, so the order type is unambiguous.
   const orderType = channel;
@@ -558,9 +567,11 @@ export const createOrder = asyncHandler(async (req, res) => {
       paymentMethod,
       paymentId: payment._id,
       deliveryType,
+      fulfillment: orderType === CHANNEL.ECOM && requestedMode !== DELIVERY_MODE.SAME_DAY
+        ? { assignmentPolicy: 'seller_after_acceptance' } : undefined,
       delivery: buildDeliverySnapshot({
         channel: orderType,
-        mode: sameDay ? DELIVERY_MODE.SAME_DAY : requestedMode,
+        mode: sameDay ? DELIVERY_MODE.SAME_DAY : (orderType === CHANNEL.ECOM ? DELIVERY_MODE.SCHEDULED : null),
         fees: {
           standardFee: pricing.standardFee,
           sameDayFee: pricing.sameDayFee,
@@ -754,19 +765,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   const { groups } = composed;
   if (!groups.length) throw httpError(400, 'Your cart is empty');
 
-  /**
-   * Every Shop All group must have been chosen for, explicitly.
-   *
-   * Defaulting an unanswered group to Scheduled would be the system making a
-   * delivery decision on the customer's behalf and charging for it. The cart
-   * disables Place Order while this is true; this is the server saying the same
-   * thing to a client that did not.
-   */
-  if (composed.needsDeliveryChoice) {
-    const undecided = groups.filter((g) => g.channel === CHANNEL.ECOM && !g.modeChosen);
-    throw httpError(400,
-      `Choose a delivery option for ${undecided.map((g) => g.seller?.name || 'your items').join(', ')}`);
-  }
+  // Regular e-commerce carriers are selected after seller acceptance. Explicit
+  // Same-Day promises are still checked below and must never be downgraded.
 
   /**
    * A Same-Day group whose eligibility has lapsed is refused, not downgraded.
@@ -1095,7 +1095,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   if (!CANCELLABLE_STATUSES.includes(order.status)) {
     throw httpError(400, `An order that is already "${order.status}" cannot be cancelled`);
   }
-  if (order.shiprocket?.orderId) {
+  if (order.shiprocket?.orderId || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) {
     throw httpError(409, 'This order already has a courier shipment. Cancel it with the provider before cancelling the Bulkimart order.');
   }
 
@@ -1230,7 +1230,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
   if (allowedFrom && !allowedFrom.includes(order.status)) {
     return { ok: false, reason: `An order that is already ${order.status} cannot be cancelled` };
   }
-  if (order.shiprocket?.orderId) {
+  if (order.shiprocket?.orderId || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) {
     return { ok: false, reason: 'A courier shipment already exists; provider cancellation must be confirmed first' };
   }
 

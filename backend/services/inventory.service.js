@@ -113,7 +113,7 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
   await Product.updateOne(
     { _id: productId },
     [{ $set: { stock: { $sum: { $map: { input: '$variants', as: 'variant', in: '$$variant.stock' } } }, __v: { $add: ['$__v', 1] } } }],
-    { session }
+    { session, updatePipeline: true }
   );
 };
 

@@ -61,12 +61,12 @@ export const createShiprocketOrder = async (orderData) => {
       `${baseUrl()}/api/v1/external/orders/create/adhoc`,
       orderData,
       {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       }
     );
     return response.data;
   } catch (error) {
-    console.error('Shiprocket Create Order Failed:', error.response?.data || error.message);
+    console.error('Shiprocket Create Order Failed:', error.response?.status || 'provider_unavailable');
     throw new Error('Failed to create order on Shiprocket');
   }
 };

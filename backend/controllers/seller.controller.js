@@ -693,7 +693,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       promisedBy: o.delivery?.promisedBy,
       // Courier and waybill for a Shop All parcel, so the shop can read back
       // what it entered rather than having to remember it.
-      shiprocket: o.shiprocket?.awb ? o.shiprocket : undefined,
+      shiprocket: o.shiprocket?.status || o.shiprocket?.awb ? o.shiprocket : undefined,
     };
   });
 
@@ -736,6 +736,23 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   const currentStatus = order.status;
+  // Include the state and courier lock in save's atomic predicate, so a stale
+  // seller action cannot race shipment setup or overwrite a cancellation.
+  order.$where = { status: currentStatus, 'shiprocket.status': { $nin: ['creating', 'assigning', 'reconciliation_required'] } };
+  const saveOrderState = async () => {
+    try { await order.save(); }
+    catch (error) {
+      if (['DocumentNotFoundError', 'VersionError'].includes(error.name)) throw httpError(409, 'The order changed. Refresh it before trying this action again.');
+      throw error;
+    }
+  };
+  if (['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) {
+    throw httpError(409, 'Shipment setup is in progress or requires reconciliation. Refresh this order before changing its status.');
+  }
+  if (status === ORDER_STATUS.DISPATCHED && order.fulfillment?.assignmentPolicy === 'seller_after_acceptance'
+    && !order.fulfillment?.method) {
+    throw httpError(409, 'Choose delivery after accepting and preparing this order before dispatching it.');
+  }
 
   // A duplicate vendor decision returns the result already committed. This is
   // important on mobile connections where the first response is often lost.
@@ -768,7 +785,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
       throw httpError(409, 'Online payment has not been verified yet. Accept the order after payment succeeds.');
     }
     order.vendorDecision = { status: 'accepted', sellerId: seller._id, decidedAt: new Date() };
-    await order.save();
+    await saveOrderState();
     return res.status(200).json({
       success: true,
       message: 'Order already confirmed.',
@@ -904,7 +921,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     }
   }
 
-  await order.save();
+  await saveOrderState();
 
   // NHCONE Coins (Phase 7) — no immediate credit on delivery anymore. Every
   // item was just stamped `coinRewardStatus: 'PENDING'` above (the

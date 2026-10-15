@@ -330,8 +330,8 @@ const orderSchema = new Schema(
     /**
      * Delivery routing — who carries this parcel.
      *
-     * `internal` is one of our own riders, `shiprocket` is a courier. Unchanged
-     * and still the field every fulfilment check reads; `delivery.mode` below
+     * `internal` is one of our own riders, `shiprocket` is a courier. Absent
+     * until seller selection on new regular e-commerce orders. `delivery.mode` below
      * records what the customer was offered and picked, which is a different
      * question with a different audience.
      */
@@ -350,6 +350,7 @@ const orderSchema = new Schema(
       trackingUrl: String,
       status:      String,
       idempotencyKey: String,
+      operationId: String,
       requestedAt: Date,
       lastError: String,
       lastErrorAt: Date,
@@ -362,6 +363,7 @@ const orderSchema = new Schema(
     },
 
     fulfillment: {
+      assignmentPolicy: { type: String, enum: ['seller_after_acceptance'] },
       method: { type: String, enum: ["manual", "shiprocket", "third_party"] },
       selectedBy: { type: String, enum: ["seller", "admin", "system"] },
       selectedAt: Date,
@@ -369,6 +371,10 @@ const orderSchema = new Schema(
         provider: String,
         courierCharge: Number,
         serviceFee: Number,
+        customerDeliveryCharge: Number,
+        customerAdditionalCharge: Number,
+        quotedAt: Date,
+        billingPolicy: { type: String, enum: ['checkout_charge_unchanged'] },
         currency: { type: String, default: "INR" },
         expiresAt: Date,
       },

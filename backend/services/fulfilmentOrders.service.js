@@ -269,6 +269,8 @@ export const createOrdersFromGroups = async ({
       paymentId: payment._id,
       groupRef,
       deliveryType: g.deliveryType,
+      fulfillment: g.channel === CHANNEL.ECOM && g.deliveryMode !== DELIVERY_MODE.SAME_DAY
+        ? { assignmentPolicy: 'seller_after_acceptance' } : undefined,
       delivery: deliverySnapshotOf(g),
       status: ORDER_STATUS.PLACED,
       timeline: [{ status: ORDER_STATUS.PLACED, timestamp: new Date(), note: 'Order placed' }],

@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 
 /**
  * The whole basket, already split into the deliveries it will become.
  *
- * Read-only, and deliberately so for now: this shows what the shopper is holding
- * across both storefronts and how it would travel. Choosing a delivery mode and
- * placing the order still go through the existing per-channel screens.
+ * Shows the server-priced groups across both storefronts. Optional Same-Day
+ * choices are saved on cart lines; ordinary carrier selection is left to the
+ * seller after acceptance.
  *
  * Every figure here is the server's. Nothing on this side adds up a delivery
  * charge or decides whether Same-Day is on offer — those live in one place each
@@ -17,15 +17,21 @@ export const useUnifiedCart = (destination, couponCode) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const generation = useRef(0);
+  const controller = useRef(null);
 
   const lat = destination?.lat;
   const lng = destination?.lng;
 
   const load = useCallback(async () => {
-    if (!localStorage.getItem('userToken')) { setData(null); return; }
+    const request = ++generation.current;
+    controller.current?.abort(); controller.current = new AbortController();
+    const token = localStorage.getItem('userToken');
+    if (!token) { setData(null); setLoading(false); return; }
 
     setLoading(true);
     setError('');
+    setData(null);
     try {
       const qs = new URLSearchParams();
       if (lat !== undefined && lng !== undefined) {
@@ -36,20 +42,22 @@ export const useUnifiedCart = (destination, couponCode) => {
         qs.set('coupon', couponCode);
       }
       const res = await fetch(apiUrl('/api/cart/unified?' + qs), {
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('userToken') },
+        headers: { Authorization: 'Bearer ' + token }, signal: controller.current.signal,
       });
       const body = await res.json().catch(() => ({}));
+      if (request !== generation.current || token !== localStorage.getItem('userToken')) return;
       if (!res.ok) { setError(body.message || 'Could not load your basket'); setData(null); return; }
       setData(body.data || null);
     } catch (err) {
+      if (request !== generation.current || err.name === 'AbortError') return;
       setError(err.message || 'Network error — is the server running?');
       setData(null);
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }, [lat, lng, couponCode]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); return () => { generation.current++; controller.current?.abort(); }; }, [load]);
 
   /**
    * Choose how one group travels.

@@ -683,11 +683,11 @@ export const SellerProvider = ({ children }) => {
     } catch (err) { return { ok: false, message: err.message }; }
   }, [fetchSellerOrders]);
 
-  const createShiprocketShipment = useCallback(async (orderId, packageSize) => {
+  const createShiprocketShipment = useCallback(async (orderId, packageSize, quotedCourierCharge) => {
     try {
       const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/shiprocket`), {
         method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true, package: packageSize }),
+        body: JSON.stringify({ confirm: true, package: packageSize, quotedCourierCharge }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Shipment creation failed' };

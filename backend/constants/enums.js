@@ -152,9 +152,8 @@ export const DELIVERY_TYPES = ['shiprocket', 'internal'];
  * the customer was *offered and picked*, which is what a receipt has to show and
  * what a dispute needs months later.
  *
- * They map one to one today (SAME_DAY → internal, SCHEDULED → shiprocket) and
- * that is fine; recording both costs nothing and keeps the promise separable
- * from the mechanism if a third carrier ever appears.
+ * Same-Day requires internal delivery. Regular/Scheduled delivery leaves the
+ * carrier unassigned until seller acceptance and preparation.
  *
  * Quick Commerce has no mode. It has exactly one way of arriving, so an order
  * without this field is not a gap — it is a grocery order or one placed before
@@ -408,7 +407,7 @@ export const SAME_DAY_DELIVERY_FEE = envNumber('SAME_DAY_DELIVERY_FEE', 30);
  * how a parcel travels cannot each invent their own version of it.
  */
 export const carrierForMode = (mode) =>
-  mode === DELIVERY_MODE.SAME_DAY ? 'internal' : 'shiprocket';
+  mode === DELIVERY_MODE.SAME_DAY ? 'internal' : undefined;
 
 // ---------------------------------------------------------------- support tickets
 export const TICKET_REQUESTER_ROLE = {

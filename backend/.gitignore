@@ -32,3 +32,5 @@ __tests__/services/*
 test/
 tests/
 !__tests__/api/delivery-login-role.http.test.js
+!__tests__/api/seller-first-checkout.http.test.js
+!__tests__/api/checkout-workflow.http.test.js

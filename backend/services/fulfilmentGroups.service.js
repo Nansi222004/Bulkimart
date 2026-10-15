@@ -8,6 +8,9 @@ import { CHANNEL, CHANNELS, DELIVERY_MODE } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from './campaign.service.js';
 import { resolveInventoryItem } from './inventory.service.js';
+import { isWithinRadius } from './radius.service.js';
+import { httpError } from '../utils/response.js';
+import { DELIVERY_MODES } from '../constants/enums.js';
 
 /**
  * One basket, several journeys.
@@ -39,11 +42,9 @@ const groupKeyFor = (line) =>
 /**
  * The mode a line is grouped under.
  *
- * Quick has one way of arriving, so it never carries a mode. A Shop All line the
- * customer has not decided on groups as Scheduled — that is what it becomes if
- * nothing is chosen — but the group still reports `modeChosen: false`, so
- * checkout can tell "they picked Scheduled" from "they picked nothing" and keep
- * the choose-before-you-order rule enforceable.
+ * Quick has no customer mode. Ordinary Shop All uses its regular service
+ * promise without choosing a carrier. Explicit Same-Day is a separate promise
+ * and is revalidated at placement.
  */
 const modeFor = (line) => {
   if (line.channel !== CHANNEL.ECOM) return null;
@@ -116,7 +117,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   )];
   const sellers = new Map(
     (await Seller.find({ _id: { $in: sellerIds } })
-      .select('businessName storeDetails status sameDay')
+      .select('businessName storeDetails status sameDay serviceRadiusKm')
       .lean()).map((s) => [String(s._id), s])
   );
 
@@ -126,6 +127,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   // ---- split -------------------------------------------------------------
   const buckets = new Map();
   for (const line of lines) {
+    if (line.deliveryMode != null && (!DELIVERY_MODES.includes(line.deliveryMode) || line.channel !== CHANNEL.ECOM)) {
+      throw httpError(400, 'This cart contains an invalid delivery mode. Please review your cart.');
+    }
     const product = products.get(String(line.productId));
     const deal = campaignPrices.get(String(line.productId));
     let inventory = null;
@@ -139,7 +143,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       sellerId: product?.sellerId ?? line.sellerId,
       shgStoreId: product?.shgStoreId ?? line.shgStoreId,
       deliveryMode: modeFor(line),
-      modeChosen: line.channel !== CHANNEL.ECOM || Boolean(line.deliveryMode),
+      // Ordinary delivery needs no customer-selected carrier. Same-Day, when
+      // explicitly requested, is still revalidated before checkout.
+      modeChosen: true,
       product,
       inventory,
       // The live figures (or a live, currently-active campaign price), so
@@ -147,7 +153,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // when it went into the basket — never a cached deal.
       price: inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price,
       campaignId: deal ? deal.campaignId : undefined,
-      available: Boolean(product && product.type !== 'shg' && !product.shgStoreId
+      available: Boolean(product && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
         && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
         && product.status === 'approved' && inventory && inventory.stock >= line.qty),
     };
@@ -162,6 +168,10 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   for (const [key, groupLines] of buckets) {
     const first = groupLines[0];
     const seller = sellers.get(String(first.sellerId));
+    if (!seller || seller.status !== 'approved') throw httpError(409, 'A store in your basket is unavailable. Please review your cart.');
+    if (!isWithinRadius(seller.storeDetails, destination, seller.serviceRadiusKm)) {
+      throw httpError(409, `${seller.businessName || 'This store'} does not deliver to this address. Please review your cart.`);
+    }
     const isSameDay = first.deliveryMode === DELIVERY_MODE.SAME_DAY;
 
     /**
@@ -238,7 +248,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // What was asked for, which is not always what can be given.
       requestedMode: first.deliveryMode,
       modeChosen: first.modeChosen,
-      deliveryType: resolveDeliveryType(groupLines, sameDayApplies ? DELIVERY_MODE.SAME_DAY : null),
+      deliveryType: resolveDeliveryType(groupLines.map(line => ({ type: line.channel })), sameDayApplies ? DELIVERY_MODE.SAME_DAY : null),
 
       /**
        * Each line already in the shape an Order stores.
@@ -318,7 +328,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     items: groups.flatMap((g) => g.items),
     totals,
     // Checkout keeps Place Order disabled while this is true.
-    needsDeliveryChoice: groups.some((g) => g.channel === CHANNEL.ECOM && !g.modeChosen),
+    needsDeliveryChoice: false,
   };
 };
 

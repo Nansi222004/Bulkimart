@@ -67,22 +67,7 @@ const CheckoutPage = () => {
   const hasMixedFulfillment = (serverCart?.items || []).some((item) => item.fulfillmentType === 'digital')
     && (serverCart?.items || []).some((item) => item.fulfillmentType !== 'digital');
   const isUnified = !isDigitalCart && groups.length > 1;
-  const unifiedNeedsChoice = Boolean(unified.data?.needsDeliveryChoice);
-
-  const deliveryOptions = serverCart?.deliveryOptions || null;
-  const sameDay = deliveryOptions?.sameDay;
-  const isEcom = cartChannel === 'ecommerce';
-  const sameDayOffered = Boolean(isEcom && sameDay?.available);
-
-  /**
-   * Quick orders have one way of arriving, so there is nothing to choose. Shop
-   * All has two and the customer must say which — Place Order stays disabled
-   * until they do, rather than one being picked for them.
-   */
-  const mustChooseDelivery = isEcom && !isDigitalCart;
-  const deliveryChosen = isUnified
-    ? !unifiedNeedsChoice                       // every group must have been answered
-    : (!mustChooseDelivery || Boolean(deliveryMode));
+  const checkoutBlocked = !isDigitalCart && (unified.loading || Boolean(unified.error) || !unified.data);
 
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => {
@@ -380,6 +365,7 @@ const CheckoutPage = () => {
   const [orderError, setOrderError] = useState('');
 
   const handlePlaceOrder = async () => {
+    if (isOrdering || cartLoading || checkoutBlocked) return;
     if (hasMixedFulfillment) {
       setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
       return;
@@ -915,6 +901,18 @@ const CheckoutPage = () => {
         )}
 
 
+
+        {!isDigitalCart && <div className="profile-menu-card" style={{ padding: 16 }}>
+          <strong>Delivery arranged after store acceptance</strong>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Your store accepts and prepares the order before arranging delivery. The delivery charge shown in your bill is included in your total. Choosing a carrier later will not add a customer charge.
+          </p>
+          {groups.map(group => <div key={group.key} style={{ fontSize: 12, marginTop: 6 }}>
+            {group.seller?.name || 'Store'}: {group.channel === 'grocery' ? 'Quick Commerce delivery' : group.requestedMode === 'same_day' ? 'Same-Day via Bulkimart delivery' : 'Regular delivery'}
+          </div>)}
+          {unified.loading && <p role="status">Checking your basket…</p>}
+          {unified.error && <div role="alert">{unified.error} <button onClick={unified.reload}>Retry basket check</button></div>}
+        </div>}
 
         {/* Payment Methods selection */}
         <div className="profile-menu-card" style={{ padding: 16 }}>
@@ -1586,12 +1584,12 @@ const CheckoutPage = () => {
             <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--primary)' }}>₹{grandTotalVal}</div>
           </div>
 
-          {/* Disabled until a delivery has been chosen — see the block above. */}
+          {/* Wait for authoritative basket pricing, without requiring a carrier. */}
           <button
             className="pd-add-to-cart-btn"
             onClick={handlePlaceOrder}
-            disabled={isOrdering || cartLoading}
-            style={{ opacity: (isOrdering || cartLoading) ? 0.5 : 1 }}
+            disabled={isOrdering || cartLoading || checkoutBlocked}
+            style={{ opacity: (isOrdering || cartLoading || checkoutBlocked) ? 0.5 : 1 }}
           >
             {isOrdering ? 'Placing order…'
               : cartLoading ? 'Updating…'
