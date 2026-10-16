@@ -65,6 +65,34 @@ const paymentSchema = new Schema(
     // A shopper who abandons the PhonePe page retries with a new attempt id,
     // because PhonePe rejects a reused merchantOrderId.
     attempts: { type: Number, default: 0 },
+    // Additive attempt journal. gateway remains the legacy/current projection.
+    gatewayAttempts: [{
+      _id: false, attemptId: String, provider: String, merchantOrderId: String,
+      gatewayOrderId: String, orderId: ObjectId, amountPaise: Number, currency: String,
+      status: String, createdAt: Date, resolvedAt: Date,
+      recoveryToken: String, recoveryLockedAt: Date,
+      history: [{ _id: false, status: String, at: Date, actor: ObjectId, result: String, providerId: String, receipt: String }],
+    }],
+    captures: [{
+      _id: false, gatewayOrderId: String, gatewayPaymentId: String,
+      amountPaise: Number, currency: String, disposition: String, receivedAt: Date,
+    }],
+    // Durable debts only. No automatic provider refund is initiated here.
+    refundObligations: [{
+      _id: false, key: String, orderId: ObjectId, gatewayOrderId: String,
+      gatewayPaymentId: String, amountPaise: Number, currency: String, reason: String,
+      status: { type: String, enum: ['pending', 'processing', 'processed', 'failed', 'reconciliation_required'] },
+      createdAt: Date, providerRefundId: String,
+      receipt: String, returnId: { type: ObjectId, ref: 'Return' },
+      legacyRefund: Boolean,
+      attemptCount: { type: Number, default: 0 }, requestDispatchedAt: Date,
+      processedAt: Date, verifiedAt: Date, lastResult: String,
+      history: [{ _id: false, status: String, at: Date, actor: ObjectId, result: String, providerId: String, receipt: String }],
+    }],
+    // No automatic lease takeover may issue another refund. Expired claims
+    // can only be taken by the read/reconcile operation.
+    refundOperation: { token: String, key: String, startedAt: Date },
+    settlementRevision: { type: Number, default: 0 },
 
     status: {
       type: String,

@@ -1,12 +1,13 @@
 import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint, revokeBrowsingGps } from '../../../utils/locationState';
 import { boundedFetch, portalRequest } from '../../../utils/portalRequests';
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { saveUserSession, clearUserSession, openSessionDashboard, captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 import { CustomerSessionContext } from '../../../utils/customerSession';
+import { normalizeProduct } from '../hooks/useProducts';
 
 const UserContext = createContext();
 
@@ -307,7 +308,74 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   // --- Product Detail ---
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProduct, setSelectedProductState] = useState(null);
+  // The URL owns the initial route, including the first paint before effects run.
+  const [productDetailLoading, setProductDetailLoading] = useState(() => new URLSearchParams(window.location.search).has('product'));
+  const [productDetailError, setProductDetailError] = useState('');
+  const productDetailRequest = useRef(null);
+  const restoredProduct = useRef(null);
+  const [productDetailRetry, setProductDetailRetry] = useState(0);
+  const retryProductDetail = useCallback(() => setProductDetailRetry(value => value + 1), []);
+  const setSelectedProduct = useCallback(product => {
+    productDetailRequest.current?.abort();
+    productDetailRequest.current = null;
+    restoredProduct.current = product;
+    setSelectedProductState(product); setProductDetailError(''); setProductDetailLoading(false);
+    const params = new URLSearchParams(window.location.search);
+    if (product?.id) params.set('product', product.id); else params.delete('product');
+    params.delete('purchase'); params.delete('variant');
+    window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash || ''}`);
+  }, []);
+  useEffect(() => {
+    let controller;
+    let requestRoute;
+    const restore = () => {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('product');
+      const variant = params.get('variant');
+      const route = JSON.stringify([id, variant]);
+      // App observes push/replaceState as well as popstate. Repeated events for
+      // a pending route must not cancel and restart the same request.
+      if (controller && !controller.signal.aborted && requestRoute === route && productDetailRequest.current === controller) return;
+      controller?.abort();
+      productDetailRequest.current?.abort();
+      productDetailRequest.current = null;
+      if (!params.has('product')) { restoredProduct.current = null; setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError(''); return; }
+      if (!/^[a-f0-9]{24}$/i.test(id)) { setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError('Invalid product link.'); return; }
+      const validateVariant = product => {
+        if (variant !== null && !(product.variants || []).some(item => String(item._id || item.id) === variant)) throw new Error('This variant is unavailable. Return to the storefront and select the product again.');
+      };
+      // History changes to the variant do not invalidate essential product data.
+      if (restoredProduct.current?.id === id) {
+        try { validateVariant(restoredProduct.current); setSelectedProductState(restoredProduct.current); setProductDetailError(''); }
+        catch (error) { setSelectedProductState(null); setProductDetailError(error.message); }
+        setProductDetailLoading(false);
+        return;
+      }
+      controller = new AbortController();
+      requestRoute = route;
+      productDetailRequest.current = controller;
+      const signal = controller.signal;
+      const request = controller;
+      const isCurrent = () => {
+        if (signal.aborted || productDetailRequest.current !== request) return false;
+        const current = new URLSearchParams(window.location.search);
+        return current.get('product') === id && current.get('variant') === variant;
+      };
+      setSelectedProductState(null); setProductDetailLoading(true); setProductDetailError('');
+      boundedFetch(apiUrl(`/api/products/${id}`), { signal }).then(async response => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.message || 'This product could not be loaded.');
+        const product = body?.data ?? body;
+        if (!product || String(product._id) !== id || !product.name) throw new Error('Product not found. Return to the storefront to choose another product.');
+        validateVariant(product);
+        if (isCurrent()) { restoredProduct.current = normalizeProduct(product); setSelectedProductState(restoredProduct.current); }
+      }).catch(error => { if (isCurrent()) setProductDetailError(error.message); })
+        .finally(() => { if (isCurrent()) setProductDetailLoading(false); });
+    };
+    restore(); window.addEventListener('popstate', restore); window.addEventListener('app:locationchange', restore);
+    return () => { controller?.abort(); window.removeEventListener('popstate', restore); window.removeEventListener('app:locationchange', restore); };
+  }, [productDetailRetry]);
 
 
 
@@ -479,6 +547,16 @@ export const UserProvider = ({ children }) => {
       saveUserSession(data);
       openSessionDashboard(data.sessionRole);
       if (data.sessionRole === 'buyer') {
+        try {
+          const destination = JSON.parse(sessionStorage.getItem('bulkimart:product-return') || 'null');
+          sessionStorage.removeItem('bulkimart:product-return');
+          if (destination && /^[a-f0-9]{24}$/i.test(destination.productId) && /^\/(?:grocery--[a-z0-9-]+|ecommerce--[a-z0-9-]+|smart-buy|search|categories|groceries|)$/.test(destination.path)) {
+            const params = new URLSearchParams({ product: destination.productId, purchase: 'wholesale' });
+            if (/^[a-f0-9]{24}$/i.test(destination.variantId)) params.set('variant', destination.variantId);
+            window.history.replaceState(null, '', `${destination.path}?${params}`);
+            window.dispatchEvent(new Event('popstate'));
+          }
+        } catch { /* A missing or malformed return intent does not block login. */ }
         setCurrentUser(data.user);
         connectSocket(data.token, 'buyer', data.user._id);
         refreshWishlist();
@@ -1582,7 +1660,7 @@ export const UserProvider = ({ children }) => {
         showLocationModal, setShowLocationModal,
 
         // Product Detail & Reviews
-        selectedProduct, setSelectedProduct,
+        selectedProduct, setSelectedProduct, productDetailLoading, productDetailError, retryProductDetail,
         reviewProductId, setReviewProductId,
 
         // Cart — server-backed, one basket per storefront

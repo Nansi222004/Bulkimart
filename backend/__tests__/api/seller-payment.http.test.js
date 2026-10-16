@@ -104,6 +104,13 @@ const Payment = {
     [...payments.values()].find((payment) => payment.gateway?.merchantOrderId === merchantOrderId) || null),
 };
 
+// Persistence contract changed from hydrated find/populate to aggregation.
+// Eligibility execution is covered by wholesale.http.test.js on real MongoDB;
+// these HTTP mocks supply rows after the database eligibility stages.
+for (const [model, name] of [[Product, 'products'], [Seller, 'sellers'], [User, 'users'], [Category, 'categories']]) model.collection = { name };
+Product.aggregate = jest.fn();
+const aggregateFixture = rows => Product.aggregate.mockImplementation(pipeline => ({ option: async () => pipeline.at(-1)?.$facet ? [{ data: rows, count: rows.length ? [{ total: rows.length }] : [] }] : rows }));
+
 jest.unstable_mockModule('../../models/User.js', () => ({ default: User }));
 jest.unstable_mockModule('../../models/Admin.js', () => ({ default: Admin }));
 jest.unstable_mockModule('../../models/Seller.js', () => ({ default: Seller }));
@@ -335,6 +342,8 @@ describe('mocked HTTP seller and product API', () => {
     };
     products.set(String(product._id), product);
 
+    aggregateFixture([{ ...product, _seller: seller, variants: product.variants.map(variant => ({ ...variant, _terms: variant.wholesalePricing })) }]);
+
     const availability = await request(app).get('/api/products/wholesale/availability').expect(200);
     expect(availability.body.enabled).toBe(true);
     expect(availability.body).not.toHaveProperty('data');
@@ -502,7 +511,7 @@ describe('mocked HTTP seller and product API', () => {
     expect(productUpdateOne).not.toHaveBeenCalled();
   });
 
-  test('read-only wholesale catalog filters ineligible offers and uses canonical variant stock', async () => {
+  test('read-only wholesale catalog serializes database-filtered rows and requires eligible lookup stages', async () => {
     const approvedSeller = sellers.get(String(sellerUser._id));
     approvedSeller.salesChannels.push('wholesale');
     approvedSeller.wholesaleChannel = { status: 'approved' };
@@ -525,6 +534,7 @@ describe('mocked HTTP seller and product API', () => {
     };
     Seller.find.mockImplementation(() => queryResult([approvedSeller]));
     Product.find.mockImplementation(() => queryResult([item]));
+    aggregateFixture([{ ...item, _seller: approvedSeller, variants: [{ ...item.variants[0], _terms: item.variants[0].wholesalePricing }] }]);
 
     const response = await request(app).get('/api/products/wholesale/catalog').set(bearer(shopperToken)).expect(200);
     expect(response.body.data).toHaveLength(1);
@@ -532,14 +542,15 @@ describe('mocked HTTP seller and product API', () => {
       expect(response.body.data[0].variants[0]).toMatchObject({ variantId: String(variantId), available: true, availableStock: 5, minimumQuantity: 5 });
     expect(response.body.data[0]).not.toHaveProperty('price');
     expect(response.body.data[0].variants[0]).not.toHaveProperty('price');
-    expect(Product.find.mock.calls.at(-1)[0].status).toBe('approved');
-    expect(Product.find.mock.calls.at(-1)[0].isActive).toBe(true);
-    expect(Seller.find.mock.calls.at(-1)[0]).toMatchObject({ status: 'approved', salesChannels: 'wholesale', 'wholesaleChannel.status': 'approved' });
+    const pipeline = Product.aggregate.mock.calls.at(-1)[0];
+    expect(pipeline[0].$match).toMatchObject({ status: 'approved', isActive: true });
+    expect(pipeline.find(stage => stage.$lookup?.from === 'sellers').$lookup.pipeline[0].$match).toMatchObject({ status: 'approved', salesChannels: 'wholesale', 'wholesaleChannel.status': 'approved' });
   });
 
     test('Wholesale catalog requires an authenticated customer and does not require business verification', async () => {
       await request(app).get('/api/products/wholesale/catalog').expect(401);
       Seller.find.mockImplementation(() => queryResult([]));
+      aggregateFixture([]);
       const response = await request(app).get('/api/products/wholesale/catalog').set(bearer(shopperToken)).expect(200);
       expect(response.body.data).toEqual([]);
     });

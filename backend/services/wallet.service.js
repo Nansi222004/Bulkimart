@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { toPaise } from '../utils/money.js';
 import User from "../models/User.js";
 import WalletLedger, {
   WALLET_TRANSACTION_TYPE,
@@ -94,6 +95,7 @@ export const debitWallet = async ({
   if (!Number.isFinite(debitAmount) || debitAmount <= 0) {
     throw httpError(400, "Debit amount must be a positive number greater than 0");
   }
+  const debitPaise = toPaise(debitAmount, Number.MAX_SAFE_INTEGER);
 
   // Idempotency check: if key already used, return existing transaction
   if (idempotencyKey) {
@@ -118,12 +120,12 @@ export const debitWallet = async ({
   );
 
   // Atomic deduction with balance guard: balance >= debitAmount
-  const updateOptions = { returnDocument: 'after', runValidators: true };
+  const updateOptions = { returnDocument: 'after', runValidators: true, updatePipeline: true };
   if (session) updateOptions.session = session;
 
   const updatedUser = await User.findOneAndUpdate(
     { _id: userId, "wallet.balance": { $gte: debitAmount } },
-    { $inc: { "wallet.balance": -debitAmount } },
+    [{ $set: { 'wallet.balance': { $divide: [{ $subtract: [{ $round: [{ $multiply: ['$wallet.balance', 100] }, 0] }, debitPaise] }, 100] } } }],
     updateOptions
   );
 
@@ -139,7 +141,7 @@ export const debitWallet = async ({
   }
 
   const balanceAfter = updatedUser.wallet.balance;
-  const balanceBefore = balanceAfter + debitAmount;
+  const balanceBefore = (toPaise(balanceAfter, Number.MAX_SAFE_INTEGER) + debitPaise) / 100;
   const txnId = generateTransactionId();
 
   const ledgerData = {
@@ -219,6 +221,7 @@ export const creditWallet = async ({
   if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
     throw httpError(400, "Credit amount must be a positive number greater than 0");
   }
+  const creditPaise = toPaise(creditAmount, Number.MAX_SAFE_INTEGER);
 
   // Idempotency check: if key already used, return existing transaction
   if (idempotencyKey) {
@@ -242,12 +245,12 @@ export const creditWallet = async ({
     session ? { session } : {}
   );
 
-  const updateOptions = { returnDocument: 'after', runValidators: true };
+  const updateOptions = { returnDocument: 'after', runValidators: true, updatePipeline: true };
   if (session) updateOptions.session = session;
 
   const updatedUser = await User.findOneAndUpdate(
-    { _id: userId },
-    { $inc: { "wallet.balance": creditAmount } },
+    { _id: userId, 'wallet.balance': { $lte: (Number.MAX_SAFE_INTEGER - creditPaise) / 100 } },
+    [{ $set: { 'wallet.balance': { $divide: [{ $add: [{ $round: [{ $multiply: ['$wallet.balance', 100] }, 0] }, creditPaise] }, 100] } } }],
     updateOptions
   );
 
@@ -256,7 +259,7 @@ export const creditWallet = async ({
   }
 
   const balanceAfter = updatedUser.wallet.balance;
-  const balanceBefore = balanceAfter - creditAmount;
+  const balanceBefore = (toPaise(balanceAfter, Number.MAX_SAFE_INTEGER) - creditPaise) / 100;
   const txnId = generateTransactionId();
 
   const ledgerData = {

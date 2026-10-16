@@ -1,6 +1,10 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 const jsonMessage = (message) => ({ success: false, data: null, message, meta: {} });
+export const paymentRecoveryLimiter = rateLimit({ windowMs:60000, limit:30, standardHeaders:true, legacyHeaders:false, keyGenerator:req=>`admin:${req.user._id}`, message:jsonMessage('Too many payment recovery operations. Review status and retry later.') });
+export const wholesalePublicLimiter = rateLimit({ windowMs: 60000, limit: 60, standardHeaders: true, legacyHeaders: false, message: jsonMessage('Too many Wholesale availability requests. Please retry in a minute.') });
+export const wholesaleCustomerLimiter = rateLimit({ windowMs: 60000, limit: 120, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: req => `customer:${req.user._id}`, message: jsonMessage('Too many Wholesale price requests. Please retry in a minute.') });
 
 /**
  * OTP requests are unauthenticated and trigger paid SMS once the real gateway

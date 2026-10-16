@@ -1,4 +1,5 @@
 import express from 'express';
+import { wholesalePublicLimiter, wholesaleCustomerLimiter } from '../middlewares/rateLimit.middleware.js';
 import { imageSearchRouter } from './imageSearch.routes.js';
 import {
   getProducts,
@@ -23,6 +24,7 @@ import {
   updateProductWholesalePricing,
   getWholesaleCatalog,
   getWholesaleAvailability,
+  previewWholesaleProduct,
   uploadDigitalProductFile,
 } from '../controllers/product.controller.js';
 import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
@@ -45,8 +47,9 @@ router.get('/grocery', getGroceryProducts);
 router.get('/search', searchProducts);
 
 // Dedicated customer catalog; purchases use the separate Wholesale cart.
-router.get('/wholesale/availability', getWholesaleAvailability);
-router.get('/wholesale/catalog', protect, requireCustomerSession, getWholesaleCatalog);
+router.get('/wholesale/availability', wholesalePublicLimiter, getWholesaleAvailability);
+router.get('/wholesale/catalog', protect, requireCustomerSession, wholesaleCustomerLimiter, getWholesaleCatalog);
+router.post('/wholesale/quote', protect, requireCustomerSession, wholesaleCustomerLimiter, previewWholesaleProduct);
 
 /**
  * What delivery is actually available, per product, for one address.

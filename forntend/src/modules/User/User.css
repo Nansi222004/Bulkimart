@@ -4050,6 +4050,22 @@
 }
 
 /* Sticky bottom CTA bar */
+.pd-wholesale { margin-top: 12px; color: #334155; font-size: 13px; }
+.pd-wholesale button, .pd-wholesale-signin { cursor: pointer; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: #fff; color: #166534; }
+.pd-wholesale-indicator { width: 100%; text-align: left; font-weight: 700; }
+.pd-channel-selector { display: flex; gap: 8px; margin: 12px 0; }
+.pd-channel-selector button { flex: 1; min-height: 44px; font-weight: 700; }
+.pd-channel-selector button[aria-pressed="true"] { background: #166534; color: #fff; border-color: #166534; }
+.pd-wholesale table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.pd-wholesale caption { text-align: left; font-weight: 700; margin-bottom: 8px; }
+.pd-wholesale th, .pd-wholesale td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
+.pd-wholesale tr.is-active { background: #dcfce7; font-weight: 700; }
+.pd-wholesale label { display: block; margin-bottom: 6px; }
+.pd-wholesale input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; border: 1px solid #94a3b8; border-radius: 8px; }
+.pd-wholesale-total { margin-top: 12px; background: #f0fdf4; padding: 12px; border-radius: 8px; }
+.pd-wholesale-total p { font-size: 12px; line-height: 1.5; }
+.pd-wholesale-signin { margin-top: 12px; font-size: 13px; }
+.pd-product-link-state { padding: 24px; box-sizing: border-box; }
 .pd-sticky-cta {
   position: sticky;
   bottom: 0;

@@ -11,6 +11,7 @@ function App() {
   useEffect(() => {
     const handleLocationChange = () => {
       setPath(window.location.pathname)
+      window.dispatchEvent(new Event('app:locationchange'))
     }
     
     window.addEventListener('popstate', handleLocationChange)

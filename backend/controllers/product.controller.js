@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { publicProduct } from '../utils/publicProduct.js';
-import { assertWholesaleBuyer } from '../services/wholesaleEligibility.service.js';
+import { assertWholesaleBuyer, quoteWholesaleVariant, wholesaleAvailability } from '../services/wholesaleEligibility.service.js';
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import { CHANNEL, CHANNELS, APPROVAL, LOW_STOCK_THRESHOLD, WHOLESALE_CHANNEL } from '../constants/enums.js';
@@ -15,7 +15,7 @@ import { isWithinRadius } from '../services/radius.service.js';
 import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service.js';
 import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
 import { persistLegacyVariantIds, resolveInventoryItem } from '../services/inventory.service.js';
-import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
+import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesaleCatalog.service.js';
 import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
 import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
 
@@ -649,22 +649,51 @@ export const updateProductWholesalePricing = asyncHandler(async (req, res) => {
  */
 export const getWholesaleCatalog = asyncHandler(async (req, res) => {
   assertWholesaleBuyer(req);
+  if (Object.keys(req.query).some(key => !['page', 'limit', 'q', 'category', 'productId'].includes(key))) throw httpError(400, 'Invalid Wholesale query parameter');
+  res.set('Cache-Control', 'private, no-store');
   const page = Number(req.query.page ?? 1), limit = Number(req.query.limit ?? 24);
   if (req.query.productId !== undefined && (typeof req.query.productId !== 'string' || !mongoose.isValidObjectId(req.query.productId))) throw httpError(400, 'Invalid Wholesale product ID');
   if ((req.query.q !== undefined && (typeof req.query.q !== 'string' || req.query.q.length > 120)) || (req.query.category !== undefined && (typeof req.query.category !== 'string' || req.query.category.length > 160))) throw httpError(400, 'Invalid Wholesale filter');
-  if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw httpError(400, 'Invalid catalog pagination');
-  const catalog = await getEligibleWholesaleCatalog();
-  const needle = (req.query.q || '').trim().toLowerCase();
-  const data = catalog.filter(product => (!req.query.productId || String(product._id) === req.query.productId)
-    && (!req.query.category || product.category?.name === req.query.category)
-    && (!needle || [product.name, product.seller?.name, product.category?.name].join(' ').toLowerCase().includes(needle)));
-  res.status(200).json({ success: true, data: data.slice((page - 1) * limit, page * limit), meta: { page, limit, total: data.length, pages: Math.ceil(data.length / limit) } });
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw httpError(400, 'Invalid catalog pagination');
+  const result = await getWholesaleCatalogPage({ page, limit, productId: req.query.productId, q: req.query.q?.trim(), category: req.query.category });
+  res.status(200).json({ success: true, ...result });
 });
 
 /** Public navigation hint only: no seller, product, price, or stock data. */
-export const getWholesaleAvailability = asyncHandler(async (_req, res) => {
-  const catalog = await getEligibleWholesaleCatalog();
-  return res.status(200).json({ success: true, enabled: catalog.length > 0 });
+export const getWholesaleAvailability = asyncHandler(async (req, res) => {
+  if (Object.keys(req.query).some(key => !['productId', 'variantId'].includes(key))) throw httpError(400, 'Invalid Wholesale query parameter');
+  for (const key of ['productId', 'variantId']) if (req.query[key] !== undefined && (typeof req.query[key] !== 'string' || !mongoose.isValidObjectId(req.query[key]))) throw httpError(400, 'Invalid Wholesale product or variant ID');
+  if (req.query.variantId && !req.query.productId) throw httpError(400, 'Product ID is required with variant ID');
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({ success: true, enabled: await hasWholesaleOffers({ productId: req.query.productId, variantId: req.query.variantId }) });
+});
+
+// Read-only preview. The same pricing/eligibility service also validates cart
+// writes and checkout; a preview never reserves stock or creates a cart/order.
+export const previewWholesaleProduct = asyncHandler(async (req, res) => {
+  assertWholesaleBuyer(req);
+  const { productId, variantId, quantity } = req.body;
+  if (![productId, variantId].every(id => typeof id === 'string' && mongoose.isValidObjectId(id))) throw httpError(400, 'Invalid Wholesale product or variant ID');
+  const product = await Product.findById(productId).select('+variants.wholesalePricing').populate('category', 'isActive');
+  if (!product?.category || product.category.isActive === false) throw httpError(409, 'This Wholesale product is unavailable');
+  const seller = await Seller.findById(product.sellerId).populate('userId', 'isActive');
+  const quote = quoteWholesaleVariant(product, seller, variantId, quantity);
+  const variant = product.variants.find(item => String(item._id) === variantId);
+  const availability = wholesaleAvailability(variant);
+  const campaign = await resolveCampaignPriceForProduct(productId);
+  const retailPrice = campaign ? Math.round(variant.price * (1 - campaign.discountValue / 100) * 100) / 100 : variant.price;
+  const retailPaise = Math.round(retailPrice * 100);
+  const comparisonTotal = retailPaise * quote.quantity;
+  const savingsPaise = comparisonTotal - Math.round(quote.lineTotal * 100);
+  res.set('Cache-Control', 'private, no-store');
+  return res.json({ success: true, data: {
+    productId, variantId, quantity: quote.quantity, unitPrice: quote.unitPrice,
+    subtotal: quote.lineTotal, ...quote.wholesaleSnapshot,
+    availableStock: quote.inventory.stock, maxQuantity: availability.maxQuantity,
+    priceTiers: availability.priceTiers,
+    retailUnitPrice: Number.isSafeInteger(comparisonTotal) && retailPaise > 0 ? retailPaise / 100 : null,
+    savings: Number.isSafeInteger(comparisonTotal) && retailPaise > 0 && savingsPaise > 0 ? savingsPaise / 100 : null,
+  } });
 });
 
 // @desc    Create a product (Seller/SHG)

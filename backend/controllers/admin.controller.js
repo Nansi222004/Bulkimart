@@ -5,6 +5,7 @@ import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Product from '../models/Product.js';
 import Order from '../models/Order.js';
+import Payment from '../models/Payment.js';
 import Category from '../models/Category.js';
 import Ticket from '../models/Ticket.js';
 import { applyApprovedRatings } from '../services/productRatings.service.js';
@@ -322,6 +323,23 @@ export const getWholesaleManagementSummary = asyncHandler(async (_req, res) => {
       availableVariants: variants.filter((variant) => variant.available).length,
     },
   });
+});
+
+// Read-only operational queue. Executing/refinalizing these debts requires a
+// separately authorized, idempotent provider reconciliation/refund procedure.
+export const getCaptureRefundObligations = asyncHandler(async (req, res) => {
+  const page = Number(req.query.page ?? 1), limit = Number(req.query.limit ?? 24);
+  const states = req.query.status === 'all' ? ['pending', 'processing', 'failed', 'reconciliation_required', 'processed'] : req.query.status ? [req.query.status] : ['pending', 'processing', 'failed', 'reconciliation_required'];
+  if (states.some(status => !['pending', 'processing', 'failed', 'reconciliation_required', 'processed'].includes(status))) throw httpError(400, 'Invalid refund status');
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw httpError(400, 'Invalid refund queue pagination');
+  const [result] = await Payment.aggregate([
+    { $match: { 'refundObligations.status': { $in: states } } },
+    { $unwind: '$refundObligations' },
+    { $match: { 'refundObligations.status': { $in: states } } },
+    { $sort: { 'refundObligations.createdAt': 1, _id: 1 } },
+    { $facet: { data: [{ $skip: (page - 1) * limit }, { $limit: limit }, { $project: { paymentId: '$_id', groupRef: 1, obligation: '$refundObligations' } }], count: [{ $count: 'total' }] } },
+  ]).option({ maxTimeMS: 2000, allowDiskUse: false });
+  return ok(res, result?.data || [], 'Refund obligations require reconciliation; no refund has been executed.', { page, limit, total: result?.count[0]?.total || 0 });
 });
 
 // @desc    Reject a seller

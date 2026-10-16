@@ -8,6 +8,8 @@ import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
 import Seller from '../models/Seller.js';
 import User from '../models/User.js';
+import { coordinateOnlineCancellation } from '../services/paymentObligations.service.js';
+import { fenceCheckoutSellers } from '../services/sellerCheckout.service.js';
 import { assertWholesaleBuyer } from '../services/wholesaleEligibility.service.js';
 import { wholesaleQuoteHash } from '../services/wholesaleQuote.service.js';
 import Delivery from '../models/Delivery.js';
@@ -543,6 +545,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   const executeOrderCommit = async (txnSession = null) => {
     const opts = txnSession ? { session: txnSession } : {};
+    await fenceCheckoutSellers(lines.map(line => line.sellerId), txnSession);
     writeStage = 'checkout_attempt.create';
     await CheckoutAttempt.create([{
       userId: req.user._id,
@@ -656,7 +659,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       }, txnSession);
     }
     writeStage = 'cart.clear';
-    await Cart.updateOne({ userId: req.user._id, channel }, { $set: { items: [] } }, opts);
+    await Cart.updateOne({ userId: req.user._id, channel }, { $set: { items: [] }, $inc: { __v: 1 } }, opts);
 
     writeStage = 'checkout_attempt.complete';
     await CheckoutAttempt.updateOne(
@@ -883,11 +886,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         validateGroupsStock(groups);
         const customer = await User.updateOne({ _id: req.user._id, isActive: true, roles: 'buyer' }, { $inc: { __v: 1 } }, { session });
         if (!customer.matchedCount) throw httpError(403, 'Customer account is unavailable');
-        for (const sellerId of new Set(groups.map(group => String(group.seller._id)))) {
-          const lock = await Seller.updateOne({ _id: sellerId, status: 'approved', salesChannels: 'wholesale', 'wholesaleChannel.status': 'approved' }, { $inc: { __v: 1 } }, { session });
-          if (!lock.matchedCount) throw httpError(409, 'Wholesale seller access changed');
-        }
       }
+      await fenceCheckoutSellers(groups.map(group => group.seller._id), session, purchaseMode === 'wholesale');
       writeStage = 'checkout_attempt.create';
       await CheckoutAttempt.create([{
         userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash,
@@ -1215,6 +1215,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
       // Money already taken is queued for refund rather than silently kept.
       if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
+        if (payment) await coordinateOnlineCancellation(payment, order, session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
           const rawTotal = payment.groupRef ? (order.pricing?.totalAmount || payment.amount) : payment.amount;
           const refundAmount = rawTotal;
@@ -1348,6 +1349,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
 
       if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
+        if (payment) await coordinateOnlineCancellation(payment, order, session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
           const refundAmount = payment.groupRef ? (order.pricing?.totalAmount || 0) : payment.amount;
           if (payment.method === PAYMENT_METHOD.WALLET) {

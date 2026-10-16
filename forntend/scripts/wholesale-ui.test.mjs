@@ -2,10 +2,11 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Catalog, Cart, UserProvider, portalRequests;
+let vite, Catalog, Cart, UserProvider, portalRequests, QuickActions;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Catalog = (await vite.ssrLoadModule('/src/modules/User/pages/WholesalePage.jsx')).default;
+  QuickActions = (await vite.ssrLoadModule('/src/modules/User/components/QuickActions.jsx')).default;
   Cart = (await vite.ssrLoadModule('/src/modules/User/pages/WholesaleCartPage.jsx')).default;
   UserProvider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
   portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
@@ -17,6 +18,34 @@ const stores = () => ({ localStorage: storage({ userToken: 'customer-fixture', s
 const offer = { _id: 'fixture-product', name: 'Fixture Beans', seller: { name: 'Fixture store' }, category: { name: 'Beans' }, variants: [{ variantId: 'fixture-variant', name: 'Case', available: true, availableStock: 25, minimumQuantity: 5, quantityIncrement: 5, maxQuantity: 25, priceTiers: [{ minimumQuantity: 5, unitPrice: 80 }, { minimumQuantity: 10, unitPrice: 70 }] }] };
 const address = { _id: 'fixture-address', line1: 'Fixture', city: 'Mumbai', pincode: '400001', lat: 19.1, lng: 72.9 };
 const cart = { valid: true, quoteHash: 'fixture-quote-hash', items: [{ itemId: 'line-fixture', productId: 'fixture-product', variantId: 'fixture-variant', name: 'Fixture Beans', qty: 5, price: 80, lineTotal: 400, stock: 25, wholesaleSnapshot: { minimumQuantity: 5, quantityIncrement: 5 } }], totals: { subtotal: 400, deliveryCharge: 40, totalAmount: 440 } };
+
+test('storefront availability distinguishes no offers from server errors and permits recovery', async () => {
+  const h=hookHarness(QuickActions,{},'/grocery--home',{activeMode:'quick',setActiveNav(){}},stores());
+  try {
+    h.requests[0].resolve({success:true,enabled:false}); await h.settle();
+    assert.equal(h.find(n=>n.props?.role==='alert'),undefined);
+    assert.equal(h.find(n=>n.props?.children==='Wholesale'),undefined);
+  } finally {h.close();}
+  const failed=hookHarness(QuickActions,{},'/grocery--home',{activeMode:'quick',setActiveNav(){}},stores());
+  try {
+    failed.requests[0].resolve({message:'Fixture database failure'},500); await failed.settle();
+    assert.ok(failed.find(n=>n.props?.role==='alert'),'server errors must not be silently treated as no offers');
+    failed.click('Retry wholesale availability');
+    failed.requests.at(-1).resolve({success:true,enabled:true}); await failed.settle();
+    assert.equal(failed.find(n=>n.props?.role==='alert'),undefined);
+    assert.ok(failed.find(n=>n.props?.children==='Wholesale'));
+  } finally {failed.close();}
+});
+
+test('storefront wholesale availability times out without blocking retail quick actions',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const h=hookHarness(QuickActions,{},'/grocery--home',{activeMode:'quick',setActiveNav(){}},stores());
+  try {
+    t.mock.timers.tick(10001); await h.settle();
+    assert.ok(h.find(n=>n.props?.role==='alert'));
+    assert.ok(h.find(n=>n.props?.className?.includes('quick-action-card')));
+  } finally {h.close();t.mock.timers.reset();}
+});
 
 test('direct Wholesale product entry preserves variant, enforces quantities and sends only customer intent', async () => {
   const h = hookHarness(Catalog, {}, '/wholesale/fixture-product', { currentUser: { _id: 'buyer' } }, stores());
