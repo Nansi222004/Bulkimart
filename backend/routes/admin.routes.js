@@ -1,6 +1,8 @@
 import express from 'express';
+import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
+import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
-  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary,
+  listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary, getCaptureRefundObligations,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
   listProducts, getProductDetailAdmin, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
@@ -84,6 +86,13 @@ router.get('/quick-commerce-third-party-config', getQuickCommerceDeliveryConfigA
 router.patch('/quick-commerce-third-party-config', updateQuickCommerceDeliveryConfigAdmin);
 router.get('/sellers', listSellers);              // ?status=pending | approved | rejected | suspended
 router.get('/wholesale/summary', getWholesaleManagementSummary);
+router.get('/payment-refund-obligations', getCaptureRefundObligations);
+router.get('/payment-attempt-recovery', listUnresolvedPaymentAttempts);
+router.use('/payment-recovery', paymentRecoveryLimiter);
+router.get('/payment-recovery/:paymentId', getPaymentRecovery);
+router.post('/payment-recovery/:paymentId/refund/process', processRefundRecovery);
+router.post('/payment-recovery/:paymentId/refund/reconcile', processRefundRecovery);
+router.post('/payment-recovery/:paymentId/attempt/reconcile', reconcilePaymentCreation);
 router.get('/sellers/:id', getSellerDetail);      // full registration data + documents
 router.patch('/sellers/:id/radius', setSellerRadius);
 router.patch('/sellers/:id/third-party-fulfillment', setSellerThirdPartyFulfillment);

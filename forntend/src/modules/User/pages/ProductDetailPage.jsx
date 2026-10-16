@@ -5,6 +5,8 @@ import { useProductDeliveryOptions } from '../hooks/useDeliveryOptions';
 import { formatCurrency } from '../utils/helpers';
 import { apiUrl } from '../../../utils/api';
 import UnavailableBadge from '../components/UnavailableBadge';
+import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
+import { useProductWholesale } from '../hooks/useProductWholesale';
 
 // Star component
 const Stars = ({ rating, size = 14 }) => {
@@ -52,7 +54,7 @@ const ProductDetailPage = () => {
   const {
     selectedProduct, setSelectedProduct, addToCart, getItemQty,
     getDeliveryPoint, getSelectedAddress, getLocationDisplayName, setActiveNav,
-    isWishlisted, toggleWishlist,
+    isWishlisted, toggleWishlist, currentUser,
   } = useUser();
   const product = selectedProduct;
   const isDigital = product?.fulfillmentType === 'digital' || product?.raw?.fulfillmentType === 'digital';
@@ -61,7 +63,10 @@ const ProductDetailPage = () => {
   const productVariants = loadedProductId === String(product?.id)
     ? loadedVariants
     : (product?.variants || product?.raw?.variants || []);
-  const [selectedVariantId, setSelectedVariantId] = useState(() => productVariants[0]?.id || productVariants[0]?._id || '');
+  const [selectedVariantId, setSelectedVariantId] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('variant');
+    return productVariants.some(item => String(item.id || item._id) === requested) ? requested : productVariants[0]?.id || productVariants[0]?._id || '';
+  });
   const selectedVariant = productVariants.find((variant) => String(variant.id || variant._id) === String(selectedVariantId)) || productVariants[0] || null;
   const selectedPrice = selectedVariant?.price ?? product?.price;
   const selectedMrp = selectedVariant?.mrp ?? product?.mrp;
@@ -69,6 +74,10 @@ const ProductDetailPage = () => {
   const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
   const [cartActionPending, setCartActionPending] = useState(false);
   const [cartActionError, setCartActionError] = useState('');
+  const wholesale = useProductWholesale({
+    productId: product?.id, variantId: String(selectedVariant?.id || selectedVariant?._id || ''), currentUser, enabled: !isDigital,
+    openCart: () => { setSelectedProduct(null); setActiveNav('wholesale/cart'); },
+  });
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
@@ -262,12 +271,18 @@ const ProductDetailPage = () => {
   const deliveryPoint = getDeliveryPoint();
   const isEcom = product?.type === 'ecommerce';
   const { options: deliveryOptions, loading: deliveryLoading } =
-    useProductDeliveryOptions(isEcom && !isDigital ? product?.id : null, deliveryPoint, Math.max(1, qty), selectedVariantId || null);
+    useProductDeliveryOptions(isEcom && !isDigital ? product?.id : null, deliveryPoint, Math.max(1, wholesale.mode === 'wholesale' ? wholesale.quantity : qty), selectedVariantId || null);
   const sameDay = deliveryOptions?.sameDay;
 
   useEffect(() => {
-    const first = productVariants[0];
-    setSelectedVariantId(first ? String(first.id || first._id || '') : '');
+    const restoreVariant = () => {
+      const first = productVariants[0];
+      const requested = new URLSearchParams(window.location.search).get('variant');
+      setSelectedVariantId(productVariants.some(item => String(item.id || item._id) === requested) ? requested : first ? String(first.id || first._id || '') : '');
+    };
+    restoreVariant();
+    window.addEventListener('popstate', restoreVariant);
+    return () => window.removeEventListener('popstate', restoreVariant);
   }, [product?.id, loadedProductId]);
   useEffect(() => setQty(getItemQty(product?.id, selectedVariantId)), [product?.id, selectedVariantId]);
 
@@ -401,7 +416,7 @@ const ProductDetailPage = () => {
               {productVariants.map((variant) => {
                 const id = String(variant.id || variant._id || '');
                 const attrs = (variant.attributes || []).map((attribute) => `${attribute.name}: ${attribute.value}`).join(', ');
-                return <option key={id} value={id} disabled={!isDigital && Number(variant.stock) < 1}>{variant.name}{attrs ? ` · ${attrs}` : ''} · {formatCurrency(variant.price)}{!isDigital && Number(variant.stock) < 1 ? ' · Out of stock' : ''}</option>;
+                return <option key={id} value={id} disabled={!isDigital && Number(variant.stock) < 1}>{variant.name}{attrs ? ` · ${attrs}` : ''}{wholesale.mode === 'retail' ? ` · ${formatCurrency(variant.price)}` : ''}{!isDigital && Number(variant.stock) < 1 ? ' · Out of stock' : ''}</option>;
               })}
             </select>
           </label>
@@ -414,7 +429,7 @@ const ProductDetailPage = () => {
         </div>
 
         {/* Price row */}
-        <div className="pd-price-row">
+        {wholesale.mode === 'retail' && <div className="pd-price-row">
           {campaignDeal ? (
             <>
               <span className="pd-price" style={{ color: '#b91c1c' }}>{formatCurrency(campaignPriceForVariant)}</span>
@@ -429,20 +444,26 @@ const ProductDetailPage = () => {
               )}
             </>
           )}
-        </div>
-        {campaignDeal?.title && (
+        </div>}
+        {wholesale.mode === 'retail' && campaignDeal?.title && (
           <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 700, color: '#b91c1c' }}>🔥 {campaignDeal.title}</p>
         )}
+
+        {!isDigital && <ProductWholesaleOffer wholesale={wholesale} />}
+        {!isDigital && !currentUser && <button type="button" className="pd-wholesale-signin" onClick={() => {
+          sessionStorage.setItem('bulkimart:product-return', JSON.stringify({ productId: product.id, variantId: selectedVariantId, path: window.location.pathname }));
+          setSelectedProduct(null); setActiveNav('account');
+        }}>Sign in to check wholesale availability</button>}
 
         {/* Seller */}
         <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
 
         {unavailable && <UnavailableBadge style={{ marginTop: 10 }} />}
-        <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? 'Digital download · available after verified payment' : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>
+        {wholesale.mode === 'retail' && <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? 'Digital download · available after verified payment' : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>}
       </div>
 
       {/* Offers section */}
-      {!isDigital ? <div className="pd-section-card">
+      {!isDigital ? wholesale.mode === 'retail' && <div className="pd-section-card">
         <h3 className="pd-section-title">
           <span style={{ color: '#FF8500' }}>%</span> Offers &amp; Coupons
         </h3>
@@ -796,7 +817,10 @@ const ProductDetailPage = () => {
         </div>
       )}
       <div className="pd-sticky-cta">
-        {unavailable ? (
+        {wholesale.mode === 'wholesale' ? <>
+          <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'ADDING…' : 'ADD WHOLESALE'}</button>
+          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add(true)}>BUY WHOLESALE NOW</button>
+        </> : unavailable ? (
           <button className="pd-flipkart-btn disabled" disabled>
             CURRENTLY UNAVAILABLE
           </button>

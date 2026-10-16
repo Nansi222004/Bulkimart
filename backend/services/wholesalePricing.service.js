@@ -1,4 +1,5 @@
 import { httpError } from '../utils/response.js';
+import { toPaise, fromPaise } from '../utils/money.js';
 
 export const MAX_WHOLESALE_QUANTITY = 100000;
 const numeric = (value) => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value));
@@ -33,7 +34,7 @@ export const normalizeWholesalePricing = (raw) => {
     if (!numeric(tier?.unitPrice) || !Number.isSafeInteger(Math.round(unitPrice * 100)) || unitPrice <= 0 || Math.abs(Math.round(unitPrice * 100) / 100 - unitPrice) > 1e-8) {
       throw httpError(400, `Wholesale price tier ${index + 1} must have a positive price with at most two decimals`);
     }
-    return { minimumQuantity: tierQuantity, unitPrice: Math.round(unitPrice * 100) / 100 };
+    return { minimumQuantity: tierQuantity, unitPrice: fromPaise(toPaise(unitPrice)) };
   });
 
   priceTiers.sort((a, b) => a.minimumQuantity - b.minimumQuantity);
@@ -63,7 +64,7 @@ export const priceWholesaleQuantity = (pricing, quantity) => {
 
   const tier = [...normalized.priceTiers].reverse().find((item) => qty >= item.minimumQuantity);
   if (!tier) throw httpError(400, 'No wholesale price is configured for this quantity');
-  const cents = Math.round(tier.unitPrice * 100) * qty;
+  const cents = toPaise(tier.unitPrice) * qty;
   if (!Number.isSafeInteger(cents)) throw httpError(400, 'Wholesale line amount exceeds the supported limit');
-  return { unitPrice: tier.unitPrice, quantity: qty, lineTotal: cents / 100 };
+  return { unitPrice: tier.unitPrice, quantity: qty, lineTotal: fromPaise(cents) };
 };

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { sumMoney } from '../utils/money.js';
 import Cart from '../models/Cart.js';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
@@ -156,6 +157,8 @@ export const createOrdersFromGroups = async ({
   user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', beforeWrite = () => {},
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
+  // Reject before any inventory mutation, including basket-level tips.
+  const payable = sumMoney(...groups.map(group => group.total), Math.max(0, Math.round(Number(tip) || 0)));
 
   /**
    * Return-policy snapshot (Phase 3) — this grouped/unified path builds its
@@ -212,7 +215,6 @@ export const createOrdersFromGroups = async ({
   const tipAmount = Math.max(0, Math.round(Number(tip) || 0));
 
   // ---- one payment for the whole basket ---------------------------------
-  const payable = Number((groups.reduce((t, g) => t + g.total, 0) + tipAmount).toFixed(2));
 
   if (paymentMethod === PAYMENT_METHOD.WALLET) {
     beforeWrite('wallet.debit');
@@ -269,7 +271,7 @@ export const createOrdersFromGroups = async ({
         cdsDiscount: 0,
         deliveryCharge: g.deliveryCharge,
         tipAmount: thisOrdersTip,
-        totalAmount: Number((g.total + thisOrdersTip).toFixed(2)),
+        totalAmount: sumMoney(g.total, thisOrdersTip),
       },
       paymentMethod,
       paymentId: payment._id,
@@ -304,7 +306,7 @@ export const createOrdersFromGroups = async ({
   beforeWrite('cart.clear');
   await Cart.updateMany(
     { userId: user._id, channel: purchaseMode === 'wholesale' ? 'wholesale' : { $in: channels } },
-    { $set: { items: [] } },
+    { $set: { items: [] }, $inc: { __v: 1 } },
     { session }
   );
 

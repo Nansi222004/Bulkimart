@@ -447,6 +447,8 @@ const orderSchema = new Schema(
      * on the Payment exactly as they do now.
      */
     refundPending: {
+      status: String,
+      providerRefundId: String,
       amount:   { type: Number, min: 0 },
       reason:   String,
       markedAt: Date,

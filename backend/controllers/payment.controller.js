@@ -1,4 +1,8 @@
 import mongoose from 'mongoose';
+import crypto from 'node:crypto';
+import { toPaise } from '../utils/money.js';
+import { razorpayAttempt, addRefundObligation } from '../services/paymentObligations.service.js';
+import { reconcileRefundEvent, recoverCreationFromWebhook, verifyLegacyRefundEvent } from '../services/paymentRecovery.service.js';
 import Payment from '../models/Payment.js';
 import Order from '../models/Order.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
@@ -38,20 +42,14 @@ import { activateDigitalEntitlements } from '../services/digitalEntitlement.serv
  */
 
 /** Move an order to paid/failed exactly once, whichever signal arrives first. */
-export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode }) => {
-  /**
-   * Idempotent: the webhook and the status poll routinely both arrive, for
-   * either outcome. A payment only ever leaves PENDING once — PAID and
-   * FAILED are both terminal — so "already left PENDING" (not just
-   * "already PAID") is what actually makes every side effect below safe to
-   * skip on a repeat. This used to check PAID only; re-running the FAILED
-   * branch a second time was harmless back when it just re-wrote the same
-   * status, but the Coins release added below (Section 12/13/14) is not
-   * naturally idempotent the same way — releasing an already-released
-   * reservation legitimately has nothing left to release, so it must never
-   * be attempted twice.
-   */
-  if (payment.status !== PAYMENT_STATUS.PENDING) return { changed: false, status: payment.status };
+export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode, gatewayPaymentId, amountPaise, currency }) => {
+  // Exact Razorpay capture replay is a no-op; distinct successes still need
+  // financial reconciliation after settlement/failure. Other provider signals
+  // retain their pending-only transition and one-time Coins effects.
+  const capturedRazorpay = state === 'COMPLETED' && (payment.gateway?.provider === 'razorpay' || payment.gatewayAttempts?.some(row => row.provider === 'razorpay' && row.gatewayOrderId === gatewayOrderId));
+  const knownCaptureId = gatewayPaymentId || paymentDetails?.[0]?.id;
+  if (capturedRazorpay && payment.captures?.some(row => row.gatewayPaymentId === knownCaptureId && row.gatewayOrderId === gatewayOrderId && row.amountPaise === amountPaise && currency === 'INR')) return { changed: false, status: payment.status };
+  if (payment.status !== PAYMENT_STATUS.PENDING && !capturedRazorpay) return { changed: false, status: payment.status };
 
   const session = await mongoose.startSession();
   let result = { changed: false, status: payment.status };
@@ -59,7 +57,43 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
   try {
     await session.withTransaction(async () => {
       const fresh = await Payment.findById(payment._id).session(session);
-      if (!fresh || fresh.status !== PAYMENT_STATUS.PENDING) return;
+      if (!fresh) return;
+      if (capturedRazorpay) {
+        const attempt = razorpayAttempt(fresh, gatewayOrderId);
+        const captureId = gatewayPaymentId || paymentDetails?.[0]?.id;
+        if (!captureId || !Number.isSafeInteger(amountPaise) || amountPaise !== attempt.amountPaise || amountPaise !== rupeesToPaise(fresh.amount) || currency !== 'INR') throw httpError(400, 'Razorpay capture does not match its attempt');
+        const previous = fresh.captures?.find(row => row.gatewayPaymentId === captureId);
+        if (previous) {
+          if (previous.gatewayOrderId !== gatewayOrderId) throw httpError(400, 'Razorpay payment association mismatch');
+          result = { changed: false, status: fresh.status }; return;
+        }
+        // Backward compatibility: old paid records have no capture journal.
+        // A replay for their known winning gateway order is not a second debt.
+        if (!fresh.captures?.length && !fresh.gatewayAttempts?.length && ['paid', 'partial_refund', 'refunded'].includes(fresh.status) && fresh.gateway.orderId === gatewayOrderId && (!fresh.gateway.paymentId || fresh.gateway.paymentId === captureId)) {
+          fresh.captures = [{ gatewayOrderId, gatewayPaymentId: captureId, amountPaise: attempt.amountPaise, currency: 'INR', disposition: 'settled', receivedAt: fresh.paidAt || new Date() }];
+          await fresh.save({ session }); result = { changed: false, status: fresh.status }; return;
+        }
+        const extra = ['paid', 'partial_refund', 'refunded'].includes(fresh.status) || attempt.status === 'failed' || (fresh.status === 'failed' && fresh.coinsUsed > 0);
+        fresh.captures ||= [];
+        fresh.captures.push({ gatewayOrderId, gatewayPaymentId: captureId, amountPaise: attempt.amountPaise, currency: 'INR', disposition: extra ? 'refund_required' : 'settled', receivedAt: new Date() });
+        const recorded = fresh.gatewayAttempts?.find(row => row.gatewayOrderId === gatewayOrderId);
+        if (recorded) recorded.status = 'captured';
+        if (extra) {
+          addRefundObligation(fresh, { key: `CAPTURE:${captureId}`, gatewayOrderId, gatewayPaymentId: captureId, amountPaise: attempt.amountPaise, reason: 'Additional or late failed-attempt capture; do not fulfil twice' });
+          await fresh.save({ session }); result = { changed: true, status: fresh.status }; return;
+        }
+        const cancelled = await Order.find(fresh.groupRef ? { groupRef: fresh.groupRef, status: ORDER_STATUS.CANCELLED } : { _id: fresh.orderId, status: ORDER_STATUS.CANCELLED }).session(session);
+        for (const order of cancelled) {
+          const amountPaise = Math.round((fresh.groupRef ? order.pricing.totalAmount : fresh.amount) * 100);
+          addRefundObligation(fresh, { key: `CANCEL:${order._id}`, orderId: order._id, gatewayOrderId, gatewayPaymentId: captureId, amountPaise, reason: 'Capture received for cancelled order' });
+          await Order.updateOne({ _id: order._id, status: ORDER_STATUS.CANCELLED }, { $set: { refundPending: { amount: amountPaise / 100, reason: 'Capture received for cancelled order', markedAt: new Date() } } }, { session });
+        }
+        // Capture can arrive after the journal is stored but before initiation
+        // writes the current gateway projection. Settlement owns that projection.
+        fresh.gateway.provider = 'razorpay';
+        if (attempt.merchantOrderId) fresh.gateway.merchantOrderId = attempt.merchantOrderId;
+        fresh.gateway.paymentId = captureId;
+      } else if (fresh.status !== PAYMENT_STATUS.PENDING) return;
 
       if (state === 'COMPLETED') {
         fresh.status = PAYMENT_STATUS.PAID;
@@ -113,6 +147,9 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
 
         result = { changed: true, status: 'paid' };
       } else if (state === 'FAILED') {
+        const attempt = fresh.gatewayAttempts?.find(row => row.gatewayOrderId === gatewayOrderId);
+        if (attempt) attempt.status = 'failed';
+        if (fresh.gateway?.provider === 'razorpay' && fresh.gateway.orderId !== gatewayOrderId) { await fresh.save({ session }); return; }
         fresh.status = PAYMENT_STATUS.FAILED;
         fresh.gateway = { ...(fresh.gateway || {}), orderId: gatewayOrderId, errorCode };
         await fresh.save({ session });
@@ -190,28 +227,55 @@ export const initiatePayment = asyncHandler(async (req, res) => {
   // shopper who abandons the page must be able to start again. Derived from this
   // order's number even for a group — it is already unique and traceable, and
   // inventing a second id scheme would be one more thing to keep unique.
-  const attempt = (payment.attempts || 0) + 1;
+  const attemptId = crypto.randomUUID();
+  const amountPaise = toPaise(amountRupees);
+  // Preserve a pre-journal pending reference before replacing the legacy
+  // projection. The conditional push also handles two simultaneous retries.
+  if (payment.gateway?.provider === 'razorpay' && payment.gateway.orderId && !payment.gatewayAttempts?.some(row => row.gatewayOrderId === payment.gateway.orderId)) {
+    await Payment.updateOne({ _id: payment._id, 'gatewayAttempts.gatewayOrderId': { $ne: payment.gateway.orderId } }, { $push: { gatewayAttempts: {
+      attemptId: `legacy:${payment.gateway.orderId}`, provider: 'razorpay', gatewayOrderId: payment.gateway.orderId,
+      merchantOrderId: payment.gateway.merchantOrderId, orderId: payment.orderId || order._id,
+      amountPaise: Math.round(payment.amount * 100), currency: 'INR', status: payment.status === 'failed' ? 'failed' : 'issued', createdAt: payment.gateway.initiatedAt,
+    } } });
+  }
+  const reserved = await Payment.findOneAndUpdate({ _id: payment._id, status: { $in: ['pending', 'failed'] }, 'gatewayAttempts.19': { $exists: false }, gatewayAttempts: { $not: { $elemMatch: { status: { $in: ['initializing', 'creation_unknown'] } } } } }, {
+    $inc: { attempts: 1 }, $push: { gatewayAttempts: { attemptId, provider, orderId: order._id, amountPaise, currency: 'INR', status: 'initializing', createdAt: new Date() } },
+  }, { returnDocument: 'after' });
+  if (!reserved) throw httpError(409, 'Payment changed, an attempt requires reconciliation, or its attempt limit was reached. Review payment status before retrying.', { code: 'PAYMENT_RECONCILIATION_REQUIRED' });
+  const attempt = reserved.attempts;
   const merchantOrderId = `${order.orderNo}-A${attempt}`;
+  // Persist the provider receipt before the external boundary so a timeout or
+  // process interruption leaves an operator-reconcilable originating attempt.
+  await Payment.updateOne({ _id: payment._id, 'gatewayAttempts.attemptId': attemptId }, { $set: { 'gatewayAttempts.$.merchantOrderId': merchantOrderId } });
 
   const base = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5050}`;
   const redirectUrl = `${base}/api/payments/return/${merchantOrderId}`;
 
-  const amountPaise = rupeesToPaise(amountRupees);
-  const gw = await createRazorpayOrder({
+  let gw;
+  try { gw = await createRazorpayOrder({
     merchantOrderId,
     amountPaise,
     notes: { bulkimartOrderId: String(order._id), orderNo: order.orderNo },
-  });
+  }); } catch (error) {
+    // Only an explicit provider validation rejection establishes no creation.
+    // Timeouts, 5xx, malformed replies and connection errors stay unresolved.
+    const rejected = error.statusCode === 400 && error.error?.code === 'BAD_REQUEST_ERROR';
+    await Payment.updateOne({ _id: payment._id, 'gatewayAttempts.attemptId': attemptId }, { $set: { 'gatewayAttempts.$.status': rejected ? 'creation_rejected' : 'creation_unknown' }, $push: { 'gatewayAttempts.$.history': { status: rejected ? 'creation_rejected' : 'creation_unknown', at: new Date(), result: rejected ? 'Provider confirmed request rejection; no order created' : 'Provider creation outcome uncertain' } } });
+    if (rejected) throw httpError(400, 'Provider rejected payment initialization. Review the order before retrying.');
+    throw httpError(503, 'Payment initialization is unconfirmed. Check payment status before retrying.');
+  }
 
-  payment.attempts = attempt;
-  payment.gateway = {
+  if (gw.amountPaise !== amountPaise || gw.currency !== 'INR') throw httpError(502, 'Razorpay returned mismatched order details');
+  await Payment.updateOne({ _id: payment._id, 'gatewayAttempts.attemptId': attemptId }, { $set: {
+    'gatewayAttempts.$.gatewayOrderId': gw.orderId, 'gatewayAttempts.$.merchantOrderId': merchantOrderId, 'gatewayAttempts.$.status': 'issued',
+  } });
+  const gateway = {
     provider,
     merchantOrderId,
     orderId: gw.orderId,
     initiatedAt: new Date(),
   };
-  payment.status = PAYMENT_STATUS.PENDING;
-  await payment.save();
+  await Payment.updateOne({ _id: payment._id, status: { $in: ['pending', 'failed'] } }, { $set: { gateway, status: PAYMENT_STATUS.PENDING } });
 
   return ok(res, {
     provider,
@@ -297,27 +361,31 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
 
   const evt = parseRazorpayWebhookEvent(req.body);
   if (['refund_completed', 'refund_failed'].includes(evt.kind)) {
-    await settleRazorpayRefundWebhook({
-      refundId: evt.refundId,
-      state: evt.kind === 'refund_completed' ? 'COMPLETED' : 'FAILED',
-      errorCode: evt.errorCode,
-    });
+    const recovery = await reconcileRefundEvent(evt);
+    if (recovery.handled) {
+      if (['processed', 'failed'].includes(recovery.outcome.status)) await settleRazorpayRefundWebhook({ refundId: evt.refundId, state: recovery.outcome.status === 'processed' ? 'COMPLETED' : 'FAILED', errorCode: evt.errorCode });
+      return res.status(200).json({ success: true });
+    }
+    const verified = await verifyLegacyRefundEvent(evt);
+    if (['processed', 'failed'].includes(verified)) await settleRazorpayRefundWebhook({ refundId: evt.refundId, state: verified === 'processed' ? 'COMPLETED' : 'FAILED', errorCode: evt.errorCode });
     return res.status(200).json({ success: true });
   }
   if (!evt.gatewayOrderId || !['payment_completed', 'payment_failed'].includes(evt.kind)) {
     return res.status(200).json({ success: true, message: 'Ignored event' });
   }
 
-  const payment = await Payment.findOne({
-    'gateway.provider': 'razorpay',
-    'gateway.orderId': evt.gatewayOrderId,
-  });
+  let payment = await Payment.findOne({ $or: [
+    { 'gateway.provider': 'razorpay', 'gateway.orderId': evt.gatewayOrderId },
+    { gatewayAttempts: { $elemMatch: { provider: 'razorpay', gatewayOrderId: evt.gatewayOrderId } } },
+  ] });
+  if (!payment) payment = await recoverCreationFromWebhook(evt);
   if (!payment) return res.status(200).json({ success: true, message: 'Unknown order' });
 
-  if (evt.amountPaise && evt.amountPaise !== rupeesToPaise(payment.amount)) {
+  const attempt = razorpayAttempt(payment, evt.gatewayOrderId);
+  if (!Number.isSafeInteger(evt.amountPaise) || evt.amountPaise !== attempt.amountPaise || evt.amountPaise !== rupeesToPaise(payment.amount) || !evt.paymentId) {
     return res.status(400).json({ success: false, message: 'Payment amount mismatch' });
   }
-  if (evt.currency && evt.currency !== 'INR') {
+  if (evt.currency !== 'INR') {
     return res.status(400).json({ success: false, message: 'Payment currency mismatch' });
   }
 
@@ -325,16 +393,11 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
     payment,
     state: evt.kind === 'payment_completed' ? 'COMPLETED' : 'FAILED',
     gatewayOrderId: evt.gatewayOrderId,
+    gatewayPaymentId: evt.paymentId, amountPaise: evt.amountPaise, currency: evt.currency,
     paymentDetails: evt.paymentDetails,
     errorCode: evt.errorCode,
   });
 
-  if (evt.paymentId) {
-    await Payment.updateOne(
-      { _id: payment._id, 'gateway.paymentId': { $ne: evt.paymentId } },
-      { $set: { 'gateway.paymentId': evt.paymentId } },
-    );
-  }
   return res.status(200).json({ success: true });
 });
 
@@ -352,7 +415,8 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   if (!order || String(order.userId) !== String(req.user._id)) throw httpError(404, 'Order not found');
   const payment = await Payment.findById(order.paymentId);
   if (!payment || payment.gateway?.provider !== 'razorpay') throw httpError(404, 'Payment not found');
-  if (payment.gateway?.orderId !== razorpay_order_id) throw httpError(400, 'Razorpay order mismatch');
+  const attempt = razorpayAttempt(payment, razorpay_order_id);
+  if (String(attempt.orderId) !== String(order._id)) throw httpError(400, 'Razorpay order mismatch');
 
   const signatureValid = verifyRazorpayPaymentSignature({
     orderId: razorpay_order_id,
@@ -372,12 +436,13 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
     payment,
     state: live.state,
     gatewayOrderId: razorpay_order_id,
+    gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, currency: live.currency,
     paymentDetails: live.paymentDetails,
     errorCode: live.errorCode,
   });
   await Payment.updateOne(
-    { _id: payment._id },
-    { $set: { 'gateway.paymentId': razorpay_payment_id, 'gateway.signatureVerifiedAt': new Date() } },
+    { _id: payment._id, 'gateway.paymentId': razorpay_payment_id },
+    { $set: { 'gateway.signatureVerifiedAt': new Date() } },
   );
 
   return ok(res, { status: settled.status },
@@ -440,7 +505,7 @@ export const getPaymentStatus = asyncHandler(async (req, res) => {
             paymentId: payment.gateway.paymentId,
           })
         : await getPhonePeOrderStatus(payment.gateway.merchantOrderId);
-      await settle({ payment, state: live.state, gatewayOrderId: live.orderId, paymentDetails: live.paymentDetails });
+      await settle({ payment, state: live.state, gatewayOrderId: live.orderId, gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, currency: live.currency, paymentDetails: live.paymentDetails });
       await payment.reload?.();
     } catch { /* fall through to the stored status */ }
   }
@@ -452,6 +517,8 @@ export const getPaymentStatus = asyncHandler(async (req, res) => {
     status: fresh.status,
     amount: fresh.amount,
     paidAt: fresh.paidAt,
+    refundObligations: (fresh.refundObligations || []).map(row => ({ amount: row.amountPaise / 100, currency: row.currency, status: row.status, reason: row.reason })),
+    reconciliationRequired: fresh.gatewayAttempts?.some(row => ['initializing', 'creation_unknown'].includes(row.status)) || false,
     orderStatus: (await Order.findById(order._id, 'status')).status,
   });
 });

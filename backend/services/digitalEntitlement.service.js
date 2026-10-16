@@ -15,6 +15,7 @@ export const activateDigitalEntitlements = async ({ payment, session }) => {
   }
 
   for (const order of orders.filter(Boolean)) {
+    if (['cancelled', 'refunded'].includes(order.status)) continue;
     const digitalItems = (order.items || []).filter((item) => item.fulfillmentType === 'digital');
     for (const item of digitalItems) {
       const file = item.digitalFile;

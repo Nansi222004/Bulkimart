@@ -10,7 +10,7 @@ import {
 } from '../constants/enums.js';
 import * as coinService from './coin.service.js';
 import * as phonepeService from './phonepe.service.js';
-import { createRazorpayRefund } from './razorpay.service.js';
+import { ensureReturnObligation, processRefundObligation } from './paymentRecovery.service.js';
 import { refundToWallet } from './wallet.service.js';
 import { WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { notifyUser, notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
@@ -479,6 +479,21 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
       return ret; // stays REFUND_PENDING until an admin manually settles it
     }
 
+    // A provider-verified obligation may already be processed if Return
+    // finalization was interrupted. Recover it before the legacy paid-state
+    // guard, which would otherwise reject the now-refunded Payment.
+    if (payment.gateway?.provider === 'razorpay' && payment.method === PAYMENT_METHOD.ONLINE) {
+      const key = await ensureReturnObligation(String(payment._id), ret, Math.round(breakdown.refundAmount * 100));
+      const existingDebt = (await Payment.findById(payment._id)).refundObligations.find(row => row.key === key);
+      const outcome = await processRefundObligation({ paymentId: String(payment._id), key, actor: adminId, reconcile: ['processing', 'reconciliation_required'].includes(existingDebt.status) });
+      if (outcome.providerRefundId) ret.refundReference = outcome.providerRefundId;
+      if (outcome.status === 'processed') return await completeRefund(ret, { refundReference: outcome.providerRefundId, refundStatus: RETURN_REFUND_STATUS.COMPLETED, adminId, note: 'Razorpay refund verified through shared obligation recovery' });
+      if (outcome.status === 'failed') return await failRefund(ret, 'Provider confirmed refund failure/rejection; reconcile before retry');
+      ret.refundStatus = RETURN_REFUND_STATUS.PROCESSING;
+      await ret.save();
+      return ret;
+    }
+
     if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.PARTIAL_REFUND].includes(payment.status)) {
       return await failRefund(ret, `Payment for this order is not in a refundable state (${payment.status})`);
     }
@@ -524,14 +539,7 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
     let gatewayResult;
     const gatewayProvider = payment.gateway?.provider || 'phonepe';
     try {
-      gatewayResult = gatewayProvider === 'razorpay'
-        ? await createRazorpayRefund({
-            paymentId: payment.gateway?.paymentId,
-            amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),
-            receipt: merchantRefundId(ret._id),
-            notes: { returnId: String(ret._id), returnNumber: ret.returnNumber },
-          })
-        : await phonepeService.createRefund({
+      gatewayResult = await phonepeService.createRefund({
             merchantRefundId: merchantRefundId(ret._id),
             originalMerchantOrderId: payment.gateway?.merchantOrderId,
             amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),

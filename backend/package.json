@@ -2,12 +2,14 @@
   "name": "backend",
   "version": "1.0.0",
   "type": "module",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "main": "index.js",
   "scripts": {
-    "build": "node --check index.js && node scripts/checkServicePackage.mjs",
-    "start": "node index.js",
-    "dev": "nodemon index.js",
+    "build": "node api.js && node --check index.js && node scripts/checkServicePackage.mjs",
+    "start": "node api.js && node index.js",
+    "dev": "node api.js && nodemon index.js",
     "seed": "node seed/index.js",
     "seed:reset": "node seed/index.js --reset",
     "fix:indexes": "node seed/fixIndexes.js",

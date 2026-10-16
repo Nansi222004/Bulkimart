@@ -17,7 +17,7 @@ const checkoutAttempts = new Map();
 let stockWriteResult = { modifiedCount: 1 };
 let checkoutLookupBarrier = null;
 
-const User = { findById: jest.fn(() => ({ select: async () => shopper })) };
+const User = { findById: jest.fn(() => ({ select: async () => shopper })), updateOne: jest.fn(async () => ({ matchedCount: 1 })) };
 const Cart = {
   findOne: jest.fn(async ({ channel }) => cartsByChannel.get(channel) || null),
   updateOne: jest.fn(async ({ channel }) => {
@@ -50,6 +50,8 @@ const Product = {
   }),
 };
 const Seller = {
+  updateOne: jest.fn(async () => ({ matchedCount: 1 })),
+  findById: jest.fn(() => ({ select() { return this; }, session: async () => ({ _id: sellerId, userId: new mongoose.Types.ObjectId() }) })),
   find: jest.fn(() => ({ select() { return this; }, lean: async () => [{ _id: sellerId, status: 'approved', storeDetails: {} }] })),
 };
 const Payment = {

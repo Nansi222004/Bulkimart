@@ -390,7 +390,8 @@ test('label or pickup failures preserve the confirmed AWB without duplicate prov
 });
 test('multiple stores produce separate accepted-by-seller orders and one payment without choosing carriers', async () => {
   const anotherSeller = id(), anotherProduct = { ...product, _id: id(), sellerId: anotherSeller };
-  await Seller.collection.insertOne({ _id: anotherSeller, userId: id(), businessName: 'Second Fixture Store', status: 'approved', storeDetails: { pincode: '400001', lat: 19.1, lng: 72.9 } });
+  const anotherAccount = await User.create({ name: 'Second Fixture Seller', phone: '9876500002', roles: ['buyer', 'seller'], isActive: true });
+  await Seller.collection.insertOne({ _id: anotherSeller, userId: anotherAccount._id, businessName: 'Second Fixture Store', status: 'approved', storeDetails: { pincode: '400001', lat: 19.1, lng: 72.9 } });
   await Product.collection.insertOne(anotherProduct);
   await Cart.updateOne({ userId: buyer._id }, { $push: { items: { productId: anotherProduct._id, variantId: anotherProduct.variants[0]._id, qty: 1, price: 100 } } });
   const response = await checkout().expect(201); expect(response.body.data.orders).toHaveLength(2);

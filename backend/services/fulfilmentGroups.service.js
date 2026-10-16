@@ -1,4 +1,5 @@
 import Cart from '../models/Cart.js';
+import { lineMoney, sumMoney } from '../utils/money.js';
 import Product from '../models/Product.js';
 import Seller from '../models/Seller.js';
 import { priceOrder, resolveDeliveryType } from './pricing.service.js';
@@ -291,7 +292,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         price: l.price,
         wholesaleSnapshot: l.wholesaleSnapshot,
         campaignId: l.campaignId,
-        lineTotal: Number((l.price * l.qty).toFixed(2)),
+        lineTotal: lineMoney(l.price, l.qty),
         available: l.available,
         stock: l.inventory?.stock,
         type: l.product?.type || l.channel,
@@ -329,11 +330,11 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * threshold and any coupon applied to it exactly as they would have.
    */
   const totals = groups.reduce((t, g) => ({
-    subtotal: t.subtotal + g.subtotal,
-    deliveryCharge: t.deliveryCharge + g.deliveryCharge,
-    sameDayPremium: t.sameDayPremium + (g.sameDayFee || 0) + (g.sellerIncentive || 0),
-    couponDiscount: t.couponDiscount + (g.couponDiscount || 0),
-    totalAmount: t.totalAmount + g.total,
+    subtotal: sumMoney(t.subtotal, g.subtotal),
+    deliveryCharge: sumMoney(t.deliveryCharge, g.deliveryCharge),
+    sameDayPremium: sumMoney(t.sameDayPremium, g.sameDayFee || 0, g.sellerIncentive || 0),
+    couponDiscount: sumMoney(t.couponDiscount, g.couponDiscount || 0),
+    totalAmount: sumMoney(t.totalAmount, g.total),
     itemCount: t.itemCount + g.itemCount,
   }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 });
 

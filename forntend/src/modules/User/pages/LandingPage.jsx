@@ -58,11 +58,12 @@ const resolvePopupNav = (route) => {
  */
 const isSlug = (subNav) => /^(grocery|ecommerce|shg)--/.test(subNav || '');
 
-const LandingPageContent = () => {
+export const LandingPageContent = () => {
   const {
     activeNav,
     activeMode,
     selectedProduct,
+    productDetailLoading, productDetailError, retryProductDetail, setSelectedProduct,
     currentUser,
     activeSubNav,
     getCartCount,
@@ -82,6 +83,7 @@ const LandingPageContent = () => {
   // Delivery is only decided (and added) on the Fulfillment Checkout page —
   // this bar shows the items subtotal so nothing is charged upfront.
   const cartTotal = getCartSubtotal();
+  const productLinkPending = !selectedProduct && (productDetailLoading || productDetailError);
 
   // The storefront is public: opening `/` should always show the home feed.
   // Authentication is requested only when a shopper enters an account-only
@@ -230,7 +232,14 @@ const LandingPageContent = () => {
       {currentUser && <RealtimeNotice />}
       {/* Scrollable Main Area */}
       <main className={`user-main-content page-${activeNav}`}>
-        {renderContent()}
+        {productLinkPending ? <>
+          <UnifiedHeader />
+          <section className="pd-product-link-state" role={productDetailError ? 'alert' : 'status'} aria-live="polite">
+            <p>{productDetailError || 'Loading product…'}</p>
+            {productDetailError && <button type="button" onClick={retryProductDetail}>Retry product</button>}
+            <button type="button" onClick={() => setSelectedProduct(null)}>Back to storefront</button>
+          </section>
+        </> : renderContent()}
       </main>
 
       {/* Floating Bottom Cart Bar */}

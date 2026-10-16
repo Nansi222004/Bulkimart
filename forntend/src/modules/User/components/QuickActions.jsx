@@ -2,19 +2,27 @@ import React, { useEffect, useState } from 'react';
 import { QUICK_ACTIONS } from '../constants';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
+import { boundedFetch } from '../../../utils/portalRequests';
 
 const QuickActions = () => {
   const { setActiveNav, activeMode } = useUser();
   const [wholesaleAvailable, setWholesaleAvailable] = useState(false);
+  const [wholesaleError, setWholesaleError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(apiUrl('/api/products/wholesale/availability'), { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => setWholesaleAvailable(data?.success === true && data.enabled === true))
-      .catch(() => { if (!controller.signal.aborted) setWholesaleAvailable(false); });
+    setWholesaleError(false);
+    boundedFetch(apiUrl('/api/products/wholesale/availability'), { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error('Wholesale availability could not be checked.');
+        const data = await response.json();
+        if (data?.success !== true || typeof data.enabled !== 'boolean') throw new Error('Invalid availability response');
+        if (!controller.signal.aborted) setWholesaleAvailable(data.enabled);
+      })
+      .catch(() => { if (!controller.signal.aborted) { setWholesaleAvailable(false); setWholesaleError(true); } });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
 
   // Render specific SVG icons based on icon name
   const renderIcon = (iconName, color) => {
@@ -83,6 +91,7 @@ const QuickActions = () => {
   };
 
   return (
+    <>
     <div className="quick-actions-container">
       {QUICK_ACTIONS.filter((action) => action.id !== 'wholesale' || wholesaleAvailable).map((action) => (
         <div 
@@ -106,6 +115,8 @@ const QuickActions = () => {
         </div>
       ))}
     </div>
+    {wholesaleError && <p role="alert">Wholesale availability could not be checked. <button type="button" onClick={() => setAttempt(value => value + 1)}>Retry wholesale availability</button></p>}
+    </>
   );
 };
 

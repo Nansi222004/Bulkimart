@@ -56,3 +56,4 @@ tests/
 !backend/__tests__/api/seller-marketing-retirement.http.test.js
 !backend/__tests__/api/wholesale.http.test.js
 !backend/__tests__/api/seller-payment.http.test.js
+!backend/__tests__/api/razorpay-webhook.http.test.js

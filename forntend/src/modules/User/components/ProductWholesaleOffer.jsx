@@ -1,0 +1,41 @@
+import React from 'react';
+import { formatCurrency } from '../utils/helpers';
+
+export default function ProductWholesaleOffer({ wholesale: w }) {
+  return <div className="pd-wholesale">
+    {w.available && <>
+      <button type="button" className="pd-wholesale-indicator" onClick={() => w.chooseMode('wholesale')}>Wholesale available — View bulk prices</button>
+      <div className="pd-channel-selector" role="group" aria-label="Purchase channel">
+        {['retail', 'wholesale'].map(mode => <button type="button" key={mode} aria-pressed={w.mode === mode} disabled={w.pending} onClick={() => w.chooseMode(mode)}>{mode === 'retail' ? 'Retail' : 'Wholesale'}</button>)}
+      </div>
+    </>}
+    {w.loading && <p role="status">Checking wholesale availability…</p>}
+    {w.catalogError && <p role="alert">{w.catalogError} <button type="button" onClick={w.refresh}>Retry</button></p>}
+    {w.mode === 'wholesale' && <section aria-label="Wholesale purchase">
+      {!w.available && !w.loading && <>{!w.catalogError && <p>Wholesale is currently unavailable for this product.</p>}<button type="button" onClick={() => w.chooseMode('retail')}>Return to Retail</button></>}
+      {w.available && !w.offer && <p>This variant has no available wholesale offer. Choose another variant or Retail.</p>}
+      {w.offer && <>
+        <p>Minimum order: <strong>{w.offer.minimumQuantity}</strong> · Increments of <strong>{w.offer.quantityIncrement}</strong></p>
+        <p>{w.offer.availableStock} in stock · Maximum order: {w.offer.maxQuantity}</p>
+        <table><caption>Seller’s quantity prices</caption><thead><tr><th scope="col">Quantity</th><th scope="col">Per unit</th></tr></thead>
+          <tbody>{w.offer.priceTiers.map((tier, index, tiers) => <tr key={tier.minimumQuantity} className={w.quote?.tierMinimumQuantity === tier.minimumQuantity ? 'is-active' : ''}>
+            <td>{tier.minimumQuantity}{index + 1 < tiers.length ? `–${tiers[index + 1].minimumQuantity - 1}` : '+'}{w.quote?.tierMinimumQuantity === tier.minimumQuantity ? ' · Applied' : ''}</td><td>{formatCurrency(tier.unitPrice)}</td>
+          </tr>)}</tbody>
+        </table>
+        <label htmlFor="pd-wholesale-quantity">Wholesale quantity</label>
+        <input id="pd-wholesale-quantity" type="number" inputMode="numeric" min={w.offer.minimumQuantity} max={w.offer.maxQuantity} step={w.offer.quantityIncrement} value={w.quantity || ''} disabled={w.pending} onChange={event => w.setQuantity(Number(event.target.value))} />
+        {!w.validQuantity && <p role="alert">Order at least {w.offer.minimumQuantity}, in increments of {w.offer.quantityIncrement}, up to {w.offer.maxQuantity}.</p>}
+        {w.quoteLoading && <p role="status">Checking current price and stock…</p>}
+        {w.quote && <div className="pd-wholesale-total" aria-live="polite">
+          <strong>{w.quote.quantity} units × {formatCurrency(w.quote.unitPrice)} = {formatCurrency(w.quote.subtotal)}</strong>
+          <p>Estimated item subtotal. Delivery and final totals are confirmed in the Wholesale cart.</p>
+          {w.quote.savings > 0 && <p>Save {formatCurrency(w.quote.savings)} compared with {formatCurrency(w.quote.retailUnitPrice)} per unit in Retail for this variant.</p>}
+          {w.offer.priceTiers.find(tier => tier.minimumQuantity > w.quantity) && <p>Next price tier starts at {w.offer.priceTiers.find(tier => tier.minimumQuantity > w.quantity).minimumQuantity} units.</p>}
+        </div>}
+      </>}
+      {w.error && <p role="alert">{w.error} <button type="button" onClick={w.refresh}>Refresh offer</button></p>}
+      {w.message && <p role="status">{w.message}</p>}
+      {w.available && <button type="button" disabled={w.pending} onClick={w.openCart}>View Wholesale cart</button>}
+    </section>}
+  </div>;
+}

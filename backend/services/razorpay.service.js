@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
+import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
 
 let cachedClient = null;
 let cachedKeyId = null;
@@ -57,7 +58,7 @@ export const createRazorpayOrder = async (
   { merchantOrderId, amountPaise, notes = {} },
   client = getRazorpayClient(),
 ) => {
-  if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
+  if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0 || amountPaise > MAX_CHECKOUT_PAISE) {
     throw Object.assign(new Error('Invalid payment amount'), { status: 400 });
   }
   const order = await client.orders.create({
@@ -143,6 +144,9 @@ export const parseRazorpayWebhookEvent = (body = {}) => {
     gatewayOrderId: payment?.order_id || body.payload?.order?.entity?.id,
     paymentId: payment?.id,
     refundId: refund?.id,
+    refundPaymentId: refund?.payment_id,
+    refundReceipt: refund?.receipt,
+    refundNotes: refund?.notes,
     amountPaise: payment?.amount || refund?.amount,
     currency: payment?.currency || refund?.currency,
     errorCode: payment?.error_code || refund?.error_code,

@@ -4,6 +4,7 @@ import {
 } from '../constants/enums.js';
 import { getDeliveryChargeSetting } from './deliveryCharge.service.js';
 import { riderPayout } from './riderPay.service.js';
+import { toPaise, fromPaise, sumMoney, lineMoney } from '../utils/money.js';
 
 /**
  * One place that decides what an order costs.
@@ -47,9 +48,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // when nothing has been set.
   const { flatFee: DEFAULT_DELIVERY_CHARGE } = getDeliveryChargeSetting();
 
-  const subtotal = round2(
-    items.reduce((sum, i) => sum + Number(i.price || 0) * Number(i.qty || 0), 0)
-  );
+  const subtotal = sumMoney(...items.map(item => lineMoney(item.price ?? 0, Number(item.qty))));
 
   // ---- coupon --------------------------------------------------------------
   const couponOk = Boolean(applied?.ok);
@@ -112,7 +111,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   if (sameDay) {
     sameDayFee = Math.max(0, Number(sameDay.deliveryFee) || 0);
     sameDayIncentive = Math.max(0, Number(sameDay.sellerIncentive) || 0);
-    deliveryCharge = round2(standardFee + sameDayFee + sameDayIncentive);
+    deliveryCharge = sumMoney(standardFee, sameDayFee, sameDayIncentive);
   }
 
   // ---- rider tip ------------------------------------------------------------
@@ -123,9 +122,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // money for the rider.
   const tipAmount = Math.max(0, Math.round(Number(tip) || 0));
 
-  const totalAmount = round2(
-    Math.max(subtotal - discount - couponDiscount - cdsDiscount + deliveryCharge + tipAmount, 0)
-  );
+  const totalAmount = fromPaise(Math.max(toPaise(subtotal) - toPaise(discount) - toPaise(couponDiscount) - toPaise(cdsDiscount) + toPaise(deliveryCharge) + toPaise(tipAmount), 0));
 
   return {
     subtotal,
