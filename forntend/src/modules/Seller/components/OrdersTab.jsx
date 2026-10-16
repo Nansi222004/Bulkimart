@@ -511,7 +511,7 @@ export const OrdersTab = ({ detailPage = false }) => {
             return (
               <div key={order._id} className="order-fulfillment-card">
                 <div className="order-f-header">
-                  <span className="order-f-id">{order.orderNo}</span>
+                  <span className="order-f-id">{order.orderNo}{order.salesChannel === 'wholesale' ? ' · Wholesale' : ''}</span>
                   <span
                     className="order-f-status-pill"
                     style={{ backgroundColor: pill.bg, color: pill.fg }}
@@ -702,7 +702,7 @@ export const OrdersTab = ({ detailPage = false }) => {
         <section aria-label="Order details">
           <div className="seller-order-page-content">
             <div className="modal-sheet-header">
-              <h1 className="modal-sheet-title">Order {selected.orderNo}</h1>
+              <h1 className="modal-sheet-title">Order {selected.orderNo}{selected.salesChannel === 'wholesale' ? ' · Wholesale' : ''}</h1>
 
             </div>
 

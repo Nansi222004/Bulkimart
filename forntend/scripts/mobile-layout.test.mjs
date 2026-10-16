@@ -11,6 +11,9 @@ const allPortals = process.argv.includes('--portals');
 const audit = process.argv.includes('--audit');
 const dialogsOnly = process.argv.includes('--dialogs');
 const sellerOnly = process.argv.includes('--seller');
+const retiredSeller = process.argv.includes('--retired-seller');
+const wholesaleOnly = process.argv.includes('--wholesale');
+const wholesaleCheckouts = [];
 const startupOnly = process.argv.includes('--startup');
 const livePublic = process.argv.includes('--live-public');
 let startupScenario = '', authRequests = 0, authSettled = false;
@@ -41,6 +44,11 @@ const seller = { _id: product.sellerId, name: 'Fixture Store', city: 'Mumbai' };
 const pricing = { subtotal: 100, deliveryCharge: 40, totalAmount: 140, standardFee: 40 };
 function fixture(raw) {
   const path = new URL(raw).pathname;
+  const wholesaleItem = { ...line, itemId: line._id, variantId: '507f1f77bcf86cd799439033', variantName: 'Case', qty: 5, price: 80, lineTotal: 400, stock: 25, wholesaleSnapshot: { minimumQuantity: 5, quantityIncrement: 5, tierMinimumQuantity: 5, unitPrice: 80 } };
+  if (path === '/api/products/wholesale/availability') return { success: true, enabled: true };
+  if (path === '/api/products/wholesale/catalog') return { success: true, data: [{ ...product, seller, category: { name: 'Fixture category' }, variants: [{ variantId: wholesaleItem.variantId, name: 'Case', available: true, availableStock: 25, minimumQuantity: 5, quantityIncrement: 5, maxQuantity: 25, priceTiers: [{ minimumQuantity: 5, unitPrice: 80 }, { minimumQuantity: 10, unitPrice: 70 }] }] }], meta: { page: 1, pages: 1, total: 1 } };
+  if (path === '/api/cart/wholesale') return { success: true, data: { valid: true, salesChannel: 'wholesale', quoteHash: 'browser-quote-fixture', groups: [], items: [wholesaleItem], totals: { subtotal: 400, deliveryCharge: 40, totalAmount: 440 } } };
+  if (wholesaleOnly && path === '/api/orders/unified') return { success: true, data: { orders: [{ _id: '507f1f77bcf86cd799439022', orderNo: 'WHOLESALE-FIXTURE', salesChannel: 'wholesale', items: [wholesaleItem] }], payment: { id: 'fixture-payment' } } };
   if (path === '/api/delivery/orders/active') return { success:true,data:null };
   if (path === '/api/delivery/return-pickups') return { success:true,data:{pending:[],active:[]} };
   if (path === '/api/delivery/me') return { success:true,data:{ _id:'507f1f77bcf86cd799439027',name:'Fixture Rider',phone:'9876500002',status:'approved',onboardingStep:4,isAvailable:false } };
@@ -114,6 +122,7 @@ try {
             return;
           }
           let body = fixture(request.url), status = 200;
+          if (wholesaleOnly && new URL(request.url).pathname === '/api/orders/unified') wholesaleCheckouts.push(JSON.parse(request.postData));
           if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer seller-browser-fixture-token')) body = { success: true, userType: 'user', sessionRole: 'seller', profile: { _id: 'seller-account-fixture', roles: ['buyer', 'seller'] } };
           if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer admin-browser-fixture-token')) body = { success:true,userType:'admin',profile:{_id:'507f1f77bcf86cd799439028',role:'superAdmin'} };
           if (new URL(request.url).pathname === '/api/auth/me' && Object.values(request.headers).includes('Bearer rider-browser-fixture-token')) body = { success:true,userType:'user',sessionRole:'delivery',profile:{...customer,roles:['delivery']} };
@@ -134,7 +143,7 @@ try {
   await command('Page.enable'); await command('Runtime.enable'); await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   await command('Page.addScriptToEvaluateOnNewDocument', { source: locationOnly ? `if(!sessionStorage.getItem('location-fixture')) {localStorage.clear();sessionStorage.clear();sessionStorage.setItem('location-fixture','1');} window.fixtureGpsCalls=0;const originalGps=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation);navigator.geolocation.getCurrentPosition=(...args)=>{window.fixtureGpsCalls++;return originalGps(...args);};` : livePublic ? `localStorage.setItem('locationAsked','true');` : `if(location.search.includes('guest')) {localStorage.removeItem('userToken');localStorage.removeItem('userProfile');localStorage.removeItem('sellerToken');localStorage.removeItem('sellerUserProfile');} else {localStorage.setItem('sellerToken','seller-browser-fixture-token');localStorage.setItem('adminToken','admin-browser-fixture-token');localStorage.setItem('userToken',location.pathname.startsWith('/delivery')?'rider-browser-fixture-token':'browser-fixture-token'); localStorage.setItem('userProfile',${JSON.stringify(JSON.stringify(customer))});} localStorage.setItem('locationAsked','true');` });
   const selectedWidth = Number(process.argv.find(arg => arg.startsWith('--width='))?.split('=')[1]);
-  const widths = selectedWidth ? [selectedWidth] : allPortals ? [320,360,390,430,768,1280] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
+  const widths = wholesaleOnly || retiredSeller ? [390,1280] : selectedWidth ? [selectedWidth] : allPortals ? [320,360,390,430,768,1280] : livePublic ? [360, 440, 1280] : startupOnly ? [390] : dialogsOnly ? [320, 390] : audit ? [320, 440, 1280] : [320, 360, 375, 390, 412, 440, 768, 1280, 1440];
   if (locationOnly) {
     await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
     await command('Page.navigate',{url:origin+'/'});
@@ -168,7 +177,7 @@ try {
   }
   for (const width of locationOnly ? [] : widths) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 956, deviceScaleFactor: 1, mobile: width <= 440 });
-    const paths = allPortals ? ['/', '/account?guest=1', '/cart', '/checkout', '/seller', '/seller/orders', '/seller/orders/507f1f77bcf86cd799439022', '/admin/products', '/admin/products/'+product._id, '/delivery/dashboard', '/delivery/profile'] : livePublic ? ['/', '/seller', '/checkout'] : startupOnly ? ['/?guest=startup', '/?startup=slow', '/?startup=expired', '/?startup=failed'] : sellerOnly ? ['/seller?guest=1', '/seller', '/seller/orders', '/seller/products'] : dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
+    const paths = wholesaleOnly ? ['/wholesale', '/wholesale/'+product._id, '/wholesale/cart'] : retiredSeller ? ['/seller/promotions', '/seller/campaigns/old', '/seller/grow'] : allPortals ? ['/', '/account?guest=1', '/cart', '/checkout', '/seller', '/seller/orders', '/seller/orders/507f1f77bcf86cd799439022', '/admin/products', '/admin/products/'+product._id, '/delivery/dashboard', '/delivery/profile'] : livePublic ? ['/', '/seller', '/checkout'] : startupOnly ? ['/?guest=startup', '/?startup=slow', '/?startup=expired', '/?startup=failed'] : sellerOnly ? ['/seller?guest=1', '/seller', '/seller/orders', '/seller/products'] : dialogsOnly ? ['/cart?layout=message', '/search?layout=image'] : ['/', '/search', '/cart', '/checkout', '/checkout?layout=address', '/account', '/account?guest=1', '/account?guest=register', '/account?guest=otp'];
     for (const path of paths) {
       console.log(`Checking ${width}px ${path}`);
       startupScenario = new URL(path, origin).searchParams.get('startup') || 'guest'; authRequests = 0; authSettled = false;
@@ -184,6 +193,30 @@ try {
         continue;
       }
       await pause(250);
+      if (wholesaleOnly) {
+        await waitFor(`!!document.querySelector('.wholesale-page')`);
+        if (path === '/wholesale') await waitFor(`!!document.querySelector('.wholesale-card')`);
+        if (path.endsWith(product._id)) {
+          await waitFor(`!![...document.querySelectorAll('button')].find(button => button.textContent === 'Add to Wholesale cart' && !button.disabled)`);
+          await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent === 'Add to Wholesale cart').click()`);
+          await waitFor(`document.body.innerText.includes('Added to your separate Wholesale cart')`);
+        }
+        if (path.endsWith('/cart')) {
+          await waitFor(`!![...document.querySelectorAll('button')].find(button => button.textContent === 'Place Wholesale order' && !button.disabled)`);
+          await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent === 'Place Wholesale order').click()`);
+          await waitFor(`document.body.innerText.includes('Wholesale order placed')`);
+          assert.equal(wholesaleCheckouts.at(-1).purchaseMode, 'wholesale');
+          assert.equal(wholesaleCheckouts.at(-1).quoteHash, 'browser-quote-fixture');
+        }
+        await command('Page.reload'); await waitFor(`!!document.querySelector('.wholesale-page')`);
+      }
+      if (retiredSeller) {
+        await waitFor(`document.body?.innerText.includes('Page unavailable')`);
+        assert.equal(await evaluate(`document.querySelector('a[href="/seller"]')?.textContent`), 'Back to seller dashboard');
+        assert.equal(await evaluate(`[...document.querySelectorAll('.seller-nav-item')].some(n=>/Promotions|Campaigns|Deals|Advertis/.test(n.textContent))`), false);
+        await command('Page.reload');
+        await waitFor(`document.body?.innerText.includes('Page unavailable')`);
+      }
       if (path.includes('layout=message')) {
         await waitFor(`!![...document.querySelectorAll('button')].find(b => b.textContent.includes('Add message'))`);
         await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Add message')).click()`);
@@ -266,7 +299,7 @@ try {
     }
   }
   const artifacts = resolve('../test-artifacts/mobile-layout'); await mkdir(artifacts, { recursive: true });
-  await writeFile(join(artifacts, locationOnly ? 'location.json' : allPortals ? 'portals.json' : livePublic ? 'live-public.json' : startupOnly ? 'startup.json' : sellerOnly ? (audit ? 'seller-baseline.json' : 'seller-results.json') : audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
+  await writeFile(join(artifacts, wholesaleOnly ? 'wholesale.json' : retiredSeller ? 'retired-seller.json' : locationOnly ? 'location.json' : allPortals ? 'portals.json' : livePublic ? 'live-public.json' : startupOnly ? 'startup.json' : sellerOnly ? (audit ? 'seller-baseline.json' : 'seller-results.json') : audit ? 'baseline.json' : dialogsOnly ? 'dialogs.json' : 'results.json'), JSON.stringify({ rows, errors }, null, 2));
   console.log(JSON.stringify({ audit, checks: rows.length, rows: audit ? rows : undefined, errors }, null, 2));
   if (!audit) assert.deepEqual(errors, [], 'Unexpected application errors in browser fixtures');
 } finally {

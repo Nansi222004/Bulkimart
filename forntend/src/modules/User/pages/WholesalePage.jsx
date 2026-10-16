@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { useUser } from '../context/UserContext';
+import WholesaleCartPage from './WholesaleCartPage';
 import './WholesalePage.css';
 
 const routeProductId = () => {
@@ -39,6 +40,8 @@ const WholesalePage = () => {
   const [variantId, setVariantId] = useState('');
   const [quantity, setQuantity] = useState(0);
   const [productId, setProductId] = useState(routeProductId);
+  const [adding, setAdding] = useState(false), [cartMessage, setCartMessage] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(1);
+  const addLock = useRef(false);
 
   useEffect(() => {
     const syncProductRoute = () => setProductId(routeProductId());
@@ -52,7 +55,11 @@ const WholesalePage = () => {
     setLoading(true);
     setError('');
 
-    fetch(apiUrl('/api/products/wholesale/catalog'), {
+    const params = new URLSearchParams({ page: String(page), limit: '24' });
+    if (productId && productId !== 'cart') params.set('productId', productId);
+    if (!productId && query.trim()) params.set('q', query.trim());
+    if (!productId && category) params.set('category', category);
+    fetch(apiUrl(`/api/products/wholesale/catalog?${params}`), {
       headers: { Authorization: `Bearer ${localStorage.getItem('userToken') || ''}` },
       signal: controller.signal,
     })
@@ -64,6 +71,7 @@ const WholesalePage = () => {
             : body.message || `Wholesale offers could not be loaded (${response.status}).`;
           throw new Error(message);
         }
+        if (active) setPages(body.meta?.pages || 1);
         return body.data || [];
       })
       .then((data) => { if (active) setProducts(Array.isArray(data) ? data : []); })
@@ -75,7 +83,7 @@ const WholesalePage = () => {
       .finally(() => { if (active) setLoading(false); });
 
     return () => { active = false; controller.abort(); };
-  }, [attempt, currentUser]);
+  }, [attempt, currentUser, page, productId, query, category]);
 
   const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))].sort(), [products]);
   const filtered = useMemo(() => {
@@ -102,14 +110,31 @@ const WholesalePage = () => {
   }, [variantId, selectedVariant?.minimumQuantity]);
 
   const openProduct = (id) => {
+    setPage(1);
     window.history.pushState(null, '', `/wholesale/${id}`);
     setProductId(String(id));
   };
   const closeProduct = () => {
+    setPage(1);
     window.history.pushState(null, '', '/wholesale');
     setProductId('');
   };
   const productImage = (product) => imageUrl(product) || '';
+  const validQuantity = selectedVariant && Number.isSafeInteger(quantity) && quantity >= selectedVariant.minimumQuantity && quantity <= selectedVariant.maxQuantity && (quantity - selectedVariant.minimumQuantity) % selectedVariant.quantityIncrement === 0;
+  const selectedTier = selectedVariant?.priceTiers?.filter(tier => quantity >= tier.minimumQuantity).at(-1);
+  const addToWholesale = async () => {
+    if (addLock.current || !validQuantity) return;
+    addLock.current = true;
+    setAdding(true); setCartMessage('');
+    try {
+      const response = await fetch(apiUrl('/api/cart/wholesale'), { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('userToken') || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ productId: selectedProduct._id, variantId, qty: quantity }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'Could not add Wholesale offer');
+      setCartMessage('Added to your separate Wholesale cart.');
+    } catch (err) { setCartMessage(err.message); }
+    finally { addLock.current = false; setAdding(false); }
+  };
+  if (productId === 'cart') return <WholesaleCartPage />;
 
   return (
     <section className="wholesale-page" aria-labelledby="wholesale-title">
@@ -121,6 +146,7 @@ const WholesalePage = () => {
         </div>
         <span className="wholesale-access-label">Customer account</span>
       </header>
+      <button type="button" onClick={() => { window.history.pushState(null, '', '/wholesale/cart'); setProductId('cart'); }}>Wholesale cart</button>
 
       {selectedProduct ? (
         <article className="wholesale-detail">
@@ -157,7 +183,7 @@ const WholesalePage = () => {
                     id="wholesale-quantity"
                     type="number"
                     min={selectedVariant.minimumQuantity}
-                    max={selectedVariant.availableStock}
+                    max={selectedVariant.maxQuantity}
                     step={selectedVariant.quantityIncrement}
                     value={quantity || selectedVariant.minimumQuantity}
                     disabled={!selectedVariant.available}
@@ -181,7 +207,9 @@ const WholesalePage = () => {
                   )}
                 </>
               )}
-              <p className="wholesale-disabled-note">Wholesale ordering is not available yet. This page is for browsing only.</p>
+              {selectedTier && validQuantity && <p>{formatPrice(selectedTier.unitPrice)} per unit · Total {formatPrice(Math.round(selectedTier.unitPrice * 100) * quantity / 100)}</p>}
+              <button type="button" disabled={adding || !validQuantity} onClick={addToWholesale}>{adding ? 'Adding…' : 'Add to Wholesale cart'}</button>
+              {cartMessage && <p role="status">{cartMessage}</p>}
             </div>
           </div>
         </article>
@@ -194,10 +222,11 @@ const WholesalePage = () => {
       ) : (
         <>
           <div className="wholesale-filters">
-            <label className="visually-hidden" htmlFor="wholesale-search">Search wholesale products</label>
-            <input id="wholesale-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products, sellers, categories" />
+            <nav aria-label="Wholesale catalog pages"><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span> Page {page} of {pages} </span><button disabled={page >= pages} onClick={() => setPage(value => value + 1)}>Next</button></nav>
+            <label className="visually-hidden" htmlFor="wholesale-search">Search Wholesale offers</label>
+            <input id="wholesale-search" type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search products, sellers, categories" />
             <label className="visually-hidden" htmlFor="wholesale-category">Filter by category</label>
-            <select id="wholesale-category" value={category} onChange={(event) => setCategory(event.target.value)}>
+            <select id="wholesale-category" value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }}>
               <option value="">All categories</option>
               {categories.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>

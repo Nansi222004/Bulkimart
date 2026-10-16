@@ -1,5 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import { getWholesaleCart, changeWholesaleCart } from '../controllers/wholesaleCart.controller.js';
 import {
   getCart,
   addToCart,
@@ -23,6 +24,9 @@ router.use((req, res, next) => {
   }
   next();
 });
+
+router.route('/wholesale').get(getWholesaleCart).post(changeWholesaleCart).delete(changeWholesaleCart);
+router.route('/wholesale/:itemId').put(changeWholesaleCart).delete(changeWholesaleCart);
 
 router.route('/')
   .get(getCart)

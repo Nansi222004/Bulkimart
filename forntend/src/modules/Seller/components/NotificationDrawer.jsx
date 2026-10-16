@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
+import { isRetiredSellerNotification } from '../utils/retiredFeatures';
 import { orderReference } from './SellerOrderAlerts';
 
 export const NotificationDrawer = ({ isOpen, onClose }) => {
@@ -9,7 +10,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
   const [lightbox, setLightbox] = useState(null);
   const [opening, setOpening] = useState(false);
   if (!isOpen) return null;
-  const visible = notifications.filter(n => !['subscription', 'membership'].includes(n.type));
+  const visible = notifications.filter(n => !['subscription', 'membership'].includes(n.type) && !isRetiredSellerNotification(n));
   const open = async notification => {
     if (opening) return;
     setOpening(true);
@@ -21,7 +22,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
         if (!notification.isRead) await markRead(notification._id);
         const route = notification.route || '';
         const tab = route.startsWith('/seller/') ? route.split('/')[2].split('?')[0] : route === '/orders' ? 'orders' : null;
-        if (['orders', 'services', 'products', 'stock', 'support', 'promotions', 'item-returns', 'dashboard', 'earnings', 'paymenthistory', 'moneyrequest'].includes(tab)) setActiveTab(tab);
+        if (['orders', 'services', 'products', 'stock', 'support', 'item-returns', 'dashboard', 'earnings', 'paymenthistory', 'moneyrequest'].includes(tab)) setActiveTab(tab);
         else if (notification.type === 'order') triggerToast('This order notification has no valid order reference. Open Orders to review.');
       }
     } finally { setOpening(false); }

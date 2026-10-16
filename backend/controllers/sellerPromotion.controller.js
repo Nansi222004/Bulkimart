@@ -4,32 +4,18 @@ import PromotionPackage from '../models/PromotionPackage.js';
 import Seller from '../models/Seller.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
-import { notifySeller as notifySellerCentral, NOTIFICATION_EVENT } from '../services/notification.service.js';
-import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError, paginated, getPagination } from '../utils/response.js';
-import {
-  createPayment, getOrderStatus, rupeesToPaise, isConfigured,
-} from '../services/phonepe.service.js';
 import { PAYMENT_STATUS } from '../constants/enums.js';
 import {
-  syncPromotionBanner, disablePromotionBanner, isPromotionEffectivelyActive, productMatchesModule,
+  syncPromotionBanner, disablePromotionBanner, isPromotionEffectivelyActive,
   syncSearchBoost, unsetSearchBoost,
 } from '../services/sellerPromotion.service.js';
 import { SELLER_PROMOTION_MODULES } from '../models/SellerPromotion.js';
 
-/**
- * Seller Promotion / Advertisement — a PAID VISIBILITY request, never a
- * discount. Product.price/mrp/discountPercent are never read or written
- * anywhere in this file. Kept entirely separate from Campaign/
- * CampaignParticipation (see campaign.controller.js's own file comment) —
- * the two can both eventually point at a Banner, but their business logic
- * never mixes.
- *
- * Reused, not rebuilt: the existing upload pipeline (uploadToCloudinary),
- * the existing PhonePe integration (services/phonepe.service.js, the same
- * the existing Notification model, and the
- * existing Banner engine via services/sellerPromotion.service.js.
+/** Admin/public advertisement management and historical payment settlement.
+ * Seller authoring, uploads, package purchasing and billing initiation are retired.
+ * Existing banner/search-boost lifecycle and payment records remain supported.
  */
 
 const isEligibleProductDoc = (p) => !!p && !p.isDeleted;
@@ -47,21 +33,6 @@ const shapeProductRow = (p) => ({
 // ============================================================
 // PACKAGES — admin-managed price list (Section 12/13)
 // ============================================================
-
-/**
- * @route GET /api/sellers/promotions/packages?module=QUICK|ECOMMERCE
- * A seller only ever sees the packages for the module their advertisement
- * already committed to (Section 5/16) — required, not optional, so a
- * missing module never silently returns the whole cross-module list.
- */
-export const listActivePromotionPackages = asyncHandler(async (req, res) => {
-  const { module: moduleName } = req.query;
-  if (!moduleName || !SELLER_PROMOTION_MODULES.includes(moduleName)) {
-    throw httpError(400, `module must be one of ${SELLER_PROMOTION_MODULES.join(', ')}`);
-  }
-  const packages = await PromotionPackage.find({ isActive: true, module: moduleName }).sort({ price: 1 });
-  return ok(res, packages, 'Promotion packages');
-});
 
 /** @route GET /api/admin/promotion-packages?module=QUICK|ECOMMERCE (optional filter) */
 export const listPromotionPackagesForAdmin = asyncHandler(async (req, res) => {
@@ -126,230 +97,7 @@ export const updatePromotionPackage = asyncHandler(async (req, res) => {
 });
 
 // ============================================================
-// SELLER
-// ============================================================
-
-/** @route GET /api/sellers/promotions */
-export const listMyPromotions = asyncHandler(async (req, res) => {
-  const { status } = req.query;
-  const filter = { sellerId: req.seller._id };
-  if (status && status !== 'all') filter.status = status;
-
-  const promotions = await SellerPromotion.find(filter).sort({ updatedAt: -1 }).lean();
-  const rows = promotions.map((p) => ({
-    _id: p._id,
-    title: p.title,
-    module: p.module,
-    bannerImage: p.bannerImage,
-    productsCount: (p.selectedProducts || []).length,
-    status: p.status,
-    activatedAt: p.activatedAt,
-    expiresAt: p.expiresAt,
-    amount: p.amountSnapshot,
-  }));
-
-  return ok(res, rows, 'Your promotions');
-});
-
-/** @route GET /api/sellers/promotions/:id — full detail, this seller's own only. */
-export const getMyPromotionDetail = asyncHandler(async (req, res) => {
-  const promotion = await SellerPromotion.findById(req.params.id)
-    .populate('selectedProducts', 'name images price isActive status isDeleted')
-    .lean();
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) {
-    throw httpError(404, 'Promotion not found');
-  }
-
-  return ok(res, {
-    ...promotion,
-    selectedProducts: (promotion.selectedProducts || []).map(shapeProductRow),
-  }, 'Promotion detail');
-});
-
-/**
- * @route POST /api/sellers/promotions — creates a DRAFT the seller keeps
- * editing until submit. `module` is required and fixed for this
- * promotion's entire lifetime (Section 11: "Select Advertisement Module"
- * is the seller's first step) — everything selected afterwards (products,
- * package) must match it.
- */
-export const createPromotion = asyncHandler(async (req, res) => {
-  const { title, description, module: moduleName } = req.body;
-  if (!SELLER_PROMOTION_MODULES.includes(moduleName)) {
-    throw httpError(400, `module must be one of ${SELLER_PROMOTION_MODULES.join(', ')}`);
-  }
-
-  let bannerImage;
-  if (req.file) bannerImage = await uploadToCloudinary(req.file.buffer, `seller-promotions/${req.seller._id}`);
-
-  const promotion = await SellerPromotion.create({
-    sellerId: req.seller._id,
-    module: moduleName,
-    title: title || 'Untitled promotion',
-    description,
-    bannerImage,
-    status: 'DRAFT',
-  });
-
-  return created(res, promotion, 'Promotion draft created');
-});
-
-/** @route PUT /api/sellers/promotions/:id — editable only while DRAFT or CHANGES_REQUESTED. */
-export const updatePromotion = asyncHandler(async (req, res) => {
-  const promotion = await SellerPromotion.findById(req.params.id);
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) throw httpError(404, 'Promotion not found');
-  if (!['DRAFT', 'CHANGES_REQUESTED'].includes(promotion.status)) {
-    throw httpError(400, `A promotion cannot be edited while it is ${promotion.status}`);
-  }
-
-  const { title, description, packageId } = req.body;
-  let { selectedProducts } = req.body;
-  if (typeof selectedProducts === 'string') {
-    try { selectedProducts = JSON.parse(selectedProducts); } catch { selectedProducts = [selectedProducts]; }
-  }
-
-  if (req.file) promotion.bannerImage = await uploadToCloudinary(req.file.buffer, `seller-promotions/${req.seller._id}`);
-  if (title !== undefined) promotion.title = title;
-  if (description !== undefined) promotion.description = description;
-
-  if (selectedProducts !== undefined) {
-    // Never trust product ids from the frontend — every id must resolve to
-    // a product this seller actually owns AND that belongs to (or is
-    // cross-listed into) this promotion's own module (Section 12: "Backend
-    // must verify product belongs to selected module").
-    const owned = await Product.find({
-      _id: { $in: selectedProducts }, sellerId: req.seller._id,
-    }).select('type channels isActive status').lean();
-    if (owned.length !== new Set(selectedProducts.map(String)).size) {
-      throw httpError(400, 'One or more selected products do not belong to your shop');
-    }
-    const wrongModule = owned.find((p) => !productMatchesModule(p, promotion.module));
-    if (wrongModule) throw httpError(400, `One or more selected products are not listed under ${promotion.module}`);
-    // Cap against whichever package is already attached (if any) — the
-    // seller may set products before or after choosing a package, so this
-    // is checked from both directions (see the packageId branch below too).
-    const capNow = promotion.maxProductsSnapshot;
-    if (capNow && selectedProducts.length > capNow) {
-      throw httpError(400, `This package allows up to ${capNow} product(s) — you selected ${selectedProducts.length}`);
-    }
-    promotion.selectedProducts = selectedProducts;
-  }
-
-  if (packageId !== undefined) {
-    const pkg = await PromotionPackage.findById(packageId);
-    if (!pkg || !pkg.isActive) throw httpError(400, 'Selected package is not available');
-    if (pkg.module !== promotion.module) throw httpError(400, `That package belongs to ${pkg.module}, not ${promotion.module}`);
-    const productCount = (selectedProducts !== undefined ? selectedProducts : promotion.selectedProducts || []).length;
-    if (productCount > pkg.maxProducts) {
-      throw httpError(400, `"${pkg.name}" allows up to ${pkg.maxProducts} product(s) — you have ${productCount} selected`);
-    }
-    promotion.packageId = pkg._id;
-    promotion.packageNameSnapshot = pkg.name;
-    promotion.durationDaysSnapshot = pkg.durationDays;
-    promotion.amountSnapshot = pkg.price;
-    promotion.placementSnapshot = pkg.placement;
-    promotion.maxProductsSnapshot = pkg.maxProducts;
-  }
-
-  await promotion.save();
-  return ok(res, promotion, 'Promotion updated');
-});
-
-const validateForSubmission = (promotion) => {
-  if (!promotion.title || !promotion.title.trim()) throw httpError(400, 'Give the promotion a title');
-  if (!promotion.bannerImage) throw httpError(400, 'Upload a promotion banner before submitting');
-  if (!promotion.selectedProducts || !promotion.selectedProducts.length) throw httpError(400, 'Select at least one product');
-  if (!promotion.packageId) throw httpError(400, 'Choose a promotion package');
-  // Final safety net — updatePromotion already enforces this from both
-  // directions, but re-check here too rather than trust that invariant blindly.
-  if (promotion.maxProductsSnapshot && promotion.selectedProducts.length > promotion.maxProductsSnapshot) {
-    throw httpError(400, `Your package allows up to ${promotion.maxProductsSnapshot} product(s) — you have ${promotion.selectedProducts.length} selected`);
-  }
-};
-
-/**
- * Seller notification — kept as the local call shape every site in this
- * file already uses (a seller doc + {title, message}), now delegating to
- * the central notification service instead of writing to Mongo directly —
- * that's what upgrades this from DB-only to DB + socket + FCM.
- */
-const notifySeller = async (seller, { title, message }) => {
-  if (!seller?._id) return;
-  try {
-    await notifySellerCentral(seller._id, {
-      event: NOTIFICATION_EVENT.SELLER_PROMOTION_UPDATE,
-      title,
-      message,
-      route: '/seller/promotions',
-    });
-  } catch (err) {
-    console.error('[SELLER PROMOTION] notify failed:', err.message);
-  }
-};
-
-/** Admin notification via the same durable channel — no separate admin-notification system invented. */
-const notifyAdminsOfResubmission = async (promotion) => {
-  try {
-    const { default: Admin } = await import('../models/Admin.js');
-    const admins = await Admin.find({}).select('_id').lean();
-    await Notification.insertMany(admins.map((a) => ({
-      userId: a._id,
-      type: 'promotion',
-      title: 'Seller promotion resubmitted',
-      message: `A seller has resubmitted "${promotion.title}" for verification.`,
-      metadata: { promotionId: promotion._id },
-    })));
-  } catch (err) {
-    console.error('[SELLER PROMOTION] admin notify failed:', err.message);
-  }
-};
-
-/** @route POST /api/sellers/promotions/:id/submit — DRAFT -> PENDING_REVIEW */
-export const submitPromotion = asyncHandler(async (req, res) => {
-  const promotion = await SellerPromotion.findById(req.params.id);
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) throw httpError(404, 'Promotion not found');
-  if (promotion.status !== 'DRAFT') throw httpError(400, `Only a draft can be submitted (this is ${promotion.status})`);
-
-  validateForSubmission(promotion);
-  promotion.status = 'PENDING_REVIEW';
-  promotion.submittedAt = new Date();
-  await promotion.save();
-
-  return ok(res, promotion, 'Promotion submitted for admin verification');
-});
-
-/** @route POST /api/sellers/promotions/:id/resubmit — CHANGES_REQUESTED -> PENDING_REVIEW */
-export const resubmitPromotion = asyncHandler(async (req, res) => {
-  const promotion = await SellerPromotion.findById(req.params.id);
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) throw httpError(404, 'Promotion not found');
-  if (promotion.status !== 'CHANGES_REQUESTED') throw httpError(400, 'This promotion has no pending change request');
-
-  validateForSubmission(promotion);
-  promotion.status = 'PENDING_REVIEW';
-  promotion.resubmittedAt = new Date();
-  await promotion.save();
-  await notifyAdminsOfResubmission(promotion);
-
-  return ok(res, promotion, 'Promotion resubmitted for admin verification');
-});
-
-/** @route POST /api/sellers/promotions/:id/cancel — seller withdraws before payment. */
-export const cancelPromotion = asyncHandler(async (req, res) => {
-  const promotion = await SellerPromotion.findById(req.params.id);
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) throw httpError(404, 'Promotion not found');
-  if (!['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'].includes(promotion.status)) {
-    throw httpError(400, `A ${promotion.status} promotion cannot be cancelled`);
-  }
-  promotion.status = 'CANCELLED';
-  await promotion.save();
-  await disablePromotionBanner(promotion); // defensive — see expireDuePromotions' comment
-  await unsetSearchBoost(promotion);
-  return ok(res, promotion, 'Promotion cancelled');
-});
-
-// ============================================================
-// PAYMENT — reuses the shared PhonePe integration exactly the way
-// premium.controller.js's purchasePremium/settlePremiumPayment does.
+// PAYMENT — historical settlement used by the shared payment webhook.
 // ============================================================
 
 /**
@@ -426,96 +174,14 @@ export const settleSellerPromotionPayment = async ({ payment, state, gatewayOrde
     // Outside the transaction, same pattern settlePremiumPayment uses for
     // its own post-commit notification/side-effect work.
     const promotion = await SellerPromotion.findById(payment.sellerPromotionId);
-    const seller = await Seller.findById(promotion.sellerId).select('userId').lean();
     if (promotion.status === 'ACTIVE') {
-      await notifySeller(seller, {
-        title: 'Your promotion is now live',
-        message: `"${promotion.title}" is now live until ${promotion.expiresAt.toDateString()}.`,
-      });
       await syncPromotionBanner(promotion);
       await syncSearchBoost(promotion);
-    } else {
-      // Paid too late — the approval-based window already closed.
-      await notifySeller(seller, {
-        title: 'Payment received, but the promotion window has closed',
-        message: `"${promotion.title}" was approved for a window that ended on ${promotion.expiresAt?.toDateString?.() || 'the scheduled date'}. Contact support about this payment.`,
-      });
     }
   }
 
   return result;
 };
-
-/** @route POST /api/sellers/promotions/:id/payment — only once APPROVED. */
-export const initiatePromotionPayment = asyncHandler(async (req, res) => {
-  if (!isConfigured()) throw httpError(503, 'Online payment is not available right now');
-
-  const promotion = await SellerPromotion.findById(req.params.id);
-  if (!promotion || String(promotion.sellerId) !== String(req.seller._id)) throw httpError(404, 'Promotion not found');
-  if (promotion.status !== 'APPROVED') {
-    throw httpError(400, `Payment can only be started for an approved promotion (this is ${promotion.status})`);
-  }
-
-  let payment = promotion.paymentId ? await Payment.findById(promotion.paymentId) : null;
-  if (!payment || payment.status === PAYMENT_STATUS.PAID) {
-    payment = await Payment.create({
-      userId: req.user._id,
-      sellerPromotionId: promotion._id,
-      amount: promotion.amountSnapshot,
-      method: 'online',
-      status: PAYMENT_STATUS.PENDING,
-    });
-    promotion.paymentId = payment._id;
-  }
-
-  promotion.status = 'PAYMENT_PENDING';
-  await promotion.save();
-
-  const attempt = (payment.attempts || 0) + 1;
-  const merchantOrderId = `PROMO-${promotion._id}-A${attempt}`;
-  const base = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5050}`;
-  const redirectUrl = `${base}/api/promotions/payment/return/${merchantOrderId}`;
-
-  const gw = await createPayment({
-    merchantOrderId,
-    amountPaise: rupeesToPaise(promotion.amountSnapshot),
-    redirectUrl,
-    message: `Bulkimart Seller Promotion — ${promotion.title}`,
-  });
-
-  payment.attempts = attempt;
-  payment.gateway = { provider: 'phonepe', merchantOrderId, orderId: gw.orderId, initiatedAt: new Date() };
-  await payment.save();
-
-  return created(res, {
-    redirectUrl: gw.redirectUrl,
-    merchantOrderId,
-    expireAt: gw.expireAt,
-    amount: promotion.amountSnapshot,
-  }, 'Redirecting to PhonePe');
-});
-
-/** @route GET /api/promotions/payment/return/:merchantOrderId — public, PhonePe browser return. */
-export const promotionPaymentReturn = asyncHandler(async (req, res) => {
-  const { merchantOrderId } = req.params;
-  const payment = await Payment.findOne({ 'gateway.merchantOrderId': merchantOrderId });
-
-  let status = 'unknown';
-  if (payment) {
-    try {
-      const live = await getOrderStatus(merchantOrderId);
-      const settled = await settleSellerPromotionPayment({
-        payment, state: live.state, gatewayOrderId: live.orderId, paymentDetails: live.paymentDetails,
-      });
-      status = settled.status;
-    } catch {
-      status = payment.status;
-    }
-  }
-
-  const app = process.env.APP_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:4173';
-  return res.redirect(`${app}/seller?promotionPayment=${encodeURIComponent(status)}`);
-});
 
 // ============================================================
 // ADMIN
@@ -618,12 +284,6 @@ export const approveSellerPromotion = asyncHandler(async (req, res) => {
   // 28) — the banner is only ever created/turned on inside
   // settleSellerPromotionPayment, once state === 'COMPLETED'.
 
-  const seller = await Seller.findById(promotion.sellerId).select('userId').lean();
-  await notifySeller(seller, {
-    title: 'Your promotion has been approved',
-    message: `"${promotion.title}" is approved and runs until ${promotion.expiresAt.toDateString()}. Complete payment now to make it visible to customers.`,
-  });
-
   return ok(res, promotion, 'Promotion approved');
 });
 
@@ -641,13 +301,7 @@ export const requestPromotionChanges = asyncHandler(async (req, res) => {
   promotion.changesRequestedAt = new Date();
   await promotion.save();
 
-  const seller = await Seller.findById(promotion.sellerId).select('userId').lean();
-  await notifySeller(seller, {
-    title: 'Changes requested on your promotion',
-    message: `Your promotion requires changes. Please review admin feedback: "${feedback}"`,
-  });
-
-  return ok(res, promotion, 'Change request sent to the seller');
+  return ok(res, promotion, 'Promotion feedback recorded');
 });
 
 /** @route POST /api/admin/promotions/:id/reject  { reason } */
@@ -660,12 +314,6 @@ export const rejectSellerPromotion = asyncHandler(async (req, res) => {
   promotion.adminFeedback = req.body.reason || promotion.adminFeedback;
   promotion.rejectedAt = new Date();
   await promotion.save();
-
-  const seller = await Seller.findById(promotion.sellerId).select('userId').lean();
-  await notifySeller(seller, {
-    title: 'Your promotion was rejected',
-    message: `"${promotion.title}" was rejected.${req.body.reason ? ` Reason: ${req.body.reason}` : ''}`,
-  });
 
   return ok(res, promotion, 'Promotion rejected');
 });

@@ -82,6 +82,16 @@ const orderItemSchema = new Schema({
   image:      String,
   qty:        Number,
   price:      Number,
+  wholesaleSnapshot: {
+    type: new Schema({
+      minimumQuantity: { type: Number, required: true },
+      quantityIncrement: { type: Number, required: true },
+      tierMinimumQuantity: { type: Number, required: true },
+      unitPrice: { type: Number, required: true },
+    }, { _id: false }),
+    default: undefined,
+    immutable: true,
+  },
   // Set only when `price` reflects an accepted Campaign deal rather than
   // the product's normal price — a receipt-time record of why this line
   // charged what it did. The deal itself lives in CampaignParticipation;
@@ -248,6 +258,8 @@ const orderSchema = new Schema(
     subscriptionId:             { type: ObjectId, ref: "Subscription" },
     subscriptionDeliveryEntryId: { type: ObjectId },
     type:    { type: String, enum: ORDER_TYPES, required: true },
+    // Physical channel remains unchanged for delivery, returns and commission.
+    salesChannel: { type: String, enum: ['retail', 'wholesale'], default: 'retail', immutable: true },
     items:   [orderItemSchema],
 
     shippingAddress: {

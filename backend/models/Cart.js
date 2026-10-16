@@ -56,7 +56,7 @@ const cartItemSchema = new Schema({
 const cartSchema = new Schema(
   {
     userId:  { type: ObjectId, ref: "User", required: true },
-    channel: { type: String, enum: CHANNELS, required: true, default: CHANNEL.ECOM },
+    channel: { type: String, enum: [...CHANNELS, 'wholesale'], required: true, default: CHANNEL.ECOM },
     items:   [cartItemSchema],
   },
   { timestamps: true }

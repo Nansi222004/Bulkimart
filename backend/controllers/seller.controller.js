@@ -1,4 +1,6 @@
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
+import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
+import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
 import Delivery from '../models/Delivery.js';
 import mongoose from 'mongoose';
@@ -546,13 +548,12 @@ export const updateSalesChannels = asyncHandler(async (req, res) => {
   // Retain the separately approved wholesale capability when a seller toggles
   // their existing E-Commerce / Quick Commerce choices.
   const wholesaleApproved = seller.wholesaleChannel?.status === WHOLESALE_REQUEST_STATUS.APPROVED;
-  seller.salesChannels = wholesaleApproved ? [...cleaned, WHOLESALE_CHANNEL] : cleaned;
-  await seller.save();
+  const updated = await saveWholesaleTransition(seller, { salesChannels: wholesaleApproved ? [...cleaned, WHOLESALE_CHANNEL] : cleaned });
 
   res.status(200).json({
     success: true,
     message: 'Sales channels updated',
-    salesChannels: seller.salesChannels,
+    salesChannels: updated.salesChannels,
   });
 });
 
@@ -570,11 +571,13 @@ export const requestWholesaleChannel = asyncHandler(async (req, res) => {
     throw httpError(409, 'Wholesale access is suspended; contact an administrator to restore it');
   }
   if (seller.wholesaleChannel?.status !== WHOLESALE_REQUEST_STATUS.PENDING) {
-    seller.wholesaleChannel = {
+    const state = {
       status: WHOLESALE_REQUEST_STATUS.PENDING,
       requestedAt: new Date(),
     };
-    await seller.save();
+    const updated = await saveWholesaleTransition(seller, { wholesaleChannel: state });
+    seller.wholesaleChannel = updated.wholesaleChannel;
+    try { await notifyAllAdmins({ event: 'SYSTEM', title: 'Wholesale access requested', message: 'A seller requested Wholesale access. Review the Wholesale management page.', route: '/admin/wholesale' }); } catch { /* request is already durable */ }
   }
 
   return res.status(202).json({
@@ -582,37 +585,6 @@ export const requestWholesaleChannel = asyncHandler(async (req, res) => {
     message: 'Wholesale access request submitted for admin review',
     status: seller.wholesaleChannel.status,
     salesChannels: seller.salesChannels || [],
-  });
-});
-
-// @desc    Request promotion slot (banner / sponsored)
-// @route   POST /api/sellers/promo-request
-// @access  Private
-export const requestPromo = asyncHandler(async (req, res) => {
-  const seller = await Seller.findOne({ userId: req.user._id });
-  if (!seller) {
-    res.status(404);
-    throw new Error('Seller profile not found');
-  }
-
-  const { type, startDate, endDate } = req.body;
-  if (!type || !startDate || !endDate) {
-    res.status(400);
-    throw new Error('Please provide promotion type, start date and end date');
-  }
-
-  seller.promoRequests.push({
-    type,
-    status: 'pending',
-    startDate: new Date(startDate),
-    endDate: new Date(endDate)
-  });
-
-  await seller.save();
-  res.status(200).json({
-    success: true,
-    message: 'Promotion request submitted successfully',
-    seller
   });
 });
 
@@ -680,6 +652,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       deliveryAssignment: (() => { const d = deliveryMap.get(String(o.deliveryId)); return d && String(d.orderId) === String(o._id) ? { status: d.status, assignedAt: d.createdAt, completedAt: d.endTime, otpVerified: d.otpVerified, rider: { name: d.partnerId?.userId?.name, phone: d.partnerId?.userId?.phone }, timeline: d.timeline } : null; })(),
       orderNo: o.orderNo,
       channel: o.type,
+      salesChannel: o.salesChannel || 'retail',
       status: o.status,
       paymentMethod: o.paymentMethod,
       paymentStatus: payments.get(String(o.paymentId))?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
@@ -691,6 +664,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
         image: i.image,
         qty: i.qty,
         price: i.price,
+        wholesaleSnapshot: i.wholesaleSnapshot,
         additionalMessage: i.additionalMessage || '',
         lineTotal: Number(((i.price || 0) * (i.qty || 0)).toFixed(2)),
       })),

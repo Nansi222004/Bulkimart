@@ -183,7 +183,6 @@ export const SellerProvider = ({ children }) => {
   const [activeProductTab, setActiveProductTab] = useState('All'); // All, Active, Pending, Rejected
   const [activeOrderTab, setActiveOrderTab] = useState('All'); // All, Pending, Confirmed, Shipped, Delivered, Cancelled
   const [activeFinanceTab, setActiveFinanceTab] = useState('Overview'); // Overview, Payouts, Support
-  const [activeGrowTab, setActiveGrowTab] = useState('Overview'); // Overview, Promote, Client Brand
 
   // Modals & Subpages states
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -811,8 +810,6 @@ export const SellerProvider = ({ children }) => {
     if (activeTab === 'earnings' && localStorage.getItem('sellerToken')) fetchSellerFinances();
   }, [activeTab, fetchSellerFinances]);
 
-  // campaigns: no backend endpoint yet (Day 2). Empty rather than fabricated.
-  const [campaigns, setCampaigns] = useState([]);
 
 
   // TOAST TRIGGER
@@ -872,7 +869,10 @@ export const SellerProvider = ({ children }) => {
     }
   };
 
+  const [wholesaleRequestBusy, setWholesaleRequestBusy] = useState(false);
   const requestWholesaleChannel = async () => {
+    if (wholesaleRequestBusy) return { ok: false };
+    setWholesaleRequestBusy(true);
     try {
       const res = await fetch(apiUrl('/api/sellers/wholesale-request'), {
         method: 'POST',
@@ -891,6 +891,8 @@ export const SellerProvider = ({ children }) => {
     } catch (err) {
       triggerToast(err.message || 'Could not request Wholesale access');
       return { ok: false, message: err.message };
+    } finally {
+      setWholesaleRequestBusy(false);
     }
   };
 
@@ -1382,19 +1384,6 @@ export const SellerProvider = ({ children }) => {
     } catch (error) { triggerToast(error.message); return { ok: false, message: error.message }; }
   };
 
-  // SUBMIT MARKETING CAMPAIGN
-  const handleStartCampaign = (campaignName, price, duration) => {
-    const newCamp = {
-      id: 'c' + (campaigns.length + 1),
-      name: campaignName,
-      package: 'Standard sponsored',
-      price: price,
-      duration: duration,
-      status: 'Pending'
-    };
-    setCampaigns([newCamp, ...campaigns]);
-    triggerToast('Promotion request submitted to admin!');
-  };
 
   // SUBMIT SUPPORT TICKET
   const logoutSeller = useCallback(async () => {
@@ -1496,8 +1485,6 @@ export const SellerProvider = ({ children }) => {
         setActiveOrderTab,
         activeFinanceTab,
         setActiveFinanceTab,
-        activeGrowTab,
-        setActiveGrowTab,
         showAddProductModal,
         setShowAddProductModal,
         selectedOrder,
@@ -1524,7 +1511,6 @@ export const SellerProvider = ({ children }) => {
         payoutAmount,
         setPayoutAmount,
         handleRequestPayout,
-        handleStartCampaign,
         products,
         productsLoading,
         fetchMyProducts,
@@ -1541,6 +1527,7 @@ export const SellerProvider = ({ children }) => {
         fetchSellerKpis,
         sellerProfile,
         requestWholesaleChannel,
+        wholesaleRequestBusy,
         profileLoading,
         fetchSellerProfile,
         saveSameDaySettings,
@@ -1557,7 +1544,6 @@ export const SellerProvider = ({ children }) => {
         financeLoading,
         financeError,
         fetchSellerFinances,
-        campaigns,
       }}
     >
       {children}

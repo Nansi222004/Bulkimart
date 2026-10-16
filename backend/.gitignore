@@ -45,3 +45,7 @@ private-data/maintenance/
 !__tests__/services/shiprocket-pickup.test.js
 !__tests__/api/seller-order-lifecycle.http.test.js
 !__tests__/api/seller-pickup-sync.http.test.js
+
+!__tests__/api/seller-marketing-retirement.http.test.js
+!__tests__/api/wholesale.http.test.js
+!__tests__/api/seller-payment.http.test.js

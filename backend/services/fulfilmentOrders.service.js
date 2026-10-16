@@ -57,6 +57,7 @@ const linesOf = (group) => group.items.map((i) => ({
   image: i.image || '',
   qty: i.qty,
   price: i.price,
+  wholesaleSnapshot: i.wholesaleSnapshot,
   campaignId: i.campaignId,
   type: i.type,
   sellerId: i.sellerId,
@@ -152,7 +153,7 @@ const deliverySnapshotOf = (group) => buildDeliverySnapshot({
  * @returns {{ orders: Order[], payment: Payment, groupRef: string }}
  */
 export const createOrdersFromGroups = async ({
-  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, beforeWrite = () => {},
+  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', beforeWrite = () => {},
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
 
@@ -251,6 +252,7 @@ export const createOrdersFromGroups = async ({
     const [doc] = await Order.create([{
       userId: user._id,
       type: g.channel,
+      salesChannel: purchaseMode,
       items: withReturnPolicy(linesOf(g)),
       shippingAddress: address,
       /**
@@ -301,7 +303,7 @@ export const createOrdersFromGroups = async ({
   const channels = [...new Set(groups.map((g) => g.channel))];
   beforeWrite('cart.clear');
   await Cart.updateMany(
-    { userId: user._id, channel: { $in: channels } },
+    { userId: user._id, channel: purchaseMode === 'wholesale' ? 'wholesale' : { $in: channels } },
     { $set: { items: [] } },
     { session }
   );

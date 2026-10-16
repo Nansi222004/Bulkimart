@@ -48,6 +48,8 @@ export const UserProvider = ({ children }) => {
     // choose its theme/catalogue on refresh; a first-time visitor still
     // defaults to Quick in resolveMode().
     if (parts.length === 0) return null;
+    if (parts[0].startsWith('grocery--')) return 'quick';
+    if (parts[0].startsWith('ecommerce--')) return 'shop-all';
     return STOREFRONT_OF_PATH[parts[0]] || null;   // null — this path says nothing
   };
 
@@ -1361,8 +1363,9 @@ export const UserProvider = ({ children }) => {
    * the shopper put it, and the server regroups from there — passing it again
    * from here would be a second copy of the same decision, free to disagree.
    */
-  const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0) => {
+  const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0, options = {}) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
+    const wholesaleSession = options.purchaseMode === 'wholesale' ? captureUserSession() : null;
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
@@ -1377,6 +1380,7 @@ export const UserProvider = ({ children }) => {
 
     try {
       const checkoutPayload = {
+        ...(options.purchaseMode === 'wholesale' ? { purchaseMode: 'wholesale', quoteHash: options.quoteHash } : {}),
         paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
@@ -1388,17 +1392,18 @@ export const UserProvider = ({ children }) => {
           landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
         },
       };
-      const requestHeaders = checkoutHeaders('unified', checkoutPayload);
+      const requestHeaders = checkoutHeaders(options.purchaseMode === 'wholesale' ? 'wholesale' : 'unified', checkoutPayload);
       const res = await fetch(apiUrl('/api/orders/unified'), {
         method: 'POST',
         headers: requestHeaders,
         body: JSON.stringify(checkoutPayload),
       });
       const body = await res.json().catch(() => ({}));
+      if (wholesaleSession && !isCurrentUserSession(wholesaleSession)) return { ok: false, message: 'Your customer session changed. Sign in again to view your order.' };
       if (!res.ok) return { ok: false, operation: 'unified', status: res.status, code: body.meta?.code, requestId: body.meta?.requestId, message: body.message || 'Could not place your order' };
       if (!body.data?.orders?.length || body.data.orders.some(order => !order?._id) || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
-      clearCheckoutKey('unified');
+      clearCheckoutKey(options.purchaseMode === 'wholesale' ? 'wholesale' : 'unified');
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders()]);
       return {
         ok: true,
@@ -1418,7 +1423,7 @@ export const UserProvider = ({ children }) => {
       const storageKey = `bulkimart:checkout:${operation}:${currentUser?._id || currentUser?.id || 'customer'}`;
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       if (!saved?.key) return { ok: false, message: 'The checkout session is unavailable. Review My Orders or contact support before ordering again.' };
-      const res = await fetch(apiUrl('/api/orders/checkout-status'), { method: 'POST', headers: { ...authHeaders(), 'Idempotency-Key': saved.key }, body: JSON.stringify({ operation }) });
+      const res = await fetch(apiUrl('/api/orders/checkout-status'), { method: 'POST', headers: { ...authHeaders(), 'Idempotency-Key': saved.key }, body: JSON.stringify({ operation: operation === 'wholesale' ? 'unified' : operation }) });
       const body = await res.json().catch(() => ({}));
       return { ok: res.ok, data: body.data, message: body.message || 'Could not check your order status.' };
     } catch { return { ok: false, message: 'Could not check your order status. Please retry the status check.' }; }

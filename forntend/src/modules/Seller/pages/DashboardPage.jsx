@@ -17,11 +17,8 @@ import PaymentHistoryTab from '../components/PaymentHistoryTab';
 import EarningsTab from '../components/EarningsTab';
 import SupportTab from '../components/SupportTab';
 import FaqsTab from '../components/FaqsTab';
-import SellerCampaignsTab from '../components/SellerCampaignsTab';
-import SellerPromotionsTab from '../components/SellerPromotionsTab';
 import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
-import GrowTab from '../components/GrowTab';
 import AccountTab from '../components/AccountTab';
 import SellerOrderAlerts from '../components/SellerOrderAlerts';
 import SellerPushControl from '../components/SellerPushControl';
@@ -50,12 +47,9 @@ const TAB_TITLES = {
   moneyrequest: 'Money Request',
   paymenthistory: 'Payment History',
   earnings: 'Earnings',
-  campaigns: 'Campaigns / Deals',
-  promotions: 'Promotions',
   faqs: 'Product FAQs',
   support: 'Support & Help',
   profile: 'Profile',
-  grow: 'Grow',
   account: 'Account',
 };
 
@@ -63,7 +57,7 @@ export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
-    sellerProfile, userProfile, bizForm, requestWholesaleChannel,
+    sellerProfile, userProfile, bizForm, requestWholesaleChannel, wholesaleRequestBusy,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
@@ -86,15 +80,12 @@ export const DashboardPage = () => {
       case 'moneyrequest':  return <MoneyRequestTab />;
       case 'paymenthistory':return <PaymentHistoryTab />;
       case 'earnings':      return <EarningsTab />;
-      case 'campaigns':     return <SellerCampaignsTab />;
-      case 'promotions':    return <SellerPromotionsTab />;
       case 'item-returns':  return <SellerReturnsTab />;
       case 'faqs':          return <FaqsTab />;
       case 'support':       return <SupportTab />;
       case 'profile':       return <ProfileTab />;
-      case 'grow':          return <GrowTab />;
       case 'account':       return <AccountTab />;
-      default:              return <DashboardTab />;
+      default: return <section className="seller-tab-panel"><h2>Page unavailable</h2><p>This seller page is no longer available.</p><a href="/seller">Back to seller dashboard</a></section>;
     }
   };
 
@@ -202,9 +193,9 @@ export const DashboardPage = () => {
                     : sellerProfile.wholesaleChannel?.status === 'pending'
                       ? 'Your request is awaiting admin review'
                       : sellerProfile.wholesaleChannel?.status === 'rejected'
-                        ? 'Your previous request was not approved'
+                        ? sellerProfile.wholesaleChannel.rejectionReason || 'Your previous request was not approved'
                       : sellerProfile.wholesaleChannel?.status === 'suspended'
-                        ? 'Wholesale access is suspended. Contact an administrator to restore access.'
+                        ? sellerProfile.wholesaleChannel.suspensionReason || 'Wholesale access is suspended. Contact an administrator to restore access.'
                         : 'Request access to prepare quantity-based pricing'}
                 </span>
               </div>
@@ -212,9 +203,10 @@ export const DashboardPage = () => {
                 <button
                   type="button"
                   onClick={requestWholesaleChannel}
+                  disabled={wholesaleRequestBusy}
                   style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '9px 14px', fontWeight: 700, cursor: 'pointer' }}
                 >
-                  Request Wholesale Access
+                  {wholesaleRequestBusy ? 'Requesting…' : 'Request Wholesale Access'}
                 </button>
               )}
             </section>

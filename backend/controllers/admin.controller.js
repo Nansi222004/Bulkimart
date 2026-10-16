@@ -1,4 +1,6 @@
 import User from '../models/User.js';
+import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
+import { notifySeller } from '../services/notification.service.js';
 import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Product from '../models/Product.js';
@@ -106,6 +108,7 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     _id: seller._id,
     status: seller.status,
     onboardingStep: seller.onboardingStep,
+    __v: seller.__v ?? 0,
     rejectionReason: seller.rejectionReason,
     approvedAt: seller.approvedAt,
     submittedAt: seller.updatedAt,
@@ -273,8 +276,7 @@ export const decideSellerWholesaleChannel = asyncHandler(async (req, res) => {
   if (status === WHOLESALE_REQUEST_STATUS.APPROVED) channels.add(WHOLESALE_CHANNEL);
   else channels.delete(WHOLESALE_CHANNEL);
 
-  seller.salesChannels = [...channels];
-  seller.wholesaleChannel = {
+  const wholesaleChannel = {
     ...(seller.wholesaleChannel?.toObject?.() || seller.wholesaleChannel || {}),
     status,
     decidedAt: new Date(),
@@ -282,12 +284,15 @@ export const decideSellerWholesaleChannel = asyncHandler(async (req, res) => {
     rejectionReason: status === WHOLESALE_REQUEST_STATUS.REJECTED ? String(rejectionReason || '').trim() || undefined : undefined,
     suspensionReason: status === WHOLESALE_REQUEST_STATUS.SUSPENDED ? String(suspensionReason || '').trim() || undefined : undefined,
   };
-  await seller.save();
+  if (!Number.isSafeInteger(req.body.version) || req.body.version < 0) throw httpError(409, 'Refresh the seller before deciding Wholesale access; a current version is required');
+  const updated = await saveWholesaleTransition(seller, { salesChannels: [...channels], wholesaleChannel }, req.body.version);
+  try { await notifySeller(seller._id, { event: 'SYSTEM', title: `Wholesale access ${status}`, message: rejectionReason || suspensionReason || `Your Wholesale access is ${status}.`, route: '/seller/dashboard' }); } catch { /* decision is already durable */ }
 
   return ok(res, {
     _id: seller._id,
-    status: seller.wholesaleChannel.status,
-    salesChannels: seller.salesChannels,
+    status: updated.wholesaleChannel.status,
+    salesChannels: updated.salesChannels,
+    version: updated.__v,
   }, status === WHOLESALE_REQUEST_STATUS.APPROVED ? 'Wholesale channel approved/restored' : status === WHOLESALE_REQUEST_STATUS.SUSPENDED ? 'Wholesale channel suspended' : 'Wholesale channel rejected/revoked');
 });
 
@@ -301,7 +306,7 @@ export const getWholesaleManagementSummary = asyncHandler(async (_req, res) => {
       WHOLESALE_REQUEST_STATUS.APPROVED,
       WHOLESALE_REQUEST_STATUS.REJECTED,
       WHOLESALE_REQUEST_STATUS.SUSPENDED,
-    ] } }).select('_id businessName storeDetails.name status salesChannels wholesaleChannel userId').populate('userId', 'name phone isActive').sort({ 'wholesaleChannel.requestedAt': -1 }).lean(),
+    ] } }).select('_id __v businessName storeDetails.name status salesChannels wholesaleChannel userId').populate('userId', 'name phone isActive').sort({ 'wholesaleChannel.requestedAt': -1 }).lean(),
     getEligibleWholesaleCatalog(),
   ]);
   const variants = offers.flatMap((offer) => offer.variants || []);
@@ -2900,6 +2905,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       _id: o._id,
       orderNo: o.orderNo,
       channel: o.type,
+      salesChannel: o.salesChannel || 'retail',
       status: o.status,
       storeNames,
       customerName: o.shippingAddress?.name || o.userId?.name || 'Customer',

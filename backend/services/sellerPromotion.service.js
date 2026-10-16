@@ -11,14 +11,6 @@ import SellerPromotion from '../models/SellerPromotion.js';
  */
 export const MODULE_TO_CHANNEL = { QUICK: 'grocery', ECOMMERCE: 'ecommerce' };
 
-/** Does this product belong to (or is cross-listed into) the given module's storefront? */
-export const productMatchesModule = (product, moduleName) => {
-  const channel = MODULE_TO_CHANNEL[moduleName];
-  if (!channel) return false;
-  if (product.type === channel) return true;
-  return (product.channels || []).some((c) => c.type === channel);
-};
-
 /**
  * getBanners sorts `{ priority: -1, createdAt: -1 }` — a paid Seller
  * Advertisement must land as the first/left-most slide of its module's

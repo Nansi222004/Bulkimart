@@ -11,6 +11,7 @@ import { resolveInventoryItem } from './inventory.service.js';
 import { isWithinRadius } from './radius.service.js';
 import { httpError } from '../utils/response.js';
 import { DELIVERY_MODES } from '../constants/enums.js';
+import { quoteWholesaleVariant } from './wholesaleEligibility.service.js';
 
 /**
  * One basket, several journeys.
@@ -59,8 +60,10 @@ const modeFor = (line) => {
  * single place a line lives — which is what keeps add-to-cart's guarantee
  * (`channel = product.type`) meaningful.
  */
-const loadLines = async (userId) => {
-  const carts = await Cart.find({ userId }).lean();
+const loadLines = async (userId, purchaseMode, session) => {
+  let query = Cart.find({ userId, channel: purchaseMode === 'wholesale' ? 'wholesale' : { $in: CHANNELS } });
+  if (session) query = query.session(session);
+  const carts = await query.lean();
   const lines = [];
   for (const cart of carts) {
     for (const item of cart.items || []) {
@@ -80,8 +83,9 @@ const loadLines = async (userId) => {
  *                                        unknown rather than unavailable
  * @param {object} [args.user]            retained for downstream pricing context
  */
-export const buildFulfilmentGroups = async ({ userId, destination, user, couponCode }) => {
-  const lines = await loadLines(userId);
+export const buildFulfilmentGroups = async ({ userId, destination, user, couponCode, purchaseMode = 'retail', session }) => {
+  if (!['retail', 'wholesale'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
+  const lines = await loadLines(userId, purchaseMode, session);
 
   if (lines.length === 0) {
     return {
@@ -100,11 +104,10 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * — its price and stock were true when it was added and may not be now.
    */
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
-  const products = new Map(
-    (await Product.find({ _id: { $in: productIds } })
-      .select('name price stock sku unit variants type fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status')
-      .lean()).map((p) => [String(p._id), p])
-  );
+  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status');
+  if (purchaseMode === 'wholesale') productQuery = Product.find({ _id: { $in: productIds } }).select('+variants.wholesalePricing').populate('category', 'name isActive');
+  if (session) productQuery = productQuery.session(session);
+  const products = new Map((await productQuery.lean()).map((p) => [String(p._id), p]));
 
   // Sellers are keyed off the LIVE product's sellerId, never the cart line's
   // own stored one — a line written before the product had one, or from a
@@ -115,18 +118,24 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   const sellerIds = [...new Set(
     [...products.values()].map((p) => String(p.sellerId)).filter((id) => id && id !== 'undefined')
   )];
-  const sellers = new Map(
-    (await Seller.find({ _id: { $in: sellerIds } })
-      .select('businessName storeDetails status sameDay serviceRadiusKm')
-      .lean()).map((s) => [String(s._id), s])
-  );
+  let sellerQuery = Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails status sameDay serviceRadiusKm');
+  if (purchaseMode === 'wholesale') sellerQuery = sellerQuery.select('salesChannels wholesaleChannel userId').populate('userId', 'isActive');
+  if (session) sellerQuery = sellerQuery.session(session);
+  const sellers = new Map((await sellerQuery.lean()).map((s) => [String(s._id), s]));
 
   // One batched lookup for the whole basket — never one per line.
-  const campaignPrices = await resolveCampaignPricesForProducts(productIds);
+  const campaignPrices = purchaseMode === 'wholesale' ? new Map() : await resolveCampaignPricesForProducts(productIds);
 
   // ---- split -------------------------------------------------------------
   const buckets = new Map();
   for (const line of lines) {
+    let wholesaleQuote;
+    if (purchaseMode === 'wholesale') {
+      const product = products.get(String(line.productId));
+      if (!product?.category) throw httpError(409, 'Wholesale category is unavailable');
+      wholesaleQuote = quoteWholesaleVariant(product, sellers.get(String(product.sellerId)), line.variantId, line.qty);
+      line.channel = product.type;
+    }
     if (line.deliveryMode != null && (!DELIVERY_MODES.includes(line.deliveryMode) || line.channel !== CHANNEL.ECOM)) {
       throw httpError(400, 'This cart contains an invalid delivery mode. Please review your cart.');
     }
@@ -151,7 +160,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // The live figures (or a live, currently-active campaign price), so
       // a group is priced on what the item is now rather than what it was
       // when it went into the basket — never a cached deal.
-      price: inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price,
+      price: wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price),
+      wholesaleSnapshot: wholesaleQuote?.wholesaleSnapshot,
       campaignId: deal ? deal.campaignId : undefined,
       available: Boolean(product && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
         && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
@@ -226,9 +236,14 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       }
     }
     const pricing = priceOrder(groupLines, user, groupCoupon, sameDayApplies ? sameDay : null, groupDistanceKm);
+    if (purchaseMode === 'wholesale') {
+      const cents = groupLines.reduce((sum, line) => sum + Math.round(line.price * 100) * line.qty, 0);
+      if (!Number.isSafeInteger(cents) || !Number.isSafeInteger(Math.round(pricing.totalAmount * 100))) throw httpError(400, 'Wholesale total exceeds the supported limit');
+    }
 
     groups.push({
       key,
+      salesChannel: purchaseMode,
       channel: first.channel,
       seller: seller ? {
         _id: seller._id,
@@ -274,6 +289,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         image: l.product?.images?.[0] || l.image,
         qty: l.qty,
         price: l.price,
+        wholesaleSnapshot: l.wholesaleSnapshot,
         campaignId: l.campaignId,
         lineTotal: Number((l.price * l.qty).toFixed(2)),
         available: l.available,
@@ -322,6 +338,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 });
 
   for (const k of Object.keys(totals)) totals[k] = Number(totals[k].toFixed(2));
+  if (purchaseMode === 'wholesale' && !Number.isSafeInteger(Math.round(totals.totalAmount * 100))) throw httpError(400, 'Wholesale total exceeds the supported limit');
 
   return {
     groups,

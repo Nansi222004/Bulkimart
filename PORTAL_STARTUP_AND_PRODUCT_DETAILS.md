@@ -1,6 +1,6 @@
 # Portal startup, location and admin product details
 
-Implemented and verified locally on 2026-10-16. No deployment, production/Atlas writes, database reset, index changes, credential changes or real payment/provider operations were performed. An unrelated edit to `SELLER_DELIVERY_DETAILS.md` appeared during the work and was preserved.
+Implemented and verified locally on 2026-10-16. No deployment, production/Atlas writes, database reset, index changes, credential changes or real payment/provider operations were performed. An unrelated edit to `SELLER_DELIVERY_DETAILS.md` appeared during the   work and was preserved.
 
 ## Admin product details
 

@@ -7,6 +7,9 @@ import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
 import Seller from '../models/Seller.js';
+import User from '../models/User.js';
+import { assertWholesaleBuyer } from '../services/wholesaleEligibility.service.js';
+import { wholesaleQuoteHash } from '../services/wholesaleQuote.service.js';
 import Delivery from '../models/Delivery.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
@@ -175,7 +178,7 @@ const claimCancellation = async (order, reason, session, extraSet = {}) => {
  *
  * Extracted verbatim from createOrder; behaviour is unchanged.
  */
-const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
+export const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
   let address = shippingAddress;
 
   const profileName = user?.name != null ? String(user.name).trim() : '';
@@ -278,6 +281,7 @@ const resolveShippingAddress = async ({ user, addressId, shippingAddress }) => {
 // @route   POST /api/orders
 // @access  Private
 export const createOrder = asyncHandler(async (req, res) => {
+  if (req.body.purchaseMode === 'wholesale' || req.body.channel === 'wholesale') throw httpError(400, 'Use Wholesale grouped checkout');
   const idempotency = await checkoutIdentity(req, 'single');
   if (idempotency.replay) {
     const order = idempotency.replayOrders[0];
@@ -769,6 +773,13 @@ export const createOrder = asyncHandler(async (req, res) => {
  * @route POST /api/orders/unified
  */
 export const createUnifiedOrder = asyncHandler(async (req, res) => {
+  const purchaseMode = req.body.purchaseMode ?? 'retail';
+  if (!['retail', 'wholesale'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
+  if (purchaseMode === 'wholesale') {
+    assertWholesaleBuyer(req);
+    if (req.body.channel !== undefined && req.body.channel !== 'wholesale') throw httpError(400, 'Retail and Wholesale checkout cannot be mixed');
+    if (req.body.useCoins) throw httpError(400, 'Coins are not supported in grouped checkout');
+  } else if (req.body.channel === 'wholesale') throw httpError(400, 'Select Wholesale checkout explicitly');
   const idempotency = await checkoutIdentity(req, 'unified');
   if (idempotency.replay) {
     const { replay } = idempotency;
@@ -776,7 +787,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
     return created(res, {
       groupRef: replay.groupRef,
       orders: orders.map((o) => ({
-        _id: o._id, orderNo: o.orderNo, type: o.type, deliveryType: o.deliveryType,
+        _id: o._id, orderNo: o.orderNo, type: o.type, salesChannel: o.salesChannel, deliveryType: o.deliveryType,
         deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
         shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
         timeline: o.timeline, createdAt: o.createdAt, items: o.items,
@@ -815,7 +826,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   // The same grouping the cart showed, re-run against the address being shipped
   // to — an offer made against a different destination is not this order's offer.
-  const composed = await buildFulfilmentGroups({
+  let composed = await buildFulfilmentGroups({
+    purchaseMode,
     userId: req.user._id,
     destination: address.lat !== undefined && address.lng !== undefined
       ? { lat: address.lat, lng: address.lng }
@@ -823,7 +835,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
     user: req.user,
   });
 
-  const { groups } = composed;
+  let { groups } = composed;
+  if (purchaseMode === 'wholesale' && req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale prices or delivery charges changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
   if (!groups.length) throw httpError(400, 'Your cart is empty');
 
   // Regular e-commerce carriers are selected after seller acceptance. Explicit
@@ -859,13 +872,29 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   try {
     await session.withTransaction(async () => {
+      if (purchaseMode === 'wholesale') {
+        // Re-read terms/stock in the transaction. Writes to seller, buyer and
+        // product documents fence concurrent suspension, deactivation and repricing.
+        composed = await buildFulfilmentGroups({ userId: req.user._id, user: req.user,
+          destination: address.lat !== undefined && address.lng !== undefined ? { lat: address.lat, lng: address.lng } : undefined,
+          purchaseMode, session });
+        groups = composed.groups;
+        if (req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale terms changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
+        validateGroupsStock(groups);
+        const customer = await User.updateOne({ _id: req.user._id, isActive: true, roles: 'buyer' }, { $inc: { __v: 1 } }, { session });
+        if (!customer.matchedCount) throw httpError(403, 'Customer account is unavailable');
+        for (const sellerId of new Set(groups.map(group => String(group.seller._id)))) {
+          const lock = await Seller.updateOne({ _id: sellerId, status: 'approved', salesChannels: 'wholesale', 'wholesaleChannel.status': 'approved' }, { $inc: { __v: 1 } }, { session });
+          if (!lock.matchedCount) throw httpError(409, 'Wholesale seller access changed');
+        }
+      }
       writeStage = 'checkout_attempt.create';
       await CheckoutAttempt.create([{
         userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash,
         operation: 'unified', status: 'processing',
       }], { session });
       result = await createOrdersFromGroups({
-        user: req.user, address, groups, paymentMethod, notes, session, tip,
+        user: req.user, address, groups, paymentMethod, notes, session, tip, purchaseMode,
         beforeWrite: stage => { writeStage = stage; },
       });
       const { orders, payment, groupRef } = result;
@@ -892,7 +921,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
           return created(res, {
             groupRef: retry.groupRef,
             orders: orders.map((o) => ({
-              _id: o._id, orderNo: o.orderNo, type: o.type, deliveryType: o.deliveryType,
+              _id: o._id, orderNo: o.orderNo, type: o.type, salesChannel: o.salesChannel, deliveryType: o.deliveryType,
               deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
               shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
               timeline: o.timeline, createdAt: o.createdAt, items: o.items,
@@ -952,6 +981,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
       _id: o._id,
       orderNo: o.orderNo,
       type: o.type,
+      salesChannel: o.salesChannel,
       deliveryType: o.deliveryType,
       deliveryMode: o.delivery?.mode || null,
       // The frozen record itself, so a row handed straight to the tracking

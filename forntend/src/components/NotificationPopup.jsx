@@ -1,3 +1,4 @@
+import { isRetiredSellerNotification } from '../modules/Seller/utils/retiredFeatures';
 import { getPortalToken } from '../utils/portalSession';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { socket } from '../utils/socket';
@@ -49,7 +50,7 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) =
 
   useEffect(() => {
     const onNew = (payload) => {
-      if (excludeSellerOrders && payload?.event === 'ORDER_CREATED') return;
+      if (excludeSellerOrders && (payload?.event === 'ORDER_CREATED' || isRetiredSellerNotification(payload))) return;
       const key = payload?._id || `${Date.now()}-${Math.random()}`;
       const entry = { ...payload, key, receivedAt: payload?.createdAt || new Date().toISOString() };
 

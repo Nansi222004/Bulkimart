@@ -61,6 +61,12 @@
 .wholesale-validation { color: #b45309; font-size: 13px; }
 .wholesale-disabled-note { margin-top: 18px; border-left: 3px solid var(--wholesale-orange); padding: 10px 12px; color: var(--wholesale-text); background: #fff3e5; font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.wholesale-page button { min-height: 44px; margin: 4px; padding: 8px 12px; border: 1px solid var(--wholesale-border); border-radius: 9px; font-size: 16px; cursor: pointer; }
+.wholesale-page button:disabled { opacity: .55; cursor: default; }
+.wholesale-page input, .wholesale-page select { max-width: 100%; min-height: 44px; font-size: 16px; }
+.wholesale-page label { display: block; margin: 10px 0; }
+.wholesale-page article { overflow-wrap: anywhere; }
+.wholesale-filters nav { grid-column: 1 / -1; }
 
 @media (max-width: 900px) { .wholesale-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .wholesale-card-art { height: 155px; } }
 @media (max-width: 620px) {

@@ -33,7 +33,7 @@ export default function WholesaleManagementTab() {
       const reason = status === 'suspended' || status === 'rejected'
         ? window.prompt(`Optional reason for ${status} Wholesale access:`) || '' : '';
       await adminPatch(`/sellers/${seller._id}/wholesale`, {
-        status,
+        status, version: seller.__v ?? 0,
         ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }),
       });
       triggerToast(`Wholesale access ${status}.`);
@@ -52,7 +52,7 @@ export default function WholesaleManagementTab() {
   return (
     <main style={{ padding: 24, color: '#172b4d' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div><h1 style={{ margin: 0 }}>Wholesale</h1><p style={{ color: '#64748b' }}>Live seller approvals and eligible offers. Purchasing remains disabled.</p></div>
+        <div><h1 style={{ margin: 0 }}>Wholesale</h1><p style={{ color: '#64748b' }}>Seller approvals and available Wholesale offers.</p></div>
         <button type="button" onClick={load}>Refresh</button>
       </header>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 12, margin: '18px 0 28px' }}>

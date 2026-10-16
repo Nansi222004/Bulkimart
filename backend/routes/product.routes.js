@@ -25,7 +25,7 @@ import {
   getWholesaleAvailability,
   uploadDigitalProductFile,
 } from '../controllers/product.controller.js';
-import { protect, requireRole } from '../middlewares/auth.middleware.js';
+import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { downloadBulkTemplate, processBulkUpload } from '../controllers/bulkProduct.controller.js';
 import { uploadProductImages, uploadBulkFiles } from '../middlewares/upload.middleware.js';
@@ -36,7 +36,7 @@ router.use('/search-by-image', imageSearchRouter());
 
 // Bulk Product Upload & Template routes (declared before /:id)
 router.get('/bulk/template', protect, requireRole('seller', 'admin'), downloadBulkTemplate);
-router.post('/bulk/upload', protect, requireRole('seller', 'admin'), uploadBulkFiles, processBulkUpload);
+router.post('/bulk/upload', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, uploadBulkFiles, processBulkUpload);
 
 // Public routes
 router.get('/', getProducts);
@@ -44,10 +44,9 @@ router.get('/featured', getFeaturedProducts);
 router.get('/grocery', getGroceryProducts);
 router.get('/search', searchProducts);
 
-// Read-only wholesale catalog foundation. It is authenticated and deliberately
-// has no cart/checkout counterpart while Wholesale purchasing remains disabled.
+// Dedicated customer catalog; purchases use the separate Wholesale cart.
 router.get('/wholesale/availability', getWholesaleAvailability);
-router.get('/wholesale/catalog', protect, getWholesaleCatalog);
+router.get('/wholesale/catalog', protect, requireCustomerSession, getWholesaleCatalog);
 
 /**
  * What delivery is actually available, per product, for one address.
@@ -83,7 +82,7 @@ router.get('/reviews/mine', protect, getMyReviewedProductIds);
 router.get('/category-return-policy', protect, requireRole('seller'), getCategoryReturnPolicyForSeller);
 
 // Seller-owned, terms-only write; never accepts retail price or stock fields.
-router.patch('/:id/wholesale-pricing', protect, requireRole('seller'), updateProductWholesalePricing);
+router.patch('/:id/wholesale-pricing', protect, requireRole('seller'), requireSellerSession, requireApprovedSeller, updateProductWholesalePricing);
 
 router.get('/:id', getProductById);
 // Actual e-book bytes use private local storage, never the image CDN.
@@ -94,10 +93,10 @@ router.get('/:id/reviews', getProductReviews);
 router.get('/:id/faqs', getProductFaqs);
 
 // Protected routes
-router.post('/', protect, requireRole('seller'), uploadProductImages('images', 5), createProduct);
-router.put('/:id', protect, requireRole('seller', 'admin'), uploadProductImages('images', 5), updateProduct);
-router.patch('/:id/channels', protect, requireRole('seller', 'admin'), updateProductChannelStatus);
-router.patch('/:id/stock', protect, requireRole('seller', 'admin'), adjustProductStock);
+router.post('/', protect, requireRole('seller'), requireSellerSession, requireApprovedSeller, uploadProductImages('images', 5), createProduct);
+router.put('/:id', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, uploadProductImages('images', 5), updateProduct);
+router.patch('/:id/channels', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, updateProductChannelStatus);
+router.patch('/:id/stock', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, adjustProductStock);
 router.delete('/:id', protect, requireRole('seller', 'admin'), deleteProduct);
 
 router.post('/:id/reviews', protect, addProductReview);

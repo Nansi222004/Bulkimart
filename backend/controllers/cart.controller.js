@@ -377,6 +377,7 @@ export const getCartSummary = asyncHandler(async (req, res) => {
 // @route   POST /api/cart
 // @access  Private
 export const addToCart = asyncHandler(async (req, res) => {
+  if (req.body?.channel === 'wholesale' || req.body?.purchaseMode === 'wholesale') throw httpError(400, 'Use the separate Wholesale cart');
   // The cart routes are private; still assert the verified principal here so
   // a non-customer token can never create a cart with an absent/invalid owner.
   if (req.userType !== 'user' || !mongoose.isValidObjectId(req.user?._id)) {
@@ -515,6 +516,7 @@ export const addToCart = asyncHandler(async (req, res) => {
 const findCartWithItem = async (userId, itemId) => {
   const cart = await Cart.findOne({ userId, 'items._id': itemId });
   if (!cart) throw httpError(404, 'That item is not in your cart');
+  if (cart.channel === 'wholesale') throw httpError(400, 'Use the separate Wholesale cart to change this line');
   return cart;
 };
 

@@ -87,7 +87,7 @@ export const ConsumerOrdersTab = () => {
     customerName: o.userId?.name || 'Buyer',
     customerPhone: o.userId?.phone || '—',
     channelKey: o.type,
-    channel: CHANNEL_LABELS[o.type] || o.type,
+    channel: o.salesChannel === 'wholesale' ? 'Wholesale' : CHANNEL_LABELS[o.type] || o.type,
     items: (o.items || []).length,
     amount: o.pricing?.totalAmount ?? 0,
     statusKey: o.status,

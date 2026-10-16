@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
-let vite, Alerts, Drawer, Orders, SellerProvider, socket, push, PushControl, createPushRegistration, PickupCard, portalRequests;
+let vite, Alerts, Drawer, Orders, SellerProvider, socket, push, PushControl, createPushRegistration, PickupCard, portalRequests, Dashboard, LeftNav, retiredFeatures;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
   Alerts = (await vite.ssrLoadModule('/src/modules/Seller/components/SellerOrderAlerts.jsx')).default;
@@ -18,6 +18,9 @@ before(async () => {
   PickupCard = (await vite.ssrLoadModule('/src/modules/Seller/components/PickupSyncCard.jsx')).default;
   portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
   ({ createPushRegistration } = await vite.ssrLoadModule('/src/utils/pushRegistration.js'));
+  Dashboard = (await vite.ssrLoadModule('/src/modules/Seller/pages/DashboardPage.jsx')).default;
+  LeftNav = (await vite.ssrLoadModule('/src/modules/Seller/components/LeftNav.jsx')).default;
+  retiredFeatures = await vite.ssrLoadModule('/src/modules/Seller/utils/retiredFeatures.js');
 });
 beforeEach(() => portalRequests.clearPortalRequests('seller'));
 after(async () => { await vite.close(); });
@@ -27,6 +30,48 @@ const storage = () => { const data = {}; return { getItem: key => data[key] ?? n
 const emit = (event, payload) => socket.listeners(event).forEach(listener => listener(payload));
 const context = overrides => ({ sellerProfile: { _id: 'seller-fixture', status: 'approved' }, fetchSellerOrder: async () => ({ ok: true, data: row }), openSellerOrder: async () => true, setSelectedOrder: () => {}, ...overrides });
 const text = node => node == null ? '' : typeof node !== 'object' ? String(node) : [node.props?.children].flat(Infinity).map(text).join(' ');
+
+test('seller navigation retains operational tools and removes campaigns, advertisements and promotions', () => {
+  const h = hookHarness(LeftNav, { isCollapsed: false }, '/seller', context({ activeTab: 'dashboard' }));
+  try {
+    assert.doesNotMatch(text(h.tree), /Promotions|Campaigns|Deals|Advertis|Grow/);
+    assert.match(text(h.tree), /Products/); assert.match(text(h.tree), /Orders/); assert.match(text(h.tree), /Services/);
+  } finally { h.close(); }
+});
+
+test('old seller campaign and promotion routes render unavailable with a dashboard link', () => {
+  for (const tab of ['promotions', 'campaigns', 'grow', 'advertisements', 'deals']) {
+    const h = hookHarness(Dashboard, {}, '/seller/' + tab + '/old-reference', context({ activeTab: tab, selectedTypes: ['ecommerce'], activeMode: 'ecommerce' }));
+    try {
+      assert.match(text(h.tree), /Page unavailable/);
+      assert.equal(h.find(n => n.type === 'a' && n.props.children === 'Back to seller dashboard').props.href, '/seller');
+      assert.equal(h.requests.filter(r => /promotions|campaigns/.test(r.url)).length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('historical campaign notifications have no seller inbox entry', async () => {
+  for (const notification of [{ event: 'CAMPAIGN_UPDATE' }, { type: 'promotion' }, { route: '/seller/promotions/old' }, { route: '/campaigns' }]) assert.equal(retiredFeatures.isRetiredSellerNotification(notification), true);
+  assert.equal(retiredFeatures.isRetiredSellerNotification({ event: 'ORDER_CREATED', route: '/seller/orders/' + id }), false);
+  const retired = { _id: 'old', type: 'promotion', title: 'Retired advertisement', message: 'Do not show', route: '/seller/promotions' };
+  const h = hookHarness(Drawer, { isOpen: true, onClose() {} }, '/seller/orders', context());
+  try {
+    for (const req of h.requests) req.resolve(req.url.includes('unread-count') ? { data: { count: 0 } } : { data: [retired, { _id: 'current', type: 'order', title: 'Current order', message: 'Still available' }] });
+    await h.settle();
+    assert.doesNotMatch(text(h.tree), /Retired advertisement/);
+    assert.match(text(h.tree), /Current order/);
+  } finally { h.close(); }
+});
+
+test('retired seller events cannot create live notification popups while order events remain supported', async () => {
+  const Popup = (await vite.ssrLoadModule('/src/components/NotificationPopup.jsx')).default;
+  const h = hookHarness(Popup, { excludeSellerOrders: true });
+  try {
+    emit('notification_new', { event: 'CAMPAIGN_UPDATE', title: 'Old invitation' });
+    emit('notification_new', { route: '/seller/promotions', title: 'Old advertisement' });
+    await h.settle(); assert.equal(h.tree, null);
+  } finally { h.close(); }
+});
 
 test('pickup pending and registered states reflect backend confirmation, approval stays separate and API uses seller credentials', async () => {
   const local = storage(); local.setItem('userToken', 'customer-fixture'); local.setItem('sellerToken', 'seller-fixture');

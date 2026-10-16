@@ -83,7 +83,7 @@ const OrdersPage = () => {
       dateText: new Date(o.createdAt).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }),
       // Three storefronts, not two. The `else` branch used to label an SHG
       // order "Shop All", which is a different shop with a different fulfilment.
-      channel: CHANNEL_LABEL[o.type] || 'Order',
+      channel: o.salesChannel === 'wholesale' ? 'Wholesale' : CHANNEL_LABEL[o.type] || 'Order',
       /**
        * How this one was delivered, from the order's own record.
        *

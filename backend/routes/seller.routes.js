@@ -15,17 +15,9 @@ import {
   updateOrderStatus,
   updateSalesChannels,
   requestWholesaleChannel,
-  requestPromo,
   getSellerFaqs,
   answerSellerFaq
 } from '../controllers/seller.controller.js';
-import {
-  listCampaignsForSeller, getCampaignForSeller, acceptCampaignParticipation, rejectCampaignParticipation,
-} from '../controllers/campaign.controller.js';
-import {
-  listActivePromotionPackages, listMyPromotions, getMyPromotionDetail, createPromotion, updatePromotion,
-  submitPromotion, resubmitPromotion, cancelPromotion,
-} from '../controllers/sellerPromotion.controller.js';
 import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } from '../controllers/return.controller.js';
 import {
   getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
@@ -121,26 +113,8 @@ router.get('/finances/ledger', requireApprovedSeller, listSellerLedger);
 router.post('/payouts', requireApprovedSeller, requestSellerPayout);
 router.patch('/channels', requireApprovedSeller, updateSalesChannels);
 router.post('/wholesale-request', requireApprovedSeller, requestWholesaleChannel);
-router.post('/promo-request', requireApprovedSeller, requestPromo);
 router.get('/faqs', requireApprovedSeller, getSellerFaqs);
 router.patch('/faqs/:faqId/answer', requireApprovedSeller, answerSellerFaq);
-
-// ---- Campaigns / Deals ------------------------------------------------------
-router.get('/campaigns', requireApprovedSeller, listCampaignsForSeller);
-router.get('/campaigns/:id', requireApprovedSeller, getCampaignForSeller);
-router.patch('/campaigns/:id/accept', requireApprovedSeller, acceptCampaignParticipation);
-router.patch('/campaigns/:id/reject', requireApprovedSeller, rejectCampaignParticipation);
-
-// ---- Promotions / Advertisement ---------------------------------------------
-// Registered before /promotions/:id so "packages" is never parsed as an id.
-router.get('/promotions/packages', requireApprovedSeller, listActivePromotionPackages);
-router.get('/promotions', requireApprovedSeller, listMyPromotions);
-router.post('/promotions', requireApprovedSeller, uploadSingle('bannerImage'), createPromotion);
-router.get('/promotions/:id', requireApprovedSeller, getMyPromotionDetail);
-router.put('/promotions/:id', requireApprovedSeller, uploadSingle('bannerImage'), updatePromotion);
-router.post('/promotions/:id/submit', requireApprovedSeller, submitPromotion);
-router.post('/promotions/:id/resubmit', requireApprovedSeller, resubmitPromotion);
-router.post('/promotions/:id/cancel', requireApprovedSeller, cancelPromotion);
 
 // ---- Packaging Material -------------------------------------------------
 // Registered before /packaging/packages/:id so "orders" is never parsed as an id.

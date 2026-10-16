@@ -1,6 +1,7 @@
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import Seller from '../models/Seller.js';
+import { httpError } from '../utils/response.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { extractZip } from '../utils/zipExtractor.js';
@@ -133,6 +134,10 @@ export const downloadBulkTemplate = asyncHandler(async (req, res) => {
  * @access  Private (Seller/Admin)
  */
 export const processBulkUpload = asyncHandler(async (req, res) => {
+  if (req.userType !== 'admin') {
+    const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+    if (!seller || seller.status !== 'approved') throw httpError(403, 'Approved seller account required');
+  }
   const excelFile = req.files?.excelFile?.[0];
   const zipFile = req.files?.zipFile?.[0];
 

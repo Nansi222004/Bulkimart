@@ -12,6 +12,17 @@ const RETIRED_EVENT_TYPES = [
   'REFERRAL_MILESTONE_REACHED',
 ];
 
+// Filter historical seller-program messages without changing stored records.
+const visibleNotifications = req => ({
+  userId: req.user._id,
+  event: { $nin: RETIRED_EVENT_TYPES },
+  ...(req.tokenRole === 'seller' ? { $nor: [
+    { event: { $in: ['CAMPAIGN_UPDATE', 'SELLER_PROMOTION_UPDATE'] } },
+    { type: 'promotion' },
+    { route: /^\/(?:seller\/)?(?:promotions|campaigns|deals|advertisements|grow)(?:[/?#]|$)/i },
+  ] } : {}),
+});
+
 // @desc    Register/refresh the caller's device push token (upserts by token
 //          value, so re-registering the same device just bumps lastUsedAt
 //          instead of creating a duplicate entry). Multi-device: a user may
@@ -44,7 +55,7 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query, 20, 50);
   // req.user._id — never a client-supplied id — is the only identity this
   // query is ever scoped to, so one user can never page into another's list.
-  const filter = { userId: req.user._id, event: { $nin: RETIRED_EVENT_TYPES } };
+  const filter = visibleNotifications(req);
   if (req.query.isRead === "true") filter.isRead = true;
   if (req.query.isRead === "false") filter.isRead = false;
   if (req.query.event) {
@@ -65,9 +76,8 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
 // @access  Private
 export const getUnreadCount = asyncHandler(async (req, res) => {
   const count = await Notification.countDocuments({
-    userId: req.user._id,
+    ...visibleNotifications(req),
     isRead: false,
-    event: { $nin: RETIRED_EVENT_TYPES },
   });
   ok(res, { count });
 });

@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { publicProduct } from '../utils/publicProduct.js';
+import { assertWholesaleBuyer } from '../services/wholesaleEligibility.service.js';
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import { CHANNEL, CHANNELS, APPROVAL, LOW_STOCK_THRESHOLD, WHOLESALE_CHANNEL } from '../constants/enums.js';
@@ -157,7 +159,7 @@ export const getProducts = asyncHandler(async (req, res) => {
     total,
     page: Number(page),
     limit: Number(limit),
-    products
+    products: products.map(publicProduct)
   });
 });
 
@@ -184,7 +186,7 @@ export const getFeaturedProducts = asyncHandler(async (req, res) => {
     .sort({ sponsoredRank: 1, createdAt: -1 })
     .limit(10);
 
-  res.status(200).json(products);
+  res.status(200).json(products.map(publicProduct));
 });
 
 // @desc    Get grocery (QCommerce) products
@@ -195,7 +197,7 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
     status: 'approved',
     isActive: true,
     isDeleted: false,
-    ...(resolvedType === CHANNEL.GROCERY ? { fulfillmentType: { $ne: 'digital' } } : {}),
+    fulfillmentType: { $ne: 'digital' },
     ...(await withCustomerLegacyExclusions([buildChannelMatch(CHANNEL.GROCERY)])),
   };
 
@@ -204,7 +206,7 @@ export const getGroceryProducts = asyncHandler(async (req, res) => {
     .populate('sellerId', 'storeDetails businessName')
     .sort({ createdAt: -1 });
 
-  res.status(200).json(products);
+  res.status(200).json(products.map(publicProduct));
 });
 
 /** Turn user input into a literal, non-regex-special string before building a RegExp from it. */
@@ -284,7 +286,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
     { path: 'sellerId', select: 'businessName storeDetails.name' },
   ]);
 
-  res.status(200).json(products);
+  res.status(200).json(products.map(publicProduct));
 });
 
 /**
@@ -358,7 +360,7 @@ export const getProductById = asyncHandler(async (req, res) => {
     };
   }
 
-  res.status(200).json(data);
+  res.status(200).json(publicProduct(data));
 });
 
 /**
@@ -629,29 +631,34 @@ export const updateProductWholesalePricing = asyncHandler(async (req, res) => {
 
   const result = await Product.updateOne(
     { _id: product._id, sellerId: seller._id, variants: { $all: presentVariants } },
-    { $set: set },
+    { $set: set, $inc: { __v: 1 } },
     { arrayFilters, runValidators: true },
   );
   if (!result.matchedCount) throw httpError(409, 'Product variants changed; refresh and try again');
 
   res.status(200).json({
     success: true,
-    message: 'Wholesale terms saved. Wholesale purchasing is not enabled.',
+    message: 'Wholesale terms saved.',
     variants: normalized.map(({ variantId, pricing }) => ({ variantId, wholesalePricing: pricing })),
   });
 });
 
 /**
- * Read-only catalog foundation. It requires a signed-in buyer account to
- * avoid publishing wholesale price books to anonymous retail traffic. Buyer
- * business eligibility remains a product-policy decision and is not inferred
- * here. No cart or checkout action is exposed by this route.
+ * Authorized customer catalog. Business policy permits any customer session;
+ * price books remain separate from public retail responses.
  */
 export const getWholesaleCatalog = asyncHandler(async (req, res) => {
-  if (req.userType !== 'user' || !req.user.roles?.includes('buyer')) {
-    throw httpError(403, 'Buyer account required');
-  }
-  res.status(200).json({ success: true, data: await getEligibleWholesaleCatalog() });
+  assertWholesaleBuyer(req);
+  const page = Number(req.query.page ?? 1), limit = Number(req.query.limit ?? 24);
+  if (req.query.productId !== undefined && (typeof req.query.productId !== 'string' || !mongoose.isValidObjectId(req.query.productId))) throw httpError(400, 'Invalid Wholesale product ID');
+  if ((req.query.q !== undefined && (typeof req.query.q !== 'string' || req.query.q.length > 120)) || (req.query.category !== undefined && (typeof req.query.category !== 'string' || req.query.category.length > 160))) throw httpError(400, 'Invalid Wholesale filter');
+  if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw httpError(400, 'Invalid catalog pagination');
+  const catalog = await getEligibleWholesaleCatalog();
+  const needle = (req.query.q || '').trim().toLowerCase();
+  const data = catalog.filter(product => (!req.query.productId || String(product._id) === req.query.productId)
+    && (!req.query.category || product.category?.name === req.query.category)
+    && (!needle || [product.name, product.seller?.name, product.category?.name].join(' ').toLowerCase().includes(needle)));
+  res.status(200).json({ success: true, data: data.slice((page - 1) * limit, page * limit), meta: { page, limit, total: data.length, pages: Math.ceil(data.length / limit) } });
 });
 
 /** Public navigation hint only: no seller, product, price, or stock data. */
@@ -772,6 +779,8 @@ export const createProduct = asyncHandler(async (req, res) => {
     throw new Error('Approved Seller account required to list products');
   }
   parsedVariants = applyWholesalePricing(parsedVariants, seller);
+  if (fulfillmentType === 'digital' && parsedVariants.some((variant) => variant.wholesalePricing?.enabled)) throw httpError(400, 'Wholesale is not available for digital products');
+  productData.variants = parsedVariants;
   productData.sellerId = seller._id;
   productData.sellerName = seller.storeDetails?.name || seller.businessName;
 
@@ -932,11 +941,13 @@ export const updateProduct = asyncHandler(async (req, res) => {
       throw httpError(400, 'An e-book requires one priced variant and no physical stock');
     }
     if (req.userType === 'admin') {
-      parsedVariants = applyWholesalePricing(parsedVariants, { status: 'approved', salesChannels: [WHOLESALE_CHANNEL] }, product.variants || []);
+      const owner = await Seller.findById(product.sellerId);
+      parsedVariants = applyWholesalePricing(parsedVariants, owner, product.variants || []);
     } else {
       const seller = await Seller.findOne({ userId: req.user._id });
       parsedVariants = applyWholesalePricing(parsedVariants, seller, product.variants || []);
     }
+    if (product.fulfillmentType === 'digital' && parsedVariants.some((variant) => variant.wholesalePricing?.enabled)) throw httpError(400, 'Wholesale is not available for digital products');
   }
 
   if (name) { product.name = name; detailsChanged = true; }

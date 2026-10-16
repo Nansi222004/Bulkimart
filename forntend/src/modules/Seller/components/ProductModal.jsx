@@ -285,7 +285,7 @@ export const ProductModal = () => {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.message || 'Could not save Wholesale terms');
-      triggerToast('Wholesale terms saved. Purchasing is not enabled yet.');
+      triggerToast('Wholesale terms saved.');
       if (sellerCtx.fetchMyProducts) await sellerCtx.fetchMyProducts();
     } catch (error) {
       triggerToast(error.message || 'Could not save Wholesale terms');
@@ -842,7 +842,7 @@ export const ProductModal = () => {
                 {wholesaleAuthorized && isEditing && (
                   <section aria-label="Wholesale catalog settings" style={{ marginTop: 14, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
                     <strong style={{ color: '#073b78', fontSize: 13 }}>Wholesale catalog</strong>
-                    <p style={{ margin: '5px 0 10px', color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>Set per-variant MOQ and quantity prices. Retail prices and shared inventory are unchanged. Wholesale purchasing is not available yet.</p>
+                    <p style={{ margin: '5px 0 10px', color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>Set per-variant MOQ and quantity prices. Customer Wholesale carts use these terms with your shared inventory.</p>
                     <button type="button" onClick={saveWholesalePricing} disabled={savingWholesale || variants.some((variant) => !variant._id)} style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '8px 12px', fontWeight: 800, cursor: savingWholesale ? 'wait' : 'pointer', opacity: savingWholesale || variants.some((variant) => !variant._id) ? 0.6 : 1 }}>
                       {savingWholesale ? 'Saving…' : 'Save Wholesale Terms'}
                     </button>

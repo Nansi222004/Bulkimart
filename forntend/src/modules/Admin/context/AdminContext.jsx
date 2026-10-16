@@ -298,7 +298,7 @@ export const AdminProvider = ({ children }) => {
 
   const setSellerWholesaleStatus = async (id, status, reason) => {
     try {
-      const payload = { status, ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }) };
+      const payload = { status, version: sellerDetail?.__v ?? 0, ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }) };
       const { message } = await adminPatch(`/sellers/${id}/wholesale`, payload);
       triggerToast(message || `Wholesale channel ${status}.`);
       await Promise.all([fetchSellerDetail(id), fetchSellers(sellerStatusFilter)]);

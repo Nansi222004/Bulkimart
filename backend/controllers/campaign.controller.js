@@ -2,15 +2,13 @@ import Campaign from '../models/Campaign.js';
 import CampaignParticipation from '../models/CampaignParticipation.js';
 import Category from '../models/Category.js';
 import Product from '../models/Product.js';
-import Seller from '../models/Seller.js';
 import Banner from '../models/Banner.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError } from '../utils/response.js';
-import { notifySeller, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import {
   campaignLifecycle, isCampaignEffectivelyActive, eligibleProductsForCampaign,
-  resolveCampaignPricesForProducts, resolveCampaignPriceForProduct, computeCampaignPrice,
+  resolveCampaignPricesForProducts,
   isEligibleProduct,
 } from '../services/campaign.service.js';
 
@@ -114,32 +112,6 @@ const cancelStaleParticipation = async (campaign) => {
     { campaignId: campaign._id, status: 'PENDING', productId: { $nin: eligibleIds } },
     { $set: { status: 'CANCELLED' } }
   );
-};
-
-/** Seller notification — same pattern as the subscription-request flow:
- *  a live socket ping plus a durable Notification, both best-effort and
- *  never inside the write transaction that created the campaign. */
-const notifySellersOfCampaign = async (campaign, sellerIds) => {
-  if (!sellerIds.length) return;
-  try {
-    const sellers = await Seller.find({ _id: { $in: sellerIds } }).select('userId').lean();
-    const { emitToSeller } = await import('../socket/rooms.js');
-    for (const seller of sellers) {
-      emitToSeller(String(seller._id), 'campaign_invitation', {
-        campaignId: campaign._id, name: campaign.name, discountValue: campaign.discountValue,
-        startAt: campaign.startAt, endAt: campaign.endAt,
-      });
-      await notifySeller(String(seller._id), {
-        event: NOTIFICATION_EVENT.CAMPAIGN_UPDATE,
-        title: 'New campaign invitation',
-        message: `"${campaign.name}" is offering ${campaign.discountValue}% off eligible products — review and choose which ones to join.`,
-        metadata: { campaignId: campaign._id },
-        route: '/campaigns',
-      });
-    }
-  } catch (err) {
-    console.error('[CAMPAIGN] seller notify failed:', err.message);
-  }
 };
 
 // ============================================================
@@ -248,8 +220,7 @@ export const createCampaign = asyncHandler(async (req, res) => {
   });
 
   if (!draft) {
-    const { sellerIds } = await syncParticipationRows(campaign);
-    await notifySellersOfCampaign(campaign, sellerIds);
+    await syncParticipationRows(campaign);
   }
 
   if (bannerImage) {
@@ -321,8 +292,7 @@ export const updateCampaign = asyncHandler(async (req, res) => {
 
   if (!draft) {
     if (targetChanged) await cancelStaleParticipation(campaign);
-    const { sellerIds } = await syncParticipationRows(campaign);
-    await notifySellersOfCampaign(campaign, sellerIds);
+    await syncParticipationRows(campaign);
   }
 
   const effectiveBannerImage = campaign.bannerImage;
@@ -405,154 +375,4 @@ export const getCampaignProductsPublic = asyncHandler(async (req, res) => {
     }));
 
   return ok(res, { products }, 'Campaign products');
-});
-
-// ============================================================
-// SELLER
-// ============================================================
-
-/** @route GET /api/sellers/campaigns
- *  Every campaign this seller has at least one participation row for,
- *  scoped to their own rows only — never another seller's counts. */
-export const listCampaignsForSeller = asyncHandler(async (req, res) => {
-  const seller = req.seller;
-
-  // Ensure participation rows are synced for all published active/scheduled campaigns
-  const activeCampaigns = await Campaign.find({ isDraft: { $ne: true }, isEnabled: true });
-  for (const c of activeCampaigns) {
-    await syncParticipationRows(c);
-  }
-
-  const rows = await CampaignParticipation.find({ sellerId: seller._id })
-    .populate('campaignId', 'name discountValue startAt endAt isDraft isEnabled')
-    .lean();
-
-  const byCampaign = new Map();
-  for (const r of rows) {
-    const c = r.campaignId;
-    if (!c) continue;
-    const key = String(c._id);
-    if (!byCampaign.has(key)) {
-      byCampaign.set(key, {
-        campaignId: c._id, name: c.name, discountValue: c.discountValue,
-        startAt: c.startAt, endAt: c.endAt, lifecycle: campaignLifecycle(c),
-        eligible: 0, pending: 0, accepted: 0, rejected: 0,
-      });
-    }
-    const entry = byCampaign.get(key);
-    entry.eligible += 1;
-    if (r.status === 'PENDING') entry.pending += 1;
-    else if (r.status === 'ACCEPTED') entry.accepted += 1;
-    else if (r.status === 'REJECTED') entry.rejected += 1;
-  }
-
-  return ok(res, [...byCampaign.values()].sort((a, b) => new Date(b.startAt) - new Date(a.startAt)), 'Your campaigns');
-});
-
-/** @route GET /api/sellers/campaigns/:id
- *  This seller's own eligible products for this campaign, each with the
- *  current price and a live-computed preview deal price — a preview,
- *  never trusted as final until accept actually snapshots it. */
-export const getCampaignForSeller = asyncHandler(async (req, res) => {
-  const seller = req.seller;
-  const campaign = await Campaign.findById(req.params.id).lean();
-  if (!campaign) throw httpError(404, 'Campaign not found');
-
-  if (!campaign.isDraft && campaign.isEnabled) {
-    await syncParticipationRows(campaign);
-  }
-
-  const rows = await CampaignParticipation.find({ campaignId: campaign._id, sellerId: seller._id })
-    .populate('productId', 'name images price stock')
-    .lean();
-
-  const products = rows.map((r) => ({
-    participationId: r._id,
-    productId: r.productId?._id, name: r.productId?.name, image: r.productId?.images?.[0] || '',
-    currentPrice: r.productId?.price,
-    dealPrice: r.status === 'ACCEPTED' ? r.campaignPrice : computeCampaignPrice(r.productId?.price, campaign.discountValue),
-    status: r.status,
-  }));
-
-  return ok(res, {
-    campaignId: campaign._id, name: campaign.name, description: campaign.description,
-    discountValue: campaign.discountValue, startAt: campaign.startAt, endAt: campaign.endAt,
-    lifecycle: campaignLifecycle(campaign), products,
-  }, 'Campaign detail');
-});
-
-/**
- * @route PATCH /api/sellers/campaigns/:id/accept
- * @body { productIds: [ObjectId] }
- *
- * Only the checked products move to ACCEPTED; every other PENDING row
- * for this seller in this campaign is left exactly as it was, so they
- * can come back and accept more before the campaign starts.
- */
-export const acceptCampaignParticipation = asyncHandler(async (req, res) => {
-  const seller = req.seller;
-  const { productIds } = req.body;
-  if (!Array.isArray(productIds) || !productIds.length) throw httpError(400, 'Select at least one product');
-
-  const campaign = await Campaign.findById(req.params.id).lean();
-  if (!campaign) throw httpError(404, 'Campaign not found');
-  const lifecycle = campaignLifecycle(campaign);
-  if (lifecycle === 'EXPIRED' || lifecycle === 'DISABLED') {
-    throw httpError(400, 'This campaign is no longer accepting participation');
-  }
-
-  // Scoped to THIS seller's own rows — a product id for another seller's
-  // product simply matches nothing here, never a 403 leak of its existence.
-  const rows = await CampaignParticipation.find({
-    campaignId: campaign._id, sellerId: seller._id, productId: { $in: productIds }, status: 'PENDING',
-  }).populate('productId', 'price isActive isDeleted status');
-
-  if (!rows.length) throw httpError(404, 'No pending participation found for the selected products');
-
-  const accepted = [];
-  const skipped = [];
-  for (const row of rows) {
-    const product = row.productId;
-    if (!isEligibleProduct(product)) { skipped.push({ productId: row.productId?._id, reason: 'No longer available' }); continue; }
-
-    // One active campaign discount per product — never stack.
-    const conflict = await CampaignParticipation.findOne({
-      productId: product._id, status: 'ACCEPTED', campaignId: { $ne: campaign._id },
-    }).populate('campaignId', 'isDraft isEnabled startAt endAt').lean();
-    if (conflict?.campaignId && isCampaignEffectivelyActive(conflict.campaignId)) {
-      skipped.push({ productId: product._id, reason: 'Already in another active campaign' });
-      continue;
-    }
-
-    const campaignPrice = computeCampaignPrice(product.price, campaign.discountValue);
-    row.status = 'ACCEPTED';
-    row.originalPriceSnapshot = product.price;
-    row.discountType = campaign.discountType;
-    row.discountValue = campaign.discountValue;
-    row.campaignPrice = campaignPrice;
-    row.acceptedAt = new Date();
-    await row.save();
-    accepted.push({ productId: product._id, campaignPrice });
-  }
-
-  return ok(res, { accepted, skipped }, `${accepted.length} product(s) accepted into the campaign`);
-});
-
-/**
- * @route PATCH /api/sellers/campaigns/:id/reject
- * @body { reason?: string }
- * Rejects every remaining PENDING row for this seller in this campaign —
- * a whole-campaign decline, distinct from accepting a subset of products.
- */
-export const rejectCampaignParticipation = asyncHandler(async (req, res) => {
-  const seller = req.seller;
-  const campaign = await Campaign.findById(req.params.id).lean();
-  if (!campaign) throw httpError(404, 'Campaign not found');
-
-  const result = await CampaignParticipation.updateMany(
-    { campaignId: campaign._id, sellerId: seller._id, status: 'PENDING' },
-    { $set: { status: 'REJECTED', rejectionReason: req.body.reason, rejectedAt: new Date() } }
-  );
-
-  return ok(res, { rejected: result.modifiedCount }, 'Campaign participation declined');
 });

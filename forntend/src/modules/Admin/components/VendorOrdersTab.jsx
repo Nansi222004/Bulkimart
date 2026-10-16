@@ -238,7 +238,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
                       }}
                     >
                       <td style={{ padding: '14px 16px', fontWeight: '800', fontFamily: 'monospace', color: '#1e293b' }}>
-                        {o.orderNo || o._id.substring(0, 10)}
+                        {o.orderNo || o._id.substring(0, 10)}{o.salesChannel === 'wholesale' ? ' · Wholesale' : ''}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -338,7 +338,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
-                    Order {selectedOrder.orderNo}
+                    Order {selectedOrder.orderNo}{selectedOrder.salesChannel === 'wholesale' ? ' · Wholesale' : ''}
                   </h3>
                 </div>
                 <span style={{ fontSize: '12px', color: '#64748b' }}>Placed on {fmtDate(selectedOrder.createdAt)}</span>

@@ -3,8 +3,6 @@ import CampaignParticipation from '../models/CampaignParticipation.js';
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 
-const round2 = (n) => Math.round(Number(n) * 100) / 100;
-
 /** Same three flags this codebase always checks before showing a product
  *  to a customer — cart.controller.js, order.controller.js and
  *  banner.controller.js all use this exact combination. */
@@ -81,5 +79,3 @@ export const resolveCampaignPriceForProduct = async (productId) => {
   const map = await resolveCampaignPricesForProducts([productId]);
   return map.get(String(productId)) || null;
 };
-
-export const computeCampaignPrice = (price, discountValue) => round2(Number(price) * (1 - Number(discountValue) / 100));
