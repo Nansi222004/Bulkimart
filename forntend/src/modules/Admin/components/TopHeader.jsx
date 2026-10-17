@@ -121,25 +121,33 @@ export const TopHeader = ({ onLogout }) => {
           <div className="sa-header-divider" />
 
           {/* Admin Avatar section */}
-          <div 
-            className="sa-user-badge" 
-            onClick={() => {
-              if (window.confirm("Are you sure you want to log out?")) {
-                onLogout();
-              }
-            }}
-            style={{ cursor: 'pointer' }}
-            title="Click to Log Out"
-          >
-            <div className="sa-avatar">SA</div>
-            <div className="sa-user-info">
-              <span className="sa-user-name">Super Admin</span>
-              <span className="sa-user-role">Logout</span>
-            </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </div>
+          {(() => {
+            let adminInfo = null;
+            try { adminInfo = JSON.parse(localStorage.getItem('adminUser') || '{}'); } catch { adminInfo = null; }
+            const displayName = adminInfo?.name || 'Super Admin';
+            const initials = displayName.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'SA';
+            return (
+              <div 
+                className="sa-user-badge" 
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to log out?")) {
+                    onLogout();
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+                title="Click to Log Out"
+              >
+                <div className="sa-avatar">{initials}</div>
+                <div className="sa-user-info">
+                  <span className="sa-user-name">{displayName}</span>
+                  <span className="sa-user-role">Logout</span>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+            );
+          })()}
 
         </div>
       </div>

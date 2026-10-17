@@ -49,6 +49,7 @@ const run = async () => {
     console.log(`\n✅ Created admin ${email} (role: superAdmin)\n`);
   } else {
     admin.password = password; // hashed by the pre-save hook
+    admin.role = 'superAdmin';
     await admin.save();
     console.log(`\n✅ Password updated for ${email} (role: ${admin.role})\n`);
   }

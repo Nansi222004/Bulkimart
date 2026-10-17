@@ -54,10 +54,20 @@ const connectDB = async () => {
           isActive: true,
         });
         console.log("Super Admin account seeded successfully! 🚀");
-      } else if (!existing.isActive) {
-        existing.isActive = true;
-        await existing.save();
-        console.log("Super Admin account reactivated! 🚀");
+      } else {
+        let changed = false;
+        if (!existing.isActive) {
+          existing.isActive = true;
+          changed = true;
+        }
+        if (existing.role !== "superAdmin") {
+          existing.role = "superAdmin";
+          changed = true;
+        }
+        if (changed) {
+          await existing.save();
+          console.log("Super Admin account role/status synchronized! 🚀");
+        }
       }
     }
 
