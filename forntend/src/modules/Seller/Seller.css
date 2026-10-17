@@ -1985,12 +1985,6 @@ body {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  .seller-app-container :where(input:not([type="radio"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="range"]), select, textarea) {
-    font-size: 16px !important;
-    min-width: 0;
-    max-width: 100%;
-  }
-
   .seller-header-title { overflow-wrap: anywhere; }
   .seller-kpi-grid { grid-template-columns: minmax(0, 1fr); }
 
@@ -2027,9 +2021,66 @@ body {
 
 .seller-tab-content-container {
   overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
   flex: 1;
   width: 100%;
   box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .seller-app-container :where(input:not([type="radio"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="range"]), select, textarea) {
+    font-size: 16px !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+.seller-dashboard-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.seller-dashboard-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+  width: 100%;
+  margin-top: 8px;
+}
+.seller-dashboard-panels > * { min-width: 0; }
+.seller-dashboard-panels .top-product-left > div { min-width: 0; }
+
+/* Cards and metrics must shrink with the workspace beside the sidebar. */
+.seller-tab-content-container :is(.seller-kpi-grid, .sales-kpi-grid, .prod-kpi-grid) > *,
+.seller-tab-content-container :is(.prod-card-mobile-info, .stock-card-mobile-info, .top-product-left) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.seller-tab-content-container :is(.prod-card-mobile-code, .stock-card-mobile-code) {
+  overflow-wrap: anywhere;
+}
+.seller-modal-sheet {
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overscroll-behavior-y: contain;
+}
+
+@media (max-width: 767px) {
+  .seller-tab-content-container { padding: 16px 12px; scroll-padding-block: 16px 80px; }
+  .seller-dashboard-actions { grid-template-columns: minmax(0, 1fr); }
+  .seller-dashboard-panels { grid-template-columns: minmax(0, 1fr); }
+  .seller-tab-content-container .sales-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .seller-tab-content-container .top-prod-card { flex-wrap: wrap; }
+  .seller-tab-content-container .stock-kpi-card { flex-wrap: wrap; }
+  .seller-app-container :is(.seller-header-btn, .seller-hamburger-btn, .seller-signout-btn, .mode-switcher-btn, .seller-drawer-close-btn, .modal-close-btn) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .seller-modal-sheet { padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)); }
 }
 
 @media (min-width: 768px) {

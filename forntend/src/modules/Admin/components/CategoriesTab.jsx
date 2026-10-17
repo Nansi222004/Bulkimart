@@ -976,7 +976,7 @@ export const CategoriesTab = ({ subTab }) => {
           </div>
 
           {/* Table list */}
-          <div style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
@@ -1191,7 +1191,7 @@ export const CategoriesTab = ({ subTab }) => {
           </div>
 
           {/* Table list grid */}
-          <div style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
@@ -1420,7 +1420,7 @@ export const CategoriesTab = ({ subTab }) => {
           </div>
 
           {/* Table list grid */}
-          <div style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ backgroundColor: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #f1f5f9', backgroundColor: '#f8fafc' }}>

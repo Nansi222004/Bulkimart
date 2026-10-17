@@ -166,6 +166,8 @@ export const FashionSection = () => {
       {/* SECTION 1: EVERYDAY BASICS */}
       <div style={{ 
         display: 'flex', 
+        flexWrap: 'wrap',
+        gap: 12,
         justifyContent: 'space-between', 
         alignItems: 'center', 
         padding: '24px 0 16px 0'
@@ -226,6 +228,8 @@ export const FashionSection = () => {
       {/* SECTION 2: STYLE FOR EVERY STORY */}
       <div style={{ 
         display: 'flex', 
+        flexWrap: 'wrap',
+        gap: 12,
         justifyContent: 'space-between', 
         alignItems: 'center', 
         padding: '16px 0 16px 0',

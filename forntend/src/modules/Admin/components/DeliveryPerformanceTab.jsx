@@ -124,7 +124,7 @@ export const DeliveryPerformanceTab = () => {
           )}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12.5 }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>

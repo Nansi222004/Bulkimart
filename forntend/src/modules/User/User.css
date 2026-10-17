@@ -105,6 +105,10 @@
   background: var(--surface-background);
 }
 
+.user-main-content:is(.page-wholesale, .page-categories, .page-checkout) > .unified-header-container {
+  margin: 0;
+}
+
 .user-main-content.page-account {
   overflow-y: auto !important;
   padding: 16px 16px 140px 16px !important;
@@ -129,6 +133,8 @@
   min-height: 100%;
   box-sizing: border-box;
 }
+
+.checkout-page-container > .profile-header-gradient { margin: 0; }
 
 .checkout-content {
   width: min(100%, 760px);
@@ -1002,6 +1008,7 @@
 
 .search-page-input-wrap {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1011,8 +1018,13 @@
   color: var(--text-muted);
 }
 
+.search-page-header > .pd-back-btn { flex-shrink: 0; }
+.search-page-input-wrap > :is(button, svg) { flex-shrink: 0; }
+
 .search-page-input-wrap input {
   flex: 1;
+  width: 100%;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -1389,7 +1401,7 @@
   overflow: hidden;
   width: 100%;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
 }
 
 .hero-banner-track {
@@ -2741,6 +2753,11 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+
+/* Receipt cards use their own spacing, rather than the account page's
+   overlapping sheet margins. Long order references must remain readable. */
+.order-tracking-page-container { min-width: 0; overflow-wrap: anywhere; }
+.order-tracking-page-container .profile-menu-card { margin: 0; flex: none; min-width: 0; }
 
 .orders-scroll-content::-webkit-scrollbar,
 .order-tracking-page-container::-webkit-scrollbar {
@@ -4117,6 +4134,9 @@
    between "keep browsing" and "check out now". */
 .pd-flipkart-btn {
   flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  white-space: normal;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6082,4 +6102,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); 
     flex-shrink: 0;
     margin-block: auto;
   }
+
+  .user-landing-page-container { padding-top: env(safe-area-inset-top, 0px); }
+  .user-landing-page-container :is(.pd-info-top, .pd-delivery-row, .pd-price-row) { flex-wrap: wrap; gap: 10px; }
+  .user-landing-page-container :is(.pd-product-name, .pd-delivery-address, .pd-info-val, .order-id) { overflow-wrap: anywhere; min-width: 0; }
+  .pd-sticky-cta { padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+  .user-landing-page-container :is(.pd-back-btn, .pd-icon-btn, .search-page-mic-btn, .search-page-clear, .notif-drawer-close) { min-width: 44px; min-height: 44px; }
+  .search-page-header { gap: 4px; padding-inline: 4px; }
+  .search-page-input-wrap { padding-inline: 8px; gap: 4px; }
 }

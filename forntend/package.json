@@ -14,7 +14,8 @@
     "test:image-search": "node --test scripts/image-search-ui.test.mjs",
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:responsive": "npm run build && node scripts/mobile-layout.test.mjs --full && node scripts/mobile-layout.test.mjs --native && node scripts/mobile-layout.test.mjs --full --extended && node scripts/mobile-layout.test.mjs --native --supplemental"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

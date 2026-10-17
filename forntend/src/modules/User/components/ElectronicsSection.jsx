@@ -165,7 +165,7 @@ export const ElectronicsSection = () => {
         </div>
 
         {/* Center Title */}
-        <div style={{ zIndex: 2, padding: '0 60px' }}>
+        <div style={{ zIndex: 2, padding: '0 clamp(8px, 8vw, 60px)', minWidth: 0, overflowWrap: 'anywhere' }}>
           <h2 style={{ 
             margin: 0, 
             fontSize: 19, 

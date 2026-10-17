@@ -79,7 +79,7 @@ export const LeftNav = ({ isCollapsed, onToggleCollapse }) => {
   ];
 
   return (
-    <div className="seller-left-nav">
+    <nav id="seller-navigation" className="seller-left-nav" aria-label="Seller navigation" inert={isCollapsed ? true : undefined}>
       {/* Brand logo header */}
       <div className="seller-left-nav-logo">
         <div className="logo-brand-group">
@@ -105,6 +105,7 @@ export const LeftNav = ({ isCollapsed, onToggleCollapse }) => {
         {navItems.map(item => (
           <button
             key={item.id}
+            aria-current={activeTab === item.id ? 'page' : undefined}
             className={`seller-nav-item ${activeTab === item.id ? 'active' : ''}`}
             onClick={() => {
               setActiveTab(item.id);
@@ -121,7 +122,7 @@ export const LeftNav = ({ isCollapsed, onToggleCollapse }) => {
           </button>
         ))}
       </div>
-    </div>
+    </nav>
   );
 };
 

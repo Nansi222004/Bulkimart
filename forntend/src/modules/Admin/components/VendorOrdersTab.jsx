@@ -211,7 +211,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
             No vendor orders found matching your criteria.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13.5px' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>

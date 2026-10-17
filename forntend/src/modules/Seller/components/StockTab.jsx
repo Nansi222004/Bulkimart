@@ -234,7 +234,7 @@ export const StockTab = () => {
 
       {/* 1. HEADER TITLE SECTION */}
       <div style={{ padding: '24px 0 0 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
           <h1 style={{ margin: 0, fontFamily: "'Outfit', sans-serif", fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
             Stock Management
           </h1>
@@ -463,7 +463,8 @@ export const StockTab = () => {
             borderRadius: 100,
             padding: '10px 16px',
             flex: '1',
-            minWidth: '260px',
+            minWidth: 0,
+            width: '100%',
             maxWidth: '360px',
             transition: 'border-color 0.2s'
           }}>
@@ -491,6 +492,7 @@ export const StockTab = () => {
           {/* Segmented control for active statuses (Center) */}
           <div style={{
             display: 'flex',
+            flexWrap: 'wrap',
             backgroundColor: '#f1f5f9',
             padding: 4,
             borderRadius: 100,

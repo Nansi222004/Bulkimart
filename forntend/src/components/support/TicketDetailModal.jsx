@@ -38,7 +38,7 @@ export const TicketDetailModal = ({ ticket, messages, onClose, onReply, onReopen
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }} onClick={onClose}>
-      <div style={{ width: '100%', maxWidth: 480, maxHeight: '85vh', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', boxSizing: 'border-box' }} onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="Support conversation" style={{ width: '100%', minWidth: 0, maxWidth: 480, maxHeight: '85dvh', overflowWrap: 'anywhere', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', boxSizing: 'border-box' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: 16, borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b' }}>#{ticket.ticketNumber || ticket._id}</div>
@@ -50,10 +50,10 @@ export const TicketDetailModal = ({ ticket, messages, onClose, onReply, onReopen
               {ticket.category && <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>{ticket.category}</span>}
             </div>
           </div>
-          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: '#64748b' }}>✕</button>
+          <button aria-label="Close support conversation" onClick={onClose} style={{ minWidth: 44, minHeight: 44, flexShrink: 0, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: '#64748b' }}>✕</button>
         </div>
 
-        <div style={{ overflowY: 'auto', flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ overflowY: 'auto', minHeight: 0, flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {(messages || []).map((m) => {
             const mine = String(m.senderId) === String(currentUserId) && m.senderRole !== 'admin';
             const isAdmin = m.senderRole === 'admin';

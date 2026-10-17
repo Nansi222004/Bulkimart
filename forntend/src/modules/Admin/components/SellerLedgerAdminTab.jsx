@@ -27,7 +27,7 @@ export default function SellerLedgerAdminTab({ view = 'earnings' }) {
   return <div><h2>{view === 'payouts' ? 'Seller payout allocations' : 'Seller ledger balances'}</h2>
     <p style={{ color: '#64748b' }}>Historical orders are excluded. Amounts shown are derived from append-only ledger entries.</p>
     {error && <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
-    <div style={{ overflowX: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+    <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       {view === 'payouts' ? <><thead><tr>{['Reference','Seller','Amount','Status','Transaction','Action'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
         <tbody>{rows.length ? rows.map(p => <tr key={p._id} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{p.payoutRef}</td><td>{p.storeName}</td><td>{money(p.amount)}</td><td>{p.status}</td><td>{p.transactionRef || p.settlementBlocker || '—'}</td><td>{p.status === 'pending' && p.settlementEligible ? <button onClick={() => settle(p)}>Confirm paid</button> : '—'}</td></tr>) : <tr><td colSpan="6" style={{ padding: 25 }}>No payout requests.</td></tr>}</tbody></>
         : <><thead><tr>{['Seller','Pending','Held','Eligible','Reserved','Settled','Freight obligations','Service fees'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>

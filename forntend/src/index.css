@@ -64,6 +64,23 @@ body {
   outline-offset: 2px;
 }
 
+/* Suppress double-tap activation zoom while preserving pan and pinch zoom.
+   Maps, galleries, sliders and the document retain their own gesture policy. */
+:where(button, a, input, select, textarea, [role="button"]) {
+  touch-action: manipulation;
+}
+
+input, select, textarea { scroll-margin-block: 24px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .brand-logo {
   display: inline-flex;
   flex-direction: column;
@@ -150,6 +167,7 @@ body {
   .user-landing-page-container {
     max-width: 1180px;
     height: 100vh;
+    height: 100dvh;
     border-radius: 0;
   }
 }

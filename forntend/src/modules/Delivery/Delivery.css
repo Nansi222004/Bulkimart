@@ -26,7 +26,8 @@
     max-width: 100%;
     min-height: 100vh;
     min-height: 100dvh;
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
     margin: 0;
     box-shadow: none;
     border-radius: 0;
@@ -1171,6 +1172,8 @@
 
 .delivery-payout-row {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
   align-items: center;
   margin: 6px 0 10px 0;
@@ -1246,14 +1249,17 @@
 }
 
 .delivery-earnings-stats-grid {
-  display: flex;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   border-bottom: 1.5px dashed #f1f5f9;
   padding-bottom: 12px;
   margin-bottom: 12px;
 }
 
 .earnings-stat-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   text-align: left;
@@ -1666,6 +1672,7 @@
   align-items: flex-end;
   z-index: 1000;
   box-sizing: border-box;
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
 }
 
 .delivery-order-ping-modal-sheet {
@@ -1677,6 +1684,10 @@
   box-sizing: border-box;
   animation: slideUpIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: center;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
 }
 
 @keyframes slideUpIn {
@@ -1891,7 +1902,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  height: calc(64px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background-color: #ffffff;
   border-top: 1px solid #e2e8f0;
   display: flex;
@@ -1901,6 +1913,9 @@
 }
 
 .delivery-nav-item {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
   background: none;
   border: none;
   display: flex;
@@ -2216,3 +2231,9 @@ input[type="checkbox"] { accent-color: #08b9e8; }
   .delivery-app-container :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea) { font-size: 16px !important; min-width: 0; max-width: 100%; }
   .delivery-main-viewport { padding-bottom: max(90px, calc(76px + env(safe-area-inset-bottom))); }
 }
+
+.delivery-app-container { overflow-wrap: anywhere; }
+.delivery-app-container :is(.delivery-card, .delivery-input-group, .delivery-auth-card) { min-width: 0; }
+.delivery-main-viewport { scroll-padding-block: 20px 100px; }
+.delivery-onboarding-viewport { padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)); }
+.delivery-app-container :is(.delivery-primary-btn, .delivery-save-btn, .delivery-accept-btn, .delivery-cashout-btn, .delivery-filter-pill-btn, .delivery-settle-btn) { min-height: 44px; }

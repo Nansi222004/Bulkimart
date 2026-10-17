@@ -112,7 +112,7 @@ export const DashboardTab = () => {
       </div>
 
       {/* Quick Action Cards: 3 Columns */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 16, width: '100%', marginTop: 4 }}>
+      <div className="seller-dashboard-actions">
         {/* Card 1: Add New Product (Purple Card) */}
         <div 
           onClick={() => setActiveTab('products')}
@@ -174,7 +174,7 @@ export const DashboardTab = () => {
       </div>
 
       {/* Analytics & Top Products side-by-side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20, width: '100%', marginTop: 8 }}>
+      <div className="seller-dashboard-panels">
         {/* SVG Revenue analytics graph */}
         <div className="chart-section-card" style={{ margin: 0 }}>
           <div className="chart-header">

@@ -277,7 +277,7 @@ const CustomerDeliveryChargeCard = ({ onToast }) => {
           <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0' }}>
             <span style={{ fontSize: 12.5, fontWeight: 900, color: '#0f172a' }}>Change history</span>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420 }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc' }}>
@@ -389,7 +389,7 @@ export const DeliveryRatesTab = () => {
               Rates are never overwritten — each change is kept.
             </span>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc' }}>

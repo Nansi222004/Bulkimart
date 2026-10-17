@@ -113,6 +113,8 @@ export const DashboardPage = () => {
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               title={isSidebarCollapsed ? "Expand Navigation Sidebar" : "Collapse Navigation Sidebar"}
               aria-label="Toggle Navigation Sidebar"
+              aria-expanded={!isSidebarCollapsed}
+              aria-controls="seller-navigation"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="3" y1="12" x2="21" y2="12" />

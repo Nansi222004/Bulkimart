@@ -1718,10 +1718,12 @@ const ProfilePage = () => {
           justifyContent: 'center',
           alignItems: 'stretch'
         }}>
-          <div style={{
+          <div role="dialog" aria-modal="true" aria-label="Account details" style={{
             width: '100%',
+            minWidth: 0,
+            overflowWrap: 'anywhere',
             maxWidth: '540px',
-            height: '100vh',
+            height: '100dvh',
             backgroundColor: '#f8fafc',
             overflowY: 'auto',
             display: 'flex',

@@ -473,15 +473,20 @@ export const ProductModal = () => {
         .pm-dialog { flex-direction: column; }
         .pm-sidebar { width: 100%; box-sizing: border-box; }
         .pm-tab-nav { flex-direction: column; }
+        .pm-variant-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%; }
         @media (max-width: 767px) {
-          .pm-wholesale .pm-tab-nav, .pm-wholesale-product .pm-tab-nav { flex-direction: row; flex-wrap: wrap; }
+          .pm-sidebar { max-height: 38%; overflow-y: auto; padding: 12px; }
+          .pm-tab-nav { flex-direction: row; overflow-x: auto; gap: 4px; }
+          .pm-tab-nav button { flex-shrink: 0; min-height: 44px; }
+          .pm-variant-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .pm-dialog main { padding: 16px; }
         }
         @media (min-width: 768px) {
           .pm-dialog { flex-direction: row; }
           .pm-sidebar { width: 260px; }
         }
       ` }} />
-      <div ref={wholesaleProductEditor ? wholesaleDialog : undefined} role={wholesaleProductEditor ? "dialog" : undefined} aria-modal={wholesaleProductEditor || undefined} aria-label={wholesaleProductEditor ? "Wholesale product listing" : undefined} className={`pm-dialog ${wholesaleOnly ? 'pm-wholesale' : wholesaleProductEditor ? 'pm-wholesale-product' : ''}`} style={S.dialog} onClick={(e) => e.stopPropagation()}>
+      <div ref={wholesaleProductEditor ? wholesaleDialog : undefined} role="dialog" aria-modal="true" aria-label={wholesaleProductEditor ? "Wholesale product listing" : "Product listing editor"} className={`pm-dialog ${wholesaleOnly ? 'pm-wholesale' : wholesaleProductEditor ? 'pm-wholesale-product' : ''}`} style={S.dialog} onClick={(e) => e.stopPropagation()}>
         {/* ---- left sidebar column ---- */}
         <div className="pm-sidebar" style={S.sidebar}>
           <div>
@@ -797,7 +802,7 @@ export const ProductModal = () => {
                             </button>
                           )}
                         </div>
-                        <div style={{ ...S.variantCardGrid, ...(wholesaleOnly ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : {}) }}>
+                        <div className="pm-variant-fields" style={wholesaleOnly ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
                           {!wholesaleProductEditor && <><div style={S.variantField}>
                             <label style={S.microLabel}>SELLING PRICE (₹) *</label>
                             <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="1" className="onboarding-input" placeholder="499" value={v.price}
@@ -1145,7 +1150,7 @@ const S = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   dialog: {
-    width: '92%', maxWidth: 1020, height: '90vh', maxHeight: 720,
+    width: '92%', maxWidth: 1020, height: '90dvh', maxHeight: 720,
     background: 'var(--bg-card)', borderRadius: 16, display: 'flex', overflow: 'hidden',
     boxShadow: 'var(--shadow-premium, var(--shadow-lg))', position: 'relative',
   },
@@ -1174,7 +1179,7 @@ const S = {
   sidebarFooter: { paddingTop: 16, borderTop: '1px solid var(--border-color)' },
   sideLabel: { display: 'block', fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 },
   statusSelect: { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', background: 'var(--bg-card)' },
-  rightColumn: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 },
+  rightColumn: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 },
   header: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
     padding: '20px 24px', borderBottom: '1px solid var(--border-color)', flexShrink: 0,
@@ -1193,7 +1198,6 @@ const S = {
   hintBox: { padding: '10px 12px', borderRadius: 8, background: 'var(--bg-page)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 11.5, fontWeight: 600 },
   variantCard: { display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, width: '100%', boxSizing: 'border-box', overflow: 'hidden' },
   variantCardTop: { display: 'flex', gap: 10, alignItems: 'flex-end', width: '100%', boxSizing: 'border-box' },
-  variantCardGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8, width: '100%', boxSizing: 'border-box' },
   variantField: { flex: 1, minWidth: 0, width: '100%', boxSizing: 'border-box' },
   microLabel: { display: 'block', fontSize: 9.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 },
   trashBtn: { border: '1px solid var(--error)', background: 'var(--bg-page)', color: 'var(--error)', borderRadius: 8, width: 34, height: 34, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
