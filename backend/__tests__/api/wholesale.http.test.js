@@ -1069,3 +1069,202 @@ describe('separate wholesale cart and transactional checkout', () => {
     expect((await Product.findById(product._id)).variants[0].stock).toBe(20);
   });
 });
+
+// Combined logical basket: real HTTP routers and disposable replica-set transactions.
+describe('customer basket mixed checkout', () => {
+  const initiateFor = async orderId => (await auth(request(app).post('/api/payments/initiate')).send({ orderId }).expect(200)).body.data;
+  const combinations = [['grocery'], ['ecommerce'], ['wholesale'], ['grocery', 'ecommerce'], ['grocery', 'wholesale'], ['ecommerce', 'wholesale'], ['grocery', 'ecommerce', 'wholesale']];
+  const basketQuote = () => auth(request(app).get('/api/cart/unified')).query({ purchaseMode: 'basket', lat: address.lat, lng: address.lng });
+  const placeBasket = (quote, key = 'combined-basket-fixture-0001', extra = {}) => auth(request(app).post('/api/orders/unified')).set('Idempotency-Key', key).send({ purchaseMode: 'basket', basketHash: quote.basketHash, quoteHash: quote.quoteHash, shippingAddress: address, paymentMethod: 'cod', ...extra });
+  const setupBasket = async (channels = combinations[6], sameVendor = false) => {
+    const entries = {};
+    for (const [index, channel] of ['grocery', 'ecommerce', 'wholesale'].entries()) {
+      const account = sameVendor ? vendor : await User.create({ name: 'Basket seller ' + index, phone: '981234500' + index, roles: ['buyer', 'seller'] });
+      const shop = sameVendor ? seller : await Seller.create({ userId: account._id, businessName: 'Basket vendor ' + index, status: 'approved', salesChannels: ['grocery', 'ecommerce', 'wholesale'], wholesaleChannel: { status: 'approved' } });
+      const type = channel === 'grocery' ? 'grocery' : 'ecommerce';
+      const cat = await Category.create({ name: 'Basket category ' + channel, type });
+      const item = await Product.create({ type, sellingChannels: channel === 'wholesale' ? ['wholesale'] : [type], category: cat._id, sellerId: shop._id, name: 'Basket ' + channel, status: 'approved', isActive: true,
+        variants: [{ name: 'Basket pack', price: 100, mrp: 120, stock: 100, unit: 'pack', weight: 500, wholesalePricing: terms }] });
+      const qty = channel === 'wholesale' ? 5 : 2;
+      entries[channel] = { item, shop, qty };
+      if (channels.includes(channel)) await auth(request(app).post(channel === 'wholesale' ? '/api/cart/wholesale' : '/api/cart')).send({ productId: item._id, variantId: item.variants[0]._id, qty }).expect(200);
+    }
+    return entries;
+  };
+  test.each(combinations.flatMap(channels => ['cod', 'wallet', 'online'].map(method => [channels.join('+'), channels, method])))('%s (%j) with %s uses one payment, actual vendor groups, exact prices, stock, clearing and idempotent replay', async (_label, channels, method) => {
+    const entries = await setupBasket(channels);
+    await User.updateOne({ _id: buyer._id }, { $set: { 'wallet.balance': 10000 } });
+    const q = (await basketQuote().expect(200)).body.data;
+    expect(q.valid).toBe(true); expect(q.groups).toHaveLength(channels.length);
+    expect(q.totals.itemCount).toBe(channels.reduce((n, channel) => n + entries[channel].qty, 0));
+    const count = (await auth(request(app).get('/api/cart/summary')).expect(200)).body;
+    expect(count.meta.totalItems).toBe(q.totals.itemCount);
+    for (const channel of channels) {
+      const group = q.groups.find(group => group.salesChannel === (channel === 'wholesale' ? 'wholesale' : 'retail') && group.channel === (channel === 'grocery' ? 'grocery' : 'ecommerce'));
+      expect(String(group.seller._id)).toBe(String(entries[channel].shop._id));
+      expect(group.items[0].price).toBe(channel === 'wholesale' ? 80 : 100);
+      expect(group.subtotal).toBe(channel === 'wholesale' ? 400 : 200);
+    }
+    const placed = (await placeBasket(q, undefined, { paymentMethod: method }).expect(201)).body.data;
+    expect(placed.orders).toHaveLength(channels.length); expect(await Payment.countDocuments()).toBe(1);
+    expect((await Payment.findOne()).amount).toBe(q.totals.totalAmount);
+    expect(placed.orders.reduce((n, order) => n + order.pricing.totalAmount, 0)).toBe(q.totals.totalAmount);
+    await placeBasket(q, undefined, { paymentMethod: method }).expect(201);
+    expect(await Order.countDocuments()).toBe(channels.length);
+    for (const channel of channels) expect((await Product.findById(entries[channel].item._id)).variants[0].stock).toBe(100 - entries[channel].qty);
+    expect((await Cart.find({ userId: buyer._id })).every(cart => cart.items.length === 0)).toBe(true);
+    if (method === 'wallet') {
+      expect((await User.findById(buyer._id)).wallet.balance).toBe(10000 - q.totals.totalAmount);
+      expect(await mongoose.models.WalletLedger.countDocuments()).toBe(1);
+    }
+    if (method === 'online') {
+      const gateway = await initiateFor(placed.orders[0]._id);
+      expect(gateway.amountPaise).toBe(Math.round(q.totals.totalAmount * 100));
+      const event = captureEvent(gateway, 'pay_basket_once');
+      await sendGatewayEvent(event).expect(200); await sendGatewayEvent(event).expect(200);
+      expect((await Payment.findOne()).status).toBe('paid'); expect((await Payment.findOne()).captures).toHaveLength(1);
+    }
+  });
+  test('same vendor across channels retains financial and fulfilment boundaries; compatible items share a group', async () => {
+    const entries = await setupBasket(undefined, true);
+    const q = (await basketQuote()).body.data;
+    expect(q.groups).toHaveLength(3); expect(new Set(q.groups.map(group => String(group.seller._id))).size).toBe(1);
+    const ecom = entries.ecommerce.item;
+    const second = await Product.create({ name: 'Second same-vendor item', type: 'ecommerce', category: ecom.category, sellerId: seller._id, variants: [{ name: 'Pack', price: 50, mrp: 60, stock: 50, weight: 500 }] });
+    await auth(request(app).post('/api/cart')).send({ productId: second._id, variantId: second.variants[0]._id, qty: 1 }).expect(200);
+    const quote = (await basketQuote()).body.data;
+    expect(quote.groups).toHaveLength(3); expect(quote.groups.find(group => group.salesChannel === 'retail' && group.channel === 'ecommerce').items).toHaveLength(2);
+    await placeBasket(quote).expect(201); expect(await Order.countDocuments()).toBe(3);
+  });
+  test.each(['wholesale-price', 'retail-price', 'retail-stock', 'seller', 'quote', 'quantity'])('%s changes invalidate the whole checkout and preserve carts', async fault => {
+    const entries = await setupBasket(); const q = (await basketQuote()).body.data;
+    if (fault === 'wholesale-price') await Product.updateOne({ _id: entries.wholesale.item._id }, { $set: { 'variants.0.wholesalePricing.priceTiers.0.unitPrice': 79 } });
+    if (fault === 'retail-price') await Product.updateOne({ _id: entries.ecommerce.item._id }, { $set: { 'variants.0.price': 99 } });
+    if (fault === 'retail-stock') await Product.updateOne({ _id: entries.grocery.item._id }, { $set: { 'variants.0.stock': 0 } });
+    if (fault === 'seller') await User.updateOne({ _id: entries.wholesale.shop.userId }, { $set: { isActive: false } });
+    if (fault === 'quote') q.quoteHash = 'untrusted-browser-hash';
+    if (fault === 'quantity') {
+      const cart = await Cart.findOne({ userId: buyer._id, channel: 'ecommerce' });
+      await auth(request(app).put('/api/cart/' + cart.items[0]._id)).send({ qty: 3 }).expect(200);
+    }
+    await placeBasket(q).expect(409);
+    expect(await Order.countDocuments()).toBe(0); expect(await Payment.countDocuments()).toBe(0);
+    expect((await Cart.find({ userId: buyer._id })).every(cart => cart.items.length === 1)).toBe(true);
+    expect((await Product.findById(entries.wholesale.item._id)).variants[0].stock).toBe(100);
+  });
+  test.each(['payment', 'second-order', 'cart-clear'])('%s write failure rolls back every prepared group and allows safe same-key retry', async fault => {
+    const entries = await setupBasket(); const q = (await basketQuote()).body.data;
+    const logs = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let spy;
+    if (fault === 'payment') spy = jest.spyOn(Payment, 'create').mockRejectedValueOnce(new Error('Isolated write failure'));
+    if (fault === 'second-order') {
+      const original = Order.create.bind(Order); let count = 0;
+      spy = jest.spyOn(Order, 'create').mockImplementation((...args) => { if (++count === 2) throw new Error('Isolated second-order failure'); return original(...args); });
+    }
+    if (fault === 'cart-clear') {
+      const original = Cart.updateOne.bind(Cart);
+      spy = jest.spyOn(Cart, 'updateOne').mockImplementation((filter, update, options) => options?.session && update.$set?.items ? Promise.resolve({ modifiedCount: 0 }) : original(filter, update, options));
+    }
+    try { await placeBasket(q).expect(fault === 'cart-clear' ? 409 : 500); } finally { spy.mockRestore(); logs.mockRestore(); }
+    expect(await Order.countDocuments()).toBe(0); expect(await Payment.countDocuments()).toBe(0); expect(await mongoose.models.CheckoutAttempt.countDocuments()).toBe(0);
+    for (const entry of Object.values(entries)) expect((await Product.findById(entry.item._id)).variants[0].stock).toBe(100);
+    expect((await Cart.find({ userId: buyer._id })).every(cart => cart.items.length === 1)).toBe(true);
+    await placeBasket(q).expect(201);
+  });
+  test('concurrent identical checkout creates and deducts once and read-only recovery returns all orders', async () => {
+    const entries = await setupBasket(); const q = (await basketQuote()).body.data;
+    const results = await Promise.all([placeBasket(q), placeBasket(q)]);
+    expect(results.some(result => result.status === 201)).toBe(true); expect(results.every(result => [201, 409].includes(result.status))).toBe(true);
+    expect(await Order.countDocuments()).toBe(3); expect(await Payment.countDocuments()).toBe(1);
+    const status = await auth(request(app).post('/api/orders/checkout-status')).set('Idempotency-Key', 'combined-basket-fixture-0001').send({ operation: 'unified' }).expect(200);
+    expect(status.body.data.state).toBe('completed'); expect(status.body.data.orders).toHaveLength(3);
+    expect((await Product.findById(entries.wholesale.item._id)).variants[0].stock).toBe(95);
+  });
+  test('online mixed cancellation refunds only its order and restores only its inventory', async () => {
+    const entries = await setupBasket(); const q = (await basketQuote()).body.data;
+    const placed = (await placeBasket(q, undefined, { paymentMethod: 'online' }).expect(201)).body.data;
+    const gateway = await initiateFor(placed.orders[0]._id); await sendGatewayEvent(captureEvent(gateway, 'pay_basket_cancel')).expect(200);
+    const wholesale = placed.orders.find(order => order.salesChannel === 'wholesale');
+    await auth(request(app).patch('/api/orders/' + wholesale._id + '/cancel')).send({}).expect(200);
+    expect((await Product.findById(entries.wholesale.item._id)).variants[0].stock).toBe(100);
+    expect((await Product.findById(entries.ecommerce.item._id)).variants[0].stock).toBe(98);
+    expect((await Payment.findOne()).refundObligations).toHaveLength(1);
+    expect((await Payment.findOne()).refundObligations[0]).toMatchObject({ amountPaise: Math.round(wholesale.pricing.totalAmount * 100), status: 'pending' });
+  });
+  test('grouped benefits are refused; retail tip is attached once and never to Wholesale', async () => {
+    await setupBasket(); const q = (await basketQuote()).body.data;
+    await placeBasket(q, 'basket-coupon-fixture-0001', { coupon: 'FAKE' }).expect(400);
+    await placeBasket(q, 'basket-coins-fixture-0001', { useCoins: true }).expect(400);
+    const result = await placeBasket(q, undefined, { tipAmount: 10 }).expect(201);
+    expect(result.body.data.orders.filter(order => order.pricing.tipAmount > 0)).toHaveLength(1);
+    expect(result.body.data.orders.find(order => order.salesChannel === 'wholesale').pricing.tipAmount).toBe(0);
+  });
+
+  test.each(['quantity','seller','stock'])('concurrent %s change during a mixed transaction aborts all orders and preserves the basket', async fault=>{
+    const entries=await setupBasket();const q=(await basketQuote()).body.data;
+    const original=User.updateOne.bind(User);let release,arrived,pause=true;
+    const barrier=new Promise(resolve=>{release=resolve;}),ready=new Promise(resolve=>{arrived=resolve;});
+    const spy=jest.spyOn(User,'updateOne').mockImplementation((filter,update,options)=>{
+      if(pause&&String(filter._id)===String(buyer._id)&&options?.session){pause=false;arrived();return barrier.then(()=>original(filter,update,options));}
+      return original(filter,update,options);
+    });
+    const logs=jest.spyOn(console,'error').mockImplementation(()=>{});
+    try{
+      const buying=placeBasket(q).then(result=>result);await ready;
+      if(fault==='quantity'){
+        const cart=await Cart.findOne({userId:buyer._id,channel:'wholesale'});
+        await auth(request(app).put('/api/cart/wholesale/'+cart.items[0]._id)).send({qty:10}).expect(200);
+      }
+      if(fault==='seller')await original({_id:entries.wholesale.shop.userId},{$set:{isActive:false}});
+      if(fault==='stock')await Product.updateOne({_id:entries.grocery.item._id},{$set:{'variants.0.stock':0}});
+      release();expect((await buying).status).toBe(409);
+      expect(await Order.countDocuments()).toBe(0);expect(await Payment.countDocuments()).toBe(0);
+      expect((await Cart.find({userId:buyer._id})).every(cart=>cart.items.length===1)).toBe(true);
+      expect((await Product.findById(entries.wholesale.item._id)).variants[0].stock).toBe(100);
+    }finally{release();spy.mockRestore();logs.mockRestore();}
+  });
+  test('mixed online initialization timeout remains recoverable without duplicate checkout or settlement',async()=>{
+    await setupBasket();const q=(await basketQuote()).body.data;const placed=(await placeBasket(q,undefined,{paymentMethod:'online'}).expect(201)).body.data;
+    const {getRazorpayClient}=await import('../../services/razorpay.service.js');getRazorpayClient().orders.create.mockRejectedValueOnce(new Error('Isolated unknown provider result'));
+    await auth(request(app).post('/api/payments/initiate')).send({orderId:placed.orders[0]._id}).expect(503);
+    await auth(request(app).post('/api/payments/initiate')).send({orderId:placed.orders[0]._id}).expect(409);
+    await placeBasket(q,undefined,{paymentMethod:'online'}).expect(201);
+    expect(await Order.countDocuments()).toBe(3);expect(await Payment.countDocuments()).toBe(1);
+    expect((await Payment.findOne()).gatewayAttempts[0].status).toBe('creation_unknown');
+    expect((await Payment.findOne()).captures).toHaveLength(0);
+  });
+  test('digital basket preview preserves zero shipping and mixed digital checkout is rejected without clearing',async()=>{
+    const entries=await setupBasket(['ecommerce']);
+    await Product.updateOne({_id:entries.ecommerce.item._id},{$set:{fulfillmentType:'digital','variants.0.stock':0}});
+    await Cart.updateOne({userId:buyer._id,channel:'ecommerce'},{$set:{'items.0.qty':1,'items.0.fulfillmentType':'digital'}});
+    const digital=(await basketQuote()).body.data;expect(digital.valid).toBe(true);expect(digital.totals.deliveryCharge).toBe(0);expect(digital.groups[0].items[0].fulfillmentType).toBe('digital');
+    await auth(request(app).post('/api/cart/wholesale')).send({productId:entries.wholesale.item._id,variantId:entries.wholesale.item.variants[0]._id,qty:5}).expect(200);
+    await placeBasket((await basketQuote()).body.data).expect(400);
+    expect(await Order.countDocuments()).toBe(0);expect((await Cart.find({userId:buyer._id})).every(cart=>cart.items.length===1)).toBe(true);
+  });
+  test('same product and variant in retail and Wholesale retain separate prices and deduct combined stock once',async()=>{
+    await Product.updateOne({_id:product._id},{$set:{sellingChannels:['ecommerce','wholesale']}});
+    await auth(request(app).post('/api/cart')).send({productId:product._id,variantId:product.variants[0]._id,qty:2}).expect(200);await addWholesale(5).expect(200);
+    const q=(await basketQuote()).body.data;expect(q.groups).toHaveLength(2);expect(q.groups.map(group=>group.items[0].price).sort()).toEqual([100,80].sort());
+    await placeBasket(q).expect(201);expect((await Product.findById(product._id)).variants[0].stock).toBe(18);
+  });
+  test('different vendors within one retail channel generate distinct delivery charges and orders',async()=>{
+    const entries=await setupBasket(['ecommerce']);const second=await Product.create({name:'Second vendor same channel',type:'ecommerce',category:entries.ecommerce.item.category,sellerId:entries.wholesale.shop._id,variants:[{name:'Pack',price:50,mrp:60,stock:25,weight:500}]});
+    await auth(request(app).post('/api/cart')).send({productId:second._id,variantId:second.variants[0]._id,qty:1}).expect(200);
+    const q=(await basketQuote()).body.data;expect(q.groups).toHaveLength(2);expect(q.totals.deliveryCharge).toBe(q.groups.reduce((n,g)=>n+g.deliveryCharge,0));
+    await placeBasket(q).expect(201);expect(await Order.countDocuments()).toBe(2);
+  });
+
+  test('aggregate review and the compatibility read preserve unavailable lines instead of silently deleting them',async()=>{
+    const entries=await setupBasket(['grocery','wholesale']);await Product.updateOne({_id:entries.grocery.item._id},{$set:{'variants.0.stock':0}});
+    await auth(request(app).get('/api/cart?channel=grocery&preserveUnavailable=true')).expect(200);
+    const q=(await basketQuote()).body.data;expect(q.valid).toBe(false);expect(q.groups.flatMap(g=>g.items)).toHaveLength(2);expect(q.totals).toBeNull();
+    expect((await Cart.findOne({userId:buyer._id,channel:'grocery'})).items).toHaveLength(1);
+  });
+  test('combined retail and Wholesale demand cannot oversell one shared variant',async()=>{
+    await Product.updateOne({_id:product._id},{$set:{sellingChannels:['ecommerce','wholesale']}});
+    await auth(request(app).post('/api/cart')).send({productId:product._id,variantId:product.variants[0]._id,qty:20}).expect(200);await addWholesale(10).expect(200);
+    const q=(await basketQuote()).body.data;expect(q.valid).toBe(false);expect(q.totals).toBeNull();await placeBasket(q).expect(409);
+    expect(await Order.countDocuments()).toBe(0);expect((await Product.findById(product._id)).variants[0].stock).toBe(25);
+  });
+});

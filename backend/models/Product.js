@@ -30,6 +30,8 @@ const productSameDaySchema = new Schema(
 /**
  * An EXTRA storefront this product also appears on, beyond its primary `type`.
  *
+ * sellingChannels, when present, restricts storefront visibility independently
+ * of this category taxonomy (a Wholesale-only product has no retail permission).
  * A product's primary `type`/`category` never move — that stays the channel it
  * was created in (an SHG product stays `shg`, a seller's stays whichever they
  * picked). This array is how it additionally shows up in Quick (`grocery`)
@@ -153,6 +155,9 @@ const faqSchema = new Schema({
 const productSchema = new Schema(
   {
     type: { type: String, enum: ["ecommerce", "grocery", "shg"], required: true },
+    // Optional restriction; absent legacy products keep type/channels visibility.
+    // type remains the category/fulfilment taxonomy, not retail permission.
+    sellingChannels: { type: [{ type: String, enum: ['ecommerce', 'grocery', 'wholesale'] }], default: undefined },
     // Fulfillment is additive; absent legacy records continue to mean physical.
     fulfillmentType: { type: String, enum: ["physical", "digital"], default: "physical" },
     digital: { type: digitalProductSchema, default: undefined },

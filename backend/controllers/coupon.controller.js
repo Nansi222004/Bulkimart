@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { channelVisibility } from '../utils/productChannels.js';
 import Coupon, { DISCOUNT_TYPE } from '../models/Coupon.js';
 import CouponRedemption from '../models/CouponRedemption.js';
 import Cart from '../models/Cart.js';
@@ -19,7 +20,7 @@ const loadCartContext = async (user, channel) => {
   if (!cart || cart.items.length === 0) return { items: [], subtotal: 0, deliveryCharge: 0 };
 
   const products = await Product.find(
-    { _id: { $in: cart.items.map((i) => i.productId) } },
+    { _id: { $in: cart.items.map((i) => i.productId) }, $and: [channelVisibility(channel)] },
     'name price stock type sellerId category isActive isDeleted status'
   ).lean();
   const byId = new Map(products.map((p) => [String(p._id), p]));

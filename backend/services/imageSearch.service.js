@@ -1,3 +1,4 @@
+import { channelVisibility } from '../utils/productChannels.js';
 import Product from '../models/Product.js';
 import { publicProduct } from '../utils/publicProduct.js';
 import ProductImageIndex from '../models/ProductImageIndex.js';
@@ -9,6 +10,7 @@ import { httpError } from '../utils/response.js';
 export function imageSearchVisibility(type) {
   return { status: 'approved', isActive: true, isDeleted: false, shgStoreId: { $exists: false },
     $and: [
+      channelVisibility(type),
       { type: { $ne: 'shg' } },
       { $or: [{ type }, { channels: { $elemMatch: { type, isActive: { $ne: false } } } }] },
       type === 'grocery' ? { fulfillmentType: { $ne: 'digital' }, stock: { $gt: 0 } } : { $or: [{ fulfillmentType: 'digital' }, { stock: { $gt: 0 } }] },

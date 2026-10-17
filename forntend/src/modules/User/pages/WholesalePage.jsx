@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { openWholesaleProduct } from '../utils/productRoute';
+import { boundedFetch } from '../../../utils/portalRequests';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { useUser } from '../context/UserContext';
 import WholesaleCartPage from './WholesaleCartPage';
+
 import './WholesalePage.css';
 
 const routeProductId = () => {
@@ -20,14 +23,9 @@ const WholesaleArtwork = ({ product, alt = '' }) => {
   const [failed, setFailed] = useState(false);
   const src = imageUrl(product);
   return src && !failed
-    ? <img src={src} alt={alt} onError={() => setFailed(true)} />
+    ? <img src={src} alt={alt} onError={() => setFailed(true)} loading="lazy" />
     : <span className="wholesale-image-fallback" aria-label={alt || 'Product image unavailable'}>BM</span>;
 };
-
-const attributeText = (variant) => (variant.attributes || [])
-  .map((attribute) => `${attribute.name || attribute.key || ''}: ${attribute.value || ''}`.trim())
-  .filter(Boolean)
-  .join(' · ');
 
 const WholesalePage = () => {
   const { currentUser } = useUser();
@@ -35,31 +33,39 @@ const WholesalePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
-  const [variantId, setVariantId] = useState('');
-  const [quantity, setQuantity] = useState(0);
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
+  const [category, setCategory] = useState(() => new URLSearchParams(window.location.search).get('category') || '');
   const [productId, setProductId] = useState(routeProductId);
-  const [adding, setAdding] = useState(false), [cartMessage, setCartMessage] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(1);
-  const addLock = useRef(false);
+  const [page, setPage] = useState(() => Math.max(1, Number(new URLSearchParams(window.location.search).get('page')) || 1));
+  const [pages, setPages] = useState(1);
 
   useEffect(() => {
-    const syncProductRoute = () => setProductId(routeProductId());
+    const syncProductRoute = () => {
+      setProductId(routeProductId());
+      const params = new URLSearchParams(window.location.search);
+      setQuery(params.get('q') || '');
+      setCategory(params.get('category') || '');
+      setPage(Math.max(1, Number(params.get('page')) || 1));
+    };
     window.addEventListener('popstate', syncProductRoute);
-    return () => window.removeEventListener('popstate', syncProductRoute);
+    window.addEventListener('app:locationchange', syncProductRoute);
+    return () => {
+      window.removeEventListener('popstate', syncProductRoute);
+      window.removeEventListener('app:locationchange', syncProductRoute);
+    };
   }, []);
 
   useEffect(() => {
+    if (productId === 'cart') return;
     const controller = new AbortController();
     let active = true;
     setLoading(true);
     setError('');
 
     const params = new URLSearchParams({ page: String(page), limit: '24' });
-    if (productId && productId !== 'cart') params.set('productId', productId);
-    if (!productId && query.trim()) params.set('q', query.trim());
-    if (!productId && category) params.set('category', category);
-    fetch(apiUrl(`/api/products/wholesale/catalog?${params}`), {
+    if (query.trim()) params.set('q', query.trim());
+    if (category) params.set('category', category);
+    boundedFetch(apiUrl(`/api/products/wholesale/catalog?${params}`), {
       headers: { Authorization: `Bearer ${localStorage.getItem('userToken') || ''}` },
       signal: controller.signal,
     })
@@ -86,6 +92,7 @@ const WholesalePage = () => {
   }, [attempt, currentUser, page, productId, query, category]);
 
   const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))].sort(), [products]);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return products.filter((product) => {
@@ -94,175 +101,224 @@ const WholesalePage = () => {
       return matchesCategory && (!needle || text.includes(needle));
     });
   }, [products, query, category]);
-  const selectedProduct = productId ? products.find((product) => String(product._id) === productId) : null;
 
-  useEffect(() => {
-    if (!selectedProduct) return;
-    const firstAvailable = selectedProduct.variants?.find((variant) => variant.available) || selectedProduct.variants?.[0];
-    setVariantId((current) => selectedProduct.variants?.some((variant) => String(variant.variantId) === current)
-      ? current
-      : String(firstAvailable?.variantId || ''));
-  }, [selectedProduct]);
+  const openProduct = (product) => openWholesaleProduct(product._id, product.variants?.find((v) => v.available)?.variantId);
 
-  const selectedVariant = selectedProduct?.variants?.find((variant) => String(variant.variantId) === variantId);
-  useEffect(() => {
-    if (selectedVariant) setQuantity(selectedVariant.minimumQuantity);
-  }, [variantId, selectedVariant?.minimumQuantity]);
+  const updateFilter = (key, value) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    if (key !== 'page') params.set('page', '1');
+    window.history.replaceState(null, '', '/wholesale' + (params.size ? '?' + params : ''));
+    if (key === 'q') setQuery(value);
+    if (key === 'category') setCategory(value);
+    setPage(key === 'page' ? Number(value) : 1);
+  };
 
-  const openProduct = (id) => {
-    setPage(1);
-    window.history.pushState(null, '', `/wholesale/${id}`);
-    setProductId(String(id));
-  };
-  const closeProduct = () => {
-    setPage(1);
-    window.history.pushState(null, '', '/wholesale');
-    setProductId('');
-  };
-  const productImage = (product) => imageUrl(product) || '';
-  const validQuantity = selectedVariant && Number.isSafeInteger(quantity) && quantity >= selectedVariant.minimumQuantity && quantity <= selectedVariant.maxQuantity && (quantity - selectedVariant.minimumQuantity) % selectedVariant.quantityIncrement === 0;
-  const selectedTier = selectedVariant?.priceTiers?.filter(tier => quantity >= tier.minimumQuantity).at(-1);
-  const addToWholesale = async () => {
-    if (addLock.current || !validQuantity) return;
-    addLock.current = true;
-    setAdding(true); setCartMessage('');
-    try {
-      const response = await fetch(apiUrl('/api/cart/wholesale'), { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('userToken') || ''}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ productId: selectedProduct._id, variantId, qty: quantity }) });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || 'Could not add Wholesale offer');
-      setCartMessage('Added to your separate Wholesale cart.');
-    } catch (err) { setCartMessage(err.message); }
-    finally { addLock.current = false; setAdding(false); }
-  };
   if (productId === 'cart') return <WholesaleCartPage />;
 
   return (
     <section className="wholesale-page" aria-labelledby="wholesale-title">
+      {/* Header Banner */}
       <header className="wholesale-header">
-        <div>
-          <p className="wholesale-eyebrow">Bulkimart · Bulk buying</p>
-          <h1 id="wholesale-title">Wholesale</h1>
-          <p>Explore quantity-based offers from approved sellers.</p>
-        </div>
-        <span className="wholesale-access-label">Customer account</span>
-      </header>
-      <button type="button" onClick={() => { window.history.pushState(null, '', '/wholesale/cart'); setProductId('cart'); }}>Wholesale cart</button>
-
-      {selectedProduct ? (
-        <article className="wholesale-detail">
-          <button type="button" className="wholesale-back" onClick={closeProduct}>← All Wholesale offers</button>
-          <div className="wholesale-detail-grid">
-            <div className="wholesale-detail-art">
-              <WholesaleArtwork product={selectedProduct} alt={selectedProduct.name} />
-            </div>
-            <div className="wholesale-detail-info">
-              <p className="wholesale-eyebrow">{selectedProduct.category?.name || 'Wholesale product'}</p>
-              <h2>{selectedProduct.name}</h2>
-              <p className="wholesale-seller">Sold by {selectedProduct.seller?.name || 'Bulkimart seller'}</p>
-              {selectedProduct.description && <p className="wholesale-description">{selectedProduct.description}</p>}
-              <label className="wholesale-label" htmlFor="wholesale-variant">Pack / variant</label>
-              <select id="wholesale-variant" value={variantId} onChange={(event) => setVariantId(event.target.value)}>
-                {(selectedProduct.variants || []).map((variant) => (
-                  <option key={variant.variantId} value={variant.variantId}>
-                    {[variant.name, attributeText(variant), variant.available ? 'Available' : 'Out of stock'].filter(Boolean).join(' · ')}
-                  </option>
-                ))}
-              </select>
-              {selectedVariant && (
-                <>
-                  <div className={`wholesale-stock ${selectedVariant.available ? 'is-available' : 'is-unavailable'}`}>
-                    {selectedVariant.available ? `${selectedVariant.availableStock} available` : 'Currently out of stock'}
-                    {selectedVariant.sku ? ` · SKU ${selectedVariant.sku}` : ''}
-                  </div>
-                  <div className="wholesale-terms">
-                    <div><span>Minimum order</span><strong>{selectedVariant.minimumQuantity} {selectedVariant.unit || 'units'}</strong></div>
-                    <div><span>Order increment</span><strong>{selectedVariant.quantityIncrement} {selectedVariant.unit || 'units'}</strong></div>
-                  </div>
-                  <label className="wholesale-label" htmlFor="wholesale-quantity">Quantity preview</label>
-                  <input
-                    id="wholesale-quantity"
-                    type="number"
-                    min={selectedVariant.minimumQuantity}
-                    max={selectedVariant.maxQuantity}
-                    step={selectedVariant.quantityIncrement}
-                    value={quantity || selectedVariant.minimumQuantity}
-                    disabled={!selectedVariant.available}
-                    onChange={(event) => setQuantity(Math.max(0, Number(event.target.value) || 0))}
-                  />
-                  <h3>Quantity pricing</h3>
-                  <div className="wholesale-tier-list">
-                    {selectedVariant.priceTiers.map((tier) => (
-                      <div key={`${tier.minimumQuantity}-${tier.unitPrice}`}>
-                        <span>{tier.minimumQuantity}+ {selectedVariant.unit || 'units'}</span>
-                        <strong>{formatPrice(tier.unitPrice)} / {selectedVariant.unit || 'unit'}</strong>
-                      </div>
-                    ))}
-                  </div>
-                  {quantity > 0 && (quantity < selectedVariant.minimumQuantity
-                    || (quantity - selectedVariant.minimumQuantity) % selectedVariant.quantityIncrement !== 0
-                    || quantity > selectedVariant.availableStock) && (
-                    <p className="wholesale-validation" role="status">
-                      Choose at least {selectedVariant.minimumQuantity}, in increments of {selectedVariant.quantityIncrement}, up to {selectedVariant.availableStock}.
-                    </p>
-                  )}
-                </>
-              )}
-              {selectedTier && validQuantity && <p>{formatPrice(selectedTier.unitPrice)} per unit · Total {formatPrice(Math.round(selectedTier.unitPrice * 100) * quantity / 100)}</p>}
-              <button type="button" disabled={adding || !validQuantity} onClick={addToWholesale}>{adding ? 'Adding…' : 'Add to Wholesale cart'}</button>
-              {cartMessage && <p role="status">{cartMessage}</p>}
-            </div>
+        <div className="wholesale-header-content">
+          <div className="wholesale-header-titles">
+            <p className="wholesale-eyebrow">
+              <span className="wholesale-eyebrow-dot" aria-hidden="true" />
+              Bulkimart · Bulk Buying
+            </p>
+            <h1 id="wholesale-title">Wholesale / Bulk Buying</h1>
+            <p className="wholesale-subtitle">Buy in bulk from approved sellers with quantity-based pricing.</p>
           </div>
-        </article>
-      ) : productId && !loading && !error ? (
-        <div className="wholesale-state">
-          <h2>Offer not found</h2>
-          <p>This offer is no longer available in the approved Wholesale catalog.</p>
-          <button type="button" onClick={closeProduct}>View all offers</button>
+
+        </div>
+      </header>
+
+      {/* Toolbar: Search, Category, Pagination */}
+      <div className="wholesale-toolbar">
+        <div className="wholesale-filters-row">
+          <div className="wholesale-search-wrapper">
+            <svg className="wholesale-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <label className="visually-hidden" htmlFor="wholesale-search">Search Wholesale offers</label>
+            <input
+              id="wholesale-search"
+              type="search"
+              value={query}
+              onChange={(event) => updateFilter('q', event.target.value)}
+              placeholder="Search products, sellers or categories"
+            />
+            {query && (
+              <button
+                type="button"
+                className="wholesale-search-clear"
+                onClick={() => updateFilter('q', '')}
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="wholesale-category-wrapper">
+            <label className="visually-hidden" htmlFor="wholesale-category">Filter by category</label>
+            <select
+              id="wholesale-category"
+              value={category}
+              onChange={(event) => updateFilter('category', event.target.value)}
+            >
+              <option value="">All Categories</option>
+              {categories.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <svg className="wholesale-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </div>
+
+        <div className="wholesale-meta-row">
+          <span className="wholesale-results-count">
+            Showing <strong>{filtered.length}</strong> {filtered.length === 1 ? 'offer' : 'offers'}
+            {category && <span> in <em>{category}</em></span>}
+          </span>
+
+          <nav aria-label="Wholesale catalog pages" className="wholesale-pagination">
+            <button
+              type="button"
+              className="wholesale-page-btn"
+              disabled={page <= 1}
+              onClick={() => updateFilter('page', String(page - 1))}
+              aria-label="Previous page"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              <span>Previous</span>
+            </button>
+            <span className="wholesale-page-indicator">
+              Page <strong>{page}</strong> of <strong>{pages}</strong>
+            </span>
+            <button
+              type="button"
+              className="wholesale-page-btn"
+              disabled={page >= pages}
+              onClick={() => updateFilter('page', String(page + 1))}
+              aria-label="Next page"
+            >
+              <span>Next</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <div className="wholesale-loading" role="status">
+          <div className="wholesale-spinner" aria-hidden="true" />
+          <p>Loading approved Wholesale offers…</p>
+        </div>
+      ) : error ? (
+        <div className="wholesale-state wholesale-error" role="alert">
+          <div className="wholesale-error-icon" aria-hidden="true">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <p>{error}</p>
+          <div className="wholesale-state-actions">
+            <button type="button" className="wholesale-primary-btn" onClick={() => setAttempt((value) => value + 1)}>
+              Try again
+            </button>
+            {/sign in/i.test(error) && (
+              <button type="button" className="wholesale-secondary-btn" onClick={() => setActiveNav?.('account')}>
+                Go to Sign In
+              </button>
+            )}
+          </div>
+        </div>
+      ) : !filtered.length ? (
+        <div className="wholesale-state wholesale-empty">
+          <div className="wholesale-empty-icon" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+            </svg>
+          </div>
+          <h2>{products.length ? 'No matching offers found' : 'No Wholesale offers available'}</h2>
+          <p>{products.length ? 'Try another search or select a different category.' : 'Approved sellers’ available bulk offers will appear here.'}</p>
+          {(query || category) && (
+            <button
+              type="button"
+              className="wholesale-secondary-btn"
+              onClick={() => { updateFilter('q', ''); updateFilter('category', ''); }}
+            >
+              Clear filters
+            </button>
+          )}
         </div>
       ) : (
-        <>
-          <div className="wholesale-filters">
-            <nav aria-label="Wholesale catalog pages"><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span> Page {page} of {pages} </span><button disabled={page >= pages} onClick={() => setPage(value => value + 1)}>Next</button></nav>
-            <label className="visually-hidden" htmlFor="wholesale-search">Search Wholesale offers</label>
-            <input id="wholesale-search" type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search products, sellers, categories" />
-            <label className="visually-hidden" htmlFor="wholesale-category">Filter by category</label>
-            <select id="wholesale-category" value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }}>
-              <option value="">All categories</option>
-              {categories.map((name) => <option key={name} value={name}>{name}</option>)}
-            </select>
-          </div>
-          {loading ? (
-            <div className="wholesale-loading" role="status">Loading approved Wholesale offers…</div>
-          ) : error ? (
-            <div className="wholesale-state wholesale-error" role="alert">
-              <p>{error}</p>
-              <button type="button" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
-            </div>
-          ) : !filtered.length ? (
-            <div className="wholesale-state"><h2>{products.length ? 'No matching offers' : 'No Wholesale offers available'}</h2><p>{products.length ? 'Try another search or category.' : 'Approved sellers’ available offers will appear here.'}</p></div>
-          ) : (
-            <div className="wholesale-grid">
-              {filtered.map((product) => {
-                const available = product.variants?.filter((variant) => variant.available) || [];
-                const fromPrice = Math.min(...available.flatMap((variant) => variant.priceTiers.map((tier) => Number(tier.unitPrice))));
-                return (
-                  <button className="wholesale-card" type="button" key={product._id} onClick={() => openProduct(product._id)}>
-                    <span className="wholesale-card-art">
-                      <WholesaleArtwork product={product} />
+        <div className="wholesale-grid">
+          {filtered.map((product) => {
+            const available = product.variants?.filter((variant) => variant.available) || [];
+            const fromPrice = Math.min(...available.flatMap((variant) => (variant.priceTiers || []).map((tier) => Number(tier.unitPrice))));
+            const minMoq = available.length ? Math.min(...available.map((variant) => variant.minimumQuantity || 1)) : 1;
+            return (
+              <button
+                className="wholesale-card"
+                type="button"
+                key={product._id}
+                onClick={() => openProduct(product)}
+                aria-label={`View wholesale details for ${product.name}`}
+              >
+                <span className="wholesale-card-art">
+                  <WholesaleArtwork product={product} alt={product.name} />
+                  {product.category?.name && (
+                    <span className="wholesale-card-tag">{product.category.name}</span>
+                  )}
+                </span>
+                <span className="wholesale-card-copy">
+                  <span className="wholesale-card-seller">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                    <span>{product.seller?.name || 'Approved seller'}</span>
+                  </span>
+                  <strong className="wholesale-card-title">{product.name}</strong>
+                  <span className="wholesale-card-pricing-block">
+                    <span className="wholesale-card-price-label">Wholesale Price</span>
+                    <span className="wholesale-card-price">
+                      From {Number.isFinite(fromPrice) ? formatPrice(fromPrice) : '—'} <span className="wholesale-card-unit">/ unit</span>
                     </span>
-                    <span className="wholesale-card-copy">
-                      <span className="wholesale-card-category">{product.category?.name || 'Wholesale'}</span>
-                      <strong>{product.name}</strong>
-                      <span className="wholesale-card-seller">{product.seller?.name || 'Bulkimart seller'}</span>
-                      <span className="wholesale-card-price">From {Number.isFinite(fromPrice) ? formatPrice(fromPrice) : '—'} / unit</span>
-                      <span className="wholesale-card-moq">{available.length} available option{available.length === 1 ? '' : 's'} · MOQ from {Math.min(...available.map((variant) => variant.minimumQuantity))}</span>
+                  </span>
+                  <span className="wholesale-card-meta-row">
+                    <span className="wholesale-card-moq">
+                      MOQ: {minMoq} {minMoq === 1 ? 'unit' : 'units'}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </>
+                    <span className="wholesale-card-variants">
+                      {available.length === 1 ? '1 variant' : `${available.length} variants`}
+                    </span>
+                  </span>
+                  <span className="wholesale-card-cta">
+                    <span>View Product</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </section>
   );

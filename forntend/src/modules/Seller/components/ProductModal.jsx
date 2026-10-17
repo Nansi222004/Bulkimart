@@ -1,3 +1,9 @@
+import VariantAttributesEditor from './VariantAttributesEditor';
+import VariantWholesaleFields from './VariantWholesaleFields';
+import { eligibleWholesaleProduct, hasWholesaleAccess } from '../utils/wholesaleEligibility';
+import useSellerDialog from '../hooks/useSellerDialog';
+import { offerPayload, validateWholesaleOffer } from '../utils/wholesaleOffer';
+import { boundedFetch } from '../../../utils/portalRequests';
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
@@ -37,17 +43,35 @@ export const ProductModal = () => {
     newProductForm, setNewProductForm,
     submitNewProduct, submitProductEdit,
     savingProduct, productError,
-    activeChannel,
+    activeChannel: selectedChannel, productListingMode,
     platformLimits, sellerProfile,
-    editingProduct, editingProductId, setEditingProductId,
+    editingProduct, editingProductId, setEditingProductId, wholesaleVariantId,
     triggerToast,
   } = sellerCtx;
 
+  const wholesaleProductEditor = productListingMode === 'wholesale' && (!editingProductId || (!wholesaleVariantId && editingProduct?.sellingChannels?.length === 1 && editingProduct.sellingChannels[0] === 'wholesale'));
+  const activeChannel = editingProduct?.type || (wholesaleProductEditor ? 'ecommerce' : selectedChannel);
+  const wholesaleOnly = productListingMode === 'wholesale' && !wholesaleProductEditor;
+  const wholesaleDialog = useRef(null);
+  useSellerDialog(wholesaleDialog, showAddProductModal && (wholesaleOnly || wholesaleProductEditor));
   const isEditing = Boolean(editingProductId);
   const isDigital = newProductForm.fulfillmentType === 'digital' || editingProduct?.fulfillmentType === 'digital';
   const [activeTab, setActiveTab] = useState('general');
   const [ebookFile, setEbookFile] = useState(null);
   const [savingWholesale, setSavingWholesale] = useState(false);
+  const [wholesaleError, setWholesaleError] = useState('');
+  const [wholesaleSuccess, setWholesaleSuccess] = useState('');
+  const wholesaleLock = useRef(false), wholesaleGeneration = useRef(0), wholesaleRequest = useRef(null);
+  const formSnapshot = useRef('');
+  const [offerSnapshot, setOfferSnapshot] = useState('');
+  useEffect(() => {
+    wholesaleGeneration.current++; wholesaleRequest.current?.abort(); wholesaleLock.current=false;
+    setSavingWholesale(false); setWholesaleError(''); setWholesaleSuccess('');
+    formSnapshot.current = JSON.stringify(newProductForm);
+    setOfferSnapshot(JSON.stringify((newProductForm.variants || []).map(v => [v._id,v.wholesalePricing || {enabled:false}])));
+    if (showAddProductModal && wholesaleOnly) setActiveTab('variants');
+    return () => { wholesaleGeneration.current++; wholesaleRequest.current?.abort(); };
+  }, [showAddProductModal, editingProductId, wholesaleVariantId]);
   const wholesaleAuthorized = sellerProfile?.status === 'approved'
     && sellerProfile?.wholesaleChannel?.status === 'approved'
     && sellerProfile?.salesChannels?.includes('wholesale');
@@ -247,6 +271,7 @@ export const ProductModal = () => {
   };
 
   const updateWholesalePricing = (index, updater) => {
+    setWholesaleSuccess(''); setWholesaleError('');
     setNewProductForm((form) => ({
       ...form,
       variants: (form.variants || []).map((variant, i) => i === index
@@ -255,52 +280,43 @@ export const ProductModal = () => {
     }));
   };
 
+  const wholesaleDirty = offerSnapshot !== JSON.stringify(variants.map(v => [v._id,v.wholesalePricing || {enabled:false}]));
+  const savedOffers = new Map(JSON.parse(offerSnapshot || '[]').map(([id,pricing])=>[String(id),JSON.stringify(pricing)]));
+  const wholesaleChanges = variants.filter(v=>v._id && JSON.stringify(v.wholesalePricing || {enabled:false})!==savedOffers.get(String(v._id)));
+  const wholesaleInvalid = wholesaleChanges.some(v => Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length);
   const saveWholesalePricing = async () => {
-    if (!isEditing || !editingProductId || !wholesaleAuthorized) return;
+    if (!isEditing || !editingProductId || !wholesaleAuthorized || isDigital || wholesaleLock.current) return;
+    setWholesaleError(''); setWholesaleSuccess('');
+    if (wholesaleInvalid) { setWholesaleError('Correct the Wholesale fields shown for each variant.'); setActiveTab('variants'); return; }
+    const configured = wholesaleChanges.map(v=>({variantId:v._id,wholesalePricing:offerPayload(v.wholesalePricing)}));
+    if (!configured.length) { setWholesaleError('Save the product variants first.'); return; }
+    const generation=wholesaleGeneration.current, token=localStorage.getItem('sellerToken');
+    const controller=new AbortController(); wholesaleRequest.current=controller;
+    const current=()=>!controller.signal.aborted && generation===wholesaleGeneration.current && token===localStorage.getItem('sellerToken');
+    wholesaleLock.current=true;setSavingWholesale(true);
     try {
-      const configured = variants.map((variant) => {
-        if (!variant._id) throw new Error('Save the product variant before configuring Wholesale terms.');
-        const current = variant.wholesalePricing || { enabled: false };
-        return {
-          variantId: variant._id,
-          wholesalePricing: current.enabled ? {
-            enabled: true,
-            minimumQuantity: Number(current.minimumQuantity),
-            quantityIncrement: Number(current.quantityIncrement ?? 1),
-            priceTiers: (current.priceTiers || []).map((tier) => ({
-              minimumQuantity: Number(tier.minimumQuantity),
-              unitPrice: Number(tier.unitPrice),
-            })),
-          } : { enabled: false },
-        };
-      });
-      setSavingWholesale(true);
-      const response = await fetch(apiUrl(`/api/products/${editingProductId}/wholesale-pricing`), {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('sellerToken')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ variants: configured }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || 'Could not save Wholesale terms');
+      const response=await boundedFetch(apiUrl('/api/products/'+editingProductId+'/wholesale-pricing'),{method:'PATCH',signal:controller.signal,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({variants:configured,version:editingProduct.__v ?? 0})});
+      const body=await response.json();if(!current())return;
+      if(!response.ok)throw new Error(body.message || 'Could not save Wholesale terms');
+      sellerCtx.applySavedWholesaleTerms?.(editingProductId,body);
+      setOfferSnapshot(JSON.stringify(variants.map(v=>[v._id,body.variants.find(t=>String(t.variantId)===String(v._id))?.wholesalePricing || v.wholesalePricing || {enabled:false}])));
+      const baseline=JSON.parse(formSnapshot.current || '{}');
+      baseline.variants=(baseline.variants || []).map(v=>({...v,wholesalePricing:body.variants.find(t=>String(t.variantId)===String(v._id))?.wholesalePricing || v.wholesalePricing}));
+      formSnapshot.current=JSON.stringify(baseline);
       triggerToast('Wholesale terms saved.');
-      if (sellerCtx.fetchMyProducts) await sellerCtx.fetchMyProducts();
-    } catch (error) {
-      triggerToast(error.message || 'Could not save Wholesale terms');
-    } finally {
-      setSavingWholesale(false);
-    }
+      setWholesaleSuccess('Wholesale terms saved. Retail prices and shared inventory are unchanged.');
+      await sellerCtx.fetchMyProducts?.();
+    }catch(error){if(current())setWholesaleError(error.message || 'Could not save Wholesale terms');}
+    finally{if(current()){wholesaleLock.current=false;setSavingWholesale(false);}}
   };
 
   // Mirrors the server's own checks — every variant needs a name, a positive
   // price, a non-negative stock, and a selling price that never exceeds MRP.
   const variantErrors = variants.map((v) => {
     if (!v.name || !String(v.name).trim()) return 'needs a name';
-    if (v.price === '' || v.price === undefined || Number(v.price) <= 0) return 'needs a valid selling price';
+    if (!wholesaleProductEditor && (v.price === '' || v.price === undefined || Number(v.price) <= 0)) return 'needs a valid selling price';
     if (v.stock === '' || v.stock === undefined || Number(v.stock) < 0) return 'stock cannot be negative';
-    if (v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) return 'price cannot be higher than its MRP';
+    if (!wholesaleProductEditor && v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) return 'price cannot be higher than its MRP';
     return '';
   });
 
@@ -353,12 +369,18 @@ export const ProductModal = () => {
       } else {
         variants.forEach((v, i) => {
           const label = v.name ? `"${v.name}"` : `Variant ${i + 1}`;
+          if (wholesaleProductEditor) {
+            const errors = Object.values(validateWholesaleOffer(v.wholesalePricing,v.stock));
+            if (errors.length) errs.variants.push(`${label}: ${errors[0]}`);
+          }
           if (!v.name || !String(v.name).trim()) errs.variants.push(`${label} requires a name`);
-          if (v.price === '' || v.price === undefined || Number(v.price) <= 0) errs.variants.push(`${label} requires a valid selling price (> 0)`);
+          if (!wholesaleProductEditor && (v.price === '' || v.price === undefined || Number(v.price) <= 0)) errs.variants.push(`${label} requires a valid selling price (> 0)`);
+          if (wholesaleProductEditor && ((v.attributes || []).some(a=>!a.name?.trim()||!a.value?.trim()) || !Number.isSafeInteger(Number(v.stock)))) errs.variants.push(`${label} requires whole stock and complete attributes`);
           if (v.stock === '' || v.stock === undefined || Number(v.stock) < 0) errs.variants.push(`${label} stock cannot be negative`);
-          if (v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) errs.variants.push(`${label} price cannot exceed MRP`);
+          if (!wholesaleProductEditor && v.mrp !== '' && v.mrp !== undefined && Number(v.price) > Number(v.mrp)) errs.variants.push(`${label} price cannot exceed MRP`);
         });
       }
+      if (wholesaleProductEditor && !isEditing && !variants.some(v=>v.wholesalePricing?.enabled)) errs.variants.push('Enable at least one Wholesale variant');
     }
 
     // Photos / Media validation
@@ -374,10 +396,12 @@ export const ProductModal = () => {
     }
 
     return errs;
-  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, coverImage, isEditing, editingProduct, ebookFile]);
+  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile]);
 
   const allErrors = useMemo(() => Object.values(tabErrors).flat(), [tabErrors]);
-  const canSubmit = !savingProduct && allErrors.length === 0;
+  const creationTermsValid = !wholesaleProductEditor || (wholesaleAuthorized && (isEditing || variants.some(v=>v.wholesalePricing?.enabled)) && !variants.some(v=>Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length));
+  const canSubmit = !savingProduct && allErrors.length === 0 && creationTermsValid;
+  const footerCanSubmit = wholesaleOnly ? wholesaleAuthorized && !wholesaleInvalid && wholesaleDirty : canSubmit;
 
   const navigateToFirstError = () => {
     for (const tab of tabs) {
@@ -390,6 +414,8 @@ export const ProductModal = () => {
 
   const handleSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (wholesaleOnly) { await saveWholesalePricing(); return; }
+    if (!wholesaleProductEditor && wholesaleDirty && !window.confirm('Wholesale terms have unsaved changes. Save retail details and discard unsaved Wholesale edits?')) return;
     if (!canSubmit) {
       navigateToFirstError();
       return;
@@ -398,11 +424,35 @@ export const ProductModal = () => {
     else await submitNewProduct(newProductForm, collectedFiles, ebookFile);
   };
 
-  const close = () => { setShowAddProductModal(false); setEditingProductId(null); };
+  const close = () => {
+    if (savingWholesale || savingProduct) return;
+    if ((wholesaleDirty || formSnapshot.current !== JSON.stringify(newProductForm) || collectedFiles.length || ebookFile) && !window.confirm('Discard unsaved product changes?')) return;
+    setShowAddProductModal(false); setEditingProductId(null);
+  };
 
   if (!showAddProductModal) return null;
 
   const slugPreview = slugify(newProductForm.name);
+
+  if (wholesaleOnly) {
+    const chosen = variants.map((variant,index)=>({variant,index})).filter(({variant})=>!wholesaleVariantId || String(variant._id)===String(wholesaleVariantId));
+    const authorized=hasWholesaleAccess(sellerProfile);
+    return <div className="seller-modal-overlay seller-wholesale-overlay" onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
+      <div ref={wholesaleDialog} className="seller-wholesale-editor seller-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="wholesale-editor-title" onClick={event=>event.stopPropagation()}>
+        <header className="seller-products-dialog-heading"><div><small>WHOLESALE (B2B)</small><h2 id="wholesale-editor-title">Wholesale Offer Terms</h2><p>{editingProduct?.name}</p></div><button type="button" className="seller-products-button" aria-label="Close" onClick={close} disabled={savingWholesale}>×</button></header>
+        <div className="seller-wholesale-editor-body">
+          {!authorized || isDigital ? <p role="alert">This product or seller is not eligible for Wholesale. Refresh your seller access and choose an eligible physical product.</p> : !chosen.length ? <p role="alert">This variant is no longer available. Close the editor and refresh your products.</p> : chosen.map(({variant:v,index:i})=><section className="seller-wholesale-variant" key={String(v._id)}>
+            <dl className="seller-offer-reference"><div><dt>Product</dt><dd>{editingProduct.name}</dd></div><div><dt>Variant</dt><dd>{v.name}</dd></div><div><dt>SKU</dt><dd>{v.sku || editingProduct.sku || 'Unavailable'}</dd></div><div><dt>Shared available stock</dt><dd>{v.stock} {v.unit || ''}</dd></div></dl>
+            <p className="seller-products-hint">Retail price ₹{v.price}, MRP ₹{v.mrp}. Retail prices, stock, unit and weight are managed in {activeChannel==='grocery'?'Quick Commerce':'E-Commerce'}.</p>
+            <VariantWholesaleFields variant={v} index={i} onChange={updateWholesalePricing} disabled={savingWholesale} eligible={eligibleWholesaleProduct(editingProduct)}/>
+          </section>)}
+          {wholesaleError && <p role="alert" className="seller-wholesale-errors">{wholesaleError} Your inputs are retained; correct the issue or retry Save Wholesale Terms.</p>}
+          {wholesaleSuccess && <p role="status" className="seller-products-success">{wholesaleSuccess}</p>}
+        </div>
+        <footer className="seller-products-dialog-actions"><button type="button" className="seller-products-button" onClick={close} disabled={savingWholesale}>Close</button><button type="button" className="seller-products-button seller-products-primary" onClick={saveWholesalePricing} disabled={savingWholesale||!authorized||isDigital||!chosen.length||wholesaleInvalid||!wholesaleDirty}>{savingWholesale?'Saving…':'Save Wholesale Terms'}</button></footer>
+      </div>
+    </div>;
+  }
 
   // A listing's primary channel is fixed forever once created (the backend
   // doesn't even accept a `type` change on update) — only whether it's ALSO
@@ -412,7 +462,7 @@ export const ProductModal = () => {
   const showSameDayBlock = activeChannel === 'ecommerce';
 
   return (
-    <div style={S.overlay} onClick={close}>
+    <div style={{...S.overlay,...(wholesaleProductEditor ? {zIndex:1100} : {})}} onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
       {/* Mobile: sidebar stacks above the main content instead of beside it —
           at 260px fixed width (see S.sidebar) inside a 92%-wide dialog, the
           two-pane layout only left ~92px for the main content on a 375px
@@ -421,21 +471,25 @@ export const ProductModal = () => {
           class can govern them without an inline style winning over it. */}
       <style dangerouslySetInnerHTML={{ __html: `
         .pm-dialog { flex-direction: column; }
-        .pm-sidebar { width: 100%; }
+        .pm-sidebar { width: 100%; box-sizing: border-box; }
+        .pm-tab-nav { flex-direction: column; }
+        @media (max-width: 767px) {
+          .pm-wholesale .pm-tab-nav, .pm-wholesale-product .pm-tab-nav { flex-direction: row; flex-wrap: wrap; }
+        }
         @media (min-width: 768px) {
           .pm-dialog { flex-direction: row; }
           .pm-sidebar { width: 260px; }
         }
       ` }} />
-      <div className="pm-dialog" style={S.dialog} onClick={(e) => e.stopPropagation()}>
+      <div ref={wholesaleProductEditor ? wholesaleDialog : undefined} role={wholesaleProductEditor ? "dialog" : undefined} aria-modal={wholesaleProductEditor || undefined} aria-label={wholesaleProductEditor ? "Wholesale product listing" : undefined} className={`pm-dialog ${wholesaleOnly ? 'pm-wholesale' : wholesaleProductEditor ? 'pm-wholesale-product' : ''}`} style={S.dialog} onClick={(e) => e.stopPropagation()}>
         {/* ---- left sidebar column ---- */}
         <div className="pm-sidebar" style={S.sidebar}>
           <div>
-            <div style={S.sidebarBrand}>
+            <div style={{ ...S.sidebarBrand, ...(wholesaleOnly ? { marginBottom: 8 } : {}) }}>
               <span style={S.sidebarBrandIcon}>🏷️</span>
               <span style={S.sidebarBrandLabel}>Listing Editor</span>
             </div>
-            <nav style={S.tabNav}>
+            <nav className="pm-tab-nav" style={S.tabNav}>
               {tabs.map((t) => {
                 const hasError = tabErrors[t.id]?.length > 0;
                 return (
@@ -460,8 +514,8 @@ export const ProductModal = () => {
             </nav>
           </div>
 
-          <div style={S.sidebarFooter}>
-            {!isDigital && <>
+          <div style={{ ...S.sidebarFooter, ...(wholesaleOnly ? { display: 'none' } : {}) }}>
+            {!isDigital && !wholesaleProductEditor && <>
               <label style={S.sideLabel}>Status</label>
               <select
                 value={newProductForm.status || 'Published'}
@@ -488,9 +542,9 @@ export const ProductModal = () => {
         <div style={S.rightColumn}>
           <div style={S.header}>
             <div style={{ minWidth: 0 }}>
-              <h3 style={S.title}>{isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
+              <h3 style={S.title}>{wholesaleProductEditor ? (isEditing ? 'Edit Wholesale Product' : 'Add Wholesale Product') : isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
               <div style={S.breadcrumb}>
-                {(activeChannel === 'quick' || activeChannel === 'grocery') ? 'QUICK COMMERCE' : 'SHOP ALL'}
+                {wholesaleProductEditor ? 'WHOLESALE ONLY' : (activeChannel === 'quick' || activeChannel === 'grocery') ? 'QUICK COMMERCE' : 'SHOP ALL'}
                 {' > '}
                 {isEditing ? (editingProduct?.name || editingProductId) : 'NEW LISTING'}
               </div>
@@ -499,9 +553,11 @@ export const ProductModal = () => {
           </div>
 
           <div style={S.main}>
+            <p className="seller-products-hint" role="status">Selling channels: {wholesaleProductEditor ? 'Wholesale only. Not listed in E-Commerce or Quick Commerce. Physical products follow the existing publication policy.' : editingProduct?.sellingChannels?.join(', ') || [editingProduct?.type || activeChannel,...(editingProduct?.channels || []).filter(c=>c.isActive!==false).map(c=>c.type)].join(', ')}</p>
+            {wholesaleOnly && <p style={{padding:12}}>Wholesale terms only. Retail details are shown for reference; manage them in E-Commerce or Quick Commerce.</p>}
             {activeTab === 'general' && (
-              <div style={S.tabPanel}>
-                {!isEditing && (
+              <div style={S.tabPanel} inert={wholesaleOnly || undefined}>
+                {!isEditing && !wholesaleProductEditor && (
                   <div className="onboarding-form-group">
                     <label className="onboarding-label">Listing type *</label>
                     <select
@@ -657,7 +713,7 @@ export const ProductModal = () => {
                 </div>}
 
                 {!isDigital && <div style={S.hintBox}>
-                  Selling price, MRP, stock, unit and weight are set per variant — head to the <strong>Item Variants</strong> tab.
+                  {wholesaleProductEditor ? 'Configure shared stock and Wholesale MOQ, increments and tier prices in' : 'Selling price, MRP, stock, unit and weight are set per variant — head to the'} <strong>Item Variants</strong> tab.
                 </div>}
 
                 {/*
@@ -685,7 +741,7 @@ export const ProductModal = () => {
                 )}
 
                 {/* Same-Day, only on the Ecommerce/Shop All leg. */}
-                {!isDigital && showSameDayBlock && (
+                {!wholesaleProductEditor && !isDigital && showSameDayBlock && (
                   <div className="onboarding-form-group" style={{ border: '1.5px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={Boolean(newProductForm.sameDayEnabled)}
@@ -715,7 +771,7 @@ export const ProductModal = () => {
               <div style={S.tabPanel}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <h4 style={S.sectionTitle}>Product Variants</h4>
-                  <button type="button" onClick={addVariant} style={S.addBtn}>+ ADD</button>
+                  <button type="button" disabled={wholesaleOnly||savingWholesale||savingProduct} onClick={addVariant} style={S.addBtn}>+ ADD</button>
                 </div>
 
                 {variants.length === 0 ? (
@@ -729,11 +785,11 @@ export const ProductModal = () => {
                         <div style={S.variantCardTop}>
                           <div style={{ ...S.variantField, flex: 2 }}>
                             <label style={S.microLabel}>VARIANT NAME</label>
-                            <input type="text" className="onboarding-input" placeholder="Default, Pack of 2…" value={v.name}
+                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="text" className="onboarding-input" placeholder="Default, Pack of 2…" value={v.name} aria-label={`Variant ${i+1} name`}
                               onChange={(e) => updateVariant(i, 'name', e.target.value)} />
                           </div>
                           {variants.length > 1 && (
-                            <button type="button" onClick={() => removeVariant(i)} style={S.trashBtn} aria-label="Remove variant">
+                            <button type="button" disabled={wholesaleOnly||savingWholesale||savingProduct} onClick={() => removeVariant(i)} style={S.trashBtn} aria-label="Remove variant">
                               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <polyline points="3 6 5 6 21 6" />
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -741,28 +797,28 @@ export const ProductModal = () => {
                             </button>
                           )}
                         </div>
-                        <div style={S.variantCardGrid}>
-                          <div style={S.variantField}>
+                        <div style={{ ...S.variantCardGrid, ...(wholesaleOnly ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : {}) }}>
+                          {!wholesaleProductEditor && <><div style={S.variantField}>
                             <label style={S.microLabel}>SELLING PRICE (₹) *</label>
-                            <input type="number" min="1" className="onboarding-input" placeholder="499" value={v.price}
+                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="1" className="onboarding-input" placeholder="499" value={v.price}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'price', e.target.value)} />
                           </div>
                           <div style={S.variantField}>
                             <label style={S.microLabel}>MRP (₹)</label>
-                            <input type="number" min="0" className="onboarding-input" placeholder="699" value={v.mrp}
+                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="0" className="onboarding-input" placeholder="699" value={v.mrp}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'mrp', e.target.value)} />
                           </div>
-                          <div style={S.variantField}>
+                          </>}<div style={S.variantField}>
                             <label style={S.microLabel}>STOCK *</label>
-                            <input type="number" min="0" className="onboarding-input" placeholder="25" value={v.stock}
+                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="0" className="onboarding-input" placeholder="25" value={v.stock} aria-label={`Variant ${i+1} stock`}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'stock', e.target.value)} />
                           </div>
                           <div style={S.variantField}>
                             <label style={S.microLabel}>UNIT</label>
-                            <select className="onboarding-select" value={v.unit || 'piece'}
+                            <select disabled={wholesaleOnly||savingWholesale||savingProduct} className="onboarding-select" value={v.unit || 'piece'}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'unit', e.target.value)}>
                               {['piece', 'kg', 'g', 'litre', 'ml', 'dozen', 'pack'].map((u) => (
@@ -772,78 +828,24 @@ export const ProductModal = () => {
                           </div>
                           <div style={S.variantField}>
                             <label style={S.microLabel}>WEIGHT (g)</label>
-                            <input type="number" min="0" className="onboarding-input" placeholder="500" value={v.weight}
+                            <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="number" min="0" className="onboarding-input" placeholder="500" value={v.weight}
                               style={{ width: '100%', boxSizing: 'border-box', minWidth: 0 }}
                               onChange={(e) => updateVariant(i, 'weight', e.target.value)} />
                           </div>
                         </div>
+                        {wholesaleProductEditor && <div className="seller-offer-variant-details"><label className="seller-offer-field">SKU<input className="onboarding-input" value={v.sku || ''} disabled={savingProduct} onChange={e=>updateVariant(i,'sku',e.target.value)} /></label><VariantAttributesEditor value={v.attributes} disabled={savingProduct} onChange={value=>updateVariant(i,'attributes',value)}/></div>}
                         {variantErrors[i] && <div style={S.errorText}>{v.name || `Variant ${i + 1}`} {variantErrors[i]}.</div>}
-                        {wholesaleAuthorized && isEditing && (
-                          <section aria-label={`${v.name || `Variant ${i + 1}`} Wholesale settings`} style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid #bae6fd', background: '#f0fbff' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, color: '#073b78' }}>
-                              <input type="checkbox" checked={Boolean(v.wholesalePricing?.enabled)}
-                                onChange={(event) => updateWholesalePricing(i, (pricing) => ({
-                                  ...pricing,
-                                  enabled: event.target.checked,
-                                  minimumQuantity: pricing.minimumQuantity || 1,
-                                  quantityIncrement: pricing.quantityIncrement || 1,
-                                  priceTiers: pricing.priceTiers?.length ? pricing.priceTiers : [{ minimumQuantity: pricing.minimumQuantity || 1, unitPrice: '' }],
-                                }))} />
-                              Offer this variant through Wholesale
-                            </label>
-                            {v.wholesalePricing?.enabled && (
-                              <div style={{ marginTop: 10 }}>
-                                <div style={S.variantCardGrid}>
-                                  <div style={S.variantField}>
-                                    <label style={S.microLabel}>MINIMUM ORDER QTY</label>
-                                    <input type="number" min="1" className="onboarding-input" value={v.wholesalePricing.minimumQuantity ?? 1}
-                                      onChange={(event) => {
-                                        const value = event.target.value;
-                                        updateWholesalePricing(i, (pricing) => ({ ...pricing, minimumQuantity: value,
-                                          priceTiers: (pricing.priceTiers || []).map((tier, tierIndex) => tierIndex === 0 ? { ...tier, minimumQuantity: value } : tier) }));
-                                      }} />
-                                  </div>
-                                  <div style={S.variantField}>
-                                    <label style={S.microLabel}>QTY INCREMENT</label>
-                                    <input type="number" min="1" className="onboarding-input" value={v.wholesalePricing.quantityIncrement ?? 1}
-                                      onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, quantityIncrement: event.target.value }))} />
-                                  </div>
-                                </div>
-                                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-                                  {(v.wholesalePricing.priceTiers || []).map((tier, tierIndex) => (
-                                    <div key={tierIndex} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
-                                      <div style={S.variantField}>
-                                        <label style={S.microLabel}>FROM QTY</label>
-                                        <input type="number" min="1" className="onboarding-input" value={tier.minimumQuantity ?? ''}
-                                          onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.map((item, idx) => idx === tierIndex ? { ...item, minimumQuantity: event.target.value } : item) }))} />
-                                      </div>
-                                      <div style={S.variantField}>
-                                        <label style={S.microLabel}>UNIT PRICE (₹)</label>
-                                        <input type="number" min="0.01" step="0.01" className="onboarding-input" value={tier.unitPrice ?? ''}
-                                          onChange={(event) => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.map((item, idx) => idx === tierIndex ? { ...item, unitPrice: event.target.value } : item) }))} />
-                                      </div>
-                                      {v.wholesalePricing.priceTiers.length > 1 && <button type="button" onClick={() => updateWholesalePricing(i, (pricing) => ({ ...pricing, priceTiers: pricing.priceTiers.filter((_, idx) => idx !== tierIndex) }))} style={S.trashBtn} aria-label="Remove price tier">×</button>}
-                                    </div>
-                                  ))}
-                                  <button type="button" onClick={() => updateWholesalePricing(i, (pricing) => {
-                                    const last = pricing.priceTiers?.[pricing.priceTiers.length - 1];
-                                    const nextQuantity = Number(last?.minimumQuantity || pricing.minimumQuantity || 1) + Number(pricing.quantityIncrement || 1);
-                                    return { ...pricing, priceTiers: [...(pricing.priceTiers || []), { minimumQuantity: nextQuantity, unitPrice: '' }] };
-                                  })} style={{ justifySelf: 'start', border: '1px solid #08b9e8', background: '#fff', color: '#078ccb', padding: '6px 10px', borderRadius: 7, fontWeight: 700, cursor: 'pointer' }}>+ Add price tier</button>
-                                </div>
-                              </div>
-                            )}
-                          </section>
-                        )}
+                        {wholesaleAuthorized && (isEditing || wholesaleProductEditor) && !isDigital && <VariantWholesaleFields allowUnsaved={wholesaleProductEditor} variant={v} index={i} onChange={updateWholesalePricing} disabled={savingWholesale||savingProduct} eligible={wholesaleProductEditor || (editingProduct?.status==='approved'&&editingProduct?.isActive&&editingProduct?.category?.isActive!==false)}/>}
                       </div>
                     ))}
                   </div>
                 )}
-                {wholesaleAuthorized && isEditing && (
+                {wholesaleAuthorized && isEditing && !isDigital && !wholesaleProductEditor && (
                   <section aria-label="Wholesale catalog settings" style={{ marginTop: 14, padding: 12, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
                     <strong style={{ color: '#073b78', fontSize: 13 }}>Wholesale catalog</strong>
+                    {wholesaleError && <p role="alert" className="seller-wholesale-errors">{wholesaleError}</p>}
                     <p style={{ margin: '5px 0 10px', color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>Set per-variant MOQ and quantity prices. Customer Wholesale carts use these terms with your shared inventory.</p>
-                    <button type="button" onClick={saveWholesalePricing} disabled={savingWholesale || variants.some((variant) => !variant._id)} style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '8px 12px', fontWeight: 800, cursor: savingWholesale ? 'wait' : 'pointer', opacity: savingWholesale || variants.some((variant) => !variant._id) ? 0.6 : 1 }}>
+                    <button type="button" onClick={saveWholesalePricing} disabled={savingWholesale || savingProduct || wholesaleInvalid || !wholesaleDirty} style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '8px 12px', fontWeight: 800, cursor: savingWholesale ? 'wait' : 'pointer', opacity: savingWholesale || variants.some((variant) => !variant._id) ? 0.6 : 1 }}>
                       {savingWholesale ? 'Saving…' : 'Save Wholesale Terms'}
                     </button>
                   </section>
@@ -852,7 +854,7 @@ export const ProductModal = () => {
             )}
 
             {activeTab === 'groups' && (
-              <div style={S.tabPanel}>
+              <div style={S.tabPanel} inert={wholesaleOnly || undefined}>
                 <div style={{ marginBottom: 12 }}>
                   <h4 style={S.sectionTitle}>{isDigital ? 'E-book Category' : 'Product Category & Taxonomy'}</h4>
                   <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>
@@ -934,7 +936,7 @@ export const ProductModal = () => {
             )}
 
             {activeTab === 'photos' && (
-              <div style={S.tabPanel}>
+              <div style={S.tabPanel} inert={wholesaleOnly || undefined}>
                 {isDigital ? (
                   <>
                     <div style={{ marginBottom: 14 }}>
@@ -1101,12 +1103,12 @@ export const ProductModal = () => {
               </div>
             )}
 
-            {productError && <div style={S.errorBox}>{productError}</div>}
+            {productError && <div role="alert" style={S.errorBox}>{productError}</div>}
           </div>
 
           {/* ---- footer ---- */}
           <div style={S.footer}>
-            {!canSubmit && !savingProduct && allErrors.length > 0 && (
+            {!wholesaleOnly && !canSubmit && !savingProduct && allErrors.length > 0 && (
               <div style={S.footerErrorHint} onClick={navigateToFirstError} title="Click to fix missing fields">
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626' }}>
                   ⚠️ {allErrors[0]} {allErrors.length > 1 ? `(+${allErrors.length - 1} more)` : ''}
@@ -1119,16 +1121,16 @@ export const ProductModal = () => {
             <button type="button" onClick={close} style={S.footerCloseBtn}>Close</button>
             <button
               type="button"
-              onClick={canSubmit ? handleSubmit : navigateToFirstError}
-              disabled={savingProduct}
+              onClick={wholesaleOnly || canSubmit ? handleSubmit : navigateToFirstError}
+              disabled={savingProduct || savingWholesale || (wholesaleOnly && (!wholesaleAuthorized || wholesaleInvalid || !wholesaleDirty))}
               style={{
                 ...S.footerSaveBtn,
-                ...(canSubmit ? {} : S.footerSaveBtnDisabled),
+                ...(footerCanSubmit ? {} : S.footerSaveBtnDisabled),
                 ...(savingProduct ? { opacity: 0.7, cursor: 'wait' } : {}),
               }}
-              title={canSubmit ? 'Submit listing' : 'Resolve required fields to submit'}
+              title={wholesaleOnly ? 'Save only the changed variant Wholesale terms' : canSubmit ? 'Submit listing' : 'Resolve required fields to submit'}
             >
-              {savingProduct ? 'Saving…' : (isEditing ? 'Save Changes' : 'Save & Submit Listing')}
+              {savingProduct || savingWholesale ? 'Saving…' : wholesaleOnly ? 'Save Wholesale Terms' : (wholesaleProductEditor ? 'Save Wholesale Product' : isEditing ? 'Save Changes' : 'Save & Submit Listing')}
             </button>
           </div>
         </div>
@@ -1158,7 +1160,7 @@ const S = {
   sidebarBrand: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 22 },
   sidebarBrandIcon: { fontSize: 18 },
   sidebarBrandLabel: { fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' },
-  tabNav: { display: 'flex', flexDirection: 'column', gap: 2 },
+  tabNav: { display: 'flex', gap: 2 },
   tabBtn: {
     textAlign: 'left', border: 'none', background: 'none', padding: '11px 12px', borderRadius: 10,
     fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', cursor: 'pointer',

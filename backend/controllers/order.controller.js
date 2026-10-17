@@ -1,3 +1,5 @@
+import { buildCustomerBasket } from '../services/customerBasket.service.js';
+import { channelAllowed } from '../utils/productChannels.js';
 import mongoose from 'mongoose';
 import { createHash } from 'node:crypto';
 import Order from '../models/Order.js';
@@ -361,7 +363,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.type !== channel || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || !channelAllowed(p, channel) || p.type !== channel || p.fulfillmentType === 'digital' || p.isDeleted || !p.isActive || p.status !== 'approved') {
       throw httpError(409, `"${line.name}" is no longer available. Please review your cart.`);
     }
     const inventory = resolveInventoryItem(p, line.variantId, { allowLegacyPrimary: !line.variantId });
@@ -777,7 +779,11 @@ export const createOrder = asyncHandler(async (req, res) => {
  */
 export const createUnifiedOrder = asyncHandler(async (req, res) => {
   const purchaseMode = req.body.purchaseMode ?? 'retail';
-  if (!['retail', 'wholesale'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
+  if (!['retail', 'wholesale', 'basket'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
+  if (purchaseMode === 'basket') {
+    assertWholesaleBuyer(req);
+    if (req.body.channel !== undefined || req.body.useCoins) throw httpError(400, 'Basket checkout does not support channel overrides or Coins');
+  }
   if (purchaseMode === 'wholesale') {
     assertWholesaleBuyer(req);
     if (req.body.channel !== undefined && req.body.channel !== 'wholesale') throw httpError(400, 'Retail and Wholesale checkout cannot be mixed');
@@ -829,7 +835,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   // The same grouping the cart showed, re-run against the address being shipped
   // to — an offer made against a different destination is not this order's offer.
-  let composed = await buildFulfilmentGroups({
+  const compose = purchaseMode === 'basket' ? buildCustomerBasket : buildFulfilmentGroups;
+  let composed = await compose({
     purchaseMode,
     userId: req.user._id,
     destination: address.lat !== undefined && address.lng !== undefined
@@ -840,6 +847,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   let { groups } = composed;
   if (purchaseMode === 'wholesale' && req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale prices or delivery charges changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
+  if (purchaseMode === 'basket' && (req.body.basketHash !== composed.basketHash || req.body.quoteHash !== composed.quoteHash)) throw httpError(409, 'Basket prices, quantities or delivery changed. Refresh and review your cart.', { code: 'BASKET_QUOTE_CHANGED' });
   if (!groups.length) throw httpError(400, 'Your cart is empty');
 
   // Regular e-commerce carriers are selected after seller acceptance. Explicit
@@ -868,6 +876,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   // One basket, one tip — attached to the first order, and paid in
   // full to the rider who carries it.
   const tip = resolveTip(req.body.tipAmount);
+  if (purchaseMode === 'basket' && tip && !groups.some(group => group.salesChannel === 'retail')) throw httpError(400, 'Tips are only available for retail deliveries');
 
   const session = await mongoose.startSession();
   let result;
@@ -875,26 +884,30 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   try {
     await session.withTransaction(async () => {
-      if (purchaseMode === 'wholesale') {
+      if (purchaseMode === 'wholesale' || purchaseMode === 'basket') {
         // Re-read terms/stock in the transaction. Writes to seller, buyer and
         // product documents fence concurrent suspension, deactivation and repricing.
-        composed = await buildFulfilmentGroups({ userId: req.user._id, user: req.user,
+        composed = await compose({ userId: req.user._id, user: req.user,
           destination: address.lat !== undefined && address.lng !== undefined ? { lat: address.lat, lng: address.lng } : undefined,
           purchaseMode, session });
         groups = composed.groups;
-        if (req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale terms changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
+        if (purchaseMode === 'basket' && (req.body.basketHash !== composed.basketHash || req.body.quoteHash !== composed.quoteHash)) throw httpError(409, 'Basket changed. Refresh and review your cart.', { code: 'BASKET_QUOTE_CHANGED' });
+        if (purchaseMode === 'wholesale' && req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale terms changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
         validateGroupsStock(groups);
         const customer = await User.updateOne({ _id: req.user._id, isActive: true, roles: 'buyer' }, { $inc: { __v: 1 } }, { session });
         if (!customer.matchedCount) throw httpError(403, 'Customer account is unavailable');
       }
-      await fenceCheckoutSellers(groups.map(group => group.seller._id), session, purchaseMode === 'wholesale');
+      if (purchaseMode === 'basket') {
+        await fenceCheckoutSellers(groups.filter(group => group.salesChannel === 'retail').map(group => group.seller._id), session);
+        await fenceCheckoutSellers(groups.filter(group => group.salesChannel === 'wholesale').map(group => group.seller._id), session, true);
+      } else await fenceCheckoutSellers(groups.map(group => group.seller._id), session, purchaseMode === 'wholesale');
       writeStage = 'checkout_attempt.create';
       await CheckoutAttempt.create([{
         userId: req.user._id, key: idempotency.key, requestHash: idempotency.requestHash,
         operation: 'unified', status: 'processing',
       }], { session });
       result = await createOrdersFromGroups({
-        user: req.user, address, groups, paymentMethod, notes, session, tip, purchaseMode,
+        user: req.user, address, groups, paymentMethod, notes, session, tip, purchaseMode, cartSnapshots: composed.cartSnapshots,
         beforeWrite: stage => { writeStage = stage; },
       });
       const { orders, payment, groupRef } = result;

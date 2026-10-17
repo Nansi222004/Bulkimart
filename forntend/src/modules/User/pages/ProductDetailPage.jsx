@@ -1,3 +1,5 @@
+import { openWholesaleProduct, rememberWholesaleReturn } from '../utils/productRoute';
+import { useWholesaleRecommendations } from '../hooks/useWholesaleRecommendations';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
 import { useProducts } from '../hooks/useProducts';
@@ -54,9 +56,11 @@ const ProductDetailPage = () => {
   const {
     selectedProduct, setSelectedProduct, addToCart, getItemQty,
     getDeliveryPoint, getSelectedAddress, getLocationDisplayName, setActiveNav,
-    isWishlisted, toggleWishlist, currentUser,
+    isWishlisted, toggleWishlist, currentUser, logoutUser,
   } = useUser();
   const product = selectedProduct;
+  const wholesaleDetail = product?.detailSource === 'wholesale';
+  const retailAvailable = product?.retailAvailable !== false;
   const isDigital = product?.fulfillmentType === 'digital' || product?.raw?.fulfillmentType === 'digital';
   const [loadedVariants, setLoadedVariants] = useState([]);
   const [loadedProductId, setLoadedProductId] = useState('');
@@ -75,8 +79,8 @@ const ProductDetailPage = () => {
   const [cartActionPending, setCartActionPending] = useState(false);
   const [cartActionError, setCartActionError] = useState('');
   const wholesale = useProductWholesale({
-    productId: product?.id, variantId: String(selectedVariant?.id || selectedVariant?._id || ''), currentUser, enabled: !isDigital,
-    openCart: () => { setSelectedProduct(null); setActiveNav('wholesale/cart'); },
+    productId: product?.id, variantId: String(selectedVariant?.id || selectedVariant?._id || ''), currentUser, enabled: !isDigital, retailAvailable, wholesaleDetail,
+    openCart: () => { setSelectedProduct(null); setActiveNav('cart'); },
   });
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -101,6 +105,11 @@ const ProductDetailPage = () => {
 
   const loadReviews = useCallback(async () => {
     if (!product?.id) return;
+    if (wholesaleDetail) {
+      setReviews(product.raw?.reviewData?.reviews || []);
+      setRatingSummary(product.raw?.reviewData?.summary || {average:0,count:0,breakdown:[]});
+      setReviewsLoading(false);return;
+    }
     setReviewsLoading(true);
     try {
       const res = await fetch(apiUrl(`/api/products/${product.id}/reviews`));
@@ -114,7 +123,7 @@ const ProductDetailPage = () => {
     } finally {
       setReviewsLoading(false);
     }
-  }, [product?.id]);
+  }, [product?.id, wholesaleDetail]);
 
   useEffect(() => { loadReviews(); }, [loadReviews]);
 
@@ -164,6 +173,7 @@ const ProductDetailPage = () => {
 
   const loadFaqs = useCallback(async () => {
     if (!product?.id) return;
+    if (wholesaleDetail) {setFaqs(product.raw?.faqs || []);setFaqsLoading(false);return;}
     setFaqsLoading(true);
     try {
       const res = await fetch(apiUrl(`/api/products/${product.id}/faqs`));
@@ -239,7 +249,7 @@ const ProductDetailPage = () => {
   // below never renders.
   const [returnInfo, setReturnInfo] = useState(null);
   useEffect(() => {
-    if (!product?.id) return;
+    if (!product?.id || wholesaleDetail) return;
     let cancelled = false;
     (async () => {
       try {
@@ -271,7 +281,7 @@ const ProductDetailPage = () => {
   const deliveryPoint = getDeliveryPoint();
   const isEcom = product?.type === 'ecommerce';
   const { options: deliveryOptions, loading: deliveryLoading } =
-    useProductDeliveryOptions(isEcom && !isDigital ? product?.id : null, deliveryPoint, Math.max(1, wholesale.mode === 'wholesale' ? wholesale.quantity : qty), selectedVariantId || null);
+    useProductDeliveryOptions(isEcom && !isDigital && wholesale.mode === 'retail' ? product?.id : null, deliveryPoint, Math.max(1, wholesale.mode === 'wholesale' ? wholesale.quantity : qty), selectedVariantId || null);
   const sameDay = deliveryOptions?.sameDay;
 
   useEffect(() => {
@@ -281,20 +291,21 @@ const ProductDetailPage = () => {
       setSelectedVariantId(productVariants.some(item => String(item.id || item._id) === requested) ? requested : first ? String(first.id || first._id || '') : '');
     };
     restoreVariant();
-    window.addEventListener('popstate', restoreVariant);
-    return () => window.removeEventListener('popstate', restoreVariant);
+    window.addEventListener('popstate', restoreVariant);window.addEventListener('app:locationchange',restoreVariant);
+    return () => {window.removeEventListener('popstate',restoreVariant);window.removeEventListener('app:locationchange',restoreVariant);};
   }, [product?.id, loadedProductId]);
   useEffect(() => setQty(getItemQty(product?.id, selectedVariantId)), [product?.id, selectedVariantId]);
 
   // Related products (others)
   // Related items come from the same storefront as the product being viewed.
-  const { products: catalogue } = useProducts({ type: selectedProduct?.type, limit: 12 });
-  const related = (catalogue || []).filter((p) => p.id !== product?.id).slice(0, 8);
+  const { products: catalogue } = useProducts({ type: selectedProduct?.type, limit: 12, enabled: wholesale.mode === 'retail' });
+  const wholesaleRelated = useWholesaleRecommendations(wholesale.mode === 'wholesale', product?.id);
+  const related = (wholesale.mode === 'wholesale' ? wholesaleRelated : catalogue || []).filter((p) => p.id !== product?.id).slice(0, 8);
 
   if (!product) return null;
 
   const handleAddToCart = async () => {
-    if (cartActionPending) return;
+    if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     setCartActionPending(true);
     setCartActionError('');
     const result = await addToCart(product.id, 1, selectedVariantId || undefined);
@@ -323,7 +334,7 @@ const ProductDetailPage = () => {
    * the moment it took to arrive.
    */
   const handleBuyNow = async () => {
-    if (cartActionPending) return;
+    if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     setCartActionPending(true);
     setCartActionError('');
     if (qty === 0) {
@@ -340,10 +351,10 @@ const ProductDetailPage = () => {
   };
 
   return (
-    <div className="product-detail-page">
+    <div className="product-detail-page" data-purchase-mode={wholesale.mode}>
       {/* Sticky header bar */}
       <div className="pd-sticky-header">
-        <button className="pd-back-btn" onClick={() => setSelectedProduct(null)} aria-label="Go back">
+        <button className="pd-back-btn" onClick={() => window.history.state?.bulkimartWholesaleProduct ? window.history.back() : setSelectedProduct(null)} aria-label="Go back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
@@ -358,7 +369,7 @@ const ProductDetailPage = () => {
           <button
             className="pd-icon-btn"
             aria-label={isWishlisted(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
-            aria-pressed={isWishlisted(product.id)}
+            aria-pressed={isWishlisted(product.id)} disabled={!retailAvailable}
             onClick={async () => {
               const r = await toggleWishlist(product.id);
               if (r && r.ok === false) alert(r.message || 'Could not update your wishlist.');
@@ -378,9 +389,9 @@ const ProductDetailPage = () => {
 
       {/* Product image hero */}
       <div className="pd-image-hero">
-        <img src={activeImage} alt={product.name} className="pd-hero-img" />
+        {activeImage ? <img src={activeImage} alt={product.name} className="pd-hero-img" /> : <span className="pd-image-unavailable" role="img" aria-label="Product image unavailable">Image unavailable</span>}
         {/* Offer badge */}
-        <div className="pd-offer-badge">5% OFF</div>
+        {wholesale.mode === 'retail' && <div className="pd-offer-badge">5% OFF</div>}
       </div>
 
       {/* Horizontal thumbnail gallery carousel */}
@@ -404,7 +415,7 @@ const ProductDetailPage = () => {
         <div className="pd-info-top">
           <div>
             <h1 className="pd-product-name">{product.name}</h1>
-            <p className="pd-pack-info">{isDigital ? `Digital E-book · ${product.digital?.author || product.raw?.digital?.author || 'Author not listed'}` : '1 Pack • 250g'}</p>
+            <p className="pd-pack-info">{isDigital ? `Digital E-book · ${product.digital?.author || product.raw?.digital?.author || 'Author not listed'}` : wholesale.mode === 'wholesale' ? [product.category,selectedVariant?.name,selectedVariant?.unit].filter(Boolean).join(' · ') : '1 Pack • 250g'}</p>
           </div>
           <button className="pd-view-details-btn">View details</button>
         </div>
@@ -412,7 +423,7 @@ const ProductDetailPage = () => {
         {productVariants.length > 1 && (
           <label style={{ display: 'grid', gap: 6, margin: '12px 0', color: '#172B4D', fontWeight: 700, fontSize: 13 }}>
             Choose pack / variant
-            <select value={selectedVariantId} onChange={(event) => setSelectedVariantId(event.target.value)} style={{ minHeight: 42, border: '1px solid #E2E8F0', borderRadius: 10, padding: '0 12px', background: '#fff', color: '#172B4D' }}>
+            <select aria-label="Choose pack / variant" disabled={wholesale.pending} value={selectedVariantId} onChange={(event) => {const params=new URLSearchParams(window.location.search);params.set('variant',event.target.value);window.history.pushState(window.history.state,'',window.location.pathname+'?'+params);setSelectedVariantId(event.target.value);window.dispatchEvent(new Event('app:locationchange'));}} style={{ minHeight: 42, border: '1px solid #E2E8F0', borderRadius: 10, padding: '0 12px', background: '#fff', color: '#172B4D' }}>
               {productVariants.map((variant) => {
                 const id = String(variant.id || variant._id || '');
                 const attrs = (variant.attributes || []).map((attribute) => `${attribute.name}: ${attribute.value}`).join(', ');
@@ -424,8 +435,8 @@ const ProductDetailPage = () => {
 
         {/* Rating row */}
         <div className="pd-rating-row">
-          <Stars rating={product.rating} size={13} />
-          <span className="pd-rating-count">{product.rating} ({Math.floor(Math.random() * 200 + 100)} ratings)</span>
+          <Stars rating={ratingSummary.average} size={13} />
+          <span className="pd-rating-count">{ratingSummary.count ? ratingSummary.average : '—'} ({ratingSummary.count} ratings)</span>
         </div>
 
         {/* Price row */}
@@ -450,8 +461,9 @@ const ProductDetailPage = () => {
         )}
 
         {!isDigital && <ProductWholesaleOffer wholesale={wholesale} />}
-        {!isDigital && !currentUser && <button type="button" className="pd-wholesale-signin" onClick={() => {
-          sessionStorage.setItem('bulkimart:product-return', JSON.stringify({ productId: product.id, variantId: selectedVariantId, path: window.location.pathname }));
+        {!isDigital && (!currentUser || /sign in|session|unauthorized|expired/i.test(wholesale.catalogError+' '+wholesale.error)) && <button type="button" className="pd-wholesale-signin" onClick={() => {
+          rememberWholesaleReturn(product.id,selectedVariantId);
+          if(currentUser)logoutUser?.();
           setSelectedProduct(null); setActiveNav('account');
         }}>Sign in to check wholesale availability</button>}
 
@@ -509,7 +521,8 @@ const ProductDetailPage = () => {
           <button className="pd-change-btn" onClick={() => setActiveNav('account')}>Change</button>
         </div>
 
-        {isEcom && (
+        {wholesale.mode === 'wholesale' && <p className="pd-description-text">Delivery availability and charges are confirmed for your address in the Wholesale cart.</p>}
+        {wholesale.mode === 'retail' && isEcom && (
           deliveryPoint ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
               {/*
@@ -575,7 +588,7 @@ const ProductDetailPage = () => {
         it's whatever the server already resolved from Admin's Category
         Return Policy (product.controller.js::getProductById).
       */}
-      {!isEcom && returnInfo && (
+      {wholesale.mode === 'retail' && !isEcom && returnInfo && (
         <div className="pd-section-card">
           <h3 className="pd-section-title">Return Policy</h3>
           <div style={{
@@ -615,8 +628,9 @@ const ProductDetailPage = () => {
               {[
                 ['Seller', product.shg || 'Partner Seller'],
                 ['Category', product.category || 'General'],
-                ['Fulfillment', product.type === 'grocery' ? '30-Min Express' : 'Standard Shipping'],
-                ['Country of Origin', 'India'],
+                ...(wholesale.mode === 'wholesale' ? [['Brand',product.brandName || 'Unavailable'],['Variant',selectedVariant?.name || 'Unavailable'],['SKU',selectedVariant?.sku || product.sku || 'Unavailable'],['Unit',selectedVariant?.unit || 'Unavailable'],...(selectedVariant?.attributes || []).map(a=>[a.name,a.value])] : []),
+                ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : product.type === 'grocery' ? '30-Min Express' : 'Standard Shipping'],
+                ...(wholesale.mode === 'wholesale' ? [] : [['Country of Origin', 'India']]),
               ].map(([k, v]) => (
                 <div key={k} className="pd-info-row">
                   <span className="pd-info-key">{k}</span>
@@ -636,20 +650,20 @@ const ProductDetailPage = () => {
             <div
               key={rp.id}
               className="pd-related-card"
-              onClick={() => setSelectedProduct(rp)}
+              onClick={() => wholesale.mode === 'wholesale' ? openWholesaleProduct(rp.id,rp.variantId) : setSelectedProduct(rp)}
             >
               <div className="pd-related-img-wrap">
-                <img src={rp.image} alt={rp.name} className="pd-related-img" />
+                {rp.image ? <img src={rp.image} alt={rp.name} className="pd-related-img" /> : <span className="pd-image-unavailable" role="img" aria-label="Product image unavailable">Image unavailable</span>}
               </div>
               <div className="pd-related-info">
                 <p className="pd-related-name">{rp.name}</p>
-                <p className="pd-related-pack">250g</p>
+                <p className="pd-related-pack">{wholesale.mode === 'wholesale' ? rp.variants?.[0]?.unit : '250g'}</p>
                 <div className="pd-related-footer">
-                  <span className="pd-related-price">{formatCurrency(rp.price)}</span>
+                  <span className="pd-related-price">{wholesale.mode === 'wholesale' ? 'From '+formatCurrency(rp.startingPrice) : formatCurrency(rp.price)}</span>
                   <button
                     className="pd-related-add"
-                    onClick={e => { e.stopPropagation(); addToCart(rp); }}
-                    aria-label={`Add ${rp.name}`}
+                    onClick={e => { e.stopPropagation();if(wholesale.mode === 'wholesale')openWholesaleProduct(rp.id,rp.variantId);else addToCart(rp); }}
+                    aria-label={`${wholesale.mode === 'wholesale' ? 'View Wholesale offer for' : 'Add'} ${rp.name}`}
                   >
                     +
                   </button>
@@ -669,7 +683,7 @@ const ProductDetailPage = () => {
           </p>
         ) : faqs.length === 0 ? (
           <p style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 0 8px' }}>
-            No questions answered yet — be the first to ask.
+            {wholesaleDetail ? 'No answered questions are available for this product yet.' : 'No questions answered yet — be the first to ask.'}
           </p>
         ) : (
           faqs.map((faq) => (
@@ -679,7 +693,7 @@ const ProductDetailPage = () => {
             </div>
           ))
         )}
-        <button className="pd-see-all-btn" onClick={openAskModal}>Ask a question →</button>
+        {retailAvailable && !wholesaleDetail && <button className="pd-see-all-btn" onClick={openAskModal}>Ask a question →</button>}
       </div>
 
       {/* Ratings & Reviews — approved reviews only, straight from the server */}
@@ -702,6 +716,7 @@ const ProductDetailPage = () => {
         </div>
 
         {/* Write a review */}
+        {retailAvailable && !wholesaleDetail && <>
         <p className="pd-rate-prompt">
           {myRating ? 'Your rating — add a comment below' : 'Tap to rate this product'}
         </p>
@@ -709,7 +724,7 @@ const ProductDetailPage = () => {
           {[1, 2, 3, 4, 5].map(i => (
             <svg
               key={i}
-              onClick={() => setMyRating(i)}
+              onClick={() => retailAvailable && setMyRating(i)}
               role="button"
               aria-label={`Rate ${i} star${i === 1 ? '' : 's'}`}
               width="32" height="32" viewBox="0 0 24 24"
@@ -722,7 +737,7 @@ const ProductDetailPage = () => {
           ))}
         </div>
 
-        {myRating > 0 && (
+        {retailAvailable && myRating > 0 && (
           <div style={{ marginTop: 12 }}>
             <textarea
               value={myComment}
@@ -751,6 +766,7 @@ const ProductDetailPage = () => {
           </div>
         )}
 
+        </>}
         {/* Individual reviews */}
         <div style={{ marginTop: 16 }}>
           {reviewsLoading ? (
@@ -759,7 +775,7 @@ const ProductDetailPage = () => {
             </p>
           ) : reviews.length === 0 ? (
             <p style={{ fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '16px 0' }}>
-              No reviews yet — be the first to review this product.
+              {wholesaleDetail ? 'No approved reviews are available for this product yet.' : 'No reviews yet — be the first to review this product.'}
             </p>
           ) : (
             reviews.map((rev) => (
@@ -818,8 +834,8 @@ const ProductDetailPage = () => {
       )}
       <div className="pd-sticky-cta">
         {wholesale.mode === 'wholesale' ? <>
-          <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'ADDING…' : 'ADD WHOLESALE'}</button>
-          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add(true)}>BUY WHOLESALE NOW</button>
+          <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'ADDING…' : 'Add to Wholesale Cart'}</button>
+          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add(true)}>Buy Wholesale Now</button>
         </> : unavailable ? (
           <button className="pd-flipkart-btn disabled" disabled>
             CURRENTLY UNAVAILABLE

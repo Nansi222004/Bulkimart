@@ -231,3 +231,88 @@ test('seller reviews the courier estimate and sends its confirmed limit with shi
     assert.match(confirmation, /65.25/); assert.deepEqual(calls, [['order', { length: '10', breadth: '10', height: '10' }, 65.25]]);
   } finally { h.close(); }
 });
+
+test('mixed basket checkout submits both authoritative hashes once through existing grouped API', async () => {
+  let finish;
+  const { h, calls } = harness({ placeUnifiedOrder: (...args) => { calls.push(args); return new Promise(resolve => { finish = resolve; }); } });
+  try {
+    const groups = [group('quick', 'grocery'), { ...group('wholesale'), salesChannel: 'wholesale' }];
+    const quote = { ...basket(groups).data, purchaseMode: 'basket', valid: true, quoteHash: 'wholesale-server-quote', basketHash: 'combined-server-quote' };
+    h.requests[0].resolve({ data: quote }); await h.settle();
+    const button = placeButton(h); assert.equal(button.props.disabled, false);
+    const first = button.props.onClick(); const duplicate = button.props.onClick();
+    assert.deepEqual(calls, [['Cash on Delivery', 0, { purchaseMode: 'basket', quoteHash: quote.quoteHash, basketHash: quote.basketHash }]]);
+    finish({ ok: false, status: 409, code: 'BASKET_QUOTE_CHANGED', message: 'Refresh changed prices' }); await Promise.all([first, duplicate]); h.flush();
+    assert.match(text(h.tree), /Refresh changed prices/);
+  } finally { h.close(); }
+});
+
+test('invalid mixed quotes, empty basket, digital/physical mixes, and retained retail coupons block checkout', async () => {
+  for (const failure of ['invalid', 'empty', 'digital', 'coupon']) {
+    const { h, calls } = harness(failure === 'coupon' ? { appliedCoupon: { code: 'RETAIL' }, couponCode: 'RETAIL' } : {});
+    try {
+      const groups = failure === 'empty' ? [] : [group('retail'), { ...group('wholesale'), salesChannel: 'wholesale' }];
+      if (failure === 'digital') groups[0].items[0].fulfillmentType = 'digital';
+      const quote = { ...basket(groups).data, purchaseMode: 'basket', valid: failure !== 'invalid', quoteHash: 'wholesale', basketHash: 'basket' };
+      h.requests[0].resolve({ data: quote }); await h.settle();
+      const button = placeButton(h); assert.ok(!button || button.props.disabled);
+      if (button?.props.onClick) await button.props.onClick(); assert.equal(calls.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('provider persists mixed checkout identity and recovery maps it to the original unified operation', async () => {
+  portalRequests.clearPortalRequests('customer');
+  const profile = { _id: 'mixed-buyer', name: 'Fixture', phone: '9876500000', roles: ['buyer'] };
+  const h = hookHarness(UserProvider, {}, '/checkout', { verified: true, profile }, { localStorage: storage({ userToken: 'fixture-token' }), sessionStorage: storage() });
+  try {
+    h.requests.find(r => r.url.endsWith('/api/users/addresses')).resolve({ data: [{ _id: 'fixture-address', name: 'Fixture', phone: profile.phone, line1: 'Fixture', city: 'Mumbai', pincode: '400001' }] }); await h.settle();
+    const placing = h.tree.props.value.placeUnifiedOrder('cod', 0, { purchaseMode: 'basket', quoteHash: 'W', basketHash: 'ALL' });
+    const write = h.requests.find(r => r.url.endsWith('/api/orders/unified'));
+    assert.equal(JSON.parse(write.options.body).basketHash, 'ALL');
+    write.reject(new Error('Isolated lost response')); assert.equal((await placing).code, 'CHECKOUT_OUTCOME_UNCERTAIN');
+    const saved = JSON.parse(sessionStorage.getItem('bulkimart:checkout:basket:mixed-buyer')); assert.ok(saved.key);
+    const checking = h.tree.props.value.checkCheckoutStatus('basket');
+    const check = h.requests.find(r => r.url.endsWith('/api/orders/checkout-status'));
+    assert.equal(check.options.headers['Idempotency-Key'], saved.key); assert.deepEqual(JSON.parse(check.options.body), { operation: 'unified' });
+    check.resolve({ data: { state: 'not_found' } }); await checking;
+    window.dispatchEvent(new Event('cart:changed'));
+    h.requests.find(r => r.url.endsWith('/api/cart/summary')).resolve({ data: { grocery: { count: 2 }, ecommerce: { count: 1 }, wholesale: { count: 5 } } }); await h.settle();
+    assert.equal(h.tree.props.value.getCartCount(), 8);
+  } finally { h.close(); }
+});
+
+test('refresh restores mixed uncertain checkout recovery before another order can be submitted', async () => {
+  const fixture = userFixture({ checkCheckoutStatus: async operation => { assert.equal(operation, 'basket'); return { ok: true, data: { state: 'processing' }, message: 'Still processing' }; } });
+  const h = hookHarness(Checkout, {}, '/checkout', fixture.context, { localStorage: storage({ userToken: 'fixture' }), sessionStorage: storage({ 'bulkimart:checkout:basket:buyer': JSON.stringify({ key: 'fixture-mixed-recovery-key' }) }) });
+  try {
+    const data = { ...basket([group('retail'), { ...group('wholesale'), salesChannel: 'wholesale' }]).data, purchaseMode: 'basket', valid: true };
+    h.requests[0].resolve({ data }); await h.settle();
+    assert.equal(placeButton(h).props.disabled, true);
+    await h.click('Check checkout status'); h.flush();
+    assert.match(text(h.tree), /Still processing/); assert.equal(fixture.calls.length, 0);
+  } finally { h.close(); }
+});
+
+test('mixed confirmation displays the authoritative combined payment amount', async () => {
+  const orders = [{ _id: 'retail-order', orderNo: 'R', type: 'grocery', pricing: { totalAmount: 140 }, shippingAddress: {}, items: [], timeline: [] }, { _id: 'wholesale-order', orderNo: 'W', type: 'ecommerce', salesChannel: 'wholesale', pricing: { totalAmount: 860 }, shippingAddress: {}, items: [], timeline: [] }];
+  const { h } = harness({ placeUnifiedOrder: async () => ({ ok: true, orders, payment: { amount: 1000 } }) });
+  try {
+    h.requests[0].resolve({ data: { ...basket([group('retail', 'grocery'), { ...group('wholesale'), salesChannel: 'wholesale' }]).data, purchaseMode: 'basket', valid: true, quoteHash: 'W', basketHash: 'ALL' } }); await h.settle();
+    await placeButton(h).props.onClick(); h.flush();
+    assert.match(text(h.tree), /Order Amount ₹1000/); assert.match(text(h.tree), /2\s+orders created/);
+  } finally { h.close(); }
+});
+
+test('mixed payment initialization failure shows pending review and cannot create another order', async () => {
+  const orders = [{ _id: 'retail-order', orderNo: 'R', type: 'grocery', pricing: { totalAmount: 140 }, shippingAddress: {}, items: [], timeline: [] }, { _id: 'wholesale-order', orderNo: 'W', type: 'ecommerce', salesChannel: 'wholesale', pricing: { totalAmount: 860 }, shippingAddress: {}, items: [], timeline: [] }];
+  let writes = 0;
+  const { h } = harness({ placeUnifiedOrder: async () => { writes++; return { ok: true, orders, payment: { amount: 1000 } }; }, initiateOnlinePayment: async () => ({ ok: false, message: 'Payment initialization is uncertain. Review My Orders.' }) });
+  try {
+    h.requests[0].resolve({ data: { ...basket([group('retail', 'grocery'), { ...group('wholesale'), salesChannel: 'wholesale' }]).data, purchaseMode: 'basket', valid: true, quoteHash: 'W', basketHash: 'ALL' } }); await h.settle();
+    h.find(n => n.type === 'div' && typeof n.props.onClick === 'function' && text(n).includes('Razorpay Online Payment')).props.onClick(); h.flush();
+    await placeButton(h).props.onClick(); h.flush();
+    assert.equal(writes, 1); assert.match(text(h.tree), /Orders created · Review status/); assert.match(text(h.tree), /initialization is uncertain/);
+    assert.doesNotMatch(text(h.tree), /Order Placed Successfully!/);
+  } finally { h.close(); }
+});

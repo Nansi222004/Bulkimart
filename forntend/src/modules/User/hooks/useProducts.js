@@ -17,6 +17,11 @@ export const normalizeProduct = (p) => ({
   id: p._id,
   _id: p._id,
   name: p.name,
+  description: p.description,
+  brandName: p.brandName,
+  sku: p.sku,
+  detailSource: p.detailSource,
+  retailAvailable: p.retailAvailable,
   image: p.images?.[0] || '',
   images: p.images || [],
   price: p.price,
@@ -58,13 +63,14 @@ export const normalizeProduct = (p) => ({
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products
  */
-export const useProducts = ({ type, category, limit = 12, featured, lat, lng } = {}) => {
+export const useProducts = ({ type, category, limit = 12, featured, lat, lng, enabled = true } = {}) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
+    if (!enabled) { setProducts([]); setLoading(false); return; }
     let cancelled = false;
 
     (async () => {
@@ -95,7 +101,7 @@ export const useProducts = ({ type, category, limit = 12, featured, lat, lng } =
     })();
 
     return () => { cancelled = true; };
-  }, [type, category, limit, featured, lat, lng, retryToken]);
+  }, [type, category, limit, featured, lat, lng, retryToken, enabled]);
 
   const retry = () => setRetryToken((value) => value + 1);
 

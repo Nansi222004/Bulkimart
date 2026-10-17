@@ -20,6 +20,7 @@ const productFindOne = jest.fn();
 const productUpdateOne = jest.fn();
 
 const queryResult = (value) => ({
+  session() { return this; },
   select() { return this; },
   populate() { return this; },
   sort() { return this; },
@@ -30,12 +31,16 @@ const queryResult = (value) => ({
 const User = {
   findOne: jest.fn(async ({ phone }) => [...users.values()].find((user) => user.phone === phone) || null),
   findById: jest.fn((id) => queryResult(users.get(String(id)) || null)),
-  updateOne: jest.fn(async () => ({ acknowledged: true })),
+  updateOne: jest.fn(async () => ({ acknowledged: true, matchedCount: 1 })),
 };
 const Admin = {
   findById: jest.fn((id) => queryResult(admins.get(String(id)) || null)),
 };
 const Seller = {
+  updateOne: jest.fn(async filter => {
+    const seller = [...sellers.values()].find(s => String(s._id) === String(filter._id));
+    return { matchedCount: seller && seller.status === filter.status && (!filter['wholesaleChannel.status'] || seller.wholesaleChannel?.status === filter['wholesaleChannel.status']) && (!filter.salesChannels || seller.salesChannels?.includes(filter.salesChannels)) ? 1 : 0 };
+  }),
   findOneAndUpdate: jest.fn(async (filter, update) => {
     const seller = [...sellers.values()].find(item => String(item._id) === String(filter._id));
     if (!seller || seller.status !== filter.status || (typeof filter.__v === 'number' && seller.__v !== filter.__v)) return null;
@@ -58,6 +63,7 @@ const Seller = {
   }),
 };
 const Category = {
+  updateOne: jest.fn(async filter => ({ matchedCount: categories.get(String(filter._id))?.isActive ? 1 : 0 })),
   find: jest.fn((filter = {}) => queryResult([...categories.values()].filter((category) => {
     if (filter.isActive !== undefined && category.isActive !== filter.isActive) return false;
     if (typeof filter.type === 'string' && category.type !== filter.type) return false;
@@ -187,6 +193,11 @@ let otherSellerToken;
 let shopperToken;
 let adminToken;
 let categoryId;
+
+// This mock suite predates the transactional terms-only service. Database
+// transactions/rollback are tested against a replica set in the HTTP suites.
+const transaction = jest.spyOn(mongoose.connection, 'transaction').mockImplementation(callback => callback({}));
+afterAll(() => transaction.mockRestore());
 
 beforeEach(() => {
   users.clear(); admins.clear(); sellers.clear(); products.clear(); categories.clear(); orders.clear(); payments.clear();
@@ -457,6 +468,7 @@ describe('mocked HTTP seller and product API', () => {
       _id: productId,
       sellerId: seller._id,
       isDeleted: false,
+      type: 'ecommerce', category: categoryId, status: 'approved', isActive: true,
       variants: [{ _id: variantId, name: 'Case', price: 24, stock: 25 }],
     });
 
@@ -470,7 +482,7 @@ describe('mocked HTTP seller and product API', () => {
 
     expect(response.body.variants[0].wholesalePricing.minimumQuantity).toBe(5);
     const [, update] = productUpdateOne.mock.calls.at(-1);
-    expect(update.$set['variants.$[wholesaleVariant0].wholesalePricing'].enabled).toBe(true);
+    expect(update.$set['variants.$[offer0].wholesalePricing'].enabled).toBe(true);
     expect(JSON.stringify(update)).not.toMatch(/"(?:price|stock|sellerId)"/);
     expect(products.get(String(productId)).variants[0]).toMatchObject({ price: 24, stock: 25 });
   });

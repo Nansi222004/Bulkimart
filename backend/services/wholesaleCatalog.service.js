@@ -1,3 +1,5 @@
+import { channelVisibility, retailAllowed } from '../utils/productChannels.js';
+import { approvedReviewsOf, ratingBreakdownOf } from './productRatings.service.js';
 import mongoose from 'mongoose';
 import Product from '../models/Product.js';
 import Seller from '../models/Seller.js';
@@ -14,8 +16,8 @@ const literalRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Resolve eligibility before pagination; purchase prices remain server-quoted
 // by the existing priceWholesaleQuantity service. MongoDB 5.2+ ($sortArray).
 const eligiblePipeline = ({ productId, variantId, q, category } = {}) => [
-  { $match: { ...(productId ? { _id: new mongoose.Types.ObjectId(productId) } : {}), type: { $in: ['ecommerce', 'grocery'] }, status: 'approved', isActive: true, isDeleted: false, fulfillmentType: { $ne: 'digital' }, 'variants.wholesalePricing.enabled': { $in: [true, 'true'] } } },
-  { $project: { name: 1, description: 1, images: 1, category: 1, sellerId: 1, sellerName: 1, type: 1, variants: 1 } },
+  { $match: { $and: [channelVisibility('wholesale')], ...(productId ? { _id: new mongoose.Types.ObjectId(productId) } : {}), type: { $in: ['ecommerce', 'grocery'] }, status: 'approved', isActive: true, isDeleted: false, fulfillmentType: { $ne: 'digital' }, 'variants.wholesalePricing.enabled': { $in: [true, 'true'] } } },
+  { $project: { name: 1, description: 1, images: 1, category: 1, sellerId: 1, sellerName: 1, type: 1, variants: 1, sellingChannels:1, brandName:1, sku:1, ...(productId ? {ratings:1,faqs:1} : {}) } },
   { $set: { variants: { $map: { input: { $cond: [{ $isArray: '$variants' }, '$variants', []] }, as: 'v', in: { $mergeObjects: ['$$v', { _terms: {
     enabled: { $in: ['$$v.wholesalePricing.enabled', [true, 'true']] },
     minimumQuantity: number('$$v.wholesalePricing.minimumQuantity'),
@@ -57,10 +59,16 @@ const run = async pipeline => {
 };
 const serialize = product => ({
   _id: product._id, name: product.name, description: product.description, images: product.images || [], category: product.category, type: product.type,
+  brandName:product.brandName, sku:product.sku, retailAvailable:retailAllowed(product),
+  ...(product.ratings ? {reviewData:{
+    reviews:approvedReviewsOf(product).map(r=>({_id:r._id,userName:r.userName || 'Shopper',rating:r.rating,comment:r.comment || '',images:r.images || [],createdAt:r.createdAt})),
+    summary:{average:approvedReviewsOf(product).length ? Number((approvedReviewsOf(product).reduce((total,r)=>total+Number(r.rating),0)/approvedReviewsOf(product).length).toFixed(2)) : 0,count:approvedReviewsOf(product).length,breakdown:ratingBreakdownOf(product)},
+  }} : {}),
+  ...(product.faqs ? {faqs:product.faqs.filter(f=>f.status==='answered' && f.answer).map(f=>({_id:f._id,question:f.question,answer:f.answer,answeredBy:f.answeredBy}))} : {}),
   seller: { name: product._seller.storeDetails?.name || product._seller.businessName || product.sellerName },
   variants: product.variants.map(variant => {
     const terms = wholesaleAvailability({ ...variant, wholesalePricing: variant._terms });
-    return { variantId: variant._id, name: variant.name, sku: variant.sku, attributes: variant.attributes || [], unit: variant.unit, available: true, availableStock: variant.stock, minimumQuantity: terms.minimumQuantity, quantityIncrement: terms.quantityIncrement, priceTiers: terms.priceTiers, maxQuantity: terms.maxQuantity, startingPrice: terms.startingPrice };
+    return { variantId: variant._id, name: variant.name, sku: variant.sku, attributes: variant.attributes || [], unit: variant.unit, weight: variant.weight, available: true, availableStock: variant.stock, minimumQuantity: terms.minimumQuantity, quantityIncrement: terms.quantityIncrement, priceTiers: terms.priceTiers, maxQuantity: terms.maxQuantity, startingPrice: terms.startingPrice };
   }),
 });
 export const getWholesaleCatalogPage = async ({ page = 1, limit = 24, ...filters } = {}) => {

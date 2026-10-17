@@ -13,13 +13,14 @@ import { apiUrl } from '../../../utils/api';
  * (pricing.service and sameDay.service) and a second opinion in the browser is
  * how the two ends start disagreeing.
  */
-export const useUnifiedCart = (destination, couponCode) => {
+export const useUnifiedCart = (destination, couponCode, purchaseMode = 'retail') => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const generation = useRef(0);
   const controller = useRef(null);
 
+  const customerToken = localStorage.getItem('userToken');
   const lat = destination?.lat;
   const lng = destination?.lng;
 
@@ -34,6 +35,7 @@ export const useUnifiedCart = (destination, couponCode) => {
     setData(null);
     try {
       const qs = new URLSearchParams();
+      if (purchaseMode === 'basket') qs.set('purchaseMode', 'basket');
       if (lat !== undefined && lng !== undefined) {
         qs.set('lat', String(lat));
         qs.set('lng', String(lng));
@@ -55,7 +57,7 @@ export const useUnifiedCart = (destination, couponCode) => {
     } finally {
       if (request === generation.current) setLoading(false);
     }
-  }, [lat, lng, couponCode]);
+  }, [lat, lng, couponCode, purchaseMode, customerToken]);
 
   useEffect(() => { load(); return () => { generation.current++; controller.current?.abort(); }; }, [load]);
 
@@ -111,6 +113,7 @@ export const useUnifiedCart = (destination, couponCode) => {
       ...it,
       _id: it.itemId,                 // cart line id — what the qty and remove APIs take
       channel: g.channel,
+      salesChannel: g.salesChannel || 'retail',
       deliveryMode: g.deliveryMode,
       modeChosen: g.modeChosen,
       sellerName: g.seller?.name || null,

@@ -1,3 +1,4 @@
+import { readProductRoute, wholesaleDetailProduct } from '../utils/productRoute';
 import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint, revokeBrowsingGps } from '../../../utils/locationState';
 import { boundedFetch, portalRequest } from '../../../utils/portalRequests';
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
@@ -310,7 +311,7 @@ export const UserProvider = ({ children }) => {
   // --- Product Detail ---
   const [selectedProduct, setSelectedProductState] = useState(null);
   // The URL owns the initial route, including the first paint before effects run.
-  const [productDetailLoading, setProductDetailLoading] = useState(() => new URLSearchParams(window.location.search).has('product'));
+  const [productDetailLoading, setProductDetailLoading] = useState(() => readProductRoute().present);
   const [productDetailError, setProductDetailError] = useState('');
   const productDetailRequest = useRef(null);
   const restoredProduct = useRef(null);
@@ -322,31 +323,32 @@ export const UserProvider = ({ children }) => {
     restoredProduct.current = product;
     setSelectedProductState(product); setProductDetailError(''); setProductDetailLoading(false);
     const params = new URLSearchParams(window.location.search);
+    const pathname = readProductRoute().wholesalePath ? '/wholesale' : window.location.pathname;
     if (product?.id) params.set('product', product.id); else params.delete('product');
     params.delete('purchase'); params.delete('variant');
-    window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash || ''}`);
+    window.history.replaceState(null, '', `${pathname}${params.size ? `?${params}` : ''}${window.location.hash || ''}`);
   }, []);
   useEffect(() => {
     let controller;
     let requestRoute;
     const restore = () => {
       const params = new URLSearchParams(window.location.search);
-      const id = params.get('product');
-      const variant = params.get('variant');
-      const route = JSON.stringify([id, variant]);
+      const {id,variant,mode,present} = readProductRoute();
+      const session = captureUserSession();
+      const route = JSON.stringify([id, variant, mode, session.token]);
       // App observes push/replaceState as well as popstate. Repeated events for
       // a pending route must not cancel and restart the same request.
       if (controller && !controller.signal.aborted && requestRoute === route && productDetailRequest.current === controller) return;
       controller?.abort();
       productDetailRequest.current?.abort();
       productDetailRequest.current = null;
-      if (!params.has('product')) { restoredProduct.current = null; setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError(''); return; }
+      if (!present) { restoredProduct.current = null; setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError(''); return; }
       if (!/^[a-f0-9]{24}$/i.test(id)) { setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError('Invalid product link.'); return; }
       const validateVariant = product => {
         if (variant !== null && !(product.variants || []).some(item => String(item._id || item.id) === variant)) throw new Error('This variant is unavailable. Return to the storefront and select the product again.');
       };
       // History changes to the variant do not invalidate essential product data.
-      if (restoredProduct.current?.id === id) {
+      if (restoredProduct.current?.id === id && (restoredProduct.current.detailSource === 'wholesale') === (mode === 'wholesale') && (mode !== 'wholesale' || restoredProduct.current.detailSession === session.token)) {
         try { validateVariant(restoredProduct.current); setSelectedProductState(restoredProduct.current); setProductDetailError(''); }
         catch (error) { setSelectedProductState(null); setProductDetailError(error.message); }
         setProductDetailLoading(false);
@@ -359,23 +361,23 @@ export const UserProvider = ({ children }) => {
       const request = controller;
       const isCurrent = () => {
         if (signal.aborted || productDetailRequest.current !== request) return false;
-        const current = new URLSearchParams(window.location.search);
-        return current.get('product') === id && current.get('variant') === variant;
+        const current = readProductRoute();
+        return current.id === id && current.variant === variant && current.mode === mode && (mode !== 'wholesale' || isCurrentUserSession(session));
       };
       setSelectedProductState(null); setProductDetailLoading(true); setProductDetailError('');
-      boundedFetch(apiUrl(`/api/products/${id}`), { signal }).then(async response => {
+      boundedFetch(apiUrl(mode === 'wholesale' ? `/api/products/wholesale/catalog?productId=${id}` : `/api/products/${id}`), { signal, ...(mode === 'wholesale' ? {headers:{Authorization:`Bearer ${session.token || ''}`},cache:'no-store'} : {}) }).then(async response => {
         const body = await response.json();
-        if (!response.ok) throw new Error(body.message || 'This product could not be loaded.');
-        const product = body?.data ?? body;
+        if (!response.ok) throw new Error(mode === 'wholesale' && [401,403].includes(response.status) ? 'Please sign in with a customer account to view this Wholesale product.' : body.message || 'This product could not be loaded.');
+        const product = mode === 'wholesale' ? (body.data?.[0] ? {...wholesaleDetailProduct(body.data[0]),detailSession:session.token} : null) : body?.data ?? body;
         if (!product || String(product._id) !== id || !product.name) throw new Error('Product not found. Return to the storefront to choose another product.');
         validateVariant(product);
-        if (isCurrent()) { restoredProduct.current = normalizeProduct(product); setSelectedProductState(restoredProduct.current); }
+        if (isCurrent()) { restoredProduct.current = {...normalizeProduct(product),detailSession:product.detailSession}; setSelectedProductState(restoredProduct.current); }
       }).catch(error => { if (isCurrent()) setProductDetailError(error.message); })
         .finally(() => { if (isCurrent()) setProductDetailLoading(false); });
     };
     restore(); window.addEventListener('popstate', restore); window.addEventListener('app:locationchange', restore);
     return () => { controller?.abort(); window.removeEventListener('popstate', restore); window.removeEventListener('app:locationchange', restore); };
-  }, [productDetailRetry]);
+  }, [productDetailRetry, currentUser?._id, currentUser?.id]);
 
 
 
@@ -550,7 +552,7 @@ export const UserProvider = ({ children }) => {
         try {
           const destination = JSON.parse(sessionStorage.getItem('bulkimart:product-return') || 'null');
           sessionStorage.removeItem('bulkimart:product-return');
-          if (destination && /^[a-f0-9]{24}$/i.test(destination.productId) && /^\/(?:grocery--[a-z0-9-]+|ecommerce--[a-z0-9-]+|smart-buy|search|categories|groceries|)$/.test(destination.path)) {
+          if (destination && /^[a-f0-9]{24}$/i.test(destination.productId) && /^\/(?:grocery--[a-z0-9-]+|ecommerce--[a-z0-9-]+|smart-buy|search|categories|groceries|wholesale(?:\/[a-f0-9]{24})?|)$/.test(destination.path)) {
             const params = new URLSearchParams({ product: destination.productId, purchase: 'wholesale' });
             if (/^[a-f0-9]{24}$/i.test(destination.variantId)) params.set('variant', destination.variantId);
             window.history.replaceState(null, '', `${destination.path}?${params}`);
@@ -704,13 +706,19 @@ export const UserProvider = ({ children }) => {
 
   const refreshCartSummary = useCallback(async () => {
     if (!isSignedIn()) { setCartSummary({}); return; }
+    const session = captureUserSession();
     try {
       const res = await fetch(apiUrl('/api/cart/summary'), { headers: authHeaders(false) });
       if (!res.ok) return;
       const body = await res.json();
-      setCartSummary(body.data || {});
+      if (isCurrentUserSession(session)) setCartSummary(body.data || {});
     } catch { /* badges are non-critical */ }
-  }, []);
+  }, [currentUser?._id, restoredSession?.verified]);
+
+  useEffect(() => {
+    window.addEventListener('cart:changed', refreshCartSummary);
+    return () => window.removeEventListener('cart:changed', refreshCartSummary);
+  }, [refreshCartSummary]);
 
   const refreshCart = useCallback(async (channel, coupon, mode) => {
     const ch = channel || cartChannel;
@@ -732,6 +740,8 @@ export const UserProvider = ({ children }) => {
        * before.
        */
       const qs = new URLSearchParams({ channel: ch });
+      // The aggregate cart presents unavailable lines for explicit review/removal.
+      if (['/cart', '/checkout', '/wholesale/cart'].includes(window.location.pathname)) qs.set('preserveUnavailable', 'true');
       if (cp) qs.set('coupon', cp);
       const point = getDeliveryPoint();
       if (point) { qs.set('lat', String(point.lat)); qs.set('lng', String(point.lng)); }
@@ -882,11 +892,8 @@ export const UserProvider = ({ children }) => {
 
   // ---- read helpers the pages already use --------------------------------
   const getCartItems = () => serverCart.items || [];
-  const getCartCount = () => {
-    if (!cartSummary) return serverCart.count || 0;
-    const sum = Object.values(cartSummary).reduce((acc, ch) => acc + (ch.count || 0), 0);
-    return sum || serverCart.count || 0;
-  };
+  const getCartCount = () => Object.keys(cartSummary || {}).length
+    ? Object.values(cartSummary).reduce((acc, ch) => acc + (ch.count || 0), 0) : (serverCart.count || 0);
   const getCartSubtotal = () => serverCart.pricing?.subtotal || 0;
   const getDeliveryCharge = () => serverCart.pricing?.deliveryCharge || 0;
   const getCartTotal = () => serverCart.pricing?.totalAmount || 0;
@@ -1443,7 +1450,7 @@ export const UserProvider = ({ children }) => {
    */
   const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0, options = {}) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
-    const wholesaleSession = options.purchaseMode === 'wholesale' ? captureUserSession() : null;
+    const wholesaleSession = ['wholesale', 'basket'].includes(options.purchaseMode) ? captureUserSession() : null;
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
@@ -1458,7 +1465,7 @@ export const UserProvider = ({ children }) => {
 
     try {
       const checkoutPayload = {
-        ...(options.purchaseMode === 'wholesale' ? { purchaseMode: 'wholesale', quoteHash: options.quoteHash } : {}),
+        ...(['wholesale', 'basket'].includes(options.purchaseMode) ? { purchaseMode: options.purchaseMode, quoteHash: options.quoteHash, ...(options.purchaseMode === 'basket' ? { basketHash: options.basketHash } : {}) } : {}),
         paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
@@ -1470,7 +1477,7 @@ export const UserProvider = ({ children }) => {
           landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
         },
       };
-      const requestHeaders = checkoutHeaders(options.purchaseMode === 'wholesale' ? 'wholesale' : 'unified', checkoutPayload);
+      const requestHeaders = checkoutHeaders(['wholesale', 'basket'].includes(options.purchaseMode) ? options.purchaseMode : 'unified', checkoutPayload);
       const res = await fetch(apiUrl('/api/orders/unified'), {
         method: 'POST',
         headers: requestHeaders,
@@ -1481,7 +1488,8 @@ export const UserProvider = ({ children }) => {
       if (!res.ok) return { ok: false, operation: 'unified', status: res.status, code: body.meta?.code, requestId: body.meta?.requestId, message: body.message || 'Could not place your order' };
       if (!body.data?.orders?.length || body.data.orders.some(order => !order?._id) || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
-      clearCheckoutKey(options.purchaseMode === 'wholesale' ? 'wholesale' : 'unified');
+      clearCheckoutKey(['wholesale', 'basket'].includes(options.purchaseMode) ? options.purchaseMode : 'unified');
+      window.dispatchEvent(new Event('cart:changed'));
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders()]);
       return {
         ok: true,
@@ -1501,7 +1509,7 @@ export const UserProvider = ({ children }) => {
       const storageKey = `bulkimart:checkout:${operation}:${currentUser?._id || currentUser?.id || 'customer'}`;
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       if (!saved?.key) return { ok: false, message: 'The checkout session is unavailable. Review My Orders or contact support before ordering again.' };
-      const res = await fetch(apiUrl('/api/orders/checkout-status'), { method: 'POST', headers: { ...authHeaders(), 'Idempotency-Key': saved.key }, body: JSON.stringify({ operation: operation === 'wholesale' ? 'unified' : operation }) });
+      const res = await fetch(apiUrl('/api/orders/checkout-status'), { method: 'POST', headers: { ...authHeaders(), 'Idempotency-Key': saved.key }, body: JSON.stringify({ operation: ['wholesale', 'basket'].includes(operation) ? 'unified' : operation }) });
       const body = await res.json().catch(() => ({}));
       return { ok: res.ok, data: body.data, message: body.message || 'Could not check your order status.' };
     } catch { return { ok: false, message: 'Could not check your order status. Please retry the status check.' }; }

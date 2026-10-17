@@ -1,4 +1,6 @@
+import { buildCustomerBasket } from '../services/customerBasket.service.js';
 import mongoose from 'mongoose';
+import { channelAllowed, retailAllowed } from '../utils/productChannels.js';
 import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
@@ -37,7 +39,7 @@ const readChannel = (req) => {
 };
 
 /** Load one channel's cart, reconcile it against live products, persist fixes. */
-const loadReconciledCart = async (userId, channel) => {
+const loadReconciledCart = async (userId, channel, { persist = true } = {}) => {
   const cart = await Cart.findOne({ userId, channel });
   if (!cart || cart.items.length === 0) return { items: [], warnings: [] };
 
@@ -58,7 +60,7 @@ const loadReconciledCart = async (userId, channel) => {
   for (const line of cart.items) {
     const p = byId.get(String(line.productId));
 
-    if (!p || p.isDeleted || !p.isActive || p.status !== 'approved') {
+    if (!p || !channelAllowed(p, channel) || p.isDeleted || !p.isActive || p.status !== 'approved') {
       warnings.push(`"${line.name}" is no longer available and was removed.`);
       mutated = true;
       continue;
@@ -96,7 +98,7 @@ const loadReconciledCart = async (userId, channel) => {
     keep.push({ line, product: p, inventory });
   }
 
-  if (mutated) {
+  if (mutated && persist) {
     cart.items = keep.map((k) => k.line);
     await cart.save();
   }
@@ -314,7 +316,7 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
 // @access  Private
 export const getCart = asyncHandler(async (req, res) => {
   const channel = readChannel(req);
-  const { items, warnings } = await loadReconciledCart(req.user._id, channel);
+  const { items, warnings } = await loadReconciledCart(req.user._id, channel, { persist: req.query.preserveUnavailable !== 'true' });
   // The address and the chosen mode ride on the query, so one call answers both
   // "what can I have" and "what does the one I picked cost".
   return ok(res, await shape(channel, items, warnings, req.user, req.query.coupon, {
@@ -342,6 +344,11 @@ export const getUnifiedCart = asyncHandler(async (req, res) => {
     ? { lat: Number(req.query.lat), lng: Number(req.query.lng) }
     : undefined;
 
+  if (destination && (!Number.isFinite(destination.lat) || !Number.isFinite(destination.lng) || Math.abs(destination.lat) > 90 || Math.abs(destination.lng) > 180)) throw httpError(400, 'Invalid delivery coordinates');
+  if (req.query.purchaseMode === 'basket') {
+    const basket = await buildCustomerBasket({ userId: req.user._id, user: req.user, destination, preview: true });
+    return ok(res, basket, 'Customer basket');
+  }
   const couponCode = req.query.coupon;
 
   const composed = await buildFulfilmentGroups({
@@ -358,7 +365,7 @@ export const getCartSummary = asyncHandler(async (req, res) => {
   const carts = await Cart.find({ userId: req.user._id }).lean();
   const summary = {};
 
-  for (const ch of CHANNELS) {
+  for (const ch of [...CHANNELS, 'wholesale']) {
     const c = carts.find((x) => x.channel === ch);
     const items = c?.items || [];
     summary[ch] = {
@@ -393,7 +400,7 @@ export const addToCart = asyncHandler(async (req, res) => {
   }
 
   const product = await Product.findById(productId);
-  if (!product || product.isDeleted || !product.isActive || product.status !== 'approved') {
+  if (!product || !retailAllowed(product) || !channelAllowed(product, product.type) || product.isDeleted || !product.isActive || product.status !== 'approved') {
     throw httpError(404, 'This product is not available');
   }
   if (product.type === 'shg' || product.shgStoreId) {
@@ -557,7 +564,7 @@ export const updateCartItem = asyncHandler(async (req, res) => {
   } else {
     if (quantity !== undefined) {
       const product = await Product.findById(line.productId);
-      if (!product || product.isDeleted || !product.isActive || product.status !== 'approved') {
+      if (!product || !channelAllowed(product, cart.channel) || product.isDeleted || !product.isActive || product.status !== 'approved') {
         throw httpError(400, 'This product is no longer available');
       }
       const inventory = resolveInventoryItem(product, line.variantId);

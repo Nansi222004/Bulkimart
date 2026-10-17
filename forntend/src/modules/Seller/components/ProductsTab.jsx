@@ -1,3 +1,6 @@
+import WholesaleOfferSelector from './WholesaleOfferSelector';
+import ProductSellingModes from './ProductSellingModes';
+import SellerWholesaleProducts from './SellerWholesaleProducts';
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { ProductModal } from './ProductModal';
@@ -5,7 +8,7 @@ import { BulkUploadModal } from './BulkUploadModal';
 
 export const ProductsTab = () => {
   const {
-    products,
+    products, productsLoading, productsError, productListingMode,
     activeProductTab,
     setActiveProductTab,
     setShowAddProductModal,
@@ -16,11 +19,15 @@ export const ProductsTab = () => {
     triggerToast,
     setEditingProductId,
     startEditProduct,
+    startNewProduct,
+    startNewWholesaleProduct,
     fetchMyProducts,
     sellerProfile,
   } = useSeller();
 
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [selectingOffer, setSelectingOffer] = useState(false);
+  const wholesale = productListingMode === 'wholesale';
   const wholesaleAuthorized = sellerProfile?.status === 'approved'
     && sellerProfile?.wholesaleChannel?.status === 'approved'
     && sellerProfile?.salesChannels?.includes('wholesale');
@@ -114,7 +121,7 @@ export const ProductsTab = () => {
   });
 
   return (
-    <div style={{ backgroundColor: '#f8fafc', minHeight: '100%', padding: '0 16px 40px 16px', boxSizing: 'border-box' }}>
+    <div className="seller-products-page" style={{ backgroundColor: '#f8fafc', minHeight: '100%', padding: '0 16px 40px 16px', boxSizing: 'border-box' }}>
       {/* Styles for animation, active borders, and cards */}
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -307,7 +314,7 @@ export const ProductsTab = () => {
       `}} />
 
       {/* 1. TITLE & PRIMARY BUTTONS SECTION */}
-      <div style={{ padding: '24px 0 0 0', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+      <div className="seller-products-toolbar" style={{ padding: '24px 0 0 0', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
             <h1 style={{ margin: 0, fontFamily: "'Outfit', sans-serif", fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
@@ -333,8 +340,9 @@ export const ProductsTab = () => {
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
+        <div className="seller-products-toolbar-actions" style={{ display: 'flex', gap: 10 }}>
+          {wholesale && <button type="button" className="seller-products-button" disabled={!wholesaleAuthorized || productsLoading || !!productsError} onClick={() => setSelectingOffer(true)}>Add Wholesale Offer to Existing Product</button>}
+          {!wholesale && <button
             onClick={() => setShowBulkModal(true)}
             style={{
               border: '1.5px solid #cbd5e1',
@@ -358,12 +366,15 @@ export const ProductsTab = () => {
               <polyline points="9 15 12 12 15 15" />
             </svg>
             Bulk Upload
-          </button>
+          </button>}
 
           <button
             // Clear any edit in progress, or Add would quietly overwrite the
             // last product that was opened for editing.
-            onClick={() => { setEditingProductId(null); setShowAddProductModal(true); }}
+            onClick={wholesale ? startNewWholesaleProduct : startNewProduct}
+            aria-label={wholesale ? 'Add Wholesale Product' : undefined}
+            disabled={wholesale && (!wholesaleAuthorized || productsLoading || !!productsError)}
+            className="seller-products-primary"
             style={{
               border: 'none',
               backgroundColor: 'var(--primary)',
@@ -379,11 +390,13 @@ export const ProductsTab = () => {
               transition: 'background-color 0.2s'
             }}
           >
-            <span style={{ fontSize: 14 }}>+</span> Add New Product
+            <span style={{ fontSize: 14 }}>+</span> {wholesale ? 'Add Product' : 'Add New Product'}
           </button>
         </div>
       </div>
 
+      <ProductSellingModes />
+      {wholesale ? <SellerWholesaleProducts /> : <>
       {wholesaleAuthorized && (
         <section aria-label="Wholesale product management" style={{ margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd', borderRadius: 12, background: '#f0fbff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -484,65 +497,6 @@ export const ProductsTab = () => {
           </div>
         </div>
       </div>
-
-      {/* Mode Switcher Toggle (Moved from Header for Products Tab) */}
-      {selectedTypes && selectedTypes.includes('ecommerce') && selectedTypes.includes('quick') && (
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          margin: '0 0 16px 0'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            padding: '2px',
-            backgroundColor: '#f1f5f9',
-            borderRadius: '12px',
-            border: '1.5px solid #e2e8f0'
-          }}>
-            <button 
-              onClick={() => setActiveMode('ecommerce')}
-              style={{
-                border: 'none',
-                background: activeMode === 'ecommerce' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'none',
-                color: activeMode === 'ecommerce' ? '#fff' : '#64748b',
-                fontSize: '11px',
-                fontWeight: '800',
-                padding: '6px 12px',
-                borderRadius: '10px',
-                cursor: 'pointer',
-                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: activeMode === 'ecommerce' ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              📦 E-Commerce
-            </button>
-            <button 
-              onClick={() => setActiveMode('quick')}
-              style={{
-                border: 'none',
-                background: activeMode === 'quick' ? 'linear-gradient(135deg, #10b981, #047857)' : 'none',
-                color: activeMode === 'quick' ? '#fff' : '#64748b',
-                fontSize: '11px',
-                fontWeight: '800',
-                padding: '6px 12px',
-                borderRadius: '10px',
-                cursor: 'pointer',
-                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: activeMode === 'quick' ? '0 2px 4px rgba(16, 185, 129, 0.2)' : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              ⚡ Quick Commerce
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* 3. SECONDARY FILTERS BAR CARD */}
       <div style={{
@@ -682,7 +636,7 @@ export const ProductsTab = () => {
         padding: '24px 24px 16px 24px',
         boxShadow: '0 1px 3px rgba(0,0,0,0.01), 0 10px 15px -3px rgba(0,0,0,0.02)'
       }}>
-        {sortedProducts.length === 0 ? (
+        {productsLoading ? <p role="status">Loading products…</p> : productsError ? <div role="alert">{productsError}<button onClick={fetchMyProducts}>Retry products</button></div> : sortedProducts.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
@@ -949,7 +903,9 @@ export const ProductsTab = () => {
         )}
       </div>
 
+      </>}
       <ProductModal />
+      {selectingOffer && wholesale && <WholesaleOfferSelector onClose={() => setSelectingOffer(false)} />}
 
       {showBulkModal && (
         <BulkUploadModal

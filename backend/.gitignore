@@ -50,3 +50,5 @@ private-data/maintenance/
 !__tests__/api/wholesale.http.test.js
 !__tests__/api/seller-payment.http.test.js
 !__tests__/api/razorpay-webhook.http.test.js
+!__tests__/api/seller-profile-wholesale.http.test.js
+!__tests__/api/wholesale-product-creation.http.test.js

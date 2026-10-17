@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 import { hookHarness } from './service-hookHarness.mjs';
 let vite, Detail, Offer, Provider;
 before(async () => {
-  vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   Detail = (await vite.ssrLoadModule('/src/modules/User/pages/ProductDetailPage.jsx')).default;
   Offer = (await vite.ssrLoadModule('/src/modules/User/components/ProductWholesaleOffer.jsx')).default;
   Provider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
@@ -97,7 +97,7 @@ const text = node => node == null ? '' : typeof node !== 'object' ? String(node)
 const rendered = h => text(Offer({ wholesale: w(h) })).replace(/\s+/g, ' ');
 const done = new WeakSet();
 async function catalog(h, variants = [variant, second]) {
-  const req = h.requests.findLast(r => r.url.includes('/wholesale/catalog') && !done.has(r));
+  const req = h.requests.findLast(r => r.url.includes('/wholesale/catalog?productId=') && !done.has(r));
   assert.ok(req, 'catalog request'); done.add(req);
   req.resolve({ data: variants.length ? [{ _id: id, variants }] : [] }); await h.settle(); return req;
 }
@@ -125,7 +125,7 @@ test('existing detail defaults to Retail and exposes only authorized wholesale a
     assert.match(rendered(h), /5 units × ₹80 = ₹400/);
     assert.match(rendered(h), /Minimum order: 5/);
     assert.match(rendered(h), /Save ₹100/);
-    assert.ok(h.find(n => n.props?.children === 'ADD WHOLESALE'));
+    assert.ok(h.find(n => n.props?.children === 'Add to Wholesale Cart'));
     w(h).chooseMode('retail'); h.flush();
     assert.ok(h.find(n => n.props?.className === 'pd-price-row'));
     assert.ok(h.find(n => n.props?.className === 'pd-offer-headline'));
@@ -137,7 +137,7 @@ test('no offer, disabled/suspended empty catalogs, failures and anonymous views 
   for (const scenario of ['none','suspended','failed','anonymous']) {
     const { h } = make(scenario === 'anonymous' ? { currentUser: null } : {});
     try {
-      if (scenario === 'failed') { h.requests.find(r => r.url.includes('/wholesale/catalog')).resolve({ message: 'Fixture unavailable' },503); await h.settle(); }
+      if (scenario === 'failed') { h.requests.find(r => r.url.includes('/wholesale/catalog?productId=')).resolve({ message: 'Fixture unavailable' },503); await h.settle(); }
       else if (scenario !== 'anonymous') await catalog(h, []);
       assert.equal(w(h).available, false); assert.doesNotMatch(rendered(h), /Wholesale available|₹/);
       if (scenario === 'anonymous') assert.equal(h.requests.some(r => r.url.includes('/wholesale/')), false);
@@ -151,7 +151,7 @@ test('catalog failures preserve retail controls and never claim a failed check m
     const {h}=make();
     try {
       w(h).chooseMode('wholesale');h.flush();
-      h.requests.findLast(r=>r.url.includes('/wholesale/catalog')).resolve({message:'Fixture failure'},status);await h.settle();
+      h.requests.findLast(r=>r.url.includes('/wholesale/catalog?productId=')).resolve({message:'Fixture failure'},status);await h.settle();
       assert.doesNotMatch(rendered(h),/Wholesale is currently unavailable/);
       assert.match(rendered(h),status<500 ? /customer account/i : /could not be checked/i);
       assert.equal(w(h).canPurchase,false);
@@ -217,8 +217,8 @@ test('Wholesale Add submits only product, variant and quantity once; Buy Now rev
       assert.equal(writes[0].options.headers.Authorization,'Bearer customer-fixture');
       writes[0].resolve({ data: { valid:true } }); await Promise.all([a,b]); h.flush();
       assert.equal(calls.filter(args => args[0] === id).length,0);
-      assert.deepEqual(nav,buyNow ? ['wholesale/cart'] : []);
-      assert.match(w(h).message,/separate Wholesale cart/);
+      assert.deepEqual(nav,buyNow ? ['cart'] : []);
+      assert.match(w(h).message,/Added to your cart/);
       assert.equal(h.requests.some(r => r.url.includes('/orders')),false);
     } finally { h.close(); }
   }
@@ -341,6 +341,70 @@ test('guest sign-in intent returns to the same product, variant and Wholesale mo
     const params=new URLSearchParams(window.location.search);
     assert.equal(params.get('product'),id); assert.equal(params.get('variant'),v1); assert.equal(params.get('purchase'),'wholesale');
     assert.equal(sessionStorage.getItem('bulkimart:product-return'),null);
-    assert.ok(provider.requests.find(r=>r.url.endsWith('/api/products/'+id)));
+    assert.ok(provider.requests.find(r=>r.url.includes('/wholesale/catalog?productId='+id)));
   } finally { provider.close(); }
+});
+
+const wholesaleProduct = (productId=id) => ({_id:productId,name:'Wholesale-only beans',description:'Saved description',brandName:'Saved brand',retailAvailable:false,seller:{name:'Saved seller'},category:{name:'Beans'},images:['one.png','two.png'],type:'ecommerce',variants:[variant,second]});
+test('legacy Wholesale path and storefront query links restore authenticated data into the shared detail context',async()=>{
+  for(const path of [`/wholesale/${id}?variant=${v2}&q=beans`,`/ecommerce--smart-buy?product=${id}&variant=${v2}&purchase=wholesale`]){
+    const h=hookHarness(Provider,{},path,{verified:true,profile:{_id:'buyer'}},stores());
+    try{
+      const request=h.requests.find(r=>r.url.includes('/wholesale/catalog?productId='+id));assert.ok(request);assert.equal(request.options.headers.Authorization,'Bearer customer-fixture');assert.equal(h.requests.some(r=>r.url.endsWith('/api/products/'+id)),false);
+      request.resolve({data:[wholesaleProduct()]});await h.settle();const product=h.tree.props.value.selectedProduct;assert.equal(product.id,id);assert.equal(product.detailSource,'wholesale');assert.equal(product.retailAvailable,false);assert.equal(product.description,'Saved description');assert.equal(product.shg,'Saved seller');assert.equal(product.variants[1].id,v2);assert.equal(product.price,undefined);
+      h.tree.props.value.setSelectedProduct(null);h.flush();assert.equal(h.tree.props.value.selectedProduct,null);assert.equal(new URLSearchParams(window.location.search).has('variant'),false);if(path.startsWith('/wholesale/')){assert.equal(window.location.pathname,'/wholesale');assert.equal(new URLSearchParams(window.location.search).get('q'),'beans');}
+    }finally{h.close();}
+  }
+});
+test('Wholesale-only detail uses the shared gallery/sections with Wholesale actions and no retail purchase path',async()=>{
+  const selected={...retailProduct,detailSource:'wholesale',retailAvailable:false,price:undefined,description:'Saved description',brandName:'Saved brand',images:['one.png','two.png'],raw:{reviewData:{reviews:[],summary:{average:0,count:0,breakdown:[]}},faqs:[]}};
+  const {h,calls}=make({selectedProduct:selected},`/wholesale/${id}?variant=${v1}&purchase=wholesale`);
+  try{
+    await catalog(h);await preview(h);assert.equal(h.tree.props.className,'product-detail-page');assert.equal(h.tree.props['data-purchase-mode'],'wholesale');assert.ok(h.find(n=>n.props?.className==='pd-image-hero'));assert.ok(h.find(n=>n.props?.className==='pd-tabs-row'));assert.ok(h.find(n=>n.props?.className==='pd-seller-info'));assert.ok(h.find(n=>n.props?.className==='pd-sticky-cta'));assert.equal(h.find(n=>n.props?.children==='ADD TO CART'),undefined);assert.equal(h.find(n=>n.props?.children==='BUY NOW'),undefined);assert.equal(h.requests.some(r=>r.url.endsWith('/api/products/'+id)||r.url.endsWith('/reviews')||r.url.endsWith('/faqs')),false);
+    assert.equal(w(h).retailAvailable,false);w(h).chooseMode('retail');h.flush();assert.equal(w(h).mode,'wholesale');assert.doesNotMatch(rendered(h),/Return to Retail/);assert.equal(calls.length,0);
+  }finally{h.close();}
+});
+test('timed-out quotes clear purchase eligibility, ignore late prices and preserve retail recovery',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});const {h}=make();
+  try{
+    await wholesale(h);w(h).setQuantity(10);h.flush();const old=h.requests.findLast(r=>r.url.endsWith('/wholesale/quote'));assert.equal(w(h).canPurchase,false);
+    t.mock.timers.tick(10001);await h.settle();assert.match(w(h).error,/timed out/i);assert.equal(w(h).quoteLoading,false);assert.equal(w(h).quote,null);assert.equal(w(h).canPurchase,false);
+    old.resolve({data:{...variant,quantity:10,unitPrice:1,subtotal:10}});await h.settle();assert.equal(w(h).quote,null);w(h).chooseMode('retail');h.flush();assert.ok(h.find(n=>n.props?.className==='pd-flipkart-btn add-cart'));
+  }finally{h.close();t.mock.timers.reset();}
+});
+test('wrong-product and wrong-quantity quotes are rejected rather than enabling purchase',async()=>{
+  for(const values of [{productId:'507f1f77bcf86cd799439099'},{variantId:v2},{quantity:999},{subtotal:0}]){
+    const {h}=make();try{await catalog(h);w(h).chooseMode('wholesale');h.flush();await catalog(h);await preview(h,5,variant,values);assert.equal(w(h).canPurchase,false);assert.equal(w(h).quote,null);assert.match(w(h).error,/did not match/);}finally{h.close();}
+  }
+});
+test('changing route mode during a pending Wholesale add cannot navigate using its stale response',async()=>{
+  const {h,nav}=make();try{
+    await wholesale(h);const pending=w(h).add(true);const request=h.requests.findLast(r=>r.url.endsWith('/api/cart/wholesale'));
+    window.history.pushState(null,'',`/grocery--home?product=${id}&variant=${v1}`);window.dispatchEvent(new Event('popstate'));h.flush();request.resolve({data:{}});await pending;h.flush();assert.equal(w(h).mode,'retail');assert.deepEqual(nav,[]);
+  }finally{h.close();}
+});
+test('Wholesale route product switches and invalid variants cannot reuse older authenticated product data',async()=>{
+  const other='507f1f77bcf86cd799439099',h=hookHarness(Provider,{},`/wholesale/${id}?variant=${v1}`,{verified:true,profile:{_id:'buyer'}},stores());
+  try{
+    const old=h.requests.find(r=>r.url.includes('/wholesale/catalog?productId='+id));window.history.pushState(null,'',`/wholesale/${other}?variant=${v2}`);window.dispatchEvent(new Event('app:locationchange'));h.flush();old.resolve({data:[wholesaleProduct()]});await h.settle();assert.equal(h.tree.props.value.selectedProduct,null);
+    h.requests.findLast(r=>r.url.includes('/wholesale/catalog?productId='+other)).resolve({data:[wholesaleProduct(other)]});await h.settle();assert.equal(h.tree.props.value.selectedProduct.id,other);
+    window.history.pushState(null,'',`/wholesale/${other}?variant=invalid`);window.dispatchEvent(new Event('popstate'));h.flush();assert.equal(h.tree.props.value.selectedProduct,null);assert.match(h.tree.props.value.productDetailError,/variant/);
+  }finally{h.close();}
+});
+test('digital retail details retain metadata and never load Wholesale pricing',()=>{
+  const {h}=make({selectedProduct:{...retailProduct,fulfillmentType:'digital',digital:{author:'Actual author',language:'English',format:'pdf',licenseTerms:'Personal licence'}}});
+  try{assert.equal(h.tree.props['data-purchase-mode'],'retail');assert.equal(h.find(n=>n.type===Offer),undefined);assert.match(text(h.tree),/Actual author/);assert.match(text(h.tree),/English/);assert.match(text(h.tree),/PDF/);assert.ok(h.find(n=>n.props?.children==='BUY NOW'||n.props?.className==='pd-flipkart-btn buy-now'));assert.equal(h.requests.some(r=>r.url.includes('/wholesale/')),false);}finally{h.close();}
+});
+test('shared gallery has an accessible missing-image state rather than requesting an empty image URL',()=>{
+  const {h}=make();try{assert.ok(h.find(n=>n.props?.className==='pd-image-unavailable'));assert.equal(h.find(n=>n.type==='img'&&n.props.src===''),undefined);}finally{h.close();}
+});
+test('expired Wholesale authentication preserves the legacy product/variant return link through customer sign-in',async()=>{
+  let logouts=0,intent;const {h,nav}=make({logoutUser(){logouts++;}},`/wholesale/${id}?variant=${v2}&purchase=wholesale`);
+  try{
+    h.requests.find(r=>r.url.includes('/wholesale/catalog?productId=')).resolve({message:'Expired'},401);await h.settle();assert.equal(w(h).canPurchase,false);h.find(n=>n.props?.className==='pd-wholesale-signin').props.onClick();assert.equal(logouts,1);assert.deepEqual(nav,['account']);intent=sessionStorage.getItem('bulkimart:product-return');assert.equal(JSON.parse(intent).path,'/wholesale/'+id);assert.equal(JSON.parse(intent).variantId,v2);
+  }finally{h.close();}
+  const values=stores();values.sessionStorage.setItem('bulkimart:product-return',intent);const profile={_id:'renewed-buyer',roles:['buyer']};const provider=hookHarness(Provider,{},'/account',{verified:true,profile},values);
+  try{
+    const login=provider.tree.props.value.verifyOtp('9800000001','1234',true);provider.requests.find(r=>r.url.endsWith('/api/auth/verify-otp')).resolve({success:true,sessionRole:'buyer',token:'renewed-customer-fixture',user:profile});assert.equal((await login).success,true);provider.flush();assert.equal(window.location.pathname,'/wholesale/'+id);assert.equal(new URLSearchParams(window.location.search).get('variant'),v2);assert.equal(new URLSearchParams(window.location.search).get('purchase'),'wholesale');assert.ok(provider.requests.find(r=>r.url.includes('/wholesale/catalog?productId='+id)));
+  }finally{provider.close();}
 });

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { readProductRoute, rememberWholesaleReturn } from '../utils/productRoute';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import { UserProvider, useUser } from '../context/UserContext';
 import '../User.css';
@@ -64,7 +65,7 @@ export const LandingPageContent = () => {
     activeMode,
     selectedProduct,
     productDetailLoading, productDetailError, retryProductDetail, setSelectedProduct,
-    currentUser,
+    currentUser, logoutUser,
     activeSubNav,
     getCartCount,
     getCartSubtotal,
@@ -84,6 +85,10 @@ export const LandingPageContent = () => {
   // this bar shows the items subtotal so nothing is charged upfront.
   const cartTotal = getCartSubtotal();
   const productLinkPending = !selectedProduct && (productDetailLoading || productDetailError);
+  const productRoute = readProductRoute();
+  useEffect(()=>{
+    if(!currentUser && productRoute.present && productRoute.mode==='wholesale')rememberWholesaleReturn(productRoute.id,productRoute.variant);
+  },[currentUser,productRoute.id,productRoute.variant,productRoute.mode]);
 
   // The storefront is public: opening `/` should always show the home feed.
   // Authentication is requested only when a shopper enters an account-only
@@ -95,7 +100,6 @@ export const LandingPageContent = () => {
     'orders',
     'ebooks',
     'wishlist',
-    'wholesale',
   ]);
 
   if (!currentUser && protectedNavItems.has(activeNav)) {
@@ -237,6 +241,7 @@ export const LandingPageContent = () => {
           <section className="pd-product-link-state" role={productDetailError ? 'alert' : 'status'} aria-live="polite">
             <p>{productDetailError || 'Loading product…'}</p>
             {productDetailError && <button type="button" onClick={retryProductDetail}>Retry product</button>}
+            {productDetailError && /sign in|expired|session/i.test(productDetailError) && <button type="button" onClick={()=>{rememberWholesaleReturn(productRoute.id,productRoute.variant);if(currentUser)logoutUser?.();setSelectedProduct(null);setActiveNav('account');}}>Sign in to view Wholesale product</button>}
             <button type="button" onClick={() => setSelectedProduct(null)}>Back to storefront</button>
           </section>
         </> : renderContent()}
@@ -285,7 +290,7 @@ export const LandingPageContent = () => {
       {/* Product Detail Page overlay — slides over everything when a product is selected */}
       {selectedProduct && (
         <div className="product-detail-overlay">
-          <ProductDetailPage />
+          <ProductDetailPage key={`${selectedProduct.id}:${selectedProduct.detailSource || 'retail'}`} />
         </div>
       )}
 

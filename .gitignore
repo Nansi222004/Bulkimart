@@ -57,3 +57,5 @@ tests/
 !backend/__tests__/api/wholesale.http.test.js
 !backend/__tests__/api/seller-payment.http.test.js
 !backend/__tests__/api/razorpay-webhook.http.test.js
+!backend/__tests__/api/seller-profile-wholesale.http.test.js
+!backend/__tests__/api/wholesale-product-creation.http.test.js

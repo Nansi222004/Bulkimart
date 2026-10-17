@@ -1,3 +1,4 @@
+import { retailAllowed } from '../utils/productChannels.js';
 import Banner from '../models/Banner.js';
 import Category from '../models/Category.js';
 import Product from '../models/Product.js';
@@ -11,7 +12,7 @@ import { isPromotionEffectivelyActive, syncPromotionBanner } from '../services/s
 
 const mapLegacyType = (type) => (type === 'quick' ? 'grocery' : type === 'shop-all' ? 'ecommerce' : type);
 
-const isEligibleProduct = (p) => !!p && !p.isDeleted && p.isActive && p.status === 'approved';
+const isEligibleProduct = (p) => !!p && retailAllowed(p) && !p.isDeleted && p.isActive && p.status === 'approved';
 const isEligibleCategory = (c) => !!c && c.isActive;
 
 /**
@@ -41,7 +42,7 @@ const validateAction = async ({ actionType, targetCategory, targetProduct, targe
     if (!isEligibleCategory(cat)) throw httpError(400, 'That category is not available for customers right now');
   } else if (actionType === 'PRODUCT') {
     if (!targetProduct) throw httpError(400, 'Choose a product for this banner');
-    const prod = await Product.findById(targetProduct).select('isActive isDeleted status').lean();
+    const prod = await Product.findById(targetProduct).select('isActive isDeleted status sellingChannels').lean();
     if (!isEligibleProduct(prod)) throw httpError(400, 'That product is not available for customers right now');
   } else if (actionType === 'CAMPAIGN') {
     if (!targetCampaign) throw httpError(400, 'Choose a campaign for this banner');
@@ -116,7 +117,7 @@ export const getBanners = asyncHandler(async (req, res) => {
   let banners = await Banner.find(filter)
     .sort({ priority: -1, createdAt: -1 })
     .populate('targetCategory', 'name slug type isActive')
-    .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status')
+    .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
     .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
     .populate('targetPromotion', 'status expiresAt')
     .lean();
@@ -130,7 +131,7 @@ export const getBanners = asyncHandler(async (req, res) => {
     banners = await Banner.find(fallbackFilter)
       .sort({ priority: -1, createdAt: -1 })
       .populate('targetCategory', 'name slug type isActive')
-      .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status')
+      .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
       .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
       .populate('targetPromotion', 'status expiresAt')
       .lean();

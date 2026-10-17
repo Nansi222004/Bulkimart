@@ -57,7 +57,7 @@ export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
-    sellerProfile, userProfile, bizForm, requestWholesaleChannel, wholesaleRequestBusy,
+    sellerProfile, userProfile, bizForm, requestWholesaleChannel, wholesaleRequestBusy, fetchSellerProfile, profileLoading,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
@@ -193,12 +193,13 @@ export const DashboardPage = () => {
                     : sellerProfile.wholesaleChannel?.status === 'pending'
                       ? 'Your request is awaiting admin review'
                       : sellerProfile.wholesaleChannel?.status === 'rejected'
-                        ? sellerProfile.wholesaleChannel.rejectionReason || 'Your previous request was not approved'
+                        ? `Rejected${sellerProfile.wholesaleChannel.rejectionReason ? `: ${sellerProfile.wholesaleChannel.rejectionReason}` : ': Your previous request was not approved'}`
                       : sellerProfile.wholesaleChannel?.status === 'suspended'
-                        ? sellerProfile.wholesaleChannel.suspensionReason || 'Wholesale access is suspended. Contact an administrator to restore access.'
+                        ? `Suspended: ${sellerProfile.wholesaleChannel.suspensionReason || 'Contact an administrator to restore Wholesale access.'}`
                         : 'Request access to prepare quantity-based pricing'}
                 </span>
               </div>
+              <button type="button" disabled={profileLoading} onClick={() => fetchSellerProfile({ fresh: true })}>{profileLoading ? 'Refreshing access…' : 'Refresh access'}</button>
               {sellerProfile.wholesaleChannel?.status !== 'approved' && sellerProfile.wholesaleChannel?.status !== 'pending' && sellerProfile.wholesaleChannel?.status !== 'suspended' && (
                 <button
                   type="button"

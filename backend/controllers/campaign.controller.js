@@ -362,7 +362,7 @@ export const getCampaignProductsPublic = asyncHandler(async (req, res) => {
   if (!campaign || !isCampaignEffectivelyActive(campaign)) return ok(res, { products: [] }, 'Campaign products');
 
   const rows = await CampaignParticipation.find({ campaignId: campaign._id, status: 'ACCEPTED' })
-    .populate('productId', 'name images price mrp stock type isActive isDeleted status')
+    .populate('productId', 'name images price mrp stock type isActive isDeleted status sellingChannels')
     .lean();
 
   const products = rows

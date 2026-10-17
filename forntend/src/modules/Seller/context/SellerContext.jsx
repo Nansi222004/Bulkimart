@@ -1,4 +1,4 @@
-import { portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
+import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
 // Import image assets for product listings
@@ -226,6 +226,11 @@ export const SellerProvider = ({ children }) => {
   // ==========================================================================
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState('');
+  const [productListingMode, setProductListingMode] = useState('retail');
+  const productListEpoch = React.useRef(0);
+  const productListRequest = React.useRef(null);
+  useEffect(() => () => { productListEpoch.current++; productListRequest.current?.abort(); }, []);
 
   /**
    * Platform ceilings, filled in from GET /api/sellers/me.
@@ -284,7 +289,11 @@ export const SellerProvider = ({ children }) => {
    * only the id meant both came back blank.
    */
   const [editingProduct, setEditingProduct] = useState(null);
+  const productSaveLock = React.useRef(false);
+  const productDraftGeneration = React.useRef(0);
+  const editingIdentity = React.useRef(null);
   const editingProductId = editingProduct?._id || editingProduct?.id || null;
+  editingIdentity.current = editingProductId;
   const setEditingProductId = (v) => { if (!v) setEditingProduct(null); };
 
   /**
@@ -294,10 +303,15 @@ export const SellerProvider = ({ children }) => {
    * because the form needs the category id and the same-day settings, and the
    * row only carries what the table shows.
    */
-  const startEditProduct = (raw) => {
+  const [wholesaleVariantId, setWholesaleVariantId] = useState(null);
+  const startEditProduct = (raw, variantId = null) => {
     if (!raw) return;
+    productDraftGeneration.current++;
+    setWholesaleVariantId(variantId ? String(variantId) : null);
+    setProductError('');
     setEditingProduct(raw);
     setNewProductForm({
+      sellingChannels: raw.sellingChannels,
       fulfillmentType: raw.fulfillmentType || 'physical',
       name: raw.name || '',
       categoryId: raw.category?._id || raw.category || '',
@@ -322,6 +336,29 @@ export const SellerProvider = ({ children }) => {
     setShowAddProductModal(true);
   };
 
+  const startNewProduct = () => {
+    productDraftGeneration.current++;
+    setEditingProduct(null); setProductError('');
+    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, ebookPrice: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
+    setShowAddProductModal(true);
+  };
+
+  const applySavedWholesaleTerms = (id, result) => {
+    const update = product => product && String(product._id) === String(id) ? {
+      ...product, __v: result.version,
+      variants: product.variants.map(variant => ({ ...variant, wholesalePricing: result.variants.find(entry => String(entry.variantId) === String(variant._id))?.wholesalePricing || variant.wholesalePricing })),
+    } : product;
+    setEditingProduct(update);
+    setNewProductForm(form => ({ ...form, variants: form.variants.map(variant => ({ ...variant, wholesalePricing: result.variants.find(entry => String(entry.variantId) === String(variant._id))?.wholesalePricing || variant.wholesalePricing })) }));
+  };
+
+  const startNewWholesaleProduct = () => {
+    productDraftGeneration.current++;
+    setEditingProduct(null); setWholesaleVariantId(null); setProductError('');
+    setNewProductForm({ sellingChannels: ['wholesale'], fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, variants: [{ name: 'Default', price: 0, mrp: 0, stock: '', unit: 'piece', weight: '', wholesalePricing: { enabled: true, minimumQuantity: 1, quantityIncrement: 1, priceTiers: [{ minimumQuantity: 1, unitPrice: '' }] } }] });
+    setShowAddProductModal(true);
+  };
+
   /**
    * Save an edit. PUT /api/products/:id, which has existed and been tested since
    * Phase 5 — only the screen for it was missing.
@@ -334,6 +371,11 @@ export const SellerProvider = ({ children }) => {
    * means "no change" to the server — which would make disabling impossible.
    */
   const submitProductEdit = async (form, files = null, ebookFile = null) => {
+    if (productSaveLock.current) return { ok: false };
+    productSaveLock.current = true;
+    const token = localStorage.getItem('sellerToken');
+    const generation = productDraftGeneration.current;
+    const current = () => token === localStorage.getItem('sellerToken') && editingIdentity.current === editingProductId && generation === productDraftGeneration.current;
     let actualFiles = files;
     let actualEbookFile = ebookFile;
     if (files instanceof File || (files && !Array.isArray(files) && files.name)) {
@@ -349,6 +391,7 @@ export const SellerProvider = ({ children }) => {
       }
 
       const fd = new FormData();
+      if (form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') fd.append('version', editingProduct.__v ?? 0);
       fd.append('name', form.name.trim());
       fd.append('category', form.categoryId);
       if (form.desc) fd.append('description', form.desc);
@@ -360,6 +403,7 @@ export const SellerProvider = ({ children }) => {
       const editVariants = form.fulfillmentType === 'digital'
         ? [{ ...(editingProduct?.variants?.[0]?._id ? { _id: editingProduct.variants[0]._id } : {}), name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
         : form.variants.map(({ wholesalePricing, ...variant }) => ({
+            ...(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale' ? { wholesalePricing, sku: variant.sku, attributes: variant.attributes } : {}),
             ...(variant._id ? { _id: variant._id } : {}),
             name: String(variant.name || '').trim(),
             price: Number(variant.price),
@@ -378,7 +422,7 @@ export const SellerProvider = ({ children }) => {
         }));
       }
 
-      if (activeChannel === 'ecommerce') {
+      if (!(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && (editingProduct?.type || activeChannel) === 'ecommerce') {
         fd.append('sameDay', JSON.stringify(
           form.sameDayEnabled
             ? { enabled: true, processingMinutes: Number(form.processingMinutes) }
@@ -389,7 +433,7 @@ export const SellerProvider = ({ children }) => {
       // Quick Commerce only — the backend ignores this for any other
       // channel, but it's kept off the request entirely here too, so an
       // E-commerce/SHG edit's request body is unchanged by this feature.
-      if (activeChannel === 'grocery') {
+      if ((editingProduct?.type || activeChannel) === 'grocery') {
         fd.append('returnable', form.returnable ? 'true' : 'false');
       }
 
@@ -399,43 +443,55 @@ export const SellerProvider = ({ children }) => {
 
       const res = await fetch(apiUrl(`/api/products/${editingProductId}`), {
         method: 'PUT',
-        headers: authHeader(),
+        headers: { Authorization: 'Bearer ' + token },
         body: fd,
       });
       const body = await res.json().catch(() => ({}));
+      if (!current()) return { ok: false, stale: true };
       if (!res.ok) throw new Error(body.message || 'Could not save your changes');
 
       if (actualEbookFile) {
         const fileData = new FormData();
         fileData.append('file', actualEbookFile);
         const fileRes = await fetch(apiUrl(`/api/products/${editingProductId}/digital-file`), {
-          method: 'POST', headers: authHeader(), body: fileData,
+          method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fileData,
         });
         const fileBody = await fileRes.json().catch(() => ({}));
         if (!fileRes.ok) throw new Error(fileBody.message || 'Metadata saved, but the private PDF upload failed. You can retry the upload.');
       }
 
+      if (!current()) return { ok: false, stale: true };
       triggerToast(form.fulfillmentType === 'digital' ? 'E-book changes submitted for admin review.' : 'Product updated.');
       setShowAddProductModal(false);
       setEditingProduct(null);
       await fetchMyProducts();
       return { ok: true };
     } catch (err) {
+      if (!current()) return { ok: false, stale: true };
       setProductError(err.message);
       triggerToast(err.message);
       return { ok: false };
     } finally {
+      productSaveLock.current = false;
       setSavingProduct(false);
     }
   };
 
   /** GET /api/products/seller/mine — this seller's own listings only. */
   const fetchMyProducts = useCallback(async () => {
+    const generation = ++productListEpoch.current;
+    productListRequest.current?.abort();
+    const controller = new AbortController(); productListRequest.current = controller;
+    const token = localStorage.getItem('sellerToken');
+    const current = () => !controller.signal.aborted && generation === productListEpoch.current && token === localStorage.getItem('sellerToken');
     setProductsLoading(true);
+    setProductsError(''); setProducts([]);
     try {
-      const res = await fetch(apiUrl(`/api/products/seller/mine?type=${activeChannel}&roleContext=seller`), { headers: authHeader() });
-      if (!res.ok) { setProducts([]); return; }
+      const scope = activeTab === 'products' && productListingMode === 'wholesale' ? '' : `type=${activeChannel}&`;
+      const res = await boundedFetch(apiUrl(`/api/products/seller/mine?${scope}roleContext=seller`), { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
       const body = await res.json();
+      if (!current()) return;
+      if (!res.ok) throw new Error(body.message || 'Could not load your products');
       const rows = Array.isArray(body) ? body : (body.data || body.products || []);
       setProducts(rows.map(p => ({
         id: p._id,
@@ -449,12 +505,12 @@ export const SellerProvider = ({ children }) => {
         img: p.images?.[0] || null,
         raw: p,
       })));
-    } catch {
-      setProducts([]);
+    } catch (error) {
+      if (current()) { setProducts([]); setProductsError(error.message || 'Could not load your products'); }
     } finally {
-      setProductsLoading(false);
+      if (current()) setProductsLoading(false);
     }
-  }, [activeChannel]);
+  }, [activeChannel, activeTab, productListingMode]);
 
   /**
    * GET /api/sellers/me — the seller's own registration record: business info,
@@ -462,7 +518,8 @@ export const SellerProvider = ({ children }) => {
    * during onboarding.
    */
   const [sellerProfile, setSellerProfile] = useState(null);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(() => Boolean(localStorage.getItem('sellerToken')));
+  const [profileError, setProfileError] = useState('');
   const profileEpoch = React.useRef(0);
   useEffect(() => () => { profileEpoch.current++; }, []);
 
@@ -470,13 +527,15 @@ export const SellerProvider = ({ children }) => {
     const generation = ++profileEpoch.current;
     const token = localStorage.getItem('sellerToken');
     setProfileLoading(true);
+    setProfileError('');
     try {
       const res = await portalRequest('seller', token, '/api/sellers/me', { cacheMs: 1000, fresh: options.fresh });
       if (generation !== profileEpoch.current || token !== localStorage.getItem('sellerToken')) return;
-      if (!res.ok) { setSellerProfile(null); return; }
       const body = await res.json();
+      if (!res.ok) throw new Error(body.message || 'Could not load seller profile');
       if (generation !== profileEpoch.current || token !== localStorage.getItem('sellerToken')) return;
       const seller = body.seller || null;
+      if (!seller?._id && !seller?.id) throw new Error('Seller profile response is unavailable. Retry loading your profile.');
       if (seller?.userId?._id) {
         setUserProfile(seller.userId);
         localStorage.setItem('sellerUserProfile', JSON.stringify(seller.userId));
@@ -489,19 +548,43 @@ export const SellerProvider = ({ children }) => {
       // Restore the saved channel selection so a refresh does not reset it.
       const saved = seller?.salesChannels;
       const hasDraft = Boolean(readSellerDraft(getBrowserStorage(), draftKey));
-      if (!hasDraft && Array.isArray(saved) && saved.length) {
+      // A registration draft is never authoritative for an approved seller.
+      if ((!hasDraft || seller.status === 'approved') && Array.isArray(saved) && saved.length) {
         const modes = saved.filter((channel) => channel === 'ecommerce' || channel === 'grocery')
           .map((channel) => (channel === 'grocery' ? 'quick' : 'ecommerce'));
         if (!modes.length) return;
         setSelectedTypes(modes);
         setActiveMode((cur) => (modes.includes(cur) ? cur : modes[0]));
       }
-    } catch {
-      if (generation === profileEpoch.current && token === localStorage.getItem('sellerToken')) setSellerProfile(null);
+      return { ok: true, seller };
+    } catch (error) {
+      if (generation === profileEpoch.current && token === localStorage.getItem('sellerToken')) { setSellerProfile(null); setProfileError(error.message || 'Could not load seller profile'); }
+      return { ok: false, message: error.message };
     } finally {
       if (generation === profileEpoch.current) setProfileLoading(false);
     }
   }, [draftKey]);
+
+  const profileSaveLock = React.useRef(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const updateSellerProfile = async values => {
+    if (profileSaveLock.current) return { ok: false, message: 'A profile update is already saving' };
+    const token = localStorage.getItem('sellerToken');
+    const generation = profileEpoch.current;
+    profileSaveLock.current = true; setProfileSaving(true);
+    try {
+      const allowed = ['name', 'description', 'phone', 'email', 'address', 'city', 'state', 'pincode'];
+      const payload = Object.fromEntries(allowed.filter(key => Object.hasOwn(values, key)).map(key => [key, values[key]]));
+      payload.version = sellerProfile?.__v ?? 0;
+      const response = await boundedFetch(apiUrl('/api/sellers/profile'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const body = await response.json();
+      if (token !== localStorage.getItem('sellerToken') || generation !== profileEpoch.current) return { ok: false, stale: true };
+      if (!response.ok) throw new Error(body.message || 'Could not save profile');
+      const refreshed = await fetchSellerProfile({ fresh: true });
+      return refreshed?.ok ? { ok: true } : { ok: false, message: 'Profile saved, but refresh failed. Retry loading your profile.' };
+    } catch (error) { return { ok: false, message: error.message || 'Could not save profile' }; }
+    finally { profileSaveLock.current = false; setProfileSaving(false); }
+  };
 
 
   // Push registration, independent of whether the seller is currently
@@ -602,6 +685,7 @@ export const SellerProvider = ({ children }) => {
       clearPortalRequests('seller', sessionToken.current);
       sessionToken.current = token;
       detailGeneration.current++; detailRequests.current.clear();
+      profileEpoch.current++; productListEpoch.current++; productListRequest.current?.abort(); setProducts([]); setProductsError('');
       disconnectSocket(); setSelectedOrder(null); setOrders([]); setSellerProfile(null);
       setOrderDetailId(null); setOrderDetailError(''); setOrderDetailLoading(false); setOrderListState({ tab: 'all', search: '' });
       try { setUserProfile(JSON.parse(localStorage.getItem('sellerUserProfile') || 'null')); } catch { setUserProfile(null); }
@@ -870,16 +954,20 @@ export const SellerProvider = ({ children }) => {
   };
 
   const [wholesaleRequestBusy, setWholesaleRequestBusy] = useState(false);
+  const wholesaleRequestLock = React.useRef(false);
   const requestWholesaleChannel = async () => {
-    if (wholesaleRequestBusy) return { ok: false };
+    if (wholesaleRequestLock.current) return { ok: false };
+    wholesaleRequestLock.current = true;
+    const token = localStorage.getItem('sellerToken');
     setWholesaleRequestBusy(true);
     try {
-      const res = await fetch(apiUrl('/api/sellers/wholesale-request'), {
+      const res = await boundedFetch(apiUrl('/api/sellers/wholesale-request'), {
         method: 'POST',
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const body = await res.json().catch(() => ({}));
+      if (token !== localStorage.getItem('sellerToken')) return { ok: false, stale: true };
       if (!res.ok) throw new Error(body.message || 'Could not request Wholesale access');
       setSellerProfile((current) => current ? {
         ...current,
@@ -887,11 +975,13 @@ export const SellerProvider = ({ children }) => {
         salesChannels: body.salesChannels || current.salesChannels,
       } : current);
       triggerToast(body.status === 'approved' ? 'Wholesale access is already approved.' : 'Wholesale access request sent for admin review.');
+      await fetchSellerProfile({ fresh: true });
       return { ok: true, status: body.status };
     } catch (err) {
       triggerToast(err.message || 'Could not request Wholesale access');
       return { ok: false, message: err.message };
     } finally {
+      wholesaleRequestLock.current = false;
       setWholesaleRequestBusy(false);
     }
   };
@@ -1163,11 +1253,15 @@ export const SellerProvider = ({ children }) => {
    * only there to give faster feedback.
    */
   const submitNewProduct = async (form, files, ebookFile = null) => {
+    if (productSaveLock.current) return { ok: false };
+    productSaveLock.current = true;
+    const token = localStorage.getItem('sellerToken');
+    const generation = productDraftGeneration.current;
+    const current = () => token === localStorage.getItem('sellerToken') && generation === productDraftGeneration.current;
     setSavingProduct(true);
     setProductError('');
 
     try {
-      const token = localStorage.getItem('sellerToken');
       if (!token) throw new Error('Your session expired. Please sign in again.');
       if (!form.categoryId) throw new Error('Please select a category.');
       if (!files || files.length === 0) throw new Error('Please add at least one product image.');
@@ -1178,7 +1272,8 @@ export const SellerProvider = ({ children }) => {
 
       const fd = new FormData();
       fd.append('roleContext', 'seller');
-      fd.append('type', form.fulfillmentType === 'digital' ? 'ecommerce' : activeChannel);
+      fd.append('type', form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale' ? 'ecommerce' : form.fulfillmentType === 'digital' ? 'ecommerce' : activeChannel);
+      if (form.sellingChannels) fd.append('sellingChannels', JSON.stringify(form.sellingChannels));
       fd.append('fulfillmentType', form.fulfillmentType || 'physical');
       fd.append('name', form.name.trim());
       fd.append('category', form.categoryId);
@@ -1191,6 +1286,7 @@ export const SellerProvider = ({ children }) => {
       const createVariants = form.fulfillmentType === 'digital'
         ? [{ name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
         : form.variants.map((v) => ({
+            ...(form.sellingChannels?.includes('wholesale') ? { wholesalePricing: v.wholesalePricing, sku: v.sku, attributes: v.attributes } : {}),
             name: String(v.name || '').trim(),
             price: Number(v.price),
             mrp: v.mrp !== '' && v.mrp !== undefined ? Number(v.mrp) : Number(v.price),
@@ -1219,7 +1315,7 @@ export const SellerProvider = ({ children }) => {
        * Note what is not here: no price. Same-Day changes how the item is
        * delivered, never what it costs.
        */
-      if (form.fulfillmentType !== 'digital' && activeChannel === 'ecommerce' && form.sameDayEnabled) {
+      if (!form.sellingChannels?.includes('wholesale') && form.fulfillmentType !== 'digital' && activeChannel === 'ecommerce' && form.sameDayEnabled) {
         fd.append('sameDay', JSON.stringify({
           enabled: true,
           processingMinutes: Number(form.processingMinutes),
@@ -1241,6 +1337,7 @@ export const SellerProvider = ({ children }) => {
         body: fd,
       });
       const body = await res.json().catch(() => ({}));
+      if (!current()) return { ok: false, stale: true };
       if (!res.ok) throw new Error(body.message || 'Could not save the product');
 
       if (form.fulfillmentType === 'digital') {
@@ -1256,9 +1353,10 @@ export const SellerProvider = ({ children }) => {
         if (!fileRes.ok) throw new Error(fileBody.message || 'Draft created, but the private PDF upload failed. Retry to upload it.');
       }
 
+      if (!current()) return { ok: false, stale: true };
       triggerToast(form.fulfillmentType === 'digital'
         ? 'E-book listing created and submitted for admin review.'
-        : 'Product published — it is live for customers now.');
+        : form.sellingChannels?.includes('wholesale') ? 'Wholesale product published.' : 'Product published — it is live for customers now.');
       setShowAddProductModal(false);
       setNewProductForm({
         fulfillmentType: 'physical',
@@ -1271,10 +1369,12 @@ export const SellerProvider = ({ children }) => {
       await fetchMyProducts();
       return { ok: true };
     } catch (err) {
+      if (!current()) return { ok: false, stale: true };
       setProductError(err.message);
       triggerToast(err.message);
       return { ok: false };
     } finally {
+      productSaveLock.current = false;
       setSavingProduct(false);
     }
   };
@@ -1513,6 +1613,7 @@ export const SellerProvider = ({ children }) => {
         handleRequestPayout,
         products,
         productsLoading,
+        productsError, productListingMode, setProductListingMode,
         fetchMyProducts,
         sellerKpis,
         channelKpis,
@@ -1529,6 +1630,7 @@ export const SellerProvider = ({ children }) => {
         requestWholesaleChannel,
         wholesaleRequestBusy,
         profileLoading,
+        profileError, profileSaving, updateSellerProfile,
         fetchSellerProfile,
         saveSameDaySettings,
         platformLimits,
@@ -1536,6 +1638,10 @@ export const SellerProvider = ({ children }) => {
         editingProductId,
         setEditingProductId,
         startEditProduct,
+        wholesaleVariantId,
+        startNewProduct,
+        startNewWholesaleProduct,
+        applySavedWholesaleTerms,
         submitProductEdit,
         orders,
         payouts,

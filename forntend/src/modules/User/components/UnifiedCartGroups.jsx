@@ -1,3 +1,4 @@
+import { CartTotalRow as Row } from './CartUI';
 import React from 'react';
 import { useUser } from '../context/UserContext';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
@@ -22,17 +23,6 @@ const MODE_LABEL = {
   same_day: { icon: '⚡', text: 'Same-day', tone: '#166534', bg: '#dcfce7' },
   scheduled: { icon: '📦', text: 'Scheduled', tone: '#475569', bg: '#e2e8f0' },
 };
-
-const Row = ({ label, value, strong }) => (
-  <div style={{
-    display: 'flex', justifyContent: 'space-between', fontSize: strong ? 12.5 : 11.5,
-    fontWeight: strong ? 800 : 600, color: strong ? 'var(--text-primary)' : 'var(--text-muted)',
-    marginTop: 3,
-  }}>
-    <span>{label}</span>
-    <span>{value}</span>
-  </div>
-);
 
 const ModeButton = ({ active, busy, onClick, label }) => (
   <button

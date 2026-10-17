@@ -1,20 +1,22 @@
 import React from 'react';
-import { formatCurrency } from '../utils/helpers';
+const formatCurrency = value => `₹${Number(value).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
 
 export default function ProductWholesaleOffer({ wholesale: w }) {
   return <div className="pd-wholesale">
+    {w.mode === 'wholesale' && <p className="pd-wholesale-mode">Wholesale (B2B)</p>}
     {w.available && <>
       <button type="button" className="pd-wholesale-indicator" onClick={() => w.chooseMode('wholesale')}>Wholesale available — View bulk prices</button>
       <div className="pd-channel-selector" role="group" aria-label="Purchase channel">
-        {['retail', 'wholesale'].map(mode => <button type="button" key={mode} aria-pressed={w.mode === mode} disabled={w.pending} onClick={() => w.chooseMode(mode)}>{mode === 'retail' ? 'Retail' : 'Wholesale'}</button>)}
+        {(w.retailAvailable === false ? ['wholesale'] : ['retail', 'wholesale']).map(mode => <button type="button" key={mode} aria-pressed={w.mode === mode} disabled={w.pending} onClick={() => w.chooseMode(mode)}>{mode === 'retail' ? 'Retail' : 'Wholesale'}</button>)}
       </div>
     </>}
     {w.loading && <p role="status">Checking wholesale availability…</p>}
     {w.catalogError && <p role="alert">{w.catalogError} <button type="button" onClick={w.refresh}>Retry</button></p>}
     {w.mode === 'wholesale' && <section aria-label="Wholesale purchase">
-      {!w.available && !w.loading && <>{!w.catalogError && <p>Wholesale is currently unavailable for this product.</p>}<button type="button" onClick={() => w.chooseMode('retail')}>Return to Retail</button></>}
-      {w.available && !w.offer && <p>This variant has no available wholesale offer. Choose another variant or Retail.</p>}
+      {!w.available && !w.loading && <>{!w.catalogError && !w.error && <p>Wholesale is currently unavailable for this product.</p>}{w.retailAvailable !== false && <button type="button" onClick={() => w.chooseMode('retail')}>Return to Retail</button>}</>}
+      {w.available && !w.offer && <p>This variant has no available wholesale offer. {w.retailAvailable === false ? 'Choose another available variant.' : 'Choose another variant or Retail.'}</p>}
       {w.offer && <>
+        <div className="pd-price-row"><span className="pd-price">From {formatCurrency(w.offer.startingPrice ?? Math.min(...w.offer.priceTiers.map(t=>t.unitPrice)))}</span><span>per {w.offer.unit || 'unit'}</span></div>
         <p>Minimum order: <strong>{w.offer.minimumQuantity}</strong> · Increments of <strong>{w.offer.quantityIncrement}</strong></p>
         <p>{w.offer.availableStock} in stock · Maximum order: {w.offer.maxQuantity}</p>
         <table><caption>Seller’s quantity prices</caption><thead><tr><th scope="col">Quantity</th><th scope="col">Per unit</th></tr></thead>
@@ -35,7 +37,7 @@ export default function ProductWholesaleOffer({ wholesale: w }) {
       </>}
       {w.error && <p role="alert">{w.error} <button type="button" onClick={w.refresh}>Refresh offer</button></p>}
       {w.message && <p role="status">{w.message}</p>}
-      {w.available && <button type="button" disabled={w.pending} onClick={w.openCart}>View Wholesale cart</button>}
+      {w.available && <button type="button" disabled={w.pending} onClick={w.openCart}>View Cart</button>}
     </section>}
   </div>;
 }

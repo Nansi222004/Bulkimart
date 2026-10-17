@@ -154,7 +154,7 @@ const deliverySnapshotOf = (group) => buildDeliverySnapshot({
  * @returns {{ orders: Order[], payment: Payment, groupRef: string }}
  */
 export const createOrdersFromGroups = async ({
-  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', beforeWrite = () => {},
+  user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', cartSnapshots, beforeWrite = () => {},
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
   // Reject before any inventory mutation, including basket-level tips.
@@ -247,14 +247,14 @@ export const createOrdersFromGroups = async ({
     // Attached to the first order only — one basket-level choice, recorded
     // once, so a refund or a per-order view never double-counts it across
     // however many deliveries the checkout split into.
-    const thisOrdersTip = !tipAttached && tipAmount > 0 ? tipAmount : 0;
+    const thisOrdersTip = !tipAttached && tipAmount > 0 && (purchaseMode !== 'basket' || g.salesChannel === 'retail') ? tipAmount : 0;
     if (thisOrdersTip > 0) tipAttached = true;
 
     beforeWrite('order.create');
     const [doc] = await Order.create([{
       userId: user._id,
       type: g.channel,
-      salesChannel: purchaseMode,
+      salesChannel: g.salesChannel || purchaseMode,
       items: withReturnPolicy(linesOf(g)),
       shippingAddress: address,
       /**
@@ -304,11 +304,16 @@ export const createOrdersFromGroups = async ({
   // Only the storefronts that were actually ordered from are emptied.
   const channels = [...new Set(groups.map((g) => g.channel))];
   beforeWrite('cart.clear');
-  await Cart.updateMany(
-    { userId: user._id, channel: purchaseMode === 'wholesale' ? 'wholesale' : { $in: channels } },
-    { $set: { items: [] }, $inc: { __v: 1 } },
-    { session }
-  );
+  if (purchaseMode === 'basket') {
+    for (const cart of cartSnapshots || []) {
+      const cleared = await Cart.updateOne({ _id: cart.id, userId: user._id, channel: cart.channel, __v: cart.version },
+        { $set: { items: [] }, $inc: { __v: 1 } }, { session });
+      if (cleared.modifiedCount !== 1) throw httpError(409, 'Your basket changed during checkout. Refresh and review it.');
+    }
+  } else {
+    await Cart.updateMany({ userId: user._id, channel: purchaseMode === 'wholesale' ? 'wholesale' : { $in: channels } },
+      { $set: { items: [] }, $inc: { __v: 1 } }, { session });
+  }
 
   return { orders, payment, groupRef };
 };

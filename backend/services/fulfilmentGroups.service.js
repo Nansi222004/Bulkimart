@@ -1,3 +1,4 @@
+import { channelAllowed } from '../utils/productChannels.js';
 import Cart from '../models/Cart.js';
 import { lineMoney, sumMoney } from '../utils/money.js';
 import Product from '../models/Product.js';
@@ -39,7 +40,7 @@ import { quoteWholesaleVariant } from './wholesaleEligibility.service.js';
  * even from the same shop.
  */
 const groupKeyFor = (line) =>
-  [line.channel, String(line.sellerId || line.shgStoreId || 'none'), line.deliveryMode || 'default'].join(':');
+  [line.channel, String(line.sellerId || line.shgStoreId || 'none'), line.deliveryMode || 'default', ...(line.fulfillmentType === 'digital' ? ['digital'] : [])].join(':');
 
 /**
  * The mode a line is grouped under.
@@ -84,7 +85,7 @@ const loadLines = async (userId, purchaseMode, session) => {
  *                                        unknown rather than unavailable
  * @param {object} [args.user]            retained for downstream pricing context
  */
-export const buildFulfilmentGroups = async ({ userId, destination, user, couponCode, purchaseMode = 'retail', session }) => {
+export const buildFulfilmentGroups = async ({ userId, destination, user, couponCode, purchaseMode = 'retail', session, includeDigital = false }) => {
   if (!['retail', 'wholesale'].includes(purchaseMode)) throw httpError(400, 'Invalid purchase mode');
   const lines = await loadLines(userId, purchaseMode, session);
 
@@ -105,7 +106,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * — its price and stock were true when it was added and may not be now.
    */
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
-  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status');
+  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels');
   if (purchaseMode === 'wholesale') productQuery = Product.find({ _id: { $in: productIds } }).select('+variants.wholesalePricing').populate('category', 'name isActive');
   if (session) productQuery = productQuery.session(session);
   const products = new Map((await productQuery.lean()).map((p) => [String(p._id), p]));
@@ -158,15 +159,16 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       modeChosen: true,
       product,
       inventory,
+      fulfillmentType: product?.fulfillmentType || 'physical',
       // The live figures (or a live, currently-active campaign price), so
       // a group is priced on what the item is now rather than what it was
       // when it went into the basket — never a cached deal.
       price: wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price),
       wholesaleSnapshot: wholesaleQuote?.wholesaleSnapshot,
       campaignId: deal ? deal.campaignId : undefined,
-      available: Boolean(product && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
-        && product.fulfillmentType !== 'digital' && product.isActive && !product.isDeleted
-        && product.status === 'approved' && inventory && inventory.stock >= line.qty),
+      available: Boolean(product && (purchaseMode === 'wholesale' || channelAllowed(product, line.channel)) && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
+        && (includeDigital || product.fulfillmentType !== 'digital') && product.isActive && !product.isDeleted
+        && product.status === 'approved' && inventory && (includeDigital && product.fulfillmentType === 'digital' ? line.qty === 1 : inventory.stock >= line.qty)),
     };
 
     const key = groupKeyFor(enriched);
@@ -180,7 +182,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     const first = groupLines[0];
     const seller = sellers.get(String(first.sellerId));
     if (!seller || seller.status !== 'approved') throw httpError(409, 'A store in your basket is unavailable. Please review your cart.');
-    if (!isWithinRadius(seller.storeDetails, destination, seller.serviceRadiusKm)) {
+    if (first.fulfillmentType !== 'digital' && !isWithinRadius(seller.storeDetails, destination, seller.serviceRadiusKm)) {
       throw httpError(409, `${seller.businessName || 'This store'} does not deliver to this address. Please review your cart.`);
     }
     const isSameDay = first.deliveryMode === DELIVERY_MODE.SAME_DAY;
@@ -197,7 +199,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
      * checkout knows whether it can offer the switch.
      */
     let sameDay = null;
-    if (first.channel === CHANNEL.ECOM && destination?.lat !== undefined && destination?.lng !== undefined) {
+    if (first.fulfillmentType !== 'digital' && first.channel === CHANNEL.ECOM && destination?.lat !== undefined && destination?.lng !== undefined) {
       sameDay = await checkCartSameDayEligibility({
         lines: groupLines.map((l) => ({ product: l.product, seller, qty: l.qty })),
         destination,
@@ -236,7 +238,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         groupCoupon = applied;
       }
     }
-    const pricing = priceOrder(groupLines, user, groupCoupon, sameDayApplies ? sameDay : null, groupDistanceKm);
+    let pricing = priceOrder(groupLines, user, groupCoupon, sameDayApplies ? sameDay : null, groupDistanceKm);
+    if (first.fulfillmentType === 'digital') pricing = { ...pricing, deliveryCharge: 0, standardFee: 0, sameDayFee: 0, sameDayIncentive: 0, totalAmount: pricing.subtotal - pricing.couponDiscount };
     if (purchaseMode === 'wholesale') {
       const cents = groupLines.reduce((sum, line) => sum + Math.round(line.price * 100) * line.qty, 0);
       if (!Number.isSafeInteger(cents) || !Number.isSafeInteger(Math.round(pricing.totalAmount * 100))) throw httpError(400, 'Wholesale total exceeds the supported limit');
@@ -245,6 +248,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     groups.push({
       key,
       salesChannel: purchaseMode,
+      fulfillmentType: first.fulfillmentType,
       channel: first.channel,
       seller: seller ? {
         _id: seller._id,
@@ -294,6 +298,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         campaignId: l.campaignId,
         lineTotal: lineMoney(l.price, l.qty),
         available: l.available,
+        fulfillmentType: l.fulfillmentType,
+        priceChanged: Number(l.price) !== Number(l.product?.fulfillmentType === 'digital' ? l.price : lines.find(line => String(line._id) === String(l._id))?.price),
         stock: l.inventory?.stock,
         type: l.product?.type || l.channel,
         sellerId: l.product?.sellerId || l.sellerId,

@@ -44,7 +44,7 @@ export function hookHarness(Component, props = {}, path = '/admin/services', con
   }
   const unmount = () => { if (!unmounted) { unmounted = true; slots.forEach(s => s?.cleanup?.()); } };
   flush();
-  return { requests, renders, flush, find, get updates() { return updates; }, get tree() { return tree; },
+  return { requests, renders, flush, rerender() { dirty = true; return flush(); }, find, get updates() { return updates; }, get tree() { return tree; },
     async settle() { await new Promise(resolve => setImmediate(resolve)); return flush(); },
     click(label) { const button = find(n => n.type === 'button' && n.props.children === label); if (!button) throw new Error(`Button not found: ${label}`); const result = button.props.onClick(); flush(); return result; },
     unmount, close() { unmount(); for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete globalThis[k]; else globalThis[k] = v; } },

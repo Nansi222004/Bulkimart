@@ -1,5 +1,6 @@
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
+import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
 import Delivery from '../models/Delivery.js';
@@ -346,6 +347,8 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
   }
 
   const { name, description, address, phone, lat, lng, city, state, pincode, sameDay, email } = req.body;
+  const fields = parseStoreProfile(req.body);
+  if (req.body.version !== undefined && Number(req.body.version) !== (seller.__v ?? 0)) throw httpError(409, 'Profile changed. Refresh before saving again.');
 
   /**
    * The shop's Same-Day hours and reach.
@@ -359,49 +362,40 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
    * by the schema, which is the check that cannot be talked around.
    */
   if (sameDay !== undefined) {
-    seller.sameDay = parseSellerSameDay(sameDay, seller.sameDay);
+    fields.sameDay = parseSellerSameDay(sameDay, seller.sameDay);
   }
 
-  if (name) seller.storeDetails.name = name;
-  if (description) seller.storeDetails.description = description;
-  if (address) seller.storeDetails.address = address;
-  if (phone) seller.storeDetails.phone = phone;
-  if (email !== undefined) seller.storeDetails.email = String(email).trim();
-  if (city) seller.storeDetails.city = city;
-  if (state) seller.storeDetails.state = state;
-  if (pincode) seller.storeDetails.pincode = pincode;
-
-  if (lat !== undefined && lng !== undefined) {
-    seller.storeDetails.lat = parseFloat(lat);
-    seller.storeDetails.lng = parseFloat(lng);
-    seller.storeDetails.point = { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] };
-    seller.storeDetails.locationSource = 'gps';
-    // Force mongoose to notice the change in the nested object
-    seller.markModified('storeDetails');
+  if (lat !== undefined || lng !== undefined) {
+    if (lat === '' || lng === '' || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || Math.abs(Number(lat)) > 90 || Math.abs(Number(lng)) > 180) throw httpError(400, 'Valid latitude and longitude are required together');
+    fields['storeDetails.lat'] = Number(lat);
+    fields['storeDetails.lng'] = Number(lng);
+    fields['storeDetails.point'] = { type: 'Point', coordinates: [Number(lng), Number(lat)] };
+    fields['storeDetails.locationSource'] = 'gps';
   }
 
   if (req.files) {
     if (req.files.logo) {
-      seller.storeDetails.logo = await uploadToCloudinary(req.files.logo[0].buffer, `seller-branding/${req.user._id}`);
+      fields['storeDetails.logo'] = await uploadToCloudinary(req.files.logo[0].buffer, `seller-branding/${req.user._id}`);
     }
     if (req.files.banner) {
-      seller.storeDetails.banner = await uploadToCloudinary(req.files.banner[0].buffer, `seller-branding/${req.user._id}`);
+      fields['storeDetails.banner'] = await uploadToCloudinary(req.files.banner[0].buffer, `seller-branding/${req.user._id}`);
     }
   }
 
-  await seller.save();
-  await queuePickupSafely(seller);
+  const updated = await Seller.findOneAndUpdate({ _id: seller._id, userId: req.user._id, __v: seller.__v == null ? { $in: [null, 0] } : seller.__v }, { $set: fields, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true }).populate('userId', 'name phone email avatar');
+  if (!updated) throw httpError(409, 'Profile changed. Refresh before saving again.');
+  await queuePickupSafely(updated);
 
   // Keep every one of this seller's products' denormalized `sellerName` in
   // sync — see Product.js's field comment. A no-op query (matches nothing)
   // when this seller has no products yet or didn't rename their shop.
   if (name) {
-    await Product.updateMany({ sellerId: seller._id }, { $set: { sellerName: seller.storeDetails.name } });
+    await Product.updateMany({ sellerId: seller._id }, { $set: { sellerName: updated.storeDetails.name } });
   }
 
   res.status(200).json({
     success: true,
-    seller
+    seller: updated
   });
 });
 

@@ -1,3 +1,4 @@
+import { channelAllowed } from '../utils/productChannels.js';
 import { httpError } from '../utils/response.js';
 import { resolveInventoryItem } from './inventory.service.js';
 import { normalizeWholesalePricing, priceWholesaleQuantity, MAX_WHOLESALE_QUANTITY } from './wholesalePricing.service.js';
@@ -17,7 +18,7 @@ export const assertWholesaleSeller = (seller) => {
 };
 export const quoteWholesaleVariant = (product, seller, variantId, quantity) => {
   assertWholesaleSeller(seller);
-  if (!product || !['ecommerce', 'grocery'].includes(product.type) || product.fulfillmentType === 'digital'
+  if (!product || !channelAllowed(product, 'wholesale') || !['ecommerce', 'grocery'].includes(product.type) || product.fulfillmentType === 'digital'
     || product.isDeleted || !product.isActive || product.status !== 'approved' || product.category?.isActive === false) {
     throw httpError(409, 'This Wholesale product is unavailable');
   }

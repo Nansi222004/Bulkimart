@@ -1,3 +1,4 @@
+import { CartIcon } from './CartUI';
 import React from 'react';
 import { useUser } from '../context/UserContext';
 
@@ -23,13 +24,7 @@ const ICONS = {
       <path d="M12 12v10" />
     </svg>
   ),
-  cart: (color) => (
-    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="20" r="1" />
-      <circle cx="19" cy="20" r="1" />
-      <path d="M2 3h3l2.4 11.5a2 2 0 0 0 2 1.5h8.8a2 2 0 0 0 2-1.6L22 7H6" />
-    </svg>
-  ),
+  cart: (color) => <CartIcon color={color} />,
 };
 
 const BottomNav = () => {
@@ -45,7 +40,7 @@ const BottomNav = () => {
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
-        const active = activeNav === item.id;
+        const active = activeNav === item.id || (item.id === 'cart' && window.location.pathname === '/wholesale/cart');
         const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
           <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>

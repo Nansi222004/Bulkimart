@@ -1,5 +1,7 @@
-import { getPortalToken } from './portalSession';
-import { useState, useEffect, useCallback } from 'react';
+import { boundedFetch } from './portalRequests';
+import { getPortalToken, SELLER_SESSION_CHANGED } from './portalSession';
+import { SESSION_CHANGED } from './userSession';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from './api';
 import { socket } from './socket';
 
@@ -14,6 +16,10 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error,setError]=useState(''),[actionPending,setActionPending]=useState(false);
+  const alive=useRef(true),generation=useRef(0),locks=useRef(new Set());
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;generation.current++;};},[]);
+  const current=token=>alive.current&&token===getPortalToken();
 
   const authHeaders = useCallback(() => {
     const token = getPortalToken();
@@ -23,15 +29,18 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   const fetchNotifications = useCallback(async (page = 1) => {
     const token = getPortalToken();
     if (!token) return;
-    setLoading(true);
+    const epoch=++generation.current;
+    setLoading(true);setError('');
     try {
-      const res = await fetch(apiUrl(`/api/notifications?page=${page}&limit=30`), { headers: authHeaders() });
+      const res = await boundedFetch(apiUrl('/api/notifications?page='+page+'&limit=30'), { headers: authHeaders() });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) setNotifications(body.data || []);
+      if(!current(token)||epoch!==generation.current)return;
+      if(!res.ok)throw new Error(body.message || 'Could not load notifications');
+      setNotifications(body.data || []);
     } catch (err) {
-      console.error('[NOTIFICATIONS] fetch failed:', err.message);
+      if(current(token)&&epoch===generation.current)setError(err.message || 'Could not load notifications');
     } finally {
-      setLoading(false);
+      if(current(token)&&epoch===generation.current)setLoading(false);
     }
   }, [authHeaders]);
 
@@ -39,53 +48,49 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
     const token = getPortalToken();
     if (!token) return;
     try {
-      const res = await fetch(apiUrl('/api/notifications/unread-count'), { headers: authHeaders() });
+      const res = await boundedFetch(apiUrl('/api/notifications/unread-count'), { headers: authHeaders() });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) setUnreadCount(body.data?.count || 0);
+      if (current(token) && res.ok) setUnreadCount(body.data?.count || 0);
     } catch (err) {
       console.error('[NOTIFICATIONS] unread-count fetch failed:', err.message);
     }
   }, [authHeaders]);
 
-  const markRead = useCallback(async (id) => {
+  const mutate = async (key,path,method,success) => {
+    const token=getPortalToken();if(!token||locks.current.has(key))return {ok:false};
+    locks.current.add(key);setActionPending(true);setError('');
     try {
-      const response = await fetch(apiUrl(`/api/notifications/${id}/read`), { method: 'PATCH', headers: authHeaders() });
-      if (!response.ok) return;
-      setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_read', { detail: { id } }));
-    } catch (err) {
-      console.error('[NOTIFICATIONS] mark-read failed:', err.message);
-    }
-  }, [authHeaders]);
-
-  const markAllRead = useCallback(async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    setUnreadCount(0);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('notification_all_read'));
-    }
-    try {
-      await fetch(apiUrl('/api/notifications/read-all'), { method: 'PATCH', headers: authHeaders() });
-    } catch (err) {
-      console.error('[NOTIFICATIONS] mark-all-read failed:', err.message);
-    }
-  }, [authHeaders]);
-
-  const removeNotification = useCallback(async (id) => {
-    setNotifications((prev) => prev.filter((n) => n._id !== id));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('notifications_updated'));
-    }
-    try {
-      await fetch(apiUrl(`/api/notifications/${id}`), { method: 'DELETE', headers: authHeaders() });
-    } catch (err) {
-      console.error('[NOTIFICATIONS] delete failed:', err.message);
-    }
-  }, [authHeaders]);
+      const res=await boundedFetch(apiUrl(path),{method,headers:{Authorization:'Bearer '+token}});
+      const body=await res.json().catch(()=>({}));
+      if(!current(token))return {ok:false};
+      if(!res.ok)throw new Error(body.message || 'Notification update failed');
+      success();return {ok:true};
+    }catch(err){if(current(token))setError(err.message || 'Notification update failed');return {ok:false};}
+    finally{locks.current.delete(key);if(alive.current)setActionPending(locks.current.size>0);}
+  };
+  const markRead = useCallback(id => mutate('read:'+id,'/api/notifications/'+id+'/read','PATCH',()=>{
+    setNotifications(prev=>prev.map(n=>n._id===id?{...n,isRead:true}:n));
+    window.dispatchEvent(new CustomEvent('notification_read',{detail:{id}}));
+  }),[authHeaders]);
+  const markAllRead = useCallback(()=>mutate('read-all','/api/notifications/read-all','PATCH',()=>{
+    setNotifications(prev=>prev.map(n=>({...n,isRead:true})));setUnreadCount(0);
+    window.dispatchEvent(new CustomEvent('notification_all_read'));
+  }),[authHeaders]);
+  const removeNotification = useCallback(id=>mutate('delete:'+id,'/api/notifications/'+id,'DELETE',()=>{
+    setNotifications(prev=>prev.filter(n=>n._id!==id));
+    window.dispatchEvent(new CustomEvent('notifications_updated'));
+  }),[authHeaders]);
 
   // Always keep the unread badge live, independent of whether the drawer is open.
   useEffect(() => {
     fetchUnreadCount();
+    let sessionToken=getPortalToken();
+    const onSession=()=>{
+      if(sessionToken===getPortalToken())return;
+      sessionToken=getPortalToken();generation.current++;
+      setNotifications([]);setUnreadCount(0);setError('');setLoading(false);
+      fetchUnreadCount();if(autoFetch)fetchNotifications();
+    };
 
     const onNew = () => { fetchUnreadCount(); if (autoFetch) fetchNotifications(); };
 
@@ -108,6 +113,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
 
     socket.on('notification_new', onNew);
     if (typeof window !== 'undefined') {
+      for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED])window.addEventListener(event,onSession);
       window.addEventListener('notification_read', onRead);
       window.addEventListener('notification_all_read', onAllRead);
       window.addEventListener('notifications_updated', onUpdate);
@@ -116,6 +122,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
     return () => {
       socket.off('notification_new', onNew);
       if (typeof window !== 'undefined') {
+        for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED])window.removeEventListener(event,onSession);
         window.removeEventListener('notification_read', onRead);
         window.removeEventListener('notification_all_read', onAllRead);
         window.removeEventListener('notifications_updated', onUpdate);
@@ -131,7 +138,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
   }, [autoFetch, fetchNotifications, fetchUnreadCount]);
 
   return {
-    notifications, unreadCount, loading,
+    notifications, unreadCount, loading, error, actionPending,
     fetchNotifications, fetchUnreadCount, markRead, markAllRead, removeNotification,
   };
 };

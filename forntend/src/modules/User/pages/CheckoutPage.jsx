@@ -1,3 +1,5 @@
+import { CartEmptyState } from '../components/CartUI';
+import { BasketGroups } from '../components/BasketGroups';
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
@@ -40,6 +42,7 @@ const CheckoutPage = () => {
     walletBalance,
     fetchWalletBalance,
     currentUser,
+    switchCartChannel,
   } = useUser();
 
   useEffect(() => {
@@ -61,19 +64,21 @@ const CheckoutPage = () => {
    * covers all of them. A single-group basket keeps the existing screen exactly
    * as it was — which is every order placed up to now.
    */
-  const unified = useUnifiedCart(getDeliveryPoint(), couponCode);
+  const unified = useUnifiedCart(getDeliveryPoint(), couponCode, 'basket');
   const groups = unified.data?.groups || [];
-  const isDigitalCart = (serverCart?.items?.length || 0) > 0
-    && serverCart.items.every((item) => item.fulfillmentType === 'digital');
-  const hasMixedFulfillment = (serverCart?.items || []).some((item) => item.fulfillmentType === 'digital')
-    && (serverCart?.items || []).some((item) => item.fulfillmentType !== 'digital');
-  // Neutral URLs (/checkout, /cart) can restore a different storefront from
-  // the basket's only remaining group. Submit the basket actually displayed,
-  // rather than that storefront's empty cart. Grouped checkout already owns
-  // cross-channel pricing/validation and does not require a carrier choice.
-  const isUnified = !isDigitalCart && (groups.length > 1
-    || (groups.length === 1 && groups[0].channel !== cartChannel));
-  const checkoutBlocked = !isDigitalCart && (unified.loading || Boolean(unified.error) || !unified.data);
+  const basketItems = unified.data ? unified.basketItems : (serverCart?.items || []);
+  const isDigitalCart = basketItems.length > 0 && basketItems.every(item => item.fulfillmentType === 'digital');
+  const hasMixedFulfillment = basketItems.some(item => item.fulfillmentType === 'digital') && !isDigitalCart;
+  const hasWholesale = groups.some(group => group.salesChannel === 'wholesale');
+  const isUnified = !isDigitalCart && (hasWholesale || groups.length > 1 || (groups.length === 1 && groups[0].channel !== cartChannel));
+  const basketCheckout = isUnified && unified.data?.purchaseMode === 'basket';
+  const checkoutOperation = basketCheckout ? 'basket' : isUnified ? 'unified' : isDigitalCart ? 'digital' : 'single';
+  const canTip = !isDigitalCart && (!hasWholesale || groups.some(group => group.salesChannel === 'retail'));
+  const checkoutBlocked = unified.loading || Boolean(unified.error) || !unified.data || unified.data.valid === false
+    || !basketItems.length || hasMixedFulfillment || (isUnified && Boolean(appliedCoupon || couponCode));
+  useEffect(() => {
+    if (groups.length === 1 && groups[0].salesChannel !== 'wholesale' && groups[0].channel !== cartChannel) switchCartChannel?.(groups[0].channel);
+  }, [groups[0]?.channel, groups.length, cartChannel, hasWholesale]);
 
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => {
@@ -95,6 +100,7 @@ const CheckoutPage = () => {
    * existing screen is unchanged when there is nothing extra to say.
    */
   const [placedOrders, setPlacedOrders] = useState([]);
+  const [placedPaymentAmount, setPlacedPaymentAmount] = useState(null);
 
   // Coupon form states and handlers
   const [couponInput, setCouponInput] = useState('');
@@ -129,7 +135,7 @@ const CheckoutPage = () => {
     }
   }
 
-  const tipAmount = tipChip ?? (isCustomTip ? validCustomTip : 0);
+  const tipAmount = canTip ? (tipChip ?? (isCustomTip ? validCustomTip : 0)) : 0;
   const tipOptions = Array.isArray(tipSetting?.options) ? tipSetting.options : [];
 
   const handleApplyCoupon = async (e) => {
@@ -256,7 +262,7 @@ const CheckoutPage = () => {
   // actually on and the server actually applied one (0 otherwise, so an
   // order without Coins is byte-for-byte the pre-Coins total).
   const coinDiscountVal = (!isUnified && useCoinsSelected) ? (serverCart?.coins?.coinDiscount || 0) : 0;
-  const total = (unified.data ? (unified.data.totals?.totalAmount ?? 0) : getCartTotal()) - coinDiscountVal;
+  const total = (!isUnified ? getCartTotal() : (unified.data?.totals?.totalAmount ?? 0)) - coinDiscountVal;
   const grandTotalVal = total + tipAmount;
   const channelItems = getCartItems();
   const items = unified.data ? unified.basketItems : channelItems;
@@ -271,8 +277,8 @@ const CheckoutPage = () => {
     (Array.isArray(items) && items.some((i) => i.type === 'grocery' || i.channel === 'grocery'));
 
   const quickCommerceSeller =
-    serverCart?.seller ||
     quickGroup?.seller ||
+    serverCart?.seller ||
     (Array.isArray(groups) ? groups.find((g) => g.seller)?.seller : null) ||
     fallbackSeller ||
     null;
@@ -295,18 +301,18 @@ const CheckoutPage = () => {
       .catch(() => {});
   }, [isQuickCommerceCart, quickCommerceSeller, items, serverCart, quickGroup]);
 
-  const subtotalVal = unified.data ? (unified.data.totals?.subtotal || 0) : (serverCart?.pricing?.subtotal || 0);
-  const couponDiscountVal = unified.data
+  const subtotalVal = isUnified && unified.data ? (unified.data.totals?.subtotal || 0) : (serverCart?.pricing?.subtotal || 0);
+  const couponDiscountVal = isUnified && unified.data
     ? (unified.data.totals?.couponDiscount || 0)
     : (getCouponDiscount ? getCouponDiscount() : 0);
 
   const sameDayFee = serverCart?.pricing?.sameDayFee || 0;
   const sameDayIncentive = serverCart?.pricing?.sameDayIncentive || 0;
-  const sameDayPremiumVal = unified.data 
+  const sameDayPremiumVal = isUnified && unified.data
     ? (unified.data.totals?.sameDayPremium || 0) 
     : (deliveryMode === 'same_day' ? (sameDayFee + sameDayIncentive) : 0);
 
-  const deliveryChargeVal = unified.data
+  const deliveryChargeVal = isUnified && unified.data
     ? Math.max(0, (unified.data.totals?.deliveryCharge || 0) - (unified.data.totals?.sameDayPremium || 0))
     : (deliveryMode === 'same_day' ? (serverCart?.pricing?.standardFee || 0) : (serverCart?.pricing?.deliveryCharge || 0));
 
@@ -372,7 +378,14 @@ const CheckoutPage = () => {
   };
 
   const [orderError, setOrderError] = useState('');
-  const [orderConflict, setOrderConflict] = useState(null);
+  const [orderConflict, setOrderConflict] = useState(() => {
+    try {
+      for (const operation of ['basket', 'wholesale', 'unified', 'single', 'digital']) {
+        if (sessionStorage.getItem('bulkimart:checkout:' + operation + ':' + (currentUser?._id || currentUser?.id || 'customer'))) return { code: 'CHECKOUT_OUTCOME_UNCERTAIN', operation };
+      }
+    } catch { /* Storage may be unavailable. */ }
+    return null;
+  });
   const [checkingCheckout, setCheckingCheckout] = useState(false);
   const recoveryCodes = ['CHECKOUT_DATA_CONFLICT', 'CHECKOUT_OUTCOME_UNCERTAIN', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_SAVE_FAILED', 'CHECKOUT_RESULT_UNAVAILABLE'];
   const recoveryRequired = Boolean(orderConflict && recoveryCodes.includes(orderConflict.code) && !orderConflict.retryAllowed);
@@ -381,8 +394,12 @@ const CheckoutPage = () => {
     if (checkingCheckout) return;
     setCheckingCheckout(true);
     try {
-      const result = await checkCheckoutStatus(orderConflict.operation || (isUnified ? 'unified' : 'single'));
+      const result = await checkCheckoutStatus(orderConflict.operation || checkoutOperation);
       if (!result.ok) { setOrderError(result.message); return; }
+      if (result.data?.state === 'completed' && result.data.orders?.length) {
+        setActiveNav('orders');
+        return;
+      }
       const retryAllowed = result.data?.state === 'not_found' && result.data.canRetrySameKey === true;
       setOrderConflict(current => ({ ...current, retryAllowed }));
       setOrderError(result.data?.state === 'not_found'
@@ -392,7 +409,7 @@ const CheckoutPage = () => {
   };
 
   const handlePlaceOrder = async () => {
-    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired) return;
+    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired || !basketItems.length) return;
     if (hasMixedFulfillment) {
       setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
       return;
@@ -412,18 +429,19 @@ const CheckoutPage = () => {
     // One basket that becomes three deliveries takes one payment; a basket that
     // is already one delivery goes down the path it always has.
     const res = isUnified
-      ? await placeUnifiedOrder(paymentMethod, tipAmount)
+      ? await placeUnifiedOrder(paymentMethod, tipAmount, ...(basketCheckout ? [{ purchaseMode: 'basket', quoteHash: unified.data.quoteHash, basketHash: unified.data.basketHash }] : []))
       : await placeOrder(paymentMethod, tipAmount);
 
     if (!res.ok) {
       orderingRef.current = false;
       setIsOrdering(false);
       setOrderError(res.message || 'Could not place your order');
-      setOrderConflict(res.status === 409 || recoveryCodes.includes(res.code) ? res : null);
+      setOrderConflict(res.status === 409 || recoveryCodes.includes(res.code) ? { ...res, operation: basketCheckout ? 'basket' : res.operation } : null);
       return;
     }
 
     const firstOrder = res.order || res.orders?.[0];
+    setPlacedPaymentAmount(res.payment?.amount ?? firstOrder?.pricing?.totalAmount ?? null);
 
     // "Online Payment" doesn't stop here — the order exists (stock is held,
     // pricing is locked) but is not paid yet. The backend selects the gateway;
@@ -440,7 +458,8 @@ const CheckoutPage = () => {
         window.location.href = `/orders?payment=paid&order=${encodeURIComponent(firstOrder.orderNo || '')}`;
         return;
       }
-      setOrderError(pay.message || 'Order placed, but the payment could not be started. You can pay from My Orders.');
+      setOrderError(pay.message || 'Orders created; payment is pending. Review payment status in My Orders.');
+      setPlacedOrderDetails(firstOrder); setPlacedOrders(res.orders || [firstOrder]); setOrderSuccess(true);
       return;
     }
 
@@ -454,13 +473,13 @@ const CheckoutPage = () => {
     setOrderSuccess(true);
   };
 
-  const errorBanner = orderError ? (
+  const errorBanner = orderError || recoveryRequired ? (
     <div style={{ margin: '0 16px 12px', padding: 12, borderRadius: 8, fontSize: 12.5, lineHeight: 1.5,
                   background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#b91c1c' }}>
-      {orderError}
+      {orderError || 'Check your previous checkout before placing another order.'}
       {orderConflict && <div style={{ marginTop: 8 }}>
-        <button type="button" onClick={() => setActiveNav('orders')}>Check My Orders</button>
-        {recoveryCodes.includes(orderConflict.code) && <button type="button" disabled={checkingCheckout} onClick={handleCheckoutRecovery}>
+        <button type="button" className="cart-secondary-btn" onClick={() => setActiveNav('orders')}>Check My Orders</button>
+        {recoveryCodes.includes(orderConflict.code) && <button type="button" className="cart-secondary-btn" disabled={checkingCheckout} onClick={handleCheckoutRecovery}>
           {checkingCheckout ? 'Checking order status…' : 'Check checkout status'}
         </button>}
         {![...recoveryCodes, 'IDEMPOTENCY_KEY_REUSED'].includes(orderConflict.code) &&
@@ -508,12 +527,13 @@ const CheckoutPage = () => {
     return (
       <div className="checkout-success-container" style={{ fontFamily: "'Outfit', sans-serif", padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         
+        {errorBanner}
         {/* Success Icon */}
         <div style={{ textAlign: 'center', margin: '20px 0 10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'var(--primary-light)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', justifyCentert: 'center', color: 'var(--primary)', fontSize: 32, justifyContent: 'center' }}>
             ✓
           </div>
-          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>Order Placed Successfully!</h3>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{orderError ? 'Orders created · Review status' : 'Order Placed Successfully!'}</h3>
           {placedOrders.length > 1 ? (
             <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
               {placedOrders.length} orders created
@@ -542,7 +562,7 @@ const CheckoutPage = () => {
 
             {placedOrders.map((o) => {
               const label = o.deliveryMode ? DELIVERY_LABEL[o.deliveryMode] : null;
-              const text = label ? label.text : 'Quick Commerce';
+              const text = o.salesChannel === 'wholesale' ? 'Wholesale' : label ? label.text : o.type === 'grocery' ? 'Quick Commerce' : 'E-Commerce';
               const icon = label ? label.icon : '⚡';
               return (
                 <button
@@ -585,11 +605,11 @@ const CheckoutPage = () => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-secondary)' }}>Estimated Delivery</span>
-              <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{placedOrderDetails.estimatedDelivery || '15-25 mins'}</span>
+              <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{placedOrderDetails.estimatedDelivery || 'See each order for delivery updates'}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>Amount Paid</span>
-              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>₹{placedOrderDetails.pricing?.totalAmount || placedOrderDetails.total}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Order Amount</span>
+              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{placedPaymentAmount != null ? '₹' + placedPaymentAmount : 'See individual orders'}</span>
             </div>
             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
               <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Delivery Address:</span>
@@ -683,6 +703,8 @@ const CheckoutPage = () => {
     );
   }
 
+  if (!unified.loading && unified.data && !basketItems.length && !recoveryRequired) return <CartEmptyState onBrowse={() => setActiveNav('home')} />;
+
   return (
     <div className="checkout-page-container" style={{ fontFamily: "'Outfit', sans-serif" }}>
       
@@ -723,6 +745,9 @@ const CheckoutPage = () => {
       </div>
 
       <div className="checkout-content">
+      {unified.data?.purchaseMode === 'basket' && <div className="basket-checkout-groups"><BasketGroups groups={groups} busy={isOrdering} /></div>}
+      {unified.data?.warnings?.map(message => <p role="alert" key={message}>{message}</p>)}
+
         
         {/* Address Selection Section */}
         {!isDigitalCart ? (<div className="profile-menu-card" style={{ padding: 16 }}>
@@ -1079,7 +1104,7 @@ const CheckoutPage = () => {
         </div>
 
         {/* Promo Coupons section */}
-        <div className="profile-menu-card" style={{ padding: 16 }}>
+        {!isUnified && <div className="profile-menu-card" style={{ padding: 16 }}>
           <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
             Apply Promo Code
           </div>
@@ -1230,7 +1255,9 @@ const CheckoutPage = () => {
               ))}
             </div>
           )}
-        </div>
+        </div>}
+        {isUnified && <div className="profile-menu-card" style={{ padding: 16 }}><p>Coupons and Coins are available only in eligible single retail checkout.</p>{(appliedCoupon || couponCode) && <button className="cart-secondary-btn" onClick={removeCoupon}>Remove retail coupon to continue</button>}</div>}
+
 
         {/*
           NHCONE Coins — server-calculated only. `serverCart.coins` comes
@@ -1281,7 +1308,7 @@ const CheckoutPage = () => {
         )}
 
         {/* Tip your delivery partner */}
-        {!isDigitalCart && Boolean(tipSetting?.isEnabled) && (tipOptions.length > 0 || tipSetting?.allowCustom) && (
+        {canTip && Boolean(tipSetting?.isEnabled) && (tipOptions.length > 0 || tipSetting?.allowCustom) && (
           <div className="profile-menu-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 20 }}>🛵</span>

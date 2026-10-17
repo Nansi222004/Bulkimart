@@ -34,5 +34,6 @@ export function acquireCustomerSession(token, timeoutMs = SESSION_TIMEOUT_MS) {
 }
 
 export function isPublicCustomerPath(path) {
-  return /^\/(?:$|(?:home|smart-buy|hot-deals|fashion|groceries|garments|electronics|coupons|categories|search)(?:\/|$))/.test(path);
+  if (typeof path !== 'string') return false;
+  return /^\/(?:$|(?:home|smart-buy|hot-deals|fashion|groceries|garments|electronics|coupons|categories|search|wholesale|ebooks|cart|wishlist|products?|(?:grocery|ecommerce|shg)--[a-z0-9-]+)(?:\/|\?|#|$))/i.test(path);
 }

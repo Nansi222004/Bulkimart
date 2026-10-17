@@ -3,6 +3,7 @@ import SellerPromotion from '../models/SellerPromotion.js';
 import PromotionPackage from '../models/PromotionPackage.js';
 import Seller from '../models/Seller.js';
 import Product from '../models/Product.js';
+import { retailVisibility } from '../utils/productChannels.js';
 import Payment from '../models/Payment.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError, paginated, getPagination } from '../utils/response.js';
@@ -370,6 +371,7 @@ export const getPromotionPublic = asyncHandler(async (req, res) => {
   // Product data is fetched live, never from a stored snapshot (Section 26)
   // — a deleted/deactivated product just drops off this list.
   const products = await Product.find({
+    $and: [retailVisibility()],
     _id: { $in: promotion.selectedProducts || [] }, isDeleted: { $ne: true }, isActive: true, status: 'approved', fulfillmentType: { $ne: 'digital' },
   }).select('name images price mrp stock type').lean();
 

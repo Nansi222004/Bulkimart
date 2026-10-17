@@ -99,6 +99,12 @@
   height: 100%;
 }
 
+.user-main-content.page-wholesale {
+  padding: 0;
+  overflow-y: auto;
+  background: var(--surface-background);
+}
+
 .user-main-content.page-account {
   overflow-y: auto !important;
   padding: 16px 16px 140px 16px !important;
@@ -4064,6 +4070,13 @@
 .pd-wholesale input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; border: 1px solid #94a3b8; border-radius: 8px; }
 .pd-wholesale-total { margin-top: 12px; background: #f0fdf4; padding: 12px; border-radius: 8px; }
 .pd-wholesale-total p { font-size: 12px; line-height: 1.5; }
+.pd-wholesale-mode { display:inline-block; margin:0 0 10px; padding:5px 10px; border-radius:8px; background:#e0f2fe; color:#075985; font-weight:800; }
+.pd-image-unavailable { display:flex; justify-content:center; align-items:center; min-height:100px; padding:16px; color:#64748b; font-size:12px; }
+.product-detail-page[data-purchase-mode="wholesale"] { min-width:0; }
+.product-detail-page[data-purchase-mode="wholesale"] .pd-info-card { min-width:0; }
+.product-detail-page[data-purchase-mode="wholesale"] .pd-flipkart-btn { min-width:0; white-space:normal; min-height:48px; padding:10px 8px; }
+.product-detail-page[data-purchase-mode="wholesale"] .pd-sticky-cta { flex-shrink:0; padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+.product-detail-page[data-purchase-mode="wholesale"] .pd-description-text { overflow-wrap:anywhere; }
 .pd-wholesale-signin { margin-top: 12px; font-size: 13px; }
 .pd-product-link-state { padding: 24px; box-sizing: border-box; }
 .pd-sticky-cta {
