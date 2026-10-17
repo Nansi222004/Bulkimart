@@ -316,3 +316,51 @@ test('mixed payment initialization failure shows pending review and cannot creat
     assert.doesNotMatch(text(h.tree), /Order Placed Successfully!/);
   } finally { h.close(); }
 });
+
+
+for (const operation of ['single', 'unified']) {
+  for (const method of ['Online Payment', 'Cash on Delivery', 'wallet']) {
+    test(operation + ' ' + method + ' saves only online committed locators before clearing the submission session', async () => {
+      portalRequests.clearPortalRequests('customer');
+      const profile = { _id: 'fixture-buyer', name: 'Fixture', phone: '9876500000', roles: ['buyer'] };
+      const local = storage({ userToken: 'fixture-token', userProfile: JSON.stringify(profile) });
+      const session = storage();
+      const h = hookHarness(UserProvider, {}, '/checkout', { verified: true, profile }, { localStorage: local, sessionStorage: session });
+      try {
+        h.requests.find(r => r.url.endsWith('/api/users/addresses')).resolve({ data: [{ _id: 'fixture-address', name: 'Fixture', phone: '9876500000', line1: 'Fixture', city: 'Mumbai', pincode: '400001' }] });
+        h.requests.find(r => r.url.includes('/api/cart?')).resolve({ data: { items: [{ name: 'Fixture', qty: 1, fulfillmentType: 'physical' }], pricing: { totalAmount: 140 } } });
+        await h.settle();
+        const placing = operation === 'single' ? h.tree.props.value.placeOrder(method) : h.tree.props.value.placeUnifiedOrder(method);
+        const endpoint = operation === 'single' ? '/api/orders' : '/api/orders/unified';
+        const request = h.requests.find(r => r.url.endsWith(endpoint) && r.options.method === 'POST');
+        assert.ok(request);
+        const key = request.options.headers['Idempotency-Key'];
+        const order = { _id: 'created-order', pricing: { totalAmount: 140 } };
+        request.resolve({ data: { order, orders: [order], payment: { id: 'created-payment', amount: 140 } } }, 201);
+        await h.settle();
+        const saved = JSON.parse(local.getItem('bulkimart:committed-checkout:fixture-buyer') || '[]');
+        assert.equal(saved.length, method === 'Online Payment' ? 1 : 0);
+        if (saved.length) assert.deepEqual(saved[0], { version: 1, customerId: 'fixture-buyer', operation, key });
+        assert.equal(session.getItem('bulkimart:checkout:' + operation + ':fixture-buyer'), null);
+        // Finish the context's ordinary post-commit background reads.
+        for (const r of h.requests) if (r !== request) r.resolve({ data: [] });
+        await placing;
+        assert.equal(h.requests.filter(r => /\/api\/orders(?:\/unified)?$/.test(r.url) && r.options.method === 'POST').length, 1);
+      } finally { h.close(); }
+    });
+  }
+}
+
+test('committed locator takes precedence over empty cart and belongs only to the current customer', async () => {
+  const local = storage({ userToken: 'fixture-token', 'bulkimart:committed-checkout:buyer': JSON.stringify([{ version: 1, customerId: 'buyer', operation: 'single', key: 'original-checkout-key-0001' }]) });
+  const fixture = userFixture();
+  const h = hookHarness(Checkout, {}, '/checkout', fixture.context, { localStorage: local, sessionStorage: storage() });
+  try {
+    h.requests.find(r => r.url.includes('/api/cart/unified')).resolve(basket([])); await h.settle();
+    assert.equal(h.tree.props.reference.key, 'original-checkout-key-0001');
+    assert.equal(h.tree.props.reference.customerId, 'buyer');
+    assert.equal(fixture.calls.length, 0);
+    fixture.context.currentUser = { _id: 'another-buyer' }; h.rerender();
+    assert.equal(h.tree.props.reference, undefined);
+  } finally { h.close(); }
+});

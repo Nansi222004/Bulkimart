@@ -1,3 +1,4 @@
+import { rememberCommittedCheckout } from '../../../utils/committedCheckout';
 import { readProductRoute, wholesaleDetailProduct } from '../utils/productRoute';
 import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint, revokeBrowsingGps } from '../../../utils/locationState';
 import { boundedFetch, portalRequest } from '../../../utils/portalRequests';
@@ -1414,6 +1415,7 @@ export const UserProvider = ({ children }) => {
           landmarkImage: addr.landmarkImage || addr.locationReferenceImage || null,
         },
       };
+      const checkoutSession = captureUserSession();
       const requestHeaders = checkoutHeaders('single', checkoutPayload);
       const res = await fetch(apiUrl('/api/orders'), {
         method: 'POST',
@@ -1426,11 +1428,14 @@ export const UserProvider = ({ children }) => {
       // body. Retain the key until the persisted result is actually confirmed.
       if (!body.data?.order?._id || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
+      if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
+      if (checkoutPayload.paymentMethod === 'online') rememberCommittedCheckout(currentUser?._id || currentUser?.id, 'single', requestHeaders['Idempotency-Key']);
       clearCheckoutKey('single');
       setCouponCode('');
       setAppliedCoupon(null);
       setUseCoinsSelected(false);
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
+      if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
       return { ok: true, order: body.data.order, coinsUsed: body.data.coinsUsed, coinDiscount: body.data.coinDiscount, message: body.message };
     } catch (err) {
       return { ok: false, operation: 'single', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'We could not confirm the checkout result. Check its status before trying again.' };
@@ -1450,7 +1455,7 @@ export const UserProvider = ({ children }) => {
    */
   const placeUnifiedOrder = async (paymentMethod = 'Cash on Delivery', tipAmount = 0, options = {}) => {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in to place an order.' };
-    const wholesaleSession = ['wholesale', 'basket'].includes(options.purchaseMode) ? captureUserSession() : null;
+    const wholesaleSession = captureUserSession();
 
     const addr = getSelectedAddress();
     if (!addr) return { ok: false, message: 'Please add a delivery address first.' };
@@ -1488,9 +1493,11 @@ export const UserProvider = ({ children }) => {
       if (!res.ok) return { ok: false, operation: 'unified', status: res.status, code: body.meta?.code, requestId: body.meta?.requestId, message: body.message || 'Could not place your order' };
       if (!body.data?.orders?.length || body.data.orders.some(order => !order?._id) || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
 
+      if (checkoutPayload.paymentMethod === 'online') rememberCommittedCheckout(currentUser?._id || currentUser?.id, 'unified', requestHeaders['Idempotency-Key']);
       clearCheckoutKey(['wholesale', 'basket'].includes(options.purchaseMode) ? options.purchaseMode : 'unified');
       window.dispatchEvent(new Event('cart:changed'));
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders()]);
+      if (!isCurrentUserSession(wholesaleSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
       return {
         ok: true,
         orders: body.data.orders,

@@ -1,3 +1,5 @@
+import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
+import { committedCheckouts, forgetCommittedCheckout } from '../../../utils/committedCheckout';
 import { CartEmptyState } from '../components/CartUI';
 import { BasketGroups } from '../components/BasketGroups';
 import React, { useState, useEffect, useRef } from 'react';
@@ -377,6 +379,9 @@ const CheckoutPage = () => {
     setAddressFormError('');
   };
 
+  const [, refreshCommittedReference] = useState(0);
+  const recoveryCustomerId = currentUser?._id || currentUser?.id;
+  const committedReference = committedCheckouts(recoveryCustomerId)[0];
   const [orderError, setOrderError] = useState('');
   const [orderConflict, setOrderConflict] = useState(() => {
     try {
@@ -409,7 +414,7 @@ const CheckoutPage = () => {
   };
 
   const handlePlaceOrder = async () => {
-    if (orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired || !basketItems.length) return;
+    if (committedReference || orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired || !basketItems.length) return;
     if (hasMixedFulfillment) {
       setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.');
       return;
@@ -488,6 +493,18 @@ const CheckoutPage = () => {
       </div>}
     </div>
   ) : null;
+
+  if (committedReference) return <CommittedCheckoutReview
+    key={recoveryCustomerId + ':' + committedReference.key}
+    reference={committedReference}
+    onOrders={() => setActiveNav('orders')}
+    onResolved={key => {
+      forgetCommittedCheckout(recoveryCustomerId, key);
+      setOrderSuccess(false); setOrderError(''); setPlacedOrderDetails(null); setPlacedOrders([]);
+      refreshCommittedReference(value => value + 1);
+      setActiveNav('home');
+    }}
+  />;
 
   if (orderSuccess && placedOrderDetails) {
     // Generate beautiful timeline sequence based on real order status
