@@ -1,8 +1,10 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { enterCustomerSession } from '../../../utils/userSession';
 
 export const DeliveryProfilePage = () => {
+  const ui = useFeedback();
   const { onboardingForm, logoutDelivery, triggerToast, earningsData, riderName, riderProfile,
           saveRiderLocation, refreshRiderStatus, lookupAddress } = useDelivery();
 
@@ -255,7 +257,7 @@ export const DeliveryProfilePage = () => {
         <button className="profile-support-btn outline" disabled={switching} onClick={async () => {
           setSwitching(true);
           try { await enterCustomerSession(); }
-          catch (error) { triggerToast(error.message); setSwitching(false); }
+          catch (error) { triggerToast(error.message, {type:'error'}); setSwitching(false); }
         }}>{switching ? 'Opening shop…' : 'Shop as customer'}</button>
         <button 
           className="profile-support-btn"
@@ -271,10 +273,10 @@ export const DeliveryProfilePage = () => {
         </button>
         <button 
           className="profile-logout-btn"
-          onClick={() => {
-            if (window.confirm('Are you sure you want to sign out of the Delivery App?')) {
-              logoutDelivery();
-            }
+          onClick={async () => {
+            return ui.perform('Are you sure you want to sign out of the Delivery App?', async () => {
+              return await logoutDelivery();
+            });
           }}
         >
           Log Out

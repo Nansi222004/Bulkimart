@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, adminPatch, qs } from '../../../utils/adminApi';
@@ -52,6 +53,7 @@ const Field = ({ label, hint, children }) => (
 );
 
 export const CouponsTab = () => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
 
   const [coupons, setCoupons] = useState([]);
@@ -150,25 +152,27 @@ export const CouponsTab = () => {
       const { message } = await adminPatch(`/coupons/${c._id}/toggle`, { isActive: !c.isActive });
       triggerToast(message);
       await load();
-    } catch (err) { triggerToast(err.message); }
+    } catch (err) { triggerToast(err.message, {type:'error'}); }
   };
 
   const remove = async (c) => {
-    if (!window.confirm(`Delete coupon "${c.code}"?`)) return;
+    return ui.perform(`Delete coupon "${c.code}"?`, async () => {
     try {
       // A coupon that has been used is deactivated instead of erased — it is
       // part of order history. The server decides which happens.
       const { message } = await authDelete(`/api/admin/coupons/${c._id}`);
       triggerToast(message);
       await load();
-    } catch (err) { triggerToast(err.message); }
-  };
+    } catch (err) { triggerToast(err.message, {type:'error'}); }
+
+});
+};
 
   const viewUses = async (c) => {
     try {
       const { data, meta: m } = await adminGet(`/coupons/${c._id}/redemptions`);
       setRedemptions({ coupon: c, rows: data || [], meta: m || {} });
-    } catch (err) { triggerToast(err.message); }
+    } catch (err) { triggerToast(err.message, {type:'error'}); }
   };
 
   const stats = useMemo(() => ({

@@ -44,7 +44,7 @@ export const SupportTab = () => {
       triggerToast(`Ticket ${t.ticketNumber} created`);
       setCategory(''); setSubject(''); setDescription(''); setFiles([]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     } finally {
       setSubmitting(false);
     }
@@ -56,7 +56,7 @@ export const SupportTab = () => {
       setOpenTicket(body.data.ticket);
       setOpenMessages(body.data.messages);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 

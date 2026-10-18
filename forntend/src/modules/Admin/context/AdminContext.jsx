@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { productView } from '../utils/productView';
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { adminGet, adminPatch, adminPost, adminDelete, qs } from '../../../utils/adminApi';
@@ -40,6 +41,7 @@ const tabFromPath = () => {
 };
 
 export const AdminProvider = ({ children }) => {
+  const ui = useFeedback();
   // Read from the URL on first paint, so opening /admin/reviews directly (or
   // refreshing on it) lands on that tab rather than the dashboard.
   const [activeTabInternal, setActiveTabInternal] = useState(tabFromPath);
@@ -132,12 +134,7 @@ export const AdminProvider = ({ children }) => {
   }, [fetchAdminUnreadCount]);
 
   // Toast Trigger Helper
-  const triggerToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage('');
-    }, 3000);
-  };
+  const triggerToast = (message, options) => ui.notify(message, options);
 
   // Recent Activity System Logs
   /**
@@ -224,13 +221,14 @@ export const AdminProvider = ({ children }) => {
       const { data } = await adminGet(`/sellers/${id}`);
       setSellerDetail(data);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     } finally {
       setSellerDetailLoading(false);
     }
   }, []);
 
   const approveSeller = async (id) => {
+    return ui.perform({title:'Approve this seller?',message:`Confirm approve this seller (reference ${id})? Existing server validation still applies.`,confirmLabel:'Approve this seller'}, async () => {
     try {
       const { message } = await adminPatch(`/sellers/${id}/approve`);
       triggerToast(message || 'Seller approved.');
@@ -239,13 +237,14 @@ export const AdminProvider = ({ children }) => {
       setSellerDetail(null);
       await Promise.all([fetchSellers(sellerStatusFilter), fetchSellerCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   const rejectSeller = async (id, reason) => {
-    const finalReason = reason || window.prompt('Reason for rejection (the seller will see this):');
-    if (!finalReason) return;
+    const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/sellers/${id}/reject`, { reason: finalReason });
       triggerToast(message || 'Seller rejected.');
@@ -254,13 +253,15 @@ export const AdminProvider = ({ children }) => {
       setSellerDetail(null);
       await Promise.all([fetchSellers(sellerStatusFilter), fetchSellerCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+};
+    if (reason) return ui.perform({title:"Reject seller?",message:"Reason for rejection (the seller will see this):" + ' Reference: ' + id,destructive:true,confirmLabel:"Reject seller"}, () => operation(reason));
+    return ui.collect("Reason for rejection (the seller will see this):" + ' Reference: ' + id, {title:"Reject seller?",confirmLabel:"Reject seller",destructive:true,required:true,action:operation});};
 
   const suspendSeller = async (id, reason) => {
-    const finalReason = reason || window.prompt('Reason for suspension:');
-    if (!finalReason) return;
+    const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/sellers/${id}/suspend`, { reason: finalReason });
       triggerToast(message || 'Seller suspended.');
@@ -269,9 +270,12 @@ export const AdminProvider = ({ children }) => {
       setSellerDetail(null);
       await Promise.all([fetchSellers(sellerStatusFilter), fetchSellerCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+};
+    if (reason) return ui.perform({title:"Suspend account?",message:"Reason for suspension:" + ' Reference: ' + id,destructive:true,confirmLabel:"Suspend account"}, () => operation(reason));
+    return ui.collect("Reason for suspension:" + ' Reference: ' + id, {title:"Suspend account?",confirmLabel:"Suspend account",destructive:true,required:true,action:operation});};
 
   /**
    * A seller's product-visibility radius — unlike approve/reject/suspend,
@@ -284,7 +288,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Seller radius updated.');
       await fetchSellerDetail(id);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -293,7 +297,7 @@ export const AdminProvider = ({ children }) => {
       const { message } = await adminPatch(`/sellers/${id}/third-party-fulfillment`, payload);
       triggerToast(message || 'Third-party fulfillment updated.');
       return { ok: true };
-    } catch (error) { triggerToast(error.message); return { ok: false }; }
+    } catch (error) { triggerToast(error.message, {type:'error'}); return { ok: false }; }
   };
 
   const setSellerWholesaleStatus = async (id, status, reason) => {
@@ -304,7 +308,7 @@ export const AdminProvider = ({ children }) => {
       await Promise.all([fetchSellerDetail(id), fetchSellers(sellerStatusFilter)]);
       return { ok: true };
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false, message: err.message };
     }
   };
@@ -315,7 +319,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Delivery partner radius updated.');
       await fetchRiderDetail(id);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -330,7 +334,7 @@ export const AdminProvider = ({ children }) => {
       const { data } = await adminGet('/radius-settings');
       return data;
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return null;
     }
   };
@@ -341,7 +345,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Radius settings updated.');
       return true;
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return false;
     }
   };
@@ -391,6 +395,7 @@ export const AdminProvider = ({ children }) => {
    * by deliberate decision. This exists to undo a takedown.
    */
   const restoreProduct = async (id) => {
+    return ui.perform({title:'Restore this product?',message:`Confirm restore this product (reference ${id})? Existing server validation still applies.`,confirmLabel:'Restore this product'}, async () => {
     try {
       const { message } = await adminPatch(`/products/${id}/approve`);
       triggerToast(message || 'Product is live again.');
@@ -398,14 +403,15 @@ export const AdminProvider = ({ children }) => {
       setSelectedProduct(null);
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   /** Take a listing off the storefront. The seller is shown the reason. */
   const takeDownProduct = async (id, reason) => {
-    const finalReason = reason || window.prompt('Why is this listing being taken down? (the seller will see this)');
-    if (!finalReason) return;
+    const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/products/${id}/reject`, { reason: finalReason });
       triggerToast(message || 'Product taken down.');
@@ -413,9 +419,12 @@ export const AdminProvider = ({ children }) => {
       setSelectedProduct(null);
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+};
+    if (reason) return ui.perform({title:"Take down this listing?",message:"Why is this listing being taken down? (the seller will see this)" + ' Reference: ' + id,destructive:true,confirmLabel:"Take down listing"}, () => operation(reason));
+    return ui.collect("Why is this listing being taken down? (the seller will see this)" + ' Reference: ' + id, {title:"Take down this listing?",confirmLabel:"Take down listing",destructive:true,required:true,action:operation});};
 
   const toggleProductFeatured = async (id, isFeatured) => {
     try {
@@ -423,7 +432,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Updated.');
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -433,7 +442,7 @@ export const AdminProvider = ({ children }) => {
       triggerToast(message || 'Updated.');
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -446,7 +455,7 @@ export const AdminProvider = ({ children }) => {
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
       return true;
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return false;
     }
   };
@@ -455,11 +464,14 @@ export const AdminProvider = ({ children }) => {
   const [payouts, setPayouts] = useState([]);
 
   const processPayout = (id) => {
+    return ui.perform({title:'Approve this payout?',message:`Confirm approve this payout (reference ${id})? Existing server validation still applies.`,confirmLabel:'Approve this payout'}, async () => {
     setPayouts(prev => prev.map(p => p.id === id ? { ...p, status: 'Approved' } : p));
     const pay = payouts.find(p => p.id === id);
     triggerToast(`Payout of ₹${pay?.amount.toLocaleString('en-IN')} approved for ${pay?.sellerName}.`);
     addLog(`Bank transfer of ₹${pay?.amount} processed to ${pay?.sellerName}.`);
     setSelectedPayout(null);
+
+    });
   };
 
   // Rider payouts — live from GET /api/admin/rider-payouts. `earnings.pending`/
@@ -485,14 +497,17 @@ export const AdminProvider = ({ children }) => {
   }, []);
 
   const settleRiderPayout = async (id, name, amount) => {
+    return ui.perform({title:'Settle this rider payout?',message:`Confirm settle this rider payout (reference ${id})? Existing server validation still applies.`,confirmLabel:'Settle this rider payout'}, async () => {
     try {
       const { message } = await adminPatch(`/rider-payouts/${id}/settle`);
       triggerToast(message || `Payout of ₹${amount} settled for ${name}.`);
       addLog(`Rider payout of ₹${amount} settled for ${name}.`);
       await fetchRiderPayouts();
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   // 4. SUPPORT TICKETS STATE — live from GET /api/admin/tickets
@@ -548,7 +563,7 @@ export const AdminProvider = ({ children }) => {
       setTicketDetail(data.ticket);
       setTicketMessages(data.messages || []);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     } finally {
       setTicketDetailLoading(false);
     }
@@ -568,7 +583,7 @@ export const AdminProvider = ({ children }) => {
       await refreshTicketDetail(id);
       triggerToast('Reply sent.');
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -578,7 +593,7 @@ export const AdminProvider = ({ children }) => {
       await refreshTicketDetail(id);
       triggerToast('Internal note added.');
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -589,22 +604,26 @@ export const AdminProvider = ({ children }) => {
       await refreshTicketDetail(id);
       triggerToast('Ticket assigned to you.');
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
   const changeTicketStatus = async (id, status) => {
+    return ui.perform({title:'Update this support ticket?',message:`Confirm update this support ticket (reference ${id})? Existing server validation still applies.`,confirmLabel:'Update this support ticket'}, async () => {
     try {
       await adminPatch(`/tickets/${id}/status`, { status });
       addLog(`Support ticket ${id} status changed to ${status}.`);
       await refreshTicketDetail(id);
       triggerToast(`Status updated to ${status.replace(/_/g, ' ')}.`);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   const resolveTicket = async (id, reply) => {
+    return ui.perform({title:'Resolve this support ticket?',message:`Confirm resolve this support ticket (reference ${id})? Existing server validation still applies.`,confirmLabel:'Resolve this support ticket'}, async () => {
     try {
       await adminPatch(`/tickets/${id}/resolve`, { reply });
       triggerToast(`Ticket has been marked RESOLVED.`);
@@ -613,8 +632,10 @@ export const AdminProvider = ({ children }) => {
       setTicketReply('');
       await fetchTickets();
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   // 5. USERS STATE — live from GET /api/admin/users
@@ -655,19 +676,22 @@ export const AdminProvider = ({ children }) => {
       const { data } = await adminGet('/consumers/locations');
       setConsumerLocations(data || { states: [], districtsByState: {}, stateCounts: {} });
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   }, []);
 
   const approveUserKyc = async (id) => {
+    return ui.perform({title:'Approve this customer KYC?',message:`Confirm approve this customer kyc (reference ${id})? Existing server validation still applies.`,confirmLabel:'Approve this customer KYC'}, async () => {
     try {
       await adminPatch(`/users/${id}/status`, { isActive: true });
       triggerToast('User KYC status approved.');
       addLog(`User ${id} KYC approved.`);
       await fetchUsers();
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   const removeCustomerAccount = async (id) => {
@@ -677,7 +701,7 @@ export const AdminProvider = ({ children }) => {
       await fetchUsers();
       return { ok: true, action: data?.action };
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false, message: err.message };
     }
   };
@@ -690,7 +714,7 @@ export const AdminProvider = ({ children }) => {
       await Promise.all([fetchSellers(sellerStatusFilter), fetchSellerCounts()]);
       return { ok: true, action: data?.action };
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false, message: err.message };
     }
   };
@@ -703,7 +727,7 @@ export const AdminProvider = ({ children }) => {
       await Promise.all([refreshRiders(), fetchRiderCounts()]);
       return { ok: true, action: data?.action };
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false, message: err.message };
     }
   };
@@ -825,7 +849,7 @@ export const AdminProvider = ({ children }) => {
       await fetchCustomerReviews(searchQuery, reviewStatusFilter);
       return { ok: true };
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false };
     }
   };
@@ -837,7 +861,7 @@ export const AdminProvider = ({ children }) => {
       addLog(`Review ${id} removed by admin.`);
       await fetchCustomerReviews(searchQuery, reviewStatusFilter);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -942,13 +966,14 @@ export const AdminProvider = ({ children }) => {
       const { data } = await adminGet(`/delivery-partners/${id}`);
       setRiderDetail(data);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     } finally {
       setRiderDetailLoading(false);
     }
   }, []);
 
   const approveRider = async (id) => {
+    return ui.perform({title:'Approve this delivery partner?',message:`Confirm approve this delivery partner (reference ${id})? Existing server validation still applies.`,confirmLabel:'Approve this delivery partner'}, async () => {
     try {
       const { message } = await adminPatch(`/delivery-partners/${id}/approve`);
       triggerToast(message || 'Delivery partner approved.');
@@ -956,14 +981,15 @@ export const AdminProvider = ({ children }) => {
       setRiderDetail(null);
       await Promise.all([refreshRiders(), fetchRiderCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
+
+    });
   };
 
   const rejectRider = async (id, reason) => {
     // The rider is shown this text, so it cannot be blank.
-    const finalReason = reason || window.prompt('Reason for rejection (the rider will see this):');
-    if (!finalReason) return;
+    const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/delivery-partners/${id}/reject`, { reason: finalReason });
       triggerToast(message || 'Delivery partner rejected.');
@@ -971,9 +997,12 @@ export const AdminProvider = ({ children }) => {
       setRiderDetail(null);
       await Promise.all([refreshRiders(), fetchRiderCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+};
+    if (reason) return ui.perform({title:"Reject delivery partner?",message:"Reason for rejection (the rider will see this):" + ' Reference: ' + id,destructive:true,confirmLabel:"Reject partner"}, () => operation(reason));
+    return ui.collect("Reason for rejection (the rider will see this):" + ' Reference: ' + id, {title:"Reject delivery partner?",confirmLabel:"Reject partner",destructive:true,required:true,action:operation});};
 
   // Completed/failed trips — Delivery Fleet › Completed Deliveries.
   const [deliveryHistory, setDeliveryHistory] = useState([]);
@@ -1033,8 +1062,7 @@ export const AdminProvider = ({ children }) => {
   }, []);
 
   const suspendRider = async (id, reason) => {
-    const finalReason = reason || window.prompt('Reason for suspension:');
-    if (!finalReason) return;
+    const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/delivery-partners/${id}/suspend`, { reason: finalReason });
       triggerToast(message || 'Delivery partner suspended.');
@@ -1042,9 +1070,12 @@ export const AdminProvider = ({ children }) => {
       setRiderDetail(null);
       await Promise.all([refreshRiders(), fetchRiderCounts()]);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+};
+    if (reason) return ui.perform('Reason for suspension:', () => operation(reason));
+    return ui.collect("Reason for suspension:" + ' Reference: ' + id, {title:"Suspend account?",confirmLabel:"Suspend account",destructive:true,required:true,action:operation});};
 
  
   // 10. MORNING DISPATCH ROSTERS STATE — Mock rosters removed

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet } from '../../../utils/adminApi';
@@ -39,6 +40,7 @@ const fileSize = (bytes) => {
 };
 
 export const ProductsTab = ({ detailPage = false }) => {
+  const ui = useFeedback();
   const {
     products,
     productsLoading,
@@ -73,15 +75,15 @@ export const ProductsTab = ({ detailPage = false }) => {
   }, [detailPage, productRoute, productRevision, detailRetry]);
   const confirmDeleteProduct = async (product) => {
     if (!product || deletingProductId) return;
-    const confirmed = window.confirm(
-      `Delete product "${product.name}"? It will be removed from every storefront and cannot be restored from the admin panel. Existing order and financial history will be preserved.`
-    );
-    if (!confirmed) return;
+    return ui.perform(`Delete product "${product.name}"? It will be removed from every storefront and cannot be restored from the admin panel. Existing order and financial history will be preserved.`, async () => {
     setDeletingProductId(product.id);
     const removed = await removeProduct(product.id);
     if (removed && detailPage) closeAdminProduct();
     setDeletingProductId(null);
-  };
+    return removed;
+
+});
+};
 
   const load = useCallback(() => {
     const filters = { status, type: channel, search };

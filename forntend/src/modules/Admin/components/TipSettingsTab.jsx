@@ -42,7 +42,7 @@ export const TipSettingsTab = () => {
         setMaxCustomAmount(String(c.maxCustomAmount ?? 1000));
       }
     } catch (err) {
-      triggerToast(err.message || 'Could not load tip settings');
+      triggerToast(err.message || 'Could not load tip settings', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -86,7 +86,7 @@ export const TipSettingsTab = () => {
       triggerToast('Tip settings updated successfully.');
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not save tip settings');
+      triggerToast(err.message || 'Could not save tip settings', {type:'error'});
     } finally {
       setSaving(false);
     }

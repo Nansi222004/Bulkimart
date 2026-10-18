@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useCallback, useEffect, useState } from 'react';
 import { adminGet, adminPatch } from '../../../utils/adminApi';
 import { useAdmin } from '../context/AdminContext';
@@ -6,6 +7,7 @@ const money = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
 const statusColor = (status) => status === 'approved' ? '#15803d' : status === 'pending' ? '#b45309' : status === 'suspended' ? '#b91c1c' : '#64748b';
 
 export default function WholesaleManagementTab() {
+  const ui = useFeedback();
   const { triggerToast, setActiveTab } = useAdmin();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,23 +30,17 @@ export default function WholesaleManagementTab() {
   useEffect(() => { load(); }, [load]);
 
   const decide = async (seller, status) => {
-    setBusyId(String(seller._id));
-    try {
-      const reason = status === 'suspended' || status === 'rejected'
-        ? window.prompt(`Optional reason for ${status} Wholesale access:`) || '' : '';
-      await adminPatch(`/sellers/${seller._id}/wholesale`, {
-        status, version: seller.__v ?? 0,
-        ...(status === 'suspended' ? { suspensionReason: reason } : { rejectionReason: reason }),
-      });
-      triggerToast(`Wholesale access ${status}.`);
-      await load();
-    } catch (err) {
-      triggerToast(err.message || 'Wholesale status could not be updated.');
-    } finally {
-      setBusyId('');
-    }
+    const action = async (reason = '') => {
+      setBusyId(String(seller._id));
+      try {
+        await adminPatch(`/sellers/${seller._id}/wholesale`, {status,version:seller.__v ?? 0,...(status === 'suspended' ? {suspensionReason:reason} : {rejectionReason:reason})});
+        triggerToast(`Wholesale access ${status}.`); await load();
+      } finally {setBusyId('');}
+    };
+    const message=`Set Wholesale access for ${seller.storeDetails?.name || seller.businessName || seller._id} to ${status}?`;
+    if (['suspended','rejected'].includes(status)) return ui.collect(message,{title:'Change Wholesale access?',inputLabel:'Reason',required:false,destructive:true,confirmLabel:'Update access',action});
+    return ui.perform({title:'Change Wholesale access?',message,confirmLabel:'Update access'},action);
   };
-
   if (loading) return <div style={{ padding: 24 }}>Loading Wholesale management…</div>;
   if (error) return <div style={{ padding: 24 }} role="alert"><p>{error}</p><button onClick={load}>Retry</button></div>;
 

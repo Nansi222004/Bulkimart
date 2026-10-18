@@ -31,7 +31,7 @@ export const PromotionPackagesTab = () => {
       const res = await adminGet(`/promotion-packages${moduleFilter !== 'all' ? `?module=${moduleFilter}` : ''}`);
       setPackages(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load packages');
+      triggerToast(err.message || 'Could not load packages', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -64,7 +64,7 @@ export const PromotionPackagesTab = () => {
       setShowModal(false);
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not save the package');
+      triggerToast(err.message || 'Could not save the package', {type:'error'});
     } finally {
       setSaving(false);
     }
@@ -76,7 +76,7 @@ export const PromotionPackagesTab = () => {
       triggerToast(!pkg.isActive ? 'Package enabled.' : 'Package disabled.');
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not update the package');
+      triggerToast(err.message || 'Could not update the package', {type:'error'});
     }
   };
 

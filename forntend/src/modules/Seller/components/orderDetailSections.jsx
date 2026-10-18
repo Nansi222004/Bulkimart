@@ -1,3 +1,4 @@
+import { feedback as ui } from '../../../utils/feedback';
 import React from 'react';
 const money = value => value == null ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
 const date = value => value ? new Date(value).toLocaleString('en-IN') : 'Not recorded';
@@ -27,8 +28,9 @@ export function orderDetailSections(order) {
       {order.shippingAddress?.landmark && <p>Landmark: {order.shippingAddress.landmark}</p>}
       {order.shippingAddress?.instructions && <p>Delivery instructions: {order.shippingAddress.instructions}</p>}
       <button type="button" className="order-action-btn-sm" onClick={async () => {
-        try { await navigator.clipboard.writeText(addressText(order.shippingAddress)); window.alert('Delivery address copied'); }
-        catch { window.alert('Copy unavailable. Select the displayed address to copy it.'); }
+        const scope = ui.captureScope();
+        try { await navigator.clipboard.writeText(addressText(order.shippingAddress)); ui.notify('Delivery address copied', {scope}); }
+        catch { ui.notify('Copy unavailable. Select the displayed address to copy it.', {type:'error',scope}); }
       }}>Copy delivery address</button>
     </section>
     <section><h4>Your items in this order</h4>{(order.items || []).map((item, index) => <article className="seller-detail-item" key={item.productId || index}>

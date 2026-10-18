@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import ServicesPanel from '../../../components/services/ServicesPanel';
@@ -54,6 +55,7 @@ const TAB_TITLES = {
 };
 
 export const DashboardPage = () => {
+  const ui = useFeedback();
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
@@ -165,7 +167,7 @@ export const DashboardPage = () => {
             {/* Sign Out — icon-only below 768px, label at 768px+ */}
             <button
               className="seller-signout-btn"
-              onClick={() => { if (window.confirm('Logout from seller panel?')) logoutSeller(); }}
+              onClick={async () => { return ui.perform('Logout from seller panel?', async () => {return await logoutSeller();}); }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>

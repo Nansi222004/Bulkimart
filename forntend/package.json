@@ -4,18 +4,18 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test:startup": "node --test scripts/portal-startup.test.mjs",
-    "test:seller-notifications": "node --test scripts/seller-notifications.test.mjs",
-    "test:socket": "node --test scripts/socket-ui.test.mjs",
-    "test:mobile": "npm run build && node scripts/mobile-layout.test.mjs && node scripts/mobile-layout.test.mjs --dialogs && node scripts/mobile-layout.test.mjs --seller && node scripts/mobile-layout.test.mjs --startup",
-    "test:checkout": "node --test scripts/checkout-ui.test.mjs",
-    "test:auth": "node --test scripts/auth-role.test.mjs",
-    "test:services": "node --test scripts/service-ui.test.mjs",
-    "test:image-search": "node --test scripts/image-search-ui.test.mjs",
+    "test:startup": "node --test tests/portal-startup.test.mjs",
+    "test:seller-notifications": "node --test tests/seller-notifications.test.mjs",
+    "test:socket": "node --test tests/socket-ui.test.mjs",
+    "test:mobile": "npm run build && node tests/mobile-layout.test.mjs && node tests/mobile-layout.test.mjs --dialogs && node tests/mobile-layout.test.mjs --seller && node tests/mobile-layout.test.mjs --startup",
+    "test:checkout": "node --test tests/checkout-ui.test.mjs",
+    "test:auth": "node --test tests/auth-role.test.mjs",
+    "test:services": "node --test tests/service-ui.test.mjs",
+    "test:image-search": "node --test tests/image-search-ui.test.mjs",
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
-    "test:responsive": "npm run build && node scripts/mobile-layout.test.mjs --full && node scripts/mobile-layout.test.mjs --native && node scripts/mobile-layout.test.mjs --full --extended && node scripts/mobile-layout.test.mjs --native --supplemental"
+    "test:responsive": "npm run build && node tests/mobile-layout.test.mjs --full && node tests/mobile-layout.test.mjs --native && node tests/mobile-layout.test.mjs --full --extended && node tests/mobile-layout.test.mjs --native --supplemental"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

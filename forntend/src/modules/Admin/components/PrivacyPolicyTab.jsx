@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from "react";
 import { apiUrl } from "../../../utils/api";
 import { useAdmin } from "../context/AdminContext";
@@ -27,6 +28,7 @@ const ROLE_TABS = [
 ];
 
 export const PrivacyPolicyTab = () => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
   const [activeRoleKey, setActiveRoleKey] = useState("user");
   const [loading, setLoading] = useState(true);
@@ -125,11 +127,11 @@ export const PrivacyPolicyTab = () => {
   };
 
   // Delete section
-  const handleDeleteSection = (index) => {
-    if (window.confirm("Are you sure you want to delete this section?")) {
+  const handleDeleteSection = async (index) => {
+    return ui.perform("Are you sure you want to delete this section?", async () => {
       const updated = policyData.sections.filter((_, i) => i !== index);
-      setPolicyData({ ...policyData, sections: updated });
-    }
+      return await setPolicyData({ ...policyData, sections: updated });
+    });
   };
 
   // Move section position

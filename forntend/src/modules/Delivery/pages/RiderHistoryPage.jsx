@@ -41,7 +41,7 @@ export const RiderHistoryPage = () => {
       setItems(res.data || []);
     } catch (err) {
       setError(err.message || 'Could not load history');
-      triggerToast(err.message || 'Could not load history');
+      triggerToast(err.message || 'Could not load history', {type:'error'});
     } finally {
       setLoading(false);
     }

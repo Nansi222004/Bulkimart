@@ -1,7 +1,9 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
 export const UsersTab = ({ defaultStatusFilter }) => {
+  const ui = useFeedback();
   const {
     users,
     usersLoading,
@@ -27,15 +29,14 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
   const removeSelected = async () => {
     if (!selectedUser || removing) return;
-    const confirmed = window.confirm(
-      'Remove this customer account? If it has no references it will be permanently deleted. If historical orders or financial records exist it will only be deactivated. Active orders, balances, refunds, or unresolved obligations will block the action.'
-    );
-    if (!confirmed) return;
+    return ui.perform('Remove this customer account? If it has no references it will be permanently deleted. If historical orders or financial records exist it will only be deactivated. Active orders, balances, refunds, or unresolved obligations will block the action.', async () => {
     setRemoving(true);
     const result = await removeCustomerAccount(selectedUser.id);
     setRemoving(false);
     if (result?.ok) setSelectedUser(null);
-  };
+
+});
+};
 
   React.useEffect(() => {
     if (defaultStatusFilter) {

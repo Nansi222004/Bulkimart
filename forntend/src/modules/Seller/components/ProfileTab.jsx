@@ -58,7 +58,7 @@ export const ProfileTab = () => {
         const response=await boundedFetch(apiUrl('/api/sellers/profile'),{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({lat:position.coords.latitude,lng:position.coords.longitude})});
         const body=await response.json();if(!response.ok)throw new Error(body.message || 'Could not update location');
         if(current()){await fetchSellerProfile({fresh:true});triggerToast('Store location pinned.');}
-      }catch(error){if(current())triggerToast(error.message);}
+      }catch(error){if(current())triggerToast(error.message, {type:'error'});}
       finally{if(current())setPinning(false);}
     },()=>{if(current()){setPinning(false);triggerToast('Allow location access to pin your store.');}},{enableHighAccuracy:true,timeout:15000,maximumAge:0});
   };

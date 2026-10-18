@@ -1,9 +1,11 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
 import productHoney from '../../../assets/product_honey.png';
 
 export const AccountTab = () => {
+  const ui = useFeedback();
   const {
     activeFinanceTab,
     setActiveFinanceTab,
@@ -300,7 +302,7 @@ export const AccountTab = () => {
             <button className="primary-onboarding-btn" onClick={() => setShowPasswordModal(true)}>
               Change Password
             </button>
-            <button className="secondary-onboarding-btn" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => { if (window.confirm('Logout from seller panel?')) logoutSeller(); }}>
+            <button className="secondary-onboarding-btn" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={async () => { return ui.perform('Logout from seller panel?', async () => {return await logoutSeller();}); }}>
               Exit / Logout
             </button>
           </div>

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import VariantAttributesEditor from './VariantAttributesEditor';
 import VariantWholesaleFields from './VariantWholesaleFields';
 import { eligibleWholesaleProduct, hasWholesaleAccess } from '../utils/wholesaleEligibility';
@@ -36,6 +37,7 @@ const BRAND_SUGGESTIONS = ['Local Make', 'House Brand', 'Unbranded'];
 const slugify = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
 export const ProductModal = () => {
+  const ui = useFeedback();
   const sellerCtx = useContext(SellerContext) || {};
 
   const {
@@ -415,18 +417,18 @@ export const ProductModal = () => {
   const handleSubmit = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (wholesaleOnly) { await saveWholesalePricing(); return; }
-    if (!wholesaleProductEditor && wholesaleDirty && !window.confirm('Wholesale terms have unsaved changes. Save retail details and discard unsaved Wholesale edits?')) return;
     if (!canSubmit) {
       navigateToFirstError();
       return;
     }
-    if (isEditing) await submitProductEdit(newProductForm, collectedFiles, ebookFile);
-    else await submitNewProduct(newProductForm, collectedFiles, ebookFile);
+    const save = () => isEditing ? submitProductEdit(newProductForm, collectedFiles, ebookFile) : submitNewProduct(newProductForm, collectedFiles, ebookFile);
+    if (!wholesaleProductEditor && wholesaleDirty) return ui.perform('Wholesale terms have unsaved changes. Save retail details and discard unsaved Wholesale edits?', save);
+    return save();
   };
 
-  const close = () => {
+  const close = async () => {
     if (savingWholesale || savingProduct) return;
-    if ((wholesaleDirty || formSnapshot.current !== JSON.stringify(newProductForm) || collectedFiles.length || ebookFile) && !window.confirm('Discard unsaved product changes?')) return;
+    if ((wholesaleDirty || formSnapshot.current !== JSON.stringify(newProductForm) || collectedFiles.length || ebookFile) && !await ui.ask('Discard unsaved product changes?')) return;
     setShowAddProductModal(false); setEditingProductId(null);
   };
 

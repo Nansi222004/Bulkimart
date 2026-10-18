@@ -44,7 +44,7 @@ export const ReturnsTab = () => {
       const res = await adminGet(`/returns?${qs.toString()}`);
       setReturns(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load returns');
+      triggerToast(err.message || 'Could not load returns', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ export const ReturnsTab = () => {
       const res = await adminGet(`/returns/${id}`);
       setDetail(res.data);
     } catch (err) {
-      triggerToast(err.message || 'Could not load return');
+      triggerToast(err.message || 'Could not load return', {type:'error'});
     }
   };
 
@@ -71,7 +71,7 @@ export const ReturnsTab = () => {
     } catch (err) {
       // Stale-data case: the backend rejects an invalid transition (someone
       // else already acted on it) — surface the real error and refresh.
-      triggerToast(err.message || 'Could not update this return');
+      triggerToast(err.message || 'Could not update this return', {type:'error'});
       openDetail(id);
       load();
     }
@@ -88,7 +88,7 @@ export const ReturnsTab = () => {
       setDetail(res.data);
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not process this refund');
+      triggerToast(err.message || 'Could not process this refund', {type:'error'});
       openDetail(id);
       load();
     } finally {
@@ -107,7 +107,7 @@ export const ReturnsTab = () => {
       setCodNote('');
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not settle this COD refund');
+      triggerToast(err.message || 'Could not settle this COD refund', {type:'error'});
     } finally {
       setProcessing(false);
     }

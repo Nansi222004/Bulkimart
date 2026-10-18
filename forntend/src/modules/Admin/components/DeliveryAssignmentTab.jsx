@@ -18,7 +18,7 @@ export const DeliveryAssignmentTab = () => {
       const { data } = await adminGet('/delivery-assignments');
       setUnassignedOrders(data.orders || []);
       setNearbyRiders(data.partners || []);
-    } catch (error) { triggerToast(error.message); }
+    } catch (error) { triggerToast(error.message, {type:'error'}); }
     finally { setLoading(false); }
   }, [triggerToast]);
   useEffect(() => { load(); }, [load]);
@@ -29,7 +29,7 @@ export const DeliveryAssignmentTab = () => {
       triggerToast(message || `Order assigned to ${rider.name}`);
       setSelectedOrder(null);
       await load();
-    } catch (error) { triggerToast(error.message); }
+    } catch (error) { triggerToast(error.message, {type:'error'}); }
   };
 
   return (

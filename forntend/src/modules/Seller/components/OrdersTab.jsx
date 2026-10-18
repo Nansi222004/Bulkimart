@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
@@ -78,6 +79,7 @@ const fmt = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
 export const OrdersTab = ({ detailPage = false }) => {
+  const ui = useFeedback();
   const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode, selectedOrder: selected, openSellerOrder, closeSellerOrder, orderDetailId, orderDetailLoading, orderDetailError, orderListState, setOrderListState } = useSeller();
   const [tab, setTab] = useState(orderListState?.tab || 'all');
   // Which order is mid-request, so its buttons can be disabled rather than
@@ -120,11 +122,10 @@ export const OrdersTab = ({ detailPage = false }) => {
 
   const onAction = async (order, action) => {
     if (action.reject) {
-      const reason = window.prompt(action.label === 'Reject' ? 'Reason for rejection (required):' : 'Reason for cancellation (required):')?.trim();
-      if (!reason) return;
-      run(order, 'cancelled', { reason, version: order.version });
-      return;
-    }
+      return ui.collect(action.label === 'Reject' ? 'Reason for rejection (required):' : 'Reason for cancellation (required):', {title: "Provide a reason", required:true, action: async (reason) => {
+      return run(order, 'cancelled', { reason, version: order.version });
+
+}});}
     if (action.setup) {
       if (!detailPage) return openSellerOrder(order._id);
       return loadAvailability(order);
@@ -684,12 +685,15 @@ export const OrdersTab = ({ detailPage = false }) => {
                 disabled={!fulfillmentOptions.shiprocket?.available || busyId === fulfilling._id}
                 onClick={async () => {
                   if (Object.values(packageSize).some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0.5 || Number(value) > 500)) return triggerToast?.('Enter dimensions greater than 0.5 cm and at most 500 cm');
-                  if (!window.confirm(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`)) return;
+                  return ui.perform(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`, async () => {
                   setBusyId(fulfilling._id);
                   const result = await createShiprocketShipment(fulfilling._id, packageSize, fulfillmentOptions.shiprocket.quote.courierCharge);
                   setBusyId(null); triggerToast?.(result.message);
                   if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
-                }}>
+                  return result;
+
+});
+}}>
                 Create Shiprocket shipment
               </button>
             </div>

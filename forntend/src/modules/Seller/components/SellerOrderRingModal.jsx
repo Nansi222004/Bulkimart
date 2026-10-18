@@ -1,7 +1,9 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../../../utils/api';
 
 export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
+  const ui = useFeedback();
   const [timeLeft, setTimeLeft] = useState(120); // 2 minutes (120s) countdown timer
   const [accepting, setAccepting] = useState(false);
 
@@ -38,7 +40,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
       onAccept(order.orderId);
     } catch (err) {
       console.error(err);
-      alert(err.message || 'Error accepting order');
+      ui.notify(err.message || 'Error accepting order', {type:'error'});
     } finally {
       setAccepting(false);
     }

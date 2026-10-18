@@ -1,3 +1,4 @@
+import { useFeedback } from '../feedback/FeedbackProvider';
 import { getPortalToken } from '../../utils/portalSession';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../utils/api';
@@ -68,13 +69,14 @@ export function ApplicationDetail({ application: a, admin, request, run, busy, o
   const [target, setTarget] = useState('');
   const upload = useRef();
   useEffect(() => { onDirty?.(Boolean(message || files.length || target)); }, [message, files, target, onDirty]);
-  const act = status => run(async () => {
+  const ui = useFeedback();
+  const act = status => ui.perform({title:'Update application?', message:`Set application ${a._id} (${a.snapshot.name}) to ${labels[status] || status}?`,confirmLabel:'Update application',destructive:status==='rejected'}, () => run(async () => {
     const data = new FormData(); data.set('version', a.__v); data.set('message', message); if (admin) data.set('status', status);
     if (files.length > SERVICE_FILE_COUNT || files.some(f => f.size > SERVICE_FILE_BYTES)) throw new Error('Upload at most 10 files, with each file no larger than 5 MiB.');
     if (!admin || status === 'completed') files.forEach(f => data.append('files', f));
     const result = await request(`/applications/${a._id}/${admin ? 'transition' : 'respond'}`, { method: 'POST', body: data });
     onChange(result.data); setMessage(''); setFiles([]); setTarget(''); if (upload.current) upload.current.value = '';
-  });
+  }));
   return <section className="sm-card"><h3>{a.snapshot.name}</h3><p>Application ID: <code>{a._id}</code></p><p><strong>{labels[a.status]}</strong> · {price(a.snapshot.pricing)}</p><p>Submitted {new Date(a.createdAt).toLocaleString()}</p>{admin && <p>Vendor ID: {a.vendor}</p>}
     <dl>{a.snapshot.fields.filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{typeof a.answers[f.id] === 'boolean' ? (a.answers[f.id] ? 'Yes' : 'No') : String(a.answers[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
     {a.informationRequest && <p><strong>Information request:</strong> {a.informationRequest}</p>}{a.rejectionReason && <p><strong>Rejection reason:</strong> {a.rejectionReason}</p>}
@@ -90,6 +92,7 @@ export function ApplicationDetail({ application: a, admin, request, run, busy, o
 }
 
 export default function ServicesPanel({ admin = false }) {
+  const ui = useFeedback();
   const [tab, setTab] = useState('services');
   const [items, setItems] = useState([]), [meta, setMeta] = useState({ total: 0 }), [page, setPage] = useState(1);
   const [filter, setFilter] = useState(''), [from, setFrom] = useState(''), [to, setTo] = useState('');
@@ -102,7 +105,7 @@ export default function ServicesPanel({ admin = false }) {
   const mounted = useRef(true), detailDirty = useRef(false), currentApplication = useRef(null);
   currentApplication.current = application;
   const onDirty = useCallback(value => { detailDirty.current = value; }, []);
-  const allowDiscard = () => !detailDirty.current || window.confirm('Discard your unsaved application message and selected files and reload or leave this application?');
+  const allowDiscard = () => !detailDirty.current || ui.ask('Discard your unsaved application message and selected files and reload or leave this application?');
   const request = useCallback(async (suffix = '', options = {}, blob = false) => {
     const token = (admin ? localStorage.getItem('adminToken') : getPortalToken('seller'));
     const response = await fetch(apiUrl(`/api/${admin ? 'admin/' : ''}services${suffix}`), { ...options, headers: { Authorization: `Bearer ${token || ''}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
@@ -120,7 +123,7 @@ export default function ServicesPanel({ admin = false }) {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; listRequests.current.cancel(); detailRequests.current.cancel(); }; }, []);
   useEffect(() => { load(); return () => listRequests.current.cancel(); }, [load]);
   const openApplication = useCallback(async (id, confirmDiscard = true) => {
-    if (confirmDiscard && detailDirty.current && !window.confirm('Discard your unsaved application message and selected files and load the latest record?')) {
+    if (confirmDiscard && detailDirty.current && !await ui.ask('Discard your unsaved application message and selected files and load the latest record?')) {
       if (admin && currentApplication.current) window.history.replaceState(null, '', `/admin/services?application=${currentApplication.current._id}`);
       return;
     }
@@ -142,11 +145,11 @@ export default function ServicesPanel({ admin = false }) {
   }, [request, admin]);
   useEffect(() => {
     if (!admin || typeof window === 'undefined') return;
-    const navigate = () => {
+    const navigate = async () => {
       const id = new URLSearchParams(window.location.search).get('application');
       if (id !== null) void openApplication(id);
       else if (currentApplication.current) {
-        if (detailDirty.current && !window.confirm('Discard unsaved application changes and return to the service list?')) {
+        if (detailDirty.current && !await ui.ask('Discard unsaved application changes and return to the service list?')) {
           window.history.replaceState(null, '', `/admin/services?application=${currentApplication.current._id}`); return;
         }
         detailRequests.current.cancel(); setApplication(null); setDetailLoading(false); detailDirty.current = false; setItems([]); setTab('services');
@@ -156,15 +159,16 @@ export default function ServicesPanel({ admin = false }) {
     return () => { window.removeEventListener('service-application-open', navigate); window.removeEventListener('popstate', navigate); };
   }, [admin, openApplication]);
   const refresh = async () => {
-    if (!allowDiscard()) return;
+    const allowed = allowDiscard();
+    if (allowed !== true && !await allowed) return;
     await Promise.all([load(), application ? openApplication(application._id, false) : Promise.resolve()]);
   };
   const applyApplication = value => { detailRequests.current.cancel(); setDetailLoading(false); setApplication(value); setDetailRevision(v => v + 1); detailDirty.current = false; setConflict(false); };
   const run = async fn => {
     if (lock.current) return; lock.current = true; setBusy(true); setError(''); setErrors({}); setNotice('');
-    try { await fn(); } catch (e) { if (mounted.current) { setError(e.message); setErrors(e.fields || {}); if (e.status === 409) setConflict(true); } } finally { lock.current = false; if (mounted.current) setBusy(false); }
+    try { await fn(); } catch (e) { if (mounted.current) { setError(e.message); setErrors(e.fields || {}); if (e.status === 409) setConflict(true); } return {ok:false,message:e.message}; } finally { lock.current = false; if (mounted.current) setBusy(false); }
   };
-  const switchTab = t => { if (!allowDiscard()) return; listRequests.current.cancel(); detailRequests.current.cancel(); setDetailLoading(false); detailDirty.current = false; setConflict(false); setItems([]); setLoading(true); setTab(t); setPage(1); setSelected(null); setEditor(null); setApplication(null); setError(''); setNotice(''); if (admin) window.history.replaceState(null, '', '/admin/services'); if (tab === t && page === 1) void load(); };
+  const switchTab = async t => { const allowed=allowDiscard(); if(allowed!==true && !await allowed)return; listRequests.current.cancel(); detailRequests.current.cancel(); setDetailLoading(false); detailDirty.current = false; setConflict(false); setItems([]); setLoading(true); setTab(t); setPage(1); setSelected(null); setEditor(null); setApplication(null); setError(''); setNotice(''); if (admin) window.history.replaceState(null, '', '/admin/services'); if (tab === t && page === 1) void load(); };
   const submit = () => run(async () => {
     if (serializedAnswerBytes(answers) > SERVICE_ANSWER_BYTES) throw new Error('Application answers exceed the 256 KiB total limit. Please shorten your answers.');
     if (Object.values(files).filter(Boolean).length > SERVICE_FILE_COUNT) throw new Error('Upload at most 10 documents.');
@@ -183,7 +187,7 @@ export default function ServicesPanel({ admin = false }) {
       : <>{tab === 'applications' && <div className="sm-grid"><label>Status<select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All statuses</option>{Object.entries(labels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label><label>From<input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} /></label><label>To<input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} /></label></div>}
         {admin && tab === 'services' && <button onClick={() => setEditor(blank())}>Create service</button>}
         {loading ? <p role="status">Loading…</p> : <><div className="sm-grid">{items.map(item => <article className="sm-card" key={item._id}><h3>{tab === 'services' ? item.name : item.snapshot.name}</h3><p>{tab === 'services' ? price(item.pricing) : labels[item.status]}</p>{tab === 'applications' ? <><p><code>{item._id}</code></p><p>{new Date(item.createdAt).toLocaleDateString()}</p><button disabled={busy || detailLoading} onClick={() => openApplication(item._id)}>View application</button></>
-          : <><p>{item.description}</p>{admin ? <><p>{item.status} · Form version {item.formVersion}</p><div className="sm-actions"><button disabled={busy} onClick={() => setEditor(item)}>Edit / preview</button><button disabled={busy} onClick={() => { if (window.confirm(`${item.status === 'published' ? 'Unpublish' : 'Publish'} ${item.name}?`)) run(async () => { await request(`/${item._id}/publication`, { method: 'POST', body: JSON.stringify({ status: item.status === 'published' ? 'unpublished' : 'published', version: item.__v }) }); await load(); }); }}>{item.status === 'published' ? 'Unpublish' : 'Publish'}</button></div></> : <button disabled={busy} onClick={() => { setSelected(item); setAnswers({}); setFiles({}); setErrors({}); submissionKey.current = key(); }}>View requirements and apply</button>}</>}
+          : <><p>{item.description}</p>{admin ? <><p>{item.status} · Form version {item.formVersion}</p><div className="sm-actions"><button disabled={busy} onClick={() => setEditor(item)}>Edit / preview</button><button disabled={busy} onClick={async () => { return ui.perform(`${item.status === 'published' ? 'Unpublish' : 'Publish'} ${item.name}?`, async () => {return await run(async () => { await request(`/${item._id}/publication`, { method: 'POST', body: JSON.stringify({ status: item.status === 'published' ? 'unpublished' : 'published', version: item.__v }) }); await load(); });}); }}>{item.status === 'published' ? 'Unpublish' : 'Publish'}</button></div></> : <button disabled={busy} onClick={() => { setSelected(item); setAnswers({}); setFiles({}); setErrors({}); submissionKey.current = key(); }}>View requirements and apply</button>}</>}
         </article>)}</div>{!items.length && <p>No {tab === 'services' ? 'services available' : 'applications found'}.</p>}<div className="sm-actions"><button disabled={page <= 1 || busy} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} · {meta.total} total</span><button disabled={page * 20 >= meta.total || busy} onClick={() => setPage(p => p + 1)}>Next</button></div></>}
       </>}
   </section>;

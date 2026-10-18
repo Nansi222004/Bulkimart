@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -63,6 +64,7 @@ const valueStyle = {
 };
 
 export const DeliveryTab = ({ defaultStatusFilter }) => {
+  const ui = useFeedback();
   const {
     riders,
     ridersLoading,
@@ -92,14 +94,13 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
 
   const removeRider = async () => {
     if (!riderDetail || removing) return;
-    const confirmed = window.confirm(
-      'Remove this delivery-partner account? A reference-free application may be permanently deleted. A partner with completed delivery or payout history will be deactivated instead. Active deliveries, return pickups, pending earnings, or payouts will block the action.'
-    );
-    if (!confirmed) return;
+    return ui.perform('Remove this delivery-partner account? A reference-free application may be permanently deleted. A partner with completed delivery or payout history will be deactivated instead. Active deliveries, return pickups, pending earnings, or payouts will block the action.', async () => {
     setRemoving(true);
     await removeDeliveryAccount(riderDetail._id);
     setRemoving(false);
-  };
+
+});
+};
   useEffect(() => {
     setRiderRadiusInput(
       riderDetail?.deliveryRadiusKm !== undefined && riderDetail?.deliveryRadiusKm !== null

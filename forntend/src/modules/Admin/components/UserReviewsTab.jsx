@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -30,6 +31,7 @@ const STATUS_LABEL = {
 };
 
 export const UserReviewsTab = () => {
+  const ui = useFeedback();
   const {
     reviewsList, reviewsLoading, reviewsError,
     reviewStatusFilter, setReviewStatusFilter,
@@ -53,19 +55,23 @@ export const UserReviewsTab = () => {
 
   const act = async (id, fn) => {
     setBusyId(id);
-    await fn();
+    const result = await fn();
     setBusyId(null);
+    return result;
   };
 
-  const handleReject = (id) => {
-    const reason = window.prompt('Reason for rejecting this review (optional — the shopper is not shown it):') ?? '';
-    act(id, () => updateCustomerReviewStatus(id, 'rejected', reason));
-  };
+  const handleReject = async (id) => {
+    return ui.collect('Reason for rejecting this review (optional — the shopper is not shown it):', {title: "Review this decision", required:false, action: async (reason) => {
+    return act(id, () => updateCustomerReviewStatus(id, 'rejected', reason));
 
-  const handleDelete = (id) => {
-    if (!window.confirm('Delete this review permanently? Rejecting hides it and keeps the record.')) return;
-    act(id, () => deleteCustomerReview(id));
-  };
+}});};
+
+  const handleDelete = async (id) => {
+    return ui.perform('Delete this review permanently? Rejecting hides it and keeps the record.', async () => {
+    return act(id, () => deleteCustomerReview(id));
+
+});
+};
 
   return (
     <>

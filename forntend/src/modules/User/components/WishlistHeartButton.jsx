@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React from 'react';
 import { useUser } from '../context/UserContext';
 
@@ -13,6 +14,7 @@ import { useUser } from '../context/UserContext';
  * drop into any card unchanged.
  */
 const WishlistHeartButton = ({ productId, size = 18, style, className }) => {
+  const ui = useFeedback();
   const { isWishlisted, toggleWishlist } = useUser();
   const active = isWishlisted(productId);
 
@@ -24,7 +26,7 @@ const WishlistHeartButton = ({ productId, size = 18, style, className }) => {
     // storefront otherwise requires sign-in to be visible at all) — a
     // plain alert is consistent with how this codebase surfaces other
     // sign-in-required failures (e.g. ProductDetailPage's review form).
-    if (r && r.ok === false) alert(r.message || 'Could not update your wishlist.');
+    if (r && r.ok === false) ui.notify(r.message || 'Could not update your wishlist.');
   };
 
   return (

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { authGet, authPost, authPut, authDelete, adminGet } from '../../../utils/adminApi';
@@ -62,6 +63,7 @@ const LIFECYCLE_CLASS = {
 };
 
 export const BannersTab = () => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
 
   const [banners, setBanners] = useState([]);
@@ -87,7 +89,7 @@ export const BannersTab = () => {
       const res = await authGet('/api/banners?all=true');
       setBanners(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load banners');
+      triggerToast(err.message || 'Could not load banners', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -203,7 +205,7 @@ export const BannersTab = () => {
       setShowModal(false);
       await fetchBanners();
     } catch (err) {
-      triggerToast(err.message || 'Could not save the banner');
+      triggerToast(err.message || 'Could not save the banner', {type:'error'});
     } finally {
       setSaving(false);
     }
@@ -215,20 +217,22 @@ export const BannersTab = () => {
       triggerToast(!b.isActive ? 'Banner enabled.' : 'Banner disabled.');
       fetchBanners();
     } catch (err) {
-      triggerToast(err.message || 'Could not update the banner');
+      triggerToast(err.message || 'Could not update the banner', {type:'error'});
     }
   };
 
   const remove = async (b) => {
-    if (!window.confirm(`Delete "${b.title}"? This cannot be undone.`)) return;
+    return ui.perform(`Delete "${b.title}"? This cannot be undone.`, async () => {
     try {
       await authDelete(`/api/banners/${b._id}`);
       triggerToast('Banner deleted.');
       fetchBanners();
     } catch (err) {
-      triggerToast(err.message || 'Could not delete the banner');
+      triggerToast(err.message || 'Could not delete the banner', {type:'error'});
     }
-  };
+
+});
+};
 
   return (
     <div style={{ padding: '20px 24px' }}>

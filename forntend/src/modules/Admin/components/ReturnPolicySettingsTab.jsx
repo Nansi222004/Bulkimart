@@ -22,7 +22,7 @@ export const ReturnPolicySettingsTab = () => {
       const res = await adminGet('/return-policies');
       setRows(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load return policies');
+      triggerToast(err.message || 'Could not load return policies', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -46,7 +46,7 @@ export const ReturnPolicySettingsTab = () => {
       setEditingId(null);
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not save');
+      triggerToast(err.message || 'Could not save', {type:'error'});
     }
   };
 
@@ -58,7 +58,7 @@ export const ReturnPolicySettingsTab = () => {
       });
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not update');
+      triggerToast(err.message || 'Could not update', {type:'error'});
     }
   };
 

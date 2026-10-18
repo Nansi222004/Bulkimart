@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, adminPatch, adminDelete } from '../../../utils/adminApi';
@@ -31,6 +32,7 @@ const toDatetimeLocal = (iso) => {
 const LIFECYCLE_CLASS = { DRAFT: 'pending', DISABLED: 'rejected', SCHEDULED: 'processing', EXPIRED: 'rejected', ACTIVE: 'approved' };
 
 export const CampaignsTab = () => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
 
   const [campaigns, setCampaigns] = useState([]);
@@ -56,7 +58,7 @@ export const CampaignsTab = () => {
       const res = await adminGet('/campaigns');
       setCampaigns(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load campaigns');
+      triggerToast(err.message || 'Could not load campaigns', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -121,7 +123,7 @@ export const CampaignsTab = () => {
       const res = await adminGet(`/campaigns/${c._id}`);
       setDetail(res.data);
     } catch (err) {
-      triggerToast(err.message || 'Could not load campaign detail');
+      triggerToast(err.message || 'Could not load campaign detail', {type:'error'});
     } finally {
       setDetailLoading(false);
     }
@@ -156,7 +158,7 @@ export const CampaignsTab = () => {
       setShowModal(false);
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not save the campaign');
+      triggerToast(err.message || 'Could not save the campaign', {type:'error'});
     } finally {
       setSaving(false);
     }
@@ -168,20 +170,22 @@ export const CampaignsTab = () => {
       triggerToast(!c.isEnabled ? 'Campaign enabled.' : 'Campaign disabled.');
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not update the campaign');
+      triggerToast(err.message || 'Could not update the campaign', {type:'error'});
     }
   };
 
   const remove = async (c) => {
-    if (!window.confirm(`Delete "${c.name}"? This only works if no seller has responded yet.`)) return;
+    return ui.perform(`Delete "${c.name}"? This only works if no seller has responded yet.`, async () => {
     try {
       await adminDelete(`/campaigns/${c._id}`);
       triggerToast('Campaign deleted.');
       load();
     } catch (err) {
-      triggerToast(err.message || 'Could not delete the campaign');
+      triggerToast(err.message || 'Could not delete the campaign', {type:'error'});
     }
-  };
+
+});
+};
 
   const toggleProduct = (id) => setForm((f) => ({
     ...f,

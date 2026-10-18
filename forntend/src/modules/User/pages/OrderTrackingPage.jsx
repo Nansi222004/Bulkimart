@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { DeliveryMap } from '../../../components/DeliveryMap';
@@ -27,6 +28,7 @@ const STATUS_DESCS = {
 };
 
 export const OrderTrackingPage = () => {
+  const ui = useFeedback();
   const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId } = useUser();
 
   /**
@@ -238,7 +240,7 @@ export const OrderTrackingPage = () => {
       // Server state is the only source of truth — refetch rather than
       // guess what the new eligibility/return list looks like.
       await refreshReturnData();
-      alert(`Return ${body.data.returnNumber} requested.`);
+      ui.notify(`Return ${body.data.returnNumber} requested.`);
     } catch (err) {
       setReturnFormError(err.message || 'Error submitting return request');
     } finally {
@@ -353,7 +355,7 @@ export const OrderTrackingPage = () => {
 
       setReviewedProductIds((prev) => new Set([...prev, productId]));
       setReviewModalItem(null);
-      alert(res.ok
+      ui.notify(res.ok
         ? 'Thank you! Your review has been submitted for admin approval.'
         : 'You have already reviewed this product.');
     } catch (err) {

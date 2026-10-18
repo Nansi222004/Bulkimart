@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
@@ -17,6 +18,7 @@ const PRESET_AVATARS = [
 ];
 
 const ProfilePage = () => {
+  const ui = useFeedback();
   const { 
     setActiveNav, 
     currentUser,
@@ -127,7 +129,7 @@ const ProfilePage = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file');
+      setProfileMsg('Please select a valid image file');
       return;
     }
     const reader = new FileReader();
@@ -173,7 +175,7 @@ const ProfilePage = () => {
     if (res.ok) {
       setNewAddrLandmarkImage(res.imageUrl);
     } else {
-      alert(res.message || 'Landmark image upload failed');
+      setLocationError(res.message || 'Landmark image upload failed');
     }
   };
 
@@ -281,7 +283,7 @@ const ProfilePage = () => {
       setSupportJustCreated(t);
       setSupportCategory(''); setSupportSubject(''); setSupportDesc(''); setSupportFiles([]);
     } catch (err) {
-      alert(err.message);
+      ui.notify(err.message, {type:'error'});
     } finally {
       setSupportSubmitting(false);
     }
@@ -423,7 +425,7 @@ const ProfilePage = () => {
   const handleAddAddressSubmit = (e) => {
     e.preventDefault();
     if (!newAddrName || !newAddrPhone || !newAddrLine1 || !newAddrPincode || !newAddrCity || !newAddrState) {
-      alert('Please fill out all address details');
+      setLocationError('Please fill out all address details');
       return;
     }
 
@@ -1176,12 +1178,13 @@ const ProfilePage = () => {
                             </button>
                           )}
                           <button 
-                            onClick={async () => {
+                            onClick={() => ui.perform({title:'Delete this address?',message:'Remove this saved address from your account?',confirmLabel:'Delete',destructive:true},async () => {
                               const res = await deleteAddress(addrId);
                               if (res && res.ok === false) {
-                                alert(res.message || 'Failed to delete address');
+                                ui.notify(res.message || 'Failed to delete address');
                               }
-                            }}
+                              return res;
+                            })}
                             style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '12px', fontWeight: '800', cursor: 'pointer', padding: 0 }}
                           >
                             Delete
@@ -1675,8 +1678,9 @@ const ProfilePage = () => {
 
           {/* Logout button in Red */}
           <div 
-            className="menu-link-row logout-row" 
-            onClick={logoutUser}
+            className="menu-link-row logout-row" role="button" tabIndex={0}
+            onKeyDown={event => {if(event.key==='Enter'||event.key===' '){event.preventDefault();event.currentTarget.click();}}}
+            onClick={() => ui.perform('Log out?', logoutUser)}
             style={{
               marginTop: '16px',
               marginBottom: '30px',

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -217,6 +218,7 @@ const HeaderMediaPicker = ({
 };
 
 export const CategoriesTab = ({ subTab }) => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
   
   // Search query states
@@ -482,7 +484,7 @@ export const CategoriesTab = ({ subTab }) => {
       setHeaderImageFile(null);
       setShowAddHeaderModal(false);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -510,7 +512,7 @@ export const CategoriesTab = ({ subTab }) => {
       setNewCategory({ name: '', slug: '', parentHeader: '', status: 'Active', isPopular: false, showOnHome: false });
       setShowAddCategoryModal(false);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -538,7 +540,7 @@ export const CategoriesTab = ({ subTab }) => {
       setNewSubcategory({ name: '', slug: '', parentL2: '', status: 'Active', isPopular: false, showOnHome: false });
       setShowAddSubcategoryModal(false);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -607,7 +609,7 @@ export const CategoriesTab = ({ subTab }) => {
       setEditIconFile(null);
       setEditImageFile(null);
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -616,15 +618,17 @@ export const CategoriesTab = ({ subTab }) => {
   // so products already pointing at the category are not orphaned).
   // ==========================================================================
   const removeCategory = async (id, name, label) => {
-    if (!window.confirm(`Delete ${label} "${name}"?`)) return;
+    return ui.perform(`Delete ${label} "${name}"?`, async () => {
     try {
       await authDelete(`/api/categories/${id}`);
       triggerToast(`${label} "${name}" deleted.`);
       await loadTree();
     } catch (err) {
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
-  };
+
+});
+};
 
   const handleDeleteHeader = (id, name) => removeCategory(id, name, 'Header category');
   const handleDeleteCategory = (id, name) => removeCategory(id, name, 'Category');

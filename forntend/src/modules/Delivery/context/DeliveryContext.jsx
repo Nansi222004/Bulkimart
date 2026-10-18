@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { portalRequest } from '../../../utils/portalRequests';
@@ -16,6 +17,7 @@ export const useDelivery = () => {
 };
 
 export const DeliveryProvider = ({ children }) => {
+  const ui = useFeedback();
   /**
    * Starts false on every load, on purpose.
    *
@@ -319,7 +321,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast(res.ok ? 'Pickup code sent to the customer' : (body.message || 'Could not send the pickup code'));
       return { ok: res.ok, message: body.message };
     } catch (err) {
-      triggerToast(err.message || 'Network error sending the pickup code');
+      triggerToast(err.message || 'Network error sending the pickup code', {type:'error'});
       return { ok: false, message: err.message };
     }
   };
@@ -452,7 +454,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast(body.message);
       return true;
     } catch (err) {
-      triggerToast(err.message || 'Network error — is the server running?');
+      triggerToast(err.message || 'Network error — is the server running?', {type:'error'});
       return false;
     }
   };
@@ -1032,10 +1034,7 @@ export const DeliveryProvider = ({ children }) => {
     }
   };
 
-  const triggerToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
-  };
+  const triggerToast = (message, options) => ui.notify(message, options);
 
   const logoutDelivery = () => {
     setIsOnboarded(false);
@@ -1124,7 +1123,7 @@ export const DeliveryProvider = ({ children }) => {
       } catch { /* balance stays as last known; not fatal */ }
       fetchPayoutHistory();
     } catch (err) {
-      triggerToast(err.message || 'Network error — is the server running?');
+      triggerToast(err.message || 'Network error — is the server running?', {type:'error'});
     } finally {
       setPayoutRequesting(false);
     }
@@ -1186,7 +1185,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast('Order accepted! Head to the store.');
       setRiderPingOrder(null);
     } catch (err) {
-      triggerToast(err.message || 'Error accepting order');
+      triggerToast(err.message || 'Error accepting order', {type:'error'});
     }
   };
 
@@ -1223,7 +1222,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast('Order declined.');
       setRiderPingOrder(null);
     } catch (err) {
-      triggerToast(err.message || 'Network error declining the order.');
+      triggerToast(err.message || 'Network error declining the order.', {type:'error'});
     }
   };
 
@@ -1291,7 +1290,7 @@ export const DeliveryProvider = ({ children }) => {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        triggerToast(body.message || 'Could not cancel this delivery.');
+        triggerToast(body.message || 'Could not cancel this delivery.', {type:'error'});
         restoreActiveDelivery();
         return;
       }
@@ -1302,7 +1301,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast(body.message || 'Delivery cancelled.');
       setActiveOrder(null);
     } catch (err) {
-      triggerToast(err.message || 'Network error cancelling the delivery.');
+      triggerToast(err.message || 'Network error cancelling the delivery.', {type:'error'});
     }
   };
 
@@ -1322,7 +1321,7 @@ export const DeliveryProvider = ({ children }) => {
       if (toast) triggerToast(toast);
       return true;
     } catch (err) {
-      triggerToast(err.message || 'Could not update the delivery');
+      triggerToast(err.message || 'Could not update the delivery', {type:'error'});
       return false;
     }
   };
@@ -1356,7 +1355,7 @@ export const DeliveryProvider = ({ children }) => {
       triggerToast(body.message || 'Code sent to the customer. Ask them for it.');
       return true;
     } catch (err) {
-      triggerToast(err.message || 'Could not send the code');
+      triggerToast(err.message || 'Could not send the code', {type:'error'});
       return false;
     }
   };
@@ -1375,7 +1374,7 @@ export const DeliveryProvider = ({ children }) => {
       setActiveOrder(prev => ({ ...prev, step: 'transit' }));
       triggerToast('Items picked up! Navigate to the customer.');
     } catch (err) {
-      triggerToast(err.message || 'Error confirming pickup');
+      triggerToast(err.message || 'Error confirming pickup', {type:'error'});
     }
   };
 
@@ -1453,7 +1452,7 @@ export const DeliveryProvider = ({ children }) => {
         : `Order Delivered successfully! Earned ₹${earnings}`);
       return true;
     } catch (err) {
-      triggerToast(err.message || 'Error verifying OTP');
+      triggerToast(err.message || 'Error verifying OTP', {type:'error'});
       return false;
     }
   };

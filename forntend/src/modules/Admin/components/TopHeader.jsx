@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useRef, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { createAdminNotificationOpener } from '../utils/serviceNotifications';
@@ -12,6 +13,7 @@ const timeAgo = (iso) => {
 };
 
 export const TopHeader = ({ onLogout }) => {
+  const ui = useFeedback();
   const {
     triggerToast, activeTab, setActiveTab,
     adminNotifications, adminUnreadCount, adminNotifLoading,
@@ -128,11 +130,12 @@ export const TopHeader = ({ onLogout }) => {
             const initials = displayName.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'SA';
             return (
               <div 
-                className="sa-user-badge" 
-                onClick={() => {
-                  if (window.confirm("Are you sure you want to log out?")) {
-                    onLogout();
-                  }
+                className="sa-user-badge" role="button" tabIndex={0} aria-label="Log out of admin"
+                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click(); } }}
+                onClick={async () => {
+                  return ui.perform("Are you sure you want to log out?", async () => {
+                    return await onLogout();
+                  });
                 }}
                 style={{ cursor: 'pointer' }}
                 title="Click to Log Out"

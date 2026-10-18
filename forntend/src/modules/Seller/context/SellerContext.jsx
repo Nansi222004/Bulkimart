@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
@@ -26,6 +27,7 @@ const getBrowserStorage = () => {
 };
 
 export const SellerProvider = ({ children }) => {
+  const ui = useFeedback();
   const [userProfile, setUserProfile] = useState(() => {
     try { return JSON.parse(localStorage.getItem('sellerUserProfile') || 'null'); } catch { return null; }
   });
@@ -469,7 +471,7 @@ export const SellerProvider = ({ children }) => {
     } catch (err) {
       if (!current()) return { ok: false, stale: true };
       setProductError(err.message);
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false };
     } finally {
       productSaveLock.current = false;
@@ -897,12 +899,7 @@ export const SellerProvider = ({ children }) => {
 
 
   // TOAST TRIGGER
-  const triggerToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage('');
-    }, 3000);
-  };
+  const triggerToast = (message, options) => ui.notify(message, options);
 
   /**
    * Toggle a sales channel and PERSIST it.
@@ -949,7 +946,7 @@ export const SellerProvider = ({ children }) => {
     } catch (err) {
       setSelectedTypes(prev);           // roll back
       if (!prev.includes(activeMode)) setActiveMode(prev[0]);
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
     }
   };
 
@@ -978,7 +975,7 @@ export const SellerProvider = ({ children }) => {
       await fetchSellerProfile({ fresh: true });
       return { ok: true, status: body.status };
     } catch (err) {
-      triggerToast(err.message || 'Could not request Wholesale access');
+      triggerToast(err.message || 'Could not request Wholesale access', {type:'error'});
       return { ok: false, message: err.message };
     } finally {
       wholesaleRequestLock.current = false;
@@ -1040,7 +1037,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: true };
     } catch (err) {
       const message = safeErrorMessage(err, 'Could not send OTP');
-      triggerToast(message);
+      triggerToast(message, {type:'error'});
       return { ok: false, message };
     }
   };
@@ -1088,7 +1085,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: true, user: body.user };
     } catch (err) {
       const message = safeErrorMessage(err, 'OTP verification failed');
-      triggerToast(message);
+      triggerToast(message, {type:'error'});
       return { ok: false, message };
     }
   };
@@ -1225,7 +1222,7 @@ export const SellerProvider = ({ children }) => {
       return { ok: true, seller: done.seller };
     } catch (err) {
       setSubmitError(err.message);
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false };
     } finally {
       setSubmitting(false);
@@ -1371,7 +1368,7 @@ export const SellerProvider = ({ children }) => {
     } catch (err) {
       if (!current()) return { ok: false, stale: true };
       setProductError(err.message);
-      triggerToast(err.message);
+      triggerToast(err.message, {type:'error'});
       return { ok: false };
     } finally {
       productSaveLock.current = false;
@@ -1403,7 +1400,7 @@ export const SellerProvider = ({ children }) => {
       await fetchMyProducts();
       triggerToast('Stock updated successfully!');
     } catch (err) {
-      triggerToast(err.message || 'Network error updating stock');
+      triggerToast(err.message || 'Network error updating stock', {type:'error'});
     } finally {
       setStockUpdatingId(null);
     }
@@ -1429,7 +1426,7 @@ export const SellerProvider = ({ children }) => {
   // request will succeed.
   const [deletingProductId, setDeletingProductId] = useState(null);
   const handleDeleteProduct = async (productId) => {
-    if (!window.confirm('Are you sure you want to delete this product from listings?')) return;
+    return ui.perform('Are you sure you want to delete this product from listings?', async () => {
     if (deletingProductId) return; // one delete in flight at a time
     setDeletingProductId(productId);
     try {
@@ -1446,11 +1443,13 @@ export const SellerProvider = ({ children }) => {
       await fetchMyProducts();
       triggerToast('Product deleted successfully');
     } catch (err) {
-      triggerToast(err.message || 'Network error deleting product');
+      triggerToast(err.message || 'Network error deleting product', {type:'error'});
     } finally {
       setDeletingProductId(null);
     }
-  };
+
+});
+};
 
   // TRANSITION FULFILLMENT ORDER STATUS
   // handleUpdateOrderStatus removed. It repainted the status in local state and
@@ -1481,7 +1480,7 @@ export const SellerProvider = ({ children }) => {
       setPayoutAmount(''); setActiveFinanceTab('Overview');
       await fetchSellerFinances(); triggerToast('Payout request submitted.');
       return { ok: true };
-    } catch (error) { triggerToast(error.message); return { ok: false, message: error.message }; }
+    } catch (error) { triggerToast(error.message, {type:'error'}); return { ok: false, message: error.message }; }
   };
 
 

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, qs } from '../../../utils/adminApi';
@@ -22,6 +23,7 @@ const STATUS_CLASS = {
 };
 
 export const SellerPromotionsTab = () => {
+  const ui = useFeedback();
   const { triggerToast } = useAdmin();
 
   const [rows, setRows] = useState([]);
@@ -42,7 +44,7 @@ export const SellerPromotionsTab = () => {
       const res = await adminGet(`/promotions${qs({ status: statusFilter, module: moduleFilter, search })}`);
       setRows(res.data || []);
     } catch (err) {
-      triggerToast(err.message || 'Could not load promotions');
+      triggerToast(err.message || 'Could not load promotions', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -58,7 +60,7 @@ export const SellerPromotionsTab = () => {
       const res = await adminGet(`/promotions/${id}`);
       setDetail(res.data);
     } catch (err) {
-      triggerToast(err.message || 'Could not load promotion detail');
+      triggerToast(err.message || 'Could not load promotion detail', {type:'error'});
     } finally {
       setDetailLoading(false);
     }
@@ -72,7 +74,7 @@ export const SellerPromotionsTab = () => {
       setDetail(null);
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Action failed');
+      triggerToast(err.message || 'Action failed', {type:'error'});
     } finally {
       setBusy(false);
     }
@@ -83,14 +85,17 @@ export const SellerPromotionsTab = () => {
     if (!feedbackText.trim()) { triggerToast('Enter what needs to change.'); return; }
     act('/request-changes', { feedback: feedbackText }, 'Feedback sent to the seller.');
   };
-  const reject = () => {
-    const reason = window.prompt('Reason for rejection (optional):') || '';
-    act('/reject', { reason }, 'Promotion rejected.');
-  };
-  const disable = () => {
-    if (!window.confirm('Disable this active promotion? It will stop appearing to customers immediately.')) return;
-    act('/disable', {}, 'Promotion disabled.');
-  };
+  const reject = async () => {
+    return ui.collect('Reason for rejection (optional):', {title: "Review this decision", required:false, action: async (reason) => {
+    return act('/reject', { reason }, 'Promotion rejected.');
+
+}});};
+  const disable = async () => {
+    return ui.perform('Disable this active promotion? It will stop appearing to customers immediately.', async () => {
+    return act('/disable', {}, 'Promotion disabled.');
+
+});
+};
 
   const filtered = rows.filter((r) => !search.trim() || r.title.toLowerCase().includes(search.trim().toLowerCase()) || r.seller?.name?.toLowerCase().includes(search.trim().toLowerCase()));
 

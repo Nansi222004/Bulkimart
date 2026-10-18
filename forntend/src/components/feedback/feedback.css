@@ -1,0 +1,23 @@
+.feedback-backdrop { position:fixed; inset:0; z-index:20000; display:flex; align-items:center; justify-content:center; padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background:#0f172a99; }
+.feedback-dialog { width:min(100%,480px); max-height:calc(100vh - 24px); max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; padding:clamp(20px,5vw,28px); border-radius:20px; background:#fff; color:#172b4d; box-shadow:0 24px 64px #0004; overflow-wrap:anywhere; font-family:inherit; }
+.feedback-dialog h2 { margin:0 0 12px; font-size:22px; }
+.feedback-dialog p { line-height:1.6; white-space:pre-wrap; }
+.feedback-dialog label { display:grid; gap:8px; font-weight:600; }
+.feedback-dialog textarea { width:100%; min-width:0; padding:12px; border:1px solid #94a3b8; border-radius:10px; font:inherit; font-size:16px; resize:vertical; }
+.feedback-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; margin-top:24px; }
+.feedback-actions button { flex:1 1 150px; min-width:0; min-height:46px; padding:10px 16px; border:1px solid #cbd5e1; border-radius:12px; background:#f8fafc; color:#172b4d; font:inherit; font-weight:700; cursor:pointer; }
+.feedback-actions .feedback-primary { background:#073b78; border-color:#073b78; color:#fff; }
+.feedback-actions .feedback-destructive { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+.feedback-actions button:disabled { opacity:.65; cursor:wait; }
+.feedback-error { padding:12px; border:1px solid #fecaca; border-radius:10px; background:#fff1f2; color:#991b1b; }
+.feedback-toasts { position:fixed; top:max(12px,env(safe-area-inset-top)); right:max(12px,env(safe-area-inset-right)); width:min(380px,calc(100% - 24px)); z-index:21000; display:grid; gap:8px; pointer-events:none; }
+.feedback-toast { display:flex; align-items:flex-start; gap:10px; padding:14px; border:1px solid #cbd5e1; border-left:4px solid #073b78; border-radius:12px; background:#fff; color:#172b4d; box-shadow:0 6px 20px #0f172a26; pointer-events:auto; overflow-wrap:anywhere; font-size:14px; }
+.feedback-toast p { margin:4px 0 0; line-height:1.5; }
+.feedback-toast-icon { flex:none; font-weight:800; font-size:20px; }
+.feedback-toast > div { flex:1; min-width:0; }
+.feedback-toast button { flex:none; min-width:44px; min-height:44px; border:0; border-radius:8px; background:#f1f5f9; color:#172b4d; font-size:22px; cursor:pointer; }
+.feedback-toast--success { border-left-color:#15803d; }
+.feedback-toast--error { border-left-color:#b91c1c; }
+.feedback-toast--warning { border-left-color:#a16207; }
+.feedback-dialog :focus-visible,.feedback-toast :focus-visible { outline:3px solid #078ccb; outline-offset:3px; }
+@media(max-width:480px) { .feedback-backdrop { align-items:flex-end; } .feedback-dialog { border-radius:20px 20px 12px 12px; } .feedback-toasts { max-height:32dvh; overflow-y:auto; } }

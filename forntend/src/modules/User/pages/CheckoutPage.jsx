@@ -330,7 +330,7 @@ const CheckoutPage = () => {
     if (res.ok) {
       setLandmarkImgUrl(res.imageUrl);
     } else {
-      alert(res.message || 'Landmark image upload failed');
+      setAddressFormError(res.message || 'Landmark image upload failed');
     }
   };
 

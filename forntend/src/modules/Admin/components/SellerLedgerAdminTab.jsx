@@ -1,8 +1,10 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { adminGet, adminPatch } from '../../../utils/adminApi';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 export default function SellerLedgerAdminTab({ view = 'earnings' }) {
+  const ui = useFeedback();
   const [rows, setRows] = useState([]); const [ledger, setLedger] = useState([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const load = async () => {
@@ -17,11 +19,12 @@ export default function SellerLedgerAdminTab({ view = 'earnings' }) {
   };
   useEffect(() => { load(); }, [view]);
   const settle = async (payout) => {
-    const ref = window.prompt('Enter the confirmed bank transaction reference. This must only be done after the transfer succeeds.');
-    if (!ref) return;
-    if (!window.confirm(`Record ${payout.payoutRef} as paid using ${ref}?`)) return;
-    try { await adminPatch(`/vendor-payouts/${payout._id}/settle`, { transactionRef: ref }); await load(); }
-    catch (e) { setError(e.message); }
+    const ref = await ui.collect('Enter the confirmed bank transaction reference. This must only be done after the transfer succeeds.', {title:'Bank transaction reference', inputLabel:'Transaction reference'});
+    if (ref === null) return;
+    return ui.perform({title:'Record this payout as paid?',message:`Record ${payout.payoutRef} as paid using ${ref}? Only confirm after the bank transfer has succeeded.`,confirmLabel:'Record as paid'}, async () => {
+      await adminPatch(`/vendor-payouts/${payout._id}/settle`, {transactionRef:ref});
+      await load();
+    });
   };
   if (loading) return <div style={{ padding: 40 }}>Loading authoritative seller finances…</div>;
   return <div><h2>{view === 'payouts' ? 'Seller payout allocations' : 'Seller ledger balances'}</h2>

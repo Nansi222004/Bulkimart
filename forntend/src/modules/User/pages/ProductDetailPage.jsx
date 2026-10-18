@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { openWholesaleProduct, rememberWholesaleReturn } from '../utils/productRoute';
 import { useWholesaleRecommendations } from '../hooks/useWholesaleRecommendations';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -53,6 +54,7 @@ const CartIcon = () => (
 );
 
 const ProductDetailPage = () => {
+  const ui = useFeedback();
   const {
     selectedProduct, setSelectedProduct, addToCart, getItemQty,
     getDeliveryPoint, getSelectedAddress, getLocationDisplayName, setActiveNav,
@@ -372,7 +374,7 @@ const ProductDetailPage = () => {
             aria-pressed={isWishlisted(product.id)} disabled={!retailAvailable}
             onClick={async () => {
               const r = await toggleWishlist(product.id);
-              if (r && r.ok === false) alert(r.message || 'Could not update your wishlist.');
+              if (r && r.ok === false) ui.notify(r.message || 'Could not update your wishlist.');
             }}
           >
             <svg

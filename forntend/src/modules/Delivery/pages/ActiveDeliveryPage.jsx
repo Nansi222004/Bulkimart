@@ -1,8 +1,10 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { DeliveryMap } from '../../../components/DeliveryMap';
 
 export const ActiveDeliveryPage = () => {
+  const ui = useFeedback();
   const {
     activeOrder,
     completePickup,
@@ -49,7 +51,7 @@ export const ActiveDeliveryPage = () => {
       triggerToast('Please verify and check all items before pickup.');
       return;
     }
-    completePickup();
+    return ui.perform({title:'Confirm pickup?',message:`Confirm that all items for ${activeOrder.orderNumber || 'this delivery'} have been collected from the store.`,confirmLabel:'Confirm pickup'}, completePickup);
   };
 
   const handleDeliverySubmit = async (e) => {
@@ -241,10 +243,10 @@ export const ActiveDeliveryPage = () => {
               </button>
               <button
                 className="delivery-danger-btn-outline"
-                onClick={() => {
-                  if (window.confirm('Cancel this delivery trip? Account warning may apply.')) {
-                    cancelOrder(activeOrder);
-                  }
+                onClick={async () => {
+                  return ui.perform('Cancel this delivery trip? Account warning may apply.', async () => {
+                    return await cancelOrder(activeOrder);
+                  });
                 }}
               >
                 Cancel Delivery

@@ -59,7 +59,7 @@ export const NotificationBroadcasterTab = () => {
       setRows(res.data || []);
       setTotal(res.meta?.total ?? (res.data || []).length);
     } catch (err) {
-      triggerToast(err.message || 'Could not load broadcasts');
+      triggerToast(err.message || 'Could not load broadcasts', {type:'error'});
     } finally {
       setLoading(false);
     }
@@ -104,7 +104,7 @@ export const NotificationBroadcasterTab = () => {
       if (form.mediaPreview) URL.revokeObjectURL(form.mediaPreview);
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not create the broadcast');
+      triggerToast(err.message || 'Could not create the broadcast', {type:'error'});
     } finally {
       setSaving(false);
     }
@@ -116,7 +116,7 @@ export const NotificationBroadcasterTab = () => {
       triggerToast(message || 'Cancelled');
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not cancel');
+      triggerToast(err.message || 'Could not cancel', {type:'error'});
     }
   };
 
@@ -126,7 +126,7 @@ export const NotificationBroadcasterTab = () => {
       triggerToast(message || 'Deleted');
       await load();
     } catch (err) {
-      triggerToast(err.message || 'Could not delete');
+      triggerToast(err.message || 'Could not delete', {type:'error'});
     }
   };
 
@@ -144,7 +144,7 @@ export const NotificationBroadcasterTab = () => {
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      triggerToast(err.message || 'Could not export CSV');
+      triggerToast(err.message || 'Could not export CSV', {type:'error'});
     }
   };
 

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -12,12 +13,14 @@ const STATUS_COLORS = {
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
+  const ui = useFeedback();
   const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus, setSellerThirdPartyFulfillment, removeSellerAccount } = useAdmin();
   const [radiusInput, setRadiusInput] = useState(seller?.business?.store?.radiusKm ?? '');
   const [courierEnabled, setCourierEnabled] = useState(Boolean(seller?.thirdPartyFulfillment?.enabled));
   const [pickupLocation, setPickupLocation] = useState(seller?.thirdPartyFulfillment?.shiprocketPickupLocation || '');
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectError, setRejectError] = useState('');
   const [removing, setRemoving] = useState(false);
 
   if (!seller && !loading) return null;
@@ -58,38 +61,43 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
 
   const handleWholesaleDecision = async (status) => {
     if (!d._id) return;
-    const reason = status === 'rejected' ? (window.prompt('Optional reason for rejecting or revoking Wholesale access:') || '') : undefined;
-    const result = await setSellerWholesaleStatus(d._id, status, reason);
-    if (result?.ok && onRefresh) onRefresh();
+    const action = async (reason) => {
+      const result=await setSellerWholesaleStatus(d._id,status,reason);
+      if(result?.ok && onRefresh) onRefresh();
+      return result;
+    };
+    const message=`Set Wholesale access for ${storeName} to ${status}?`;
+    if(status==='rejected')return ui.collect(message,{title:'Change Wholesale access?',required:false,inputLabel:'Reason',destructive:true,confirmLabel:'Update access',action});
+    return ui.perform({title:'Change Wholesale access?',message,confirmLabel:'Update access'},()=>action(undefined));
   };
 
   const handleApprove = async () => {
-    await approveSeller(d._id);
+    const result = await approveSeller(d._id);
+    if (!result) return;
     if (onRefresh) onRefresh();
     onClose();
   };
 
   const handleSuspend = async () => {
-    await suspendSeller(d._id);
+    const result = await suspendSeller(d._id);
+    if (!result) return;
     if (onRefresh) onRefresh();
     onClose();
   };
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert('Please enter a rejection reason.');
+      setRejectError('Please enter a rejection reason.');
       return;
     }
-    await rejectSeller(d._id, rejectReason.trim());
+    const result = await rejectSeller(d._id, rejectReason.trim());
+    if (!result) return;
     if (onRefresh) onRefresh();
     onClose();
   };
 
   const handleRemove = async () => {
-    const confirmed = window.confirm(
-      'Remove this seller account? A reference-free onboarding profile may be permanently deleted. A seller with historical catalog, order, payout, or financial records will be deactivated instead. Active fulfillment or unresolved obligations will block the action.'
-    );
-    if (!confirmed) return;
+    return ui.perform('Remove this seller account? A reference-free onboarding profile may be permanently deleted. A seller with historical catalog, order, payout, or financial records will be deactivated instead. Active fulfillment or unresolved obligations will block the action.', async () => {
     setRemoving(true);
     const result = await removeSellerAccount(d._id);
     setRemoving(false);
@@ -97,7 +105,9 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
       if (onRefresh) onRefresh();
       onClose();
     }
-  };
+
+});
+};
 
   return (
     <div style={{
@@ -449,11 +459,15 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                   </label>
                   <textarea
                     value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
+                    onChange={(e) => {setRejectReason(e.target.value);setRejectError('');}}
+                    aria-label="Rejection reason"
+                    aria-invalid={!!rejectError}
+                    aria-describedby={rejectError ? 'seller-reject-error' : undefined}
                     placeholder="Enter specific reason for rejecting application..."
                     rows={2}
                     style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #fca5a5', fontSize: 12, boxSizing: 'border-box' }}
                   />
+                  {rejectError && <p id="seller-reject-error" role="alert">{rejectError}</p>}
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                     <button
                       onClick={() => setShowRejectInput(false)}

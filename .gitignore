@@ -22,40 +22,11 @@ temp_interactive_push.bat
 # Test directories
 __tests__/
 **/__tests__/
-!backend/__tests__/
-backend/__tests__/*
-!backend/__tests__/api/
-backend/__tests__/api/*
-!backend/__tests__/api/account-management.http.test.js
-!backend/__tests__/api/admin-product-delete.http.test.js
-!backend/__tests__/api/seller-phone-auth.http.test.js
-!backend/__tests__/api/delivery-onboarding-upload.http.test.js
-!backend/__tests__/services/
-backend/__tests__/services/*
-!backend/__tests__/services/account-lifecycle.test.js
-!backend/__tests__/services/onboarding-regressions.test.js
-!backend/__tests__/services/phone-normalization.test.js
 test/
 tests/
-!backend/__tests__/api/service-management.http.test.js
-!backend/__tests__/api/image-search.http.test.js
-!backend/__tests__/api/delivery-login-role.http.test.js
-!backend/__tests__/api/seller-first-checkout.http.test.js
-!backend/__tests__/api/checkout-workflow.http.test.js
-!backend/__tests__/api/checkout-address-contact.test.js
-!backend/__tests__/api/socket-transport.http.test.js
-!backend/__tests__/services/notification-push.test.js
-!backend/__tests__/services/fcm.service.test.js
-!backend/__tests__/api/retired-notifications.http.test.js
 
-!backend/__tests__/services/seller-order-actions.test.js
-!backend/__tests__/services/shiprocket-pickup.test.js
-!backend/__tests__/api/seller-order-lifecycle.http.test.js
-!backend/__tests__/api/seller-pickup-sync.http.test.js
-
-!backend/__tests__/api/seller-marketing-retirement.http.test.js
-!backend/__tests__/api/wholesale.http.test.js
-!backend/__tests__/api/seller-payment.http.test.js
-!backend/__tests__/api/razorpay-webhook.http.test.js
-!backend/__tests__/api/seller-profile-wholesale.http.test.js
-!backend/__tests__/api/wholesale-product-creation.http.test.js
+# Local-only QA sources and reports
+/forntend/tests/
+/backend/tests/
+/backend/__tests__/
+/tests/
