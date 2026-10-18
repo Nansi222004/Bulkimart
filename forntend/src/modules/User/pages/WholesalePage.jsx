@@ -1,8 +1,7 @@
 import { openWholesaleProduct } from '../utils/productRoute';
 import { boundedFetch } from '../../../utils/portalRequests';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
-import { useUser } from '../context/UserContext';
 import WholesaleCartPage from './WholesaleCartPage';
 
 import './WholesalePage.css';
@@ -28,7 +27,6 @@ const WholesaleArtwork = ({ product, alt = '' }) => {
 };
 
 const WholesalePage = () => {
-  const { currentUser } = useUser();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -38,6 +36,8 @@ const WholesalePage = () => {
   const [productId, setProductId] = useState(routeProductId);
   const [page, setPage] = useState(() => Math.max(1, Number(new URLSearchParams(window.location.search).get('page')) || 1));
   const [pages, setPages] = useState(1);
+  const [categories, setCategories] = useState([]);
+  const [sort, setSort] = useState(() => new URLSearchParams(window.location.search).get('sort') || 'default');
 
   useEffect(() => {
     const syncProductRoute = () => {
@@ -45,6 +45,7 @@ const WholesalePage = () => {
       const params = new URLSearchParams(window.location.search);
       setQuery(params.get('q') || '');
       setCategory(params.get('category') || '');
+      setSort(params.get('sort') || 'default');
       setPage(Math.max(1, Number(params.get('page')) || 1));
     };
     window.addEventListener('popstate', syncProductRoute);
@@ -65,20 +66,23 @@ const WholesalePage = () => {
     const params = new URLSearchParams({ page: String(page), limit: '24' });
     if (query.trim()) params.set('q', query.trim());
     if (category) params.set('category', category);
+    if (sort !== 'default') params.set('sort', sort);
     boundedFetch(apiUrl(`/api/products/wholesale/catalog?${params}`), {
-      headers: { Authorization: `Bearer ${localStorage.getItem('userToken') || ''}` },
+      cache: 'no-store',
       signal: controller.signal,
     })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          const message = response.status === 401 || response.status === 403
-            ? 'Please sign in with a customer account to view Wholesale offers.'
-            : body.message || `Wholesale offers could not be loaded (${response.status}).`;
+          const message = body.message || `Wholesale offers could not be loaded (${response.status}).`;
           throw new Error(message);
         }
-        if (active) setPages(body.meta?.pages || 1);
-        return body.data || [];
+        if (!Array.isArray(body.data)) throw new Error('Invalid Wholesale catalog response. Please retry.');
+        if (active) {
+          setPages(body.meta?.pages || 1);
+          setCategories(body.meta?.categories || []);
+        }
+        return body.data;
       })
       .then((data) => { if (active) setProducts(Array.isArray(data) ? data : []); })
       .catch((requestError) => {
@@ -89,18 +93,9 @@ const WholesalePage = () => {
       .finally(() => { if (active) setLoading(false); });
 
     return () => { active = false; controller.abort(); };
-  }, [attempt, currentUser, page, productId, query, category]);
+  }, [attempt, page, productId, query, category, sort]);
 
-  const categories = useMemo(() => [...new Set(products.map((product) => product.category?.name).filter(Boolean))].sort(), [products]);
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return products.filter((product) => {
-      const matchesCategory = !category || product.category?.name === category;
-      const text = [product.name, product.seller?.name, product.category?.name].filter(Boolean).join(' ').toLowerCase();
-      return matchesCategory && (!needle || text.includes(needle));
-    });
-  }, [products, query, category]);
+  const filtered = products;
 
   const openProduct = (product) => openWholesaleProduct(product._id, product.variants?.find((v) => v.available)?.variantId);
 
@@ -112,6 +107,7 @@ const WholesalePage = () => {
     window.history.replaceState(null, '', '/wholesale' + (params.size ? '?' + params : ''));
     if (key === 'q') setQuery(value);
     if (key === 'category') setCategory(value);
+    if (key === 'sort') setSort(value);
     setPage(key === 'page' ? Number(value) : 1);
   };
 
@@ -181,8 +177,16 @@ const WholesalePage = () => {
         </div>
 
         <div className="wholesale-meta-row">
+          <label>Sort by{' '}
+            <select aria-label="Sort Wholesale offers" value={sort} onChange={event => updateFilter('sort', event.target.value)}>
+              <option value="default">Default order</option>
+              <option value="name">Name</option>
+              <option value="price-asc">Bulk price: low to high</option>
+              <option value="price-desc">Bulk price: high to low</option>
+            </select>
+          </label>
           <span className="wholesale-results-count">
-            Showing <strong>{filtered.length}</strong> {filtered.length === 1 ? 'offer' : 'offers'}
+            {loading ? 'Loading offers…' : error ? 'Offers unavailable' : <>Showing <strong>{filtered.length}</strong> {filtered.length === 1 ? 'offer' : 'offers'}</>}
             {category && <span> in <em>{category}</em></span>}
           </span>
 
@@ -190,7 +194,7 @@ const WholesalePage = () => {
             <button
               type="button"
               className="wholesale-page-btn"
-              disabled={page <= 1}
+              disabled={loading || !!error || page <= 1}
               onClick={() => updateFilter('page', String(page - 1))}
               aria-label="Previous page"
             >
@@ -205,7 +209,7 @@ const WholesalePage = () => {
             <button
               type="button"
               className="wholesale-page-btn"
-              disabled={page >= pages}
+              disabled={loading || !!error || page >= pages}
               onClick={() => updateFilter('page', String(page + 1))}
               aria-label="Next page"
             >
@@ -238,11 +242,6 @@ const WholesalePage = () => {
             <button type="button" className="wholesale-primary-btn" onClick={() => setAttempt((value) => value + 1)}>
               Try again
             </button>
-            {/sign in/i.test(error) && (
-              <button type="button" className="wholesale-secondary-btn" onClick={() => setActiveNav?.('account')}>
-                Go to Sign In
-              </button>
-            )}
           </div>
         </div>
       ) : !filtered.length ? (
@@ -253,8 +252,8 @@ const WholesalePage = () => {
               <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
             </svg>
           </div>
-          <h2>{products.length ? 'No matching offers found' : 'No Wholesale offers available'}</h2>
-          <p>{products.length ? 'Try another search or select a different category.' : 'Approved sellers’ available bulk offers will appear here.'}</p>
+          <h2>{query || category ? 'No matching offers found' : 'No Wholesale offers available'}</h2>
+          <p>{query || category ? 'Try another search or select a different category.' : 'Approved sellers’ available bulk offers will appear here.'}</p>
           {(query || category) && (
             <button
               type="button"

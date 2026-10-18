@@ -1,0 +1,31 @@
+.modal-viewport {
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  overscroll-behavior: contain;
+}
+.modal-viewport > :is(div,section) {
+  min-width: 0;
+  max-width: 100%;
+  /* Bound legacy inline vh heights to the available overlay content box. */
+  max-height: 100% !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+/* Delivery keeps its existing 430px desktop app frame even though sheets now
+   mount outside that frame to avoid clipping and positioning contexts. */
+@media (min-width: 769px) {
+  .delivery-modal-overlay.modal-viewport > .delivery-order-ping-modal-sheet { max-width: 430px; }
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .modal-viewport :is(input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]):not([type=range]), select, textarea) {
+    font-size: 16px !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+@media (max-width: 768px) {
+  .admin-modal-overlay.modal-viewport :is(section, form, fieldset, div) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .admin-modal-overlay.modal-viewport [style*="grid-template-columns"] { grid-template-columns: minmax(0,1fr) !important; }
+  .admin-modal-overlay.modal-viewport div:has(> table) { overflow-x: auto !important; }
+}

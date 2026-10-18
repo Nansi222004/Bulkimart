@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
@@ -122,7 +123,7 @@ export const ActiveDeliveryPage = () => {
   return (
     <div className="delivery-active-delivery-wrapper">
       {showLandmarkModal && hasImage && !imageLoadError && (
-        <div 
+        <ModalPortal
           onClick={() => setShowLandmarkModal(false)}
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -146,7 +147,7 @@ export const ActiveDeliveryPage = () => {
               ✕
             </button>
           </div>
-        </div>
+        </ModalPortal>
       )}
       {/* SLA Timer Alert Bar */}
       <div className={`delivery-sla-timer-bar ${isSlaDelayed ? 'delayed' : ''}`}>

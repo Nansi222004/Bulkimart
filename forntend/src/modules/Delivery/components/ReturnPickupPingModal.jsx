@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 
 const PING_WINDOW_SECONDS = 60; // same offer window as OrderPingModal — no server-provided expiry to prefer yet
@@ -30,7 +31,7 @@ export const ReturnPickupPingModal = ({ offer, onAccept, onDecline, onExpire }) 
   if (!offer) return null;
 
   return (
-    <div className="delivery-modal-overlay">
+    <ModalPortal className="delivery-modal-overlay">
       <div className="delivery-order-ping-modal-sheet">
         <div className="ping-modal-header-pulsing">
           <span className="ping-pulsing-circle" />
@@ -94,7 +95,7 @@ export const ReturnPickupPingModal = ({ offer, onAccept, onDecline, onExpire }) 
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

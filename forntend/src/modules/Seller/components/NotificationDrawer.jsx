@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
@@ -27,7 +28,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
       }
     } finally { setOpening(false); }
   };
-  return <div className="seller-modal-overlay" style={{ zIndex: 100 }} role="dialog" aria-modal="true" aria-label="Notifications">
+  return <ModalPortal className="seller-modal-overlay" style={{ zIndex: 100 }} role="dialog" aria-modal="true" aria-label="Notifications">
     <div className="seller-modal-sheet">
       <div className="modal-sheet-header"><h3>Notifications</h3><button type="button" aria-label="Close notifications" onClick={onClose}>✕</button></div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -48,10 +49,10 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
         </article>)}
       </div>
     </div>
-    {lightbox && <div className="seller-modal-overlay" style={{ zIndex: 101 }}>
+    {lightbox && <ModalPortal className="seller-modal-overlay" style={{ zIndex: 101 }}>
       <img src={lightbox} alt="Notification image" style={{ maxWidth: '90%', maxHeight: '80vh' }} />
       <button type="button" aria-label="Close image" onClick={() => setLightbox(null)}>✕</button>
-    </div>}
-  </div>;
+    </ModalPortal>}
+  </ModalPortal>;
 };
 export default NotificationDrawer;

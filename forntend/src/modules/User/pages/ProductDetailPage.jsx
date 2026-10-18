@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { openWholesaleProduct, rememberWholesaleReturn } from '../utils/productRoute';
 import { useWholesaleRecommendations } from '../hooks/useWholesaleRecommendations';
@@ -80,9 +81,15 @@ const ProductDetailPage = () => {
   const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
   const [cartActionPending, setCartActionPending] = useState(false);
   const [cartActionError, setCartActionError] = useState('');
+  const signInForWholesale = () => {
+    rememberWholesaleReturn(product.id, selectedVariantId);
+    if (currentUser) logoutUser?.();
+    setSelectedProduct(null); setActiveNav('account');
+  };
   const wholesale = useProductWholesale({
     productId: product?.id, variantId: String(selectedVariant?.id || selectedVariant?._id || ''), currentUser, enabled: !isDigital, retailAvailable, wholesaleDetail,
     openCart: () => { setSelectedProduct(null); setActiveNav('cart'); },
+    onSignIn: signInForWholesale,
   });
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -463,11 +470,7 @@ const ProductDetailPage = () => {
         )}
 
         {!isDigital && <ProductWholesaleOffer wholesale={wholesale} />}
-        {!isDigital && (!currentUser || /sign in|session|unauthorized|expired/i.test(wholesale.catalogError+' '+wholesale.error)) && <button type="button" className="pd-wholesale-signin" onClick={() => {
-          rememberWholesaleReturn(product.id,selectedVariantId);
-          if(currentUser)logoutUser?.();
-          setSelectedProduct(null); setActiveNav('account');
-        }}>Sign in to check wholesale availability</button>}
+        {!isDigital && (!currentUser || /sign in|session|unauthorized|expired/i.test(wholesale.error)) && <button type="button" className="pd-wholesale-signin" onClick={signInForWholesale}>Sign in to buy Wholesale</button>}
 
         {/* Seller */}
         <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
@@ -868,7 +871,7 @@ const ProductDetailPage = () => {
 
       {/* Ask a Question modal */}
       {showAskModal && (
-        <div
+        <ModalPortal
           onClick={() => !submittingQuestion && setShowAskModal(false)}
           style={{
             position: 'absolute',
@@ -965,7 +968,7 @@ const ProductDetailPage = () => {
               </>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

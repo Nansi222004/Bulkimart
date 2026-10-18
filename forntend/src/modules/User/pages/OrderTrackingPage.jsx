@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
@@ -1020,7 +1021,7 @@ export const OrderTrackingPage = () => {
 
       {/* Rate & Review modal */}
       {reviewModalItem && (
-        <div
+        <ModalPortal
           style={{
             position: 'absolute',
             inset: 0,
@@ -1134,12 +1135,12 @@ export const OrderTrackingPage = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Return Item modal */}
       {returnModalItem && (
-        <div
+        <ModalPortal
           style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.65)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }}
           onClick={() => !submittingReturn && setReturnModalItem(null)}
         >
@@ -1215,12 +1216,12 @@ export const OrderTrackingPage = () => {
               <p style={{ fontSize: 13, color: '#b91c1c' }}>{returnFormError || 'This item is no longer eligible for return.'}</p>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Return detail / timeline modal */}
       {viewingReturn && (
-        <div
+        <ModalPortal
           style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.65)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }}
           onClick={() => setViewingReturn(null)}
         >
@@ -1293,7 +1294,7 @@ export const OrderTrackingPage = () => {
               ))}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

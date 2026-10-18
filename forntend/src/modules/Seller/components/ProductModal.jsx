@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import VariantAttributesEditor from './VariantAttributesEditor';
 import VariantWholesaleFields from './VariantWholesaleFields';
@@ -439,7 +440,7 @@ export const ProductModal = () => {
   if (wholesaleOnly) {
     const chosen = variants.map((variant,index)=>({variant,index})).filter(({variant})=>!wholesaleVariantId || String(variant._id)===String(wholesaleVariantId));
     const authorized=hasWholesaleAccess(sellerProfile);
-    return <div className="seller-modal-overlay seller-wholesale-overlay" onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
+    return <ModalPortal className="seller-modal-overlay seller-wholesale-overlay" onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
       <div ref={wholesaleDialog} className="seller-wholesale-editor seller-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="wholesale-editor-title" onClick={event=>event.stopPropagation()}>
         <header className="seller-products-dialog-heading"><div><small>WHOLESALE (B2B)</small><h2 id="wholesale-editor-title">Wholesale Offer Terms</h2><p>{editingProduct?.name}</p></div><button type="button" className="seller-products-button" aria-label="Close" onClick={close} disabled={savingWholesale}>×</button></header>
         <div className="seller-wholesale-editor-body">
@@ -453,7 +454,7 @@ export const ProductModal = () => {
         </div>
         <footer className="seller-products-dialog-actions"><button type="button" className="seller-products-button" onClick={close} disabled={savingWholesale}>Close</button><button type="button" className="seller-products-button seller-products-primary" onClick={saveWholesalePricing} disabled={savingWholesale||!authorized||isDigital||!chosen.length||wholesaleInvalid||!wholesaleDirty}>{savingWholesale?'Saving…':'Save Wholesale Terms'}</button></footer>
       </div>
-    </div>;
+    </ModalPortal>;
   }
 
   // A listing's primary channel is fixed forever once created (the backend
@@ -464,7 +465,7 @@ export const ProductModal = () => {
   const showSameDayBlock = activeChannel === 'ecommerce';
 
   return (
-    <div style={{...S.overlay,...(wholesaleProductEditor ? {zIndex:1100} : {})}} onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
+    <ModalPortal style={{...S.overlay,...(wholesaleProductEditor ? {zIndex:1100} : {})}} onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
       {/* Mobile: sidebar stacks above the main content instead of beside it —
           at 260px fixed width (see S.sidebar) inside a 92%-wide dialog, the
           two-pane layout only left ~92px for the main content on a 375px
@@ -1142,7 +1143,7 @@ export const ProductModal = () => {
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

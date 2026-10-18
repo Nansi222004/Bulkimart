@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import Category from '../models/Category.js';
 import { wholesaleAvailability } from './wholesaleEligibility.service.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
+import { MAX_WHOLESALE_QUANTITY } from './wholesalePricing.service.js';
 import { httpError } from '../utils/response.js';
 
 const number = path => ({ $cond: [{ $in: [{ $type: path }, ['int', 'long', 'double', 'string']] }, { $convert: { input: path, to: 'double', onError: null, onNull: null } }, null] });
@@ -71,10 +72,25 @@ const serialize = product => ({
     return { variantId: variant._id, name: variant.name, sku: variant.sku, attributes: variant.attributes || [], unit: variant.unit, weight: variant.weight, available: true, availableStock: variant.stock, minimumQuantity: terms.minimumQuantity, quantityIncrement: terms.quantityIncrement, priceTiers: terms.priceTiers, maxQuantity: terms.maxQuantity, startingPrice: terms.startingPrice };
   }),
 });
-export const getWholesaleCatalogPage = async ({ page = 1, limit = 24, ...filters } = {}) => {
-  const [result] = await run([...eligiblePipeline(filters), { $sort: { _id: 1 } }, { $facet: { data: [{ $skip: (page - 1) * limit }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
+export const getWholesaleCatalogPage = async ({ page = 1, limit = 24, category, sort = 'default', ...filters } = {}) => {
+  const categoryFilter = category ? [{ $match: { 'category.name': category } }] : [];
+  const order = sort === 'name' ? { name: 1, _id: 1 } : sort === 'price-asc' ? { _price: 1, _id: 1 } : sort === 'price-desc' ? { _price: -1, _id: 1 } : { _id: 1 };
+  // Sort on the lowest purchasable tier, matching the public "From" price.
+  const price = sort.startsWith('price-') ? [{ $set: { _price: { $min: { $map: {
+    input: '$variants', as: 'v', in: { $min: { $map: {
+      input: { $filter: {
+        input: '$$v._terms.priceTiers', as: 't',
+        cond: { $lte: ['$$t.minimumQuantity', { $min: ['$$v.stock', MAX_WHOLESALE_QUANTITY] }] },
+      } }, as: 't', in: '$$t.unitPrice',
+    } } },
+  } } } } }] : [];
+  const [result] = await run([...eligiblePipeline(filters), { $facet: {
+    data: [...categoryFilter, ...price, { $sort: order }, { $skip: (page - 1) * limit }, { $limit: limit }],
+    count: [...categoryFilter, { $count: 'total' }],
+    categories: [{ $group: { _id: '$category.name' } }, { $sort: { _id: 1 } }],
+  } }]);
   const total = result?.count[0]?.total || 0;
-  return { data: (result?.data || []).map(serialize), meta: { page, limit, total, pages: Math.ceil(total / limit) } };
+  return { data: (result?.data || []).map(serialize), meta: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)), categories: (result?.categories || []).map(entry => entry._id) } };
 };
 export const hasWholesaleOffers = async filters => (await run([...eligiblePipeline(filters), { $limit: 1 }, { $project: { _id: 1 } }])).length > 0;
 // Admin-only management summary retains its existing complete inventory view.

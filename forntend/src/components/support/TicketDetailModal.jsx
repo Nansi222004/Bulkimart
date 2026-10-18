@@ -1,3 +1,4 @@
+import ModalPortal from '../ModalPortal';
 import React, { useState, useEffect, useRef } from 'react';
 
 const STATUS_COLORS = {
@@ -37,7 +38,7 @@ export const TicketDetailModal = ({ ticket, messages, onClose, onReply, onReopen
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }} onClick={onClose}>
+    <ModalPortal style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }} onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Support conversation" style={{ width: '100%', minWidth: 0, maxWidth: 480, maxHeight: '85dvh', overflowWrap: 'anywhere', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', boxSizing: 'border-box' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: 16, borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
@@ -108,7 +109,7 @@ export const TicketDetailModal = ({ ticket, messages, onClose, onReply, onReopen
           )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

@@ -9,14 +9,12 @@ import { ok, httpError } from '../utils/response.js';
 import { distanceKm } from '../utils/geo.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
 import { payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
+import { requireOrderPickup, pickupCoordinates } from '../services/storePickup.service.js';
+import { notifyRider, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { emitToRider } from '../socket/rooms.js';
 
 const pickupFor = async (order) => {
-  const sellerId = order.items.find((item) => item.sellerId)?.sellerId;
-  const seller = sellerId ? await Seller.findById(sellerId).select('businessName storeDetails') : null;
-  const shop = seller?.storeDetails;
-  if (!shop || shop.lat === undefined || shop.lng === undefined) {
-    throw httpError(409, 'The vendor must pin its pickup location before rider assignment');
-  }
+  const { seller, shop } = await requireOrderPickup(order);
   return {
     seller,
     pickup: {
@@ -30,12 +28,14 @@ const pickupFor = async (order) => {
 
 const isRiderEligible = async (partner, pickup, order) => {
   if (partner.status !== 'approved' || !partner.isAvailable) return false;
+  const user = await User.findById(partner.userId).select('isActive roles');
+  if (!user?.isActive || !user.roles?.includes('delivery')) return false;
   const zones = partner.zones || [];
   if (zones.length && !zones.includes(pickup.pincode) && !zones.includes(order.shippingAddress?.pincode)) return false;
   if (partner.deliveryRadiusKm != null) {
     const origin = partner.currentLocation?.lat !== undefined ? partner.currentLocation : partner.baseLocation;
     const distance = distanceKm(origin, pickup);
-    if (distance !== undefined && distance > partner.deliveryRadiusKm) return false;
+    if (distance === undefined || !Number.isFinite(distance) || distance > partner.deliveryRadiusKm) return false;
   }
   return (await canTakeAnother(partner._id)).ok;
 };
@@ -50,12 +50,18 @@ export const getManualAssignmentQueue = asyncHandler(async (_req, res) => {
   const formattedOrders = [];
   for (const order of orders) {
     let eligiblePartnerIds = [];
+    let pickupStore, pickupError;
     try {
-      const { pickup } = await pickupFor(order);
+      const { pickup, seller } = await pickupFor(order);
+      pickupStore = { _id: seller._id, name: seller.storeDetails?.name || seller.businessName, ...pickup };
       for (const partner of partners) {
         if (await isRiderEligible(partner, pickup, order)) eligiblePartnerIds.push(String(partner._id));
       }
-    } catch { /* the assignment endpoint returns the actionable location error */ }
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      pickupError = error.message;
+      pickupStore = error.meta?.sellerId ? { _id: error.meta.sellerId } : null;
+    }
     formattedOrders.push({
       _id: order._id, orderNo: order.orderNo, channel: order.type,
       city: order.shippingAddress?.city, pincode: order.shippingAddress?.pincode,
@@ -63,6 +69,7 @@ export const getManualAssignmentQueue = asyncHandler(async (_req, res) => {
       failureReason: order.fulfillment?.failureReason,
       deliveryPartnerId: order.deliveryPartnerId,
       eligiblePartnerIds,
+      pickupStore, pickupError,
       createdAt: order.createdAt,
     });
   }
@@ -78,6 +85,7 @@ export const getManualAssignmentQueue = asyncHandler(async (_req, res) => {
 
 export const assignDeliveryPartner = asyncHandler(async (req, res) => {
   const { partnerId, reason = 'Manual admin assignment' } = req.body || {};
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'A valid order is required');
   if (!mongoose.isValidObjectId(partnerId)) throw httpError(400, 'A valid delivery partner is required');
   const [order, partner] = await Promise.all([
     Order.findById(req.params.id), DeliveryPartner.findById(partnerId),
@@ -87,6 +95,7 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
   if (order.deliveryType !== 'internal' || order.status !== 'dispatched') {
     throw httpError(409, 'Only accepted, prepared, ready-for-pickup manual orders can be assigned');
   }
+  if (order.shiprocket?.orderId || order.shiprocket?.shipmentId || ['creating','assigning','reconciliation_required'].includes(order.shiprocket?.status)) throw httpError(409, 'Courier fulfillment must be reconciled before manual assignment');
   if (String(order.deliveryPartnerId || '') === String(partner._id)) {
     return ok(res, { orderId: order._id, deliveryId: order.deliveryId, partnerId: partner._id }, 'This rider is already assigned');
   }
@@ -98,14 +107,26 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
     address: [order.shippingAddress?.line1, order.shippingAddress?.line2, order.shippingAddress?.city].filter(Boolean).join(', '),
     lat: order.shippingAddress?.lat, lng: order.shippingAddress?.lng,
   };
-  if (drop.lat === undefined || drop.lng === undefined) throw httpError(409, 'The delivery address must be pinned before rider assignment');
+  if (!pickupCoordinates(drop)) throw httpError(409, 'The delivery address must have a valid map pin before rider assignment');
 
   const session = await mongoose.startSession();
   let delivery;
+  let assigned = false;
   try {
     await session.withTransaction(async () => {
       const fresh = await Order.findById(order._id).session(session);
+      if (!fresh) throw httpError(404, 'Order no longer exists');
+      if (String(fresh?.deliveryPartnerId || '') === String(partner._id) && fresh.deliveryId) {
+        delivery = await Delivery.findById(fresh.deliveryId).session(session);
+        assigned = false; return;
+      }
+      if (String(fresh?.deliveryId || '') !== String(order.deliveryId || '') || String(fresh?.deliveryPartnerId || '') !== String(order.deliveryPartnerId || '')) throw httpError(409, 'Assignment changed. Refresh before reassigning this order');
       if (fresh.status !== 'dispatched' || fresh.deliveryType !== 'internal') throw httpError(409, 'Order is no longer assignable');
+      if (fresh.shiprocket?.orderId || fresh.shiprocket?.shipmentId || ['creating','assigning','reconciliation_required'].includes(fresh.shiprocket?.status)) throw httpError(409, 'Courier fulfillment is in progress; refresh before assignment');
+      // Re-read the actual store and rider before creating the delivery snapshot.
+      const currentPickup = await pickupFor(fresh);
+      const currentPartner = await DeliveryPartner.findById(partnerId).session(session);
+      if (!currentPartner || !await isRiderEligible(currentPartner, currentPickup.pickup, fresh)) throw httpError(409, 'The selected rider is no longer available or eligible');
       if (fresh.deliveryId) {
         const old = await Delivery.findById(fresh.deliveryId).session(session);
         if (old && !['assigned', 'accepted', 'arrived_at_store'].includes(old.status)) {
@@ -116,13 +137,14 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
         if (activeHistory) activeHistory.unassignedAt = new Date();
       }
       const [createdDelivery] = await Delivery.create([{
-        orderId: fresh._id, partnerId: partner._id, pickupLocation: pickup, dropLocation: drop,
-        route: { distanceKm: distanceKm(pickup, drop) }, status: 'accepted',
+        orderId: fresh._id, partnerId: partner._id, pickupLocation: currentPickup.pickup, dropLocation: drop,
+        route: { distanceKm: distanceKm(currentPickup.pickup, drop) }, status: 'accepted',
         ratesUsed: rateSnapshotFor(payoutModeOf(fresh)), otpVerified: false,
         partnerLocation: partner.baseLocation?.lat !== undefined
           ? { lat: partner.baseLocation.lat, lng: partner.baseLocation.lng, updatedAt: new Date() } : undefined,
       }], { session });
       delivery = createdDelivery;
+      assigned = true;
       fresh.deliveryPartnerId = partner._id;
       fresh.deliveryId = delivery._id;
       fresh.needsManualAssignment = false;
@@ -136,5 +158,29 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
   }
 
   const riderUser = await User.findById(partner.userId).select('name phone').lean();
-  return ok(res, { orderId: order._id, deliveryId: delivery._id, partner: { _id: partner._id, name: riderUser?.name, phone: riderUser?.phone } }, 'Delivery partner assigned');
+  let notificationWarning;
+  if (assigned) {
+    try {
+      const notification = await notifyRider(String(partner._id), {
+        event: NOTIFICATION_EVENT.RIDER_ASSIGNED, title: 'Delivery assigned',
+        message: `Order ${order.orderNo} is assigned to you. Open your active delivery for pickup and drop-off details.`,
+        route: '/delivery/dashboard', metadata: { orderId: order._id },
+      });
+      if (!notification) notificationWarning = 'Assignment saved; notification could not be confirmed. The rider can refresh Active Delivery. Retrying assignment will not create another delivery.';
+      emitToRider(String(partner._id), 'delivery_assigned', { orderId: String(order._id) });
+    } catch { notificationWarning = 'Assignment saved, but rider notification failed. Ask the rider to refresh Active Delivery; do not create another assignment.'; }
+  }
+  return ok(res, { orderId: order._id, deliveryId: delivery._id, notificationWarning, partner: { _id: partner._id, name: riderUser?.name, phone: riderUser?.phone } }, notificationWarning || 'Delivery partner assigned');
+});
+
+export const setStorePickupLocation = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'A valid seller is required');
+  const { lat, lng } = req.body || {};
+  if (!pickupCoordinates({lat,lng})) throw httpError(400, 'Enter finite numeric latitude (-90 to 90) and longitude (-180 to 180)');
+  const seller = await Seller.findOneAndUpdate({ _id: req.params.id }, { $set: {
+    'storeDetails.lat':lat, 'storeDetails.lng':lng, 'storeDetails.point':{type:'Point',coordinates:[lng,lat]},
+    'storeDetails.locationSource':'manual',
+  }, $inc:{__v:1} }, {returnDocument:'after',runValidators:true});
+  if (!seller) throw httpError(404, 'Seller not found');
+  return ok(res, {sellerId:seller._id,lat,lng}, 'Store pickup pin saved. Refresh and revalidate assignment.');
 });

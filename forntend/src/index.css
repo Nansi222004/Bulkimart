@@ -45,6 +45,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -113,6 +118,7 @@ input, select, textarea { scroll-margin-block: 24px; }
 }
 
 #root {
+  min-width: 0;
   width: 100%;
   display: flex;
   justify-content: center;

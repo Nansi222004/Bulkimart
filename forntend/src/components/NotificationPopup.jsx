@@ -1,3 +1,4 @@
+import ModalPortal from './ModalPortal';
 import { isRetiredSellerNotification } from '../modules/Seller/utils/retiredFeatures';
 import { getPortalToken } from '../utils/portalSession';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
@@ -126,10 +127,10 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) =
       </div>
 
       {lightbox && (
-        <div className="nh-lightbox-overlay" onClick={() => setLightbox(null)}>
+        <ModalPortal className="nh-lightbox-overlay" onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="" className="nh-lightbox-img" onClick={(e) => e.stopPropagation()} />
           <button type="button" className="nh-lightbox-close" onClick={() => setLightbox(null)} aria-label="Close">✕</button>
-        </div>
+        </ModalPortal>
       )}
 
       <style>{`

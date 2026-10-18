@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../../../utils/api';
 
@@ -709,7 +710,7 @@ const UserWalletsTab = () => {
 
       {/* USER LEDGER MODAL */}
       {selectedUser && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           inset: 0,
           backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -830,12 +831,12 @@ const UserWalletsTab = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* CONTROLLED ADMIN CREDIT / DEBIT ADJUSTMENT MODAL */}
       {adjustmentModal.open && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           inset: 0,
           backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -969,7 +970,7 @@ const UserWalletsTab = () => {
               </div>
             </form>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

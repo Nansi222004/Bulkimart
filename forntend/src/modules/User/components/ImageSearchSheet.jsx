@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useRef, useState } from 'react';
 import { IMAGE_ACCEPT, validateSearchImage } from '../utils/imageSearch';
 import './ImageSearchSheet.css';
@@ -39,7 +40,7 @@ export default function ImageSearchSheet({ open, onClose, onSearch, loading, max
     catch (failure) { if (failure.name !== 'AbortError') setError(failure.message || 'Unable to search. Please try again.'); }
   };
   if (!open) return null;
-  return <div className="image-search-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+  return <ModalPortal className="image-search-backdrop" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialog} tabIndex={-1} className="image-search-sheet" role="dialog" aria-modal="true" aria-labelledby="image-search-title">
       <div className="image-search-sheet-head"><h2 id="image-search-title">Search by image</h2><button type="button" onClick={onClose} aria-label="Close image search">×</button></div>
       <p>Find similar product photos. Use a clear, well-lit picture.</p>
@@ -52,5 +53,5 @@ export default function ImageSearchSheet({ open, onClose, onSearch, loading, max
       {loading && <p role="status" aria-live="polite">Finding similar products…</p>}
       <button type="button" className="image-search-submit" disabled={!file || loading} onClick={search}>{loading ? 'Searching…' : 'Search image'}</button>
     </section>
-  </div>;
+  </ModalPortal>;
 }

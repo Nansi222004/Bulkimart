@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -88,7 +89,7 @@ export const PayoutsTab = () => {
 
       {/* DETAILED BANK INFO MODAL */}
       {selectedPayout && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">Payout Bank Specifications</h3>
@@ -149,7 +150,7 @@ export const PayoutsTab = () => {
 
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

@@ -354,6 +354,7 @@ const orderSchema = new Schema(
 
     // Shiprocket (E-Commerce only)
     shiprocket: {
+      environment: { type: String, enum: ['mock', 'sandbox', 'live'] },
       orderId:     String,
       shipmentId:  String,
       awb:         String,

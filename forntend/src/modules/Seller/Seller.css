@@ -27,16 +27,6 @@
   --shadow-premium: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
 }
 
-body {
-  margin: 0;
-  padding: 0;
-  background-color: #0f172a;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-}
-
 /* RESPONSIVE FULL SCREEN CONTAINER FOR SELLER PANEL */
 .seller-app-container {
   width: 100%;
@@ -739,10 +729,12 @@ body {
     radial-gradient(circle at 100% 0, rgba(255, 133, 0, .08), transparent 30rem),
     radial-gradient(circle at 0% 100%, rgba(8, 185, 232, .08), transparent 30rem),
     linear-gradient(180deg, #f4fcff 0%, #f8fafc 100%);
-  overflow-x: hidden;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -2028,7 +2020,7 @@ body {
   box-sizing: border-box;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) {
   .seller-app-container :where(input:not([type="radio"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="range"]), select, textarea) {
     font-size: 16px !important;
     min-width: 0;

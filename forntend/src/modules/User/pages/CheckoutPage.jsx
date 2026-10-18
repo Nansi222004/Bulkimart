@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
 import { committedCheckouts, forgetCommittedCheckout } from '../../../utils/committedCheckout';
 import { CartEmptyState } from '../components/CartUI';
@@ -727,7 +728,7 @@ const CheckoutPage = () => {
       
       {/* Loading Overlay */}
       {isOrdering && (
-        <div style={{ 
+        <ModalPortal style={{
           position: 'fixed', 
           inset: 0, 
           background: 'rgba(255, 255, 255, 0.9)', 
@@ -740,7 +741,7 @@ const CheckoutPage = () => {
         }}>
           <div className="auth-spinner"></div>
           <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>Processing Payment & Order...</span>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Header bar */}

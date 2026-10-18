@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -110,7 +111,7 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
 };
 
   return (
-    <div style={{
+    <ModalPortal style={{
       position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.65)',
       backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center',
       alignItems: 'center', zIndex: 1100, padding: 20
@@ -555,7 +556,7 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
         )}
 
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

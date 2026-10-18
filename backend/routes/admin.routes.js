@@ -1,4 +1,5 @@
 import express from 'express';
+import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
@@ -54,7 +55,7 @@ import { uploadSingle, uploadMultiple } from '../middlewares/upload.middleware.j
 import {
   deleteCustomerAccount, deleteSellerAccount, deleteDeliveryAccount,
 } from '../controllers/accountManagement.controller.js';
-import { getManualAssignmentQueue, assignDeliveryPartner } from '../controllers/deliveryAssignment.controller.js';
+import { getManualAssignmentQueue, assignDeliveryPartner, setStorePickupLocation } from '../controllers/deliveryAssignment.controller.js';
 import {
   getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
   listSellerLedgerAdmin, getSellerBalancesAdmin, getOrderFinanceAdmin,
@@ -118,7 +119,9 @@ router.get('/delivery-partners', listDeliveryPartners);
 // swallow "stats" and try to look it up as an ObjectId.
 router.get('/delivery-partners/stats', deliveryFleetStats);
 router.get('/delivery-assignments', getManualAssignmentQueue);
+router.get('/shiprocket/environment', (_req, res) => res.json({ success: true, data: getShiprocketCapabilities() }));
 router.post('/delivery-assignments/:id', assignDeliveryPartner);
+router.patch('/sellers/:id/pickup-location', setStorePickupLocation);
 
 // ---- rider pay rates (Delivery Fleet) ----------------------------------
 // Above /delivery-partners/:id would not clash, but these are their own thing.

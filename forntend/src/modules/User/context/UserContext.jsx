@@ -366,9 +366,9 @@ export const UserProvider = ({ children }) => {
         return current.id === id && current.variant === variant && current.mode === mode && (mode !== 'wholesale' || isCurrentUserSession(session));
       };
       setSelectedProductState(null); setProductDetailLoading(true); setProductDetailError('');
-      boundedFetch(apiUrl(mode === 'wholesale' ? `/api/products/wholesale/catalog?productId=${id}` : `/api/products/${id}`), { signal, ...(mode === 'wholesale' ? {headers:{Authorization:`Bearer ${session.token || ''}`},cache:'no-store'} : {}) }).then(async response => {
+      boundedFetch(apiUrl(mode === 'wholesale' ? `/api/products/wholesale/catalog?productId=${id}` : `/api/products/${id}`), { signal, ...(mode === 'wholesale' ? {cache:'no-store'} : {}) }).then(async response => {
         const body = await response.json();
-        if (!response.ok) throw new Error(mode === 'wholesale' && [401,403].includes(response.status) ? 'Please sign in with a customer account to view this Wholesale product.' : body.message || 'This product could not be loaded.');
+        if (!response.ok) throw new Error(body.message || 'This product could not be loaded.');
         const product = mode === 'wholesale' ? (body.data?.[0] ? {...wholesaleDetailProduct(body.data[0]),detailSession:session.token} : null) : body?.data ?? body;
         if (!product || String(product._id) !== id || !product.name) throw new Error('Product not found. Return to the storefront to choose another product.');
         validateVariant(product);

@@ -1,12 +1,13 @@
 import { getShiprocketToken } from '../config/shiprocket.js';
 import axios from 'axios';
 import { isMockIntegrationEnabled } from '../config/runtime.js';
+import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 
-const baseUrl = () => (process.env.SHIPROCKET_BASE_URL || 'https://apiv2.shiprocket.in').replace(/\/$/, '');
+const baseUrl = () => shiprocketEnvironment().baseUrl;
 
 export const getShiprocketCapabilities = (env = process.env) => {
-  const mode = env.SHIPROCKET_MODE;
-  const configured = mode === 'mock' || Boolean(env.SHIPROCKET_EMAIL && env.SHIPROCKET_PASSWORD && env.SHIPROCKET_WEBHOOK_SECRET);
+  let mode = 'unavailable', configured = false;
+  try { mode = shiprocketEnvironment(env).mode; configured = true; } catch { /* No secrets in diagnostics. */ }
   return {
     configured,
     mode: configured ? mode : 'unavailable',
@@ -23,6 +24,7 @@ export const getShiprocketCapabilities = (env = process.env) => {
 const authenticated = async () => ({
   headers: { Authorization: `Bearer ${await getShiprocketToken()}` },
   timeout: 15000,
+  maxRedirects: 0,
 });
 
 const mockPickups = new Map(); // Explicit mock integration only; never live state.
@@ -100,7 +102,7 @@ export const createShiprocketOrder = async (orderData) => {
       `${baseUrl()}/v1/external/orders/create/adhoc`,
       orderData,
       {
-        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000, maxRedirects: 0,
       }
     );
     return response.data;
@@ -136,7 +138,7 @@ export const assignCourier = async (shipmentId, courierId) => {
       tracking_url: data.tracking_url,
     };
   } catch (error) {
-    console.error('Shiprocket AWB assignment failed:', error.response?.status || error.message);
+    console.error('Shiprocket AWB assignment failed:', error.response?.status || 'provider_unavailable');
     throw new Error('Failed to assign a courier on Shiprocket');
   }
 };
@@ -170,12 +172,12 @@ export const trackShipment = async (awb) => {
     const response = await axios.get(
       `${baseUrl()}/v1/external/courier/track/awb/${awb}`,
       {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000, maxRedirects: 0,
       }
     );
     return response.data;
   } catch (error) {
-    console.error('Shiprocket Track AWB Failed:', error.response?.data || error.message);
+    console.error('Shiprocket Track AWB Failed:', error.response?.status || 'provider_unavailable');
     throw new Error('Failed to track shipment on Shiprocket');
   }
 };

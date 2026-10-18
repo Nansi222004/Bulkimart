@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
@@ -830,7 +831,7 @@ const ProfilePage = () => {
 
             {/* Retired add-money modal retained temporarily for layout-safe removal. */}
             {false && showAddMoneyModal && (
-              <div style={{
+              <ModalPortal style={{
                 position: 'fixed',
                 inset: 0,
                 backgroundColor: 'rgba(15, 23, 42, 0.65)',
@@ -984,7 +985,7 @@ const ProfilePage = () => {
                     </div>
                   </form>
                 </div>
-              </div>
+              </ModalPortal>
             )}
 
             <h4 style={{ margin: '12px 0 0 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Recent Wallet Transactions</h4>
@@ -1712,7 +1713,7 @@ const ProfilePage = () => {
 
       {/* Slide-over Section Overlay Drawer */}
       {activeSection && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           inset: 0,
           backgroundColor: 'rgba(15, 23, 42, 0.45)',
@@ -1742,7 +1743,7 @@ const ProfilePage = () => {
               {renderSectionContent()}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

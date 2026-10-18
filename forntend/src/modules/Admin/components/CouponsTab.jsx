@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -301,7 +302,7 @@ export const CouponsTab = () => {
 
       {/* ---- create / edit ---- */}
       {showForm && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{editing ? 'Edit Coupon' : 'New Coupon'}</h3>
@@ -394,12 +395,12 @@ export const CouponsTab = () => {
               </button>
             </form>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* ---- redemptions ---- */}
       {redemptions && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{redemptions.coupon.code} — Redemptions</h3>
@@ -432,7 +433,7 @@ export const CouponsTab = () => {
               </div>
             ))}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

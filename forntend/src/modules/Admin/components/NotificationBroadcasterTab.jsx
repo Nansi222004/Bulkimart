@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, adminPatch, adminDelete, qs } from '../../../utils/adminApi';
@@ -227,7 +228,7 @@ export const NotificationBroadcasterTab = () => {
       </div>
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowModal(false)}>
+        <ModalPortal style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowModal(false)}>
           <div style={{ background: '#fff', borderRadius: 16, width: '92%', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', padding: 22 }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 900 }}>New Broadcast</h3>
 
@@ -305,7 +306,7 @@ export const NotificationBroadcasterTab = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

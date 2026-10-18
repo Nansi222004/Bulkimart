@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 
@@ -116,7 +117,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
   };
 
   return (
-    <div style={{
+    <ModalPortal style={{
       position: 'fixed',
       inset: 0,
       backgroundColor: 'rgba(15, 23, 42, 0.75)',
@@ -438,6 +439,6 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
           )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };

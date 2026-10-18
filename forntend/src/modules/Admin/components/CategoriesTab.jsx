@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -76,7 +77,7 @@ const IconPickerModal = ({ onPick, onClose }) => {
   const filtered = CATEGORY_ICONS.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
-    <div
+    <ModalPortal
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1100,
@@ -133,7 +134,7 @@ const IconPickerModal = ({ onPick, onClose }) => {
           )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 
@@ -1522,7 +1523,7 @@ export const CategoriesTab = ({ subTab }) => {
 
       {/* ── 5. ADD HEADER CATEGORY OVERLAY SHEET (Level 1 Modal) ──── */}
       {showAddHeaderModal && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           top: 0,
           left: 0,
@@ -1779,12 +1780,12 @@ export const CategoriesTab = ({ subTab }) => {
             </form>
 
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* ── 6. ADD CATEGORY OVERLAY SHEET (Level 2 Modal) ─────────── */}
       {showAddCategoryModal && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           top: 0,
           left: 0,
@@ -1970,12 +1971,12 @@ export const CategoriesTab = ({ subTab }) => {
             </form>
 
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* ── 7. ADD SUB-CATEGORY OVERLAY SHEET (Level 3 Modal - Image 2) ─ */}
       {showAddSubcategoryModal && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           top: 0,
           left: 0,
@@ -2161,12 +2162,12 @@ export const CategoriesTab = ({ subTab }) => {
             </form>
 
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* ── 8. EDIT CATEGORY OVERLAY SHEET (All Levels) ──────────────── */}
       {showEditModal && editingCategory && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed',
           top: 0,
           left: 0,
@@ -2428,7 +2429,7 @@ export const CategoriesTab = ({ subTab }) => {
             </form>
 
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

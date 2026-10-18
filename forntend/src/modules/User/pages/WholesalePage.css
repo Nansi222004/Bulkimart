@@ -302,6 +302,17 @@
   color: var(--wholesale-muted);
 }
 
+.wholesale-meta-row select {
+  max-width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--wholesale-border);
+  border-radius: 8px;
+  padding: 6px;
+  background: white;
+  color: var(--wholesale-text);
+  font: inherit;
+}
+
 .wholesale-results-count strong {
   color: var(--wholesale-navy);
 }
@@ -701,6 +712,10 @@
 }
 
 @media (max-width: 680px) {
+  .wholesale-toolbar input,
+  .wholesale-toolbar select {
+    font-size: 16px;
+  }
   .wholesale-page {
     padding: 10px 10px 104px;
   }

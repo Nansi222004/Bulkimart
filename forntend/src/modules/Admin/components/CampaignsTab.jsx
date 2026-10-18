@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -267,7 +268,7 @@ export const CampaignsTab = () => {
 
       {/* ---- Create/Edit modal ---- */}
       {showModal && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 560 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{editing ? 'Edit Campaign' : 'Create Campaign'}</h3>
@@ -371,12 +372,12 @@ export const CampaignsTab = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* ---- Detail drawer ---- */}
       {detail && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 560 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{detail.name}</h3>
@@ -418,7 +419,7 @@ export const CampaignsTab = () => {
               </div>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

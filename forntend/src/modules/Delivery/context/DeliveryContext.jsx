@@ -484,6 +484,12 @@ export const DeliveryProvider = ({ children }) => {
     } catch { /* offline — the next load will try again */ }
   }, []);
 
+  useEffect(() => {
+    const assigned = () => { setRiderPingOrder(null); restoreActiveDelivery(); };
+    socket.on('delivery_assigned', assigned);
+    return () => socket.off('delivery_assigned', assigned);
+  }, [restoreActiveDelivery]);
+
   /**
    * Past offer/delivery outcomes — declined, expired, cancelled, delivered.
    *

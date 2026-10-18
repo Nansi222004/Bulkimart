@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -162,7 +163,7 @@ export const SellerPromotionsTab = () => {
       </div>
 
       {detail && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 620 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">
@@ -250,7 +251,7 @@ export const SellerPromotionsTab = () => {
               </div>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

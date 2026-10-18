@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
@@ -393,7 +394,7 @@ export const AccountTab = () => {
 
       {/* CHANGE PASSWORD DIALOG SHEET */}
       {showPasswordModal && (
-        <div className="seller-modal-overlay">
+        <ModalPortal className="seller-modal-overlay">
           <div className="seller-modal-sheet">
             <div className="modal-sheet-header">
               <h3 className="modal-sheet-title">Change Password</h3>
@@ -416,7 +417,7 @@ export const AccountTab = () => {
               </button>
             </form>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

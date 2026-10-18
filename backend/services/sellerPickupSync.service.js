@@ -28,7 +28,7 @@ export function pickupReadyForShipping(seller, user) {
   const definition = pickupDefinition(seller, user);
   return !definition.error && seller.pickupSync.status === 'registered' && Boolean(seller.pickupSync.providerId)
     && seller.pickupSync.fingerprint === definition.fingerprint && seller.pickupSync.locationName === seller.thirdPartyFulfillment?.shiprocketPickupLocation
-    && !(seller.pickupSync.verificationMode === 'mock' && process.env.SHIPROCKET_MODE !== 'mock');
+    && (seller.pickupSync.verificationMode === 'provider' ? process.env.SHIPROCKET_MODE === 'live' : seller.pickupSync.verificationMode === process.env.SHIPROCKET_MODE);
 }
 
 export async function queueSellerPickupSync(sellerId, { retry = false } = {}) {
@@ -97,7 +97,7 @@ export async function syncSellerPickup(sellerId) {
     await Seller.updateOne({ ...owner, storeDetails: seller.storeDetails.toObject?.() || seller.storeDetails }, { $set: {
       'pickupSync.status': 'registered', 'pickupSync.locationName': row.pickup_location, 'pickupSync.providerId': String(row.id), 'pickupSync.registeredAt': new Date(),
       'pickupSync.createStartedAt': seller.pickupSync.createStartedAt || new Date(),
-      'pickupSync.lastError': null, 'pickupSync.leaseUntil': null, 'pickupSync.verificationMode': process.env.SHIPROCKET_MODE === 'mock' ? 'mock' : 'provider',
+      'pickupSync.lastError': null, 'pickupSync.leaseUntil': null, 'pickupSync.verificationMode': process.env.SHIPROCKET_MODE === 'live' ? 'provider' : process.env.SHIPROCKET_MODE,
       'thirdPartyFulfillment.shiprocketPickupLocation': row.pickup_location,
       // Approval remains a separate admin-controlled policy. Never set enabled.
     } });

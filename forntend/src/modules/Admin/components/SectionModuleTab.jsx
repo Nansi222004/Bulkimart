@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -349,7 +350,7 @@ export const SectionModuleTab = ({ moduleId }) => {
 
       {/* DETAILED RECORD DRAWER / MODAL SHEET */}
       {selectedRow && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: '520px' }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">Record Information Sheet</h3>
@@ -376,7 +377,7 @@ export const SectionModuleTab = ({ moduleId }) => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

@@ -1,4 +1,5 @@
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
+import { storePickup, pickupLocationError, pickupCoordinates } from '../services/storePickup.service.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
@@ -366,7 +367,7 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
   }
 
   if (lat !== undefined || lng !== undefined) {
-    if (lat === '' || lng === '' || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || Math.abs(Number(lat)) > 90 || Math.abs(Number(lng)) > 180) throw httpError(400, 'Valid latitude and longitude are required together');
+    if (!pickupCoordinates({lat,lng})) throw httpError(400, 'Valid numeric latitude and longitude are required together');
     fields['storeDetails.lat'] = Number(lat);
     fields['storeDetails.lng'] = Number(lng);
     fields['storeDetails.point'] = { type: 'Point', coordinates: [Number(lng), Number(lat)] };
@@ -882,6 +883,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    * asked.
    */
   const goesByCourier = order.deliveryType === 'shiprocket';
+  if (!goesByCourier && status === ORDER_STATUS.DISPATCHED && !storePickup(seller)) throw pickupLocationError(seller);
   if (goesByCourier && status === ORDER_STATUS.DISPATCHED) {
     if (order.fulfillment?.assignmentPolicy && (!order.shiprocket?.orderId || !order.shiprocket?.shipmentId || !order.shiprocket?.awb || !order.shiprocket?.courier)) throw httpError(409, 'A confirmed provider shipment is required before hand-off');
     const courier = (order.fulfillment?.assignmentPolicy ? order.shiprocket?.courier : req.body.courier || order.shiprocket?.courier || '').trim();

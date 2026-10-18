@@ -594,18 +594,18 @@ export const updateProductWholesalePricing = asyncHandler(async (req, res) => {
 });
 
 /**
- * Authorized customer catalog. Business policy permits any customer session;
- * price books remain separate from public retail responses.
+ * Public Wholesale catalog. Purchase quotes and writes retain buyer checks;
+ * price books remain separate from retail responses.
  */
 export const getWholesaleCatalog = asyncHandler(async (req, res) => {
-  assertWholesaleBuyer(req);
-  if (Object.keys(req.query).some(key => !['page', 'limit', 'q', 'category', 'productId'].includes(key))) throw httpError(400, 'Invalid Wholesale query parameter');
+  if (Object.keys(req.query).some(key => !['page', 'limit', 'q', 'category', 'productId', 'sort'].includes(key))) throw httpError(400, 'Invalid Wholesale query parameter');
+  if (req.query.sort !== undefined && !['default', 'name', 'price-asc', 'price-desc'].includes(req.query.sort)) throw httpError(400, 'Invalid Wholesale sort');
   res.set('Cache-Control', 'private, no-store');
   const page = Number(req.query.page ?? 1), limit = Number(req.query.limit ?? 24);
   if (req.query.productId !== undefined && (typeof req.query.productId !== 'string' || !mongoose.isValidObjectId(req.query.productId))) throw httpError(400, 'Invalid Wholesale product ID');
   if ((req.query.q !== undefined && (typeof req.query.q !== 'string' || req.query.q.length > 120)) || (req.query.category !== undefined && (typeof req.query.category !== 'string' || req.query.category.length > 160))) throw httpError(400, 'Invalid Wholesale filter');
   if (!Number.isSafeInteger(page) || page < 1 || page > 1000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw httpError(400, 'Invalid catalog pagination');
-  const result = await getWholesaleCatalogPage({ page, limit, productId: req.query.productId, q: req.query.q?.trim(), category: req.query.category });
+  const result = await getWholesaleCatalogPage({ page, limit, productId: req.query.productId, q: req.query.q?.trim(), category: req.query.category, sort: req.query.sort });
   res.status(200).json({ success: true, ...result });
 });
 

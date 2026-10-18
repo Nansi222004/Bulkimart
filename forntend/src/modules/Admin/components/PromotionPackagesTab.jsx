@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPost, adminPatch } from '../../../utils/adminApi';
@@ -137,7 +138,7 @@ export const PromotionPackagesTab = () => {
       </div>
 
       {showModal && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 480 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{editing ? 'Edit Package' : 'Create Package'}</h3>
@@ -188,7 +189,7 @@ export const PromotionPackagesTab = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

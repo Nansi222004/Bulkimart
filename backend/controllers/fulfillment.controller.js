@@ -1,4 +1,6 @@
 import Order from '../models/Order.js';
+import { storePickup, pickupLocationError } from '../services/storePickup.service.js';
+import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 import Payment from '../models/Payment.js';
 import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
@@ -46,13 +48,14 @@ const totalWeightKg = (order) => {
 export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
   const capabilities = getShiprocketCapabilities();
-  const pickup = seller.storeDetails || {};
+  const pickup = storePickup(seller) || seller.storeDetails || {};
+  const pickupPinned = Boolean(storePickup(seller));
   const drop = order.shippingAddress || {};
   const packageWeightKg = totalWeightKg(order);
   const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).populate('userId', 'name phone isActive roles').lean();
   const eligibleRiders = [];
   for (const rider of onlineRiders) {
-    if (riderIneligibility(rider, rider.userId, order, pickup)) continue;
+    if (!pickupPinned || riderIneligibility(rider, rider.userId, order, pickup)) continue;
     if ((await canTakeAnother(rider._id)).ok) eligibleRiders.push({ name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? '••••••' + String(rider.userId.phone).slice(-4) : null, online: true, availability: 'On duty, capacity available' });
   }
   const manualRiderCount = eligibleRiders.length;
@@ -128,16 +131,18 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
     pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, pincode: pickup.pincode, phone: pickup.phone, registeredLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation },
     destination: order.shippingAddress,
     manual: {
-      available: accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked && !order.deliveryId && !order.deliveryPartnerId,
+      available: pickupPinned && accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked && !order.deliveryId && !order.deliveryPartnerId,
       eligibleRiderCount: manualRiderCount,
       assignmentMode: 'rider_acceptance',
       riders: eligibleRiders.slice(0, 30),
-      reason: stateReason || (shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No eligible on-duty riders have capacity and coverage for this pickup. Approval alone does not put a rider on duty. Refresh availability or contact support to check the rider duty, location and service pincodes.'),
+      reason: !pickupPinned ? pickupLocationError(seller).message : stateReason || (shipmentLocked ? 'Courier setup is already in progress or requires reconciliation' : manualRiderCount ? null : 'No eligible on-duty riders have capacity and coverage for this pickup. Approval alone does not put a rider on duty. Refresh availability or contact support to check the rider duty, location and service pincodes.'),
+      pickupEditorPath: '/seller/profile',
     },
     shiprocket: {
       available: Boolean(order.type === CHANNEL.ECOM && order.delivery?.mode !== 'same_day' && shiprocketEligible && accepted && prepared && paymentVerified
         && !['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)),
       configured: capabilities.configured,
+      environment: capabilities.mode,
       pickupLinked,
       pickupSync: pickupStatus(seller, req.user),
       shippingApproved: Boolean(seller.thirdPartyFulfillment?.enabled),
@@ -171,7 +176,8 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
 const activeShipmentStates = ['creating', 'assigning', 'reconciliation_required'];
 
 export const selectManualFulfillment = asyncHandler(async (req, res) => {
-  const { order } = await sellerAndOrder(req);
+  const { seller, order } = await sellerAndOrder(req);
+  if (!storePickup(seller)) throw pickupLocationError(seller);
   if (req.body?.riderId || req.body?.partnerId) throw httpError(400, 'Riders accept eligible offers; sellers cannot choose a rider');
   if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) {
@@ -194,6 +200,10 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
 
 export const createShiprocketShipment = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
+  const environment = shiprocketEnvironment();
+  const hasProviderReferences = order.shiprocket?.orderId || order.shiprocket?.shipmentId || order.shiprocket?.awb;
+  const priorEnvironment = order.shiprocket?.environment || (/MOCK/i.test([order.shiprocket?.orderId,order.shiprocket?.shipmentId,order.shiprocket?.awb].join(' ')) ? 'mock' : 'live');
+  if (hasProviderReferences && priorEnvironment !== environment.mode) throw httpError(409, 'Shipment belongs to a different provider environment; use isolated test data and reconcile existing references');
   if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (req.body?.confirm !== true) throw httpError(400, 'Vendor confirmation is required before shipment creation');
   if (order.type !== CHANNEL.ECOM) throw httpError(409, 'Quick Commerce third-party shipment creation remains disabled pending policy approvals and live reconciliation verification');
@@ -246,6 +256,7 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     'shiprocket.shipmentId': order.shiprocket?.shipmentId || null,
     'fulfillment.method': order.fulfillment?.method || null,
   }, { $set: { 'shiprocket.status': order.shiprocket?.shipmentId ? 'assigning' : 'creating',
+    'shiprocket.environment': environment.mode,
     'shiprocket.operationId': operationId, 'shiprocket.idempotencyKey': 'shiprocket:' + order._id,
     'shiprocket.requestedAt': new Date(), 'fulfillment.quote': quote, 'shiprocket.package': { ...packageSize, weight }, 'shiprocket.pickupLocation': pickupLocation, 'shiprocket.pickupAddress': verifiedPickup } });
   if (locked.modifiedCount !== 1) throw httpError(409, 'Order changed or shipment setup is already in progress. Refresh this order.');
@@ -306,7 +317,8 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
 });
 
 export const shiprocketWebhook = asyncHandler(async (req, res) => {
-  const expected = process.env.SHIPROCKET_WEBHOOK_SECRET;
+  const environment = shiprocketEnvironment();
+  const expected = environment.webhookSecret;
   if (!expected) throw httpError(503, 'Shiprocket webhook authentication is not configured');
   // Shiprocket sends the optional webhook security token in x-api-key.
   const supplied = String(req.get('x-api-key') || '');
@@ -325,6 +337,10 @@ export const shiprocketWebhook = asyncHandler(async (req, res) => {
   const result = await Order.updateOne(
     {
       ...(awb ? { 'shiprocket.awb': awb } : { 'shiprocket.shipmentId': shipmentId }),
+      ...(environment.mode === 'sandbox' ? { 'shiprocket.environment': 'sandbox' } : {
+        $or: [{ 'shiprocket.environment': environment.mode }, { 'shiprocket.environment': { $exists: false } }],
+      }),
+      ...(environment.mode === 'live' ? { $nor: ['orderId','shipmentId','awb'].map(field => ({ ['shiprocket.' + field]: /MOCK/i })) } : {}),
       'shiprocket.webhookEvents.eventId': { $ne: eventId },
     },
     {

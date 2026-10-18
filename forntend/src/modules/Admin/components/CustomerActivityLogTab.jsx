@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -228,7 +229,7 @@ export const CustomerActivityLogTab = () => {
       </div>
 
       {selectedRow && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 480 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">Activity Event — {selectedRow.id}</h3>
@@ -252,7 +253,7 @@ export const CustomerActivityLogTab = () => {
               ))}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

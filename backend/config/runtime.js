@@ -1,3 +1,5 @@
+import { shiprocketEnvironment } from './shiprocketEnvironment.js';
+
 const MOCKABLE_INTEGRATIONS = [
   "OTP_MODE",
   "SHIPROCKET_MODE",
@@ -8,7 +10,7 @@ const MOCKABLE_INTEGRATIONS = [
 const INTEGRATION_MODES = {
   OTP_MODE: ["live", "mock"],
   RAZORPAY_MODE: ["live", "test"],
-  SHIPROCKET_MODE: ["live", "mock"],
+  SHIPROCKET_MODE: ["live", "mock", "sandbox"],
   FCM_MODE: ["live", "mock"],
   MAPS_MODE: ["live", "mock"],
 };
@@ -96,6 +98,7 @@ export const validateRuntimeConfig = (env = process.env) => {
   const mocks = getMockIntegrations(env);
   const nonLiveIntegrations = [
     ...mocks,
+    ...(env.SHIPROCKET_MODE === 'sandbox' ? ['SHIPROCKET_MODE'] : []),
     ...(env.RAZORPAY_MODE === "test" ? ["RAZORPAY_MODE"] : []),
   ];
   if (env.NODE_ENV === "production" && nonLiveIntegrations.length) {
@@ -120,6 +123,7 @@ export const validateRuntimeConfig = (env = process.env) => {
     }
   }
 
+  if (env.SHIPROCKET_MODE !== undefined) shiprocketEnvironment(env);
   return { mockIntegrations: mocks, paymentGateway: env.PAYMENT_GATEWAY };
 };
 

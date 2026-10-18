@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -79,7 +80,7 @@ export const DeliveryActiveOpsTab = () => {
 
       {/* MANAGE STATUS MODAL */}
       {selectedDelivery && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">Delivery Status Override</h3>
@@ -114,7 +115,7 @@ export const DeliveryActiveOpsTab = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

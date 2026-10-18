@@ -2227,7 +2227,7 @@
 .delivery-file-picker:hover { background-color: #eaf9fe; }
 input[type="checkbox"] { accent-color: #08b9e8; }
 
-@media(max-width:768px) {
+@media(max-width:768px), (pointer: coarse) {
   .delivery-app-container :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea) { font-size: 16px !important; min-width: 0; max-width: 100%; }
   .delivery-main-viewport { padding-bottom: max(90px, calc(76px + env(safe-area-inset-bottom))); }
 }

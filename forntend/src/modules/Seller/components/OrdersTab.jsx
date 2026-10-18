@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
@@ -586,7 +587,7 @@ export const OrdersTab = ({ detailPage = false }) => {
       </>}
       {/* Courier hand-off. Asked for once, at the only moment it is knowable. */}
       {dispatching && (
-        <div className="seller-modal-overlay">
+        <ModalPortal className="seller-modal-overlay">
           <div className="seller-modal-sheet">
             <div className="modal-sheet-header">
               <h3 className="modal-sheet-title">Hand to courier</h3>
@@ -627,7 +628,7 @@ export const OrdersTab = ({ detailPage = false }) => {
               {busyId === dispatching._id ? 'Saving…' : 'Confirm hand-off'}
             </button>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {fulfilling && fulfillmentOptions && (
@@ -640,6 +641,7 @@ export const OrdersTab = ({ detailPage = false }) => {
             <p style={{ fontSize: 12, color: '#64748b' }}>{fulfilling.orderNo} · {fulfilling.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</p>
             <p><strong>Store pickup:</strong> {addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p>
             <p><strong>Customer destination:</strong> {addressText(fulfillmentOptions.destination)}</p>
+            <p><a href="/seller/profile">Check or update this store’s pickup map pin</a></p>
             <p>Bulkimart riders accept offers in their delivery app. Selecting this method does not assign a named rider. Then use Offer to Bulkimart riders.</p>
             <ul>{fulfillmentOptions.manual?.riders?.map((rider, index) => <li key={index}>{rider.name} · {rider.contact} · {rider.online ? 'On duty' : 'Off duty'} · {rider.availability}</li>)}</ul>
             <button type="button" onClick={() => loadAvailability(fulfilling)}>Refresh delivery availability</button>
@@ -657,6 +659,7 @@ export const OrdersTab = ({ detailPage = false }) => {
 
             <div style={{ borderTop: '1px solid #e2e8f0', margin: '16px 0', paddingTop: 14 }}>
               <strong>Shiprocket / third-party courier</strong>
+              <p>Provider environment: {fulfillmentOptions.shiprocket?.environment || 'unavailable'}</p>
               {!fulfillmentOptions.shiprocket?.pickupLinked && <p><a href="/seller/profile">Check or retry pickup synchronization in your store profile</a></p>}
               <p style={{ fontSize: 11, color: '#64748b' }}>{fulfillmentOptions.shiprocket?.reason || 'Serviceability is checked before any shipment is created.'}</p>
               <p>Weight from order item snapshots: {fulfillmentOptions.shiprocket?.packageWeightKg || 'Unavailable'} kg</p>

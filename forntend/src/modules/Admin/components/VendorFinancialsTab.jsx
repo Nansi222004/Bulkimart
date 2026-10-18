@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
 
@@ -536,7 +537,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
 
       {/* Settle IMPS Modal */}
       {settleModalOpen && selectedPayout && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px'
         }}>
@@ -631,7 +632,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
               </div>
             </form>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useRef, useState } from 'react';
 import { rememberLocationChoice } from '../../../utils/locationState';
 import { useUser } from '../context/UserContext';
@@ -176,7 +177,7 @@ const LocationPromptModal = () => {
   };
 
   return (
-    <div style={styles.overlay} onClick={() => setShowLocationModal(false)}>
+    <ModalPortal style={styles.overlay} onClick={() => setShowLocationModal(false)}>
       <div ref={dialog} style={styles.card} role="dialog" aria-modal="true" aria-label="Choose your location" onClick={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => setShowLocationModal(false)} style={styles.closeBtn} aria-label="Dismiss location selection">✕</button>
         {mode === 'options' ? (
@@ -363,7 +364,7 @@ const LocationPromptModal = () => {
           </div>
         )}
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

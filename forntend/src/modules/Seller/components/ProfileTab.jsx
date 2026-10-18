@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
@@ -28,7 +29,7 @@ export const SellerProfileEditor = ({ seller, onClose }) => {
     try {const result=await updateSellerProfile(form);if(!alive.current)return;if(result?.ok)onClose();else if(!result?.stale)setError(result?.message || 'Could not save profile');}
     finally {lock.current=false;}
   };
-  return <div className="seller-modal-overlay" role="dialog" aria-modal="true" aria-label="Edit seller profile">
+  return <ModalPortal className="seller-modal-overlay" role="dialog" aria-modal="true" aria-label="Edit seller profile">
     <form className="seller-modal-sheet seller-profile-editor" onSubmit={save} noValidate>
       <h2>Edit Profile</h2><p>Update your store contact and business details. Account identity, verification and approval are managed separately.</p>
       <label>Seller ID<input value={seller._id || seller.id || ''} readOnly /></label>
@@ -39,7 +40,7 @@ export const SellerProfileEditor = ({ seller, onClose }) => {
       {error&&<p role="alert">{error}</p>}
       <div className="seller-profile-actions"><button type="button" disabled={profileSaving} onClick={onClose}>Cancel</button><button type="submit" disabled={profileSaving}>{profileSaving?'Saving…':'Save Profile'}</button></div>
     </form>
-  </div>;
+  </ModalPortal>;
 };
 export const ProfileTab = () => {
   const {sellerProfile:s,profileLoading,profileError,fetchSellerProfile,triggerToast} = useSeller();

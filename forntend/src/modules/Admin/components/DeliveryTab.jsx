@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -295,7 +296,7 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
 
       {/* ---------------- APPLICATION DOSSIER ---------------- */}
       {(riderDetail || riderDetailLoading) && (
-        <div
+        <ModalPortal
           className="admin-modal-overlay"
           style={{
             position: 'fixed',
@@ -1019,7 +1020,7 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
               </>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

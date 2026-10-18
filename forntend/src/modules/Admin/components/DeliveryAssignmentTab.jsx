@@ -1,6 +1,7 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { adminGet, adminPost } from '../../../utils/adminApi';
+import { adminGet, adminPost, adminPatch } from '../../../utils/adminApi';
 
 export const DeliveryAssignmentTab = () => {
   const { triggerToast } = useAdmin();
@@ -9,6 +10,8 @@ export const DeliveryAssignmentTab = () => {
   const [nearbyRiders, setNearbyRiders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [pin, setPin] = useState({lat:'',lng:''});
+  const [saving, setSaving] = useState(false);
   const eligibleRiders = selectedOrder
     ? nearbyRiders.filter((rider) => (selectedOrder.eligiblePartnerIds || []).includes(String(rider._id)))
     : [];
@@ -24,12 +27,28 @@ export const DeliveryAssignmentTab = () => {
   useEffect(() => { load(); }, [load]);
 
   const handleAssign = async (rider) => {
+    if (saving) return;
+    setSaving(true);
     try {
       const { message } = await adminPost(`/delivery-assignments/${selectedOrder._id}`, { partnerId: rider._id });
       triggerToast(message || `Order assigned to ${rider.name}`);
       setSelectedOrder(null);
       await load();
     } catch (error) { triggerToast(error.message, {type:'error'}); }
+    finally { setSaving(false); }
+  };
+
+  const savePin = async event => {
+    event.preventDefault();
+    if (saving || !selectedOrder?.pickupStore?._id) return;
+    setSaving(true);
+    try {
+      if (!pin.lat.trim() || !pin.lng.trim()) throw new Error('Enter the store’s actual latitude and longitude.');
+      await adminPatch(`/sellers/${selectedOrder.pickupStore._id}/pickup-location`, {lat:Number(pin.lat),lng:Number(pin.lng)});
+      triggerToast('Pickup pin saved. Select the order again to revalidate rider eligibility.');
+      setSelectedOrder(null); await load();
+    } catch(error) {triggerToast(error.message,{type:'error'});}
+    finally {setSaving(false);}
   };
 
   return (
@@ -71,7 +90,7 @@ export const DeliveryAssignmentTab = () => {
                   <td style={{ padding: '12px 16px', fontWeight: 800, color: '#0f172a' }}>Ready for pickup</td>
                   <td style={{ padding: '12px 16px', color: '#475569' }}>{ord.city} · {ord.pincode}</td>
                   <td style={{ padding: '12px 16px', color: '#6366f1', fontWeight: 700 }}>{ord.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700 }}>Validated on assignment</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700 }}>{ord.pickupError || ord.pickupStore?.name || 'Validated on assignment'}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{
                       padding: '3px 10px',
@@ -86,7 +105,7 @@ export const DeliveryAssignmentTab = () => {
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                     <button
-                      onClick={() => setSelectedOrder(ord)}
+                      onClick={() => {setSelectedOrder(ord);setPin({lat:String(ord.pickupStore?.lat ?? ''),lng:String(ord.pickupStore?.lng ?? '')});}}
                       style={{ padding: '6px 12px', borderRadius: 6, backgroundColor: '#10b981', color: '#ffffff', border: 'none', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
                     >
                       {ord.deliveryPartnerId ? 'Reassign Partner' : '+ Assign Partner'}
@@ -101,7 +120,7 @@ export const DeliveryAssignmentTab = () => {
 
       {/* MANUAL ASSIGNMENT MODAL */}
       {selectedOrder && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: 580 }}>
             
             <div className="admin-modal-header">
@@ -113,6 +132,14 @@ export const DeliveryAssignmentTab = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0' }}>
+              {selectedOrder.pickupError && <p role="alert">{selectedOrder.pickupError}</p>}
+              {selectedOrder.pickupStore?._id && <form onSubmit={savePin} style={{display:'grid',gap:8}}>
+                <strong>Store pickup pin — {selectedOrder.pickupStore.name || selectedOrder.pickupStore._id}</strong>
+                <p>Save the actual store coordinates. The address and store identity stay attached to this store.</p>
+                <label>Latitude <input aria-label="Store pickup latitude" type="number" min="-90" max="90" step="any" required value={pin.lat} onChange={event=>setPin({...pin,lat:event.target.value})}/></label>
+                <label>Longitude <input aria-label="Store pickup longitude" type="number" min="-180" max="180" step="any" required value={pin.lng} onChange={event=>setPin({...pin,lng:event.target.value})}/></label>
+                <button type="submit" disabled={saving}>Save store pickup pin</button>
+              </form>}
               <span style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Eligible Nearby Riders ({eligibleRiders.length})</span>
 
               {eligibleRiders.length === 0 ? (
@@ -136,7 +163,7 @@ export const DeliveryAssignmentTab = () => {
                       fontSize: 11,
                       cursor: rider.status === 'Available' ? 'pointer' : 'not-allowed'
                     }}
-                    disabled={rider.status !== 'Available'}
+                    disabled={saving || !!selectedOrder.pickupError || rider.status !== 'Available'}
                   >
                     {rider.status === 'Available' ? 'Assign Rider' : 'Rider Busy'}
                   </button>
@@ -145,7 +172,7 @@ export const DeliveryAssignmentTab = () => {
             </div>
 
           </div>
-        </div>
+        </ModalPortal>
       )}
 
     </div>

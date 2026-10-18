@@ -1,4 +1,5 @@
 import { riderIneligibility } from '../services/riderEligibility.service.js';
+import { storePickup, requireOrderPickup, orderStoreId, pickupCoordinates } from '../services/storePickup.service.js';
 import mongoose from 'mongoose';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
@@ -398,13 +399,12 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   // Already taken while we were widening the net.
   if (order.deliveryPartnerId) return;
 
-  const sellerItem = order.items.find(item => item.sellerId);
-  if (!sellerItem) return;
-
-  const seller = await Seller.findById(sellerItem.sellerId);
-  const storePoint = seller?.storeDetails?.point?.coordinates;
-  const storePosition = storePoint?.length === 2 ? { lat: storePoint[1], lng: storePoint[0] } : seller?.storeDetails;
-  if (!seller || !Number.isFinite(storePosition?.lat) || !Number.isFinite(storePosition?.lng)) {
+  if (order.deliveryType === 'shiprocket') return;
+  let sellerId;
+  try { sellerId = orderStoreId(order); } catch { return; }
+  const seller = await Seller.findById(sellerId);
+  const storePosition = storePickup(seller);
+  if (!storePosition) {
     console.warn(`[RIDER BROADCAST] ${order.orderNo}: store has no pinned location — cannot find riders`);
     return;
   }
@@ -584,7 +584,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
 
   console.log(`[RIDER BROADCAST] Broadcasting order ${order.orderNo} to riders: ${riderIds.join(', ')}`);
 
-  const shop = seller.storeDetails;
+  const shop = storePosition;
   const drop = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
 
   /**
@@ -844,20 +844,14 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type deliveryPartnerId shippingAddress');
+  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId shippingAddress');
   if (!candidate) throw httpError(404, 'Order not found');
 
-  const pickupSeller = await Seller.findById(candidate.items.find(i => i.sellerId)?.sellerId)
-    .select('businessName storeDetails');
-
-  const shop = pickupSeller?.storeDetails;
+  if (candidate.deliveryType === 'shiprocket') throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
+  const { seller: pickupSeller, shop } = await requireOrderPickup(candidate);
+  if (!pickupCoordinates(candidate.shippingAddress)) throw httpError(409, 'The customer delivery address needs a valid map pin before acceptance');
   if (riderIneligibility(partner, req.user, candidate, shop || {}, { requireDuty: false })) {
     throw httpError(409, 'Your account, service coverage or pickup radius is not eligible for this order');
-  }
-  if (shop?.lat === undefined || shop?.lng === undefined) {
-    // Refuse rather than guess. A rider sent to the wrong place wastes a trip
-    // and the customer waits for an order that was never collected.
-    throw httpError(409, 'This store has not pinned its location yet — it cannot be picked up from');
   }
 
   /**
@@ -877,6 +871,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
       _id: req.params.id,
       // One shared definition, so the offer and the claim cannot disagree.
       status: { $in: riderClaimableStatuses(candidate.type) },
+      deliveryType: { $ne: 'shiprocket' },
       $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }],
       /**
        * This rider's own offer, if one exists, must still be live.
@@ -1061,7 +1056,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     notifyUser(order.userId, {
       event: NOTIFICATION_EVENT.RIDER_ASSIGNED,
       title: 'Rider assigned',
-      message: `${req.user.name} is on the way with your order ${order.orderNo}.`,
+      message: `${req.user.name} is assigned to collect your order ${order.orderNo}.`,
       metadata: { orderId: order._id },
       route: '/orders',
     }).catch((e) => console.error('[NOTIFICATION] notifyUser (rider assigned) failed:', e.message));
@@ -1076,7 +1071,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
       notifySeller(sellerId, {
         event: NOTIFICATION_EVENT.RIDER_ASSIGNED,
         title: 'Rider assigned',
-        message: `${req.user.name} picked up order ${order.orderNo}.`,
+        message: `${req.user.name} is assigned to collect order ${order.orderNo}.`,
         metadata: { orderId: order._id },
         route: '/orders',
       }).catch((e) => console.error('[NOTIFICATION] notifySeller (rider assigned) failed:', e.message));
@@ -1696,10 +1691,9 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
 
   const formatted = [];
   for (const order of pendingOrders) {
-    const sellerItem = order.items.find(item => item.sellerId);
-    if (!sellerItem) continue;
-
-    const seller = await Seller.findById(sellerItem.sellerId);
+    let sellerId;
+    try { sellerId = orderStoreId(order); } catch { continue; }
+    const seller = await Seller.findById(sellerId);
     if (!seller) continue;
 
     // Every order returned here genuinely is being offered to this rider
@@ -1707,9 +1701,10 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
     // received) the socket ping still sees it. Recorded the same way the
     // ping itself is; the guard inside makes repeat polls of the same order
     // no-ops.
+    const shop = storePickup(seller);
+    if (!shop) continue;
+    if (riderIneligibility(partner, req.user, order, shop)) continue;
     await recordOfferIfNew(order._id, partner._id);
-
-    const shop = seller.storeDetails || {};
     const drop = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
     const legKm = distanceKm(shop, drop);
 
@@ -1897,7 +1892,7 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
   const seller = sellerItem
     ? await Seller.findById(sellerItem.sellerId).select('businessName storeDetails')
     : null;
-  const shop = seller?.storeDetails || {};
+  const shop = storePickup(seller) || {};
 
   const inTransit = ['picked_up', 'in_transit', 'arrived_at_customer'].includes(delivery?.status);
 
@@ -1912,8 +1907,8 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
     otpSent: Boolean(delivery?.otp),
 
     merchantName: shop.name || seller?.businessName || 'Store',
-    merchantAddress: [shop.address, shop.city].filter(Boolean).join(', '),
-    merchantLocation: shop.lat !== undefined ? { lat: shop.lat, lng: shop.lng } : undefined,
+    merchantAddress: delivery?.pickupLocation?.address || [shop.address, shop.city].filter(Boolean).join(', '),
+    merchantLocation: pickupCoordinates(delivery?.pickupLocation) || pickupCoordinates(shop) || undefined,
 
     customerName: order.shippingAddress?.name,
     customerAddress: [order.shippingAddress?.line1, order.shippingAddress?.line2, order.shippingAddress?.city]

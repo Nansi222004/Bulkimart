@@ -1,5 +1,5 @@
 .feedback-backdrop { position:fixed; inset:0; z-index:20000; display:flex; align-items:center; justify-content:center; padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background:#0f172a99; }
-.feedback-dialog { width:min(100%,480px); max-height:calc(100vh - 24px); max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; padding:clamp(20px,5vw,28px); border-radius:20px; background:#fff; color:#172b4d; box-shadow:0 24px 64px #0004; overflow-wrap:anywhere; font-family:inherit; }
+.feedback-dialog { width:min(100%,480px); max-height:100%; overflow-y:auto; overscroll-behavior:contain; padding:clamp(20px,5vw,28px); border-radius:20px; background:#fff; color:#172b4d; box-shadow:0 24px 64px #0004; overflow-wrap:anywhere; font-family:inherit; }
 .feedback-dialog h2 { margin:0 0 12px; font-size:22px; }
 .feedback-dialog p { line-height:1.6; white-space:pre-wrap; }
 .feedback-dialog label { display:grid; gap:8px; font-weight:600; }
@@ -20,4 +20,4 @@
 .feedback-toast--error { border-left-color:#b91c1c; }
 .feedback-toast--warning { border-left-color:#a16207; }
 .feedback-dialog :focus-visible,.feedback-toast :focus-visible { outline:3px solid #078ccb; outline-offset:3px; }
-@media(max-width:480px) { .feedback-backdrop { align-items:flex-end; } .feedback-dialog { border-radius:20px 20px 12px 12px; } .feedback-toasts { max-height:32dvh; overflow-y:auto; } }
+@media(max-width:480px) { .feedback-toasts { max-height:32dvh; overflow-y:auto; } }

@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect } from 'react';
 import useVoiceSearch from '../../../hooks/useVoiceSearch';
 import './VoiceSearchModal.css';
@@ -56,7 +57,7 @@ const VoiceSearchModal = ({ isOpen, onClose, onSearch }) => {
   const pulseOpacity = 0.3 + (volume / 100) * 0.7;
 
   return (
-    <div className="voice-modal-overlay" onClick={() => { stopListening(); onClose(); }}>
+    <ModalPortal className="voice-modal-overlay" onClick={() => { stopListening(); onClose(); }}>
       <div className="voice-modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="voice-modal-header">
@@ -164,7 +165,7 @@ const VoiceSearchModal = ({ isOpen, onClose, onSearch }) => {
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

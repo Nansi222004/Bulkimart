@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 
 const PING_WINDOW_SECONDS = 60; // how long a rider has to accept before the offer expires
@@ -50,7 +51,7 @@ export const OrderPingModal = ({ order, onAccept, onDecline, onExpire }) => {
   const km = (v) => (typeof v === 'number' ? `${v} km` : '—');
 
   return (
-    <div className="delivery-modal-overlay">
+    <ModalPortal className="delivery-modal-overlay">
       <div className="delivery-order-ping-modal-sheet">
         {/* Pulsing Alert Banner */}
         <div className="ping-modal-header-pulsing">
@@ -174,7 +175,7 @@ export const OrderPingModal = ({ order, onAccept, onDecline, onExpire }) => {
           </button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

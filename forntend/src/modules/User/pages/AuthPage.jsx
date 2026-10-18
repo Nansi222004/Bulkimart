@@ -108,8 +108,10 @@ const AuthPage = () => {
   return (
     <div className="auth-page-container">
       {/* Background blobs for organic visual texture */}
-      <div className="auth-bg-blob blob-1"></div>
-      <div className="auth-bg-blob blob-2"></div>
+      <div className="auth-decoration" aria-hidden="true">
+        <div className="auth-bg-blob blob-1"></div>
+        <div className="auth-bg-blob blob-2"></div>
+      </div>
       
       <div className="auth-card-wrapper">
         {/* Loading Overlay */}

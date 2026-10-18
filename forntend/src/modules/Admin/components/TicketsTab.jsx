@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -158,7 +159,7 @@ export const TicketsTab = () => {
 
       {/* TICKET DETAIL MODAL */}
       {selectedTicket && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">Support Ticket #{selectedTicket.ticketNumber}</h3>
@@ -304,7 +305,7 @@ export const TicketsTab = () => {
               </div>
             )}
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

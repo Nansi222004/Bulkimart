@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -182,7 +183,7 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
       {/* USER PROFILE MODAL */}
       {selectedUser && (
-        <div className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet">
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">User Registration Dossier</h3>
@@ -265,7 +266,7 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

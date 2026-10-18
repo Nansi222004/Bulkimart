@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { feedback, feedbackScope } from '../../utils/feedback';
 import './feedback.css';
+import useVisualViewport from '../../hooks/useVisualViewport';
+import { lockModal, isTopModal } from '../../utils/modalLayer';
 
 export function useFeedback() {
   const owner = useRef({ active: true });
@@ -13,6 +15,7 @@ export function useFeedback() {
 export default function FeedbackProvider({ children }) {
   const state = useSyncExternalStore(feedback.subscribe, feedback.getSnapshot, feedback.getSnapshot);
   const dialogRef = useRef(null);
+  const bounds = useVisualViewport(Boolean(state.dialog));
   useEffect(() => {
     let scope = feedbackScope(), path = window.location.pathname;
     const changed = () => {
@@ -31,12 +34,11 @@ export default function FeedbackProvider({ children }) {
   }, [state.toasts]);
   useEffect(() => {
     if (!state.dialog) return;
-    const previous = document.activeElement, root = document.getElementById('root');
-    const inert = root?.inert, overflow = document.body.style.overflow;
-    if (root) root.inert = true;
-    document.body.style.overflow = 'hidden';
+    const previous = document.activeElement, layer = dialogRef.current;
+    const unlock = lockModal(layer);
     dialogRef.current?.querySelector('[data-initial-focus]')?.focus();
     const keydown = event => {
+      if (!isTopModal(layer)) return;
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); feedback.cancel(); }
       if (event.key !== 'Tab') return;
       const controls = [...dialogRef.current.querySelectorAll('button:not(:disabled),input:not(:disabled),textarea:not(:disabled)')].filter(el => el.getClientRects().length);
@@ -48,8 +50,7 @@ export default function FeedbackProvider({ children }) {
     document.addEventListener('keydown', keydown, true);
     return () => {
       document.removeEventListener('keydown', keydown, true);
-      if (root) root.inert = inert;
-      document.body.style.overflow = overflow;
+      unlock();
       if (previous?.isConnected && !previous.closest('[inert]')) previous.focus?.();
     };
   }, [state.dialog?.id]);
@@ -60,7 +61,7 @@ export default function FeedbackProvider({ children }) {
       <div><strong>{{ success: 'Success', error: 'Error', warning: 'Warning', info: 'Information' }[item.type]}</strong><p>{item.message}</p></div>
       <button type="button" aria-label="Dismiss notification" onClick={() => feedback.dismiss(item.id)}>×</button>
     </div>)}</div>
-    {request && <div className="feedback-backdrop" onClick={event => { if (event.target === event.currentTarget) feedback.cancel(); }}>
+    {request && <div className="feedback-backdrop" style={bounds ? {...bounds,right:'auto',bottom:'auto'} : undefined} onClick={event => { if (event.target === event.currentTarget) feedback.cancel(); }}>
       <section ref={dialogRef} className="feedback-dialog" role="alertdialog" aria-modal="true" aria-labelledby="feedback-title" aria-describedby="feedback-description" aria-busy={request.busy} tabIndex={-1}>
         <h2 id="feedback-title">{request.title || 'Please confirm'}</h2>
         <p id="feedback-description">{request.message}</p>

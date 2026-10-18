@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPatch, adminPost } from '../../../utils/adminApi';
@@ -167,7 +168,7 @@ export const ReturnsTab = () => {
       </div>
 
       {detail && (
-        <div className="admin-modal-overlay" onClick={() => { setDetail(null); setShowRejectFor(null); }}>
+        <ModalPortal className="admin-modal-overlay" onClick={() => { setDetail(null); setShowRejectFor(null); }}>
           <div className="admin-modal-sheet" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{detail.returnNumber}</h3>
@@ -358,7 +359,7 @@ export const ReturnsTab = () => {
               )}
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

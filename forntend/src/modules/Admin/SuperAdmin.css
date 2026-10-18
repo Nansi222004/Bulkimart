@@ -819,6 +819,6 @@
   .sa-workspace [style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) {
   .sa-layout-container :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea), .admin-auth-page :is(input,select,textarea) { font-size: 16px !important; min-width: 0; max-width: 100%; }
 }

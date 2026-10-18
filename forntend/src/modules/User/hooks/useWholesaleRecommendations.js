@@ -10,9 +10,9 @@ export function useWholesaleRecommendations(enabled, productId) {
   const key = `${productId}:${token}`;
   const [result,setResult]=useState(null);
   useEffect(()=>{
-    if(!enabled || !token)return;
+    if(!enabled)return;
     let active=true;const controller=new AbortController(),session=captureUserSession();
-    boundedFetch(apiUrl('/api/products/wholesale/catalog?limit=12'),{headers:{Authorization:`Bearer ${token}`},signal:controller.signal,cache:'no-store'})
+    boundedFetch(apiUrl('/api/products/wholesale/catalog?limit=12'),{signal:controller.signal,cache:'no-store'})
       .then(async response=>{const body=await response.json();if(!response.ok)throw new Error();if(active&&isCurrentUserSession(session))setResult({key,products:(body.data || []).filter(p=>String(p._id)!==String(productId)).map(p=>({...normalizeProduct(wholesaleDetailProduct(p)),startingPrice:Math.min(...p.variants.map(v=>v.startingPrice)),variantId:p.variants[0]?.variantId}))});})
       .catch(()=>{if(active)setResult({key,products:[]});});
     return()=>{active=false;controller.abort();};

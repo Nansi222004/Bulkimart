@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 
@@ -22,7 +23,7 @@ export const DepositModal = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="delivery-modal-overlay">
+    <ModalPortal className="delivery-modal-overlay">
       <div className="delivery-order-ping-modal-sheet" style={{ borderRadius: '24px 24px 0 0', textAlign: 'left' }}>
         
         {/* Title */}
@@ -161,7 +162,7 @@ export const DepositModal = ({ isOpen, onClose }) => {
         </form>
 
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 

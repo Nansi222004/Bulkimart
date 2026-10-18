@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { useNotifications } from '../../../utils/useNotifications';
 import { useUser } from '../context/UserContext';
@@ -43,7 +44,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="notif-drawer-overlay" onClick={onClose}>
+    <ModalPortal className="notif-drawer-overlay" onClick={onClose}>
       <div className="notif-drawer-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="notif-drawer-header">
           <h3 className="notif-drawer-title">
@@ -99,12 +100,12 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
       </div>
 
       {lightbox && (
-        <div className="notif-lightbox-overlay" onClick={() => setLightbox(null)}>
+        <ModalPortal className="notif-lightbox-overlay" onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
           <button type="button" onClick={() => setLightbox(null)} aria-label="Close">✕</button>
-        </div>
+        </ModalPortal>
       )}
-    </div>
+    </ModalPortal>
   );
 };
 

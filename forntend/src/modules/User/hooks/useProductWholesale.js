@@ -4,7 +4,7 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 
-export function useProductWholesale({ productId, variantId, currentUser, enabled = true, retailAvailable = true, wholesaleDetail = false, openCart }) {
+export function useProductWholesale({ productId, variantId, currentUser, enabled = true, retailAvailable = true, wholesaleDetail = false, openCart, onSignIn }) {
   const token = currentUser ? localStorage.getItem('userToken') : null;
   const key = `${productId}:${token || ''}`;
   const [selection, setSelection] = useState(() => ({ productId, mode: readProductRoute().id === String(productId) ? readProductRoute().mode : 'retail' }));
@@ -47,15 +47,13 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   useEffect(() => {
     let active = true;
     const controller = new AbortController(), session = captureUserSession();
-    setCatalog(null); setCatalogError(''); setLoading(Boolean(enabled && token && productId));
-    if (enabled && token && productId) {
+    setCatalog(null); setCatalogError(''); setLoading(Boolean(enabled && productId));
+    if (enabled && productId) {
       boundedFetch(apiUrl(`/api/products/wholesale/catalog?productId=${encodeURIComponent(productId)}`), {
-        headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: controller.signal,
+        cache: 'no-store', signal: controller.signal,
       }).then(async response => {
         const body = await response.json();
-        if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-          ? 'Please sign in with a customer account to view Wholesale offers.'
-          : `Wholesale availability could not be checked (${response.status}). Please retry.`);
+        if (!response.ok) throw new Error(body.message || `Wholesale availability could not be checked (${response.status}). Please retry.`);
         if (!Array.isArray(body.data)) throw new Error('Wholesale availability could not be checked. Please retry.');
         if (active && isCurrentUserSession(session)) setCatalog({ key, variants: body.data?.[0]?.variants || [] });
       }).catch(err => {
@@ -100,9 +98,10 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
     return () => { active = false; controller.abort(); };
   }, [quoteKey, mode, validQuantity, token, offer]);
   const quote = mode === 'wholesale' && preview?.key === quoteKey && offer ? preview.data : null;
-  const canPurchase = Boolean(mode === 'wholesale' && validQuantity && quote && !loading && !quoteLoading && !pending && !error);
+  const canPurchase = Boolean(mode === 'wholesale' && validQuantity && (quote || !token) && !loading && !quoteLoading && !pending && !error);
   const add = async (buyNow = false) => {
     if (lock.current || !canPurchase) return;
+    if (!token) { onSignIn?.(); return; }
     lock.current = true; setPending(true); setError(''); setMessage('');
     const session = captureUserSession();
     try {

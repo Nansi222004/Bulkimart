@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
 
@@ -325,7 +326,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
 
       {/* ORDER DETAILS MODAL */}
       {selectedOrder && (
-        <div style={{
+        <ModalPortal style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px'
@@ -437,7 +438,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

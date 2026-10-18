@@ -46,9 +46,9 @@ router.get('/featured', getFeaturedProducts);
 router.get('/grocery', getGroceryProducts);
 router.get('/search', searchProducts);
 
-// Dedicated customer catalog; purchases use the separate Wholesale cart.
+// Public read-only catalog; quotes and purchases require a customer session.
 router.get('/wholesale/availability', wholesalePublicLimiter, getWholesaleAvailability);
-router.get('/wholesale/catalog', protect, requireCustomerSession, wholesaleCustomerLimiter, getWholesaleCatalog);
+router.get('/wholesale/catalog', wholesalePublicLimiter, getWholesaleCatalog);
 router.post('/wholesale/quote', protect, requireCustomerSession, wholesaleCustomerLimiter, previewWholesaleProduct);
 
 /**

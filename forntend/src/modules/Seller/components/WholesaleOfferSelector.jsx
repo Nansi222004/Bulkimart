@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useRef, useState } from 'react';
 import useSellerDialog from '../hooks/useSellerDialog';
 import { useSeller } from '../context/SellerContext';
@@ -18,7 +19,7 @@ export default function WholesaleOfferSelector({ onClose }) {
     if (opened.current || !authorized || productsLoading || productsError || !selected || !variant) return;
     opened.current = true; startEditProduct(selected.raw, variant._id); onClose();
   };
-  return <div className="seller-modal-overlay seller-wholesale-overlay" onClick={onClose} onKeyDown={event => { if (event.key === 'Escape') onClose(); }}>
+  return <ModalPortal className="seller-modal-overlay seller-wholesale-overlay" onClick={onClose} onKeyDown={event => { if (event.key === 'Escape') onClose(); }}>
     <form ref={dialog} className="seller-offer-selector seller-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="wholesale-selector-title" onClick={e => e.stopPropagation()} onSubmit={submit}>
       <div className="seller-products-dialog-heading"><h2 id="wholesale-selector-title">Add Wholesale Offer</h2><button className="seller-products-button" type="button" aria-label="Close offer selection" onClick={onClose}>×</button></div>
       <p>Choose an existing physical product and variant. No new product or inventory is created.</p>
@@ -33,5 +34,5 @@ export default function WholesaleOfferSelector({ onClose }) {
               </>}
       <div className="seller-products-dialog-actions"><button className="seller-products-button" type="button" onClick={onClose}>Cancel</button><button className="seller-products-button seller-products-primary" type="submit" disabled={!authorized || !variant || productsLoading || !!productsError}>Configure Wholesale Terms</button></div>
     </form>
-  </div>;
+  </ModalPortal>;
 }

@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useRef } from 'react';
 import './LandmarkImagePicker.css';
 
@@ -131,7 +132,7 @@ const LandmarkImagePicker = ({
 
       {/* Choice Modal (Camera vs Gallery) */}
       {showOptionsModal && (
-        <div className="landmark-modal-overlay" onClick={() => setShowOptionsModal(false)}>
+        <ModalPortal className="landmark-modal-overlay" onClick={() => setShowOptionsModal(false)}>
           <div className="landmark-modal-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="landmark-sheet-header">
               <h4>Landmark Image Option</h4>
@@ -164,7 +165,7 @@ const LandmarkImagePicker = ({
               Cancel
             </button>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

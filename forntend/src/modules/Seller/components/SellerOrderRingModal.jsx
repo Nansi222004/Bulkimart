@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../../../utils/api';
@@ -57,7 +58,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
     : (order.items?.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.qty) || 1)), 0) || 0);
 
   return (
-    <div style={{
+    <ModalPortal style={{
       position: 'fixed',
       inset: 0,
       background: 'rgba(15, 23, 42, 0.75)',
@@ -217,7 +218,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };
 
