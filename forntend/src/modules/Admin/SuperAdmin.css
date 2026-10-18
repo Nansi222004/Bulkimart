@@ -806,8 +806,11 @@
   .sa-sidebar:not(.collapsed) { position: fixed; inset: 0 auto 0 0; width: min(280px, 85%); z-index: 110; }
   .sa-sidebar.collapsed { width: 56px; }
   .sa-mobile-backdrop { display: block; position: fixed; inset: 0; border: 0; background: #0006; z-index: 105; }
-  .sa-header { padding: max(8px, env(safe-area-inset-top)) 10px 8px; min-height: 64px; height: auto; gap: 8px; flex-wrap: wrap; }
+  .sa-header { padding: max(8px, env(safe-area-inset-top)) 10px 8px; min-height: 64px; height: auto; gap: 8px; flex-wrap: wrap; display: flex; justify-content: space-between; align-items: center; }
   .sa-header-left, .sa-header-right { min-width: 0; flex-wrap: wrap; gap: 6px; }
+  .sa-search-wrapper { width: 100% !important; max-width: 100% !important; order: 3; margin-top: 4px; box-sizing: border-box; }
+  .sa-search-badge { display: none !important; }
+  .sa-workspace div:has(> table) { overflow-x: auto !important; -webkit-overflow-scrolling: touch; width: 100%; }
   .sa-workspace { padding-bottom: env(safe-area-inset-bottom); }
   .sa-header-title { font-size: 18px; overflow-wrap: anywhere; }
   .sa-header-subtitle { display: none; }

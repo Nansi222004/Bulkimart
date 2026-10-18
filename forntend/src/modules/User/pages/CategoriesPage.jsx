@@ -19,8 +19,17 @@ const branchMatches = (category, query) => {
 const CategoryArtwork = ({ category }) => {
   const [failed, setFailed] = useState(false);
   const image = category.image || category.icon;
+  const isSvg = Boolean(image && (image.toLowerCase().endsWith('.svg') || image.includes('data:image/svg') || image.includes('icon')));
   if (image && !failed) {
-    return <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />;
+    return (
+      <img
+        src={image}
+        alt={category.name || ''}
+        loading="lazy"
+        className={isSvg ? 'is-icon' : 'is-photo'}
+        onError={() => setFailed(true)}
+      />
+    );
   }
   return (
     <span className="all-category-fallback" aria-hidden="true">

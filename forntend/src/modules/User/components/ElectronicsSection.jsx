@@ -230,7 +230,7 @@ export const ElectronicsSection = () => {
           Best of Gadgets
         </h3>
 
-        <div className="section-products-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+        <div className="section-products-grid">
           {products.map((product) => (
             <div
               key={product.id}

@@ -250,24 +250,8 @@ export const LandingPageContent = () => {
       {/* Floating Bottom Cart Bar */}
       {cartCount > 0 && (activeNav === 'home' || activeNav === 'categories') && (
         <div
+          className="floating-cart-bar"
           onClick={() => setActiveNav('cart')}
-          style={{
-            position: 'absolute',
-            bottom: 74,
-            left: 16,
-            right: 16,
-            background: 'var(--primary)',
-            borderRadius: 12,
-            padding: '12px 16px',
-            color: '#fff',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            boxShadow: '0 8px 16px var(--focus-ring)',
-            cursor: 'pointer',
-            zIndex: 90,
-            transition: 'all 0.2s'
-          }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18 }}>🛒</span>

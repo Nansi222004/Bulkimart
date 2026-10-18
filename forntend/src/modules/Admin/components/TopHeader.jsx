@@ -89,7 +89,7 @@ export const TopHeader = ({ onLogout }) => {
 
             {showNotifPanel && (
               <div style={{
-                position: 'absolute', top: '120%', right: 0, width: 340, maxHeight: 420,
+                position: 'absolute', top: '120%', right: 0, width: 'min(340px, calc(100vw - 32px))', maxHeight: 420,
                 background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
                 boxShadow: '0 12px 32px rgba(15,23,42,0.15)', zIndex: 200, display: 'flex', flexDirection: 'column',
               }}>

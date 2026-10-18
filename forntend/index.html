@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, shrink-to-fit=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-touch-fullscreen" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="theme-color" content="#08B9E8" />
     <meta name="description" content="Bulkimart — Sabse Smart Bulkimart. Smart retail and wholesale shopping." />
     <link rel="icon" type="image/png" href="/src/assets/Glossy%20Aqua%20Bulkimart%20Shopping%20Logo.png" />
@@ -11,6 +16,42 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Make User, Seller and Delivery apps behave strictly like native mobile apps (no zooming)
+      (function() {
+        // Prevent iOS Safari pinch-zoom gestures
+        document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener('gestureend', function(e) { e.preventDefault(); }, { passive: false });
+
+        // Prevent multi-touch pinch to zoom (2+ touch points)
+        document.addEventListener('touchstart', function(e) {
+          if (e.touches && e.touches.length > 1) {
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        document.addEventListener('touchmove', function(e) {
+          if (e.touches && e.touches.length > 1) {
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        // Prevent Ctrl + wheel zoom (pinch-zoom on trackpads & browser zoom)
+        document.addEventListener('wheel', function(e) {
+          if (e.ctrlKey) {
+            e.preventDefault();
+          }
+        }, { passive: false });
+
+        // Prevent Ctrl/Cmd + '+', '-', '0' keyboard zoom shortcuts
+        document.addEventListener('keydown', function(e) {
+          if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+            e.preventDefault();
+          }
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

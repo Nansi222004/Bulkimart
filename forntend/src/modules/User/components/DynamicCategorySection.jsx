@@ -119,7 +119,7 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
 );
 
 const ProductGrid = ({ products, onOpen, onAdd }) => (
-  <div className="section-products-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+  <div className="section-products-grid">
     {products.map((product) => (
       <ProductCard
         key={product.id || product._id}
