@@ -12,7 +12,7 @@ import DeliverySupportPage from '../pages/DeliverySupportPage';
 import DeliveryNavbar from '../components/DeliveryNavbar';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
-import { SESSION_CHANGED } from '../../../utils/userSession';
+import { DELIVERY_SESSION_CHANGED } from '../../../utils/deliverySession';
 
 const DeliveryRoutesContent = () => {
   const {
@@ -155,15 +155,15 @@ const DeliveryRoutesContent = () => {
 };
 
 export const DeliveryRoutes = () => {
-  const [session, setSession] = useState(() => ({ token: localStorage.getItem('userToken'), revision: 0 }));
+  const [session, setSession] = useState(() => ({ token: localStorage.getItem('deliveryToken'), revision: 0 }));
   useEffect(() => {
     const sync = event => {
-      if (event.type === 'storage' && event.key && event.key !== 'userToken') return;
-      setSession(previous => ({ token: localStorage.getItem('userToken'), revision: previous.revision + 1 }));
+      if (event.type === 'storage' && event.key && event.key !== 'deliveryToken') return;
+      setSession(previous => ({ token: localStorage.getItem('deliveryToken'), revision: previous.revision + 1 }));
     };
-    window.addEventListener(SESSION_CHANGED, sync);
+    window.addEventListener(DELIVERY_SESSION_CHANGED, sync);
     window.addEventListener('storage', sync);
-    return () => { window.removeEventListener(SESSION_CHANGED, sync); window.removeEventListener('storage', sync); };
+    return () => { window.removeEventListener(DELIVERY_SESSION_CHANGED, sync); window.removeEventListener('storage', sync); };
   }, []);
   return (
     <DeliveryProvider key={`${session.token || 'guest'}:${session.revision}`}>

@@ -1,5 +1,6 @@
 import { boundedFetch } from './portalRequests';
 import { getPortalToken, SELLER_SESSION_CHANGED } from './portalSession';
+import { DELIVERY_SESSION_CHANGED } from './deliverySession';
 import { SESSION_CHANGED } from './userSession';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiUrl } from './api';
@@ -113,7 +114,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
 
     socket.on('notification_new', onNew);
     if (typeof window !== 'undefined') {
-      for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED])window.addEventListener(event,onSession);
+      for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED,DELIVERY_SESSION_CHANGED])window.addEventListener(event,onSession);
       window.addEventListener('notification_read', onRead);
       window.addEventListener('notification_all_read', onAllRead);
       window.addEventListener('notifications_updated', onUpdate);
@@ -122,7 +123,7 @@ export const useNotifications = ({ autoFetch = true } = {}) => {
     return () => {
       socket.off('notification_new', onNew);
       if (typeof window !== 'undefined') {
-        for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED])window.removeEventListener(event,onSession);
+        for(const event of ['storage',SESSION_CHANGED,SELLER_SESSION_CHANGED,DELIVERY_SESSION_CHANGED])window.removeEventListener(event,onSession);
         window.removeEventListener('notification_read', onRead);
         window.removeEventListener('notification_all_read', onAllRead);
         window.removeEventListener('notifications_updated', onUpdate);

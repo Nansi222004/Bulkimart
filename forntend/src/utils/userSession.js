@@ -1,7 +1,7 @@
 import { clearPortalRequests } from './portalRequests';
 import { resetCustomerSessions } from './customerSession';
 import { apiUrl } from './api';
-import { clearDeliveryRegistrationDrafts } from './deliveryRegistrationDraft';
+import { saveDeliverySession, captureDeliverySession, isCurrentDeliverySession } from './deliverySession';
 
 export const SESSION_CHANGED = 'bulkimart:session-changed';
 let sessionRevision = 0;
@@ -9,9 +9,8 @@ export const captureUserSession = () => ({ token: localStorage.getItem('userToke
 export const isCurrentUserSession = snapshot => snapshot.token === localStorage.getItem('userToken') && snapshot.revision === sessionRevision;
 
 export function clearUserSession(notify = true) {
-  clearDeliveryRegistrationDrafts();
-  sessionRevision++; resetCustomerSessions(); clearPortalRequests('customer'); clearPortalRequests('delivery');
-  for (const key of ['userToken', 'userProfile', 'delivery_onboarded', 'deliveryDebitWallet', 'deliveryEarningsDaily', 'userLocation', 'guestLocationCoords']) localStorage.removeItem(key);
+  sessionRevision++; resetCustomerSessions(); clearPortalRequests('customer');
+  for (const key of ['userToken', 'userProfile', 'userLocation', 'guestLocationCoords']) localStorage.removeItem(key);
   try {
     for (const key of Object.keys(sessionStorage)) if (key.startsWith('bulkimart:checkout:')) sessionStorage.removeItem(key);
   } catch { /* Storage may be disabled; the server remains authoritative. */ }
@@ -19,7 +18,8 @@ export function clearUserSession(notify = true) {
 }
 
 export function saveUserSession(body) {
-  if (!body.success || typeof body.token !== 'string' || !body.token || !body.user?._id || !['buyer', 'delivery'].includes(body.sessionRole)) {
+  if (body.sessionRole === 'delivery') return saveDeliverySession(body);
+  if (!body.success || typeof body.token !== 'string' || !body.token || !body.user?._id || body.sessionRole !== 'buyer') {
     throw new Error('The server returned an invalid login session. Please sign in again.');
   }
   clearUserSession(false);
@@ -33,13 +33,15 @@ export function openSessionDashboard(role) {
   else if (role !== 'buyer') throw new Error('Unsupported login role. Please sign in again.');
 }
 export async function enterCustomerSession() {
-  const snapshot = captureUserSession();
+  // Keep the customer's existing account when opening the shop.
+  if (localStorage.getItem('userToken')) { window.history.pushState(null, '', '/'); return; }
+  const snapshot = captureDeliverySession();
   const token = snapshot.token;
   const response = await fetch(apiUrl('/api/auth/customer-session'), {
     method: 'POST', headers: { Authorization: `Bearer ${token}` },
   });
   const body = await response.json();
-  if (!isCurrentUserSession(snapshot)) throw new Error('Your session changed. Please sign in again.');
+  if (!isCurrentDeliverySession(snapshot) || localStorage.getItem('userToken')) throw new Error('Your session changed. Please sign in again.');
   if (!response.ok || body.sessionRole !== 'buyer') throw new Error(body.message || 'Customer membership could not be verified.');
   saveUserSession(body);
   window.history.pushState(null, '', '/');

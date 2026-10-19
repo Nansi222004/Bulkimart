@@ -5,7 +5,7 @@ import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 
 const getUserId = () => {
-  try { return JSON.parse(localStorage.getItem('userProfile') || 'null')?._id; } catch { return undefined; }
+  try { return JSON.parse(localStorage.getItem('deliveryUserProfile') || 'null')?._id; } catch { return undefined; }
 };
 
 export const DeliverySupportPage = () => {

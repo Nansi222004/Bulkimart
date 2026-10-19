@@ -1,3 +1,4 @@
+import { saveDeliverySession } from '../utils/deliverySession';
 import React, { useEffect, useState } from 'react';
 import { clearUserSession, SESSION_CHANGED } from '../utils/userSession';
 import { acquireCustomerSession, CustomerSessionContext, isPublicCustomerPath } from '../utils/customerSession';
@@ -25,8 +26,10 @@ export default function CustomerSessionGate({ children }) {
         }
         localStorage.setItem('userProfile', JSON.stringify(body.profile));
         if (body.sessionRole === 'delivery') {
-          window.history.replaceState(null, '', '/delivery/dashboard');
-          setSession({ loading: true }); return;
+          // Migrate old shared credentials only after server verification.
+          if (!localStorage.getItem('deliveryToken')) saveDeliverySession({ success: true, token, user: body.profile, sessionRole: 'delivery' });
+          clearUserSession(false);
+          setSession({ token: '', loading: false }); return;
         }
         if (body.sessionRole !== 'buyer') {
           clearUserSession(false);

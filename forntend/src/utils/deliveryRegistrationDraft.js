@@ -4,8 +4,8 @@ const FIELDS = ['vehicleType', 'vehicleNumber', 'dlNumber', 'dlExpiry', 'bankHol
 
 export function deliveryDraftOwner() {
   try {
-    if (!localStorage.getItem('userToken')) return null;
-    const profile = JSON.parse(localStorage.getItem('userProfile') || 'null');
+    if (!localStorage.getItem('deliveryToken')) return null;
+    const profile = JSON.parse(localStorage.getItem('deliveryUserProfile') || 'null');
     return profile?._id || profile?.id || null;
   } catch { return null; }
 }

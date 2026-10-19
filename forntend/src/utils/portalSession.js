@@ -1,10 +1,15 @@
 import { clearPortalRequests } from './portalRequests';
 // Portals have independent credentials. Never fall back to another portal.
 export const SELLER_SESSION_CHANGED = 'bulkimart:seller-session-changed';
-export const portalScope = () => typeof window !== 'undefined' && /^\/seller(?:\/|$)/.test(window.location?.pathname || '') ? 'seller' : 'customer';
-export const portalTokenKey = (scope = portalScope()) => scope === 'seller' ? 'sellerToken' : 'userToken';
+export const portalScope = () => {
+  const path = typeof window !== 'undefined' ? window.location?.pathname || '' : '';
+  if (/^\/seller(?:\/|$)/.test(path)) return 'seller';
+  if (/^\/delivery(?:\/|$)/.test(path)) return 'delivery';
+  return 'customer';
+};
+export const portalTokenKey = (scope = portalScope()) => scope === 'seller' ? 'sellerToken' : scope === 'delivery' ? 'deliveryToken' : 'userToken';
 export const getPortalToken = (scope = portalScope()) => localStorage.getItem(portalTokenKey(scope));
-export const pushTokenKey = (scope = portalScope()) => scope === 'seller' ? 'bulkimart_seller_fcm_token' : 'nhcone_fcm_token';
+export const pushTokenKey = (scope = portalScope()) => scope === 'seller' ? 'bulkimart_seller_fcm_token' : scope === 'delivery' ? 'bulkimart_delivery_fcm_token' : 'nhcone_fcm_token';
 
 export function saveSellerSession(body) {
   if (!body.success || typeof body.token !== 'string' || !body.token || !body.user?._id || body.sessionRole !== 'seller' || !body.user.roles?.includes('seller')) {

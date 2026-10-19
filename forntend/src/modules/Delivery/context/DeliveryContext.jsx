@@ -5,7 +5,7 @@ import { portalRequest } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
-import { clearUserSession } from '../../../utils/userSession';
+import { clearDeliverySession } from '../../../utils/deliverySession';
 import { completeDeliveryLogin } from '../utils/deliveryAuth';
 import { deliveryDraftOwner, readDeliveryRegistrationDraft, saveDeliveryRegistrationDraft, clearDeliveryRegistrationDraft } from '../../../utils/deliveryRegistrationDraft';
 
@@ -47,7 +47,7 @@ export const DeliveryProvider = ({ children }) => {
    */
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [riderAuthed, setRiderAuthed] = useState(false);
-  const [bootstrapping, setBootstrapping] = useState(() => Boolean(localStorage.getItem('userToken')));
+  const [bootstrapping, setBootstrapping] = useState(() => Boolean(localStorage.getItem('deliveryToken')));
   const [riderStatus, setRiderStatus] = useState('');
   const [riderRejection, setRiderRejection] = useState('');
   const [riderProfile, setRiderProfile] = useState(null);
@@ -145,7 +145,7 @@ export const DeliveryProvider = ({ children }) => {
 
   // --- Socket.io for Rider ---
   useEffect(() => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('deliveryToken');
     if (token && riderProfile && riderProfile.status === 'approved' && isOnline) {
       connectSocket(token, 'delivery', riderProfile._id);
     }
@@ -201,7 +201,7 @@ export const DeliveryProvider = ({ children }) => {
    * reconnect, a missed event).
    */
   const fetchReturnPickups = useCallback(async () => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('deliveryToken');
     if (!token) return;
     try {
       const res = await fetch(apiUrl('/api/delivery/return-pickups'), { headers: authHeaders() });
@@ -352,7 +352,7 @@ export const DeliveryProvider = ({ children }) => {
   };
 
   const checkPendingPings = useCallback(async () => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('deliveryToken');
     if (!token || !riderProfile || riderProfile.status !== 'approved' || !isOnline) return;
 
     try {
@@ -480,7 +480,7 @@ export const DeliveryProvider = ({ children }) => {
    * nobody could complete.
    */
   const restoreActiveDelivery = useCallback(async () => {
-    if (!localStorage.getItem('userToken')) return;
+    if (!localStorage.getItem('deliveryToken')) return;
     try {
       const res = await fetch(apiUrl('/api/delivery/orders/active'), { headers: authHeaders() });
       if (!res.ok) return;
@@ -689,12 +689,12 @@ export const DeliveryProvider = ({ children }) => {
   });
 
   useEffect(() => {
-    if (!riderAuthed || !localStorage.getItem('userToken')) return;
+    if (!riderAuthed || !localStorage.getItem('deliveryToken')) return;
     localStorage.setItem('deliveryDebitWallet', debitWallet.toString());
   }, [debitWallet, riderAuthed]);
 
   useEffect(() => {
-    if (!riderAuthed || !localStorage.getItem('userToken')) return;
+    if (!riderAuthed || !localStorage.getItem('deliveryToken')) return;
     localStorage.setItem('deliveryEarningsDaily', JSON.stringify(earningsData.daily));
   }, [earningsData.daily, riderAuthed]);
 
@@ -728,25 +728,25 @@ export const DeliveryProvider = ({ children }) => {
   // "are they logged in" but "have they already registered as a rider" — only
   // the second lets them skip the OTP screen.
   useEffect(() => {
-    if (!localStorage.getItem('userToken')) return;
+    if (!localStorage.getItem('deliveryToken')) return;
 
     let cancelled = false;
-    const sessionToken = localStorage.getItem('userToken');
+    const sessionToken = localStorage.getItem('deliveryToken');
     setBootstrapping(true); setSessionError('');
     (async () => {
       try {
         const session = await portalRequest('delivery', sessionToken, '/api/auth/me', { cacheMs: 60000, fresh: sessionRetry > 0 });
-        if (cancelled || sessionToken !== localStorage.getItem('userToken')) return;
-        if ([401, 403].includes(session.status)) { clearUserSession(); return; }
+        if (cancelled || sessionToken !== localStorage.getItem('deliveryToken')) return;
+        if ([401, 403].includes(session.status)) { clearDeliverySession(); return; }
         if (!session.ok) throw new Error('Session unavailable');
         const identity = await session.json();
-        if (cancelled || sessionToken !== localStorage.getItem('userToken') || identity.userType !== 'user' || identity.sessionRole !== 'delivery') return;
+        if (cancelled || sessionToken !== localStorage.getItem('deliveryToken') || identity.userType !== 'user' || identity.sessionRole !== 'delivery') return;
         const res = await portalRequest('delivery', sessionToken, '/api/delivery/me');
-        if (cancelled || sessionToken !== localStorage.getItem('userToken')) return;
+        if (cancelled || sessionToken !== localStorage.getItem('deliveryToken')) return;
 
         if (res.status === 401) {
           // Expired or tampered — drop it rather than half-trusting it.
-          clearUserSession();
+          clearDeliverySession();
           return;
         }
         if (!res.ok) {
@@ -842,12 +842,12 @@ export const DeliveryProvider = ({ children }) => {
    * cannot parse a single field.
    */
   const authHeadersFile = () => ({
-    Authorization: 'Bearer ' + localStorage.getItem('userToken'),
+    Authorization: 'Bearer ' + localStorage.getItem('deliveryToken'),
   });
 
   /** Shared plumbing for the three document steps. */
   const submitStep = async (step, formData) => {
-    if (!localStorage.getItem('userToken')) {
+    if (!localStorage.getItem('deliveryToken')) {
       return { ok: false, message: 'Please sign in again.' };
     }
     try {
@@ -963,7 +963,7 @@ export const DeliveryProvider = ({ children }) => {
   };
 
   const authHeaders = () => ({
-    Authorization: 'Bearer ' + localStorage.getItem('userToken'),
+    Authorization: 'Bearer ' + localStorage.getItem('deliveryToken'),
     'Content-Type': 'application/json',
   });
 
@@ -1031,7 +1031,7 @@ export const DeliveryProvider = ({ children }) => {
    * if one is already there.
    */
   const saveRiderLocation = async (location) => {
-    const token = localStorage.getItem('userToken');
+    const token = localStorage.getItem('deliveryToken');
     if (!token) {
       return { ok: false, message: 'Please sign in before saving your location.' };
     }
@@ -1067,7 +1067,7 @@ export const DeliveryProvider = ({ children }) => {
     // The session has to go too. Clearing only the onboarding flag left the
     // token in place, so the next person to open the app landed straight back
     // inside the previous rider's account.
-    clearUserSession();
+    clearDeliverySession();
     disconnectSocket();
     stopLocationBroadcast();
     setRiderProfile(null);

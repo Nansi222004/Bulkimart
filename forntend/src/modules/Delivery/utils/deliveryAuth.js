@@ -1,8 +1,9 @@
 import { apiUrl } from '../../../utils/api';
-import { saveUserSession, openSessionDashboard, captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
+import { openSessionDashboard } from '../../../utils/userSession';
+import { saveDeliverySession, captureDeliverySession, isCurrentDeliverySession } from '../../../utils/deliverySession';
 
 export async function completeDeliveryLogin(phone, otp, name, intent) {
-  const snapshot = captureUserSession();
+  const snapshot = captureDeliverySession();
   const response = await fetch(apiUrl('/api/auth/delivery/verify-otp'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, otp, intent }),
   });
@@ -19,8 +20,8 @@ export async function completeDeliveryLogin(phone, otp, name, intent) {
     profile = result.data;
   }
   if (!profile || typeof profile.status !== 'string') throw new Error('Delivery profile is unavailable. Please sign in again.');
-  if (!isCurrentUserSession(snapshot)) throw new Error('Your session changed. Please sign in again.');
-  saveUserSession(body);
+  if (!isCurrentDeliverySession(snapshot)) throw new Error('Your session changed. Please sign in again.');
+  saveDeliverySession(body);
   openSessionDashboard(body.sessionRole);
   return { body, profile };
 }

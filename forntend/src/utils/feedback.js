@@ -7,7 +7,7 @@ export function friendlyMessage(value, fallback = 'Something went wrong. Please 
 export function feedbackScope() {
   if (typeof window === 'undefined') return 'server';
   const role = window.location.pathname.split('/')[1];
-  const key = role === 'seller' ? 'sellerToken' : role === 'admin' ? 'adminToken' : 'userToken';
+  const key = role === 'seller' ? 'sellerToken' : role === 'admin' ? 'adminToken' : role === 'delivery' ? 'deliveryToken' : 'userToken';
   try { return `${role === 'seller' || role === 'admin' || role === 'delivery' ? role : 'customer'}:${localStorage.getItem(key) || 'guest'}`; }
   catch { return `${key}:guest`; }
 }
