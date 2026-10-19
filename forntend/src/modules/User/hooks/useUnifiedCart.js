@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { boundedFetch } from '../../../utils/portalRequests';
 
 /**
  * The whole basket, already split into the deliveries it will become.
@@ -43,7 +44,7 @@ export const useUnifiedCart = (destination, couponCode, purchaseMode = 'retail')
       if (couponCode) {
         qs.set('coupon', couponCode);
       }
-      const res = await fetch(apiUrl('/api/cart/unified?' + qs), {
+      const res = await boundedFetch(apiUrl('/api/cart/unified?' + qs), {
         headers: { Authorization: 'Bearer ' + token }, signal: controller.current.signal,
       });
       const body = await res.json().catch(() => ({}));

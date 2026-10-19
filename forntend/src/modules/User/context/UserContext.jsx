@@ -118,28 +118,25 @@ export const UserProvider = ({ children }) => {
   const currentModeFromPath = resolveMode();
   const [activeSubNav, setActiveSubNavState] = useState(() => getSubNavFromPath(currentModeFromPath));
 
-  // Sync states during render to immediately reflect popstate/URL pathname changes
+
+  // Sync nav/mode/subNav to the URL — but only inside an effect, never during
+  // render. Calling setState during render causes React to immediately re-render
+  // the provider, destabilizes downstream useCallback dependencies, and is the
+  // root of the "Maximum update depth exceeded" loop in this context.
   const pathMode = getModeFromPath();
   const currentMode = pathMode || activeMode;
   const currentNav = getNavFromPath();
   const currentSubNav = getSubNavFromPath(currentMode);
+  useEffect(() => {
+    if (pathMode && activeMode !== pathMode) setActiveModeState(pathMode);
+  }, [pathMode, activeMode]);
+  useEffect(() => {
+    if (activeNav !== currentNav) setActiveNavState(currentNav);
+  }, [currentNav, activeNav]);
+  useEffect(() => {
+    if (activeSubNav !== currentSubNav) setActiveSubNavState(currentSubNav);
+  }, [currentSubNav, activeSubNav]);
 
-  /**
-   * Only a path that names a storefront may change which one we are in.
-   *
-   * On `/cart` and the other shared pages `pathMode` is null, so the shopper
-   * stays where they were. Writing the storefront from every path is what sent
-   * people to an empty basket.
-   */
-  if (pathMode && activeMode !== pathMode) {
-    setActiveModeState(pathMode);
-  }
-  if (activeNav !== currentNav) {
-    setActiveNavState(currentNav);
-  }
-  if (activeSubNav !== currentSubNav) {
-    setActiveSubNavState(currentSubNav);
-  }
 
   const setActiveMode = (mode) => {
     setActiveModeState(mode);
@@ -719,6 +716,13 @@ export const UserProvider = ({ children }) => {
     return () => window.removeEventListener('cart:changed', refreshCartSummary);
   }, [refreshCartSummary]);
 
+  // Keep the latest refreshCartSummary in a ref so refreshCart can always call
+  // the current version without listing it as a useCallback dependency. Adding
+  // a useCallback to another useCallback's dep array recreates the outer one
+  // every time the inner one rebuilds — which is what was driving the loop.
+  const refreshCartSummaryRef = useRef(refreshCartSummary);
+  useEffect(() => { refreshCartSummaryRef.current = refreshCartSummary; }, [refreshCartSummary]);
+
   const refreshCart = useCallback(async (channel, coupon, mode) => {
     const ch = channel || cartChannel;
     const cp = coupon !== undefined ? coupon : couponCode;
@@ -759,7 +763,11 @@ export const UserProvider = ({ children }) => {
       setServerCart(cartData);
       if (ch === 'ecommerce' && cartData.items?.length > 0) {
         const itemMode = cartData.items[0].deliveryMode;
-        if (itemMode) {
+        // Only update when the server reports a mode that differs from what we
+        // sent. An unconditional setter recreates the refreshCart useCallback
+        // (deliveryMode is a dep), fires the useEffect, and starts another fetch
+        // — producing the infinite "Updating…" loop visible on the checkout CTA.
+        if (itemMode && itemMode !== wantMode) {
           setDeliveryModeState(itemMode);
         }
       }
@@ -767,13 +775,16 @@ export const UserProvider = ({ children }) => {
       setServerCart({ ...EMPTY_CART, channel: ch });
     } finally {
       setCartLoading(false);
-      refreshCartSummary();
+      refreshCartSummaryRef.current();
     }
     // getDeliveryPoint reads the saved-address list, which changes rarely and
     // never during a re-price; leaving it out keeps this from re-running on
     // every address edit while the customer is mid-checkout.
+    // refreshCartSummary is held in a ref (above) rather than listed here:
+    // adding a useCallback to another's dep array rebuilds the outer one
+    // every time the inner rebuilds, which was the original loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartChannel, couponCode, deliveryMode, refreshCartSummary, selectedAddressId, useCoinsSelected]);
+  }, [cartChannel, couponCode, deliveryMode, selectedAddressId, useCoinsSelected]);
 
   /** Toggling re-fetches the cart so the discount shown is always server-calculated, never guessed client-side. */
   const toggleUseCoins = (next) => setUseCoinsSelected(Boolean(next));
@@ -796,12 +807,12 @@ export const UserProvider = ({ children }) => {
 
   useEffect(() => {
     const channel = activeMode === 'quick' ? 'grocery' : 'ecommerce';
-    if (cartChannel !== channel) {
-      setCartChannel(channel);
-      // A choice made for one basket must not follow the shopper into another.
-      setDeliveryModeState(null);
-    }
-  }, [activeMode, cartChannel]);
+    setCartChannel(channel);
+    setDeliveryModeState(null);
+    // Follow storefront changes only. Checkout can select another basket
+    // without changing the storefront; reacting to cartChannel undoes that
+    // selection and makes the two effects switch channels indefinitely.
+  }, [activeMode]);
 
   /** Shared plumbing for every cart mutation. */
   const cartCall = async (method, path, body) => {
@@ -884,10 +895,12 @@ export const UserProvider = ({ children }) => {
   const removeFromCart = async (itemId, currentQty) =>
     setCartItemQty(itemId, Math.max(0, Number(currentQty || 1) - 1));
 
-  const switchCartChannel = (channel) => {
+  const switchCartChannel = useCallback((channel) => {
+    if (!['grocery', 'ecommerce'].includes(channel) || channel === cartChannel) return;
+    setDeliveryModeState(null);
     setCartChannel(channel);
-    refreshCart(channel);
-  };
+    // The refreshCart effect fetches once with the new channel and mode.
+  }, [cartChannel]);
 
   // ---- read helpers the pages already use --------------------------------
   const getCartItems = () => serverCart.items || [];

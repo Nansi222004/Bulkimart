@@ -183,7 +183,7 @@ export const DashboardPage = () => {
 
         {/* Tab content */}
         <div className="seller-tab-content-container">
-          {sellerProfile?.status === 'approved' && (
+          {sellerProfile?.status === 'approved' && !(activeTab === 'orders' && orderDetailId) && (
             <section aria-label="Wholesale channel access" style={{
               margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd',
               borderRadius: 12, background: '#f0fbff', display: 'flex',

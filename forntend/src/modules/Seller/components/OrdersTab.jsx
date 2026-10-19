@@ -4,6 +4,8 @@ import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
+import { Bike, Package } from 'lucide-react';
+import './SellerOrderDetails.css';
 
 /**
  * Orders — live from GET /api/sellers/orders, and now actionable.
@@ -93,12 +95,17 @@ export const OrdersTab = ({ detailPage = false }) => {
   const [fulfilling, setFulfilling] = useState(null);
   const [fulfillmentOptions, setFulfillmentOptions] = useState(null);
   const [fulfillmentError, setFulfillmentError] = useState('');
+  const [deliveryChoice, setDeliveryChoice] = useState(null);
   const [packageSize, setPackageSize] = useState({ length: '', breadth: '', height: '' });
 
   const [searchQuery, setSearchQuery] = useState(orderListState?.search || '');
   const fulfillmentScope = useRef(0);
-  const loadAvailability = async order => {
+  const loadAvailability = async (order, preserveChoice = false) => {
     const generation = ++fulfillmentScope.current;
+    if (!preserveChoice) {
+      setDeliveryChoice(null);
+      setPackageSize({ length: '', breadth: '', height: '' });
+    }
     setFulfilling(order); setFulfillmentOptions(null); setFulfillmentError('');
     const result = await getFulfillmentOptions(order._id);
     if (generation !== fulfillmentScope.current) return;
@@ -581,9 +588,18 @@ export const OrdersTab = ({ detailPage = false }) => {
       </div>
 
       </>}
-      {detailPage && <><button type="button" className="order-action-btn-sm" aria-label="Close order details" onClick={closeSellerOrder}>← Back to orders</button>
+      {detailPage && <><div className="seller-order-topbar"><button type="button" className="order-action-btn-sm" aria-label="Close order details" onClick={closeSellerOrder}>← Back to orders</button>
+        {selected && <button type="button" className="order-action-btn-sm" disabled={orderDetailLoading || Boolean(busyId)} onClick={() => openSellerOrder(selected._id)}>Refresh details</button>}</div>
         {orderDetailLoading && <p role="status">Loading latest order…</p>}
         {orderDetailError && <div role="alert"><p>{orderDetailError}</p><button type="button" onClick={() => openSellerOrder(orderDetailId)}>Retry loading order</button></div>}
+        {selected && <header className="seller-order-hero">
+          <div><span className="seller-order-eyebrow">{selected.salesChannel === 'wholesale' ? 'Wholesale order' : selected.channel === 'grocery' ? 'Quick Commerce order' : 'E-Commerce order'}</span>
+            <h1>Order {selected.orderNo}</h1><p>Placed {fmt(selected.placedAt || selected.createdAt)}</p></div>
+          <div className="seller-order-hero-meta"><span className="seller-order-status" style={{ background: PILL[selected.status]?.bg || '#f1f5f9', color: PILL[selected.status]?.fg || '#475569' }}>{LABEL[selected.displayStatus || selected.status] || String(selected.displayStatus || selected.status).replaceAll('_', ' ')}</span>
+            <span>{selected.paymentMethod} · {selected.paymentStatus || 'Payment status unavailable'}</span></div>
+          <div className="seller-order-primary-actions">{actionsFor(selected).filter(action => !action.setup).map(action => <button type="button" key={action.label} disabled={busyId === selected._id || orderDetailLoading}
+            className="order-action-btn-sm" onClick={() => onAction(selected, action)}>{action.label}</button>)}</div>
+        </header>}
       </>}
       {/* Courier hand-off. Asked for once, at the only moment it is knowable. */}
       {dispatching && (
@@ -634,17 +650,16 @@ export const OrdersTab = ({ detailPage = false }) => {
       {fulfilling && fulfillmentOptions && (
         <section className="seller-delivery-methods" aria-label="Choose delivery method">
           <div>
-            <div className="modal-sheet-header">
-              <h2 className="modal-sheet-title">Choose delivery method</h2>
-
+            <div className="seller-delivery-heading"><div><span className="seller-order-eyebrow">Arrange fulfillment</span><h2>Choose delivery method</h2></div></div>
+            <div className="seller-delivery-choices" role="group" aria-label="Delivery methods">
+              <button type="button" aria-pressed={deliveryChoice === 'manual'} aria-controls="seller-manual-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('manual')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Bike size={24} /></span><span><strong>Manual Delivery</strong><small>View active delivery boys</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'manual' ? '✓' : '→'}</span></button>
+              <button type="button" aria-pressed={deliveryChoice === 'shiprocket'} aria-controls="seller-shiprocket-delivery" disabled={Boolean(busyId)} onClick={() => setDeliveryChoice('shiprocket')}><span className="seller-delivery-choice-icon" aria-hidden="true"><Package size={24} /></span><span><strong>Use Shiprocket</strong><small>Courier delivery & tracking</small></span><span className="seller-delivery-choice-indicator" aria-hidden="true">{deliveryChoice === 'shiprocket' ? '✓' : '→'}</span></button>
             </div>
-            <p style={{ fontSize: 12, color: '#64748b' }}>{fulfilling.orderNo} · {fulfilling.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</p>
-            <p><strong>Store pickup:</strong> {addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p>
-            <p><strong>Customer destination:</strong> {addressText(fulfillmentOptions.destination)}</p>
-            <p><a href="/seller/profile">Check or update this store’s pickup map pin</a></p>
-            <p>Bulkimart riders accept offers in their delivery app. Selecting this method does not assign a named rider. Then use Offer to Bulkimart riders.</p>
-            <ul>{fulfillmentOptions.manual?.riders?.map((rider, index) => <li key={index}>{rider.name} · {rider.contact} · {rider.online ? 'On duty' : 'Off duty'} · {rider.availability}</li>)}</ul>
-            <button type="button" onClick={() => loadAvailability(fulfilling)}>Refresh delivery availability</button>
+            {deliveryChoice === 'manual' && <div id="seller-manual-delivery" className="seller-delivery-panel" aria-label="Manual delivery">
+              <div className="seller-rider-heading"><div><h3>Active delivery boys</h3><p>{fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders for this order</p></div><button type="button" className="order-action-btn-sm" onClick={() => loadAvailability(fulfilling, true)} disabled={Boolean(busyId)}>Refresh availability</button></div>
+              <div className="seller-rider-list">{fulfillmentOptions.manual?.riders?.filter(rider => rider.online === true).map((rider, index) => <article className="seller-rider-card" key={index}><span className="seller-rider-avatar" aria-hidden="true">{rider.name?.charAt(0)?.toUpperCase() || 'R'}</span><div><strong>{rider.name}</strong>{rider.contact && <span>{rider.contact}</span>}<small>{rider.availability}</small></div><span className="seller-rider-active">Active</span></article>)}</div>
+              {!fulfillmentOptions.manual?.riders?.some(rider => rider.online === true) && <div className="seller-rider-empty"><strong>No active delivery boys available</strong><p>Refresh availability to check for on-duty riders with capacity and coverage for this pickup.</p></div>}
+              <p className="seller-delivery-help">Bulkimart riders accept offers in their delivery app. Confirm manual delivery, then use Offer to Bulkimart riders. A named rider is assigned when they accept.</p>
             <button className="primary-onboarding-btn" style={{ width: '100%', marginTop: 12 }}
               disabled={!fulfillmentOptions.manual?.available || busyId === fulfilling._id}
               onClick={async () => {
@@ -653,13 +668,15 @@ export const OrdersTab = ({ detailPage = false }) => {
                 setBusyId(null); triggerToast?.(result.message);
                 if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
               }}>
-              Manual Bulkimart delivery ({fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders)
+              {busyId === fulfilling._id ? 'Saving…' : 'Confirm manual delivery'}
             </button>
             {!fulfillmentOptions.manual?.available && <p style={{ fontSize: 11, color: '#b45309' }}>{fulfillmentOptions.manual?.reason}</p>}
+              <a className="seller-delivery-profile-link" href="/seller/profile">Check or update the store pickup location</a>
+            </div>}
 
-            <div style={{ borderTop: '1px solid #e2e8f0', margin: '16px 0', paddingTop: 14 }}>
-              <strong>Shiprocket / third-party courier</strong>
-              <p>Provider environment: {fulfillmentOptions.shiprocket?.environment || 'unavailable'}</p>
+            {deliveryChoice === 'shiprocket' && <div id="seller-shiprocket-delivery" className="seller-delivery-panel" aria-label="Shiprocket delivery">
+              <h3>Shiprocket shipment</h3>
+              <div className="seller-delivery-route"><div><span>Pickup from</span><p>{addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p></div><span aria-hidden="true">→</span><div><span>Deliver to</span><p>{addressText(fulfillmentOptions.destination)}</p></div></div>
               {!fulfillmentOptions.shiprocket?.pickupLinked && <p><a href="/seller/profile">Check or retry pickup synchronization in your store profile</a></p>}
               <p style={{ fontSize: 11, color: '#64748b' }}>{fulfillmentOptions.shiprocket?.reason || 'Serviceability is checked before any shipment is created.'}</p>
               <p>Weight from order item snapshots: {fulfillmentOptions.shiprocket?.packageWeightKg || 'Unavailable'} kg</p>
@@ -679,13 +696,13 @@ export const OrdersTab = ({ detailPage = false }) => {
               {fulfillmentOptions.shiprocket?.activation?.blockers?.length > 0 && <div style={{ padding: 10, marginBottom: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 11 }}>
                 Live Quick third-party shipping is disabled: {fulfillmentOptions.shiprocket.activation.blockers.join('; ')}.
               </div>}
-              {['length', 'breadth', 'height'].map((field) => (
-                <input key={field} className="onboarding-input" style={{ marginBottom: 8 }} type="number" min="0.51" max="500"
+              <div className="seller-parcel-fields">{['length', 'breadth', 'height'].map((field) => (
+                <label key={field}><span>{field[0].toUpperCase() + field.slice(1)} (cm)</span><input className="onboarding-input" style={{ marginBottom: 8 }} type="number" min="0.51" max="500" step="any"
                   placeholder={`${field[0].toUpperCase() + field.slice(1)} (cm)`} value={packageSize[field]}
-                  onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} />
-              ))}
+                  onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} /></label>
+              ))}</div>
               <button className="primary-onboarding-btn" style={{ width: '100%' }}
-                disabled={!fulfillmentOptions.shiprocket?.available || busyId === fulfilling._id}
+                disabled={!fulfillmentOptions.shiprocket?.available || !fulfillmentOptions.shiprocket?.quote || busyId === fulfilling._id}
                 onClick={async () => {
                   if (Object.values(packageSize).some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0.5 || Number(value) > 500)) return triggerToast?.('Enter dimensions greater than 0.5 cm and at most 500 cm');
                   return ui.perform(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`, async () => {
@@ -699,27 +716,17 @@ export const OrdersTab = ({ detailPage = false }) => {
 }}>
                 Create Shiprocket shipment
               </button>
-            </div>
+            </div>}
           </div>
         </section>
       )}
-      {detailPage && fulfilling && !fulfillmentOptions && <p role="status">{fulfillmentError || 'Checking delivery eligibility…'} <button type="button" onClick={() => onAction(fulfilling, { setup: true })}>Retry delivery check</button></p>}
+      {detailPage && fulfilling && !fulfillmentOptions && <div className="seller-delivery-loading" role={fulfillmentError ? 'alert' : 'status'}>{fulfillmentError || 'Checking delivery eligibility…'} {fulfillmentError && <button type="button" className="order-action-btn-sm" onClick={() => loadAvailability(fulfilling, true)}>Retry delivery check</button>}</div>}
 
       {detailPage && selected && (
         <section aria-label="Order details">
           <div className="seller-order-page-content">
-            <div className="modal-sheet-header">
-              <h1 className="modal-sheet-title">Order {selected.orderNo}{selected.salesChannel === 'wholesale' ? ' · Wholesale' : ''}</h1>
-
-            </div>
-
             {orderDetailSections(selected)}
             {actionsFor(selected).some(action => action.to === 'ready_for_pickup') && <p>Mark this parcel Ready for pickup to see both delivery methods and their eligibility.</p>}
-            <button type="button" className="order-action-btn-sm" onClick={() => openSellerOrder(selected._id)}>Refresh details</button>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {actionsFor(selected).filter(action => !action.setup).map(action => <button type="button" key={action.label} disabled={busyId === selected._id || orderDetailLoading}
-                className="order-action-btn-sm" onClick={() => onAction(selected, action)}>{action.label}</button>)}
-            </div>
           </div>
         </section>
       )}

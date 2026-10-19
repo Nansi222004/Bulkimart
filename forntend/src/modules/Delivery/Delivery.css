@@ -2150,6 +2150,8 @@
    ============================================================ */
 
 .delivery-file-picker {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2176,11 +2178,15 @@
    wraps it, so the whole box is the hit target and keyboard focus still works. */
 .delivery-file-native {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
 }
+
+.delivery-file-picker:focus-within { outline: 3px solid var(--primary); outline-offset: 3px; }
+.delivery-file-native:disabled { cursor: not-allowed; }
 
 .delivery-file-icon {
   font-size: 18px;

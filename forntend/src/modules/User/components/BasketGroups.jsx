@@ -1,5 +1,5 @@
 import React from 'react';
-import { CartSection, CartTotalRow } from './CartUI';
+import { CartIcon, CartSection, CartTotalRow } from './CartUI';
 import './BasketGroups.css';
 
 export const channelLabel = group => group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce';
@@ -12,7 +12,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
   const maximum = Math.min(item.stock ?? 0, wholesale ? 100000 : 20);
   const editable = onQuantity && item.available !== false && minimum && increment && item.fulfillmentType !== 'digital';
   return <article className="basket-item" data-channel={wholesale ? 'wholesale' : group.channel}>
-    {item.image && <img src={typeof item.image === 'string' ? item.image : item.image.url} alt="" />}
+    <div className="basket-item-image">{item.image ? <img src={typeof item.image === 'string' ? item.image : item.image.url} alt="" loading="lazy" /> : <CartIcon size={28} />}</div>
     <div className="basket-item-info">
       <h3>{item.name}</h3>
       <p>{item.variantName}{item.variantAttributes?.map(attr => ` · ${attr.name}: ${attr.value}`).join('')}</p>
@@ -40,22 +40,24 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
   </article>;
 }
 
-export function BasketGroups({ groups, busy, onMode, ...actions }) {
+export function BasketGroups({ groups, busy, onMode, showTotals = true, ...actions }) {
   return <div className="basket-groups">{groups.map(group => <CartSection key={group.key} title={`${channelLabel(group)} · ${group.seller?.name || 'Vendor unavailable'}`}>
     <p className="basket-note">{group.fulfillmentType === 'digital' ? 'Digital delivery' : group.channel === 'grocery' ? 'Quick Commerce delivery' : group.deliveryMode === 'same_day' ? 'Same-Day delivery' : 'Regular delivery'}{group.salesChannel === 'wholesale' ? ' · Wholesale prices' : ''}</p>
     {group.items.map(item => <BasketItem key={item.itemId} item={item} group={group} busy={busy} {...actions} />)}
     {onMode && group.salesChannel !== 'wholesale' && group.fulfillmentType !== 'digital' && group.channel === 'ecommerce' && group.sameDayOption?.available && <div className="basket-delivery" role="group" aria-label={`Delivery for ${group.seller?.name}`}>
       {['scheduled', 'same_day'].map(mode => <button key={mode} type="button" className="cart-secondary-btn" aria-pressed={group.deliveryMode === mode} disabled={busy} onClick={() => onMode(group, mode)}>{mode === 'same_day' ? 'Same-Day' : 'Scheduled'}</button>)}
     </div>}
-    {group.total != null && <div className="basket-group-totals"><CartTotalRow label="Items" value={basketMoney(group.subtotal)} /><CartTotalRow label="Delivery" value={basketMoney(group.deliveryCharge)} /><CartTotalRow label="Group total" value={basketMoney(group.total)} strong /></div>}
+    {showTotals && group.total != null && <div className="basket-group-totals"><CartTotalRow label="Items" value={basketMoney(group.subtotal)} /><CartTotalRow label="Delivery" value={basketMoney(group.deliveryCharge)} /><CartTotalRow label="Group total" value={basketMoney(group.total)} strong /></div>}
   </CartSection>)}</div>;
 }
 
 export function BasketSummary({ data }) {
   const deliveryCharge = data?.totals?.deliveryCharge ?? 0;
-  return <CartSection title="Basket total">{data?.totals ? <>
-    <CartTotalRow label="Items" value={basketMoney(data.totals.subtotal)} />
+  return <CartSection title="Order summary">{data?.totals ? <>
+    <CartTotalRow label="Items Subtotal" value={basketMoney(data.totals.subtotal)} />
     <CartTotalRow label="Delivery Charges" value={deliveryCharge === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>FREE</span> : basketMoney(deliveryCharge)} />
-    <CartTotalRow label="Total" value={basketMoney(data.totals.totalAmount)} strong />
+    {data.totals.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(data.totals.sameDayPremium)} />}
+    {data.totals.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(data.totals.couponDiscount)}`} />}
+    <CartTotalRow label="Grand Total" value={basketMoney(data.totals.totalAmount)} strong />
   </> : <p className="basket-note">Please resolve unavailable items before checkout.</p>}</CartSection>;
 }

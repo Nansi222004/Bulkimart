@@ -24,7 +24,7 @@ export const CartEmptyState = ({ wholesale = false, onBrowse }) => (
     <CartIcon size={54} />
     <h3>{wholesale ? 'Your Wholesale cart is empty.' : 'Your Cart is Empty'}</h3>
     <p>{wholesale ? 'Explore bulk offers and quantity-based prices from approved sellers.' : 'Explore local products, fresh groceries, organic items, and traditional handicrafts.'}</p>
-    <button className="pd-add-to-cart-btn" onClick={onBrowse}>{wholesale ? 'Browse Wholesale' : 'Start Shopping'}</button>
+    <button className="pd-add-to-cart-btn" onClick={onBrowse}>{wholesale ? 'Browse Wholesale' : 'Continue shopping'}</button>
   </div>
 );
 
@@ -33,7 +33,7 @@ export const CartSection = ({ title, children }) => (
 );
 
 export const CartTotalRow = ({ label, value, strong }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: strong ? 12.5 : 11.5,
+  <div className={`cart-total-row${strong ? ' cart-total-row--grand' : ''}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: strong ? 12.5 : 11.5,
     fontWeight: strong ? 800 : 600, color: strong ? 'var(--text-primary)' : 'var(--text-muted)', marginTop: 3 }}>
     <span>{label}</span><span>{value}</span>
   </div>

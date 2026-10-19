@@ -1,4 +1,4 @@
-import { riderIneligibility } from '../services/riderEligibility.service.js';
+import { riderIneligibility, riderPickupPosition } from '../services/riderEligibility.service.js';
 import { storePickup, requireOrderPickup, orderStoreId, pickupCoordinates } from '../services/storePickup.service.js';
 import mongoose from 'mongoose';
 import DeliveryPartner from '../models/DeliveryPartner.js';
@@ -434,6 +434,20 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     console.warn(`[RIDER BROADCAST] Geo search failed: ${err.message}. Trying fallback search...`);
   }
 
+  // Going on duty stores currentLocation, not baseLocation.point. Include riders
+  // currently near the pickup even when their home pin is missing or elsewhere.
+  const deltaLat = radiusMeters / 111000;
+  const deltaLng = deltaLat / Math.max(0.1, Math.cos(lat * Math.PI / 180));
+  const liveRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true,
+    'currentLocation.lat': { $gte: lat - deltaLat, $lte: lat + deltaLat },
+    'currentLocation.lng': { $gte: lng - deltaLng, $lte: lng + deltaLng },
+  }).limit(50);
+  riders = [...new Map([...riders, ...liveRiders].map(rider => [String(rider._id), rider])).values()]
+    .filter(rider => {
+      const km = distanceKm(riderPickupPosition(rider), storePosition);
+      return km !== undefined && km <= radiusMeters / 1000;
+    });
+
   /**
    * A rider's own configured radius (if they've set one) is a further cap
    * ON TOP OF the shared search radius above, never a substitute for it —
@@ -445,7 +459,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   const shopLoc = { lat, lng };
   riders = riders.filter((r) => {
     if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
-    const riderLoc = (r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation;
+    const riderLoc = riderPickupPosition(r);
     const km = distanceKm(riderLoc, shopLoc);
     return km === undefined || km <= r.deliveryRadiusKm;
   });
@@ -477,7 +491,10 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
       'baseLocation.lat': { $gte: lat - deltaLat, $lte: lat + deltaLat },
       'baseLocation.lng': { $gte: lng - deltaLng, $lte: lng + deltaLng },
     }).limit(50);
-    riders = legacy.filter(rider => distanceKm(rider.baseLocation, storePosition) <= radiusMeters / 1000);
+    riders = legacy.filter(rider => {
+      const km = distanceKm(riderPickupPosition(rider), storePosition);
+      return km !== undefined && km <= radiusMeters / 1000;
+    });
   }
 
   if (riders.length === 0 && !promisedRadius) {
@@ -830,9 +847,6 @@ export const acceptOrder = asyncHandler(async (req, res) => {
    * relax that while the flow was still being built. The limit now lives in
    * RIDER_MAX_CONCURRENT_DELIVERIES and is unset during development.
    */
-  const capacity = await canTakeAnother(partner._id);
-  if (!capacity.ok) throw httpError(409, capacity.reason);
-
   /**
    * Everything that can refuse this request happens before the claim.
    *
@@ -844,8 +858,17 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId shippingAddress');
+  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId deliveryId shippingAddress');
   if (!candidate) throw httpError(404, 'Order not found');
+
+  // A retry of a committed acceptance must not create another delivery or fail
+  // capacity checks because the rider is now carrying this very order.
+  if (String(candidate.deliveryPartnerId || '') === String(partner._id) && candidate.deliveryId) {
+    const existingDelivery = await Delivery.findOne({ _id: candidate.deliveryId, orderId: candidate._id, partnerId: partner._id });
+    if (existingDelivery) return ok(res, { orderId: candidate._id, deliveryId: existingDelivery._id, status: existingDelivery.status }, 'You already accepted this order');
+  }
+  const capacity = await canTakeAnother(partner._id);
+  if (!capacity.ok) throw httpError(409, capacity.reason);
 
   if (candidate.deliveryType === 'shiprocket') throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
   const { seller: pickupSeller, shop } = await requireOrderPickup(candidate);
@@ -866,7 +889,13 @@ export const acceptOrder = asyncHandler(async (req, res) => {
    * Putting the conditions in the filter makes MongoDB the arbiter: exactly one
    * update can match, and everyone else gets null back.
    */
-  const order = await Order.findOneAndUpdate(
+  const session = await mongoose.startSession();
+  let order, delivery;
+  let replayed = false;
+  try {
+    await session.withTransaction(async () => {
+      replayed = false;
+      order = await Order.findOneAndUpdate(
     {
       _id: req.params.id,
       // One shared definition, so the offer and the claim cannot disagree.
@@ -926,6 +955,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     },
     {
       returnDocument: 'after',
+      session,
       arrayFilters: [{ 'attempt.riderId': partner._id, 'attempt.status': OFFER_ATTEMPT_STATUS.OFFERED }],
     }
   );
@@ -933,8 +963,12 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   if (!order) {
     // Nothing matched. Work out which condition failed, so the rider is told
     // something true rather than a generic refusal.
-    const existing = await Order.findById(req.params.id).select('status deliveryPartnerId offerAttempts');
+    const existing = await Order.findById(req.params.id).select('status deliveryPartnerId deliveryId offerAttempts').session(session);
     if (!existing) throw httpError(404, 'Order not found');
+    if (String(existing.deliveryPartnerId || '') === String(partner._id) && existing.deliveryId) {
+      delivery = await Delivery.findOne({ _id: existing.deliveryId, orderId: existing._id, partnerId: partner._id }).session(session);
+      if (delivery) { order = existing; replayed = true; return; }
+    }
     if (existing.deliveryPartnerId) {
       throw httpError(409, 'Another rider accepted this order first');
     }
@@ -985,7 +1019,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // Measured, not assumed. Straight-line: enough for an ETA, and free.
   const legKm = distanceKm(pickup, drop);
 
-  const delivery = await Delivery.create({
+  const [createdDelivery] = await Delivery.create([{
     orderId: order._id,
     partnerId: partner._id,
     pickupLocation: pickup,
@@ -1014,19 +1048,16 @@ export const acceptOrder = asyncHandler(async (req, res) => {
      * at all, moments after being told one had been assigned. A slightly stale
      * pin beats a missing one, and the first real ping replaces it.
      */
-    partnerLocation: partner.baseLocation?.lat !== undefined
-      ? {
-          lat: partner.baseLocation.lat,
-          lng: partner.baseLocation.lng,
-          updatedAt: new Date(),
-        }
+    partnerLocation: riderPickupPosition(partner)
+      ? { ...riderPickupPosition(partner), updatedAt: new Date() }
       : undefined,
 
     otpVerified: false
-  });
+  }], { session });
+  delivery = createdDelivery;
 
   order.deliveryId = delivery._id;
-  await order.save();
+  await order.save({ session });
 
   /**
    * Only step out of the offer pool when the limit says one trip at a time.
@@ -1037,9 +1068,12 @@ export const acceptOrder = asyncHandler(async (req, res) => {
    * quietly reinstated the very restriction the limit is meant to control.
    */
   if (maxConcurrentDeliveries() === 1) {
-    partner.isAvailable = false;
-    await partner.save();
+    await DeliveryPartner.updateOne({ _id: partner._id }, { $set: { isAvailable: false } }, { session });
   }
+    });
+  } finally { await session.endSession(); }
+
+  if (replayed) return ok(res, { orderId: order._id, deliveryId: delivery._id, status: delivery.status }, 'You already accepted this order');
 
   // Notify other riders to clear the ping, and notify buyer
   try {

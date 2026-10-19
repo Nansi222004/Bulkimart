@@ -140,7 +140,26 @@
   box-sizing: border-box;
 }
 
-.checkout-page-container > .profile-header-gradient { margin: 0; padding-top: max(16px, calc(env(safe-area-inset-top, 0px) + 12px)); }
+.checkout-header {
+  padding: env(safe-area-inset-top, 0px) 12px 0;
+  background: var(--header-bg);
+}
+
+.checkout-header-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  min-height: 56px;
+}
+
+.checkout-header-row > .back-arrow-white {
+  width: 44px;
+  height: 44px;
+}
+
+.checkout-header-row > .profile-title {
+  text-align: center;
+}
 
 .checkout-content {
   width: min(100%, 760px);

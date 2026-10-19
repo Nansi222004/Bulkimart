@@ -9,6 +9,7 @@ import { apiUrl } from '../../../utils/api';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import { DELIVERY_LABEL } from '../utils/deliveryLabel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
+import '../components/CartCheckout.css';
 
 const CheckoutPage = () => {
   const {
@@ -39,7 +40,6 @@ const CheckoutPage = () => {
     removeCoupon,
     couponCode,
     tipSetting,
-    fetchTipSetting,
     useCoinsSelected,
     toggleUseCoins,
     walletBalance,
@@ -81,7 +81,7 @@ const CheckoutPage = () => {
     || !basketItems.length || hasMixedFulfillment || (isUnified && Boolean(appliedCoupon || couponCode));
   useEffect(() => {
     if (groups.length === 1 && groups[0].salesChannel !== 'wholesale' && groups[0].channel !== cartChannel) switchCartChannel?.(groups[0].channel);
-  }, [groups[0]?.channel, groups.length, cartChannel, hasWholesale]);
+  }, [groups[0]?.channel, groups.length, cartChannel, hasWholesale, switchCartChannel]);
 
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => {
@@ -156,8 +156,7 @@ const CheckoutPage = () => {
 
   useEffect(() => {
     fetchAvailableCoupons();
-    fetchTipSetting();
-  }, [fetchAvailableCoupons, fetchTipSetting]);
+  }, [fetchAvailableCoupons]);
 
   // Address form states
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -754,8 +753,8 @@ const CheckoutPage = () => {
       )}
 
       {/* Header bar */}
-      <div className="profile-header-gradient" style={{ padding: 'max(16px, calc(env(safe-area-inset-top, 0px) + 12px)) 16px 20px', background: 'var(--header-bg)' }}>
-        <div className="profile-header-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="checkout-header">
+        <div className="checkout-header-row">
           <button 
             className="back-arrow-white" 
             onClick={() => setActiveNav('cart')} 
@@ -766,22 +765,22 @@ const CheckoutPage = () => {
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
-          <h2 className="profile-title" style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 800 }}>Checkout</h2>
-          <div style={{ width: 24 }}></div>
+          <h1 className="profile-title" style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 800 }}>Checkout</h1>
         </div>
       </div>
 
       <div className="checkout-content">
-      {unified.data?.purchaseMode === 'basket' && <div className="basket-checkout-groups"><BasketGroups groups={groups} busy={isOrdering} /></div>}
+      <div className="checkout-form-column">
+      {unified.loading && <div className="basket-loading" role="status">Checking your basket and delivery charges…</div>}
+      {unified.error && <div role="alert" className="wholesale-cart-alert">{unified.error} <button type="button" className="cart-secondary-btn" onClick={unified.reload}>Retry basket check</button></div>}
+      {!unified.loading && !unified.error && unified.data && !basketItems.length && <CartEmptyState onBrowse={() => setActiveNav('home')} />}
       {unified.data?.warnings?.map(message => <p role="alert" key={message}>{message}</p>)}
 
         
         {/* Address Selection Section */}
-        {!isDigitalCart ? (<div className="profile-menu-card" style={{ padding: 16 }}>
+        {!isDigitalCart ? (<div className="profile-menu-card checkout-address-section" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Select Delivery Address
-            </span>
+            <h2 className="checkout-section-title">Delivery address</h2>
             
             <button 
               onClick={() => setShowAddressForm(!showAddressForm)}
@@ -931,9 +930,8 @@ const CheckoutPage = () => {
               const addrId = addr._id || addr.id;
               const isSelected = String(selectedAddressId) === String(addrId);
               return (
-                <div 
+                <label className={`checkout-selection checkout-address${isSelected ? ' is-selected' : ''}`}
                   key={addrId}
-                  onClick={() => setSelectedAddressId(addrId)}
                   style={{ 
                     display: 'flex', 
                     gap: 12, 
@@ -952,8 +950,8 @@ const CheckoutPage = () => {
                     onChange={() => setSelectedAddressId(addrId)}
                     style={{ marginTop: 3, cursor: 'pointer' }}
                   />
-                  <div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div className="checkout-selection-content">
+                    <div className="checkout-address-recipient" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
                         {addr.name || customerName || 'Delivery Address'}
                       </span>
@@ -969,7 +967,7 @@ const CheckoutPage = () => {
                       </span>
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 4, lineHeight: 1.4 }}>
-                      {addr.line1 || addr.house}, {addr.line2 || addr.street}, {addr.city} - {addr.pincode}
+                      {[addr.line1 || addr.house, addr.line2 || addr.street, addr.city, addr.pincode].filter(Boolean).join(', ')}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginTop: 2 }}>
                       Mobile: {addr.phone || customerPhone || 'Not provided'}
@@ -981,7 +979,7 @@ const CheckoutPage = () => {
                       </div>
                     )}
                   </div>
-                </div>
+                </label>
               );
             })}
           </div>
@@ -996,14 +994,14 @@ const CheckoutPage = () => {
 
 
 
-        {!isDigitalCart && <div className="profile-menu-card" style={{ padding: 16 }}>
+        {!isDigitalCart && <div className="profile-menu-card checkout-delivery-section" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: 18 }} aria-hidden="true">🚚</span>
             <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>Delivery Details</strong>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {groups.map(group => (
-              <div key={group.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '8px 10px', background: 'var(--surface-background)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+              <div className="checkout-delivery-row" key={group.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '8px 10px', background: 'var(--surface-background)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
                 <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{group.seller?.name || 'Store'}</span>
                 <span style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 11.5, background: 'var(--primary-light)', padding: '3px 8px', borderRadius: 6 }}>
                   {group.channel === 'grocery' ? '⚡ Quick Commerce delivery' : group.requestedMode === 'same_day' ? '🚀 Same-Day via Bulkimart delivery' : '📦 Regular delivery'}
@@ -1014,24 +1012,15 @@ const CheckoutPage = () => {
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '10px 0 0', lineHeight: 1.5 }}>
             Delivery arranged after store acceptance. All delivery charges are included in your bill and will not add a customer charge.
           </p>
-          {unified.loading && <p role="status" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>Checking your basket…</p>}
-          {unified.error && <div role="alert" className="wholesale-cart-alert" style={{ marginTop: 8 }}>{unified.error} <button type="button" className="cart-secondary-btn" onClick={unified.reload} style={{ marginLeft: 8 }}>Retry basket check</button></div>}
         </div>}
 
         {/* Payment Methods selection */}
-        <div className="profile-menu-card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
-            Choose Payment Method
-          </div>
+        <div className="profile-menu-card checkout-payment-section" style={{ padding: 16 }}>
+          <h2 className="checkout-section-title">Payment method</h2>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {/* NHCONE Real Money Wallet */}
-            <div 
-              onClick={() => {
-                if (walletBalance >= grandTotalVal) {
-                  setPaymentMethod('wallet');
-                }
-              }}
+            <label className={`checkout-selection checkout-payment${paymentMethod === 'wallet' ? ' is-selected' : ''}`}
               style={{ 
                 display: isDigitalCart ? 'none' : 'flex',
                 gap: 12, 
@@ -1054,7 +1043,7 @@ const CheckoutPage = () => {
                 disabled={walletBalance < grandTotalVal}
                 style={{ cursor: walletBalance >= grandTotalVal ? 'pointer' : 'not-allowed' }}
               />
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'space-between' }}>
+              <div className="checkout-wallet-content" style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <span style={{ fontSize: 20 }}>💰</span>
                   <div>
@@ -1076,11 +1065,10 @@ const CheckoutPage = () => {
                   </span>
                 )}
               </div>
-            </div>
+            </label>
 
             {/* Cash on Delivery */}
-            <div 
-              onClick={() => setPaymentMethod('Cash on Delivery')}
+            <label className={`checkout-selection checkout-payment${paymentMethod === 'Cash on Delivery' ? ' is-selected' : ''}`}
               style={{ 
                 display: isDigitalCart ? 'none' : 'flex',
                 gap: 12, 
@@ -1106,11 +1094,10 @@ const CheckoutPage = () => {
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay at your doorstep on delivery</span>
                 </div>
               </div>
-            </div>
+            </label>
 
             {/* Online Payment */}
-            <div 
-              onClick={() => setPaymentMethod('Online Payment')}
+            <label className={`checkout-selection checkout-payment${paymentMethod === 'Online Payment' ? ' is-selected' : ''}`}
               style={{ 
                 display: 'flex', 
                 gap: 12, 
@@ -1136,18 +1123,16 @@ const CheckoutPage = () => {
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, cards and supported payment methods via Razorpay</span>
                 </div>
               </div>
-            </div>
+            </label>
           </div>
         </div>
 
         {/* Promo Coupons section */}
         {!isUnified && <div className="profile-menu-card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
-            Apply Promo Code
-          </div>
+          <h2 className="checkout-section-title">Coupons & offers</h2>
 
           {!appliedCoupon && (
-            <form onSubmit={handleApplyCoupon} style={{ display: 'flex', gap: 10 }}>
+            <form className="checkout-coupon-form" onSubmit={handleApplyCoupon} style={{ display: 'flex', gap: 10 }}>
               <input
                 type="text"
                 placeholder="Enter coupon code"
@@ -1621,11 +1606,15 @@ const CheckoutPage = () => {
           </div>
         )}
 
+        </div>
+        <aside className="checkout-summary-column" aria-label="Order summary">
+          <details className="checkout-order-review" open>
+            <summary><span>Review your items <small>{basketItems.length} {basketItems.length === 1 ? 'item' : 'items'}</small></span><span aria-hidden="true">⌄</span></summary>
+            {groups.length > 0 ? <BasketGroups groups={groups} showTotals={false} busy={isOrdering} /> : <p className="basket-note">Your items will appear after the basket loads.</p>}
+          </details>
         {/* Bill Invoice Details Section */}
-        <div className="profile-menu-card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
-            Bill Invoice Details
-          </div>
+        <div className="profile-menu-card checkout-bill" style={{ padding: 16 }}>
+          <h2 className="checkout-section-title">Payment summary</h2>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
@@ -1683,13 +1672,13 @@ const CheckoutPage = () => {
 
         {/* Checkout CTA Bar */}
         <div className="checkout-cta-bar">
-          <div onClick={() => setShowBillBreakdown(prev => !prev)} style={{ cursor: 'pointer' }}>
+          <button type="button" className="checkout-payable" onClick={() => setShowBillBreakdown(prev => !prev)} aria-expanded={showBillBreakdown} aria-label="View payable amount breakdown">
             <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <span>Payable Amount</span>
               <span style={{ fontSize: 9 }}>▲</span>
             </div>
             <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--primary)' }}>₹{grandTotalVal}</div>
-          </div>
+          </button>
 
           {/* Wait for authoritative basket pricing, without requiring a carrier. */}
           <button
@@ -1703,32 +1692,14 @@ const CheckoutPage = () => {
               : 'Confirm & Place Order'}
           </button>
         </div>
-
+        </aside>
       </div>
 
-      {/* Slide-up Bottom Sheet — rendered as sibling to scrollable div, inside checkout-page-container which has position:relative, so position:absolute clips to the mobile frame */}
+      {/* Portal keeps the breakdown visible above the scrolling page and action. */}
       {showBillBreakdown && (
-        <>
-          {/* Backdrop */}
-          <div 
-            onClick={() => setShowBillBreakdown(false)}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0,0,0,0.5)',
-              zIndex: 999,
-              animation: 'fadeIn 0.2s ease'
-            }}
-          />
+        <ModalPortal className="checkout-breakdown-overlay" onClick={event => { if (event.target === event.currentTarget) setShowBillBreakdown(false); }} onKeyDown={event => { if (event.key === 'Escape') setShowBillBreakdown(false); }}>
           {/* Bottom Sheet Drawer */}
-          <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
+          <div className="checkout-breakdown-sheet" role="dialog" aria-modal="true" aria-label="Bill invoice and items" style={{
             background: '#fff',
             borderTopLeftRadius: '16px',
             borderTopRightRadius: '16px',
@@ -1745,6 +1716,8 @@ const CheckoutPage = () => {
                 Bill Invoice & Items
               </span>
               <button 
+                type="button"
+                aria-label="Close bill breakdown"
                 onClick={() => setShowBillBreakdown(false)}
                 style={{
                   background: 'var(--bg-page)',
@@ -1816,6 +1789,8 @@ const CheckoutPage = () => {
                   </div>
                 )}
 
+                {coinDiscountVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>Bulkimart Coins</span><span>−₹{coinDiscountVal}</span></div>}
+
                 {tipAmount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                     <span>Delivery Partner Tip</span>
@@ -1839,7 +1814,7 @@ const CheckoutPage = () => {
               to { opacity: 1; }
             }
           `}</style>
-        </>
+        </ModalPortal>
       )}
 
     </div>

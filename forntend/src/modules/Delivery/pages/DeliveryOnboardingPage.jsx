@@ -22,22 +22,22 @@ const ACCEPTED = 'image/jpeg,image/png,image/webp,application/pdf';
  * security, which is the server's job, but because a rider on mobile data
  * should not upload 8 MB before being told it was too big.
  */
-const FileField = ({ label, file, onPick, disabled, required }) => {
+export const FileField = ({ label, file, onPick, disabled, required }) => {
   const [problem, setProblem] = useState('');
 
   const handle = (e) => {
     const picked = e.target.files?.[0];
     setProblem('');
-    if (!picked) { onPick(null); return; }
+    if (!picked) return; // Cancelling never removes the previous document.
 
     if (!ACCEPTED.split(',').includes(picked.type)) {
       setProblem('Please choose a JPG, PNG, WEBP or PDF file.');
-      onPick(null);
+      e.target.value = '';
       return;
     }
     if (picked.size > MAX_FILE_MB * 1024 * 1024) {
       setProblem(`That file is ${(picked.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_FILE_MB} MB.`);
-      onPick(null);
+      e.target.value = '';
       return;
     }
     onPick(picked);
@@ -52,6 +52,7 @@ const FileField = ({ label, file, onPick, disabled, required }) => {
       <label className={`delivery-file-picker ${file ? 'has-file' : ''}`}>
         <input
           type="file"
+          aria-label={label}
           accept={ACCEPTED}
           onChange={handle}
           disabled={disabled}
@@ -66,7 +67,7 @@ const FileField = ({ label, file, onPick, disabled, required }) => {
       {file && (
         <p className="delivery-file-meta">{(file.size / 1024).toFixed(0)} KB · ready to upload</p>
       )}
-      {problem && <p className="delivery-location-error">{problem}</p>}
+      {problem && <p className="delivery-location-error" role="alert">{problem}</p>}
     </div>
   );
 };
@@ -77,6 +78,9 @@ export const DeliveryOnboardingPage = () => {
     setOnboardingStep,
     onboardingForm,
     setOnboardingForm,
+    onboardingFiles: files,
+    setOnboardingFiles: setFiles,
+    onboardingNeedsFileReselection,
     riderName,
     riderStatus,
     riderRejection,
@@ -91,7 +95,6 @@ export const DeliveryOnboardingPage = () => {
   } = useDelivery();
 
   const [busy, setBusy] = useState(false);
-  const [files, setFiles] = useState({ license: null, aadhaarFront: null, aadhaarBack: null, passbook: null });
   const [stepErrors, setStepErrors] = useState({});
   const submissionLock = useRef(false);
 
@@ -99,6 +102,11 @@ export const DeliveryOnboardingPage = () => {
   const setFile = (key) => (file) => setFiles((prev) => ({ ...prev, [key]: file }));
 
   const needsLicence = onboardingForm.vehicleType && onboardingForm.vehicleType !== 'bicycle';
+
+  useEffect(() => {
+    const viewport = globalThis.document?.querySelector('.delivery-onboarding-viewport');
+    if (viewport) viewport.scrollTop = 0;
+  }, [onboardingStep]);
 
   // A submitted application has nothing left to fill in — show its state instead.
   useEffect(() => {
@@ -135,6 +143,11 @@ export const DeliveryOnboardingPage = () => {
   };
 
   const doStep2 = async () => {
+    if (!onboardingForm.aadhaarNumber && !files.aadhaarFront && !files.aadhaarBack
+      && riderProfile?.aadhaar?.frontUrl && riderProfile?.aadhaar?.backUrl) {
+      setOnboardingStep(3);
+      return;
+    }
     const digits = (onboardingForm.aadhaarNumber || '').replace(/\s/g, '');
     if (!/^\d{12}$/.test(digits)) { triggerToast('An Aadhaar number is 12 digits.'); return; }
     if (!files.aadhaarFront || !files.aadhaarBack) {
@@ -327,6 +340,7 @@ export const DeliveryOnboardingPage = () => {
             <p className="delivery-step-desc">
               We store only the last four digits of your Aadhaar number, never the whole one.
             </p>
+            {riderProfile?.aadhaar?.frontUrl && riderProfile?.aadhaar?.backUrl && <p className="delivery-location-notice">Your Aadhaar documents are already saved. Continue to keep them, or enter the number and select both files to replace them.</p>}
 
             <div className="delivery-input-group">
               <label className="delivery-input-label">
@@ -567,6 +581,7 @@ export const DeliveryOnboardingPage = () => {
                 <p className="delivery-location-notice">A payout document is already on file. Select a new file only to replace it.</p>
               )}
               {stepErrors.passbook && <p className="delivery-inline-error" role="alert">{stepErrors.passbook}</p>}
+              {onboardingNeedsFileReselection && !files.passbook && !riderProfile?.bankDetails?.passbookUrl && <p className="delivery-location-notice">Your form details were restored. Please reselect the passbook document after a page reload.</p>}
               {stepErrors.form && <p className="delivery-inline-error" role="alert">{stepErrors.form}</p>}
             </div>
 

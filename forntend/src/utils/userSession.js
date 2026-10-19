@@ -1,6 +1,7 @@
 import { clearPortalRequests } from './portalRequests';
 import { resetCustomerSessions } from './customerSession';
 import { apiUrl } from './api';
+import { clearDeliveryRegistrationDrafts } from './deliveryRegistrationDraft';
 
 export const SESSION_CHANGED = 'bulkimart:session-changed';
 let sessionRevision = 0;
@@ -8,6 +9,7 @@ export const captureUserSession = () => ({ token: localStorage.getItem('userToke
 export const isCurrentUserSession = snapshot => snapshot.token === localStorage.getItem('userToken') && snapshot.revision === sessionRevision;
 
 export function clearUserSession(notify = true) {
+  clearDeliveryRegistrationDrafts();
   sessionRevision++; resetCustomerSessions(); clearPortalRequests('customer'); clearPortalRequests('delivery');
   for (const key of ['userToken', 'userProfile', 'delivery_onboarded', 'deliveryDebitWallet', 'deliveryEarningsDaily', 'userLocation', 'guestLocationCoords']) localStorage.removeItem(key);
   try {

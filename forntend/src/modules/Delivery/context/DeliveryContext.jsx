@@ -1,5 +1,5 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { portalRequest } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
@@ -7,6 +7,7 @@ import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { clearUserSession } from '../../../utils/userSession';
 import { completeDeliveryLogin } from '../utils/deliveryAuth';
+import { deliveryDraftOwner, readDeliveryRegistrationDraft, saveDeliveryRegistrationDraft, clearDeliveryRegistrationDraft } from '../../../utils/deliveryRegistrationDraft';
 
 const DeliveryContext = createContext();
 
@@ -18,6 +19,8 @@ export const useDelivery = () => {
 
 export const DeliveryProvider = ({ children }) => {
   const ui = useFeedback();
+  const draftOwner = deliveryDraftOwner();
+  const restoredDraft = useRef(readDeliveryRegistrationDraft(draftOwner));
   /**
    * Starts false on every load, on purpose.
    *
@@ -51,8 +54,9 @@ export const DeliveryProvider = ({ children }) => {
   const [riderName, setRiderName] = useState('');
   const [riderPhone, setRiderPhone] = useState('');
 
-  const [onboardingStep, setOnboardingStep] = useState(1);
-  const [onboardingForm, setOnboardingForm] = useState({
+  const [onboardingStep, setOnboardingStep] = useState(restoredDraft.current?.step || 1);
+  const [onboardingFiles, setOnboardingFiles] = useState(() => restoredDraft.current?.files || { license: null, aadhaarFront: null, aadhaarBack: null, passbook: null });
+  const [onboardingForm, setOnboardingForm] = useState(() => ({
     vehicleType: '',
     vehicleNumber: '',
     dlNumber: '',
@@ -66,7 +70,14 @@ export const DeliveryProvider = ({ children }) => {
     deliveryRadius: 10,
     // Filled by LocationPicker — either a GPS fix or a typed address.
     location: {},
-  });
+    ...restoredDraft.current?.form,
+  }));
+
+  useEffect(() => {
+    if (!riderAuthed || bootstrapping || !draftOwner) return;
+    if (riderStatus === 'approved' || riderStatus === 'pending') { clearDeliveryRegistrationDraft(draftOwner); return; }
+    saveDeliveryRegistrationDraft(draftOwner, { form: onboardingForm, step: onboardingStep, files: onboardingFiles });
+  }, [draftOwner, riderAuthed, bootstrapping, riderStatus, onboardingForm, onboardingStep, onboardingFiles]);
 
   const [isOnline, setIsOnline] = useState(false);
   const [debitWallet, setDebitWallet] = useState(() => {
@@ -770,6 +781,7 @@ export const DeliveryProvider = ({ children }) => {
           bankIfsc: d.bankDetails?.ifsc || previous.bankIfsc,
           upiId: d.bankDetails?.upiId || previous.upiId || '',
           deliveryRadius: d.deliveryRadiusKm !== undefined && d.deliveryRadiusKm !== null ? d.deliveryRadiusKm : (previous.deliveryRadius || 10),
+          ...restoredDraft.current?.form,
         }));
         setPhoneVerified(true);
         setIsOnline(d.isAvailable || false);
@@ -777,7 +789,7 @@ export const DeliveryProvider = ({ children }) => {
         hydrateEarnings(d);
         // A rider mid-registration with no name yet still owes us one.
         setRiderAuthed(Boolean(d.name));
-        setOnboardingStep(Math.min(d.onboardingStep || 1, 4));
+        setOnboardingStep(Math.max(1, Math.min(d.onboardingStep || 1, restoredDraft.current?.step || 4, 4)));
 
         // The server decides who is approved, not a flag in this browser. An
         // old 'delivery_onboarded' left over from testing would otherwise show
@@ -846,6 +858,8 @@ export const DeliveryProvider = ({ children }) => {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not save this step' };
+
+      if (body.data) setRiderProfile(previous => ({ ...previous, ...body.data }));
 
       // The server is the authority on how far along the rider is.
       if (body.data?.onboardingStep) setOnboardingStep(Math.min(body.data.onboardingStep, 4));
@@ -1473,6 +1487,9 @@ export const DeliveryProvider = ({ children }) => {
       setOnboardingStep,
       onboardingForm,
       setOnboardingForm,
+      onboardingFiles,
+      setOnboardingFiles,
+      onboardingNeedsFileReselection: Boolean(restoredDraft.current?.needsFileReselection && !restoredDraft.current?.files),
       isOnline,
       setIsOnline: handleToggleOnline,
       debitWallet,
