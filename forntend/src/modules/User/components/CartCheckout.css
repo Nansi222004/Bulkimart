@@ -90,7 +90,7 @@
 /* Brand and page heading stay compact and retain the existing customer nav. */
 .customer-basket { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 .customer-basket .basket-heading {
-  padding: calc(12px + env(safe-area-inset-top, 0px)) max(16px, calc((100% - 1120px) / 2)) 12px;
+  padding: max(12px, var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px))) max(16px, calc((100% - 1120px) / 2)) 12px;
   color: var(--text-primary);
   background: #fff;
   border-bottom: 1px solid var(--border-color);

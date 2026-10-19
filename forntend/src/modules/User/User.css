@@ -141,7 +141,7 @@
 }
 
 .checkout-header {
-  padding: env(safe-area-inset-top, 0px) 12px 0;
+  padding: var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px)) 12px 0;
   background: var(--header-bg);
 }
 
@@ -5962,14 +5962,16 @@ input[type="checkbox"] {
 input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); }
 
 /* Customer header identity: icon-only mark with real text beside it. */
-.unified-header-container {
+.unified-header-container,
+.customer-basket,
+.checkout-page-container {
   --customer-header-safe-area-top: env(safe-area-inset-top, 0px);
 }
 
 /* In native-fitted Android Appilix, the host reserves the system status bar.
    Keep the normal 8px content padding; do not reserve the native inset twice.
-   This affects only the customer header, not other pages or desktop spacing. */
-html[data-customer-header-inset-owner="native"] .unified-header-container {
+   All customer page headers share the same inset ownership rule. */
+html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .customer-basket, .checkout-page-container) {
   --customer-header-safe-area-top: 0px;
 }
 
