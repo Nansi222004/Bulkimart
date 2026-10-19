@@ -89,44 +89,65 @@ export const DeliveryAuthPage = () => {
   // All that is missing is a name.
   if (phoneVerified) {
     return (
-      <div className="delivery-onboarding-wrapper">
-        <div className="delivery-onboarding-header">
-          <div className="delivery-onboarding-brand">
-            <BrandLogo variant="compact" portal="Delivery" />
-          </div>
-          <p className="delivery-onboarding-sub">Become a Delivery Partner</p>
+      <div className="auth-page-container delivery-auth-page">
+        <div className="auth-decoration" aria-hidden="true">
+          <div className="auth-bg-blob blob-1"></div>
+          <div className="auth-bg-blob blob-2"></div>
         </div>
 
-        <div className="delivery-onboarding-card">
-          <div className="delivery-onboarding-step-body">
-            <h3 className="delivery-step-title">One Last Thing</h3>
-            <p className="delivery-step-desc">
+        <div className="auth-card-wrapper">
+          {busy && (
+            <div className="auth-loading-overlay">
+              <div className="auth-spinner"></div>
+              <span className="auth-loading-text">Saving name...</span>
+            </div>
+          )}
+
+          <div className="auth-brand-header">
+            <BrandLogo className="auth-brand-logo" variant="full" transparent />
+            <span className="auth-portal-badge auth-portal-badge--delivery">Delivery Partner</span>
+          </div>
+
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: '0 0 6px 0' }}>One Last Thing</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: 1.45 }}>
               {riderPhone
                 ? `${riderPhone} is verified. What should we call you?`
                 : 'Your number is verified. What should we call you?'}
             </p>
+          </div>
 
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Full Name <span className="delivery-required">*</span>
-              </label>
+          <form onSubmit={(e) => { e.preventDefault(); if (name.trim().length >= 2) handleSaveName(); }} className="auth-form-body">
+            <div className="auth-input-group">
+              <label htmlFor="rider-verified-name">Full Name</label>
               <input
                 type="text"
-                className="delivery-text-input"
+                id="rider-verified-name"
                 placeholder="As printed on your ID"
                 value={name}
                 disabled={busy}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && name.trim().length >= 2) handleSaveName(); }}
+                required
               />
             </div>
 
             <button
-              className="delivery-primary-action-btn"
-              onClick={handleSaveName}
+              type="submit"
+              className="auth-submit-btn"
               disabled={name.trim().length < 2 || busy}
             >
               {busy ? 'Saving…' : 'Continue'}
+            </button>
+          </form>
+
+          <div className="auth-guest-footer">
+            <button
+              type="button"
+              className="auth-guest-btn"
+              onClick={() => { window.location.href = '/'; }}
+            >
+              ← Back to store
             </button>
           </div>
         </div>
@@ -135,145 +156,180 @@ export const DeliveryAuthPage = () => {
   }
 
   return (
-    <div className="delivery-onboarding-wrapper">
-      <div className="delivery-onboarding-header">
-        <div className="delivery-onboarding-brand">
-          <BrandLogo variant="compact" portal="Delivery" />
-        </div>
-        <p className="delivery-onboarding-sub">
-          {isRegister ? 'Become a Delivery Partner' : 'Welcome back, partner'}
-        </p>
+    <div className="auth-page-container delivery-auth-page">
+      {/* Background blobs for organic visual texture */}
+      <div className="auth-decoration" aria-hidden="true">
+        <div className="auth-bg-blob blob-1"></div>
+        <div className="auth-bg-blob blob-2"></div>
       </div>
 
-      <div className="delivery-onboarding-card">
-        <div className="delivery-onboarding-step-body">
-          <div className="delivery-auth-tabs">
+      <div className="auth-card-wrapper">
+        {/* Loading Overlay */}
+        {busy && (
+          <div className="auth-loading-overlay">
+            <div className="auth-spinner"></div>
+            <span className="auth-loading-text">
+              {!otpSent ? 'Sending OTP...' : 'Verifying OTP...'}
+            </span>
+          </div>
+        )}
+
+        {/* Brand Header */}
+        <div className="auth-brand-header">
+          <BrandLogo className="auth-brand-logo" variant="full" transparent />
+          <span className="auth-portal-badge auth-portal-badge--delivery">Delivery Partner</span>
+        </div>
+
+        {/* Sliding Tab Selector */}
+        {!otpSent && (
+          <div className="auth-tab-slider-container">
+            <div className={`auth-tab-slider-bg is-login-${!isRegister}`}></div>
             <button
               type="button"
-              className={`delivery-auth-tab ${isRegister ? 'active' : ''}`}
+              className={`auth-tab-btn ${!isRegister ? 'active' : ''}`}
+              onClick={() => switchMode('login')}
+              disabled={busy}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              className={`auth-tab-btn ${isRegister ? 'active' : ''}`}
               onClick={() => switchMode('register')}
               disabled={busy}
             >
               Register
             </button>
-            <button
-              type="button"
-              className={`delivery-auth-tab ${!isRegister ? 'active' : ''}`}
-              onClick={() => switchMode('login')}
-              disabled={busy}
-            >
-              Sign in
-            </button>
           </div>
+        )}
 
-          <h3 className="delivery-step-title">
-            {isRegister ? 'Your Details' : 'Sign In'}
-          </h3>
-          <p className="delivery-step-desc">
-            {isRegister
-              ? 'This number becomes your login. You will use it every time you sign in.'
-              : 'Enter the mobile number you registered with.'}
-          </p>
-
-          {isRegister && (
-            <div className="delivery-input-group">
-              <label className="delivery-input-label">
-                Full Name <span className="delivery-required">*</span>
-              </label>
-              <input
-                type="text"
-                className="delivery-text-input"
-                placeholder="As printed on your ID"
-                value={name}
-                disabled={otpSent || busy}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div className="delivery-input-group">
-            <label className="delivery-input-label">
-              Mobile Number <span className="delivery-required">*</span>
-            </label>
-            <input
-              type="tel"
-              inputMode="numeric"
-              maxLength={10}
-              className="delivery-text-input"
-              placeholder="10-digit number"
-              value={phone}
-              disabled={otpSent || busy}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              onKeyDown={(e) => { if (e.key === 'Enter' && phone.length === 10) handleSend(); }}
-            />
-          </div>
-
-          {!otpSent ? (
-            <button
-              className="delivery-primary-action-btn"
-              onClick={handleSend}
-              disabled={phone.length !== 10 || !nameOk || busy}
-            >
-              {busy ? 'Sending…' : 'Send OTP'}
-            </button>
-          ) : (
-            <>
-              <div className="delivery-input-group">
-                <label className="delivery-input-label">
-                  Enter OTP sent to {phone}
-                </label>
+        {!otpSent ? (
+          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="auth-form-body">
+            {isRegister && (
+              <div className="auth-input-group">
+                <label htmlFor="rider-name">Full Name</label>
                 <input
-                  type="tel"
-                  inputMode="numeric"
-                  maxLength={6}
-                  className="delivery-text-input delivery-otp-input"
-                  placeholder="••••"
-                  value={otp}
+                  type="text"
+                  id="rider-name"
+                  placeholder="As printed on your ID"
+                  value={name}
                   disabled={busy}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && otp) handleVerify(); }}
+                  onChange={(e) => setName(e.target.value)}
+                  required
                 />
               </div>
+            )}
 
+            <div className="auth-input-group">
+              <label htmlFor="rider-phone">Phone Number</label>
+              <input
+                type="tel"
+                id="rider-phone"
+                placeholder="10-digit mobile number"
+                maxLength={10}
+                value={phone}
+                disabled={busy}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onKeyDown={(e) => { if (e.key === 'Enter' && phone.length === 10) handleSend(); }}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={phone.length !== 10 || !nameOk || busy}
+            >
+              {busy ? 'Sending OTP…' : (isRegister ? 'Send OTP to Register' : 'Send OTP Verification')}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} className="auth-form-body">
+            <div className="auth-input-group" style={{ textAlign: 'center' }}>
+              <label>Enter OTP sent to +91 {phone}</label>
+              <input
+                type="text"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="••••"
+                className="auth-otp-input"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter' && otp) handleVerify(); }}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={!otp || busy}
+            >
+              {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Verify & Sign In')}
+            </button>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
               <button
-                className="delivery-primary-action-btn"
-                onClick={handleVerify}
-                disabled={!otp || busy}
+                type="button"
+                className="auth-link-btn"
+                onClick={() => { setOtpSent(false); setOtp(''); setTimer(0); }}
+                style={{ color: '#94a3b8' }}
+                disabled={busy}
               >
-                {busy ? 'Verifying…' : 'Verify & Continue'}
+                ← Change Number
               </button>
-
-              <div className="delivery-auth-footer">
+              {timer > 0 ? (
+                <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>Resend in {timer}s</span>
+              ) : (
                 <button
                   type="button"
-                  className="delivery-link-btn"
-                  onClick={() => { setOtpSent(false); setOtp(''); setTimer(0); }}
+                  className="auth-link-btn"
+                  onClick={handleSend}
                   disabled={busy}
                 >
-                  Change number
+                  Resend OTP
                 </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {!otpSent && (
+          <div className="auth-toggle-helper">
+            {!isRegister ? (
+              <span>
+                New to Bulkimart Delivery?{' '}
                 <button
                   type="button"
-                  className="delivery-link-btn"
-                  onClick={handleSend}
-                  disabled={timer > 0 || busy}
+                  className="auth-link-btn highlight"
+                  onClick={() => switchMode('register')}
                 >
-                  {timer > 0 ? `Resend in ${timer}s` : 'Resend OTP'}
+                  Register here
                 </button>
-              </div>
-            </>
-          )}
-        </div>
-        <div style={{ textAlign: 'center', marginTop: 16 }}>
+              </span>
+            ) : (
+              <span>
+                Already registered as a partner?{' '}
+                <button
+                  type="button"
+                  className="auth-link-btn highlight"
+                  onClick={() => switchMode('login')}
+                >
+                  Sign in here
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Exit Footer */}
+        <div className="auth-guest-footer">
           <button
             type="button"
-            className="delivery-link-btn"
-            style={{ color: '#0070f3', fontSize: '0.9rem', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}
-            onClick={() => {
-              window.history.pushState(null, '', '/');
-            }}
+            className="auth-guest-btn"
+            onClick={() => { window.location.href = '/'; }}
           >
-            ← Back to Bulkimart Shopping Store
+            ← Back to store
           </button>
         </div>
       </div>

@@ -78,7 +78,7 @@ const DeliveryRoutesContent = () => {
   // So the phone check comes first, before any of it is shown.
   if (!riderAuthed) {
     return (
-      <div className="delivery-app-container">
+      <div className="delivery-app-container delivery-auth-viewport">
         {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
         <DeliveryAuthPage />
       </div>

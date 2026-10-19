@@ -87,57 +87,51 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
   const isRegister = currentMode === 'register';
 
   return (
-    <div className="seller-main-content seller-auth-page">
-      <div className="seller-header-row">
-        <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
-        <button
-          type="button"
-          onClick={onBack || (() => { window.location.href = '/'; })}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '12.5px',
-            fontWeight: '700',
-            color: '#0284c7',
-            backgroundColor: '#f0f9ff',
-            border: '1px solid #bae6fd',
-            padding: '7px 14px',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e0f2fe'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0f9ff'; }}
-        >
-          ← Back to store
-        </button>
+    <div className="auth-page-container seller-auth-page">
+      {/* Background blobs for organic visual texture */}
+      <div className="auth-decoration" aria-hidden="true">
+        <div className="auth-bg-blob blob-1"></div>
+        <div className="auth-bg-blob blob-2"></div>
       </div>
 
-      <div className="onboarding-container">
+      <div className="auth-card-wrapper">
+        {/* Loading Overlay */}
+        {busy && (
+          <div className="auth-loading-overlay">
+            <div className="auth-spinner"></div>
+            <span className="auth-loading-text">
+              {!otpSent ? 'Sending OTP...' : 'Verifying OTP...'}
+            </span>
+          </div>
+        )}
+
+        {/* Brand Header */}
+        <div className="auth-brand-header">
+          <BrandLogo className="auth-brand-logo" variant="full" transparent />
+          <span className="auth-portal-badge auth-portal-badge--seller">Seller Portal</span>
+        </div>
+
         {noSellerFound ? (
-          <div style={{ textAlign: 'center', padding: '16px 4px' }}>
-            <div style={{ fontSize: 48, marginBottom: 14 }}>🔍</div>
-            <h3 className="onboarding-title" style={{ marginBottom: 8 }}>No seller account found</h3>
-            <p className="onboarding-subtitle" style={{ color: '#64748b', fontSize: 14, lineHeight: 1.5 }}>
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>🔍</div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>No Seller Account Found</h3>
+            <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.5, margin: '0 0 20px 0' }}>
               This mobile number {sellerPhone ? `(${sellerPhone}) ` : ''}is not registered as a seller on Bulkimart yet.
             </p>
             <button
               type="button"
-              className="primary-onboarding-btn"
-              style={{ marginTop: 22 }}
+              className="auth-submit-btn"
               onClick={() => {
                 setNoSellerFound(false);
-                setCurrentMode('register');
-                onToggleMode?.('register');
+                handleModeChange('register');
               }}
             >
-              Register my store
+              Register My Store
             </button>
             <div style={{ marginTop: 14 }}>
               <button
                 type="button"
-                className="otp-resend-btn"
+                className="auth-link-btn"
                 onClick={() => {
                   setNoSellerFound(false);
                   changePhone();
@@ -149,209 +143,158 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
           </div>
         ) : (
           <>
-            {/* Mode Switcher Tabs */}
-            <div style={{
-              display: 'flex',
-              backgroundColor: '#f1f5f9',
-              borderRadius: '12px',
-              padding: '4px',
-              marginBottom: '20px',
-              border: '1px solid #e2e8f0',
-            }}>
-              <button
-                type="button"
-                onClick={() => handleModeChange('login')}
-                style={{
-                  flex: 1,
-                  padding: '9px 14px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  backgroundColor: !isRegister ? '#ffffff' : 'transparent',
-                  color: !isRegister ? '#0f172a' : '#64748b',
-                  boxShadow: !isRegister ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                🔑 Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => handleModeChange('register')}
-                style={{
-                  flex: 1,
-                  padding: '9px 14px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  backgroundColor: isRegister ? '#ffffff' : 'transparent',
-                  color: isRegister ? '#0f172a' : '#64748b',
-                  boxShadow: isRegister ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                🏪 Register Store
-              </button>
-            </div>
-
-            <div style={{ textAlign: 'center', marginBottom: 8 }}>
-              <div
-                style={{
-                  width: 52, height: 52, borderRadius: 14, margin: '0 auto 12px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: isRegister ? '#059669' : 'var(--primary, #15803d)', color: '#fff',
-                  fontSize: 20, fontWeight: 900, letterSpacing: 0.5,
-                }}
-              >
-                {isRegister ? '🏪' : 'BM'}
-              </div>
-            </div>
-
-            <h3 className="onboarding-title" style={{ textAlign: 'center' }}>
-              {isRegister ? 'Register Your Store' : 'Seller Sign In'}
-            </h3>
-            <p className="onboarding-subtitle" style={{ textAlign: 'center' }}>
-              {isRegister
-                ? 'Enter your mobile number to begin seller onboarding and register your store.'
-                : 'Enter the mobile number you registered your store with.'}
-            </p>
-            {formError && <div className="seller-auth-error" role="alert">{formError}</div>}
-
-            {/* Informational banner in Register mode */}
-            {isRegister && (
-              <div style={{
-                backgroundColor: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                marginBottom: '16px',
-                fontSize: '11px',
-                color: '#166534',
-                lineHeight: 1.5,
-              }}>
-                <strong>🚀 3-Step Store Setup:</strong>
-                <div style={{ marginTop: '4px', color: '#15803d' }}>
-                  1. Phone OTP Verification &nbsp;➔&nbsp; 2. Store & Bank Info &nbsp;➔&nbsp; 3. KYC Docs
-                </div>
+            {/* Sliding Tab Selector */}
+            {!otpSent && (
+              <div className="auth-tab-slider-container">
+                <div className={`auth-tab-slider-bg is-login-${!isRegister}`}></div>
+                <button
+                  type="button"
+                  className={`auth-tab-btn ${!isRegister ? 'active' : ''}`}
+                  onClick={() => handleModeChange('login')}
+                  disabled={busy}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  className={`auth-tab-btn ${isRegister ? 'active' : ''}`}
+                  onClick={() => handleModeChange('register')}
+                  disabled={busy}
+                >
+                  Register
+                </button>
               </div>
             )}
 
-            <form autoComplete="off" onSubmit={(e) => { e.preventDefault(); if (!otpSent) handleSend(); else handleVerify(); }}>
-              <div className="onboarding-form-group">
-                <label className="onboarding-label">Mobile Number</label>
-                <input
-                  type="tel"
-                  className="onboarding-input"
-                  placeholder="Enter 10-digit number"
-                  maxLength={18}
-                  autoComplete="off"
-                  value={sellerPhone}
-                  disabled={otpSent || busy}
-                  onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && sellerPhone.length === 10) handleSend(); }}
-                />
+            {formError && (
+              <div className="auth-error-banner" role="alert">
+                {formError}
               </div>
+            )}
 
-              {!otpSent ? (
+            {!otpSent ? (
+              <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="auth-form-body">
+                {isRegister && (
+                  <div className="auth-info-banner">
+                    <span className="auth-info-title">🚀 3-Step Store Setup:</span>
+                    <span className="auth-info-sub">1. Phone OTP &nbsp;➔&nbsp; 2. Store & Bank Info &nbsp;➔&nbsp; 3. KYC Docs</span>
+                  </div>
+                )}
+
+                <div className="auth-input-group">
+                  <label htmlFor="seller-phone">Phone Number</label>
+                  <input
+                    type="tel"
+                    id="seller-phone"
+                    placeholder="10-digit mobile number"
+                    maxLength={10}
+                    value={sellerPhone}
+                    disabled={busy}
+                    onChange={(e) => setSellerPhone(normalizePhoneInput(e.target.value))}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && sellerPhone.length === 10) handleSend(); }}
+                    required
+                  />
+                </div>
+
                 <button
                   type="submit"
-                  className="primary-onboarding-btn"
+                  className="auth-submit-btn"
                   disabled={sellerPhone.length !== 10 || busy}
                 >
-                  {busy ? 'Sending OTP…' : (isRegister ? 'Send OTP to Register' : 'Send OTP')}
+                  {busy ? 'Sending OTP…' : (isRegister ? 'Send OTP to Register' : 'Send OTP Verification')}
                 </button>
-              ) : (
-                <>
-                  <div className="onboarding-form-group" style={{ marginTop: 12 }}>
-                    <label className="onboarding-label">Enter OTP Code</label>
-                    <input
-                      type="text"
-                      className="onboarding-input"
-                      placeholder="Enter 4-digit code"
-                      maxLength={6}
-                      autoComplete="one-time-code"
-                      autoFocus
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length >= 4) handleVerify(); }}
-                    />
-                    {otpTimer > 0 ? (
-                      <span className="otp-countdown-lbl">Resend code in {otpTimer}s</span>
-                    ) : (
-                      <button type="button" className="otp-resend-btn" onClick={handleSend}>Resend Code</button>
-                    )}
-                  </div>
+              </form>
+            ) : (
+              <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} className="auth-form-body">
+                <div className="auth-input-group" style={{ textAlign: 'center' }}>
+                  <label>Enter 4-Digit OTP sent to +91 {sellerPhone}</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="••••"
+                    className="auth-otp-input"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length >= 4) handleVerify(); }}
+                    required
+                  />
+                </div>
 
-                  <button
-                    type="submit"
-                    className="primary-onboarding-btn"
-                    disabled={otpCode.length < 4 || busy}
-                  >
-                    {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Sign In')}
-                  </button>
-                  <button type="button" className="otp-resend-btn" onClick={changePhone} disabled={busy}>
-                    Change mobile number
-                  </button>
-                </>
-              )}
-            </form>
+                <button
+                  type="submit"
+                  className="auth-submit-btn"
+                  disabled={otpCode.length < 4 || busy}
+                >
+                  {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Verify & Sign In')}
+                </button>
 
-            {/* Toggle mode helper links */}
-            <div style={{ textAlign: 'center', marginTop: 18, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
-              {!isRegister ? (
-                <div style={{ fontSize: 13, color: '#64748b' }}>
-                  Don't have a seller account?{' '}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
                   <button
                     type="button"
-                    onClick={() => handleModeChange('register')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#15803d',
-                      fontWeight: 800,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      padding: 0,
-                      textDecoration: 'underline',
-                    }}
+                    className="auth-link-btn"
+                    onClick={changePhone}
+                    style={{ color: '#94a3b8' }}
+                    disabled={busy}
                   >
-                    Register your store here
+                    ← Change Number
                   </button>
+                  {otpTimer > 0 ? (
+                    <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>Resend in {otpTimer}s</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="auth-link-btn"
+                      onClick={handleSend}
+                      disabled={busy}
+                    >
+                      Resend OTP
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div style={{ fontSize: 13, color: '#64748b' }}>
-                  Already registered as a seller?{' '}
-                  <button
-                    type="button"
-                    onClick={() => handleModeChange('login')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#15803d',
-                      fontWeight: 800,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      padding: 0,
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    Sign in here
-                  </button>
-                </div>
-              )}
-            </div>
+              </form>
+            )}
 
-            <div style={{ textAlign: 'center', marginTop: 14 }}>
-              <button className="otp-resend-btn" onClick={onBack || (() => { window.location.href = '/'; })}>
-                ← Back to store
-              </button>
-            </div>
+            {!otpSent && (
+              <div className="auth-toggle-helper">
+                {!isRegister ? (
+                  <span>
+                    Don't have a seller account?{' '}
+                    <button
+                      type="button"
+                      className="auth-link-btn highlight"
+                      onClick={() => handleModeChange('register')}
+                    >
+                      Register your store here
+                    </button>
+                  </span>
+                ) : (
+                  <span>
+                    Already registered as a seller?{' '}
+                    <button
+                      type="button"
+                      className="auth-link-btn highlight"
+                      onClick={() => handleModeChange('login')}
+                    >
+                      Sign in here
+                    </button>
+                  </span>
+                )}
+              </div>
+            )}
           </>
         )}
+
+        {/* Exit Footer */}
+        <div className="auth-guest-footer">
+          <button
+            type="button"
+            className="auth-guest-btn"
+            onClick={onBack || (() => { window.location.href = '/'; })}
+          >
+            ← Back to store
+          </button>
+        </div>
       </div>
     </div>
   );

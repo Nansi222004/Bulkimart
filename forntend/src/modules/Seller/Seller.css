@@ -725,18 +725,20 @@
 }
 
 .seller-auth-page {
-  background:
-    radial-gradient(circle at 100% 0, rgba(255, 133, 0, .08), transparent 30rem),
-    radial-gradient(circle at 0% 100%, rgba(8, 185, 232, .08), transparent 30rem),
-    linear-gradient(180deg, #f4fcff 0%, #f8fafc 100%);
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
   height: 100vh;
+  min-height: 100vh;
   height: 100dvh;
-  min-height: 0;
-  overflow-y: auto;
+  min-height: 100dvh;
+  position: relative;
+  background: linear-gradient(145deg, #eaf9fe 0%, #ffffff 52%, #fff3e5 100%);
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(20px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
 }
 
 .seller-auth-page .seller-header-row {
@@ -820,10 +822,6 @@
 }
 
 @media (min-width: 768px) {
-  .seller-auth-page {
-    padding: 0 0 48px 0;
-  }
-
   .seller-auth-page .seller-header-row {
     padding: 0 40px;
   }
