@@ -678,12 +678,14 @@ export const DeliveryProvider = ({ children }) => {
   });
 
   useEffect(() => {
+    if (!riderAuthed || !localStorage.getItem('userToken')) return;
     localStorage.setItem('deliveryDebitWallet', debitWallet.toString());
-  }, [debitWallet]);
+  }, [debitWallet, riderAuthed]);
 
   useEffect(() => {
+    if (!riderAuthed || !localStorage.getItem('userToken')) return;
     localStorage.setItem('deliveryEarningsDaily', JSON.stringify(earningsData.daily));
-  }, [earningsData.daily]);
+  }, [earningsData.daily, riderAuthed]);
 
   /**
    * Read the rider's earnings back off their profile.

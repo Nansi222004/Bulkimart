@@ -264,6 +264,18 @@ export const DeliveryAuthPage = () => {
             </>
           )}
         </div>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <button
+            type="button"
+            className="delivery-link-btn"
+            style={{ color: '#0070f3', fontSize: '0.9rem', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}
+            onClick={() => {
+              window.history.pushState(null, '', '/');
+            }}
+          >
+            ← Back to Bulkimart Shopping Store
+          </button>
+        </div>
       </div>
     </div>
   );
