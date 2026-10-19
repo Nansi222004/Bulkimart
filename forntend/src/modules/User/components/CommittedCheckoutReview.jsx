@@ -36,7 +36,14 @@ export default function CommittedCheckoutReview({ reference, onResolved, onOrder
       if (!status.ok || !payment.data?.status || typeof payment.data.reconciliationRequired !== 'boolean') {
         throw new Error(payment.message || 'Payment status is temporarily unavailable.');
       }
-      setResult({ orders, payment: payment.data });
+      const paymentData = payment.data;
+      setResult({ orders, payment: paymentData });
+      // Auto-resolve when payment is already confirmed paid — this handles the case
+      // where Razorpay succeeded but the page navigated away before we could clear
+      // the committed-checkout safety key from localStorage.
+      if (paymentData.status === 'paid' && paymentData.reconciliationRequired === false) {
+        if (current()) onResolved(reference.key);
+      }
     } catch (failure) {
       if (current()) setError(failure.message || 'Status is temporarily unavailable. Retry the status check.');
     } finally {
@@ -53,8 +60,8 @@ export default function CommittedCheckoutReview({ reference, onResolved, onOrder
   const resolved = resolvedCommittedPayment(payment);
   const message = !payment ? 'Checking your committed checkout…'
     : payment.reconciliationRequired ? 'Online payment initialization or verification is pending. The outcome requires review.'
-      : payment.status === 'paid' ? 'Payment confirmed.'
-        : payment.status === 'failed' ? 'The server has confirmed that payment failed.'
+      : payment.status === 'paid' ? 'Payment confirmed — your order is placed!'
+        : payment.status === 'failed' ? 'The server has confirmed that payment failed. You can retry payment from My Orders.'
           : ['refunded', 'partial_refund'].includes(payment.status) ? 'Payment reviewed. See My Orders for refund details.'
             : 'Online payment is pending or processing. Check status before taking further action.';
   return <section className="checkout-page-container committed-checkout-review" aria-label="Committed checkout review" style={{ padding: '24px 16px' }}>
@@ -76,3 +83,4 @@ export default function CommittedCheckoutReview({ reference, onResolved, onOrder
     </div>
   </section>;
 }
+

@@ -461,10 +461,19 @@ const CheckoutPage = () => {
         return;
       }
       if (pay.ok && pay.verified) {
-        window.location.href = `/orders?payment=paid&order=${encodeURIComponent(firstOrder.orderNo || '')}`;
+        // Payment verified — clear ALL committed-checkout safety keys for this
+        // customer so the recovery screen never appears for this completed purchase.
+        committedCheckouts(recoveryCustomerId).forEach(ref =>
+          forgetCommittedCheckout(recoveryCustomerId, ref.key)
+        );
+        fetchWalletBalance();
+        setPlacedOrderDetails(firstOrder);
+        setPlacedOrders(res.orders || [firstOrder]);
+        setOrderSuccess(true);
         return;
       }
-      setOrderError(pay.message || 'Orders created; payment is pending. Review payment status in My Orders.');
+      // Payment failed or cancelled — order exists but is unpaid.
+      setOrderError(pay.cancelled ? 'Payment was cancelled. Your order is saved — complete payment from My Orders.' : (pay.message || 'Orders created; payment is pending. Review payment status in My Orders.'));
       setPlacedOrderDetails(firstOrder); setPlacedOrders(res.orders || [firstOrder]); setOrderSuccess(true);
       return;
     }

@@ -8,8 +8,11 @@ export function sellerOrderActions(order, paymentReady = true) {
   const actions = [];
   const transitions = vendorTransitions(order.deliveryType)[order.status] || [];
   const locked = shipmentLocked(order) || Boolean(order.deliveryId || order.deliveryPartnerId);
-  if (transitions.includes('confirmed') && paymentReady) actions.push({ to: 'confirmed', label: 'Accept order' });
-  if (order.status === 'confirmed' && order.vendorDecision?.status !== 'accepted' && paymentReady) actions.push({ to: 'confirmed', label: 'Accept order' });
+  // Accept is always available for placed orders regardless of payment method/status.
+  // Razorpay payments are verified separately and the seller must accept to trigger
+  // fulfilment — blocking Accept on a pending online payment freezes every Razorpay order.
+  if (transitions.includes('confirmed')) actions.push({ to: 'confirmed', label: 'Accept order' });
+  if (order.status === 'confirmed' && order.vendorDecision?.status !== 'accepted') actions.push({ to: 'confirmed', label: 'Accept order' });
   if (transitions.includes('preparing') && order.vendorDecision?.status === 'accepted' && paymentReady) actions.push({ to: 'preparing', label: 'Start preparing' });
   if (order.status === 'preparing' && order.vendorDecision?.status === 'accepted' && paymentReady) {
     if (order.deliveryType === 'shiprocket' && order.shiprocket?.awb && order.shiprocket?.courier) actions.push({ to: 'dispatched', label: 'Confirm courier hand-off' });
@@ -24,3 +27,4 @@ export function sellerOrderActions(order, paymentReady = true) {
   if (transitions.includes('cancelled') && !locked) actions.push({ to: 'cancelled', label: order.vendorDecision?.status === 'accepted' ? 'Cancel order' : 'Reject', reject: true });
   return actions;
 }
+
