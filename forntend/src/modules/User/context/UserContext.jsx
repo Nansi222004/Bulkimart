@@ -420,8 +420,6 @@ export const UserProvider = ({ children }) => {
 
   // A campaign banner's landing page, same overlay pattern as selectedOrder.
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
-  // A seller promotion banner's landing page — same overlay pattern, its own domain.
-  const [selectedPromotionId, setSelectedPromotionId] = useState(null);
 
   // --- Socket IO connections and events ---
   useEffect(() => {
@@ -1705,7 +1703,6 @@ export const UserProvider = ({ children }) => {
         orders, setOrders,
         selectedOrder, setSelectedOrder,
         selectedCampaignId, setSelectedCampaignId,
-        selectedPromotionId, setSelectedPromotionId,
         activeRider,
         returnPickupOtp,
         placeOrder,

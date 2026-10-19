@@ -34,13 +34,15 @@
   overflow: hidden;
   background-color: var(--sa-bg-workspace);
   font-family: var(--sa-font);
+  font-size: 16px;
+  line-height: 1.5;
   color: var(--sa-text-primary);
   box-sizing: border-box;
 }
 
 /* Sidebar navigation */
 .sa-sidebar {
-  width: 240px;
+  width: 264px;
   height: 100%;
   background-color: var(--sa-bg-sidebar);
   display: flex;
@@ -56,7 +58,8 @@
 }
 
 .sa-sidebar-header {
-  height: 64px;
+  min-height: 80px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,8 +76,9 @@
 }
 
 .sa-logo-icon {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
   border-radius: 8px;
   background-color: #ffffff;
   color: #ffffff;
@@ -82,7 +86,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 15px;
   overflow: hidden;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -93,13 +97,13 @@
   flex-direction: column;
 }
 .sa-logo-title {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.5px;
 }
 .sa-logo-subtitle {
-  font-size: 9px;
-  color: var(--sa-text-muted);
+  font-size: 12px;
+  color: #cbd5e1;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -128,6 +132,12 @@
   margin: 0 auto;
 }
 
+.sa-sidebar.collapsed .sa-sidebar-header {
+  padding: 12px 6px;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* Sidebar Navigation lists */
 .sa-sidebar-nav {
   flex: 1;
@@ -149,9 +159,9 @@
 }
 
 .sa-nav-group-title {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
-  color: var(--sa-text-muted);
+  color: #cbd5e1;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   padding: 4px 8px;
@@ -166,9 +176,11 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
-  color: #94a3b8;
-  font-size: 12.5px;
+  padding: 12px 10px;
+  min-height: 44px;
+  line-height: 1.4;
+  color: #dbeafe;
+  font-size: 14.5px;
   font-weight: 600;
   text-decoration: none;
   border-radius: 6px;
@@ -211,7 +223,9 @@
 
 /* Sticky top header */
 .sa-header {
-  height: 64px;
+  min-height: 80px;
+  height: auto;
+  gap: 16px;
   background-color: #ffffff;
   border-bottom: 1px solid var(--sa-border);
   display: flex;
@@ -228,13 +242,13 @@
   flex-direction: column;
 }
 .sa-header-title {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 800;
   margin: 0;
   color: var(--sa-text-primary);
 }
 .sa-header-subtitle {
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--sa-text-secondary);
   margin: 2px 0 0 0;
 }
@@ -249,6 +263,8 @@
   border-radius: 8px;
   padding: 6px 12px;
   width: 320px;
+  min-height: 44px;
+  min-width: 0;
   transition: all 0.2s;
 }
 .sa-search-wrapper:focus-within {
@@ -257,17 +273,18 @@
   box-shadow: 0 0 0 2px var(--sa-primary-glow);
 }
 .sa-search-input {
+  min-width: 0;
   background: none;
   border: none;
   outline: none;
-  font-size: 12.5px;
+  font-size: 14.5px;
   width: 100%;
   color: var(--sa-text-primary);
   font-family: inherit;
   font-weight: 600;
 }
 .sa-search-badge {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   padding: 2px 5px;
   background-color: #e2e8f0;
@@ -332,7 +349,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 15px;
   border: 1.5px solid #e2e8f0;
 }
 .sa-user-info {
@@ -340,12 +357,12 @@
   flex-direction: column;
 }
 .sa-user-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   margin: 0;
 }
 .sa-user-role {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--sa-text-muted);
   font-weight: 700;
 }
@@ -369,7 +386,7 @@
 }
 
 .sa-filter-left {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--sa-text-secondary);
 }
@@ -381,11 +398,12 @@
 }
 
 .sa-select {
+  min-height: 44px;
   background-color: #ffffff;
   border: 1px solid var(--sa-border);
   border-radius: 8px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   font-family: inherit;
   color: var(--sa-text-secondary);
@@ -397,12 +415,13 @@
 }
 
 .sa-btn-primary {
+  min-height: 44px;
   background-color: var(--sa-primary);
   color: #ffffff;
   border: none;
   border-radius: 8px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   display: flex;
@@ -465,7 +484,7 @@
 .sa-kpi-card.sub::before { background-color: var(--sa-warning); }
 
 .sa-kpi-title {
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--sa-text-muted);
   text-transform: uppercase;
@@ -479,7 +498,7 @@
   color: var(--sa-text-primary);
 }
 .sa-kpi-trend {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--sa-success);
 }
@@ -523,7 +542,7 @@
   margin-bottom: 12px;
 }
 .sa-card-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   color: var(--sa-text-secondary);
   text-transform: uppercase;
@@ -545,7 +564,7 @@
 .sa-label-item {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 .sa-label-color {
@@ -619,7 +638,7 @@
   border-radius: 8px;
   background-color: var(--sa-primary-glow);
   color: var(--sa-primary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   display: flex;
   align-items: center;
@@ -631,13 +650,13 @@
   gap: 2px;
 }
 .sa-widget-name {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   color: var(--sa-text-primary);
   margin: 0;
 }
 .sa-widget-sub {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--sa-text-muted);
 }
@@ -649,13 +668,13 @@
   gap: 4px;
 }
 .sa-widget-value {
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
   color: var(--sa-text-primary);
 }
 
 .sa-badge-sm {
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 900;
   padding: 1px 6px;
   border-radius: 4px;
@@ -695,7 +714,7 @@
   justify-content: center;
   background-color: #ffffff;
   border: 1px solid var(--sa-border);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 /* Bottom Quick Actions decks */
@@ -735,7 +754,7 @@
   color: var(--sa-text-secondary);
   border-radius: 8px;
   padding: 10px 8px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.15s;
@@ -759,7 +778,7 @@
 
 /* Status specific colors */
 .sa-status-pill {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 20px;

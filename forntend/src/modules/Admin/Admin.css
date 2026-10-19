@@ -83,7 +83,7 @@
   height: 40px;
   background-color: var(--admin-primary-glow);
   color: var(--admin-primary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   display: flex;
   align-items: center;
@@ -135,7 +135,7 @@
 }
 
 .admin-nav-label {
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
   text-align: center;
   line-height: 1.2;
@@ -226,7 +226,7 @@
 }
 
 .admin-nav-sub-label {
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 800;
   text-align: center;
   max-width: 90%;
@@ -341,7 +341,7 @@
   background: none;
   border: none;
   outline: none;
-  font-size: 13px;
+  font-size: 15px;
   width: 100%;
   font-family: inherit;
   font-weight: 600;
@@ -354,7 +354,7 @@
   color: var(--admin-text-secondary);
   border-radius: 12px;
   padding: 8px 14px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   font-family: inherit;
   outline: none;
@@ -390,7 +390,7 @@
 
 .admin-kpi-title {
   margin: 0;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--admin-text-muted);
   text-transform: uppercase;
@@ -406,7 +406,7 @@
 }
 
 .admin-kpi-subtext {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--admin-success);
 }
@@ -432,7 +432,7 @@
 
 .admin-chart-title {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--admin-text-secondary);
   text-transform: uppercase;
@@ -478,13 +478,13 @@
 
 .admin-item-title {
   margin: 0;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--admin-text-primary);
 }
 
 .admin-status-pill {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   padding: 3px 10px;
   border-radius: 20px;
@@ -516,7 +516,7 @@
 }
 
 .admin-item-body {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--admin-text-secondary);
   line-height: 1.5;
 }
@@ -555,7 +555,7 @@
   border: none;
   padding: 6px 10px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.2s;
@@ -577,7 +577,7 @@
   width: auto;
   padding: 0 16px;
   height: 38px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .admin-btn-sm.icon-only {
@@ -687,7 +687,7 @@
   border-radius: 8px;
   background: #fef2f2;
   color: #b91c1c;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -705,7 +705,7 @@
   gap: 12px;
   padding: 10px 12px;
   color: var(--admin-text-primary);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .admin-ebook-preview-header button {
@@ -761,7 +761,7 @@
 }
 
 .admin-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: var(--admin-text-secondary);
 }
@@ -771,7 +771,7 @@
   border: 1.5px solid var(--admin-border-color);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 15px;
   font-family: inherit;
   font-weight: 600;
   color: var(--admin-text-primary);
@@ -787,7 +787,7 @@
   border: 1.5px solid var(--admin-border-color);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 15px;
   font-family: inherit;
   font-weight: 600;
   color: var(--admin-text-primary);
@@ -812,7 +812,7 @@
   color: var(--admin-text-primary);
   padding: 12px 18px;
   border-radius: 12px;
-  font-size: 12.5px;
+  font-size: 14.5px;
   font-weight: 700;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -849,7 +849,7 @@
   .admin-left-nav-logo::after {
     content: "Bulkimart Admin";
     font-family: 'Outfit', sans-serif;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 800;
     color: var(--admin-primary);
   }
@@ -874,7 +874,7 @@
   }
 
   .admin-nav-label {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 700;
     text-align: left;
     letter-spacing: 0.1px;
@@ -944,11 +944,11 @@
   .admin-nav-sub-bullet {
     display: inline;
     color: var(--admin-text-muted);
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .admin-nav-sub-label {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 700;
     max-width: none;
     text-overflow: unset;
@@ -1033,7 +1033,7 @@
 .admin-log-item {
   display: flex;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 13.5px;
   border-bottom: 1px solid var(--admin-border-color);
   padding-bottom: 8px;
   text-align: left;
@@ -1072,7 +1072,7 @@
 }
 
 .admin-channel-badge {
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;

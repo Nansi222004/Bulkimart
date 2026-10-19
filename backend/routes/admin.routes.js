@@ -5,7 +5,7 @@ import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
   listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary, getCaptureRefundObligations,
   vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
-  listProducts, getProductDetailAdmin, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, sponsorProduct, deleteProductAdmin,
+  listProducts, getProductDetailAdmin, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
   getPendingCounts,
   listDeliveryPartners,
@@ -42,11 +42,6 @@ import {
 import {
   listCampaignsForAdmin, getCampaignForAdmin, createCampaign, updateCampaign, deleteCampaign,
 } from '../controllers/campaign.controller.js';
-import {
-  listSellerPromotionsForAdmin, getSellerPromotionForAdmin, approveSellerPromotion,
-  requestPromotionChanges, rejectSellerPromotion, disableSellerPromotion,
-  listPromotionPackagesForAdmin, createPromotionPackage, updatePromotionPackage,
-} from '../controllers/sellerPromotion.controller.js';
 import {
   getAllPolicies, getPolicyByRole, getPolicyBySlug, updatePolicy,
 } from '../controllers/privacyPolicyController.js';
@@ -110,7 +105,7 @@ router.get('/products/:id/digital-file', reviewDigitalProductFile);
 router.patch('/products/:id/approve', approveProduct);
 router.patch('/products/:id/reject', rejectProduct);
 router.patch('/products/:id/feature', featureProduct);
-router.patch('/products/:id/sponsor', sponsorProduct);
+router.all('/products/:id/sponsor', (_req, res) => res.status(410).json({ success: false, message: 'Seller sponsorship has been removed.' }));
 router.delete('/products/:id', deleteProductAdmin);
 
 // ---- delivery partners -----------------------------------------------------
@@ -147,18 +142,11 @@ router.post('/campaigns', uploadSingle('image'), createCampaign);
 router.get('/campaigns/:id', getCampaignForAdmin);
 router.patch('/campaigns/:id', uploadSingle('image'), updateCampaign);
 router.delete('/campaigns/:id', deleteCampaign);
-// ---- Seller Promotions / Advertisement --------------------------------------
-router.get('/promotions', listSellerPromotionsForAdmin);
-router.get('/promotions/:id', getSellerPromotionForAdmin);
-router.post('/promotions/:id/approve', approveSellerPromotion);
-router.post('/promotions/:id/request-changes', requestPromotionChanges);
-router.post('/promotions/:id/reject', rejectSellerPromotion);
-router.post('/promotions/:id/disable', disableSellerPromotion);
-
-// ---- Promotion Packages (price catalog for Seller Promotions) --------------
-router.get('/promotion-packages', listPromotionPackagesForAdmin);
-router.post('/promotion-packages', createPromotionPackage);
-router.patch('/promotion-packages/:id', updatePromotionPackage);
+// Seller-paid advertising and package management have been retired.
+// Keep historical records, but reject old clients and bookmarked API actions.
+router.use(['/promotions', '/promotion-packages'], (_req, res) => {
+  res.status(410).json({ success: false, message: 'Seller promotions have been removed.' });
+});
 
 router.get('/delivery-partners/:id', getDeliveryPartnerDetail);
 router.patch('/delivery-partners/:id/radius', setDeliveryPartnerRadius);

@@ -3,12 +3,10 @@ import Banner from '../models/Banner.js';
 import Category from '../models/Category.js';
 import Product from '../models/Product.js';
 import Campaign from '../models/Campaign.js';
-import SellerPromotion from '../models/SellerPromotion.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { httpError } from '../utils/response.js';
 import { isCampaignEffectivelyActive } from '../services/campaign.service.js';
-import { isPromotionEffectivelyActive, syncPromotionBanner } from '../services/sellerPromotion.service.js';
 
 const mapLegacyType = (type) => (type === 'quick' ? 'grocery' : type === 'shop-all' ? 'ecommerce' : type);
 
@@ -70,20 +68,7 @@ const validateAction = async ({ actionType, targetCategory, targetProduct, targe
 export const getBanners = asyncHandler(async (req, res) => {
   const { type, category, all } = req.query;
 
-  // Auto-sync any APPROVED or ACTIVE seller promotions to ensure their Banner documents exist
-  try {
-    const activePromos = await SellerPromotion.find({
-      status: { $in: ['APPROVED', 'ACTIVE'] },
-      $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-    });
-    for (const promo of activePromos) {
-      await syncPromotionBanner(promo);
-    }
-  } catch (syncErr) {
-    console.error("Error auto-syncing seller promotion banners:", syncErr);
-  }
-
-  const filter = {};
+  const filter = { actionType: { $ne: 'SELLER_PROMOTION' }, targetPromotion: null };
 
   if (all !== 'true') {
     const now = new Date();
@@ -119,7 +104,6 @@ export const getBanners = asyncHandler(async (req, res) => {
     .populate('targetCategory', 'name slug type isActive')
     .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
     .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
-    .populate('targetPromotion', 'status expiresAt')
     .lean();
 
   // If a home-scoped carousel query yielded 0 banners, fall back to active eligible banners for this storefront
@@ -133,7 +117,6 @@ export const getBanners = asyncHandler(async (req, res) => {
       .populate('targetCategory', 'name slug type isActive')
       .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
       .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
-      .populate('targetPromotion', 'status expiresAt')
       .lean();
   }
 
@@ -145,7 +128,6 @@ export const getBanners = asyncHandler(async (req, res) => {
       if (b.actionType === 'CATEGORY') return isEligibleCategory(b.targetCategory);
       if (b.actionType === 'PRODUCT') return isEligibleProduct(b.targetProduct);
       if (b.actionType === 'CAMPAIGN') return isCampaignEffectivelyActive(b.targetCampaign || {});
-      if (b.actionType === 'SELLER_PROMOTION') return isPromotionEffectivelyActive(b.targetPromotion);
       return true;
     });
   }
@@ -161,7 +143,7 @@ export const getBanners = asyncHandler(async (req, res) => {
  * @access  Public
  */
 export const clickBanner = asyncHandler(async (req, res) => {
-  await Banner.updateOne({ _id: req.params.id }, { $inc: { clickCount: 1 } });
+  await Banner.updateOne({ _id: req.params.id, actionType: { $ne: 'SELLER_PROMOTION' }, targetPromotion: null }, { $inc: { clickCount: 1 } });
   res.status(200).json({ success: true });
 });
 
@@ -185,6 +167,7 @@ export const createBanner = asyncHandler(async (req, res) => {
     throw httpError(400, 'End date must be after the start date');
   }
 
+  if (actionType === 'SELLER_PROMOTION' || req.body.targetPromotion) throw httpError(410, 'Seller promotions have been removed.');
   const draft = isDraft === true || isDraft === 'true';
   // A draft can be saved incomplete on purpose — Step 29 of the plan.
   // Publishing (draft === false) must have a real, valid target.
@@ -229,6 +212,7 @@ export const createBanner = asyncHandler(async (req, res) => {
 export const updateBanner = asyncHandler(async (req, res) => {
   const banner = await Banner.findById(req.params.id);
   if (!banner) throw httpError(404, 'Banner not found');
+  if (banner.actionType === 'SELLER_PROMOTION' || banner.targetPromotion || req.body.actionType === 'SELLER_PROMOTION' || req.body.targetPromotion) throw httpError(410, 'Seller promotions have been removed.');
 
   const {
     title, subtitle, targetRoute, type, category, priority, startDate, endDate, isActive,

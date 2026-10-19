@@ -43,7 +43,7 @@ const DEFAULT_THEMED_BANNERS = {
 };
 
 const HeroBanner = () => {
-  const { activeMode, activeSubNav, setActiveNav, setActiveSubNav, setSelectedCategoryFilter, setSelectedProduct, setSelectedCampaignId, setSelectedPromotionId } = useUser();
+  const { activeMode, activeSubNav, setActiveNav, setActiveSubNav, setSelectedCategoryFilter, setSelectedProduct, setSelectedCampaignId } = useUser();
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeSlide, setActiveSlide] = useState(0);
@@ -87,7 +87,7 @@ const HeroBanner = () => {
         if (!Array.isArray(data)) {
           throw new Error('Banner service returned an unexpected response');
         }
-        setBanners(data);
+        setBanners(data.filter(b => b.actionType !== 'SELLER_PROMOTION' && !b.targetPromotion));
         setFailedImages(new Set());
         setActiveSlide(0);
       } catch (err) {
@@ -173,10 +173,6 @@ const HeroBanner = () => {
     }
     if (bannerToHandle.actionType === 'CAMPAIGN' && bannerToHandle.targetCampaign) {
       setSelectedCampaignId(bannerToHandle.targetCampaign._id || bannerToHandle.targetCampaign);
-      return;
-    }
-    if (bannerToHandle.actionType === 'SELLER_PROMOTION' && bannerToHandle.targetPromotion) {
-      setSelectedPromotionId(bannerToHandle.targetPromotion._id || bannerToHandle.targetPromotion);
       return;
     }
     if (bannerToHandle.actionType === 'EXTERNAL_URL' && bannerToHandle.externalUrl) {
@@ -284,11 +280,6 @@ const HeroBanner = () => {
                   />
                 )}
 
-                {(b.actionType === 'SELLER_PROMOTION' || b.targetPromotion) && (
-                  <div className="hero-banner-sponsored-badge">
-                    <span className="sponsored-dot"></span> Promoted
-                  </div>
-                )}
               </div>
             );
           })}

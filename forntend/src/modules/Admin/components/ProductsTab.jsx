@@ -50,7 +50,6 @@ export const ProductsTab = ({ detailPage = false }) => {
     restoreProduct,
     takeDownProduct,
     toggleProductFeatured,
-    toggleProductSponsored,
     removeProduct,
     selectedProduct,
     setSelectedProduct, productRoute, productRevision, openAdminProduct, closeAdminProduct, productFilters,
@@ -193,13 +192,11 @@ export const ProductsTab = ({ detailPage = false }) => {
                     {p.fulfillmentType === 'digital' ? 'Not applicable' : p.stock === 0 ? 'Out of stock' : `${p.stock} ${p.unit || 'units'}`}
                   </span>
                 </div>
-                {(p.isFeatured || p.isSponsored) && (
+                {p.isFeatured && (
                   <div className="admin-item-row">
-                    <span className="admin-item-label">Promotion</span>
+                    <span className="admin-item-label">Placement</span>
                     <span className="admin-item-value" style={{ fontWeight: 800, color: '#7c3aed' }}>
-                      {[p.isFeatured && 'Featured', p.isSponsored && `Sponsored #${p.sponsoredRank || 0}`]
-                        .filter(Boolean)
-                        .join(' · ')}
+                      Featured
                     </span>
                   </div>
                 )}
@@ -355,14 +352,6 @@ export const ProductsTab = ({ detailPage = false }) => {
               >
                 {deletingProductId === selectedProduct.id ? 'Deleting…' : 'Delete product'}
               </button>
-              {selectedProduct.fulfillmentType !== 'digital' && selectedProduct.status === 'approved' && selectedProduct.isActive && (
-                <button
-                  className="admin-btn-sm details"
-                  onClick={() => toggleProductSponsored(selectedProduct.id, !selectedProduct.isSponsored, selectedProduct.isSponsored ? 0 : 1)}
-                >
-                  {selectedProduct.isSponsored ? 'Remove sponsorship' : 'Sponsor this listing'}
-                </button>
-              )}
               {selectedProduct.status === 'rejected' || selectedProduct.status === 'pending' ? (
                 <button
                   className="admin-btn-sm details admin-product-primary-action"

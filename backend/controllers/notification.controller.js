@@ -7,6 +7,7 @@ import { registerPushToken, removePushToken } from "../services/notification.ser
 // Historical rows remain untouched, but retired-program messages no longer
 // appear in customer notification lists or unread badges.
 const RETIRED_EVENT_TYPES = [
+  'SELLER_PROMOTION_UPDATE',
   'REFERRAL_SIGNUP',
   'REFERRAL_REWARD_CREDITED',
   'REFERRAL_MILESTONE_REACHED',

@@ -22,8 +22,6 @@ export const productView = p => ({
         status: p.status,
         isActive: p.isActive,
         isFeatured: p.isFeatured,
-        isSponsored: p.isSponsored,
-        sponsoredRank: p.sponsoredRank,
         rejectionReason: p.rejectionReason,
         createdAt: p.createdAt,
         raw: p,

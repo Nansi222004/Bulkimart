@@ -36,7 +36,6 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
       links: [
         { id: 'services', label: 'Vendor Services', icon: <span aria-hidden="true">▤</span> },
         { id: 'sellers', label: 'Sellers / Vendors', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
-        { id: 'seller-promotions', label: 'Seller Promotions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> }
       ]
     },
     {
@@ -68,8 +67,6 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
       links: [
         { id: 'banners', label: 'Banners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/></svg> },
         { id: 'campaigns', label: 'Campaigns / Deals', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12a2 2 0 0 1 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2z"/><path d="M9 9h.01M15 15h.01M15 9l-6 6"/></svg> },
-        { id: 'seller-promotions', label: 'Seller Promotions', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
-        { id: 'promotion-packages', label: 'Promotion Packages', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
         { id: 'tip-settings', label: 'Rider Tip Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
         { id: 'notifications', label: 'Notifications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
         { id: 'privacy-policy', label: 'Privacy Policy CMS', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> }
@@ -94,14 +91,12 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
   // Dynamic Context-Aware Sidebar Filtering
   const isOverview = activeTab === 'overview' || activeTab === 'dashboard' || activeTab === 'reports';
   const isVendorSection = [
-    'sellers', 'seller-kyc', 'seller-promotions', 'payouts',
+    'sellers', 'seller-kyc', 'payouts',
     'vendor-dashboard', 'vendors-all', 'vendors-pending', 'vendors-approved', 'vendors-rejected', 'vendors-suspended',
     'vendor-products', 'vendor-inventory',
     'vendor-orders', 'vendor-order-history',
     'vendor-sales', 'vendor-earnings', 'vendor-payouts',
-    'vendor-performance', 'vendor-ratings-reviews',
-    'vendor-ad-requests', 'vendor-featured-seller', 'vendor-sponsored-products'
-  ].includes(activeTab);
+    'vendor-performance', 'vendor-ratings-reviews',  ].includes(activeTab);
   const isUserSection = [
     'users', 'user-dashboard', 'users-all', 'users-active', 'users-inactive', 'users-blocked',
     'user-activity', 'user-orders', 'user-reviews'
@@ -192,14 +187,6 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
           { id: 'vendor-performance', label: 'Vendor Performance', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> },
           { id: 'vendor-ratings-reviews', label: 'Ratings & Reviews', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> }
         ]
-      },
-      {
-        title: 'PROMOTIONS',
-        links: [
-          { id: 'vendor-ad-requests', label: 'Advertisement Requests', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg> },
-          { id: 'vendor-featured-seller', label: 'Featured Seller', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> },
-          { id: 'vendor-sponsored-products', label: 'Sponsored Products', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg> }
-        ]
       }
     ];
   } else if (isDeliverySection) {
@@ -255,7 +242,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
       {/* Brand Header */}
       <div className="sa-sidebar-header">
         <div className="sa-logo-box">
-          <BrandLogo className="sa-logo-icon" variant="mark" />
+          <BrandLogo className="sa-logo-icon" variant="icon" />
           <div className="sa-logo-text">
             <span className="sa-logo-title">Bulkimart</span>
             <span className="sa-logo-subtitle">Super Admin</span>
@@ -291,7 +278,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
             color: '#34d399',
             border: '1px solid #334155',
             borderRadius: 8,
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             cursor: 'pointer',
             width: 'calc(100% - 32px)'
@@ -355,7 +342,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
                                 minHeight: '32px'
                               }}
                             >
-                              <span style={{ marginRight: 6, fontSize: 8 }}>•</span>
+                              <span style={{ marginRight: 6, fontSize: 12 }}>•</span>
                               <span>{sub.label}</span>
                             </button>
                           );

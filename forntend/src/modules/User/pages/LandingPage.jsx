@@ -19,7 +19,6 @@ import CartPage from './CartPage';
 import CheckoutPage from './CheckoutPage';
 import OrderTrackingPage from './OrderTrackingPage';
 import CampaignLandingPage from './CampaignLandingPage';
-import PromotionLandingPage from './PromotionLandingPage';
 import SearchPage from './SearchPage';
 import WholesalePage from './WholesalePage';
 import WriteReviewPage from './WriteReviewPage';
@@ -72,7 +71,6 @@ export const LandingPageContent = () => {
     setActiveNav,
     selectedOrder,
     selectedCampaignId,
-    selectedPromotionId,
     reviewProductId,
     setReviewProductId,
     isVoiceModalOpen,
@@ -298,12 +296,6 @@ export const LandingPageContent = () => {
         </div>
       )}
 
-      {/* Seller Promotion landing overlay — where a paid-advertisement banner click lands */}
-      {selectedPromotionId && (
-        <div className="product-detail-overlay">
-          <PromotionLandingPage />
-        </div>
-      )}
       {/* Write Review Page overlay — opens inside mobile phone container at /review/:productId */}
       {reviewProductId && (
         <div className="product-detail-overlay">

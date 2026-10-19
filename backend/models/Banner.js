@@ -32,12 +32,8 @@ const ObjectId = Schema.Types.ObjectId;
  * CampaignParticipation — this model only ever stores which campaign to
  * link to, never a price or a discount value of its own.
  *
- * SELLER_PROMOTION is the same idea for a paid seller advertisement: a
- * Banner may point at a SellerPromotion id, but every approval/payment/
- * expiry rule lives on SellerPromotion — this model only stores which
- * promotion to link to. See sellerPromotion.service.js's syncPromotionBanner
- * (the SELLER_PROMOTION equivalent of campaign.controller.js's
- * syncLinkedBanner).
+ * SELLER_PROMOTION and targetPromotion are retained only for historical records.
+ * The API excludes these banners and rejects attempts to create or reactivate them.
  */
 const ACTION_TYPES = ['NONE', 'CATEGORY', 'PRODUCT', 'EXTERNAL_URL', 'CAMPAIGN', 'SELLER_PROMOTION'];
 

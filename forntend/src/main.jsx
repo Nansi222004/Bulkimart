@@ -4,7 +4,9 @@ import './index.css'
 import App from './App.jsx'
 import FeedbackProvider from './components/feedback/FeedbackProvider'
 import { initAppZoomPrevention } from './utils/preventZoom'
+import { initCustomerHeaderInsets } from './utils/customerHeaderInsets'
 
+initCustomerHeaderInsets()
 initAppZoomPrevention()
 
 if (window.location.pathname === '/') {

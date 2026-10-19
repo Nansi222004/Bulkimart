@@ -40,13 +40,6 @@ export const SectionModuleTab = ({ moduleId }) => {
       data: []
     },
 
-    'seller-promotions': {
-      title: 'Seller Promotions & Ad Campaigns',
-      desc: 'Sponsored product priority rankings and homepage banner ad placements.',
-      columns: ['Campaign ID', 'Seller Name', 'Promotion Type', 'Duration', 'Budget', 'Status'],
-      data: []
-    },
-
     // GENERAL VENDORS EXTENDED MODULES
     'stores-all': {
       title: 'All Registered Vendor Stores',
@@ -129,27 +122,6 @@ export const SectionModuleTab = ({ moduleId }) => {
       title: 'Vendor Ratings & Customer Reviews',
       desc: 'Moderate feedback ratings and reviews submitted by customers for vendor stores.',
       columns: ['Review ID', 'Store Name', 'Customer Name', 'Rating', 'Review Comment', 'Date', 'Status'],
-      data: []
-    },
-
-    'vendor-ad-requests': {
-      title: 'Vendor Advertisement Requests',
-      desc: 'Review and approve vendor banner ad submissions for mobile app placements.',
-      columns: ['Ad Request ID', 'Store Name', 'Ad Slot Placement', 'Duration', 'Budget', 'Banner Asset', 'Status'],
-      data: []
-    },
-
-    'vendor-featured-seller': {
-      title: 'Featured Seller Spotlight Slots',
-      desc: 'Manage sellers pinned to the top of homepage spotlight section.',
-      columns: ['Spotlight ID', 'Store Name', 'Category Spotlight', 'Placement Rank', 'Start Date', 'End Date', 'Status'],
-      data: []
-    },
-
-    'vendor-sponsored-products': {
-      title: 'Sponsored Product Search Bidding',
-      desc: 'Keywords and search term boosting campaigns configured by general vendors.',
-      columns: ['Campaign ID', 'Product Name', 'Store Name', 'Target Keyword', 'Bid CPC', 'Impressions', 'Status'],
       data: []
     },
 

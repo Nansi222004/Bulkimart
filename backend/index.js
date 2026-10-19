@@ -21,7 +21,6 @@ import healthRoutes from "./routes/health.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { initSocket } from "./socket/socket.js";
 import { startOrderSweeper } from "./services/orderSweeper.service.js";
-import { startSellerPromotionSweeper } from "./services/sellerPromotionSweeper.service.js";
 import { loadRates } from "./services/riderPay.service.js";
 import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js";
 import { loadCoinConfig } from "./services/coinConfig.service.js";
@@ -108,7 +107,6 @@ const start = async () => {
   initSocket(httpServer);
   // Started after the database is up: the sweeper queries on every tick.
   startOrderSweeper();
-  startSellerPromotionSweeper();
   // Rider pay rates into memory once, so the offer screen never waits on a
   // query. Admin saves refresh this; a failure leaves the env defaults.
   await loadRates().catch((e) => console.warn('[RATES] using env defaults:', e.message));
@@ -133,7 +131,6 @@ start();
 const shutdown = (signal) => {
   console.log(`\n${signal} received — shutting down gracefully`);
   import('./services/orderSweeper.service.js').then((m) => m.stopOrderSweeper()).catch(() => {});
-  import('./services/sellerPromotionSweeper.service.js').then((m) => m.stopSellerPromotionSweeper()).catch(() => {});
   // Allow in-flight requests to drain for up to 10 s before forcing exit.
   setTimeout(() => process.exit(0), 10_000).unref();
 };

@@ -151,6 +151,8 @@ input, select, textarea { scroll-margin-block: 24px; }
 .brand-logo--compact .brand-logo__image { width: 100%; height: 46px; object-fit: contain; }
 .brand-logo--mark { width: 48px; height: 48px; overflow: hidden; }
 .brand-logo--mark .brand-logo__image { width: 68px; height: 68px; object-position: top; transform: translateY(-2px); }
+.brand-logo--icon { width: 44px; height: 44px; flex-shrink: 0; }
+.brand-logo--icon .brand-logo__image { width: 100%; height: 100%; object-fit: contain; }
 .brand-logo__portal {
   margin-top: -5px;
   color: var(--brand-deep-blue);

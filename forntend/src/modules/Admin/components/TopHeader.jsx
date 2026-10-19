@@ -93,14 +93,14 @@ export const TopHeader = ({ onLogout }) => {
                 background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
                 boxShadow: '0 12px 32px rgba(15,23,42,0.15)', zIndex: 200, display: 'flex', flexDirection: 'column',
               }}>
-                <div style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9', fontWeight: 800, fontSize: 13 }}>
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9', fontWeight: 800, fontSize: 15 }}>
                   Notifications {adminUnreadCount > 0 && <span style={{ color: '#dc2626' }}>({adminUnreadCount})</span>}
                 </div>
                 <div style={{ overflowY: 'auto', flex: 1 }}>
                   {adminNotifLoading ? (
-                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>Loading…</div>
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>Loading…</div>
                   ) : adminNotifications.length === 0 ? (
-                    <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>No notifications yet</div>
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>No notifications yet</div>
                   ) : adminNotifications.map((n) => (
                     <div
                       key={n._id}
@@ -110,9 +110,9 @@ export const TopHeader = ({ onLogout }) => {
                         background: n.isRead ? '#fff' : '#ecfdf5',
                       }}
                     >
-                      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>{n.title}</div>
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{n.message}</div>
-                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{n.title}</div>
+                      <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{n.message}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{timeAgo(n.createdAt)}</div>
                     </div>
                   ))}
                 </div>
@@ -186,13 +186,14 @@ export const TopHeader = ({ onLogout }) => {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: '6px 16px',
+                padding: '10px 16px',
+                minHeight: 44,
                 borderRadius: 20,
                 border: isActive ? '1.5px solid #10b981' : '1px solid #cbd5e1',
                 background: isActive ? '#ebfdf2' : '#ffffff',
                 color: isActive ? '#047857' : '#475569',
                 fontWeight: isActive ? 800 : 600,
-                fontSize: 12,
+                fontSize: 14,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 boxShadow: isActive ? '0 2px 4px rgba(16, 185, 129, 0.12)' : 'none',

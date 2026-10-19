@@ -21,28 +21,18 @@ const writeRecent = (list) => {
  * search bar now opens (it used to be a small inline dropdown; that logic
  * moved here wholesale, same debounce/endpoint, bigger canvas).
  *
- * "Recommended Stores" is real, not a mock section copied from a reference
- * screenshot: it's this module's own paid Seller Promotion system —
- * `GET /api/promotions?module=...` only ever returns a promotion that is
- * genuinely ACTIVE (admin-approved AND paid), scoped to the storefront the
- * shopper is currently in. "Trending Today" in a reference app is usually a
- * real order-velocity computation NHCONE doesn't have yet — rather than
- * fake that number, this reuses the existing `isFeatured`/`isSponsored`
- * admin-curated strip (`GET /api/products/featured`) under an honest label.
  */
 const SearchPage = () => {
   const {
     activeMode,
     setActiveNav,
     setSelectedProduct,
-    setSelectedPromotionId,
     openVoiceSearch,
     pendingVoiceQuery,
     setPendingVoiceQuery,
     imageSearchRequest, setImageSearchRequest,
   } = useUser();
   const searchType = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
-  const module = activeMode === 'shop-all' ? 'ECOMMERCE' : 'QUICK';
 
   const [term, setTerm] = useState('');
   const [results, setResults] = useState([]);
@@ -50,7 +40,6 @@ const SearchPage = () => {
   const [recent, setRecent] = useState(readRecent);
   const [editingRecent, setEditingRecent] = useState(false);
 
-  const [stores, setStores] = useState([]);
   const [featured, setFeatured] = useState([]);
   const [defaultsLoading, setDefaultsLoading] = useState(true);
   const [imageSheetOpen, setImageSheetOpen] = useState(false), [imageMode, setImageMode] = useState(false);
@@ -100,16 +89,12 @@ const SearchPage = () => {
   useEffect(() => {
     let cancelled = false;
     setDefaultsLoading(true);
-    Promise.all([
-      fetch(apiUrl(`/api/promotions?module=${module}`)).then((r) => (r.ok ? r.json() : { data: [] })).catch(() => ({ data: [] })),
-      fetch(apiUrl(`/api/products/featured?type=${searchType}`)).then((r) => (r.ok ? r.json() : [])).catch(() => []),
-    ]).then(([promoRes, featuredRes]) => {
+    fetch(apiUrl(`/api/products/featured?type=${searchType}`)).then((r) => (r.ok ? r.json() : [])).catch(() => []).then((featuredRes) => {
       if (cancelled) return;
-      setStores(promoRes?.data || []);
       setFeatured(Array.isArray(featuredRes) ? featuredRes : []);
     }).finally(() => { if (!cancelled) setDefaultsLoading(false); });
     return () => { cancelled = true; };
-  }, [module, searchType]);
+  }, [searchType]);
 
   /**
    * Debounced live search.
@@ -229,9 +214,6 @@ const SearchPage = () => {
                 <div key={p._id} className="search-page-result-card" onClick={() => openProduct(p)}>
                   <div className="search-page-result-img-wrap">
                     <img src={p.images?.[0]} alt={p.name} />
-                    {(p.searchBoostRank !== undefined && p.searchBoostRank !== null) && (
-                      <span className="search-result-promoted" style={{ position: 'absolute', top: 6, left: 6 }}>Promoted</span>
-                    )}
                   </div>
                   <p className="search-page-result-name">{p.name}</p>
                   <p className="search-page-result-shop">{p.sellerId?.storeDetails?.name || p.sellerId?.businessName || ''}</p>
@@ -263,26 +245,6 @@ const SearchPage = () => {
                 </div>
               </section>
             )}
-
-            <section className="search-page-section">
-              <h3>Recommended Stores</h3>
-              {defaultsLoading ? (
-                <p className="search-page-empty" style={{ padding: '10px 0' }}>Loading…</p>
-              ) : stores.length === 0 ? (
-                <p className="search-page-empty" style={{ padding: '10px 0' }}>No promoted stores right now.</p>
-              ) : (
-                <div className="search-page-store-scroll">
-                  {stores.map((s) => (
-                    <div key={s.id} className="search-page-store-card" onClick={() => setSelectedPromotionId(s.id)}>
-                      <div className="search-page-store-img-wrap">
-                        {s.bannerImage ? <img src={s.bannerImage} alt={s.shopName} /> : <div className="search-page-chip-placeholder" />}
-                      </div>
-                      <span>{s.shopName || s.sellerName}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
 
             <section className="search-page-section">
               <h3>Featured Products</h3>

@@ -1,5 +1,6 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { productView } from '../utils/productView';
+import { isRetiredAdminTab } from '../utils/retiredFeatures';
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { adminGet, adminPatch, adminPost, adminDelete, qs } from '../../../utils/adminApi';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
@@ -36,6 +37,7 @@ const tabFromPath = () => {
   const segment = window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0];
   if (!segment) return DEFAULT_TAB;
   const decoded = decodeURIComponent(segment);
+  if (isRetiredAdminTab(decoded)) return DEFAULT_TAB;
   if (decoded === 'shg' || decoded.startsWith('shg-') || decoded === 'subscriptions' || decoded.startsWith('sub-') || decoded === 'donation-settings') return DEFAULT_TAB;
   return PATH_ALIASES[decoded] || TAB_ALIASES[decoded] || decoded;
 };
@@ -47,6 +49,7 @@ export const AdminProvider = ({ children }) => {
   const [activeTabInternal, setActiveTabInternal] = useState(tabFromPath);
 
   const setActiveTab = (tabId) => {
+    if (isRetiredAdminTab(tabId)) tabId = DEFAULT_TAB;
     if (tabId === 'shg' || tabId.startsWith('shg-') || tabId === 'subscriptions' || tabId.startsWith('sub-') || tabId === 'donation-settings') tabId = DEFAULT_TAB;
     const resolved = TAB_ALIASES[tabId] || tabId;
     setActiveTabInternal(resolved);
@@ -59,7 +62,12 @@ export const AdminProvider = ({ children }) => {
 
   // Back/forward move between tabs like any other navigation.
   useEffect(() => {
-    const onPopState = () => { setActiveTabInternal(tabFromPath()); setProductRoute(window.location.pathname.split('/')[3] || ''); };
+    const redirectRetiredPath = () => {
+      const segment = decodeURIComponent(window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0]);
+      if (isRetiredAdminTab(segment)) window.history.replaceState(null, '', '/admin');
+    };
+    redirectRetiredPath();
+    const onPopState = () => { redirectRetiredPath(); setActiveTabInternal(tabFromPath()); setProductRoute(window.location.pathname.split('/')[3] || ''); };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
@@ -429,16 +437,6 @@ export const AdminProvider = ({ children }) => {
   const toggleProductFeatured = async (id, isFeatured) => {
     try {
       const { message } = await adminPatch(`/products/${id}/feature`, { isFeatured });
-      triggerToast(message || 'Updated.');
-      setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
-    } catch (err) {
-      triggerToast(err.message, {type:'error'});
-    }
-  };
-
-  const toggleProductSponsored = async (id, isSponsored, sponsoredRank) => {
-    try {
-      const { message } = await adminPatch(`/products/${id}/sponsor`, { isSponsored, sponsoredRank });
       triggerToast(message || 'Updated.');
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
@@ -1133,7 +1131,6 @@ export const AdminProvider = ({ children }) => {
       restoreProduct,
       takeDownProduct,
       toggleProductFeatured,
-      toggleProductSponsored,
       removeProduct,
       payouts,
       processPayout,

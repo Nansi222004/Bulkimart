@@ -26,7 +26,6 @@ import AccountActionAudit from '../models/AccountActionAudit.js';
 const TERMINAL_ORDER_STATUSES = ['delivered', 'cancelled', 'returned', 'refunded'];
 const TERMINAL_RETURN_STATUSES = ['REJECTED', 'CANCELLED', 'REFUNDED'];
 const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'failed'];
-const ACTIVE_PROMOTION_STATUSES = ['PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED', 'PAYMENT_PENDING', 'ACTIVE'];
 
 const count = (Model, filter) => Model.countDocuments(filter);
 const positive = (value) => Math.abs(Number(value || 0)) > 0.000001;
@@ -127,13 +126,13 @@ export const assessSellerAccount = async (sellerOrId) => {
     count(SellerPayout, { sellerId, status: { $in: ['PENDING', 'APPROVED'] } }),
     count(SellerPayout, { sellerId }),
     count(Product, { sellerId }),
-    count(SellerPromotion, { sellerId, status: { $in: ACTIVE_PROMOTION_STATUSES } }),
+    0, // Retired advertisements no longer block seller account lifecycle actions.
     count(SellerPromotion, { sellerId }),
     count(CampaignParticipation, { sellerId }),
     count(PackagingOrder, { sellerId }),
   ]);
   const dependencies = { activeOrders, orders, unresolvedReturns, returns, pendingPayouts, payouts, products, activePromotions, promotions, campaigns, packagingOrders };
-  const blocks = [reason('ACTIVE_ORDERS', activeOrders), reason('UNRESOLVED_RETURNS', unresolvedReturns), reason('PENDING_PAYOUTS', pendingPayouts), reason('ACTIVE_PROMOTIONS', activePromotions)];
+  const blocks = [reason('ACTIVE_ORDERS', activeOrders), reason('UNRESOLVED_RETURNS', unresolvedReturns), reason('PENDING_PAYOUTS', pendingPayouts)];
   const history = [reason('ORDER_HISTORY', orders), reason('RETURN_HISTORY', returns), reason('PAYOUT_HISTORY', payouts), reason('PRODUCT_CATALOG', products), reason('PROMOTION_HISTORY', promotions), reason('CAMPAIGN_HISTORY', campaigns), reason('PACKAGING_ORDER_HISTORY', packagingOrders)];
   return baseAssessment('seller', sellerId, dependencies, blocks, history);
 };

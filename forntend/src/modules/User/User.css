@@ -981,18 +981,6 @@
 }
 
 /* Shared badge — also used by SearchPage.jsx's result grid */
-.search-result-promoted {
-  flex: none;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background-color: #fef3c7;
-  color: #92400e;
-}
-
 /* ---------------------------------------------------------------------
  * Dedicated Search page (SearchPage.jsx)
  * ------------------------------------------------------------------- */
@@ -1490,36 +1478,6 @@
 
 .hero-carousel-next {
   right: 12px;
-}
-
-.hero-banner-sponsored-badge {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: #f8fafc;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 20px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  z-index: 3;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
-.hero-banner-sponsored-badge .sponsored-dot {
-  width: 6px;
-  height: 6px;
-  background-color: #10b981;
-  border-radius: 50%;
-  box-shadow: 0 0 6px #10b981;
 }
 
 .hero-carousel-indicators {
@@ -5985,12 +5943,23 @@ input[type="checkbox"] {
 input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); }
 
 /* Customer header identity: icon-only mark with real text beside it. */
+.unified-header-container {
+  --customer-header-safe-area-top: env(safe-area-inset-top, 0px);
+}
+
+/* In native-fitted Android Appilix, the host reserves the system status bar.
+   Keep the normal 8px content padding; do not reserve the native inset twice.
+   This affects only the customer header, not other pages or desktop spacing. */
+html[data-customer-header-inset-owner="native"] .unified-header-container {
+  --customer-header-safe-area-top: 0px;
+}
+
 .unified-header-container .header-primary-row {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 92px;
-  padding: max(8px, env(safe-area-inset-top, 0px)) 12px 8px 12px;
+  padding: max(8px, var(--customer-header-safe-area-top)) max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
   background: #ffffff;
 }
 
@@ -6100,7 +6069,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); 
 }
 
 @media (max-width: 374px) {
-  .unified-header-container .header-primary-row { padding-inline: 8px; gap: 5px; }
+  .unified-header-container .header-primary-row { padding-inline: max(8px, env(safe-area-inset-left, 0px)) max(8px, env(safe-area-inset-right, 0px)); gap: 5px; }
   .unified-header-container .header-brand-icon { width: 48px; height: 42px; }
   .unified-header-container .header-brand-name { font-size: 15px; }
   .unified-header-container .header-brand-tagline { font-size: 8px; }
@@ -6122,6 +6091,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-primary); 
   .unified-header-container .header-brand-tagline { font-size: 10px; }
   .unified-header-container .header-primary-row .address-bold-title { font-size: 11px; }
   .unified-header-container .header-customer-actions { align-self: center; margin-top: 0; }
+}
+
+@media (min-width: 769px) and (max-height: 500px) and (pointer: coarse) {
+  /* A landscape handset can cross the desktop width breakpoint. Protect its
+     side cutout as well; fine-pointer desktop spacing remains unchanged. */
+  .unified-header-container .header-primary-row {
+    padding-top: max(10px, var(--customer-header-safe-area-top));
+    padding-left: max(24px, env(safe-area-inset-left, 0px));
+    padding-right: max(24px, env(safe-area-inset-right, 0px));
+  }
 }
 
 /* Storefront-only startup splash; the app shell mounts underneath immediately. */

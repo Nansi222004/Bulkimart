@@ -4,7 +4,7 @@ import { useAdmin } from '../context/AdminContext';
 
 const CATEGORY_OPTIONS = [
   'Order', 'Payment', 'Payment / Payout', 'Delivery', 'Product', 'Refund / Cancellation',
-  'Account', 'Account / KYC', 'Subscription', 'Campaign', 'Advertisement / Promotion',
+  'Account', 'Account / KYC', 'Subscription', 'Campaign',
   'Order / Delivery', 'Pickup Issue', 'Customer Issue', 'Payment / Earnings',
   'Withdrawal / Payout', 'KYC / Verification', 'App / Technical Issue', 'Technical Issue', 'Other',
 ];

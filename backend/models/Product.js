@@ -236,16 +236,7 @@ const productSchema = new Schema(
      */
     sellerName: { type: String },
 
-    /**
-     * Search-rank boost from a PAID, currently-ACTIVE Seller Promotion —
-     * see sellerPromotion.service.js's syncSearchBoost/unsetSearchBoost.
-     * Absent = no boost (the common case). Lower `searchBoostRank` sorts
-     * first; set to `-amountSnapshot` at activation so a seller who paid
-     * more for their promotion package ranks ahead of one who paid less,
-     * with no separate tier table to maintain. Cleared the moment the
-     * promotion stops being ACTIVE (expired/disabled/payment failed) —
-     * never left dangling once the seller stops paying for it.
-     */
+    /** Historical paid-ranking fields retained for record compatibility; ignored by search. */
     searchBoostRank: { type: Number },
     searchBoostUntil: { type: Date },
 

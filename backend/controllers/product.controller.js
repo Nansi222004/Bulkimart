@@ -119,7 +119,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   let products = await Product.find(filter).select('-digital.file')
     .populate('category', 'name')
     .populate('sellerId', 'storeDetails businessName serviceRadiusKm')
-    .sort({ isSponsored: -1, sponsoredRank: 1, createdAt: -1 })
+    .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit));
 
@@ -167,7 +167,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Get featured and sponsored products
+// @desc    Get admin-curated featured products
 // @route   GET /api/products/featured
 // @access  Public
 export const getFeaturedProducts = asyncHandler(async (req, res) => {
@@ -183,11 +183,11 @@ export const getFeaturedProducts = asyncHandler(async (req, res) => {
     fulfillmentType: { $ne: 'digital' },
     ...(await withCustomerLegacyExclusions([
       buildChannelMatch(resolvedType),
-      { $or: [{ isFeatured: true }, { isSponsored: true }] },
+      { isFeatured: true },
     ])),
   }).select('-digital.file')
     .populate('category', 'name')
-    .sort({ sponsoredRank: 1, createdAt: -1 })
+    .sort({ createdAt: -1 })
     .limit(10);
 
   res.status(200).json(products.map(publicProduct));
@@ -256,21 +256,11 @@ export const searchProducts = asyncHandler(async (req, res) => {
     $or: [{ name: containsRegex }, { sellerName: containsRegex }, { tags: containsRegex }],
   };
 
-  /**
-   * Premium Product Ranking (a paid Seller Promotion): boosted products
-   * float to the top of every search — `searchBoostRank` is only ever set
-   * on a product while its promotion is genuinely ACTIVE (see
-   * sellerPromotion.service.js's syncSearchBoost), never here. `$ifNull`
-   * gives every unboosted product the same large placeholder so it sorts
-   * after every boosted one, then a product whose own NAME starts with the
-   * term (not just its shop name or a tag) ranks ahead of one that only
-   * matched on those, then alphabetically.
-   */
+  // Organic name relevance only; historical paid boosts no longer affect search.
   const products = await Product.aggregate([
     { $match: match },
     {
       $addFields: {
-        boostRank: { $ifNull: ['$searchBoostRank', 999999] },
         nameMatches: {
           $cond: [
             { $regexMatch: { input: '$name', regex: prefix } },
@@ -280,7 +270,7 @@ export const searchProducts = asyncHandler(async (req, res) => {
         },
       },
     },
-    { $sort: { boostRank: 1, nameMatches: 1, name: 1 } },
+    { $sort: { nameMatches: 1, name: 1 } },
     { $limit: 60 },
     { $project: { 'digital.file': 0 } },
   ]);

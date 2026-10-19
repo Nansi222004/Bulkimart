@@ -36,8 +36,6 @@ import DeliveryRatesTab from '../components/DeliveryRatesTab';
 import TipSettingsTab from '../components/TipSettingsTab';
 import BannersTab from '../components/BannersTab';
 import CampaignsTab from '../components/CampaignsTab';
-import SellerPromotionsTab from '../components/SellerPromotionsTab';
-import PromotionPackagesTab from '../components/PromotionPackagesTab';
 import ReturnsTab from '../components/ReturnsTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
@@ -94,8 +92,6 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'tip-settings':       return <TipSettingsTab />;
       case 'banners':            return <BannersTab />;
       case 'campaigns':          return <CampaignsTab />;
-      case 'seller-promotions':  return <SellerPromotionsTab />;
-      case 'promotion-packages': return <PromotionPackagesTab />;
       case 'returns':            return <ReturnsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;

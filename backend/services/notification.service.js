@@ -207,6 +207,7 @@ const emitBestEffort = async (roomKind, roomId, socketEvent, payload) => {
  */
 const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
   const { event, title, message, metadata = {}, route, expiresAt, media } = opts;
+  if (event === 'SELLER_PROMOTION_UPDATE') return null;
   if (!userId || !title || !message) return null;
 
   const type = EVENT_CATEGORY[event] || 'system';
@@ -257,6 +258,7 @@ const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
  */
 export const notifyAllAdmins = async (opts = {}) => {
   const { event, title, message, metadata = {}, route } = opts;
+  if (event === 'SELLER_PROMOTION_UPDATE') return [];
   if (!title || !message) return [];
 
   const type = EVENT_CATEGORY[event] || 'system';

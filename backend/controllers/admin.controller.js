@@ -545,26 +545,6 @@ export const featureProduct = asyncHandler(async (req, res) => {
   return ok(res, { _id: product._id, isFeatured: product.isFeatured }, `Product ${product.isFeatured ? 'featured' : 'unfeatured'}`);
 });
 
-// @desc    Set sponsored placement — BRD §5 Premium Product Ranking
-// @route   PATCH /api/admin/products/:id/sponsor
-// @access  Private/Admin
-export const sponsorProduct = asyncHandler(async (req, res) => {
-  const { isSponsored, sponsoredRank } = req.body;
-  const product = await Product.findById(req.params.id);
-  if (!product) throw httpError(404, 'Product not found');
-
-  if (isSponsored !== undefined) product.isSponsored = !!isSponsored;
-  if (sponsoredRank !== undefined) product.sponsoredRank = Number(sponsoredRank);
-  if (product.isSponsored === false) product.sponsoredRank = 0;
-  await product.save();
-
-  return ok(res, {
-    _id: product._id,
-    isSponsored: product.isSponsored,
-    sponsoredRank: product.sponsoredRank,
-  }, 'Sponsored placement updated');
-});
-
 // @desc    Remove a product from every storefront while preserving order history
 // @route   DELETE /api/admin/products/:id
 // @access  Private/Admin
@@ -1846,7 +1826,7 @@ export const deleteCustomerReview = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 export const getAdminNotifications = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query, 20, 50);
-  const filter = { userId: req.user._id, recipientModel: 'Admin' };
+  const filter = { userId: req.user._id, recipientModel: 'Admin', event: { $ne: 'SELLER_PROMOTION_UPDATE' }, 'metadata.promotionId': null };
 
   const [items, total] = await Promise.all([
     NotificationModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -1860,7 +1840,7 @@ export const getAdminNotifications = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/notifications/unread-count
 // @access  Private/Admin
 export const getAdminUnreadCount = asyncHandler(async (req, res) => {
-  const count = await NotificationModel.countDocuments({ userId: req.user._id, recipientModel: 'Admin', isRead: false });
+  const count = await NotificationModel.countDocuments({ userId: req.user._id, recipientModel: 'Admin', isRead: false, event: { $ne: 'SELLER_PROMOTION_UPDATE' }, 'metadata.promotionId': null });
   return ok(res, { count });
 });
 
