@@ -44,7 +44,10 @@ export default function CartPage() {
   return <section className="cart-page-container customer-basket" aria-label="Customer cart">
     <header className="basket-heading"><h1>Shopping Cart</h1><p>Quick Commerce, E-Commerce and Wholesale in one basket.</p></header>
     <div className="basket-body">
-      <div className="basket-tools"><button type="button" className="cart-secondary-btn" onClick={basket.reload} disabled={busy || basket.loading}>Refresh prices</button><button type="button" className="cart-secondary-btn" onClick={() => setActiveNav('home')}>Continue shopping</button></div>
+      <div className="basket-tools" style={{ justifyContent: 'flex-end' }}>
+        <button type="button" className="cart-secondary-btn" onClick={basket.reload} disabled={busy || basket.loading} style={{ display: 'none' }} aria-hidden="true">Refresh prices</button>
+        <button type="button" className="cart-secondary-btn" onClick={() => setActiveNav('home')}>Continue shopping</button>
+      </div>
       {(error || basket.error) && <div role="alert" className="wholesale-cart-alert">{error || basket.error}</div>}
       {basket.loading && <p role="status">Refreshing your basket…</p>}
       {data?.warnings?.map(message => <div role="alert" className="wholesale-cart-alert" key={message}>{message}</div>)}

@@ -489,7 +489,7 @@ const CheckoutPage = () => {
           {checkingCheckout ? 'Checking order status…' : 'Check checkout status'}
         </button>}
         {![...recoveryCodes, 'IDEMPOTENCY_KEY_REUSED'].includes(orderConflict.code) &&
-          <button type="button" onClick={() => unified.reload()}>Refresh basket</button>}
+          <button type="button" className="cart-secondary-btn" onClick={() => unified.reload()}>Refresh basket</button>}
         {orderConflict.requestId && <small style={{ display: 'block' }}>Support reference: {orderConflict.requestId}</small>}
       </div>}
     </div>
@@ -745,7 +745,7 @@ const CheckoutPage = () => {
       )}
 
       {/* Header bar */}
-      <div className="profile-header-gradient" style={{ padding: '16px 16px 24px', background: 'var(--header-bg)' }}>
+      <div className="profile-header-gradient" style={{ padding: 'max(16px, calc(env(safe-area-inset-top, 0px) + 12px)) 16px 20px', background: 'var(--header-bg)' }}>
         <div className="profile-header-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button 
             className="back-arrow-white" 
@@ -757,7 +757,7 @@ const CheckoutPage = () => {
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
-          <h2 className="profile-title" style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 800 }}>Fulfillment Checkout</h2>
+          <h2 className="profile-title" style={{ margin: 0, color: '#fff', fontSize: 18, fontWeight: 800 }}>Checkout</h2>
           <div style={{ width: 24 }}></div>
         </div>
       </div>
@@ -988,15 +988,25 @@ const CheckoutPage = () => {
 
 
         {!isDigitalCart && <div className="profile-menu-card" style={{ padding: 16 }}>
-          <strong>Delivery arranged after store acceptance</strong>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            Your store accepts and prepares the order before arranging delivery. The delivery charge shown in your bill is included in your total. Choosing a carrier later will not add a customer charge.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: 18 }} aria-hidden="true">🚚</span>
+            <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>Delivery Details</strong>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {groups.map(group => (
+              <div key={group.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, padding: '8px 10px', background: 'var(--surface-background)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{group.seller?.name || 'Store'}</span>
+                <span style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 11.5, background: 'var(--primary-light)', padding: '3px 8px', borderRadius: 6 }}>
+                  {group.channel === 'grocery' ? '⚡ Quick Commerce delivery' : group.requestedMode === 'same_day' ? '🚀 Same-Day via Bulkimart delivery' : '📦 Regular delivery'}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '10px 0 0', lineHeight: 1.5 }}>
+            Delivery arranged after store acceptance. All delivery charges are included in your bill and will not add a customer charge.
           </p>
-          {groups.map(group => <div key={group.key} style={{ fontSize: 12, marginTop: 6 }}>
-            {group.seller?.name || 'Store'}: {group.channel === 'grocery' ? 'Quick Commerce delivery' : group.requestedMode === 'same_day' ? 'Same-Day via Bulkimart delivery' : 'Regular delivery'}
-          </div>)}
-          {unified.loading && <p role="status">Checking your basket…</p>}
-          {unified.error && <div role="alert">{unified.error} <button onClick={unified.reload}>Retry basket check</button></div>}
+          {unified.loading && <p role="status" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>Checking your basket…</p>}
+          {unified.error && <div role="alert" className="wholesale-cart-alert" style={{ marginTop: 8 }}>{unified.error} <button type="button" className="cart-secondary-btn" onClick={unified.reload} style={{ marginLeft: 8 }}>Retry basket check</button></div>}
         </div>}
 
         {/* Payment Methods selection */}

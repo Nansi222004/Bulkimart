@@ -86,6 +86,12 @@ export const LandingPageContent = () => {
   const cartTotal = getCartSubtotal();
   const productLinkPending = !selectedProduct && (productDetailLoading || productDetailError);
   const productRoute = readProductRoute();
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', activeMode === 'quick' ? '#078ccb' : '#4f46e5');
+    }
+  }, [activeMode]);
   useEffect(()=>{
     if(!currentUser && productRoute.present && productRoute.mode==='wholesale')rememberWholesaleReturn(productRoute.id,productRoute.variant);
   },[currentUser,productRoute.id,productRoute.variant,productRoute.mode]);

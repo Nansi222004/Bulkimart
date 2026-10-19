@@ -52,10 +52,10 @@ export function BasketGroups({ groups, busy, onMode, ...actions }) {
 }
 
 export function BasketSummary({ data }) {
+  const deliveryCharge = data?.totals?.deliveryCharge ?? 0;
   return <CartSection title="Basket total">{data?.totals ? <>
     <CartTotalRow label="Items" value={basketMoney(data.totals.subtotal)} />
-    <CartTotalRow label="Delivery across all groups" value={basketMoney(data.totals.deliveryCharge)} />
+    <CartTotalRow label="Delivery Charges" value={deliveryCharge === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>FREE</span> : basketMoney(deliveryCharge)} />
     <CartTotalRow label="Total" value={basketMoney(data.totals.totalAmount)} strong />
-    <p className="basket-note">Each vendor's delivery charge is shown in its group. Final prices are validated at checkout.</p>
-  </> : <p className="basket-note">Resolve unavailable items and refresh prices before checkout.</p>}</CartSection>;
+  </> : <p className="basket-note">Please resolve unavailable items before checkout.</p>}</CartSection>;
 }
