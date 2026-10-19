@@ -30,7 +30,8 @@ export function saveUserSession(body) {
 
 export function openSessionDashboard(role) {
   if (role === 'delivery') window.history.replaceState(null, '', '/delivery/dashboard');
-  else if (role !== 'buyer') throw new Error('Unsupported login role. Please sign in again.');
+  else if (role === 'buyer') window.history.replaceState(null, '', '/');
+  else throw new Error('Unsupported login role. Please sign in again.');
 }
 export async function enterCustomerSession() {
   // Keep the customer's existing account when opening the shop.
