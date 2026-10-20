@@ -13,14 +13,24 @@
  * instead — see auth.controller.js, middlewares/auth.middleware.js,
  * socket/socket.js.
  */
+import './environment.js';
+import jwt from 'jsonwebtoken';
+
 const secret = process.env.JWT_SECRET;
 
-if (!secret) {
+if (!secret || !secret.trim()) {
+  console.error(JSON.stringify({ event: 'jwt_configuration_error', code: 'AUTH_CONFIGURATION_MISSING', instance: process.pid }));
   throw new Error(
     'JWT_SECRET is not set. Configure a strong secret in the environment before starting the server — see .env.example.'
   );
 }
 
 export const JWT_SECRET = secret;
+// HS256 is jsonwebtoken's existing signing default. Pin both sides explicitly
+// without changing keys, claims, expiry policy, or requiring issuer migrations.
+export const JWT_ALGORITHM = 'HS256';
+export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
+export const signSessionToken = payload => jwt.sign(payload, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: JWT_EXPIRES_IN });
+export const verifySessionToken = token => jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
 
 export default JWT_SECRET;

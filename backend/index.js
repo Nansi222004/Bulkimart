@@ -1,5 +1,5 @@
 // IMPORTANT: this must be the very first import.
-import "dotenv/config";
+import "./config/environment.js";
 
 import { setServers } from "dns";
 import http from "http";
@@ -14,6 +14,7 @@ import compression from "compression";
 import connectDB from "./config/db.js";
 import { getCorsOptions } from "./config/cors.js";
 import { validateRuntimeConfig } from "./config/runtime.js";
+import { JWT_ALGORITHM } from './config/jwt.js';
 import { validateCloudinaryStartupConfig } from "./config/cloudinary.js";
 import { getFirebaseApp, validateFirebaseAdminConfig } from "./config/firebaseAdmin.js";
 import apiRoutes from "./routes/index.js";
@@ -35,6 +36,8 @@ if (process.env.NODE_ENV === "development") {
 
 // Validate before connecting to MongoDB or starting any background work.
 validateRuntimeConfig();
+console.info(JSON.stringify({ event: 'jwt_configuration_ready', algorithm: JWT_ALGORITHM, instance: process.pid,
+  environment: process.env.NODE_ENV === 'production' ? 'production' : 'non-production' }));
 validateCloudinaryStartupConfig();
 if (process.env.FCM_MODE === "live") {
   validateFirebaseAdminConfig();

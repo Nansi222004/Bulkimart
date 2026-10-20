@@ -1,4 +1,3 @@
-import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Admin from "../models/Admin.js";
 import Seller from "../models/Seller.js";
@@ -7,7 +6,7 @@ import { resolveLoginSession } from "../services/loginSession.service.js";
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
-import { JWT_SECRET } from "../config/jwt.js";
+import { signSessionToken } from "../config/jwt.js";
 import { isMockIntegrationEnabled } from "../config/runtime.js";
 import { normalizePhone, phoneLookupCandidates } from "../utils/phone.js";
 
@@ -35,11 +34,7 @@ const findUserByPhone = async (rawPhone) => {
  * buyer/Delivery membership; dedicated entry points verify their own profiles.
  */
 const generateToken = (id, type, role) => {
-  return jwt.sign(
-    { id, type, ...(role ? { role } : {}) },
-    JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "30d" }
-  );
+  return signSessionToken({ id, type, ...(role ? { role } : {}) });
 };
 
 /**

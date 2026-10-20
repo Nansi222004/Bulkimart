@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:fcm-auth": "node --test verification/fcm-auth.test.mjs",
     "test:startup": "node --test tests/portal-startup.test.mjs",
     "test:seller-notifications": "node --test tests/seller-notifications.test.mjs",
     "test:socket": "node --test tests/socket-ui.test.mjs",

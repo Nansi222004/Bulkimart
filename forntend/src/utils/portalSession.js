@@ -1,4 +1,5 @@
 import { clearPortalRequests } from './portalRequests';
+import { bindSessionBackend, sessionMatchesBackend } from './sessionBackend';
 // Portals have independent credentials. Never fall back to another portal.
 export const SELLER_SESSION_CHANGED = 'bulkimart:seller-session-changed';
 export const portalScope = () => {
@@ -8,7 +9,7 @@ export const portalScope = () => {
   return 'customer';
 };
 export const portalTokenKey = (scope = portalScope()) => scope === 'seller' ? 'sellerToken' : scope === 'delivery' ? 'deliveryToken' : 'userToken';
-export const getPortalToken = (scope = portalScope()) => localStorage.getItem(portalTokenKey(scope));
+export const getPortalToken = (scope = portalScope()) => sessionMatchesBackend(scope) ? localStorage.getItem(portalTokenKey(scope)) : null;
 export const pushTokenKey = (scope = portalScope()) => scope === 'seller' ? 'bulkimart_seller_fcm_token' : scope === 'delivery' ? 'bulkimart_delivery_fcm_token' : 'nhcone_fcm_token';
 
 export function saveSellerSession(body) {
@@ -18,5 +19,6 @@ export function saveSellerSession(body) {
   clearPortalRequests('seller');
   localStorage.setItem('sellerToken', body.token);
   localStorage.setItem('sellerUserProfile', JSON.stringify(body.user));
+  bindSessionBackend('seller');
   window.dispatchEvent(new Event(SELLER_SESSION_CHANGED));
 }

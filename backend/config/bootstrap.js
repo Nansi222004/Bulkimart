@@ -27,7 +27,7 @@
  *   import '../config/bootstrap.js';
  */
 
-import 'dotenv/config';
+import './environment.js';
 import { setServers } from 'dns';
 
 // Development only. A production host has a working resolver of its own, and

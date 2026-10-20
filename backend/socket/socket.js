@@ -24,11 +24,10 @@
  */
 
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
 import Seller from "../models/Seller.js";
 import DeliveryPartner from "../models/DeliveryPartner.js";
 import { VENDOR_STATUS } from "../constants/enums.js";
-import { JWT_SECRET } from "../config/jwt.js";
+import { verifySessionToken } from "../config/jwt.js";
 import { getAllowedOrigins } from "../config/cors.js";
 
 let io;
@@ -50,7 +49,7 @@ export const initSocket = (httpServer) => {
     if (!token) return next(new Error("Authentication required"));
 
     try {
-      const payload = jwt.verify(token, JWT_SECRET);
+      const payload = verifySessionToken(token);
       socket.userId = payload.id;
       socket.userType = payload.type;
       return next();

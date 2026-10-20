@@ -9,6 +9,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { apiUrl } from './api';
 import { createPushRegistration } from './pushRegistration';
+import { boundedFetch } from './portalRequests';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -41,9 +42,18 @@ const getMessagingInstance = async () => {
 };
 
 export const registerTokenWithBackend = async (token, authToken = getPortalToken(), { signal, isCurrent = () => true, scope = portalScope() } = {}) => {
-  if (!authToken || !token) return;
+  if (!authToken || !token || !isCurrent() || authToken !== getPortalToken(scope)) return;
   try {
-    const response = await fetch(apiUrl('/api/notifications/tokens'), {
+    // Validate against this backend before sending a device token. This also
+    // catches legacy sessions copied from localhost or another deployment.
+    const identityResponse = await boundedFetch(apiUrl('/api/auth/me'), { signal,
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!identityResponse.ok) return;
+    const identity = await identityResponse.json();
+    const expectedRole = scope === 'customer' ? 'buyer' : scope;
+    if (!identity.success || identity.userType !== 'user' || identity.sessionRole !== expectedRole || !identity.profile?._id || !isCurrent() || authToken !== getPortalToken(scope)) return;
+    const response = await boundedFetch(apiUrl('/api/notifications/tokens'), {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ token, platform: 'web' }),
