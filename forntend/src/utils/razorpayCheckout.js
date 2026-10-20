@@ -1,4 +1,5 @@
 import { apiUrl } from './api';
+import { boundedFetch } from './portalRequests';
 
 let checkoutScriptPromise;
 
@@ -25,6 +26,15 @@ export const openRazorpayCheckout = async (checkout, requestHeaders) => {
   await loadCheckoutScript();
 
   return new Promise((resolve) => {
+    let settled = false, verifying = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      // Retry is disabled below. Close a terminal provider window before the
+      // application switches to success/recovery; never restyle its iframe.
+      try { instance.close?.(); } catch { /* The SDK may already have closed. */ }
+      resolve(result);
+    };
     const instance = new window.Razorpay({
       key: checkout.keyId,
       order_id: checkout.razorpayOrderId,
@@ -33,29 +43,34 @@ export const openRazorpayCheckout = async (checkout, requestHeaders) => {
       name: checkout.name,
       description: checkout.description,
       handler: async (result) => {
+        if (settled || verifying) return;
+        verifying = true;
         try {
-          const response = await fetch(apiUrl('/api/payments/razorpay/verify'), {
+          const response = await boundedFetch(apiUrl('/api/payments/razorpay/verify'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify({ orderId: checkout.orderId, ...result }),
           });
           const body = await response.json().catch(() => ({}));
           if (!response.ok || body.data?.status !== 'paid') {
-            return resolve({ ok: false, message: body.message || 'Payment has not been confirmed' });
+            return finish({ ok: false, message: body.message || 'Payment has not been confirmed' });
           }
-          resolve({ ok: true, verified: true, status: body.data.status });
+          finish({ ok: true, verified: true, status: body.data.status });
         } catch (error) {
-          resolve({ ok: false, message: error.message });
+          finish({ ok: false, message: error.message });
         }
       },
       modal: {
-        ondismiss: () => resolve({ ok: false, cancelled: true, message: 'Payment cancelled' }),
+        // Captured payments must finish server verification even if SDK
+        // dismissal races its handler. A UI dismissal cannot undo capture.
+        ondismiss: () => { if (!verifying) finish({ ok: false, cancelled: true, message: 'Payment cancelled' }); },
       },
       retry: { enabled: false },
       theme: { color: '#08B9E8' },
     });
     instance.on('payment.failed', (response) => {
-      resolve({
+      if (verifying) return;
+      finish({
         ok: false,
         message: response?.error?.description || 'Payment failed',
       });

@@ -206,17 +206,19 @@ const emitBestEffort = async (roomKind, roomId, socketEvent, payload) => {
  * model and FCM tokens are always keyed by User, never by vendor record.
  */
 const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
-  const { event, title, message, metadata = {}, route, expiresAt, media } = opts;
+  const { event, title, message, metadata = {}, route, expiresAt, media, dedupeKey } = opts;
   if (event === 'SELLER_PROMOTION_UPDATE') return null;
   if (!userId || !title || !message) return null;
 
   const type = EVENT_CATEGORY[event] || 'system';
   let record = null;
   try {
-    record = await Notification.create({ userId, type, event, title, message, metadata, route, expiresAt, media });
+    record = await Notification.create({ userId, type, event, title, message, metadata, route, expiresAt, media, ...(dedupeKey ? { dedupeKey } : {}) });
   } catch (err) {
+    if (dedupeKey && err.code === 11000) return null;
     console.error('[NOTIFICATION] persist failed:', err.message);
   }
+  if (dedupeKey && !record) return null;
 
   // A lightweight, uniform signal the notification drawer/unread-count
   // listens for — separate from whatever specific event (new_order,
@@ -330,12 +332,15 @@ export const notifyUser = (userId, opts) => notifyCore(userId, 'user', userId, o
 
 export const notifySeller = async (sellerId, opts) => {
   if (!sellerId) return null;
-  const seller = await Seller.findById(sellerId).select('userId').lean().catch(() => null);
+  const sellerKey = sellerId._id || sellerId;
+  const seller = await Seller.findById(sellerKey).select('userId').lean().catch(() => null);
   if (!seller?.userId) return null;
   const orderId = String(opts.metadata?.orderId || '');
+  const marketplaceOrderRoute = !opts.route || /^\/(?:seller\/)?orders(?:\/|$)/.test(opts.route);
   const options = /^[a-f\d]{24}$/i.test(orderId) ? { ...opts,
-    route: `/seller/orders/${orderId}`, metadata: { ...opts.metadata, sellerId: String(sellerId) } } : opts;
-  return notifyCore(seller.userId, 'seller', sellerId, options);
+    route: marketplaceOrderRoute ? `/seller/orders/${orderId}` : opts.route,
+    metadata: { ...opts.metadata, sellerId: String(sellerKey) } } : opts;
+  return notifyCore(seller.userId, 'seller', sellerKey, options);
 };
 
 export const notifyRider = async (partnerId, opts) => {

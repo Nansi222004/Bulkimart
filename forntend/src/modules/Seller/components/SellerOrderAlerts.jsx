@@ -3,6 +3,7 @@ import { useSeller } from '../context/SellerContext';
 import { socket } from '../../../utils/socket';
 import { apiUrl } from '../../../utils/api';
 import { onForegroundMessage } from '../../../utils/firebaseMessaging';
+import ModalPortal from '../../../components/ModalPortal';
 
 export const orderReference = notification => {
   const id = notification?.metadata?.orderId || notification?.orderId;
@@ -21,7 +22,9 @@ export default function SellerOrderAlerts() {
     if (sellerProfile?.status !== 'approved') return;
     const token = localStorage.getItem('sellerToken');
     if (!token) return;
-    const key = `bulkimart:seller-order-alerts:${sellerProfile._id}`;
+    // Earlier builds could remember an unpaid order as already presented.
+    // Those entries must not suppress its first eligible paid notification.
+    const key = `bulkimart:seller-order-alerts:v2:${sellerProfile._id}`;
     let seen;
     try { seen = new Set(JSON.parse(sessionStorage.getItem(key) || '[]')); } catch { seen = new Set(); }
     const pending = new Set(), notificationIds = new Map(); let alive = true, reconciling = false;
@@ -39,7 +42,7 @@ export default function SellerOrderAlerts() {
         const result = await fetchSellerOrder(id);
         if (!validSession() || !result.ok) return;
         if (String(current.current?._id) === id) { setSelectedOrder(result.data); remember(id); return; }
-        if (result.data.status !== 'placed' || seen.has(id)) return;
+        if (result.data.status !== 'placed' || (result.data.paymentMethod !== 'cod' && result.data.paymentStatus !== 'paid') || seen.has(id)) return;
         setQueue(previous => previous.some(order => order._id === id) ? previous : [...previous, { ...result.data, notificationId: notificationIds.get(id) || notificationId }]);
       } finally { pending.delete(id); }
     };
@@ -99,12 +102,15 @@ export default function SellerOrderAlerts() {
   }, [selectedOrder?._id]);
   if (!active) return null;
   const dismiss = () => setQueue(previous => previous.slice(1));
-  return <aside className="seller-order-alert" role="dialog" aria-label="New order received" aria-live="polite">
+  return <ModalPortal className="seller-order-alert-backdrop" aria-label="New order received"
+    onClick={event => { if (event.target === event.currentTarget) dismiss(); }}
+    onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); dismiss(); } }}>
+  <aside className="seller-order-alert" role="dialog" aria-modal="true" aria-label="New order received" aria-live="polite">
     <button type="button" className="modal-close-btn" aria-label="Dismiss new order" onClick={dismiss}>✕</button>
     <h3>New order received</h3><strong>{active.orderNo}</strong>
     <p>{active.customer?.name || 'Customer'} · {active.itemCount} items · ₹{active.subtotal}</p>
-    <p>{active.paymentMethod} · {active.paymentStatus}</p>
+    <p>{active.paymentMethod === 'cod' ? 'Cash on Delivery · Pay on delivery' : `${active.paymentMethod} · ${active.paymentStatus}`}</p>
     <button type="button" onClick={async () => { if (await openSellerOrder(active._id, active.notificationId)) dismiss(); }}>View order</button>
     {queue.length > 1 && <small>{queue.length - 1} more new orders</small>}
-  </aside>;
+  </aside></ModalPortal>;
 }

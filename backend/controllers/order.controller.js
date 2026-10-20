@@ -1,3 +1,4 @@
+import { publishEligibleSellerOrder } from '../services/sellerOrderNotification.service.js';
 import { buildCustomerBasket } from '../services/customerBasket.service.js';
 import { channelAllowed } from '../utils/productChannels.js';
 import mongoose from 'mongoose';
@@ -24,7 +25,7 @@ import { resolveTip } from '../services/tip.service.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { forwardGeocode } from '../services/geocode.service.js';
-import { notifyUser, notifySeller, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { getOrCreateWallet, calculateRedemptionEligibility, reserveCoins, redeemReservedCoins } from '../services/coin.service.js';
 import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
@@ -718,31 +719,15 @@ export const createOrder = asyncHandler(async (req, res) => {
     emitToUser(req.user._id, 'order_created', { orderId: order._id, orderNo: order.orderNo });
     notifyUser(req.user._id, {
       event: NOTIFICATION_EVENT.ORDER_CREATED,
-      title: 'Order Placed Successfully!',
-      message: `Thank you for your order! Order #${order.orderNo} for ₹${order.pricing?.finalAmount || 0} has been placed.`,
+      title: paymentMethod === 'online' ? 'Order saved · Payment pending' : 'Order Placed Successfully!',
+      message: paymentMethod === 'online' ? `Order #${order.orderNo} is saved. Complete payment to send it to the store.` : `Order #${order.orderNo} has been placed.`,
       metadata: { orderId: order._id },
       route: '/orders',
     }).catch((e) => console.error('[NOTIFICATION] notifyUser (new order) failed:', e.message));
 
-    // We deduplicate so a seller with 3 items only rings once.
-    const sellerIds = [...new Set(order.items.map((i) => i.sellerId?.toString()).filter(Boolean))];
-    for (const sellerId of sellerIds) {
-      emitToSeller(sellerId, 'new_order', {
-        orderId: order._id,
-        orderNo: order.orderNo,
-        channel: order.type,
-        placedAt: order.createdAt,
-      });
-      notifySeller(sellerId, {
-        event: NOTIFICATION_EVENT.ORDER_CREATED,
-        title: 'New order received',
-        message: `Order ${order.orderNo} was just placed — ${order.items.filter(i => String(i.sellerId) === sellerId).length} item(s) for you to fulfil.`,
-        metadata: { orderId: order._id },
-        route: '/orders',
-      }).catch((e) => console.error('[NOTIFICATION] notifySeller (new order) failed:', e.message));
-    }
-  } catch (err) {
-    console.error('Failed to emit new_order notifications:', err.message);
+    await publishEligibleSellerOrder(order._id);
+  } catch {
+    console.warn('[NOTIFICATION] Eligible order notification reconciliation will retry.');
   }
 
   // No timer is armed here on purpose. An in-process setTimeout does not survive
@@ -962,31 +947,9 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
 
   const { orders, payment, groupRef } = result;
 
-  // One ring per seller, as the single-order checkout does — a seller with items
-  // in two groups still hears about each order they have to fulfil.
   try {
-    const { emitToSeller } = await import('../socket/rooms.js');
-    for (const order of orders) {
-      const sellerIds = [...new Set(order.items.map((i) => i.sellerId?.toString()).filter(Boolean))];
-      for (const sellerId of sellerIds) {
-        emitToSeller(sellerId, 'new_order', {
-          orderId: order._id,
-          orderNo: order.orderNo,
-          channel: order.type,
-          placedAt: order.createdAt,
-        });
-        notifySeller(sellerId, {
-          event: NOTIFICATION_EVENT.ORDER_CREATED,
-          title: 'New order received',
-          message: `Order ${order.orderNo} was just placed — ${order.items.filter(i => String(i.sellerId) === sellerId).length} item(s) for you to fulfil.`,
-          metadata: { orderId: order._id },
-          route: '/orders',
-        }).catch((e) => console.error('[NOTIFICATION] notifySeller (new order) failed:', e.message));
-      }
-    }
-  } catch (err) {
-    console.error('Failed to emit new_order to sellers:', err.message);
-  }
+    for (const order of orders) await publishEligibleSellerOrder(order._id);
+  } catch { console.warn('[NOTIFICATION] Eligible seller order delivery will retry.'); }
 
   return created(res, {
     groupRef,

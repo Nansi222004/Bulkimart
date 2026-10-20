@@ -30,6 +30,12 @@ import { settleRazorpayRefundWebhook } from '../services/return.service.js';
 import { redeemReservedCoins, releaseReservedCoins } from '../services/coin.service.js';
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
 import { activateDigitalEntitlements } from '../services/digitalEntitlement.service.js';
+import { publishPaymentSellerOrders } from '../services/sellerOrderNotification.service.js';
+
+const publishSellerPaymentResult = async payment => {
+  try { await publishPaymentSellerOrders(payment); }
+  catch { console.warn('[NOTIFICATION] Payment is durable; seller notification reconciliation will retry.'); }
+};
 
 /**
  * PhonePe payments.
@@ -48,8 +54,14 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
   // retain their pending-only transition and one-time Coins effects.
   const capturedRazorpay = state === 'COMPLETED' && (payment.gateway?.provider === 'razorpay' || payment.gatewayAttempts?.some(row => row.provider === 'razorpay' && row.gatewayOrderId === gatewayOrderId));
   const knownCaptureId = gatewayPaymentId || paymentDetails?.[0]?.id;
-  if (capturedRazorpay && payment.captures?.some(row => row.gatewayPaymentId === knownCaptureId && row.gatewayOrderId === gatewayOrderId && row.amountPaise === amountPaise && currency === 'INR')) return { changed: false, status: payment.status };
-  if (payment.status !== PAYMENT_STATUS.PENDING && !capturedRazorpay) return { changed: false, status: payment.status };
+  if (capturedRazorpay && payment.captures?.some(row => row.gatewayPaymentId === knownCaptureId && row.gatewayOrderId === gatewayOrderId && row.amountPaise === amountPaise && currency === 'INR')) {
+    await publishSellerPaymentResult(payment);
+    return { changed: false, status: payment.status };
+  }
+  if (payment.status !== PAYMENT_STATUS.PENDING && !capturedRazorpay) {
+    if (payment.status === PAYMENT_STATUS.PAID) await publishSellerPaymentResult(payment);
+    return { changed: false, status: payment.status };
+  }
 
   const session = await mongoose.startSession();
   let result = { changed: false, status: payment.status };
@@ -174,6 +186,7 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
     await session.endSession();
   }
 
+  if (result.status === PAYMENT_STATUS.PAID) await publishSellerPaymentResult(payment);
   return result;
 };
 

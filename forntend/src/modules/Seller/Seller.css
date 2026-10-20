@@ -2326,7 +2326,13 @@
 .seller-notification-open:hover { background: #dff5ff; }
 .seller-notification-open:focus-visible, .seller-order-alert button:focus-visible { outline: 3px solid #f97316; outline-offset: 2px; }
 .seller-notification-media img { max-width: 80px; max-height: 70px; }
-.seller-order-alert { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 16px); right: 16px; z-index: 2000; width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 20px; box-sizing: border-box; background: #fff; border: 2px solid #08b9e8; border-radius: 16px; box-shadow: 0 12px 36px #0003; color: #0f172a; }
+.seller-order-alert-backdrop { display: flex; justify-content: flex-end; align-items: flex-start; background: rgb(15 23 42 / 48%); }
+.seller-order-alert { position: relative; width: min(380px, 100%); max-height: 100%; overflow: auto; padding: 24px; box-sizing: border-box; background: #fff; border: 1px solid #dfe6ef; border-radius: 16px; box-shadow: 0 12px 36px #0003; color: #0f172a; }
+.seller-order-alert .modal-close-btn { position: absolute; top: 8px; right: 8px; min-width: 44px; min-height: 44px; border: 0; background: transparent; }
+.seller-order-alert h3 { padding-right: 32px; margin: 0 0 16px; }
+.seller-order-alert > button:not(.modal-close-btn) { background: #0b2d6b; color: #fff; border: 0; min-height: 44px; }
+.seller-order-alert p { overflow-wrap: anywhere; }
+@media (max-width: 480px) { .seller-order-alert-backdrop { align-items: flex-end; justify-content: center; } }
 .seller-order-alert button { cursor: pointer; padding: 10px; border-radius: 8px; }
 .seller-push-control {
   display: flex;

@@ -27,6 +27,17 @@
 }
 
 .customer-basket *, .checkout-page-container * { box-sizing: border-box; }
+.checkout-payment-in-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  background: #fff;
+}
+.checkout-payment-in-progress h1 { margin: 0 0 8px; font-size: 20px; }
+.checkout-payment-in-progress p { margin: 0; color: var(--text-secondary); }
 .customer-basket :is(button, a, input, summary):focus-visible,
 .checkout-page-container :is(button, a, input, textarea, summary):focus-visible {
   outline: 3px solid #1557a6;

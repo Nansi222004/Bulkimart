@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import Notification from "../models/Notification.js";
+import Order from '../models/Order.js';
+import Seller from '../models/Seller.js';
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { ok, paginated, getPagination, httpError } from "../utils/response.js";
 import { registerPushToken, removePushToken } from "../services/notification.service.js";
@@ -23,6 +25,22 @@ const visibleNotifications = req => ({
     { route: /^\/(?:seller\/)?(?:promotions|campaigns|deals|advertisements|grow)(?:[/?#]|$)/i },
   ] } : {}),
 });
+
+async function visibleNotificationFilter(req) {
+  const filter = visibleNotifications(req);
+  if (req.tokenRole !== 'seller') return filter;
+  const seller = await Seller.findOne({ userId: req.user._id }).select('_id').lean();
+  if (!seller) return filter;
+  // Old builds may have persisted premature alerts. Do not delete history,
+  // but prevent those rows inflating the seller badge or reappearing as work.
+  const unpaid = await Order.aggregate([
+    { $match: { 'items.sellerId': seller._id, paymentMethod: { $ne: 'cod' } } },
+    { $lookup: { from: 'payments', localField: 'paymentId', foreignField: '_id', as: 'payment' } },
+    { $match: { 'payment.status': { $nin: ['paid', 'partial_refund', 'refunded'] } } }, { $project: { _id: 1 } },
+  ]);
+  if (unpaid.length) filter.$nor.push({ event: 'ORDER_CREATED', 'metadata.orderId': { $in: unpaid.map(o => o._id) } });
+  return filter;
+}
 
 // @desc    Register/refresh the caller's device push token (upserts by token
 //          value, so re-registering the same device just bumps lastUsedAt
@@ -56,7 +74,7 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query, 20, 50);
   // req.user._id — never a client-supplied id — is the only identity this
   // query is ever scoped to, so one user can never page into another's list.
-  const filter = visibleNotifications(req);
+  const filter = await visibleNotificationFilter(req);
   if (req.query.isRead === "true") filter.isRead = true;
   if (req.query.isRead === "false") filter.isRead = false;
   if (req.query.event) {
@@ -77,7 +95,7 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
 // @access  Private
 export const getUnreadCount = asyncHandler(async (req, res) => {
   const count = await Notification.countDocuments({
-    ...visibleNotifications(req),
+    ...await visibleNotificationFilter(req),
     isRead: false,
   });
   ok(res, { count });

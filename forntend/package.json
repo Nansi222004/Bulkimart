@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:payment-overlays": "node --test verification/razorpay-overlay.test.mjs verification/payment-ui.test.mjs",
     "test:fcm-auth": "node --test verification/fcm-auth.test.mjs",
     "test:startup": "node --test tests/portal-startup.test.mjs",
     "test:seller-notifications": "node --test tests/seller-notifications.test.mjs",

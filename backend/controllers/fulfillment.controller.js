@@ -1,7 +1,7 @@
 import Order from '../models/Order.js';
 import { storePickup, pickupLocationError } from '../services/storePickup.service.js';
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
-import Payment from '../models/Payment.js';
+import { orderPaymentReady as paymentIsReady } from '../services/orderPaymentEligibility.service.js';
 import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
@@ -27,12 +27,6 @@ const sellerAndOrder = async (req) => {
   }
   if (!order.items.every((item) => String(item.sellerId) === String(seller._id))) throw httpError(409, 'This order contains multiple stores and needs platform support before fulfillment.');
   return { seller, order };
-};
-
-const paymentIsReady = async (order) => {
-  if (order.paymentMethod === 'cod') return true;
-  const payment = order.paymentId ? await Payment.findById(order.paymentId).select('status') : null;
-  return payment?.status === 'paid';
 };
 
 const totalWeightKg = (order) => {

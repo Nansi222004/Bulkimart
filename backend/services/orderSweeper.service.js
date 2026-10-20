@@ -23,6 +23,7 @@ import { ORDER_STATUS, CHANNEL } from '../constants/enums.js';
  * look at it, and auto-cancelling that would destroy real business.
  */
 
+import { sweepEligibleSellerOrders } from './sellerOrderNotification.service.js';
 const SWEEP_INTERVAL_MS = 30 * 1000;
 
 /** How long a Quick order may sit unaccepted before it is given up on. */
@@ -71,6 +72,7 @@ export const startOrderSweeper = () => {
   if (timer) return;
 
   timer = setInterval(() => {
+    sweepEligibleSellerOrders().catch(() => console.warn('[NOTIFICATION] Eligible order reconciliation will retry.'));
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
     sweepOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
     sweepCoinRewardsOnce().catch((err) => console.error('[COINS SWEEPER] failed:', err.message));

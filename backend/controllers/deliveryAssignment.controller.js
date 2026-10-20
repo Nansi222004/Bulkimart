@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
+import { orderPaymentReady } from '../services/orderPaymentEligibility.service.js';
 import Seller from '../models/Seller.js';
 import Delivery from '../models/Delivery.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
@@ -49,6 +50,7 @@ export const getManualAssignmentQueue = asyncHandler(async (_req, res) => {
     .populate('userId', 'name phone').lean();
   const formattedOrders = [];
   for (const order of orders) {
+    if (!await orderPaymentReady(order)) continue;
     let eligiblePartnerIds = [];
     let pickupStore, pickupError;
     try {
@@ -91,6 +93,7 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
     Order.findById(req.params.id), DeliveryPartner.findById(partnerId),
   ]);
   if (!order) throw httpError(404, 'Order not found');
+  if (!await orderPaymentReady(order)) throw httpError(409, 'Payment must be verified before delivery assignment');
   if (!partner) throw httpError(404, 'Delivery partner not found');
   if (order.deliveryType !== 'internal' || order.status !== 'dispatched') {
     throw httpError(409, 'Only accepted, prepared, ready-for-pickup manual orders can be assigned');

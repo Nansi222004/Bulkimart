@@ -503,6 +503,15 @@ const CheckoutPage = () => {
     </div>
   ) : null;
 
+  // Saving an unpaid order is part of opening the payment window. Do not
+  // mount recovery (or start its status requests) while that window is active.
+  if (committedReference && isOrdering) return (
+    <div className="checkout-page-container checkout-payment-in-progress" role="status" aria-live="polite">
+      <h1>Complete your payment</h1>
+      <p>Use the secure payment window to finish checkout.</p>
+    </div>
+  );
+
   if (committedReference) return <CommittedCheckoutReview
     key={recoveryCustomerId + ':' + committedReference.key}
     reference={committedReference}

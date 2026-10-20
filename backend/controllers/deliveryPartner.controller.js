@@ -8,6 +8,7 @@ import Delivery from '../models/Delivery.js';
 import Seller from '../models/Seller.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
+import { orderPaymentReady } from '../services/orderPaymentEligibility.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated, getPagination } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
@@ -392,6 +393,7 @@ const recordOfferIfNew = (orderId, riderId) =>
 export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   const order = await Order.findById(orderId);
   if (!order) return;
+  if (!await orderPaymentReady(order)) return;
 
   // The same list accept checks against — see constants/enums.js.
   if (!riderClaimableStatuses(order.type).includes(order.status)) return;
@@ -858,8 +860,9 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId deliveryId shippingAddress');
+  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId deliveryId shippingAddress paymentId paymentMethod');
   if (!candidate) throw httpError(404, 'Order not found');
+  if (!await orderPaymentReady(candidate)) throw httpError(409, 'Payment must be verified before accepting a delivery');
 
   // A retry of a committed acceptance must not create another delivery or fail
   // capacity checks because the rider is now carrying this very order.
@@ -1725,6 +1728,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
 
   const formatted = [];
   for (const order of pendingOrders) {
+    if (!await orderPaymentReady(order)) continue;
     let sellerId;
     try { sellerId = orderStoreId(order); } catch { continue; }
     const seller = await Seller.findById(sellerId);

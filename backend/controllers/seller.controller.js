@@ -4,6 +4,7 @@ import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
+import { eligiblePaymentStages, orderPaymentReady } from '../services/orderPaymentEligibility.service.js';
 import Delivery from '../models/Delivery.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
@@ -465,11 +466,11 @@ export const getDashboard = asyncHandler(async (req, res) => {
    * "Pending" means not yet handed over — once it is dispatched it is the
    * courier's problem, not the seller's, so it drops off this counter.
    */
-  const pendingOrders = await Order.countDocuments({
-    'items.sellerId': seller._id,
-    status: { $in: [ORDER_STATUS.PLACED, ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING] },
-    ...(channel ? { type: channel } : {}),
-  });
+  const [pendingOrderCount] = await Order.aggregate([
+    { $match: { 'items.sellerId': seller._id, status: { $in: [ORDER_STATUS.PLACED, ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING] }, ...(channel ? { type: channel } : {}) } },
+    ...eligiblePaymentStages(), { $count: 'count' },
+  ]);
+  const pendingOrders = pendingOrderCount?.count || 0;
 
   const perChannel = revenueByChannel.reduce(
     (acc, row) => ({ ...acc, [row._id]: { revenue: row.revenue, orders: row.orders } }),
@@ -605,13 +606,13 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
   if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
   if (CHANNELS.includes(req.query.type)) filter.type = req.query.type;
 
-  const [orders, total] = await Promise.all([
-    Order.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Order.countDocuments(filter),
+  const actionableQueue = req.query.status === ORDER_STATUS.PLACED && !req.params.id;
+  const [orders, total] = actionableQueue ? await (async () => {
+    const [page] = await Order.aggregate([{ $match: filter }, ...eligiblePaymentStages(),
+      { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
+    return [page?.rows || [], page?.count?.[0]?.total || 0];
+  })() : await Promise.all([
+    Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Order.countDocuments(filter),
   ]);
   const paymentIds = [...new Set(orders.map((o) => String(o.paymentId || '')).filter(Boolean))];
   const payments = paymentIds.length
@@ -736,6 +737,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   if (!order.items.every(item => String(item.sellerId) === String(seller._id))) throw httpError(409, 'Multi-store order changes require platform support');
+  if (status !== ORDER_STATUS.CANCELLED && !await orderPaymentReady(order)) throw httpError(409, 'Payment must be verified before seller processing');
   if (req.body.version !== undefined && req.body.version !== order.__v) throw httpError(409, 'The order changed. Refresh before acting.');
   if (status === 'ready_for_pickup') {
     if (order.status !== 'preparing' || order.vendorDecision?.status !== 'accepted' || shipmentLocked(order) || order.deliveryId) throw httpError(409, 'Only an accepted, preparing order can be marked ready');

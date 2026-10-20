@@ -44,6 +44,7 @@ const notificationSchema = new Schema(
     // services/notification.service.js), e.g. "ORDER_CREATED". `type` above
     // stays the coarse category so every pre-existing row/query keeps working.
     event:   { type: String },
+    dedupeKey: { type: String },
     title:   { type: String, required: true },
     message: { type: String, required: true },
     isRead:  { type: Boolean, default: false },
@@ -74,6 +75,7 @@ const notificationSchema = new Schema(
 );
 
 notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
+notificationSchema.index({ dedupeKey: 1 }, { name: 'notification_dedupe_key_unique', unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } });
 notificationSchema.index({ userId: 1, recipientModel: 1, isRead: 1, createdAt: -1 });
 
 const Notification = model("Notification", notificationSchema);
