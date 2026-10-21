@@ -17,7 +17,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
-    "test:responsive": "npm run build && node tests/mobile-layout.test.mjs --full && node tests/mobile-layout.test.mjs --native && node tests/mobile-layout.test.mjs --full --extended && node tests/mobile-layout.test.mjs --native --supplemental"
+    "test:responsive": "npm run build && node tests/mobile-layout.test.mjs --full && node tests/mobile-layout.test.mjs --native && node tests/mobile-layout.test.mjs --full --extended && node tests/mobile-layout.test.mjs --native --supplemental",
+    "test:shiprocket-fees": "node --test verification/shiprocket-fee-ui.test.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

@@ -6,6 +6,8 @@ const ObjectId = Schema.Types.ObjectId;
 const paymentSchema = new Schema(
   {
     userId:         { type: ObjectId, ref: "User", required: true },
+    // Separate seller collection; never replaces the customer's order payment.
+    quickFeeSnapshotId: { type: ObjectId, ref: 'QuickCommerceFinancialSnapshot' },
     orderId:        { type: ObjectId, ref: "Order" },
 
     /**
@@ -122,6 +124,7 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.index({ userId: 1, createdAt: -1 });
+paymentSchema.index({ quickFeeSnapshotId: 1 }, { unique: true, partialFilterExpression: { quickFeeSnapshotId: { $type: 'objectId' } } });
 // the webhook arrives with only this id to go on
 paymentSchema.index({ 'gateway.merchantOrderId': 1 });
 

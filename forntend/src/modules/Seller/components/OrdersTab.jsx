@@ -1,4 +1,5 @@
 import ModalPortal from '../../../components/ModalPortal';
+import ShiprocketFeePayment from './ShiprocketFeePayment';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
@@ -676,21 +677,15 @@ export const OrdersTab = ({ detailPage = false }) => {
 
             {deliveryChoice === 'shiprocket' && <div id="seller-shiprocket-delivery" className="seller-delivery-panel" aria-label="Shiprocket delivery">
               <h3>Shiprocket shipment</h3>
+              {fulfilling.channel === 'grocery' && <ShiprocketFeePayment key={fulfilling._id} orderId={fulfilling._id} provider={fulfillmentOptions.shiprocket || {}} onRefresh={() => loadAvailability(fulfilling, true)} />}
               <div className="seller-delivery-route"><div><span>Pickup from</span><p>{addressText(fulfillmentOptions.shiprocket?.verifiedPickup || fulfillmentOptions.pickup)}</p></div><span aria-hidden="true">→</span><div><span>Deliver to</span><p>{addressText(fulfillmentOptions.destination)}</p></div></div>
               {!fulfillmentOptions.shiprocket?.pickupLinked && <p><a href="/seller/profile">Check or retry pickup synchronization in your store profile</a></p>}
               <p style={{ fontSize: 11, color: '#64748b' }}>{fulfillmentOptions.shiprocket?.reason || 'Serviceability is checked before any shipment is created.'}</p>
               <p>Weight from order item snapshots: {fulfillmentOptions.shiprocket?.packageWeightKg || 'Unavailable'} kg</p>
-              {fulfillmentOptions.shiprocket?.quote && (
+              {fulfilling.channel !== 'grocery' && fulfillmentOptions.shiprocket?.quote && (
                 <div style={{ fontSize: 12, marginBottom: 10, padding: 10, background: '#f8fafc', borderRadius: 8 }}>
                   <div><strong>Estimated courier freight:</strong> {money(fulfillmentOptions.shiprocket.quote.courierCharge)}</div>
                   {fulfilling.channel === 'ecommerce' && <div>Provider estimate only. The customer's checkout delivery charge stays unchanged; no additional customer charge or new vendor deduction is applied here.</div>}
-                  {fulfilling.channel === 'grocery' && fulfillmentOptions.shiprocket.quote.optionB && <>
-                    <div>Customer delivery-charge contribution: {money(fulfillmentOptions.shiprocket.quote.optionB.customerFreightContribution)}</div>
-                    <div>Estimated vendor freight share: {money(fulfillmentOptions.shiprocket.quote.optionB.vendorFreightShare)}</div>
-                    <div>Bulkimart service fee: {money(fulfillmentOptions.shiprocket.quote.optionB.bulkimartServiceFee)}</div>
-                    <div style={{ marginTop: 4, fontWeight: 800 }}>Estimated vendor obligation: {money(fulfillmentOptions.shiprocket.quote.optionB.vendorDeliveryFeeObligation)}</div>
-                    <div style={{ color: '#64748b', fontSize: 10 }}>Estimate only · Rule {fulfillmentOptions.shiprocket.quote.feeRule?.version || 'pending'} · final freight may differ after reconciliation.</div>
-                  </>}
                 </div>
               )}
               {fulfillmentOptions.shiprocket?.activation?.blockers?.length > 0 && <div style={{ padding: 10, marginBottom: 10, borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 11 }}>
@@ -702,7 +697,7 @@ export const OrdersTab = ({ detailPage = false }) => {
                   onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} /></label>
               ))}</div>
               <button className="primary-onboarding-btn" style={{ width: '100%' }}
-                disabled={!fulfillmentOptions.shiprocket?.available || !fulfillmentOptions.shiprocket?.quote || busyId === fulfilling._id}
+                disabled={!fulfillmentOptions.shiprocket?.available || !fulfillmentOptions.shiprocket?.quote || (fulfilling.channel === 'grocery' && fulfillmentOptions.shiprocket?.feeCollection?.status !== 'paid') || busyId === fulfilling._id}
                 onClick={async () => {
                   if (Object.values(packageSize).some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0.5 || Number(value) > 500)) return triggerToast?.('Enter dimensions greater than 0.5 cm and at most 500 cm');
                   return ui.perform(`Create a Shiprocket shipment with estimated courier freight ${money(fulfillmentOptions.shiprocket.quote.courierCharge)}? The customer's total stays unchanged.`, async () => {

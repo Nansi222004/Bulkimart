@@ -5,14 +5,20 @@ const { Schema, model } = mongoose;
 const quickCommerceDeliveryConfigSchema = new Schema({
   key: { type: String, default: 'quick_third_party', unique: true, immutable: true },
   enabled: { type: Boolean, default: false },
+  revision: { type: Number, default: 0 },
+  currency: { type: String, enum: ['INR'], default: 'INR' },
+  effectiveAt: Date,
+  paymentRequired: { type: Boolean, default: true },
+  history: [{ _id: false, revision: Number, changedAt: Date, changedBy: Schema.Types.ObjectId, configuration: Schema.Types.Mixed }],
   fee: {
     type: { type: String, enum: ['flat', 'percent'] },
     value: { type: Number, min: 0 },
     version: { type: String, trim: true },
-    calculationBasis: { type: String, default: 'eligible_courier_freight', immutable: true },
+    calculationBasis: { type: String, enum: ['eligible_courier_freight', 'vendor_freight_share'] },
     minimum: Number,
     maximum: Number,
     taxTreatment: { type: String, default: 'pending_approval' },
+    taxRate: { type: Number, min: 0, max: 100 },
   },
   policy: {
     customerFreightAllocation: { type: String, default: 'apply_first', immutable: true },

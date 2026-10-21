@@ -92,3 +92,11 @@
   .seller-parcel-fields { grid-template-columns: minmax(0,1fr); }
   .seller-rider-card { padding: 12px; flex-wrap: wrap; }
 }
+.seller-shiprocket-fee { padding: 16px; margin: 16px 0; background: #f0fbff; border: 1px solid #bceef8; border-radius: 12px; min-width: 0; }
+.seller-shiprocket-fee dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; }
+.seller-shiprocket-fee dt { overflow-wrap: anywhere; }
+.seller-shiprocket-fee dd { margin: 0; font-weight: 700; white-space: nowrap; }
+.seller-shiprocket-fee dl > div:last-child { border-top: 1px solid #bceef8; font-weight: 800; color: #0b2d6b; }
+.seller-shiprocket-fee button { min-height: 44px; margin: 6px 8px 6px 0; max-width: 100%; white-space: normal; }
+.seller-fee-confirm { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-bottom: 12px; }
+.seller-fee-confirm input { min-width: 20px; min-height: 20px; }

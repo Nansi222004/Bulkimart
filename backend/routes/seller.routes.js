@@ -1,3 +1,4 @@
+import { initiateQuickShiprocketFee, verifyQuickShiprocketFee, getQuickShiprocketFee } from '../controllers/quickShiprocketFee.controller.js';
 import { getProfile, updateProfile } from '../controllers/user.controller.js';
 import express from 'express';
 import { getPickupStatus, retryPickupSync } from '../controllers/sellerPickup.controller.js';
@@ -100,6 +101,9 @@ router.put('/profile', uploadFields([
 // Everything above this line is onboarding and stays open to any signed-in user,
 // otherwise they could never complete registration or check their own status.
 // ---------------------------------------------------------------------------
+router.post('/shiprocket-fees/verify', requireApprovedSeller, verifyQuickShiprocketFee);
+router.get('/orders/:id/shiprocket-fee', requireApprovedSeller, getQuickShiprocketFee);
+router.post('/orders/:id/shiprocket-fee', requireApprovedSeller, initiateQuickShiprocketFee);
 router.get('/dashboard', requireApprovedSeller, getDashboard);
 router.get('/orders', requireApprovedSeller, getSellerOrders);
 router.get('/orders/:id', requireApprovedSeller, getSellerOrders);

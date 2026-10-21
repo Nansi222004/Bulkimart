@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
+import Payment from '../models/Payment.js';
 import SellerPayout from '../models/SellerPayout.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnapshot.js';
@@ -13,8 +14,34 @@ export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res)
   return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
 });
 
+export const listQuickShiprocketFeesAdmin = asyncHandler(async (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = 25;
+  const snapshotQuery = {};
+  const q = String(req.query.q || '').trim().slice(0, 100);
+  if (q) {
+    const literal = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const [orders, sellers] = await Promise.all([
+      Order.find({ orderNo: { $regex: literal, $options: 'i' } }).select('_id').limit(200).lean(),
+      Seller.find({ $or: [{ businessName: { $regex: literal, $options: 'i' } }, { 'storeDetails.name': { $regex: literal, $options: 'i' } }] }).select('_id').limit(200).lean(),
+    ]);
+    snapshotQuery.$or = [{ orderId: { $in: orders.map(row => row._id) } }, { sellerId: { $in: sellers.map(row => row._id) } }];
+  }
+  const match = { quickFeeSnapshotId: { $exists: true } };
+  if (q) match.quickFeeSnapshotId = { $in: (await QuickCommerceFinancialSnapshot.find(snapshotQuery).select('_id').lean()).map(row => row._id) };
+  if (['pending', 'paid', 'failed', 'refunded', 'partial_refund'].includes(req.query.status)) match.status = req.query.status;
+  if (req.query.exceptions === 'true') match.$or = [{ 'gatewayAttempts.status': { $in: ['initializing', 'creation_unknown'] } }, { 'refundObligations.0': { $exists: true } }];
+  const [rows, total] = await Promise.all([
+    Payment.find(match).select('_id status amount paidAt createdAt gateway.orderId gateway.paymentId gatewayAttempts.status refundObligations.status quickFeeSnapshotId')
+      .populate({ path: 'quickFeeSnapshotId', populate: [{ path: 'sellerId', select: 'businessName storeDetails.name' }, { path: 'orderId', select: 'orderNo shiprocket.status status' }] })
+      .sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Payment.countDocuments(match),
+  ]);
+  return paginated(res, rows, { page, limit, total });
+});
+
 export const updateQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
-  const config = await saveQuickCommerceDraft({ fee: req.body?.fee, enabled: req.body?.enabled, adminId: req.user._id });
+  const config = await saveQuickCommerceDraft({ fee: req.body?.fee, enabled: req.body?.enabled, adminId: req.user._id, currency: req.body?.currency, effectiveAt: req.body?.effectiveAt, paymentRequired: req.body?.paymentRequired, revision: req.body?.revision });
   return ok(res, { ...(await getQuickCommerceConfig()), config }, 'Draft configuration saved; live activation remains disabled');
 });
 

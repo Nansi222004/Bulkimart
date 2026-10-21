@@ -8,6 +8,9 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
 import crypto from 'crypto';
+import Payment from '../models/Payment.js';
+import Snapshot from '../models/QuickCommerceFinancialSnapshot.js';
+import { requireVerifiedQuickCollection } from '../services/quickShiprocketCollection.service.js';
 import { riderIneligibility } from '../services/riderEligibility.service.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
 import { pickupReadyForShipping, pickupStatus, pickupDefinition } from '../services/sellerPickupSync.service.js';
@@ -15,9 +18,9 @@ import {
   getShiprocketCapabilities, verifyPickupLocation, checkServiceability, createShiprocketOrder,
   assignCourier, generateLabel, schedulePickup,
 } from '../services/shiprocket.service.js';
-import { calculateOptionB, getQuickCommerceConfig } from '../services/quickCommerceFinance.service.js';
+import { calculateOptionB, getQuickCommerceConfig, validateServiceFeeConfiguration } from '../services/quickCommerceFinance.service.js';
 
-const sellerAndOrder = async (req) => {
+export const sellerAndOrder = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
   const order = await Order.findById(req.params.id);
@@ -72,11 +75,10 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   const courierChannelAllowed = order.delivery?.mode !== 'same_day' && (order.type === CHANNEL.ECOM
     || (order.type === CHANNEL.GROCERY && capabilities.quickCommerce));
   const quickConfigState = order.type === CHANNEL.GROCERY ? await getQuickCommerceConfig() : null;
-  const quickFeeRuleConfigured = Boolean(
-    quickConfigState?.config?.fee?.type
-    && Number.isFinite(quickConfigState?.config?.fee?.value)
-    && quickConfigState?.config?.fee?.version
-  );
+  const feeSnapshot = order.type === CHANNEL.GROCERY ? await Snapshot.findOne({ orderId: order._id, sellerId: seller._id }).lean() : null;
+  const feePayment = feeSnapshot ? await Payment.findOne({ quickFeeSnapshotId: feeSnapshot._id }).select('status gateway.orderId refundObligations.status').lean() : null;
+  let quickFeeRuleConfigured = false;
+  try { validateServiceFeeConfiguration(quickConfigState?.config); quickFeeRuleConfigured = true; } catch { /* Missing approvals never imply a zero fee. */ }
   let providerQuote = null;
   let providerFailure = null;
   if (capabilities.configured && pickupLinked && verifiedPickup && addressReady && packageWeightKg && courierChannelAllowed) {
@@ -104,7 +106,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
           accountingStatus: 'estimated', optionB,
           feeRule: order.type === CHANNEL.GROCERY ? {
             type: quickConfigState.config.fee.type, value: quickConfigState.config.fee.value,
-            version: quickConfigState.config.fee.version, calculationBasis: 'eligible_courier_freight',
+            version: quickConfigState.config.fee.version, calculationBasis: quickConfigState.config.fee.calculationBasis,
           } : null,
         };
       } else providerFailure = 'No courier services this route';
@@ -133,8 +135,9 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       pickupEditorPath: '/seller/profile',
     },
     shiprocket: {
-      available: Boolean(order.type === CHANNEL.ECOM && order.delivery?.mode !== 'same_day' && shiprocketEligible && accepted && prepared && paymentVerified
+      available: Boolean(order.delivery?.mode !== 'same_day' && shiprocketEligible && accepted && prepared && paymentVerified
         && !['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)),
+      feeCollection: order.type === CHANNEL.GROCERY ? { snapshot: feeSnapshot, status: feePayment?.status || 'not_started', reconciliationRequired: Boolean(feePayment?.refundObligations?.length) } : undefined,
       configured: capabilities.configured,
       environment: capabilities.mode,
       pickupLinked,
@@ -145,7 +148,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
       reason: stateReason || (shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
-        : order.type === CHANNEL.GROCERY ? 'Quick Commerce third-party shipping remains disabled pending policy approvals and reconciliation verification'
+        : order.type === CHANNEL.GROCERY && (!quickConfigState.activationReady || !quickConfigState.config.enabled) ? 'Quick Commerce Shiprocket remains disabled pending approved fees, policies and seller collection reconciliation'
         : order.delivery?.mode === 'same_day' ? 'Same-Day requires Bulkimart delivery'
         : !capabilities.configured ? 'Shiprocket is not configured'
         : !syncReady ? pickupStatus(seller).message || 'Pickup synchronization is pending. Check the store profile.'
@@ -172,6 +175,7 @@ const activeShipmentStates = ['creating', 'assigning', 'reconciliation_required'
 export const selectManualFulfillment = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
   if (!storePickup(seller)) throw pickupLocationError(seller);
+  if (await Snapshot.exists({ orderId: order._id })) throw httpError(409, 'A Shiprocket fee obligation exists; reconcile it before switching delivery method');
   if (req.body?.riderId || req.body?.partnerId) throw httpError(400, 'Riders accept eligible offers; sellers cannot choose a rider');
   if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) {
@@ -200,7 +204,12 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
   if (hasProviderReferences && priorEnvironment !== environment.mode) throw httpError(409, 'Shipment belongs to a different provider environment; use isolated test data and reconcile existing references');
   if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
   if (req.body?.confirm !== true) throw httpError(400, 'Vendor confirmation is required before shipment creation');
-  if (order.type !== CHANNEL.ECOM) throw httpError(409, 'Quick Commerce third-party shipment creation remains disabled pending policy approvals and live reconciliation verification');
+  let quickCollection = null;
+  if (order.type === CHANNEL.GROCERY) {
+    const state = await getQuickCommerceConfig();
+    if (!state.config.enabled || !state.activationReady) throw httpError(409, 'Quick Commerce Shiprocket is disabled pending approved configuration and reconciliation');
+    quickCollection = await requireVerifiedQuickCollection(order, seller._id);
+  } else if (order.type !== CHANNEL.ECOM) throw httpError(409, 'Unsupported courier channel');
   if (order.delivery?.mode === 'same_day') throw httpError(409, 'Same-Day delivery requires Bulkimart delivery; it cannot be switched to a standard courier.');
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) throw httpError(409, 'Accept and prepare the order before creating a shipment');
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
@@ -226,21 +235,23 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     throw httpError(502, 'Could not check courier serviceability. No shipment was created; please retry later.');
   }
   if (!serviceability.available || !serviceability.couriers?.length) throw httpError(409, 'No Shiprocket courier services this route');
-  const couriers = serviceability.couriers.filter(entry => Number.isFinite(Number(entry.rate ?? entry.freight_charge)) && Number(entry.rate ?? entry.freight_charge) >= 0);
+  const courierCharge = entry => Number(quickCollection ? entry.freight_charge : entry.rate ?? entry.freight_charge);
+  const couriers = serviceability.couriers.filter(entry => Number.isFinite(courierCharge(entry)) && courierCharge(entry) >= 0);
   const courier = req.body?.courierId != null ? couriers.find(entry => String(entry.courier_company_id) === String(req.body.courierId))
-    : [...couriers].sort((a,b) => Number(a.rate ?? a.freight_charge) - Number(b.rate ?? b.freight_charge))[0];
+    : [...couriers].sort((a,b) => courierCharge(a) - courierCharge(b))[0];
   if (!courier) throw httpError(409, 'The selected courier has no valid serviceable quote. Refresh delivery options.');
+  if (quickCollection && (courierCharge(courier) !== quickCollection.snapshot.eligibleCourierFreight || String(courier.courier_company_id) !== quickCollection.snapshot.providerCourierId)) throw httpError(409, 'Paid courier quote changed; platform reconciliation is required before shipment creation');
   const approvedCharge = req.body?.quotedCourierCharge;
   if (typeof approvedCharge !== 'number' || !Number.isFinite(approvedCharge) || approvedCharge < 0) {
     throw httpError(400, 'Review and confirm a courier quote before creating the shipment.');
   }
-  if (Number(courier.rate ?? courier.freight_charge) > approvedCharge) {
+  if (courierCharge(courier) > approvedCharge) {
     throw httpError(409, 'The courier quote increased. Refresh delivery options and confirm the new estimate before retrying.');
   }
 
   // Customer price is frozen at checkout. This is a provider cost estimate,
   // not a new customer charge or an unapproved vendor ledger deduction.
-  const quote = { provider: 'shiprocket', courierCharge: Number(courier.rate ?? courier.freight_charge), serviceFee: 0, currency: 'INR',
+  const quote = { provider: 'shiprocket', courierCharge: courierCharge(courier), serviceFee: quickCollection?.snapshot.serviceFee.grossAmount || 0, currency: 'INR',
     customerDeliveryCharge: order.pricing?.deliveryCharge || 0, customerAdditionalCharge: 0, quotedAt: new Date(), billingPolicy: 'checkout_charge_unchanged' };
   const operationId = crypto.randomUUID();
   const locked = await Order.updateOne({
@@ -286,7 +297,7 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
     if (!assigned?.awb) throw new Error('Provider did not confirm a waybill');
     const saved = await Order.updateOne(owner, { $set: {
       deliveryType: 'shiprocket', 'fulfillment.method': 'shiprocket', 'fulfillment.selectedBy': 'seller',
-      'fulfillment.selectedAt': new Date(), 'fulfillment.vendorConfirmedAt': new Date(), 'fulfillment.chargeStatus': 'not_applicable',
+      'fulfillment.selectedAt': new Date(), 'fulfillment.vendorConfirmedAt': new Date(), 'fulfillment.chargeStatus': quickCollection ? 'collected' : 'not_applicable',
       'shiprocket.awb': assigned.awb, 'shiprocket.courier': assigned.courier_name || courier.courier_name,
       'shiprocket.trackingUrl': assigned.tracking_url, 'shiprocket.status': 'awb_assigned', 'shiprocket.lastError': null,
     } });

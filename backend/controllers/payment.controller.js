@@ -31,6 +31,7 @@ import { redeemReservedCoins, releaseReservedCoins } from '../services/coin.serv
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
 import { activateDigitalEntitlements } from '../services/digitalEntitlement.service.js';
 import { publishPaymentSellerOrders } from '../services/sellerOrderNotification.service.js';
+import { settleQuickShiprocketCollection } from '../services/quickShiprocketCollection.service.js';
 
 const publishSellerPaymentResult = async payment => {
   try { await publishPaymentSellerOrders(payment); }
@@ -49,6 +50,7 @@ const publishSellerPaymentResult = async payment => {
 
 /** Move an order to paid/failed exactly once, whichever signal arrives first. */
 export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode, gatewayPaymentId, amountPaise, currency }) => {
+  if (payment.quickFeeSnapshotId) return settleQuickShiprocketCollection({ payment, state, gatewayOrderId, gatewayPaymentId, amountPaise, currency });
   // Exact Razorpay capture replay is a no-op; distinct successes still need
   // financial reconciliation after settlement/failure. Other provider signals
   // retain their pending-only transition and one-time Coins effects.

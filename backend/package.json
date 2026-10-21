@@ -2,7 +2,9 @@
   "name": "backend",
   "version": "1.0.0",
   "type": "module",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "main": "index.js",
   "scripts": {
     "test:payment-notifications": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/payment-notifications.test.js",
@@ -32,7 +34,8 @@
     "accounts:verify-seller-registration": "node tests/verifySellerRegistration.mjs",
     "accounts:verify-cleanup": "node scripts/verifyAccountCleanup.mjs",
     "accounts:repair-references": "node scripts/repairCleanupReferences.mjs",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config __tests__/jest.config.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config __tests__/jest.config.js",
+    "test:shiprocket-fees": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/quick-shiprocket-fee.test.js"
   },
   "keywords": [],
   "author": "",

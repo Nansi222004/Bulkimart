@@ -885,6 +885,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    * asked.
    */
   const goesByCourier = order.deliveryType === 'shiprocket';
+  if (status === ORDER_STATUS.DISPATCHED && order.fulfillment?.financialSnapshotId && !goesByCourier) throw httpError(409, 'Reconcile the Shiprocket fee obligation before switching to rider delivery');
   if (!goesByCourier && status === ORDER_STATUS.DISPATCHED && !storePickup(seller)) throw pickupLocationError(seller);
   if (goesByCourier && status === ORDER_STATUS.DISPATCHED) {
     if (order.fulfillment?.assignmentPolicy && (!order.shiprocket?.orderId || !order.shiprocket?.shipmentId || !order.shiprocket?.awb || !order.shiprocket?.courier)) throw httpError(409, 'A confirmed provider shipment is required before hand-off');

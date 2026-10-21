@@ -53,6 +53,7 @@ import {
 import { getManualAssignmentQueue, assignDeliveryPartner, setStorePickupLocation } from '../controllers/deliveryAssignment.controller.js';
 import {
   getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
+  listQuickShiprocketFeesAdmin,
   listSellerLedgerAdmin, getSellerBalancesAdmin, getOrderFinanceAdmin,
   listFinancialReconciliationAdmin, listSellerPayoutsLedgerAdmin, settleSellerPayoutLedgerAdmin,
 } from '../controllers/adminSellerFinance.controller.js';
@@ -79,6 +80,7 @@ router.get('/seller-ledger', listSellerLedgerAdmin);
 router.get('/orders/:id/financial-breakdown', getOrderFinanceAdmin);
 router.get('/financial-reconciliation', listFinancialReconciliationAdmin);
 router.get('/quick-commerce-third-party-config', getQuickCommerceDeliveryConfigAdmin);
+router.get('/quick-commerce-shiprocket-fees', listQuickShiprocketFeesAdmin);
 router.patch('/quick-commerce-third-party-config', updateQuickCommerceDeliveryConfigAdmin);
 router.get('/sellers', listSellers);              // ?status=pending | approved | rejected | suspended
 router.get('/wholesale/summary', getWholesaleManagementSummary);

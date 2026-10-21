@@ -6,7 +6,7 @@ export const SELLER_LEDGER_BUCKETS = ['pending', 'held', 'eligible', 'reserved',
 export const SELLER_LEDGER_TYPES = [
   'order_earning', 'platform_commission', 'quick_freight_obligation',
   'quick_service_fee', 'payout_reservation', 'payout_settlement',
-  'adjustment', 'reversal', 'cod_hold', 'return_hold',
+  'adjustment', 'reversal', 'cod_hold', 'return_hold', 'quick_fee_tax', 'quick_fee_payment',
 ];
 
 const sellerLedgerEntrySchema = new Schema({
