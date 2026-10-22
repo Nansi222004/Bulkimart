@@ -375,6 +375,8 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   }
 
   const evt = parseRazorpayWebhookEvent(req.body);
+  const { handleLegalWebhook } = await import('../services/legalPayment.service.js');
+  if (await handleLegalWebhook(req.body, evt)) return res.status(200).json({ success: true });
   if (['refund_completed', 'refund_failed'].includes(evt.kind)) {
     const recovery = await reconcileRefundEvent(evt);
     if (recovery.handled) {
@@ -395,6 +397,10 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   ] });
   if (!payment) payment = await recoverCreationFromWebhook(evt);
   if (!payment) return res.status(200).json({ success: true, message: 'Unknown order' });
+  if (payment.serviceApplicationId) {
+    await handleLegalWebhook(req.body, evt);
+    return res.status(200).json({ success: true });
+  }
 
   const attempt = razorpayAttempt(payment, evt.gatewayOrderId);
   if (!Number.isSafeInteger(evt.amountPaise) || evt.amountPaise !== attempt.amountPaise || evt.amountPaise !== rupeesToPaise(payment.amount) || !evt.paymentId) {

@@ -6,6 +6,8 @@ const ObjectId = Schema.Types.ObjectId;
 const paymentSchema = new Schema(
   {
     userId:         { type: ObjectId, ref: "User", required: true },
+    serviceApplicationId: { type: ObjectId, ref: 'ServiceApplication' },
+    quotationVersion: Number,
     // Separate seller collection; never replaces the customer's order payment.
     quickFeeSnapshotId: { type: ObjectId, ref: 'QuickCommerceFinancialSnapshot' },
     orderId:        { type: ObjectId, ref: "Order" },

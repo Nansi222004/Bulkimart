@@ -550,6 +550,11 @@ const ProfilePage = () => {
       action: () => setActiveNav('ebooks')
     },
     {
+      id: 'legal-services', label: 'My Legal Service Requests',
+      icon: <span aria-hidden="true">▤</span>, badge: null,
+      action: () => window.history.pushState(null, '', '/legal-services/requests')
+    },
+    {
       id: 'addresses',
       label: 'My Addresses',
       icon: (

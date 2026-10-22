@@ -6,7 +6,7 @@ import { fail } from '../services/serviceForms.service.js';
 import { serviceUploadControls } from '../middlewares/serviceUpload.middleware.js';
 import * as c from '../controllers/serviceManagement.controller.js';
 export const serviceAdminPermission = (req, _res, next) => {
-  if (!['superAdmin', 'admin'].includes(req.user.role) && !req.user.permissions?.includes('manage_services')) fail('Service management permission required', 403);
+  if (req.user.role !== 'superAdmin' && !req.user.permissions?.includes('manage_services')) fail('Service management permission required', 403);
   next();
 };
 export function serviceRouter(isAdmin = false, uploads = serviceUploadControls) {

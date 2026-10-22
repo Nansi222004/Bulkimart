@@ -11,7 +11,7 @@ import { saveCommissionVersion } from '../services/vendorCommission.service.js';
 import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, reverseRefundedReturn } from '../services/orderFinance.service.js';
 
 export const getCommissionConfiguration = asyncHandler(async (req, res) => {
-  const rules = await Commission.find({ financeVersion: 2 }).sort({ createdAt: -1, _id: -1 }).limit(500).lean();
+  const rules = await Commission.find({ financeVersion: 2, channel: { $ne: 'legal' } }).sort({ createdAt: -1, _id: -1 }).limit(500).lean();
   return ok(res, { rules, flags: financeFlags(), historicalRulesApplied: false });
 });
 export const createCommissionConfiguration = asyncHandler(async (req, res) => ok(res, await saveCommissionVersion(req.body, req.user._id), 'Commission version saved; live financial operations use separate release gates'));

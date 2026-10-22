@@ -7,6 +7,9 @@ export const text = (value, label, max = 2000, required = false) => {
 };
 export function validateDefinition(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail('Invalid service definition');
+  const audiences = body.audiences ?? ['vendor'];
+  if (!Array.isArray(audiences) || !audiences.length || audiences.some(a => !['vendor', 'customer'].includes(a)) || new Set(audiences).size !== audiences.length) fail('Invalid service audience');
+  const legalCategory = text(body.legalCategory ?? '', 'Legal category', 100);
   const name = text(body.name, 'Name', 150, true);
   const slug = text(body.slug, 'Identifier', 100, true);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) fail('Identifier must contain lowercase letters, numbers and hyphens');
@@ -44,7 +47,7 @@ export function validateDefinition(body) {
     return field;
   });
   if (fields.filter(f => f.type === 'file').length > 10) fail('At most 10 document fields are supported');
-  return { name, slug, description, instructions, pricing: { mode, amount, currency }, fields };
+  return { name, slug, description, instructions, pricing: { mode, amount, currency }, fields, audiences, legalCategory };
 }
 export function validateAnswers(fields, answers, files = []) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) fail('Answers must be an object');

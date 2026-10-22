@@ -16,11 +16,13 @@ const sellerLedgerEntrySchema = new Schema({
   sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
   partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
   deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
-  account: { type: String, enum: ['seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross'], default: 'seller_payable', immutable: true },
+  account: { type: String, enum: ['seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections'], default: 'seller_payable', immutable: true },
   orderId: { type: Schema.Types.ObjectId, ref: 'Order', index: true, immutable: true },
   payoutId: { type: Schema.Types.ObjectId, ref: 'SellerPayout', index: true, immutable: true },
   deliveryPayoutId: { type: Schema.Types.ObjectId, ref: 'DeliveryPayout', immutable: true },
   paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', immutable: true },
+  serviceApplicationId: { type: Schema.Types.ObjectId, ref: 'ServiceApplication', immutable: true },
+  providerId: { type: Schema.Types.ObjectId, ref: 'LegalProvider', immutable: true },
   snapshotId: { type: Schema.Types.ObjectId, ref: 'QuickCommerceFinancialSnapshot', immutable: true },
   type: { type: String, enum: SELLER_LEDGER_TYPES, required: true, immutable: true },
   direction: { type: String, enum: ['credit', 'debit'], required: true, immutable: true },
@@ -53,6 +55,7 @@ sellerLedgerEntrySchema.pre('save', function () { if (!this.isNew) denyMutation(
 sellerLedgerEntrySchema.pre('validate', function () {
   if (this.account === 'seller_payable' && !this.sellerId) throw new Error('Seller payable requires sellerId');
   if (this.account === 'rider_payable' && !this.partnerId) throw new Error('Rider payable requires partnerId');
+  if (this.account === 'legal_provider_payable' && !this.providerId) throw new Error('Legal payable requires providerId');
 });
 
 const SellerLedgerEntry = model('SellerLedgerEntry', sellerLedgerEntrySchema);

@@ -17,6 +17,10 @@ export function createAdminNotificationOpener() {
       if (n.metadata?.ticketId) {
         actions.setTab('tickets'); actions.close();
         await actions.openTicket({ id: n.metadata.ticketId, ticketNumber: n.metadata.ticketId, userName: '', requesterRole: '', subject: n.title, category: '' });
+      } else if (/^\/admin\/services\?legalRequest=[a-f\d]{24}$/i.test(n.route || '') && serviceApplicationId(n.metadata?.applicationId) === new URLSearchParams(n.route.split('?')[1]).get('legalRequest')) {
+        actions.setTab('services'); actions.close();
+        window.history.replaceState(null, '', n.route);
+        window.dispatchEvent(new Event('legal-request-open'));
       } else if (n.metadata?.applicationId || n.route === '/admin/services') {
         const id = serviceApplicationId(n.metadata?.applicationId);
         actions.setTab('services'); actions.close();

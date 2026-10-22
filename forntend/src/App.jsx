@@ -4,6 +4,7 @@ import SellerRoutes from './modules/Seller/routes'
 import AdminRoutes from './modules/Admin/routes'
 import DeliveryRoutes from './modules/Delivery/routes'
 import CustomerSessionGate from './components/CustomerSessionGate'
+import { ProviderWorkspace } from './components/services/LegalServices'
 
 function App() {
   const [path, setPath] = useState(window.location.pathname)
@@ -38,6 +39,7 @@ function App() {
   if (path === '/delivery' || path.startsWith('/delivery/')) {
     return <DeliveryRoutes />
   }
+  if (path === '/legal-provider' || path.startsWith('/legal-provider/')) return <ProviderWorkspace />
 
   if (path === '/seller' || path.startsWith('/seller/')) {
     return <SellerRoutes />

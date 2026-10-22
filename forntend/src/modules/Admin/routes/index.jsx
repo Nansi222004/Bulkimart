@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import AdminSessionGate from '../../../components/AdminSessionGate';
 import { clearPortalRequests } from '../../../utils/portalRequests';
 import AdminProductDetailsPage from '../pages/AdminProductDetailsPage';
-import ServicesPanel from '../../../components/services/ServicesPanel';
+import AdminServicesWorkspace from '../../../components/services/LegalAdminWorkspace';
 import { AdminProvider, useAdmin } from '../context/AdminContext';
 import LeftSidebar from '../components/LeftSidebar';
 import TopHeader from '../components/TopHeader';
@@ -60,7 +60,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       return <CategoriesTab subTab={activeTab.startsWith('categories-') ? activeTab : 'categories-all'} />;
     }
     switch (activeTab) {
-      case 'services': return <ServicesPanel admin />;
+      case 'services': return <AdminServicesWorkspace />;
       case 'users':             
       case 'users-all':         return <UsersTab defaultStatusFilter="All" />;
       case 'users-active':      return <UsersTab defaultStatusFilter="Active" />;

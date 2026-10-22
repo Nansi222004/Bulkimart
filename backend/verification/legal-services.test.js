@@ -1,0 +1,250 @@
+import { jest } from '@jest/globals';
+import crypto from 'node:crypto';
+import mongoose from 'mongoose';
+import express from 'express';
+import request from 'supertest';
+import jwt from 'jsonwebtoken';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+// No dotenv, configured server or network provider is used. Actual Razorpay
+// signature/status helpers execute against this in-process SDK replacement.
+let orders = new Map(), captures = new Map(), refunds = new Map(), createError = false, refundError = false, refundState = 'processed';
+const sdk = {
+  orders: {
+    create: jest.fn(async input => { const row = { id: `order_${orders.size + 1}`, ...input }; orders.set(row.id, row); if (createError) throw new Error('Uncertain transport'); return row; }),
+    fetch: async id => orders.get(id), all: async () => ({ items: [...orders.values()] }),
+    fetchPayments: async id => ({ items: [...captures.values()].filter(p => p.order_id === id) }),
+  },
+  payments: { fetch: async id => captures.get(id), refund: jest.fn(async (id, input) => { if (refundError) throw new Error('Uncertain refund'); const row = { id: `rfnd_${refunds.size + 1}`, payment_id: id, currency: 'INR', status: refundState, ...input }; refunds.set(row.id, row); if (refundState === 'processed') captures.get(id).amount_refunded = (captures.get(id).amount_refunded || 0) + row.amount; return row; }) },
+  refunds: { fetch: async id => refunds.get(id), all: async input => ({ items: [...refunds.values()].filter(r => r.payment_id === input.payment_id) }) },
+};
+jest.unstable_mockModule('razorpay', () => ({ default: class { constructor() { return sdk; } } }));
+const notifyUser = jest.fn(async () => {}), notifyAllAdmins = jest.fn(async () => {});
+jest.unstable_mockModule('../services/notification.service.js', () => ({ notifyUser, notifyAllAdmins, notifySeller: notifyUser, notifyRider: notifyUser, notifyAdmin: notifyUser, NOTIFICATION_EVENT: {} }));
+const [{ customerLegalRouter, adminLegalRouter, providerLegalRouter }, { default: Service }, { default: Application }, { default: Provider }, { default: Payment }, { default: Ledger }, { default: User }, { default: Admin }, { default: Commission }, { errorHandler }, { JWT_SECRET }, policy, workflow, payments, { razorpayWebhook }] = await Promise.all([
+  import('../routes/legalServices.routes.js'), import('../models/Service.js'), import('../models/ServiceApplication.js'), import('../models/LegalProvider.js'), import('../models/Payment.js'), import('../models/SellerLedgerEntry.js'), import('../models/User.js'), import('../models/Admin.js'), import('../models/Commission.js'), import('../middlewares/error.middleware.js'), import('../config/jwt.js'), import('../services/legalPolicy.service.js'), import('../services/legalWorkflow.service.js'), import('../services/legalPayment.service.js'), import('../controllers/payment.controller.js'),
+]);
+const app = express(); app.use(express.json({ verify: (req, _res, b) => { req.rawBody = Buffer.from(b); } }));
+app.use('/c', customerLegalRouter); app.use('/a', adminLegalRouter); app.use('/p', providerLegalRouter); app.post('/webhook', razorpayWebhook); app.use(errorHandler);
+let db, storage, customer, other, professional, admin, limited, service, provider;
+const token = (u, type = 'user', role = 'buyer') => jwt.sign({ id: String(u._id), type, ...(type === 'user' ? { role } : {}) }, JWT_SECRET);
+const auth = (r, u = customer, type = 'user', role = 'buyer') => r.set('Authorization', `Bearer ${token(u, type, role)}`);
+const asAdmin = r => auth(r, admin, 'admin');
+const fixturePolicy = () => ({ rate: 10, base: 'service_excluding_tax', gatewayFees: 'platform_absorbed', providerDeductions: 'none', refundAllocation: 'proportional_total', serviceTaxTreatment: 'exempt', serviceTaxRate: 0, commissionTaxTreatment: 'exempt', commissionTaxRate: 0, settlementHoldHours: 0, effectiveDate: '2020-01-01T00:00:00Z', approvalReference: 'SYNTHETIC TEST ONLY', terms: 'Synthetic terms, manual cancellation review and proportional refunds; not an active business policy.' });
+const pdf = Buffer.from('%PDF-1.7\nprivate fixture\n%%EOF');
+beforeAll(async () => {
+  db = await MongoMemoryReplSet.create({ binary: { version: '7.0.14' }, replSet: { count: 1 } }); await mongoose.connect(db.getUri());
+  await Promise.all([Service.createIndexes(), Application.createIndexes(), Provider.createIndexes(), Payment.init(), Ledger.init(), User.init(), Admin.init()]);
+  storage = await mkdtemp(path.join(os.tmpdir(), 'bulkimart-legal-isolated-'));
+});
+afterAll(async () => { await mongoose.disconnect(); await db?.stop(); if (storage) await rm(storage, { recursive: true, force: true }); delete process.env.SERVICE_STORAGE_DIR; });
+beforeEach(async () => {
+  for (const c of Object.values(mongoose.connection.collections)) await c.deleteMany({});
+  orders.clear(); captures.clear(); refunds.clear(); createError = refundError = false; refundState = 'processed'; jest.clearAllMocks();
+  process.env.SERVICE_STORAGE_DIR = storage; process.env.PAYMENT_GATEWAY = 'razorpay'; process.env.RAZORPAY_MODE = 'test'; process.env.RAZORPAY_KEY_ID = 'rzp_test_isolated'; process.env.RAZORPAY_KEY_SECRET = 'isolated-secret'; process.env.RAZORPAY_WEBHOOK_SECRET = 'isolated-webhook-secret';
+  for (const k of ['catalogue', 'submissions', 'fulfilment', 'payments', 'refunds']) process.env[`LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`] = 'true';
+  delete process.env.LEGAL_SERVICES_PAYOUTS_ENABLED;
+  [customer, other, professional] = await User.create([{ phone: '9876500011', roles: ['buyer'], name: 'Customer' }, { phone: '9876500012', roles: ['buyer'] }, { phone: '9876500013', roles: ['buyer'], name: 'Professional' }]);
+  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+  await Admin.collection.insertMany([{ _id: ids[0], name: 'Fixture', email: 'super@example.test', password: 'not-live', role: 'superAdmin', isActive: true }, { _id: ids[1], name: 'Limited', email: 'limited@example.test', password: 'not-live', role: 'admin', isActive: true, permissions: [] }]);
+  [admin, limited] = await Promise.all(ids.map(id => Admin.findById(id)));
+  service = await Service.create({ name: 'Fixture legal intake', slug: 'fixture-legal', description: 'Synthetic service', instructions: 'Necessary data only', audiences: ['customer'], status: 'published', pricing: { mode: 'fixed', amount: 100, currency: 'INR' }, fields: [{ id: 'name', label: 'Name', type: 'text', required: true }, { id: 'proof', label: 'Proof', type: 'file', required: true, formats: ['pdf'], maxBytes: 1024 }] });
+  provider = await Provider.create({ user: professional._id, displayName: 'Reviewed fixture', status: 'approved', services: [service._id], reviewReference: 'SYNTHETIC IDENTITY/ELIGIBILITY REVIEW', reviewedBy: admin._id, reviewedAt: new Date() });
+});
+const submit = (key = crypto.randomUUID(), who = customer, answers = { name: 'Private fixture' }) => auth(request(app).post(`/c/catalogue/${service._id}/applications`), who).set('Idempotency-Key', key).field('answers', JSON.stringify(answers)).field('formVersion', service.formVersion).field('serviceVersion', service.__v).attach('proof', pdf, { filename: 'proof.pdf', contentType: 'application/pdf' });
+const getAdmin = async id => (await asAdmin(request(app).get(`/a/requests/${id}`)).expect(200)).body.data;
+async function act(id, action, extra = {}) { const a = await getAdmin(id); return (await asAdmin(request(app).post(`/a/requests/${id}/actions`)).send({ action, version: a.__v, message: 'Synthetic authorized evidence', ...extra })).body; }
+async function quoted() {
+  const a = (await submit().expect(201)).body.data;
+  await asAdmin(request(app).post('/a/policies')).send(fixturePolicy()).expect(201);
+  expect((await act(a._id, 'review')).success).toBe(true); expect((await act(a._id, 'assign', { providerId: String(provider._id) })).success).toBe(true);
+  const quoted = await act(a._id, 'quote', { serviceAmount: 5000, scope: 'Synthetic scope' }); expect(quoted.success).toBe(true); return quoted.data;
+}
+async function initiate(a, key = crypto.randomUUID()) { return (await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', key).send({ quotationVersion: 1, acceptTerms: true }).expect(200)).body.data; }
+function captured(checkout, id = 'pay_fixture', amount = checkout.amountPaise) { const p = { id, order_id: checkout.razorpayOrderId, amount, currency: 'INR', status: 'captured', captured: true, amount_refunded: 0 }; captures.set(p.id, p); return p; }
+async function paid() { const a = await quoted(), checkout = await initiate(a); captured(checkout); const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${checkout.razorpayOrderId}|pay_fixture`).digest('hex'); await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: checkout.razorpayOrderId, razorpay_payment_id: 'pay_fixture', razorpay_signature: signature }).expect(200); return getAdmin(a._id); }
+async function webhook(body, valid = true) { const raw = JSON.stringify(body), signature = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex'); return request(app).post('/webhook').set('x-razorpay-signature', valid ? signature : 'invalid').set('Content-Type', 'application/json').send(raw); }
+
+test('flags default off, production actions and live gateway keys fail closed', () => {
+  delete process.env.LEGAL_SERVICES_PAYMENTS_ENABLED; expect(() => policy.requireLegalGateway()).toThrow(/not enabled/);
+  process.env.LEGAL_SERVICES_PAYMENTS_ENABLED = 'true'; process.env.RAZORPAY_KEY_ID = 'rzp_live_forbidden'; expect(() => policy.requireLegalGateway()).toThrow(/test mode/);
+  process.env.DEPLOYMENT_ENV = 'production'; expect(() => policy.requireLegalFlag('submissions')).toThrow(/release-blocked/); delete process.env.DEPLOYMENT_ENV;
+});
+test('legacy defaults and drafts are excluded; customer DTO contains no administrative metadata', async () => {
+  await Service.create({ name: 'Legacy', slug: 'legacy', status: 'published' });
+  await Service.create({ name: 'Draft', slug: 'draft', audiences: ['customer'], status: 'draft' });
+  const r = await request(app).get('/c').expect(200); expect(r.body.data).toHaveLength(1); expect(JSON.stringify(r.body)).not.toMatch(/createdBy|updatedBy|submissionCount|__v/);
+});
+test('customer submissions require authentication and buyer context; ordinary admin has no implicit service permission', async () => {
+  await request(app).get('/c/applications').expect(401); await auth(request(app).get('/c/applications'), customer, 'user', 'seller').expect(403);
+  await auth(request(app).get('/a/requests'), limited, 'admin').expect(403);
+  customer.isActive = false; await customer.save(); await auth(request(app).get('/c/applications')).expect(403);
+});
+test('validated private submission, snapshot and cross-customer file isolation', async () => {
+  const a = (await submit().expect(201)).body.data; expect(a.status).toBe('submitted'); expect(a.quotation).toBeNull(); expect(a.canPay).toBe(false);
+  expect(JSON.stringify(a)).not.toMatch(/sha256|private-data|reviewReference|submissionKey/);
+  await auth(request(app).get(`/c/applications/${a._id}`), other).expect(404);
+  await auth(request(app).get(`/c/applications/${a._id}/files/${a.files[0].fileId}`), other).expect(404);
+  const f = await auth(request(app).get(`/c/applications/${a._id}/files/${a.files[0].fileId}`)).expect(200); expect(f.headers['cache-control']).toBe('private, no-store');
+});
+test('concurrent retries create one request; reused key with changed payload conflicts', async () => {
+  const key = crypto.randomUUID(), r = await Promise.all([submit(key), submit(key)]); expect(r.map(x => x.status).sort()).toEqual([200, 201]); expect(await Application.countDocuments()).toBe(1);
+  await submit(key, customer, { name: 'Changed' }).expect(409);
+});
+test('unpublication and stale forms reject submission without database acceptance', async () => {
+  await Service.updateOne({ _id: service._id }, { $set: { status: 'unpublished' } }); await submit().expect(404); expect(await Application.countDocuments()).toBe(0);
+  await Service.updateOne({ _id: service._id }, { $set: { status: 'published' }, $inc: { __v: 1 } }); await submit().expect(409);
+});
+test('invalid form answers and forged documents fail validation', async () => { await submit(crypto.randomUUID(), customer, { unexpected: 'x' }).expect(400); expect(await Application.countDocuments()).toBe(0); });
+test('provider needs explicit approval and sees only assigned and shared information', async () => {
+  const a = await quoted(); await auth(request(app).get(`/p/${a._id}`), other).expect(403);
+  const p = await auth(request(app).get(`/p/${a._id}`), professional).expect(200); expect(p.body.data.files).toHaveLength(0); expect(p.body.data.answers).toEqual({}); expect(JSON.stringify(p.body.data)).not.toMatch(/commissionPaise|customerId|captureId/);
+  const full = await getAdmin(a._id); await act(a._id, 'share_documents', { fileIds: [full.files[0].fileId], fieldIds: ['name'] });
+  const shared = await auth(request(app).get(`/p/${a._id}`), professional).expect(200); expect(shared.body.data.files).toHaveLength(1);
+  provider = await Provider.findById(provider._id); provider.status = 'suspended'; await provider.save(); await auth(request(app).get(`/p/${a._id}`), professional).expect(403);
+});
+test('quotation calculates illustrative 5000/10% correctly and is frozen after initiation', async () => {
+  const a = await quoted(), q = a.legal.quotes[0]; expect(q.totalPaise).toBe(500000); expect(q.commissionPaise).toBe(50000); expect(q.providerPaise).toBe(450000);
+  await initiate(a); expect((await act(a._id, 'quote', { serviceAmount: 1, scope: 'Attempted replacement' })).success).toBe(false);
+  expect((await getAdmin(a._id)).legal.quotes).toHaveLength(1);
+});
+test('no approved policy or future/expired quotation cannot authorize payment', async () => {
+  expect(() => policy.quotationSnapshot({ serviceAmount: 1, scope: 'x' }, null, {}, admin._id)).toThrow(/approved/);
+  const a = await quoted(); await Application.updateOne({ _id: a._id }, { $set: { 'legal.quotes.0.expiresAt': new Date('2000-01-01') } });
+  await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', crypto.randomUUID()).send({ quotationVersion: 1, acceptTerms: true }).expect(409);
+});
+test('repeated payment creation reuses gateway order and never trusts body amount', async () => {
+  const a = await quoted(), key = crypto.randomUUID(), one = await initiate(a, key), two = await initiate(a, key); expect(one.razorpayOrderId).toBe(two.razorpayOrderId); expect(sdk.orders.create).toHaveBeenCalledTimes(1);
+  await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', crypto.randomUUID()).send({ quotationVersion: 2, acceptTerms: true, amount: 1 }).expect(409);
+});
+test('uncertain order creation blocks retry and shared recovery binds exact request and quote', async () => {
+  const a = await quoted(), key = crypto.randomUUID(); createError = true;
+  await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', key).send({ quotationVersion: 1, acceptTerms: true }).expect(503);
+  createError = false; await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', key).send({ quotationVersion: 1, acceptTerms: true }).expect(409);
+  await asAdmin(request(app).post(`/a/requests/${a._id}/recover-payment`)).send({ key, gatewayOrderId: 'order_1' }).expect(200);
+  expect((await initiate(a, key)).razorpayOrderId).toBe('order_1'); expect(sdk.orders.create).toHaveBeenCalledTimes(1);
+});
+test('invalid signature, wrong owner, amount or order cannot mark paid', async () => {
+  const a = await quoted(), c = await initiate(a); captured(c, 'pay_wrong', 1);
+  await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: c.razorpayOrderId, razorpay_payment_id: 'pay_wrong', razorpay_signature: 'bad' }).expect(401);
+  await auth(request(app).post(`/c/applications/${a._id}/payment-status`), other).send({}).expect(404);
+  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(409); expect(await Ledger.countDocuments()).toBe(0);
+});
+test('pending payment and frontend-only success do not allow work to start', async () => {
+  const a = await quoted(); await initiate(a); expect((await act(a._id, 'start')).success).toBe(false);
+  const pending = await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); expect(pending.body.data.status).toBe('pending'); expect(await Ledger.countDocuments()).toBe(0);
+});
+test('verified capture posts shared ledger once; repeated and concurrent callbacks conserve obligations', async () => {
+  const a = await paid(), p = await Payment.findById(a.legal.paymentId), live = { state: 'COMPLETED', orderId: 'order_1', paymentId: 'pay_fixture', amountPaise: 500000, currency: 'INR' };
+  await Promise.all([workflow.captureLegalPayment(p._id, live), workflow.captureLegalPayment(p._id, live)]);
+  expect(await Ledger.countDocuments({ serviceApplicationId: a._id })).toBe(3); // zero tax is not posted
+  expect((await Ledger.findOne({ account: 'legal_provider_payable' })).amount).toBe(4500);
+});
+test('signed webhook independently verifies capture; duplicate event is idempotent and invalid signature denied', async () => {
+  const a = await quoted(), c = await initiate(a), entity = captured(c), b = { event: 'payment.captured', payload: { payment: { entity } } };
+  expect((await webhook(b, false)).status).toBe(401); expect((await webhook(b)).status).toBe(200); expect((await webhook(b)).status).toBe(200); expect(await Ledger.countDocuments()).toBe(3);
+});
+test('failed then late capture is held and never authorizes work', async () => {
+  const a = await quoted(), c = await initiate(a), row = captured(c); row.status = 'failed';
+  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); row.status = 'captured';
+  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200);
+  expect((await getAdmin(a._id)).status).toBe('disputed'); expect(await Ledger.countDocuments({ account: 'legal_provider_payable' })).toBe(0);
+});
+test('provider completion requires full payment, admin verification and bank reconciliation before eligibility', async () => {
+  const a = await paid(); expect((await act(a._id, 'release')).success).toBe(false); expect((await act(a._id, 'start')).success).toBe(true);
+  let p = await auth(request(app).get(`/p/${a._id}`), professional); await auth(request(app).post(`/p/${a._id}/progress`), professional).field('version', p.body.data.version).field('action', 'completion_submitted').field('message', 'Synthetic completion evidence').expect(200);
+  expect((await act(a._id, 'release')).success).toBe(false); expect((await act(a._id, 'verify_completion')).success).toBe(true);
+  expect((await act(a._id, 'release')).success).toBe(false);
+  expect((await act(a._id, 'bank_reconciled', { bankReference: 'Synthetic bank receipt', settlementReference: 'Synthetic gateway settlement' })).success).toBe(true);
+  expect((await act(a._id, 'release')).success).toBe(true); expect((await act(a._id, 'release')).success).toBe(false);
+  await asAdmin(request(app).post(`/a/requests/${a._id}/payout`)).send({}).expect(503);
+});
+test('refund obligation creation does not execute a refund and blocks settlement', async () => {
+  const a = await paid(); delete process.env.LEGAL_SERVICES_REFUNDS_ENABLED;
+  const r = await act(a._id, 'approve_refund', { amount: 1000 }); expect(r.success).toBe(true);
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key: r.data.legal.refunds[0].key }).expect(503); expect(sdk.payments.refund).not.toHaveBeenCalled();
+});
+test('full/partial refunds use shared recovery, compensate ledger once and cannot exceed capture', async () => {
+  const a = await paid(); let r = await act(a._id, 'approve_refund', { amount: 1000 }), key = r.data.legal.refunds[0].key;
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200); const count = await Ledger.countDocuments();
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key, reconcile: true }).expect(200); expect(await Ledger.countDocuments()).toBe(count);
+  expect((await getAdmin(a._id)).legal.reversedProviderPaise).toBe(90000);
+  expect((await act(a._id, 'approve_refund', { amount: 4001 })).success).toBe(false);
+  r = await act(a._id, 'approve_refund', { amount: 4000 }); key = r.data.legal.refunds.at(-1).key;
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
+  expect((await getAdmin(a._id)).status).toBe('refunded'); expect((await getAdmin(a._id)).legal.reversedProviderPaise).toBe(450000);
+});
+test('uncertain refund outcome is not retried as a second transfer', async () => {
+  const a = await paid(), r = await act(a._id, 'approve_refund', { amount: 1000 }), key = r.data.legal.refunds[0].key; refundError = true;
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(409); expect(sdk.payments.refund).toHaveBeenCalledTimes(1); expect((await getAdmin(a._id)).status).toBe('refund_processing');
+});
+test('cancellation requests hold work and do not silently mark a paid request cancelled', async () => {
+  const a = await paid(); const own = (await auth(request(app).get(`/c/applications/${a._id}`))).body.data;
+  await auth(request(app).post(`/c/applications/${a._id}/cancellation`)).send({ version: own.version, message: 'Review synthetic cancellation' }).expect(200);
+  expect((await act(a._id, 'start')).success).toBe(false); expect((await act(a._id, 'cancel')).success).toBe(false);
+});
+test('dispute hold and concurrent stale admin transitions cannot release payable or overwrite state', async () => {
+  const a = await paid(); expect((await act(a._id, 'hold')).success).toBe(true); expect((await act(a._id, 'start')).success).toBe(false);
+  const frozen = await getAdmin(a._id); const r = await Promise.all([asAdmin(request(app).post(`/a/requests/${a._id}/actions`)).send({ version: frozen.__v, action: 'resolve_hold', message: 'Verified resolution evidence' }), asAdmin(request(app).post(`/a/requests/${a._id}/actions`)).send({ version: frozen.__v, action: 'resolve_hold', message: 'Competing evidence' })]); expect(r.map(x => x.status).sort()).toEqual([200, 409]);
+});
+test('notification transport failure does not roll back submission or captured ledger postings', async () => {
+  notifyUser.mockRejectedValue(new Error('Transport offline')); notifyAllAdmins.mockRejectedValue(new Error('Transport offline'));
+  const a = await paid(); expect(a.status).toBe('payment_verified'); expect(await Ledger.countDocuments()).toBe(3);
+  notifyUser.mockResolvedValue(); notifyAllAdmins.mockResolvedValue();
+});
+test('append-only shared ledger denies mutation and transaction failure leaves no partial postings', async () => {
+  const a = await paid(), entry = await Ledger.findOne(); await expect(Ledger.updateOne({ _id: entry._id }, { amount: 1 })).rejects.toThrow(/append-only/);
+  const { financialTransaction } = await import('../services/financeSafety.service.js'); const count = await Ledger.countDocuments();
+  await expect(financialTransaction(async session => { await workflow.posting(await Application.findById(a._id).session(session), 'rollback-fixture', 'legal_collections', 'credit', 'held', 1, session); throw new Error('rollback fixture'); })).rejects.toThrow(/rollback fixture/); expect(await Ledger.countDocuments()).toBe(count);
+});
+test('policy requires explicit rates/base/tax/terms and conserves paise across rounding', () => {
+  expect(() => policy.validateLegalPolicy({})).toThrow(); expect(() => policy.validateLegalPolicy({ ...fixturePolicy(), rate: 101 })).toThrow();
+  const r = policy.validateLegalPolicy({ ...fixturePolicy(), rate: 33.33, serviceTaxTreatment: 'exclusive', serviceTaxRate: 18 });
+  const q = policy.quotationSnapshot({ scope: 'Fixture', serviceAmount: 0.03 }, { ...r, _id: service._id }, { _id: service._id, service: service._id }, admin._id);
+  expect(q.providerPaise + q.commissionPaise + q.commissionTaxPaise + q.serviceTaxPaise).toBe(q.totalPaise);
+  expect(() => policy.quotationSnapshot({ scope: 'Over limit', serviceAmount: 100001 }, { ...r, _id: service._id }, { _id: service._id, service: service._id }, admin._id)).toThrow(/amount limit/);
+});
+test('assigned provider may acknowledge before payment but cannot upload completion or change prices', async () => {
+  const a = await quoted();
+  let p = (await auth(request(app).get(`/p/${a._id}`), professional)).body.data;
+  await auth(request(app).post(`/p/${a._id}/progress`), professional).field('version', p.version).field('action', 'acknowledged').field('message', 'Assignment reviewed').expect(200);
+  p = (await auth(request(app).get(`/p/${a._id}`), professional)).body.data;
+  await auth(request(app).post(`/p/${a._id}/progress`), professional).field('version', p.version).field('action', 'completion_submitted').field('message', 'Premature completion').expect(409);
+  const otherProvider = await Provider.create({ user: other._id, displayName: 'Other fixture', status: 'approved', services: [service._id], reviewReference: 'Synthetic evidence', reviewedBy: admin._id, reviewedAt: new Date() });
+  await auth(request(app).get(`/p/${a._id}`), other).expect(404);
+});
+test('admin-managed information loop resumes paid work without resetting payment or quotation', async () => {
+  const a = await paid(); await act(a._id, 'start'); await act(a._id, 'information');
+  const own = (await auth(request(app).get(`/c/applications/${a._id}`))).body.data;
+  await auth(request(app).post(`/c/applications/${a._id}/respond`)).field('version', own.version).field('message', 'Requested clarification').expect(200);
+  const fresh = await getAdmin(a._id); expect(fresh.status).toBe('in_progress'); expect(fresh.legal.paymentStatus).toBe('paid'); expect(fresh.legal.quotes).toHaveLength(1);
+});
+test('gateway dispute events are idempotent holds, including dispute closure until admin reconciliation', async () => {
+  const a = await paid(), b = { event: 'payment.dispute.created', payload: { dispute: { entity: { id: 'disp_fixture', payment_id: 'pay_fixture' } } } };
+  expect((await webhook(b)).status).toBe(200); expect((await webhook(b)).status).toBe(200);
+  const held = await getAdmin(a._id); expect(held.status).toBe('disputed'); expect(held.legal.disputes).toHaveLength(1); expect(await Ledger.countDocuments()).toBe(3);
+});
+test('wrong currency and gateway payment reused across request orders are rejected', async () => {
+  const a = await quoted(), c = await initiate(a), p = captured(c); p.currency = 'USD';
+  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(409); p.currency = 'INR'; p.order_id = 'another-order';
+  const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${c.razorpayOrderId}|${p.id}`).digest('hex');
+  await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: c.razorpayOrderId, razorpay_payment_id: p.id, razorpay_signature: signature }).expect(409); expect(await Ledger.countDocuments()).toBe(0);
+});
+test('confirmed failed payment can create a new attempt while abandoned issued orders are reused', async () => {
+  const a = await quoted(), c = await initiate(a), p = captured(c); p.status = 'failed';
+  const failed = await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); expect(failed.body.data.status).toBe('failed');
+  const next = await initiate(a); expect(next.razorpayOrderId).not.toBe(c.razorpayOrderId); expect(sdk.orders.create).toHaveBeenCalledTimes(2);
+});
+test('pending refunds do not reverse ledger or establish refund completion', async () => {
+  const a = await paid(), r = await act(a._id, 'approve_refund', { amount: 1 }), key = r.data.legal.refunds[0].key; refundState = 'pending';
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
+  const pending = await getAdmin(a._id); expect(pending.status).toBe('refund_processing'); expect(pending.legal.refundedPaise).toBeUndefined(); expect(await Ledger.countDocuments()).toBe(3);
+});
+test('stale provider review cannot overwrite approval and missing attestations cannot create verification', async () => {
+  await asAdmin(request(app).post('/a/providers')).send({ user: String(professional._id), status: 'approved', displayName: 'Bad review', services: [String(service._id)], reviewReference: 'No attestation' }).expect(400);
+  await asAdmin(request(app).post('/a/providers')).send({ user: String(professional._id), status: 'approved', displayName: 'Stale review', services: [String(service._id)], reviewReference: 'Synthetic review', identityReviewed: true, credentialsReviewed: true, version: 99 }).expect(409);
+});

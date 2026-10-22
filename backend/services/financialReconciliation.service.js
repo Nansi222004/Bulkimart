@@ -10,7 +10,7 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
   const [orders, total, negative, duplicateKeys] = await Promise.all([
     Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Order.countDocuments(filter),
-    Ledger.aggregate([{ $group: { _id: { sellerId: '$sellerId', partnerId: '$partnerId', account: { $ifNull: ['$account', 'seller_payable'] }, bucket: '$bucket' },
+    Ledger.aggregate([{ $group: { _id: { sellerId: '$sellerId', partnerId: '$partnerId', providerId: '$providerId', account: { $ifNull: ['$account', 'seller_payable'] }, bucket: '$bucket' },
       amount: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, '$amount', { $multiply: ['$amount', -1] }] } } } },
       { $match: { amount: { $lt: -0.005 } } }, { $limit: 100 }]),
     Ledger.aggregate([{ $group: { _id: '$idempotencyKey', count: { $sum: 1 } } }, { $match: { count: { $gt: 1 } } }, { $limit: 100 }]),

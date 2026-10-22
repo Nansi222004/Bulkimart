@@ -3,7 +3,7 @@ import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import { httpError } from '../utils/response.js';
 
 const verifyReplay = (entry, payload) => {
-  for (const key of ['sellerId', 'partnerId', 'orderId', 'payoutId', 'deliveryPayoutId', 'paymentId', 'deliveryId', 'snapshotId', 'type', 'direction', 'bucket', 'amount']) {
+  for (const key of ['sellerId', 'partnerId', 'orderId', 'payoutId', 'deliveryPayoutId', 'paymentId', 'deliveryId', 'snapshotId', 'serviceApplicationId', 'providerId', 'type', 'direction', 'bucket', 'amount']) {
     if (String(entry[key] ?? '') !== String(payload[key] ?? '')) throw httpError(409, 'Ledger event key reused with different financial data');
   }
   if ((entry.account || 'seller_payable') !== (payload.account || 'seller_payable')) throw httpError(409, 'Ledger account mismatch');

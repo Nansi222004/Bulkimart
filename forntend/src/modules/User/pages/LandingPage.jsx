@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import LegalServices, { LegalDiscovery } from '../../../components/services/LegalServices';
 import { readProductRoute, rememberWholesaleReturn } from '../utils/productRoute';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import { UserProvider, useUser } from '../context/UserContext';
@@ -128,6 +129,7 @@ export const LandingPageContent = () => {
                 <>
                   {/* Customer discovery shortcuts */}
                   <QuickActions />
+                  <LegalDiscovery />
 
                   {/* Popular circular categories */}
                   <PopularCategories />
@@ -214,6 +216,8 @@ export const LandingPageContent = () => {
         );
       case 'search':
         return <SearchPage />;
+      case 'legal-services':
+        return <><UnifiedHeader /><LegalServices /></>;
       case 'categories':
         return <CategoriesPage />;
       case 'orders':

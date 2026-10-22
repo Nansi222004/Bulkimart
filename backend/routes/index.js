@@ -1,4 +1,5 @@
 import express from "express";
+import { customerLegalRouter, adminLegalRouter, providerLegalRouter } from './legalServices.routes.js';
 import serviceRoutes, { serviceRouter } from './serviceManagement.routes.js';
 import authRoutes from "./auth.routes.js";
 import userRoutes from "./user.routes.js";
@@ -28,6 +29,9 @@ import shiprocketRoutes from "./shiprocket.routes.js";
 import digitalCommerceRoutes from './digitalCommerce.routes.js';
 
 const router = express.Router();
+router.use('/customer-services', customerLegalRouter);
+router.use('/admin/services/legal', adminLegalRouter);
+router.use('/legal-provider', providerLegalRouter);
 router.use('/admin/services', serviceRouter(true));
 router.use('/services', serviceRoutes);
 

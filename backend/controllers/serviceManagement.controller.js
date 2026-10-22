@@ -20,7 +20,7 @@ const parse = value => {
   if (Buffer.byteLength(value, 'utf8') > SERVICE_ANSWER_BYTES) fail('Application answers exceed the 256 KiB total limit. Please shorten your answers.', 413);
   try { return JSON.parse(value); } catch { fail('Malformed form data'); }
 };
-async function cleanupUnreferenced(files) {
+export async function cleanupUnreferenced(files) {
   // A lost database acknowledgement must never cause deletion of a committed
   // application's files. If the database is unavailable, retain for reconciliation.
   if (!files.length) return;
@@ -36,12 +36,12 @@ const publicApplication = a => {
 };
 export async function listServices(req, res) {
   const { page, limit } = pagination(req);
-  const query = admin(req) ? {} : { status: 'published' };
+  const query = admin(req) ? {} : { status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] };
   const [items, total] = await Promise.all([Service.find(query).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Service.countDocuments(query)]);
   send(res, items, { total, page, limit });
 }
 export async function getService(req, res) {
-  const service = await Service.findOne({ _id: oid(req.params.id), ...(admin(req) ? {} : { status: 'published' }) });
+  const service = await Service.findOne({ _id: oid(req.params.id), ...(admin(req) ? {} : { status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] }) });
   if (!service) fail('Service not found', 404);
   send(res, service);
 }
@@ -70,7 +70,7 @@ export async function publishService(req, res) {
   await service.save(); send(res, service);
 }
 async function ownedApplication(req) {
-  const application = await Application.findOne({ _id: oid(req.params.id), ...(admin(req) ? {} : { vendor: req.seller._id }) });
+  const application = await Application.findOne({ _id: oid(req.params.id), applicantType: { $ne: 'customer' }, ...(admin(req) ? {} : { vendor: req.seller._id }) });
   if (!application) fail('Application not found', 404);
   return application;
 }
@@ -85,12 +85,12 @@ async function notify(application, isAdmin, action) {
   if (isAdmin) await notifyUser(application.user, opts);
   else await notifyAllAdmins(opts);
 }
-async function createApplication(service, payload) {
+export async function createApplication(service, payload) {
   // The conditional write is the acceptance boundary. An unpublication or
   // definition edit that wins this write prevents acceptance of a stale form.
   // Replica sets additionally commit acceptance and application atomically.
   const work = async session => {
-    const accepted = await Service.updateOne({ _id: service._id, status: 'published', __v: service.__v }, { $inc: { submissionCount: 1 } }, { session, timestamps: false });
+    const accepted = await Service.updateOne({ _id: service._id, status: 'published', __v: service.__v, $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] }, { $inc: { submissionCount: 1 } }, { session, timestamps: false });
     if (!accepted.modifiedCount) fail('Service changed. Reload the form.', 409);
     const [application] = await Application.create([payload], { session });
     return application;
@@ -110,7 +110,7 @@ export async function submitApplication(req, res) {
   if (!/^[a-zA-Z0-9-]{16,100}$/.test(submissionKey)) fail('Invalid submission key');
   const existing = await Application.findOne({ vendor: req.seller._id, submissionKey });
   if (existing) { if (String(existing.service) !== req.params.id) fail('Submission key already used', 409); return send(res, publicApplication(existing)); }
-  const service = await Service.findOne({ _id: oid(req.params.id), status: 'published' });
+  const service = await Service.findOne({ _id: oid(req.params.id), status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] });
   if (!service) fail('Service not available', 404);
   if (Number(req.body.formVersion) !== service.formVersion || Number(req.body.serviceVersion) !== service.__v) fail('Service has changed. Reload the form and review the current price.', 409);
   const files = req.files || [];
@@ -137,7 +137,7 @@ export async function submitApplication(req, res) {
 }
 export async function listApplications(req, res) {
   const { page, limit } = pagination(req);
-  const query = admin(req) ? {} : { vendor: req.seller._id };
+  const query = { applicantType: { $ne: 'customer' }, ...(admin(req) ? {} : { vendor: req.seller._id }) };
   if (req.query.status) { if (!APPLICATION_STATUSES.includes(req.query.status)) fail('Invalid status'); query.status = req.query.status; }
   if (req.query.service) query.service = oid(req.query.service);
   for (const key of ['from', 'to']) if (req.query[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(req.query[key]) || !Number.isFinite(Date.parse(req.query[key])))) fail('Invalid date filter');
