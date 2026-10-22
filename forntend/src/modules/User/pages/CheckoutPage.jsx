@@ -1,6 +1,6 @@
 import ModalPortal from '../../../components/ModalPortal';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
-import { committedCheckouts, forgetCommittedCheckout } from '../../../utils/committedCheckout';
+import { committedCheckouts, forgetCommittedCheckout, deferCommittedCheckout } from '../../../utils/committedCheckout';
 import { CartEmptyState } from '../components/CartUI';
 import { BasketGroups } from '../components/BasketGroups';
 import React, { useState, useEffect, useRef } from 'react';
@@ -381,7 +381,7 @@ const CheckoutPage = () => {
 
   const [, refreshCommittedReference] = useState(0);
   const recoveryCustomerId = currentUser?._id || currentUser?.id;
-  const committedReference = committedCheckouts(recoveryCustomerId)[0];
+  const committedReference = committedCheckouts(recoveryCustomerId).find(reference => !reference.deferred);
   const [orderError, setOrderError] = useState('');
   const [orderConflict, setOrderConflict] = useState(() => {
     try {
@@ -433,6 +433,7 @@ const CheckoutPage = () => {
     // the stock in a transaction, and returns the created order.
     // One basket that becomes three deliveries takes one payment; a basket that
     // is already one delivery goes down the path it always has.
+    const previousReferences = new Set(committedCheckouts(recoveryCustomerId).map(reference => reference.key));
     const res = isUnified
       ? await placeUnifiedOrder(paymentMethod, tipAmount, ...(basketCheckout ? [{ purchaseMode: 'basket', quoteHash: unified.data.quoteHash, basketHash: unified.data.basketHash }] : []))
       : await placeOrder(paymentMethod, tipAmount);
@@ -460,11 +461,9 @@ const CheckoutPage = () => {
         return;
       }
       if (pay.ok && pay.verified) {
-        // Payment verified — clear ALL committed-checkout safety keys for this
-        // customer so the recovery screen never appears for this completed purchase.
-        committedCheckouts(recoveryCustomerId).forEach(ref =>
-          forgetCommittedCheckout(recoveryCustomerId, ref.key)
-        );
+        // Other saved orders may still be unpaid. Clear only this purchase.
+        const paidKey = res.checkoutKey || committedCheckouts(recoveryCustomerId).find(reference => !previousReferences.has(reference.key))?.key;
+        if (paidKey) forgetCommittedCheckout(recoveryCustomerId, paidKey);
         fetchWalletBalance();
         setPlacedOrderDetails(firstOrder);
         setPlacedOrders(res.orders || [firstOrder]);
@@ -515,6 +514,12 @@ const CheckoutPage = () => {
   if (committedReference) return <CommittedCheckoutReview
     key={recoveryCustomerId + ':' + committedReference.key}
     reference={committedReference}
+    onPay={initiateOnlinePayment}
+    onContinueCheckout={() => {
+      deferCommittedCheckout(recoveryCustomerId, committedReference.key);
+      setOrderSuccess(false); setOrderError(''); setPlacedOrderDetails(null); setPlacedOrders([]);
+      refreshCommittedReference(value => value + 1);
+    }}
     onOrders={() => setActiveNav('orders')}
     onResolved={key => {
       forgetCommittedCheckout(recoveryCustomerId, key);
@@ -742,6 +747,12 @@ const CheckoutPage = () => {
 
   return (
     <div className="checkout-page-container" style={{ fontFamily: "'Outfit', sans-serif" }}>
+      {committedCheckouts(recoveryCustomerId).some(reference => reference.deferred) && (
+        <div className="profile-menu-card" style={{ margin: 16, padding: 16 }}>
+          <p>Your earlier orders are saved. Review or resume their payments in My Orders.</p>
+          <button type="button" className="cart-secondary-btn" onClick={() => setActiveNav('orders')}>View My Orders</button>
+        </div>
+      )}
       
       {/* Loading Overlay */}
       {isOrdering && (

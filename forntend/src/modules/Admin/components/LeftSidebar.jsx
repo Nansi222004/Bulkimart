@@ -95,7 +95,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
     'vendor-dashboard', 'vendors-all', 'vendors-pending', 'vendors-approved', 'vendors-rejected', 'vendors-suspended',
     'vendor-products', 'vendor-inventory',
     'vendor-orders', 'vendor-order-history',
-    'vendor-sales', 'vendor-earnings', 'vendor-payouts',
+    'vendor-sales', 'vendor-earnings', 'vendor-payouts', 'finance-operations',
     'vendor-performance', 'vendor-ratings-reviews',  ].includes(activeTab);
   const isUserSection = [
     'users', 'user-dashboard', 'users-all', 'users-active', 'users-inactive', 'users-blocked',
@@ -175,6 +175,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
       {
         title: 'FINANCIAL',
         links: [
+          { id: 'finance-operations', label: 'Finance Operations', icon: <span aria-hidden="true">₹</span> },
           { id: 'vendor-sales', label: 'Sales', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
           { id: 'vendor-earnings', label: 'Earnings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
           { id: 'vendor-payouts', label: 'Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M12 8v8m-4-4h8"/></svg> },
@@ -236,6 +237,11 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
       }
     ];
   }
+
+  // Finance stays reachable across every contextual sidebar. Legacy links are served by the center.
+  const financeTabs = ['finance-center','finance-operations','app-settings','quick-third-party-settings','delivery-rates','vendor-earnings','vendor-payouts','payouts','delivery-earnings','rider-payouts'];
+  filteredNavGroups = filteredNavGroups.map(group=>({...group,links:group.links.filter(link=>!financeTabs.includes(link.id))})).filter(group=>group.links.length);
+  filteredNavGroups.push({title:'FINANCE',links:[{id:'finance-center',label:'Finance Center',icon:<span aria-hidden="true">₹</span>}]});
 
   return (
     <div className={`sa-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -353,7 +359,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
                 );
               }
 
-              const isActive = (link.id === 'dashboard' && activeTab === 'overview') || activeTab === link.id;
+              const isActive = (link.id === 'dashboard' && activeTab === 'overview') || (activeTab === link.id || (link.id === 'finance-center' && financeTabs.includes(activeTab)));
               return (
                 <button
                   key={link.id}

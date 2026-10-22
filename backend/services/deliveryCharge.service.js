@@ -28,7 +28,7 @@ const DEFAULTS = () => ({
 export const loadDeliveryChargeSetting = async () => {
   const row = await DeliveryChargeSetting.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
   cache = row
-    ? { _id: row._id, flatFee: row.flatFee }
+    ? { _id: row._id, flatFee: row.flatFee, distanceRates: row.distanceRates }
     : DEFAULTS();
   cachedAt = Date.now();
   return cache;

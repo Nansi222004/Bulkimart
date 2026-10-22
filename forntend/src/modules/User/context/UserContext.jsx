@@ -1447,7 +1447,7 @@ export const UserProvider = ({ children }) => {
       setUseCoinsSelected(false);
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
       if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
-      return { ok: true, order: body.data.order, coinsUsed: body.data.coinsUsed, coinDiscount: body.data.coinDiscount, message: body.message };
+      return { ok: true, checkoutKey: requestHeaders['Idempotency-Key'], order: body.data.order, coinsUsed: body.data.coinsUsed, coinDiscount: body.data.coinDiscount, message: body.message };
     } catch (err) {
       return { ok: false, operation: 'single', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'We could not confirm the checkout result. Check its status before trying again.' };
     }
@@ -1511,6 +1511,7 @@ export const UserProvider = ({ children }) => {
       if (!isCurrentUserSession(wholesaleSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
       return {
         ok: true,
+        checkoutKey: requestHeaders['Idempotency-Key'],
         orders: body.data.orders,
         groupRef: body.data.groupRef,
         payment: body.data.payment,

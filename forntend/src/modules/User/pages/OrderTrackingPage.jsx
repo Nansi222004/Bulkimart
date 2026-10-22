@@ -1,4 +1,5 @@
 import ModalPortal from '../../../components/ModalPortal';
+import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
@@ -30,7 +31,7 @@ const STATUS_DESCS = {
 
 export const OrderTrackingPage = () => {
   const ui = useFeedback();
-  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId } = useUser();
+  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId, initiateOnlinePayment } = useUser();
 
   /**
    * Live tracking data, kept separate from the order itself.
@@ -1017,6 +1018,9 @@ export const OrderTrackingPage = () => {
       </div>
       
       {/* Footer spacer */}
+      {selectedOrder.paymentMethod === 'online' && selectedOrder.status === 'placed' && (
+        <CommittedCheckoutReview key={orderId} orderId={orderId} onPay={initiateOnlinePayment} />
+      )}
       <div style={{ height: 40 }} />
 
       {/* Rate & Review modal */}

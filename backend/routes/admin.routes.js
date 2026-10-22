@@ -1,4 +1,6 @@
 import express from 'express';
+import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
+  verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod } from '../controllers/financeWorkflow.controller.js';
 import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
@@ -56,12 +58,24 @@ import {
   listQuickShiprocketFeesAdmin,
   listSellerLedgerAdmin, getSellerBalancesAdmin, getOrderFinanceAdmin,
   listFinancialReconciliationAdmin, listSellerPayoutsLedgerAdmin, settleSellerPayoutLedgerAdmin,
+  rejectSellerPayoutLedgerAdmin,
 } from '../controllers/adminSellerFinance.controller.js';
 
 const router = express.Router();
 
 // Every admin route is behind auth + admin check — applied once here.
 router.use(protect, requireAdmin);
+router.get('/finance/commissions', getCommissionConfiguration);
+router.post('/finance/commissions', createCommissionConfiguration);
+router.get('/finance/orders', listFinanceOrders);
+router.get('/finance/ledger', listFinanceLedger);
+router.get('/finance/reconciliation', getFinancialExceptions);
+router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
+router.post('/finance/orders/:id/cod/dispute', disputeCod);
+router.post('/finance/orders/:id/allocate', allocateOrder);
+router.post('/finance/orders/:id/release', releaseOrder);
+router.post('/finance/orders/:id/release-rider', releaseRider);
+router.post('/finance/returns/:id/reverse', reverseReturn);
 
 // ---- dashboard -------------------------------------------------------------
 router.get('/dashboard/pending-counts', getPendingCounts);
@@ -76,6 +90,7 @@ router.get('/vendor-earnings', getVendorEarningsAdmin);
 router.get('/seller-balances', getSellerBalancesAdmin);
 router.get('/vendor-payouts', listSellerPayoutsLedgerAdmin);
 router.patch('/vendor-payouts/:id/settle', settleSellerPayoutLedgerAdmin);
+router.patch('/vendor-payouts/:id/reject', rejectSellerPayoutLedgerAdmin);
 router.get('/seller-ledger', listSellerLedgerAdmin);
 router.get('/orders/:id/financial-breakdown', getOrderFinanceAdmin);
 router.get('/financial-reconciliation', listFinancialReconciliationAdmin);

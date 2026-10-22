@@ -1,5 +1,6 @@
 import ModalPortal from '../../../components/ModalPortal';
 import ShiprocketFeePayment from './ShiprocketFeePayment';
+import OrderFinancialBreakdown from './OrderFinancialBreakdown';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
@@ -719,6 +720,7 @@ export const OrdersTab = ({ detailPage = false }) => {
 
       {detailPage && selected && (
         <section aria-label="Order details">
+          <OrderFinancialBreakdown orderId={selected._id} />
           <div className="seller-order-page-content">
             {orderDetailSections(selected)}
             {actionsFor(selected).some(action => action.to === 'ready_for_pickup') && <p>Mark this parcel Ready for pickup to see both delivery methods and their eligibility.</p>}

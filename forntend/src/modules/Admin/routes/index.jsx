@@ -32,7 +32,6 @@ import SellerKYCTab from '../components/SellerKYCTab';
 import VendorDashboardTab from '../components/VendorDashboardTab';
 import DeliveryTrackingTab from '../components/DeliveryTrackingTab';
 import RiderPayoutsTab from '../components/RiderPayoutsTab';
-import DeliveryRatesTab from '../components/DeliveryRatesTab';
 import TipSettingsTab from '../components/TipSettingsTab';
 import BannersTab from '../components/BannersTab';
 import CampaignsTab from '../components/CampaignsTab';
@@ -44,8 +43,7 @@ import PrivacyPolicyTab from '../components/PrivacyPolicyTab';
 import UserWalletsTab from '../components/UserWalletsTab';
 import AdminLoginPage from '../pages/AdminLoginPage';
 import WholesaleManagementTab from '../components/WholesaleManagementTab';
-import QuickThirdPartySettingsTab from '../components/QuickThirdPartySettingsTab';
-import SellerLedgerAdminTab from '../components/SellerLedgerAdminTab';
+import FinanceCenter from '../components/FinanceCenter';
 
 import '../SuperAdmin.css';
 import '../Admin.css'; // Toast alert styles
@@ -87,8 +85,8 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'delivery-performance': return <DeliveryPerformanceTab />;
       case 'delivery-zones':     return <DeliveryZonesTab />;
       case 'delivery-earnings':
-      case 'rider-payouts':      return <RiderPayoutsTab />;
-      case 'delivery-rates':     return <DeliveryRatesTab />;
+      case 'rider-payouts':      return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
+      case 'delivery-rates': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tip-settings':       return <TipSettingsTab />;
       case 'banners':            return <BannersTab />;
       case 'campaigns':          return <CampaignsTab />;
@@ -114,10 +112,13 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'vendor-orders':      return <VendorOrdersTab defaultMode="active" />;
       case 'vendor-order-history': return <VendorOrdersTab defaultMode="history" />;
       case 'vendor-sales':       return <VendorFinancialsTab defaultSubTab="sales" />;
-      case 'vendor-earnings':    return <SellerLedgerAdminTab view="earnings" />;
+      case 'vendor-earnings':    return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
+      case 'finance-center':
+      case 'app-settings':
+      case 'finance-operations': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'payouts':           
-      case 'vendor-payouts':    return <SellerLedgerAdminTab view="payouts" />;
-      case 'quick-third-party-settings': return <QuickThirdPartySettingsTab />;
+      case 'vendor-payouts':    return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
+      case 'quick-third-party-settings': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tickets':           return <TicketsTab />;
       default:                  return <SectionModuleTab moduleId={activeTab} />;
     }

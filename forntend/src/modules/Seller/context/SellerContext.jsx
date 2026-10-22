@@ -686,6 +686,7 @@ export const SellerProvider = ({ children }) => {
       if (token === sessionToken.current) return;
       clearPortalRequests('seller', sessionToken.current);
       sessionToken.current = token;
+      financeEpoch.current++; setFinanceSummary(null); setPayouts([]); setLedgerEntries([]); setFinanceError(''); setFinanceLoading(false);
       detailGeneration.current++; detailRequests.current.clear();
       profileEpoch.current++; productListEpoch.current++; productListRequest.current?.abort(); setProducts([]); setProductsError('');
       disconnectSocket(); setSelectedOrder(null); setOrders([]); setSellerProfile(null);
@@ -863,25 +864,32 @@ export const SellerProvider = ({ children }) => {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [financeLoading, setFinanceLoading] = useState(false);
   const [financeError, setFinanceError] = useState('');
+  const financeEpoch = React.useRef(0);
+  useEffect(() => () => { financeEpoch.current++; }, []);
 
   const fetchSellerFinances = useCallback(async () => {
+    const generation = ++financeEpoch.current;
+    const token = localStorage.getItem('sellerToken');
+    const current = () => generation === financeEpoch.current && token === localStorage.getItem('sellerToken');
     setFinanceLoading(true); setFinanceError('');
     try {
       const [summaryRes, ledgerRes] = await Promise.all([
-        fetch(apiUrl('/api/sellers/finances/summary'), { headers: authHeader() }),
-        fetch(apiUrl('/api/sellers/finances/ledger?limit=50'), { headers: authHeader() }),
+        portalRequest('seller', token, '/api/sellers/finances/summary'),
+        portalRequest('seller', token, '/api/sellers/finances/ledger?limit=50'),
       ]);
       const summaryBody = await summaryRes.json().catch(() => ({}));
       const ledgerBody = await ledgerRes.json().catch(() => ({}));
+      if (!current()) return;
       if (!summaryRes.ok) throw new Error(summaryBody.message || 'Could not load seller balances');
       if (!ledgerRes.ok) throw new Error(ledgerBody.message || 'Could not load seller ledger');
       setFinanceSummary(summaryBody.data || null);
       setPayouts(summaryBody.data?.payouts || []);
       setLedgerEntries(ledgerBody.data || []);
     } catch (error) {
+      if (!current()) return;
       setFinanceError(error.message || 'Could not load seller finances');
       setFinanceSummary(null); setPayouts([]); setLedgerEntries([]);
-    } finally { setFinanceLoading(false); }
+    } finally { if (current()) setFinanceLoading(false); }
   }, []);
 
   const getOrderFinancialBreakdown = useCallback(async (orderId) => {
@@ -893,8 +901,10 @@ export const SellerProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'earnings' && localStorage.getItem('sellerToken')) fetchSellerFinances();
-  }, [activeTab, fetchSellerFinances]);
+    financeEpoch.current++;
+    setFinanceSummary(null); setPayouts([]); setLedgerEntries([]); setFinanceError(''); setFinanceLoading(false);
+    if (['earnings', 'paymenthistory', 'moneyrequest'].includes(activeTab) && localStorage.getItem('sellerToken')) fetchSellerFinances();
+  }, [activeTab, userProfile, fetchSellerFinances]);
 
 
 

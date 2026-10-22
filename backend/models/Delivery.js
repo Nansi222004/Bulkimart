@@ -99,6 +99,7 @@ const deliverySchema = new Schema(
     startTime:      Date,
     endTime:        Date,
     partnerEarnings:Number,
+    financialEarningStatus: { type: String, enum: ['held', 'reconciliation_required', 'zero_value'] },
 
     /**
      * How much of partnerEarnings was the customer's tip.
@@ -122,6 +123,7 @@ const deliverySchema = new Schema(
      * those, which is what it always did.
      */
     ratesUsed: {
+      financeVersion: Number,
       mode:      { type: String },
       base:      { type: Number },
       perKm:     { type: Number },

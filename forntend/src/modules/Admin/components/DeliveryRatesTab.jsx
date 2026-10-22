@@ -1,436 +1,69 @@
 import React, { useEffect, useState } from 'react';
 import { authGet, authPost } from '../../../utils/adminApi';
+import FinanceReview from './FinanceReview';
+import './FinanceWorkflow.css';
 
-/**
- * What riders are paid, per delivery mode.
- *
- * Quick and Same-Day are separate jobs and carry separate rate cards, so this
- * screen never presents a single "delivery rate" — an admin raising Same-Day pay
- * must not quietly raise Quick pay with it.
- *
- * Every figure shown is produced by the server's own riderPayout(), including
- * the live calculator. A formula written here would be a second opinion about
- * money, and the one time this codebase had two of those a rider was shown ₹97
- * and paid ₹37.
- */
+const modes = [['quick','Quick Commerce'],['same_day','Same-Day']];
+const money = value => value == null ? 'Not configured' : '₹' + Number(value).toLocaleString('en-IN', {minimumFractionDigits:2});
+const status = row => !row || row.source === 'default' ? 'Not configured' : !row.isActive ? 'Draft / Disabled' : new Date(row.effectiveFrom) > new Date() ? 'Scheduled' : 'Active';
+const empty = {base:'',perKm:'',minPayout:'',maxPayout:'',effectiveFrom:'',note:'',isActive:false};
 
-const MODES = [
-  { id: 'quick',    label: 'Quick Commerce', hint: 'Groceries, delivered in minutes', accent: '#0ea5e9' },
-  { id: 'same_day', label: 'Same-Day',       hint: 'Shop All orders promised today',  accent: '#16a34a' },
-];
-
-const money = (n) => '₹' + Math.round(Number(n) || 0);
-
-const Field = ({ label, value, onChange, prefix, suffix, placeholder }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 120 }}>
-    <label style={{ fontSize: 10.5, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-      {label}
-    </label>
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 4,
-      border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '9px 10px', backgroundColor: '#fff',
-    }}>
-      {prefix && <span style={{ fontSize: 12.5, fontWeight: 800, color: '#64748b' }}>{prefix}</span>}
-      <input
-        type="number"
-        min="0"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ border: 'none', outline: 'none', fontSize: 13, fontWeight: 700, width: '100%', color: '#0f172a' }}
-      />
-      {suffix && <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', whiteSpace: 'nowrap' }}>{suffix}</span>}
-    </div>
-  </div>
-);
-
-const RateCard = ({ mode, current, onSaved, onToast }) => {
-  const [perKm, setPerKm] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!current) return;
-    setPerKm(String(current.perKm ?? ''));
-  }, [current]);
-
-  const dirty = current && (
-    String(current.perKm) !== String(perKm)
-    || Number(current.base) !== 0
-    || Number(current.minPayout) !== 0
-    || current.maxPayout !== undefined
-  );
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await authPost('/api/admin/delivery-rates', {
-        mode: mode.id,
-        base: 0,
-        perKm: Number(perKm),
-        minPayout: 0,
-        maxPayout: undefined,
-        note: undefined,
-      });
-      onToast(`${mode.label} rider pay updated.`);
-      await onSaved();
-    } catch (err) {
-      onToast(err.message || 'Could not save the rate');
-    } finally {
-      setSaving(false);
-    }
+export function RateCard({mode, current, onSaved}) {
+  const [draft,setDraft]=useState(empty), [review,setReview]=useState(false), [busy,setBusy]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState('');
+  useEffect(()=>{ if(current && current.source !== 'default') setDraft({...empty,base:current.base ?? '',perKm:current.perKm ?? '',minPayout:current.minPayout ?? '',maxPayout:current.maxPayout ?? ''}); },[current]);
+  const edit=(key,value)=>setDraft(old=>({...old,[key]:value}));
+  const submit=async event=>{
+    event.preventDefault();setError('');setMessage('');
+    if(['base','perKm','minPayout'].some(key=>draft[key]==='' || !Number.isFinite(Number(draft[key])) || Number(draft[key])<0)) return setError('Enter non-negative base pay, distance pay and minimum payout.');
+    if(draft.maxPayout!=='' && Number(draft.maxPayout)<Number(draft.minPayout)) return setError('Maximum payout must be at least the minimum.');
+    if(draft.note.trim().length<5) return setError('A change reason of at least five characters is required.');
+    if(!review){setReview(true);return;}
+    setBusy(true);
+    try{await authPost('/api/admin/delivery-rates',{...draft,mode:mode[0],base:Number(draft.base),perKm:Number(draft.perKm),minPayout:Number(draft.minPayout),maxPayout:draft.maxPayout===''?null:Number(draft.maxPayout),effectiveFrom:draft.effectiveFrom?new Date(draft.effectiveFrom).toISOString():undefined});setReview(false);setDraft(old=>({...old,isActive:false,note:''}));setMessage('Saved and reloaded. Drafts do not change active rates.');await onSaved();}catch(e){setError(e.message);}finally{setBusy(false);}
   };
+  return <section className="finance-panel"><h3>{mode[1]} rider pay</h3><p>Affects delivery partners: base INR per completed trip plus INR per verified kilometre, subject to limits. Customer tariffs and courier freight are separate.</p><p>Status: <strong>{status(current)}</strong> · Rate version: {current?._id || 'Not configured'} · Effective: {current?.effectiveFrom ? new Date(current.effectiveFrom).toLocaleString() : 'Not configured'}</p>
+    {current?.source==='default' && <p>Existing runtime fallback remains in use; no approved database rate is prefilled.</p>}
+    {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+    {review ? <FinanceReview title={draft.isActive?'Review rate activation':'Review rider draft'} values={{Mode:mode[1], 'Base INR':draft.base,'INR / km':draft.perKm,'Minimum INR':draft.minPayout,'Maximum INR':draft.maxPayout || 'None',Effective:draft.effectiveFrom || 'Server save time',Status:draft.isActive?'Activation requested; server prerequisites required':'Draft',Reason:draft.note}} busy={busy} onConfirm={()=>submit({preventDefault(){}})} onCancel={()=>setReview(false)} /> : <form onSubmit={submit} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')}>
+      <div className="finance-grid">{[['base','Base pay (INR / delivery)'],['perKm','Distance pay (INR / km)']].map(([key,label])=><label key={key}>{label}<input required type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} /></label>)}</div>
+      <details><summary>Advanced options — payout limits</summary><div className="finance-grid">{[['minPayout','Minimum payout (INR)'],['maxPayout','Maximum payout (INR, optional)']].map(([key,label])=><label key={key}>{label}<input required={key==='minPayout'} type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} /></label>)}</div></details>
+      <label>Effective date / time (local)<input type="datetime-local" value={draft.effectiveFrom} onChange={e=>edit('effectiveFrom',e.target.value)}/><small>Saved as UTC; blank uses server save time.</small></label>
+      <label>Change reason<input required minLength={5} value={draft.note} onChange={e=>edit('note',e.target.value)}/></label>
+      <label className="finance-check"><input type="checkbox" checked={draft.isActive} onChange={e=>edit('isActive',e.target.checked)}/>Request activation under recorded approvals</label><p>Activation is blocked by release prerequisites unless policy, end-to-end approval and an independently approved customer distance tariff are present. Saving a draft never copies rider pay into customer prices.</p>
+      <button disabled={busy} type="submit">Review {draft.isActive?'activation':'draft'}</button>
+    </form>}
+  </section>;
+}
 
-  return (
-    <div style={{
-      backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16,
-      padding: 18, display: 'flex', flexDirection: 'column', gap: 14,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: mode.accent }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{mode.label}</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{mode.hint}</div>
-        </div>
-        {current?.source === 'default' && (
-          <span style={{
-            fontSize: 9.5, fontWeight: 800, padding: '3px 8px', borderRadius: 10,
-            backgroundColor: '#fef3c7', color: '#92400e',
-          }}>
-            NOT CONFIGURED — USING DEFAULT
-          </span>
-        )}
-      </div>
+export function CustomerDeliveryChargeCard() {
+  const [current,setCurrent]=useState(null),[history,setHistory]=useState([]),[draft,setDraft]=useState({flatFee:'',quick:'',same_day:'',note:''}),[editDistance,setEditDistance]=useState(false),[review,setReview]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const load=async()=>{setLoading(true);try{const {data}=await authGet('/api/admin/delivery-charge');setCurrent(data.current);setHistory(data.history || []);if(data.current?.source!=='default')setDraft({flatFee:data.current?.flatFee ?? '',quick:data.current?.distanceRates?.quick ?? '',same_day:data.current?.distanceRates?.same_day ?? '',note:''});}catch(e){setError(e.message);}finally{setLoading(false);}};
+  useEffect(()=>{load();},[]);
+  const edit=(key,value)=>setDraft(old=>({...old,[key]:value}));
+  const save=async event=>{event.preventDefault();setError('');setMessage('');
+    const keys=editDistance?['flatFee','quick','same_day']:['flatFee'];
+    if(keys.some(key=>draft[key]==='' || !Number.isFinite(Number(draft[key])) || Number(draft[key])<0))return setError('Enter a non-negative amount in every selected tariff field.');
+    if(editDistance && draft.note.trim().length<5)return setError('Approved distance tariffs require a change reason of at least five characters.');
+    if(!review){setReview(true);return;}setBusy(true);
+    try{await authPost('/api/admin/delivery-charge',{flatFee:Number(draft.flatFee),...(editDistance?{distanceRates:{quick:Number(draft.quick),same_day:Number(draft.same_day)},note:draft.note}:{})});setReview(false);setEditDistance(false);await load();setMessage('Customer tariff saved and reloaded from the server.');}catch(e){setError(e.message);}finally{setBusy(false);}
+  };
+  return <section className="finance-workflow"><h2>Customer Delivery Charges</h2><p>Affects customers. When a valid distance is supplied, the applicable per-kilometre tariff may apply; otherwise the existing flat fallback applies. Free-shipping coupon behavior is unchanged. Rider pay and courier freight are independent.</p>
+    {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}{loading?<p>Loading persisted tariffs…</p>:<>
+    <div className="finance-panel"><p>Status: <strong>{status(current)}</strong> · Effective: {current?.effectiveFrom ? new Date(current.effectiveFrom).toLocaleString() : 'Not configured'}</p><p>Persisted flat fallback: {current?.source==='default'?'Not configured':money(current?.flatFee)}</p><p>Quick tariff: {money(current?.distanceRates?.quick)} / km · Same-Day tariff: {money(current?.distanceRates?.same_day)} / km</p><p>This API applies changes immediately. It has no draft or future scheduling capability; review customer-pricing approval before saving.</p>
+    {review?<FinanceReview title="Review immediate customer pricing change" values={{'Flat fallback INR':draft.flatFee,'Quick INR / km':editDistance?draft.quick:'Preserve existing tariff','Same-Day INR / km':editDistance?draft.same_day:'Preserve existing tariff',Effective:'Immediately on save',Reason:draft.note || 'Flat fallback update'}} busy={busy} onConfirm={()=>save({preventDefault(){}})} onCancel={()=>setReview(false)}/>:<form onSubmit={save} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')}>
+      <label>Flat fallback charge (INR)<input required type="number" step="0.01" min="0" value={draft.flatFee} onChange={e=>edit('flatFee',e.target.value)}/></label>
+      <details><summary>Advanced options — independent distance tariffs</summary><label className="finance-check"><input type="checkbox" checked={editDistance} onChange={e=>setEditDistance(e.target.checked)}/>Change independently approved customer distance tariffs</label><p>Distance changes require existing server release approvals. No rider rate is copied.</p>{editDistance && <div className="finance-grid">{modes.map(([key,label])=><label key={key}>{label} customer tariff (INR / km)<input required min="0" step="0.01" type="number" value={draft[key]} onChange={e=>edit(key,e.target.value)}/></label>)}<label>Approved change reason<input required minLength={5} value={draft.note} onChange={e=>edit('note',e.target.value)}/></label></div>}</details>
+      <button type="submit" disabled={busy}>Review customer tariff</button></form>}</div>
+    <section className="finance-panel"><h3>Tariff version history</h3>{history.length?history.map(row=><details key={row._id}><summary>{money(row.flatFee)} · {status(row)} · {new Date(row.effectiveFrom || row.createdAt).toLocaleString()}</summary><p>Version {row._id} · Actor {row.updatedBy?.name || row.updatedBy?.email || row.updatedBy || 'Unavailable'} · Reason {row.note || 'Not recorded'}</p><p>Quick {money(row.distanceRates?.quick)} / km · Same-Day {money(row.distanceRates?.same_day)} / km</p></details>):<p>No persisted tariff history.</p>}</section></>}
+    <button type="button" disabled={busy || loading} onClick={load}>Reload customer tariffs</button>
+  </section>;
+}
 
-      {/* Live figures, before anything is typed. */}
-      <div style={{
-        display: 'flex', gap: 18, padding: '10px 14px', borderRadius: 10, backgroundColor: '#f8fafc',
-      }}>
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Currently paying</div>
-          <div style={{ fontSize: 15, fontWeight: 900, color: '#0f172a' }}>
-            {money(current?.perKm)}/km
-          </div>
-        </div>
-        {current?.updatedAt && (
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Since</div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', paddingTop: 2 }}>
-              {new Date(current.effectiveFrom || current.updatedAt).toLocaleDateString()}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Field label="Distance pay" value={perKm} onChange={setPerKm} prefix="₹" suffix="/ km" />
-      </div>
-
-      <button
-        type="button"
-        disabled={!dirty || saving || !perKm}
-        onClick={save}
-        style={{
-          alignSelf: 'flex-start', padding: '10px 22px', borderRadius: 10, border: 'none',
-          fontSize: 12.5, fontWeight: 800,
-          cursor: (!dirty || saving) ? 'not-allowed' : 'pointer',
-          backgroundColor: (!dirty || saving) ? '#e2e8f0' : mode.accent,
-          color: (!dirty || saving) ? '#94a3b8' : '#ffffff',
-        }}
-      >
-        {saving ? 'Saving…' : dirty ? `Update ${mode.label} pay` : 'No changes'}
-      </button>
-
-      <p style={{ fontSize: 10.5, color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
-        Applies to deliveries accepted from now on. A rider already on a trip keeps
-        the rate they accepted.
-      </p>
-    </div>
-  );
+export const DeliveryRatesTab=({includeCustomer=true}={})=>{
+  const [current,setCurrent]=useState([]),[history,setHistory]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
+  const load=async()=>{setLoading(true);setError('');try{const {data}=await authGet('/api/admin/delivery-rates');setCurrent(data.current || []);setHistory(data.history || []);}catch(e){setError(e.message);}finally{setLoading(false);}};
+  useEffect(()=>{load();},[]);
+  return <section className="finance-workflow"><h2>Delivery Partner Rates</h2><p>Configure approved rider earnings separately for Quick Commerce and Same-Day trips. No separate E-Commerce rate card, bonuses or waiting compensation is supported by this API.</p>{error && <p role="alert">{error}</p>}{loading?<p>Loading rates…</p>:<div className="finance-grid">{modes.map(mode=><RateCard key={mode[0]} mode={mode} current={current.find(row=>row.mode===mode[0])} onSaved={load}/>)}</div>}
+    <section className="finance-panel"><h3>Rate version history</h3>{history.length?history.map(row=><details key={row._id}><summary>{row.mode} · {status(row)} · {new Date(row.effectiveFrom || row.createdAt).toLocaleString()}</summary><p>Version {row._id} · Base {money(row.base)} · Per km {money(row.perKm)} · Minimum {money(row.minPayout)} · Maximum {money(row.maxPayout)}</p><p>Actor {row.updatedBy?.name || row.updatedBy?.email || 'Unavailable'} · Reason {row.note || 'Not recorded'}</p></details>):<p>No saved rider rate versions.</p>}</section><button type="button" disabled={loading} onClick={load}>Reload rider rates</button>{includeCustomer && <CustomerDeliveryChargeCard/>}</section>;
 };
-
-
-
-/**
- * What a CUSTOMER pays for delivery — a flat fee, always charged.
- *
- * Deliberately its own card, below and visually separated from Rider Pay
- * Rates above: same page for convenience, but never blended into one
- * "delivery rate" concept — a shopper's fee and a rider's pay have never
- * been the same number in this codebase. No free-delivery threshold —
- * every order pays this, waived only by an empty cart or a free-shipping
- * coupon (backend/services/pricing.service.js).
- */
-const CustomerDeliveryChargeCard = ({ onToast }) => {
-  const [current, setCurrent] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [flatFee, setFlatFee] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await authGet('/api/admin/delivery-charge');
-      setCurrent(res.data?.current || null);
-      setHistory(res.data?.history || []);
-    } catch (err) {
-      onToast(err.message || 'Could not load the delivery charge');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  useEffect(() => {
-    if (!current) return;
-    setFlatFee(String(current.flatFee ?? ''));
-  }, [current]);
-
-  const dirty = current && String(current.flatFee) !== String(flatFee);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await authPost('/api/admin/delivery-charge', { flatFee: Number(flatFee) });
-      onToast('Customer delivery charge updated.');
-      await load();
-    } catch (err) {
-      onToast(err.message || 'Could not save the delivery charge');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div style={{ marginTop: 30 }}>
-      <div style={{ marginBottom: 4 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#0f172a' }}>Customer Delivery Charge</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>
-          What a shopper pays at checkout — separate from what a rider earns above. Charged on every order.
-        </p>
-      </div>
-
-      {loading ? (
-        <p style={{ fontSize: 13, color: '#64748b', padding: '30px 0' }}>Loading…</p>
-      ) : (
-        <div style={{
-          backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 16,
-          padding: 18, display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18, maxWidth: 420,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#8a3b25' }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>Standard delivery</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>Applies to every Quick and Shop All order</div>
-            </div>
-            {current?.source === 'default' && (
-              <span style={{
-                fontSize: 9.5, fontWeight: 800, padding: '3px 8px', borderRadius: 10,
-                backgroundColor: '#fef3c7', color: '#92400e',
-              }}>
-                NOT CONFIGURED — USING DEFAULT
-              </span>
-            )}
-          </div>
-
-          <div style={{
-            display: 'flex', gap: 18, padding: '10px 14px', borderRadius: 10, backgroundColor: '#f8fafc',
-          }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Currently charging</div>
-              <div style={{ fontSize: 15, fontWeight: 900, color: '#0f172a' }}>{money(current?.flatFee)}</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <Field label="Delivery charge" value={flatFee} onChange={setFlatFee} prefix="₹" />
-          </div>
-
-          <button
-            type="button"
-            disabled={!dirty || saving || !flatFee}
-            onClick={save}
-            style={{
-              alignSelf: 'flex-start', padding: '10px 22px', borderRadius: 10, border: 'none',
-              fontSize: 12.5, fontWeight: 800,
-              cursor: (!dirty || saving) ? 'not-allowed' : 'pointer',
-              backgroundColor: (!dirty || saving) ? '#e2e8f0' : '#8a3b25',
-              color: (!dirty || saving) ? '#94a3b8' : '#ffffff',
-            }}
-          >
-            {saving ? 'Saving…' : dirty ? 'Update delivery charge' : 'No changes'}
-          </button>
-
-          <p style={{ fontSize: 10.5, color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
-            Applies to every cart priced from now on — the cart, checkout and order total all read this live.
-            No free-delivery threshold — waived only by an empty cart or a free-shipping coupon.
-          </p>
-        </div>
-      )}
-
-      {history.length > 0 && (
-        <div style={{
-          marginTop: 18, backgroundColor: '#ffffff', border: '1px solid #e2e8f0',
-          borderRadius: 16, overflow: 'hidden', maxWidth: 620,
-        }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 900, color: '#0f172a' }}>Change history</span>
-          </div>
-          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420 }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc' }}>
-                  {['Charge', 'From', 'Changed by'].map((h) => (
-                    <th key={h} style={{
-                      padding: '11px 18px', textAlign: 'left', fontSize: 10, fontWeight: 800,
-                      color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((r) => (
-                  <tr key={r._id} style={{ borderTop: '1px solid #f1f5f9', opacity: r.isActive ? 1 : 0.55 }}>
-                    <td style={{ padding: '11px 18px', fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
-                      {money(r.flatFee)}
-                      {r.isActive && (
-                        <span style={{
-                          marginLeft: 8, fontSize: 9, fontWeight: 800, padding: '2px 6px',
-                          borderRadius: 8, backgroundColor: '#dcfce7', color: '#166534',
-                        }}>LIVE</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#64748b' }}>
-                      {new Date(r.effectiveFrom || r.createdAt).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#64748b' }}>
-                      {r.updatedBy?.name || r.updatedBy?.email || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export const DeliveryRatesTab = () => {
-  const [current, setCurrent] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState('');
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await authGet('/api/admin/delivery-rates');
-      setCurrent(res.data?.current || []);
-      setHistory(res.data?.history || []);
-    } catch (err) {
-      setToast(err.message || 'Could not load rates');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 4000); };
-
-  return (
-    <div style={{ padding: 24, fontFamily: "'Outfit', sans-serif" }}>
-      <div style={{ marginBottom: 4 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: '#0f172a' }}>Rider Pay Rates</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>
-          What a delivery partner earns per trip. Quick and Same-Day are configured separately.
-        </p>
-      </div>
-
-      {toast && (
-        <div style={{
-          margin: '14px 0', padding: '10px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700,
-          backgroundColor: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0',
-        }}>
-          {toast}
-        </div>
-      )}
-
-      {loading ? (
-        <p style={{ fontSize: 13, color: '#64748b', padding: '30px 0' }}>Loading rates…</p>
-      ) : (
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-          gap: 18, marginTop: 18,
-        }}>
-          {MODES.map((mode) => (
-            <RateCard
-              key={mode.id}
-              mode={mode}
-              current={current.find((c) => c.mode === mode.id)}
-              onSaved={load}
-              onToast={showToast}
-            />
-          ))}
-        </div>
-      )}
-
-      {history.length > 0 && (
-        <div style={{
-          marginTop: 26, backgroundColor: '#ffffff', border: '1px solid #e2e8f0',
-          borderRadius: 16, overflow: 'hidden',
-        }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 900, color: '#0f172a' }}>Rate history</span>
-            <span style={{ fontSize: 11, color: '#64748b', marginLeft: 8 }}>
-              Rates are never overwritten — each change is kept.
-            </span>
-          </div>
-          <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc' }}>
-                  {['Mode', 'Per km', 'From', 'Changed by'].map((h) => (
-                    <th key={h} style={{
-                      padding: '11px 18px', textAlign: 'left', fontSize: 10, fontWeight: 800,
-                      color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((r) => (
-                  <tr key={r._id} style={{ borderTop: '1px solid #f1f5f9', opacity: r.isActive ? 1 : 0.55 }}>
-                    <td style={{ padding: '11px 18px', fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
-                      {r.mode === 'quick' ? 'Quick' : 'Same-Day'}
-                      {r.isActive && (
-                        <span style={{
-                          marginLeft: 8, fontSize: 9, fontWeight: 800, padding: '2px 6px',
-                          borderRadius: 8, backgroundColor: '#dcfce7', color: '#166534',
-                        }}>LIVE</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 18px', fontSize: 12, color: '#334155' }}>{money(r.perKm)}/km</td>
-                    <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#64748b' }}>
-                      {new Date(r.effectiveFrom || r.createdAt).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#64748b' }}>
-                      {r.updatedBy?.name || r.updatedBy?.email || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <CustomerDeliveryChargeCard onToast={showToast} />
-    </div>
-  );
-};
-
 export default DeliveryRatesTab;

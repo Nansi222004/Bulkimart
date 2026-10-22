@@ -18,6 +18,8 @@ import { riderPayout, payoutModeOf, rateSnapshotFor } from '../services/riderPay
 import { canTakeAnother, maxConcurrentDeliveries } from '../services/riderCapacity.service.js';
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
+import { requestVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
+import { recordDeliveryEarning } from '../services/orderFinance.service.js';
 import { DELIVERY_PAYOUT_STATUS, DELIVERY_MIN_PAYOUT_AMOUNT } from '../constants/enums.js';
 
 /**
@@ -295,6 +297,7 @@ export const getMyProfile = asyncHandler(async (req, res) => {
   // rider needs them next to the partner data, so send them together.
   return ok(res, {
     ...partner.toObject(),
+    finance: await riderFinancialSummary(partner),
     name: req.user.name,
     phone: req.user.phone,
   });
@@ -1508,6 +1511,7 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
   });
   const earnings = settlement.total;
   const tipEarned = settlement.tip;
+  let creditedEarnings = earnings, creditedTip = tipEarned, earningStatus = 'eligible';
 
   const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'failed'];
 
@@ -1582,17 +1586,22 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
       // request to race even in principle. Reached only because the
       // Delivery write above actually matched, which is the real exactly-
       // once guarantee; this step is just how the credit itself is applied.
+      const earningRecord = await recordDeliveryEarning({ order, delivery, settlement, session });
+      const heldEarning = Boolean(earningRecord);
+      creditedEarnings = earningRecord && !earningRecord.credited ? 0 : earnings;
+      creditedTip = earningRecord && !earningRecord.credited ? 0 : tipEarned;
+      earningStatus = earningRecord?.status || 'eligible';
       await DeliveryPartner.updateOne(
         { _id: req.partner._id },
         {
-          $set: { isAvailable: true },
+          $set: { isAvailable: true, ...(heldEarning ? { financialWorkflowVersion: 2 } : {}) },
           $inc: {
             totalDeliveries: 1,
-            'earnings.total': earnings,
-            'earnings.pending': earnings,
+            'earnings.total': creditedEarnings,
+            ...(heldEarning ? { 'earnings.held': creditedEarnings } : { 'earnings.pending': creditedEarnings }),
             // A breakdown of the credit above, not an extra one — `earnings`
             // already contains the tip.
-            'earnings.tips': tipEarned,
+            'earnings.tips': creditedTip,
           },
         },
         { session }
@@ -1611,13 +1620,14 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
   if (!completed) {
     // Nothing matched — work out which condition failed. Mirrors decline/
     // expire/cancel's own disambiguation reads.
-    const current = await Delivery.findById(delivery._id).select('status partnerEarnings partnerTip');
+    const current = await Delivery.findById(delivery._id).select('status partnerEarnings partnerTip financialEarningStatus');
     if (current?.status === 'delivered') {
       // Idempotent: a duplicate completion is not an error, just a no-op —
       // no second earnings credit, no second delivery count increment.
       return ok(res, {
         earnings: current.partnerEarnings ?? 0,
         tip: current.partnerTip ?? 0,
+        earningStatus: current.financialEarningStatus || 'eligible',
       }, 'This delivery was already completed');
     }
     throw httpError(409, `This delivery is already ${current?.status || 'resolved'} — it cannot be completed`);
@@ -1655,8 +1665,8 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
     console.error(err);
   }
 
-  return ok(res, { earnings, tip: tipEarned },
-    tipEarned > 0
+  return ok(res, { earnings: creditedEarnings, tip: creditedTip, earningStatus },
+    earningStatus === 'reconciliation_required' ? 'Delivery completed; earnings require verified rate and distance reconciliation' : earningStatus === 'held' ? 'Delivery completed; earnings recorded as held pending verified-funds release' : tipEarned > 0
       ? `Delivery completed — ₹${earnings} earned, including a ₹${tipEarned} tip from the customer`
       : 'Delivery verified and completed successfully');
 });
@@ -2099,74 +2109,9 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
 // @route   POST /api/delivery/payouts
 // @access  Private/DeliveryPartner (approved)
 export const requestPayout = asyncHandler(async (req, res) => {
-  const partner = req.partner;
-  const amount = Number(req.body.amount);
-
-  if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
-    throw httpError(400, 'Please provide a whole-number payout amount greater than zero');
-  }
-  if (amount < DELIVERY_MIN_PAYOUT_AMOUNT) {
-    throw httpError(400, `Minimum payout amount is ₹${DELIVERY_MIN_PAYOUT_AMOUNT}`);
-  }
-  if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) {
-    throw httpError(400, 'Add a UPI ID or bank account before requesting a payout');
-  }
-
-  // Atomic reservation: the $gte guard and the $inc happen as one database
-  // operation, so two concurrent requests can never both reserve more than
-  // is actually pending — a read-check-create pattern here would race.
-  const reserved = await DeliveryPartner.findOneAndUpdate(
-    { _id: partner._id, 'earnings.pending': { $gte: amount } },
-    { $inc: { 'earnings.pending': -amount } },
-    { returnDocument: 'after' }
-  );
-
-  if (!reserved) {
-    throw httpError(400, 'Insufficient pending balance for this payout amount');
-  }
-
-  // "At most one pending request per rider" is enforced by a unique partial
-  // index (see models/DeliveryPayout.js), not a read-check-create in JS —
-  // two concurrent requests both reserving above would otherwise both pass
-  // an in-app "already pending?" check before either had written a row.
-  let payout;
-  try {
-    payout = await DeliveryPayout.create({
-      partnerId: partner._id,
-      userId: req.user._id,
-      amount,
-      status: DELIVERY_PAYOUT_STATUS.PENDING,
-      payoutMethod: {
-        upiId: partner.bankDetails?.upiId,
-        accountNo: partner.bankDetails?.accountNo,
-        ifsc: partner.bankDetails?.ifsc,
-        holderName: partner.bankDetails?.holderName,
-        bankName: partner.bankDetails?.bankName,
-      },
-    });
-  } catch (err) {
-    // Creating the request record failed after the reservation succeeded —
-    // give the reserved amount back so it isn't stranded out of the ledger.
-    await DeliveryPartner.updateOne({ _id: partner._id }, { $inc: { 'earnings.pending': amount } });
-    if (err.code === 11000) {
-      throw httpError(409, 'You already have a payout request awaiting processing');
-    }
-    throw err;
-  }
-
-  notifyAllAdmins({
-    event: NOTIFICATION_EVENT.PAYOUT_REQUESTED,
-    title: 'New rider payout request',
-    message: `A rider has requested a payout of ₹${amount}.`,
-    metadata: { payoutId: String(payout._id), partnerId: String(partner._id), amount },
-    route: '/admin/delivery-payouts',
-  });
-
-  return res.status(201).json({
-    success: true,
-    message: 'Payout request submitted',
-    data: { payout, earnings: reserved.earnings },
-  });
+  const result = await requestVerifiedRiderPayout({ partnerId: req.partner._id, userId: req.user._id,
+    amount: req.body.amount, key: req.get('Idempotency-Key') || req.body.idempotencyKey });
+  return res.status(201).json({ success: true, message: 'Payout reservation recorded', data: result });
 });
 
 // @desc    This rider's own payout request history

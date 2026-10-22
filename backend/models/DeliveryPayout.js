@@ -25,6 +25,10 @@ const deliveryPayoutSchema = new Schema(
     userId:    { type: ObjectId, ref: 'User', required: true },
 
     amount: { type: Number, required: true, min: 1 },
+    financeVersion: Number,
+    idempotencyKey: String,
+    transactionRef: String,
+    reconciliationReason: String,
 
     status: {
       type: String,

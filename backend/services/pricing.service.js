@@ -4,6 +4,7 @@ import {
 } from '../constants/enums.js';
 import { getDeliveryChargeSetting } from './deliveryCharge.service.js';
 import { riderPayout } from './riderPay.service.js';
+import { httpError } from '../utils/response.js';
 import { toPaise, fromPaise, sumMoney, lineMoney } from '../utils/money.js';
 
 /**
@@ -46,7 +47,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // Admin-configurable (services/deliveryCharge.service.js), cached — never a
   // DB read on this hot path. Falls back to the pre-configuration default
   // when nothing has been set.
-  const { flatFee: DEFAULT_DELIVERY_CHARGE } = getDeliveryChargeSetting();
+  const { flatFee: DEFAULT_DELIVERY_CHARGE, distanceRates } = getDeliveryChargeSetting();
 
   const subtotal = sumMoney(...items.map(item => lineMoney(item.price ?? 0, Number(item.qty))));
 
@@ -74,7 +75,12 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
     // a rider for this leg, under whichever Rider Pay Rate an admin has
     // live right now — same-day mode when the customer chose Same-Day,
     // Quick otherwise. Never a second, independently-set number.
-    deliveryCharge = riderPayout(distanceKm, { mode: sameDay ? 'same_day' : 'quick' }).distancePay;
+    const mode = sameDay ? 'same_day' : 'quick';
+    const legacyDistanceQuote = riderPayout(distanceKm, { mode });
+    if (!distanceRates && legacyDistanceQuote.requiresIndependentCustomerTariff) throw httpError(503, 'Approved customer delivery tariff is unavailable; retry checkout later');
+    deliveryCharge = Number.isFinite(distanceRates?.[mode])
+      ? Math.round(Math.max(1, distanceKm) * distanceRates[mode])
+      : legacyDistanceQuote.distancePay;
   } else {
     // No distance to price against — no address chosen yet, or this
     // delivery has no rider leg at all (an external-courier order).

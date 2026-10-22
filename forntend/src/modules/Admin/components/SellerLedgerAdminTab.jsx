@@ -21,9 +21,18 @@ export default function SellerLedgerAdminTab({ view = 'earnings' }) {
   const settle = async (payout) => {
     const ref = await ui.collect('Enter the confirmed bank transaction reference. This must only be done after the transfer succeeds.', {title:'Bank transaction reference', inputLabel:'Transaction reference'});
     if (ref === null) return;
+    const reason = await ui.collect('Describe the independent bank verification evidence.', { title: 'Reconciliation evidence', inputLabel: 'Verification reason' });
+    if (reason === null) return;
     return ui.perform({title:'Record this payout as paid?',message:`Record ${payout.payoutRef} as paid using ${ref}? Only confirm after the bank transfer has succeeded.`,confirmLabel:'Record as paid'}, async () => {
-      await adminPatch(`/vendor-payouts/${payout._id}/settle`, {transactionRef:ref});
+      await adminPatch(`/vendor-payouts/${payout._id}/settle`, {transactionRef:ref, reason, verified:true});
       await load();
+    });
+  };
+  const reject = async payout => {
+    const reason = await ui.collect('Explain why this payout reservation should be released.', {title:'Reject payout', inputLabel:'Rejection reason'});
+    if (reason === null) return;
+    return ui.perform({title:'Reject this payout?',message:'This returns the reservation through auditable ledger entries. Existing holds and refund debts still apply.',confirmLabel:'Reject payout'}, async () => {
+      await adminPatch(`/vendor-payouts/${payout._id}/reject`, {reason}); await load();
     });
   };
   if (loading) return <div style={{ padding: 40 }}>Loading authoritative seller finances…</div>;
@@ -32,7 +41,7 @@ export default function SellerLedgerAdminTab({ view = 'earnings' }) {
     {error && <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
     <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       {view === 'payouts' ? <><thead><tr>{['Reference','Seller','Amount','Status','Transaction','Action'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
-        <tbody>{rows.length ? rows.map(p => <tr key={p._id} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{p.payoutRef}</td><td>{p.storeName}</td><td>{money(p.amount)}</td><td>{p.status}</td><td>{p.transactionRef || p.settlementBlocker || '—'}</td><td>{p.status === 'pending' && p.settlementEligible ? <button onClick={() => settle(p)}>Confirm paid</button> : '—'}</td></tr>) : <tr><td colSpan="6" style={{ padding: 25 }}>No payout requests.</td></tr>}</tbody></>
+        <tbody>{rows.length ? rows.map(p => <tr key={p._id} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{p.payoutRef}</td><td>{p.storeName}</td><td>{money(p.amount)}</td><td>{p.status}</td><td>{p.transactionRef || p.settlementBlocker || '—'}</td><td>{p.status === 'pending' && p.settlementEligible ? <><button onClick={() => settle(p)}>Confirm paid</button><button onClick={() => reject(p)}>Reject</button></> : '—'}</td></tr>) : <tr><td colSpan="6" style={{ padding: 25 }}>No payout requests.</td></tr>}</tbody></>
         : <><thead><tr>{['Seller','Pending','Held','Eligible','Reserved','Settled','Freight obligations','Service fees'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
         <tbody>{rows.map(r => <tr key={r.sellerId} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{r.storeName}</td>{['pending','held','eligible','reserved','settled','quickFreightObligations','bulkimartServiceFees'].map(k => <td key={k}>{money(r.balances?.[k])}</td>)}</tr>)}</tbody></>}
     </table></div>

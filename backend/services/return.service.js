@@ -151,6 +151,11 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
   let created;
   try {
     await session.withTransaction(async () => {
+      if (order.financialSnapshot && item.sellerId) {
+        const { default: Seller } = await import('../models/Seller.js');
+        await Seller.updateOne({ _id: item.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
+        if (new Date(item.returnEligibleUntil) <= new Date()) throw httpError(409, 'Return window expired before reservation');
+      }
       const guardResult = await Order.updateOne(
         { _id: orderId, items: { $elemMatch: { _id: orderItemId, returnedQty: { $lte: item.qty - quantity } } } },
         { $inc: { 'items.$.returnedQty': quantity } },

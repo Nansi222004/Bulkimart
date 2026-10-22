@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useSeller } from '../context/SellerContext';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -6,7 +6,6 @@ const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { mini
 export const MoneyRequestTab = () => {
   const { payoutAmount, setPayoutAmount, handleRequestPayout, financeSummary, financeLoading, financeError, fetchSellerFinances } = useSeller();
   const balances = financeSummary?.balances || {};
-  useEffect(() => { fetchSellerFinances(); }, [fetchSellerFinances]);
   const eligible = Number(balances.eligible || 0);
 
   return <div style={{ padding: '0 4px 40px', maxWidth: 820 }}>

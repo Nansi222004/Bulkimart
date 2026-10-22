@@ -1,0 +1,4 @@
+.delivery-finance-panel input { font-size: 16px; min-height: 44px; padding: 8px; border: 1px solid #9fcbd8; border-radius: 7px; max-width: 100%; box-sizing: border-box; display: block; margin-top: 6px; width: 100%; }
+.delivery-finance-panel button { min-height: 44px; padding: 8px 12px; border: 1px solid #087fa2; border-radius: 8px; background: #087fa2; color: white; }
+.delivery-finance-panel button:disabled { opacity: .55; }
+.delivery-finance-panel :focus-visible { outline: 3px solid #ed8126; outline-offset: 3px; }

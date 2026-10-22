@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
+import { assertSellerSettlementClear } from '../services/sellerSettlementEligibility.service.js';
 import SellerPayout from '../models/SellerPayout.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnapshot.js';
@@ -9,6 +10,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated } from '../utils/response.js';
 import { getQuickCommerceConfig, saveQuickCommerceDraft } from '../services/quickCommerceFinance.service.js';
 import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
+import { requireFinanceOperation, financeFlags, financialTransaction } from '../services/financeSafety.service.js';
 
 export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
   return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
@@ -71,7 +73,7 @@ export const getSellerBalancesAdmin = asyncHandler(async (req, res) => {
 });
 
 export const getOrderFinanceAdmin = asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id).select('_id orderNo groupRef type pricing fulfillment shiprocket').lean();
+  const order = await Order.findById(req.params.id).select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot financialPosting codFinance').lean();
   if (!order) throw httpError(404, 'Order not found');
   const [snapshot, entries] = await Promise.all([
     QuickCommerceFinancialSnapshot.findOne({ orderId: order._id }).lean(),
@@ -97,6 +99,8 @@ export const listFinancialReconciliationAdmin = asyncHandler(async (req, res) =>
 });
 
 export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
+  const flags = financeFlags();
+  const enabled = flags.payouts && flags.policyApproved && flags.testsApproved;
   const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name bankDetails').sort({ createdAt: -1 }).lean();
   const rows = await Promise.all(payouts.map(async (payout) => {
     const reservation = await SellerLedgerEntry.findOne({
@@ -105,14 +109,17 @@ export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
     return {
       ...payout, status: payout.status.toLowerCase(), payoutRef: payout.payoutNo,
       storeName: payout.sellerId?.storeDetails?.name || payout.sellerId?.businessName,
-      bankAccount: payout.bankDetails, settlementEligible: Boolean(reservation),
-      settlementBlocker: reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
+      bankAccount: payout.bankDetails, settlementEligible: Boolean(reservation) && enabled,
+      settlementBlocker: !enabled ? 'Payout reconciliation disabled pending approval' : reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
     };
   }));
   return ok(res, rows);
 });
 
 export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
+  requireFinanceOperation('payouts');
+  const reconciliationReason = String(req.body?.reason || '').trim();
+  if (req.body?.verified !== true || reconciliationReason.length < 5) throw httpError(400, 'Verified bank transfer evidence and reconciliation reason are required');
   const transactionRef = String(req.body?.transactionRef || '').trim();
   if (transactionRef.length < 4) throw httpError(400, 'Confirmed bank transaction reference is required');
   const session = await mongoose.startSession();
@@ -122,13 +129,17 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
       payout = await SellerPayout.findOne({ _id: req.params.id, status: 'PENDING' }).session(session);
       if (!payout) {
         const existing = await SellerPayout.findById(req.params.id).session(session);
-        if (existing?.status === 'APPROVED') { payout = existing; return; }
+        if (existing?.status === 'APPROVED' && existing.transactionRef === transactionRef) { payout = existing; return; }
         throw httpError(409, 'Payout is not pending');
       }
       const reservation = await SellerLedgerEntry.findOne({
         payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
       }).session(session);
       if (!reservation) throw httpError(409, 'Payout has no matching ledger reservation and cannot be marked paid');
+      await Seller.updateOne({ _id: payout.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
+      const balances = await sellerBalances(payout.sellerId, { session });
+      if (balances.held < 0) throw httpError(409, 'Seller refund debt requires reconciliation before payout');
+      await assertSellerSettlementClear(payout.sellerId, session);
       const out = await postLedgerEntry({
         idempotencyKey: `PAYOUT:${payout._id}:SETTLE_OUT`, sellerId: payout.sellerId, payoutId: payout._id,
         type: 'payout_settlement', direction: 'debit', bucket: 'reserved', amount: payout.amount,
@@ -140,10 +151,36 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
         reference: transactionRef, description: `Payout ${payout.payoutNo} confirmed`, postedBy: req.user._id, postedByRole: 'admin',
       }, { session });
       payout.status = 'APPROVED'; payout.transactionRef = transactionRef;
+      payout.reconciliationReason = reconciliationReason;
       payout.processedAt = new Date(); payout.processedBy = req.user._id;
       payout.ledgerEntryIds.push(out.entry._id, paid.entry._id);
       await payout.save({ session });
     });
   } finally { await session.endSession(); }
   return ok(res, payout, 'Payout settlement recorded');
+});
+
+export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
+  requireFinanceOperation('payouts');
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 5 || reason.length > 1000) throw httpError(400, 'A rejection reason of 5–1000 characters is required');
+  const payout = await financialTransaction(async session => {
+    const payout = await SellerPayout.findById(req.params.id).session(session);
+    if (!payout) throw httpError(404, 'Payout not found');
+    if (payout.status === 'REJECTED') return payout;
+    if (payout.status !== 'PENDING') throw httpError(409, 'Payout is already resolved');
+    await Seller.updateOne({ _id: payout.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
+    const reservation = await SellerLedgerEntry.findOne({ payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount }).session(session);
+    if (!reservation) throw httpError(409, 'Matching seller payout reservation is missing');
+    const entries = [];
+    for (const [bucket, direction] of [['reserved','debit'],['eligible','credit']]) {
+      const { entry } = await postLedgerEntry({ idempotencyKey: `PAYOUT:${payout._id}:REJECT:${bucket}`, sellerId: payout.sellerId, payoutId: payout._id,
+        type: 'payout_reservation', direction, bucket, amount: payout.amount, reference: payout.payoutNo,
+        description: `Payout rejected: ${reason}`, postedBy: req.user._id, postedByRole: 'admin' }, { session });
+      entries.push(entry._id);
+    }
+    payout.status = 'REJECTED'; payout.rejectionReason = reason; payout.processedBy = req.user._id; payout.processedAt = new Date();
+    payout.ledgerEntryIds.push(...entries); await payout.save({ session }); return payout;
+  });
+  return ok(res, payout, 'Payout rejected; reservation returned through compensating entries');
 });

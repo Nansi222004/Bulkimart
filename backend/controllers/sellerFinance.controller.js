@@ -4,9 +4,12 @@ import Order from '../models/Order.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import SellerPayout from '../models/SellerPayout.js';
 import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnapshot.js';
+import { assertSellerSettlementClear } from '../services/sellerSettlementEligibility.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated } from '../utils/response.js';
 import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
+import { requireFinanceOperation, financeFlags } from '../services/financeSafety.service.js';
+import { moneyPaise } from '../services/vendorCommission.service.js';
 
 const ownSeller = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
@@ -16,19 +19,36 @@ const ownSeller = async (req) => {
 
 export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
-  const [balances, payouts] = await Promise.all([
+  const [balances, payouts, sales] = await Promise.all([
     sellerBalances(seller._id),
     SellerPayout.find({ sellerId: seller._id }).sort({ createdAt: -1 }).lean(),
+    Order.aggregate([
+      { $match: { status: 'delivered', 'items.sellerId': seller._id } },
+      { $project: { orderNo: 1, createdAt: 1, financialPosting: 1,
+        snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
+        items: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
+      { $set: { grossAmount: { $sum: { $map: { input: '$items', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
+      { $facet: {
+        totals: [{ $group: { _id: null, orderCount: { $sum: 1 }, grossAmount: { $sum: '$grossAmount' } } }],
+        orders: [{ $sort: { createdAt: -1, _id: -1 } }, { $limit: 20 }, { $project: { items: 0 } }],
+      } },
+    ]),
   ]);
   return ok(res, {
     balances,
     payouts,
+    deliveredSales: {
+      orderCount: sales[0]?.totals[0]?.orderCount || 0,
+      grossAmount: Number((sales[0]?.totals[0]?.grossAmount || 0).toFixed(2)),
+      orders: sales[0]?.orders || [],
+      limit: 20,
+    },
     coverage: {
       authoritativeFrom: 'seller-ledger-v1',
       historicalOrdersIncluded: false,
       note: 'Historical orders are not deducted or backfilled without separate approval.',
     },
-    payoutActionsEnabled: balances.eligible > 0,
+    payoutActionsEnabled: balances.eligible > 0 && balances.held >= 0 && financeFlags().payouts && financeFlags().policyApproved && financeFlags().testsApproved,
   }, 'Seller finance summary');
 });
 
@@ -49,29 +69,44 @@ export const listSellerLedger = asyncHandler(async (req, res) => {
 export const getSellerOrderFinance = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
   const order = await Order.findOne({ _id: req.params.id, 'items.sellerId': seller._id })
-    .select('_id orderNo groupRef type pricing fulfillment shiprocket').lean();
+    .select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot financialPosting').lean();
   if (!order) throw httpError(404, 'Order not found');
   const [snapshot, entries] = await Promise.all([
     QuickCommerceFinancialSnapshot.findOne({ orderId: order._id, sellerId: seller._id }).lean(),
     SellerLedgerEntry.find({ orderId: order._id, sellerId: seller._id }).sort({ createdAt: 1 }).lean(),
   ]);
-  return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, entries });
+  const merchandise = order.financialSnapshot ? { ...order.financialSnapshot, lines: order.financialSnapshot.lines.filter(line => String(line.sellerId) === String(seller._id)) } : null;
+  return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, merchandise, financialPosting: order.financialPosting, entries });
 });
 
 export const requestSellerPayout = asyncHandler(async (req, res) => {
+  requireFinanceOperation('payouts');
   const seller = await ownSeller(req);
   const amount = Number(req.body?.amount);
-  const idempotencyKey = String(req.get('Idempotency-Key') || req.body?.idempotencyKey || '').trim();
+  const submittedKey = String(req.get('Idempotency-Key') || req.body?.idempotencyKey || '').trim();
+  const idempotencyKey = `SELLER:${seller._id}:${submittedKey}`;
+  moneyPaise(amount);
   if (!Number.isFinite(amount) || amount <= 0) throw httpError(400, 'Payout amount must be positive');
-  if (!idempotencyKey || idempotencyKey.length > 100) throw httpError(400, 'A valid Idempotency-Key is required');
+  if (!submittedKey || submittedKey.length > 100) throw httpError(400, 'A valid Idempotency-Key is required');
   const existing = await SellerPayout.findOne({ idempotencyKey });
-  if (existing) return ok(res, existing, 'Payout request already recorded');
+  if (existing) {
+    if (String(existing.sellerId) !== String(seller._id) || existing.amount !== amount) throw httpError(409, 'Payout key reused with different financial data');
+    return ok(res, existing, 'Payout request already recorded');
+  }
 
   const session = await mongoose.startSession();
   let payout;
   try {
     await session.withTransaction(async () => {
+      await Seller.updateOne({ _id: seller._id }, { $inc: { financialLedgerVersion: 1 } }, { session });
+      const replay = await SellerPayout.findOne({ idempotencyKey }).session(session);
+      if (replay) {
+        if (replay.amount !== amount) throw httpError(409, 'Payout key reused with a different amount');
+        payout = replay; return;
+      }
       const balances = await sellerBalances(seller._id, { session });
+      if (balances.held < 0) throw httpError(409, 'Outstanding seller adjustments require reconciliation');
+      await assertSellerSettlementClear(seller._id, session);
       if (balances.eligible < amount) throw httpError(409, 'Insufficient settlement-eligible balance');
       await Seller.updateOne({ _id: seller._id }, { $inc: { financialLedgerVersion: 1 } }, { session });
       [payout] = await SellerPayout.create([{

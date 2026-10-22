@@ -28,6 +28,12 @@ export function forgetCommittedCheckout(customerId, key) {
   else localStorage.removeItem(prefix + customerId);
 }
 
+// Keep recovery available in My Orders without blocking a different basket.
+export function deferCommittedCheckout(customerId, key) {
+  const rows = committedCheckouts(customerId).map(row => row.key === key ? { ...row, deferred: true } : row);
+  localStorage.setItem(prefix + customerId, JSON.stringify(rows));
+}
+
 export function resolvedCommittedPayment(payment) {
   return payment && ['online', 'cod', 'wallet'].includes(payment.method) && payment.reconciliationRequired === false
     && (payment.method !== 'online' || ['paid', 'failed', 'refunded', 'partial_refund'].includes(payment.status));

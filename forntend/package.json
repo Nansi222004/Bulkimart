@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:financial-workflow": "node --test verification/financial-workflow-ui.test.mjs",
+    "test:financial-browser": "node verification/financial-workflow-browser.mjs",
     "test:payment-overlays": "node --test verification/razorpay-overlay.test.mjs verification/payment-ui.test.mjs",
     "test:fcm-auth": "node --test verification/fcm-auth.test.mjs",
     "test:startup": "node --test tests/portal-startup.test.mjs",
@@ -18,7 +20,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:responsive": "npm run build && node tests/mobile-layout.test.mjs --full && node tests/mobile-layout.test.mjs --native && node tests/mobile-layout.test.mjs --full --extended && node tests/mobile-layout.test.mjs --native --supplemental",
-    "test:shiprocket-fees": "node --test verification/shiprocket-fee-ui.test.mjs"
+    "test:shiprocket-fees": "node --test verification/shiprocket-fee-ui.test.mjs",
+    "test:finance-center": "node --test verification/finance-center-ui.test.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

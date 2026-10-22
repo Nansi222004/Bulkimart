@@ -22,6 +22,7 @@ const sellerPayoutSchema = new Schema(
       upiId: String,
     },
     transactionRef: { type: String, default: "" },
+    reconciliationReason: String,
     requestedAt: { type: Date, default: Date.now },
     processedAt: { type: Date },
     processedBy: { type: ObjectId, ref: "Admin" },

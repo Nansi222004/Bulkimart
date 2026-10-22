@@ -21,6 +21,12 @@ const deliveryChargeSettingSchema = new Schema(
   {
     /** Charged on every order. */
     flatFee: { type: Number, required: true, min: 0 },
+    // Explicit customer tariff, independent of rider remuneration. No defaults
+    // are seeded: the legacy distance formula remains until separately approved.
+    distanceRates: {
+      type: new Schema({ quick: { type: Number, required: true, min: 0 }, same_day: { type: Number, required: true, min: 0 } }, { _id: false }),
+      default: undefined,
+    },
 
     isActive:      { type: Boolean, default: true },
     effectiveFrom: { type: Date, default: Date.now },

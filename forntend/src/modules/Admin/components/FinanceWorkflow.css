@@ -1,0 +1,18 @@
+.finance-workflow { color: #16354a; max-width: 1400px; }
+.finance-workflow nav, .finance-pagination { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 16px 0; }
+.finance-workflow button { background: #087fa2; color: white; border: 1px solid #087fa2; padding: 10px 14px; border-radius: 8px; cursor: pointer; margin: 4px; min-height: 44px; }
+.finance-workflow button[aria-pressed=true] { background: #bd5211; border-color: #bd5211; }
+.finance-workflow button:disabled { opacity: .55; cursor: not-allowed; }
+.finance-workflow :focus-visible { outline: 3px solid #f78c30; outline-offset: 3px; }
+.finance-panel, .finance-notice { background: white; border: 1px solid #cae6ec; border-radius: 12px; padding: 18px; margin: 14px 0; overflow-wrap: anywhere; }
+.finance-notice { background: #eaf9fc; }
+.finance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.finance-workflow label { display: flex; flex-direction: column; gap: 7px; margin: 10px 0; font-size: 13px; }
+.finance-workflow input, .finance-workflow select { min-width: 0; min-height: 44px; padding: 9px; border: 1px solid #a9cbd5; border-radius: 7px; background: white; color: #16354a; box-sizing: border-box; width: 100%; font-size: 16px; }
+.finance-workflow .finance-check { flex-direction: row; align-items: center; }
+.finance-workflow input[type=checkbox] { width: 20px; min-height: 20px; flex-shrink: 0; }
+.finance-table { overflow-x: auto; border: 1px solid #cae6ec; border-radius: 12px; background: white; }
+.finance-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.finance-table th, .finance-table td { padding: 12px; border-bottom: 1px solid #e1edf1; text-align: left; vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }
+.finance-workflow details { padding: 10px 0; border-bottom: 1px solid #e1edf1; }
+.finance-workflow summary { cursor: pointer; padding: 8px 0; }

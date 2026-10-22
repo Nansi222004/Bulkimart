@@ -224,6 +224,12 @@ const OrdersPage = () => {
                 </div>
 
                 <div className="order-card-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                  {order.raw.paymentMethod === 'online' && order.raw.status === 'placed' && (
+                    <button type="button" className="cart-secondary-btn"
+                      onClick={event => { event.stopPropagation(); setSelectedOrder(order.raw); }}>
+                      Payment details
+                    </button>
+                  )}
                   {/*
                     A shortcut into the same delivered-order screen the card
                     itself opens — not a second review modal. One place

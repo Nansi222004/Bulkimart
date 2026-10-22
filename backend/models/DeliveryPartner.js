@@ -103,7 +103,10 @@ const deliveryPartnerSchema = new Schema(
     approvedBy:      { type: ObjectId, ref: "Admin" },
 
     // ---- Financials ---------------------------------------------------------
+    financialWorkflowVersion: Number,
     earnings: {
+      held:    { type: Number, default: 0 },
+      reserved: { type: Number, default: 0 },
       total:   { type: Number, default: 0 },
       pending: { type: Number, default: 0 },
       paid:    { type: Number, default: 0 },

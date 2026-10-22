@@ -7,14 +7,20 @@ export const SELLER_LEDGER_TYPES = [
   'order_earning', 'platform_commission', 'quick_freight_obligation',
   'quick_service_fee', 'payout_reservation', 'payout_settlement',
   'adjustment', 'reversal', 'cod_hold', 'return_hold', 'quick_fee_tax', 'quick_fee_payment',
+  'commission_tax', 'delivery_earning', 'cod_cash', 'customer_delivery', 'merchandise_gross',
 ];
 
 const sellerLedgerEntrySchema = new Schema({
   entryNo: { type: String, required: true, unique: true, immutable: true },
   idempotencyKey: { type: String, required: true, unique: true, immutable: true },
-  sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', required: true, index: true, immutable: true },
+  sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
+  partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
+  deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
+  account: { type: String, enum: ['seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross'], default: 'seller_payable', immutable: true },
   orderId: { type: Schema.Types.ObjectId, ref: 'Order', index: true, immutable: true },
   payoutId: { type: Schema.Types.ObjectId, ref: 'SellerPayout', index: true, immutable: true },
+  deliveryPayoutId: { type: Schema.Types.ObjectId, ref: 'DeliveryPayout', immutable: true },
+  paymentId: { type: Schema.Types.ObjectId, ref: 'Payment', immutable: true },
   snapshotId: { type: Schema.Types.ObjectId, ref: 'QuickCommerceFinancialSnapshot', immutable: true },
   type: { type: String, enum: SELLER_LEDGER_TYPES, required: true, immutable: true },
   direction: { type: String, enum: ['credit', 'debit'], required: true, immutable: true },
@@ -41,6 +47,13 @@ sellerLedgerEntrySchema.pre('updateMany', denyMutation);
 sellerLedgerEntrySchema.pre('findOneAndUpdate', denyMutation);
 sellerLedgerEntrySchema.pre('deleteOne', denyMutation);
 sellerLedgerEntrySchema.pre('deleteMany', denyMutation);
+for (const operation of ['replaceOne', 'findOneAndReplace', 'findOneAndDelete']) sellerLedgerEntrySchema.pre(operation, denyMutation);
+sellerLedgerEntrySchema.pre('bulkWrite', denyMutation);
+sellerLedgerEntrySchema.pre('save', function () { if (!this.isNew) denyMutation(); });
+sellerLedgerEntrySchema.pre('validate', function () {
+  if (this.account === 'seller_payable' && !this.sellerId) throw new Error('Seller payable requires sellerId');
+  if (this.account === 'rider_payable' && !this.partnerId) throw new Error('Rider payable requires partnerId');
+});
 
 const SellerLedgerEntry = model('SellerLedgerEntry', sellerLedgerEntrySchema);
 export default SellerLedgerEntry;

@@ -1,11 +1,20 @@
 import crypto from 'crypto';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
+import { httpError } from '../utils/response.js';
+
+const verifyReplay = (entry, payload) => {
+  for (const key of ['sellerId', 'partnerId', 'orderId', 'payoutId', 'deliveryPayoutId', 'paymentId', 'deliveryId', 'snapshotId', 'type', 'direction', 'bucket', 'amount']) {
+    if (String(entry[key] ?? '') !== String(payload[key] ?? '')) throw httpError(409, 'Ledger event key reused with different financial data');
+  }
+  if ((entry.account || 'seller_payable') !== (payload.account || 'seller_payable')) throw httpError(409, 'Ledger account mismatch');
+  return { entry, alreadyProcessed: true };
+};
 
 export const postLedgerEntry = async (payload, { session = null } = {}) => {
   const existing = session
     ? await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey }).session(session)
     : await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey });
-  if (existing) return { entry: existing, alreadyProcessed: true };
+  if (existing) return verifyReplay(existing, payload);
   const data = { ...payload, entryNo: payload.entryNo || `SLE-${crypto.randomUUID()}` };
   try {
     const entry = session
@@ -17,15 +26,16 @@ export const postLedgerEntry = async (payload, { session = null } = {}) => {
       const entry = session
         ? await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey }).session(session)
         : await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey });
-      if (entry) return { entry, alreadyProcessed: true };
+      if (entry) return verifyReplay(entry, payload);
     }
     throw error;
   }
 };
 
 export const sellerBalances = async (sellerId, { session = null } = {}) => {
+  const payableMatch = { sellerId, $or: [{ account: 'seller_payable' }, { account: { $exists: false } }] };
   const rowsQuery = SellerLedgerEntry.aggregate([
-    { $match: { sellerId } },
+    { $match: payableMatch },
     { $group: {
       _id: '$bucket',
       amount: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, '$amount', { $multiply: ['$amount', -1] }] } },
@@ -36,7 +46,7 @@ export const sellerBalances = async (sellerId, { session = null } = {}) => {
   const balances = { pending: 0, held: 0, eligible: 0, reserved: 0, settled: 0 };
   rows.forEach((row) => { balances[row._id] = Number((row.amount || 0).toFixed(2)); });
   const totalsQuery = SellerLedgerEntry.aggregate([
-    { $match: { sellerId } },
+    { $match: payableMatch },
     { $group: {
       _id: '$type',
       credits: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, '$amount', 0] } },

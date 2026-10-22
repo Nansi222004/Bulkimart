@@ -80,13 +80,12 @@ export const DeliveryProvider = ({ children }) => {
   }, [draftOwner, riderAuthed, bootstrapping, riderStatus, onboardingForm, onboardingStep, onboardingFiles]);
 
   const [isOnline, setIsOnline] = useState(false);
-  const [debitWallet, setDebitWallet] = useState(() => {
-    const saved = localStorage.getItem('deliveryDebitWallet');
-    return saved ? Number(saved) : 0;
-  }); // Mock floating cash collected from COD orders
+  const [debitWallet, setDebitWallet] = useState(0); // Persisted reported COD custody only.
+  const [payoutActionsEnabled, setPayoutActionsEnabled] = useState(false);
   const [payoutBalance, setPayoutBalance] = useState(0); // Un-withdrawn earnings
   const [payoutHistory, setPayoutHistory] = useState([]);
   const [payoutRequesting, setPayoutRequesting] = useState(false);
+  const payoutAttempt = useRef(null);
   const [activeOrder, setActiveOrder] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   
@@ -677,33 +676,14 @@ export const DeliveryProvider = ({ children }) => {
         available: false,
       },
     };
-    try {
-      const savedDaily = localStorage.getItem('deliveryEarningsDaily');
-      if (savedDaily) {
-        defaultData.daily = JSON.parse(savedDaily);
-      }
-    } catch (e) {
-      console.error('Error loading daily earnings from localStorage', e);
-    }
     return defaultData;
   });
-
-  useEffect(() => {
-    if (!riderAuthed || !localStorage.getItem('deliveryToken')) return;
-    localStorage.setItem('deliveryDebitWallet', debitWallet.toString());
-  }, [debitWallet, riderAuthed]);
-
-  useEffect(() => {
-    if (!riderAuthed || !localStorage.getItem('deliveryToken')) return;
-    localStorage.setItem('deliveryEarningsDaily', JSON.stringify(earningsData.daily));
-  }, [earningsData.daily, riderAuthed]);
 
   /**
    * Read the rider's earnings back off their profile.
    *
-   * `earnings.pending` is precisely what "available payout balance" means — the
-   * money credited on delivery and not yet paid out — so the balance card can be
-   * driven straight from it instead of being counted up in this browser.
+   * The verified ledger projection determines available payout and COD custody.
+   * Legacy counters remain lifetime history; they cannot authorize withdrawal.
    *
    * Called from every place that fetches the profile, so a reload, a re-login
    * and a post-approval refresh all land on the same figures.
@@ -713,11 +693,13 @@ export const DeliveryProvider = ({ children }) => {
     // Guard the arithmetic: a partner who has never delivered has no `earnings`
     // subdocument worth trusting, and NaN would render as "₹NaN".
     const total   = Number(e.total)   || 0;
-    const pending = Number(e.pending) || 0;
+    const pending = Number(partner?.finance?.verifiedPayable) || 0;
     const tips    = Number(e.tips)    || 0;
     const trips   = Number(partner?.totalDeliveries) || 0;
 
     setPayoutBalance(pending);
+    setPayoutActionsEnabled(partner?.finance?.payoutActionsEnabled === true);
+    setDebitWallet(Number(partner?.finance?.reportedCodOutstanding) || 0);
     setEarningsData((prev) => ({
       ...prev,
       lifetime: { ...prev.lifetime, total, trips, tips, available: true },
@@ -1091,23 +1073,9 @@ export const DeliveryProvider = ({ children }) => {
     triggerToast('Logged out of Delivery Panel.');
   };
 
-  const settleDebitWallet = (amount) => {
-    if (debitWallet === 0) {
-      triggerToast('No outstanding COD balance to settle.');
-      return true;
-    }
-    const depositAmt = amount ? Number(amount) : debitWallet;
-    if (isNaN(depositAmt) || depositAmt <= 0) {
-      triggerToast('Please enter a valid deposit amount.');
-      return false;
-    }
-    if (depositAmt > debitWallet) {
-      triggerToast(`Deposit amount exceeds cash-in-hand of ₹${debitWallet}.`);
-      return false;
-    }
-    setDebitWallet(prev => prev - depositAmt);
-    triggerToast(`Settle payment of ₹${depositAmt} successful via digital gateway.`);
-    return true;
+  const settleDebitWallet = () => {
+    triggerToast('Cash handovers require an order-linked report and independent verification in Earnings.');
+    return false;
   };
 
   /**
@@ -1124,12 +1092,13 @@ export const DeliveryProvider = ({ children }) => {
       return;
     }
     if (payoutRequesting) return;
+    if (!payoutAttempt.current || payoutAttempt.current.amount !== payoutBalance) payoutAttempt.current = { amount: payoutBalance, key: crypto.randomUUID() };
     setPayoutRequesting(true);
     try {
       const res = await fetch(apiUrl('/api/delivery/payouts'), {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ amount: payoutBalance }),
+        body: JSON.stringify({ amount: payoutBalance, idempotencyKey: payoutAttempt.current.key }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1428,48 +1397,20 @@ export const DeliveryProvider = ({ children }) => {
       const reportedTip = Number(body.data?.tip);
       const tip = Number.isFinite(reportedTip) ? reportedTip : 0;
 
-      if (earnings !== null) setPayoutBalance(prev => prev + earnings);
-      if (activeOrder.paymentMethod === 'COD') {
-        setDebitWallet(prev => prev + activeOrder.codAmount);
-      }
+      // Completion proves delivery; refresh persisted custody and payable funds.
+      try {
+        const profileResponse = await fetch(apiUrl('/api/delivery/me'), { headers: authHeaders() });
+        const profileBody = await profileResponse.json();
+        if (profileResponse.ok) hydrateEarnings(profileBody.data || {});
+        else { setPayoutBalance(0); setPayoutActionsEnabled(false); }
+      } catch { setPayoutBalance(0); setPayoutActionsEnabled(false); }
 
-      // Add to daily log
-      const newTxn = {
-        id: `TXN-${Math.floor(200 + Math.random() * 800)}`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: 'Delivery Pay',
-        orderId: activeOrder.orderId,
-        amount: earnings,
-        tip,
-        isCod: activeOrder.paymentMethod === 'COD',
-        codAmount: activeOrder.paymentMethod === 'COD' ? activeOrder.codAmount : undefined,
-      };
-
-      setEarningsData(prev => ({
-        ...prev,
-        // This trip is first-hand knowledge, so today's figure is now real —
-        // until the page reloads and the server has no per-day answer to give.
-        daily: {
-          ...prev.daily,
-          trips: prev.daily.trips + 1,
-          total: prev.daily.total + (earnings ?? 0),
-          tips: (prev.daily.tips || 0) + tip,
-          breakdown: [newTxn, ...prev.daily.breakdown],
-          available: true,
-        },
-        // Mirror the credit the server just wrote, so the lifetime card agrees
-        // with the balance without waiting for the next profile fetch.
-        lifetime: {
-          ...prev.lifetime,
-          trips: prev.lifetime.trips + 1,
-          total: prev.lifetime.total + (earnings ?? 0),
-          tips: (prev.lifetime.tips || 0) + tip,
-        },
-      }));
+      // Completed deliveries and earning breakdowns are loaded from persisted records.
 
       stopLocationBroadcast();
       setActiveOrder(null);
-      triggerToast(earnings === null
+      triggerToast(body.data?.earningStatus === 'reconciliation_required'
+        ? 'Delivery completed. Earnings are awaiting rate and distance reconciliation.' : earnings === null
         ? 'Order delivered. Check your earnings screen for the payment.'
         : `Order Delivered successfully! Earned ₹${earnings}`);
       return true;
@@ -1497,6 +1438,7 @@ export const DeliveryProvider = ({ children }) => {
       payoutBalance,
       payoutHistory,
       payoutRequesting,
+      payoutActionsEnabled,
       fetchPayoutHistory,
       activeOrder,
       setActiveOrder,

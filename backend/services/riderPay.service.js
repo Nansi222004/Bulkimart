@@ -61,7 +61,7 @@ let cachedAt = 0;
  * it, not the one after a minute.
  */
 export const loadRates = async () => {
-  const rows = await DeliveryRate.find({ isActive: true }).sort({ createdAt: -1 }).lean();
+  const rows = await DeliveryRate.find({ isActive: true, $or: [{ effectiveFrom: { $lte: new Date() } }, { effectiveFrom: { $exists: false } }] }).sort({ createdAt: -1 }).lean();
 
   const next = ENV_DEFAULTS();
   for (const row of rows) {
@@ -69,6 +69,7 @@ export const loadRates = async () => {
     if (next[row.mode]?._id) continue;
     next[row.mode] = {
       _id: row._id,
+      financeVersion: row.financeVersion,
       base: row.base,
       perKm: row.perKm,
       minPayout: row.minPayout || 0,
@@ -140,7 +141,7 @@ export const riderPayout = (distanceKm, { mode = PAYOUT_MODE.QUICK, tip = 0, rat
 
   let total = base + distancePay;
   if (card.minPayout) total = Math.max(total, Number(card.minPayout));
-  if (card.maxPayout) total = Math.min(total, Number(card.maxPayout));
+  if (card.maxPayout !== undefined && card.maxPayout !== null) total = Math.min(total, Number(card.maxPayout));
 
   return {
     mode,
@@ -151,7 +152,8 @@ export const riderPayout = (distanceKm, { mode = PAYOUT_MODE.QUICK, tip = 0, rat
     tip: tipAmount,
     // The tip is the customer's money and is never capped by a platform rate.
     total: total + tipAmount,
-    rateId: card._id,
+    rateId: card._id || card.rateId,
+    requiresIndependentCustomerTariff: card.financeVersion === 2,
   };
 };
 
@@ -172,5 +174,6 @@ export const rateSnapshotFor = (mode) => {
     minPayout: card.minPayout || 0,
     maxPayout: card.maxPayout,
     rateId: card._id,
+    financeVersion: card.financeVersion,
   };
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import DepositModal from '../components/DepositModal';
+import DeliveryFinancePanel from '../components/DeliveryFinancePanel';
 
 export const EarningsPage = () => {
   const {
@@ -8,6 +9,7 @@ export const EarningsPage = () => {
     cashoutEarnings,
     payoutHistory,
     payoutRequesting,
+    payoutActionsEnabled,
     fetchPayoutHistory,
     debitWallet,
     settleDebitWallet,
@@ -35,6 +37,7 @@ export const EarningsPage = () => {
 
   return (
     <div className="delivery-earnings-wrapper">
+      <DeliveryFinancePanel />
       {/* Payout balance top card */}
       <div className="delivery-card delivery-payout-balance-card">
         <span className="delivery-card-title" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Payout Balance</span>
@@ -43,7 +46,7 @@ export const EarningsPage = () => {
           <button
             className="delivery-cashout-btn"
             onClick={cashoutEarnings}
-            disabled={payoutBalance === 0 || payoutRequesting || hasPendingRequest}
+            disabled={!payoutActionsEnabled || payoutBalance === 0 || payoutRequesting || hasPendingRequest}
           >
             {payoutRequesting ? 'Requesting…' : hasPendingRequest ? 'Request pending' : 'Cashout to Bank'}
           </button>
@@ -74,6 +77,8 @@ export const EarningsPage = () => {
                       {p.status === 'completed' ? 'Paid out' : p.status === 'rejected' ? 'Rejected' : 'Pending'}
                     </span>
                     <span className="txn-time">{new Date(p.createdAt).toLocaleString()}</span>
+                    {p.transactionRef && <span className="txn-time">Transfer: {p.transactionRef}</span>}
+                    {p.rejectionReason && <span className="txn-time">{p.rejectionReason}</span>}
                   </div>
                 </div>
                 <div className="txn-right">
@@ -201,7 +206,7 @@ export const EarningsPage = () => {
       {/* COD Settlement Section (Floating Cash check) */}
       <div className="delivery-card delivery-cod-settlement-bottom-card">
         <div className="cod-bottom-left">
-          <span>COD Cash in Hand</span>
+          <span>COD cash reported outstanding</span>
           <strong>₹{debitWallet}</strong>
         </div>
         <button 

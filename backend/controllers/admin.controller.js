@@ -1,3 +1,6 @@
+import { resolveVerifiedRiderPayout } from '../services/deliveryPayout.service.js';
+import { requireFinanceOperation } from '../services/financeSafety.service.js';
+import { sellerBalances } from '../services/sellerLedger.service.js';
 import User from '../models/User.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
 import { notifySeller } from '../services/notification.service.js';
@@ -1034,7 +1037,7 @@ export const deliveryFleetStats = asyncHandler(async (req, res) => {
  * @route GET /api/admin/delivery-rates
  */
 export const getDeliveryRates = asyncHandler(async (req, res) => {
-  const active = await DeliveryRate.find({ isActive: true }).sort({ createdAt: -1 }).lean();
+  const active = await DeliveryRate.find({ isActive: true, $or: [{ effectiveFrom: { $lte: new Date() } }, { effectiveFrom: { $exists: false } }] }).sort({ createdAt: -1 }).lean();
   const history = await DeliveryRate.find().sort({ createdAt: -1 }).limit(50)
     .populate('updatedBy', 'name email').lean();
 
@@ -1067,12 +1070,23 @@ export const getDeliveryRates = asyncHandler(async (req, res) => {
  */
 export const setDeliveryRate = asyncHandler(async (req, res) => {
   const { mode, base, perKm, minPayout, maxPayout, note } = req.body;
+  if (typeof base !== 'number' || typeof perKm !== 'number' || String(note || '').trim().length < 5) throw httpError(400, 'Explicit numeric rates and an audit reason of at least five characters are required');
+  const activate = req.body.isActive === true;
+  if (activate) {
+    requireFinanceOperation();
+    const customerTariff = await DeliveryChargeSetting.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    if (!customerTariff?.distanceRates || !Number.isFinite(customerTariff.distanceRates.quick) || !Number.isFinite(customerTariff.distanceRates.same_day)) throw httpError(409, 'An independently approved customer distance tariff must be frozen before rider rate activation');
+  }
+  const effectiveFrom = req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : new Date();
+  if (!Number.isFinite(effectiveFrom.getTime())) throw httpError(400, 'Invalid effective date');
+  if (activate && effectiveFrom > new Date()) throw httpError(409, 'Future rates must be saved as a draft');
 
   if (!PAYOUT_MODES.includes(mode)) {
     throw httpError(400, `Unknown delivery mode "${mode}" — expected ${PAYOUT_MODES.join(' or ')}`);
   }
   const b = Number(base);
   const k = Number(perKm);
+  if (Math.abs(Math.round(b * 100) - b * 100) > 0.00001 || Math.abs(Math.round(k * 100) - k * 100) > 0.00001) throw httpError(400, 'Rider rates support at most two decimal places');
   if (!Number.isFinite(b) || b < 0) throw httpError(400, 'Base pay must be zero or more');
   if (!Number.isFinite(k) || k < 0) throw httpError(400, 'Per-kilometre pay must be zero or more');
 
@@ -1086,8 +1100,10 @@ export const setDeliveryRate = asyncHandler(async (req, res) => {
   if (b > 1000 || k > 500) {
     throw httpError(400, 'That rate looks like a typo. Base must be under ₹1000 and per-km under ₹500.');
   }
-  const min = Number(minPayout) || 0;
+  const min = minPayout == null || minPayout === '' ? 0 : Number(minPayout);
   const max = maxPayout === '' || maxPayout === undefined || maxPayout === null ? undefined : Number(maxPayout);
+  if (!Number.isFinite(min) || min < 0 || max !== undefined && (!Number.isFinite(max) || max < 0)) throw httpError(400, 'Invalid payout limits');
+  if (Math.abs(Math.round(min * 100) - min * 100) > 0.00001 || max !== undefined && Math.abs(Math.round(max * 100) - max * 100) > 0.00001) throw httpError(400, 'Payout limits support at most two decimal places');
   if (max !== undefined && max < min) throw httpError(400, 'Maximum payout cannot be below the minimum');
 
   const session = await mongoose.startSession();
@@ -1095,13 +1111,14 @@ export const setDeliveryRate = asyncHandler(async (req, res) => {
   try {
     await session.withTransaction(async () => {
       // Exactly one active row per mode, so the lookup can never be ambiguous.
-      await DeliveryRate.updateMany({ mode, isActive: true }, { $set: { isActive: false } }, { session });
+      if (activate) await DeliveryRate.updateMany({ mode, isActive: true }, { $set: { isActive: false } }, { session });
       const [row] = await DeliveryRate.create([{
+        financeVersion: 2,
         mode, base: b, perKm: k,
         minPayout: min,
         ...(max !== undefined ? { maxPayout: max } : {}),
-        isActive: true,
-        effectiveFrom: new Date(),
+        isActive: activate,
+        effectiveFrom,
         updatedBy: req.user?._id,
         note,
       }], { session });
@@ -1114,7 +1131,7 @@ export const setDeliveryRate = asyncHandler(async (req, res) => {
   // The next offer must carry the new figure, not the one after the TTL.
   await loadRates();
 
-  return ok(res, created, `${mode === 'quick' ? 'Quick' : 'Same-Day'} rider pay updated`);
+  return ok(res, created, activate ? 'Rider pay updated' : 'Rate draft saved; current customer delivery pricing and rider rates are unchanged');
 });
 
 /* --------------------------------------------------------------------------
@@ -1151,6 +1168,14 @@ export const getDeliveryChargeSettingForAdmin = asyncHandler(async (req, res) =>
  */
 export const setDeliveryChargeSettingForAdmin = asyncHandler(async (req, res) => {
   const { flatFee, note } = req.body;
+  if (req.body.distanceRates !== undefined) {
+    requireFinanceOperation();
+    for (const mode of PAYOUT_MODES) {
+      const value = req.body.distanceRates?.[mode];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 500 || Math.abs(Math.round(value * 100) - value * 100) > 0.00001) throw httpError(400, 'Explicit nonnegative customer per-kilometre tariffs with at most two decimals are required for both modes');
+    }
+    if (String(note || '').trim().length < 5) throw httpError(400, 'Customer tariff approval reason is required');
+  }
 
   const fee = Number(flatFee);
   if (!Number.isFinite(fee) || fee < 0) throw httpError(400, 'Delivery charge must be zero or more');
@@ -1163,9 +1188,11 @@ export const setDeliveryChargeSettingForAdmin = asyncHandler(async (req, res) =>
   let created;
   try {
     await session.withTransaction(async () => {
+      const currentTariff = await DeliveryChargeSetting.findOne({ isActive: true }).sort({ createdAt: -1 }).session(session).lean();
       await DeliveryChargeSetting.updateMany({ isActive: true }, { $set: { isActive: false } }, { session });
       const [row] = await DeliveryChargeSetting.create([{
         flatFee: fee,
+        distanceRates: req.body.distanceRates === undefined ? currentTariff?.distanceRates : { quick: req.body.distanceRates.quick, same_day: req.body.distanceRates.same_day },
         isActive: true,
         effectiveFrom: new Date(),
         updatedBy: req.user?._id,
@@ -2723,23 +2750,8 @@ export const listRiderPayouts = asyncHandler(async (req, res) => {
 // @route   PATCH /api/admin/rider-payouts/:id/settle
 // @access  Private/Admin
 export const settleRiderPayout = asyncHandler(async (req, res) => {
-  const partner = await DeliveryPartner.findById(req.params.id);
-  if (!partner) throw httpError(404, 'Delivery partner not found');
-
-  const pending = partner.earnings?.pending || 0;
-  if (pending <= 0) throw httpError(400, 'Nothing pending to pay out for this rider');
-  if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) {
-    throw httpError(400, 'This rider has no UPI ID or bank account on file');
-  }
-
-  // No payment gateway is wired to actually move money here — this records
-  // that an admin transferred it out-of-band (UPI/NEFT) and reconciles the
-  // ledger, the same way settlement has always worked for this platform.
-  partner.earnings.paid = (partner.earnings.paid || 0) + pending;
-  partner.earnings.pending = 0;
-  await partner.save();
-
-  return ok(res, { id: partner._id, paidOut: pending, earnings: partner.earnings }, `₹${pending} marked as paid out`);
+  requireFinanceOperation('payouts');
+  throw httpError(409, 'Bulk payout without a verified reservation is unavailable. Use the rider payout request and reconciliation workflow.');
 });
 
 /* ============================================================================
@@ -2779,68 +2791,16 @@ export const listDeliveryPayoutRequests = asyncHandler(async (req, res) => {
 // @route   PATCH /api/admin/delivery-payouts/:id/complete
 // @access  Private/Admin
 export const completeDeliveryPayoutRequest = asyncHandler(async (req, res) => {
-  const payout = await DeliveryPayout.findById(req.params.id);
-  if (!payout) throw httpError(404, 'Payout request not found');
-  if (payout.status !== DELIVERY_PAYOUT_STATUS.PENDING) {
-    throw httpError(400, `This request is already ${payout.status}`);
-  }
-
-  // The amount was already carved out of earnings.pending when the request
-  // was created — completing it only moves that reserved amount into paid.
-  await DeliveryPartner.updateOne(
-    { _id: payout.partnerId },
-    { $inc: { 'earnings.paid': payout.amount } }
-  );
-
-  payout.status = DELIVERY_PAYOUT_STATUS.COMPLETED;
-  payout.processedBy = req.user._id;
-  payout.processedAt = new Date();
-  await payout.save();
-
-  notifyRider(payout.partnerId, {
-    event: NOTIFICATION_EVENT.PAYOUT_COMPLETED,
-    title: 'Payout completed',
-    message: `Your payout of ₹${payout.amount} has been sent.`,
-    metadata: { payoutId: String(payout._id), amount: payout.amount },
-    route: '/delivery/earnings',
-  });
-
-  return ok(res, payout, 'Payout marked as completed');
+  const payout = await resolveVerifiedRiderPayout({ payoutId: req.params.id, actorId: req.user._id, complete: true, input: req.body });
+  return ok(res, payout, 'Verified payout reconciliation recorded');
 });
 
 // @desc    Reject a pending payout request — returns the reserved amount to earnings.pending
 // @route   PATCH /api/admin/delivery-payouts/:id/reject
 // @access  Private/Admin
 export const rejectDeliveryPayoutRequest = asyncHandler(async (req, res) => {
-  const { reason } = req.body;
-  const payout = await DeliveryPayout.findById(req.params.id);
-  if (!payout) throw httpError(404, 'Payout request not found');
-  if (payout.status !== DELIVERY_PAYOUT_STATUS.PENDING) {
-    throw httpError(400, `This request is already ${payout.status}`);
-  }
-
-  await DeliveryPartner.updateOne(
-    { _id: payout.partnerId },
-    { $inc: { 'earnings.pending': payout.amount } }
-  );
-
-  payout.status = DELIVERY_PAYOUT_STATUS.REJECTED;
-  payout.processedBy = req.user._id;
-  payout.processedAt = new Date();
-  payout.rejectionReason = reason || undefined;
-  await payout.save();
-
-  notifyRider(payout.partnerId, {
-    event: NOTIFICATION_EVENT.PAYOUT_REJECTED,
-    title: 'Payout request rejected',
-    message: reason
-      ? `Your payout request of ₹${payout.amount} was rejected: ${reason}`
-      : `Your payout request of ₹${payout.amount} was rejected.`,
-    metadata: { payoutId: String(payout._id), amount: payout.amount },
-    route: '/delivery/earnings',
-  });
-
-  return ok(res, payout, 'Payout request rejected');
+  const payout = await resolveVerifiedRiderPayout({ payoutId: req.params.id, actorId: req.user._id, complete: false, input: req.body });
+  return ok(res, payout, 'Payout reservation returned to verified payable balance');
 });
 
 // @desc    Get all vendor orders for Admin (Active Pipeline or Order History)
@@ -3020,70 +2980,16 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/vendor-earnings?search=
 // @access  Private/Admin
 export const getVendorEarningsAdmin = asyncHandler(async (req, res) => {
-  const { search } = req.query;
-
-  const sellers = await Seller.find({ status: 'approved' })
-    .populate('userId', 'name phone email')
-    .lean();
-
-  const orders = await Order.find({ status: { $in: ['delivered', 'completed'] } }).lean();
-
-  const salesBySeller = new Map();
-  orders.forEach((o) => {
-    (o.items || []).forEach((item) => {
-      if (item.sellerId) {
-        const sId = String(item.sellerId);
-        salesBySeller.set(sId, (salesBySeller.get(sId) || 0) + (item.price || 0) * (item.qty || 1));
-      }
-    });
-  });
-
-  let rows = sellers.map((s) => {
-    const sId = String(s._id);
-    const grossSales = Number((salesBySeller.get(sId) || 0).toFixed(2));
-    const commRate = s.commissionRate || 5;
-    const platformFee = Number(((grossSales * commRate) / 100).toFixed(2));
-    const gstAmount = Number((platformFee * 0.18).toFixed(2));
-    const netPayable = Number((grossSales - platformFee).toFixed(2));
-
-    return {
-      _id: s._id,
-      sellerId: s._id,
-      businessName: s.businessName,
-      storeName: s.storeDetails?.name || s.businessName,
-      city: s.storeDetails?.city || '—',
-      holderName: s.userId?.name || s.bankDetails?.holderName || '—',
-      phone: s.userId?.phone,
-      bankDetails: s.bankDetails || {},
-      grossSales,
-      commissionRate: commRate,
-      platformFee,
-      gstAmount,
-      netPayable,
-      status: grossSales > 0 ? 'Eligible' : 'No Sales',
-    };
-  });
-
-  if (search && search.trim()) {
-    const rx = new RegExp(search.trim(), 'i');
-    rows = rows.filter((r) => rx.test(r.businessName) || rx.test(r.storeName) || rx.test(r.city));
-  }
-
-  rows.sort((a, b) => b.grossSales - a.grossSales);
-
-  const totalGross = rows.reduce((sum, r) => sum + r.grossSales, 0);
-  const totalCommission = rows.reduce((sum, r) => sum + r.platformFee, 0);
-  const totalNet = rows.reduce((sum, r) => sum + r.netPayable, 0);
-
-  return ok(res, {
-    summary: {
-      totalGross: Number(totalGross.toFixed(2)),
-      totalCommission: Number(totalCommission.toFixed(2)),
-      totalNetPayable: Number(totalNet.toFixed(2)),
-      vendorCount: rows.length,
-    },
-    rows,
-  });
+  const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name').lean();
+  let rows = await Promise.all(sellers.map(async seller => {
+    const balances = await sellerBalances(seller._id);
+    return { sellerId: seller._id, businessName: seller.businessName, storeName: seller.storeDetails?.name || seller.businessName,
+      balances, netPayable: balances.eligible, status: balances.eligible > 0 ? 'Eligible' : 'Held or no verified earnings' };
+  }));
+  const search = String(req.query.search || '').toLowerCase();
+  if (search) rows = rows.filter(row => (row.businessName + ' ' + row.storeName).toLowerCase().includes(search));
+  return ok(res, { rows, coverage: { historicalOrdersIncluded: false, source: 'seller_ledger_entries' },
+    summary: { vendorCount: rows.length, totalNetPayable: rows.reduce((n, row) => n + row.netPayable, 0) } });
 });
 
 // @desc    Get Vendor Disbursal Payouts Queue

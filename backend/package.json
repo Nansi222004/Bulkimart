@@ -7,6 +7,7 @@
   },
   "main": "index.js",
   "scripts": {
+    "test:financial-workflow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/financial-workflow.test.js",
     "test:payment-notifications": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/payment-notifications.test.js",
     "test:fcm-auth": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand",
     "audit:jwt": "node scripts/auditJwtDeployment.mjs",

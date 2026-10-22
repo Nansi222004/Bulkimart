@@ -328,6 +328,12 @@ const orderSchema = new Schema(
     coupon:        { type: ObjectId, ref: "Coupon" },
     paymentMethod: { type: String, enum: PAYMENT_METHODS },
     paymentId:     { type: ObjectId, ref: "Payment" },
+    financialSnapshot: { type: Schema.Types.Mixed, immutable: true },
+    financialRevision: { type: Number, default: 0 },
+    financialPosting: { type: String, enum: ['held', 'eligible', 'reversed'] },
+    financialReturnQuantities: { type: Schema.Types.Mixed, default: {} },
+    // Cash evidence is separate from customer payment and seller payable.
+    codFinance: { type: Schema.Types.Mixed },
 
     // Vendor acceptance is deliberately separate from payment state. Online
     // payment may complete before the shop responds; it must never count as
@@ -478,9 +484,29 @@ orderSchema.index({ status: 1 });
 // historical order.
 orderSchema.index({ 'items.coinRewardStatus': 1, 'items.coinRewardEligibleAt': 1 });
 
+orderSchema.pre('save', function () {
+  if (!this.isNew && this.isModified('financialSnapshot')) throw new Error('Order financial snapshots are immutable');
+});
+for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate']) {
+  orderSchema.pre(operation, function () {
+    const update = this.getUpdate();
+    if (Array.isArray(update)) throw new Error('Order pipeline replacement requires explicit financial history review');
+    const snapshotPath = path => path === 'financialSnapshot' || String(path).startsWith('financialSnapshot.');
+    for (const [operator, value] of Object.entries(update || {})) {
+      const paths = operator.startsWith('$') ? Object.entries(value || {}) : [[operator, value]];
+      if (paths.some(([path, target]) => snapshotPath(path) || operator === '$rename' && snapshotPath(target))) throw new Error('Order financial snapshots are immutable');
+    }
+  });
+}
+for (const operation of ['replaceOne', 'findOneAndReplace']) orderSchema.pre(operation, function () { throw new Error('Order replacement would discard financial history'); });
+
 // Generate orderNo BEFORE validation — `unique` + required checks run at validate time,
 // so a pre('save') hook would fire too late and the first two orders would collide on null.
 orderSchema.pre("validate", async function () {
+  if (this.isNew && process.env.FINANCE_SNAPSHOTS_ENABLED === 'true' && !this.financialSnapshot) {
+    const { buildOrderFinancialSnapshot } = await import('../services/vendorCommission.service.js');
+    this.financialSnapshot = await buildOrderFinancialSnapshot(this, this.$session());
+  }
   if (!this.orderNo) {
     const d = new Date();
     const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;

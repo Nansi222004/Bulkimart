@@ -27,6 +27,7 @@ const deliveryRateSchema = new Schema(
   {
     /** Which kind of delivery this pays for. One active row per mode. */
     mode: { type: String, enum: PAYOUT_MODES, required: true },
+    financeVersion: Number,
 
     /** Paid on every delivery of this mode, regardless of distance. */
     base: { type: Number, required: true, min: 0 },

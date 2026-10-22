@@ -1,4 +1,5 @@
 import express from 'express';
+import { listFinanceOrders, listFinanceLedger, getDeliveryFinance, collectCod, reportCodRemittance } from '../controllers/financeWorkflow.controller.js';
 import {
   startOnboarding,
   submitStep1,
@@ -75,6 +76,11 @@ router.post('/orders/:id/verify-otp', requireApprovedPartner, verifyDeliveryOtp)
 
 router.post('/payouts', requireApprovedPartner, requestPayout);
 router.get('/payouts', requireApprovedPartner, getMyPayouts);
+router.get('/finances/cod', requireApprovedPartner, listFinanceOrders);
+router.get('/finances/ledger', requireApprovedPartner, listFinanceLedger);
+router.get('/finances/deliveries', requireApprovedPartner, getDeliveryFinance);
+router.post('/orders/:id/cod/collect', requireApprovedPartner, collectCod);
+router.post('/orders/:id/cod/remit', requireApprovedPartner, reportCodRemittance);
 
 // ---------------------------------------------------------------------------
 // QUICK COMMERCE REVERSE PICKUP — a Return's customer -> rider -> seller
