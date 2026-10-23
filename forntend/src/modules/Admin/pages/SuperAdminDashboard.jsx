@@ -1,22 +1,24 @@
+import { dashboardMoney } from '../utils/dashboardRead';
 import React, { useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { FinancialOverviewChart, OrderAnalyticsCharts } from '../components/DashboardCharts';
 
 export const SuperAdminDashboard = () => {
-  const { triggerToast, setActiveTab, sellerCounts, dashboardOverview, fetchDashboardOverview } = useAdmin();
+  const { triggerToast, setActiveTab, dashboardOverviewLoading, dashboardOverviewError, dashboardFinance, dashboardFinanceError, dashboardOverview, fetchDashboardOverview } = useAdmin();
 
   useEffect(() => {
     fetchDashboardOverview();
   }, [fetchDashboardOverview]);
 
-  // Total sellers comes from current seller status counts or the dashboard API.
-  const totalSellersCount = ((sellerCounts?.approved || 0) + (sellerCounts?.pending || 0)) || (dashboardOverview?.totalSellers || 0);
+  // One definition: approved sellers from the same operational overview.
+  const totalSellersCount = dashboardOverview?.totalSellers;
   const ov = dashboardOverview;
 
   const recentOrders = (ov?.recentOrders || []).map((o) => ({
     id: o.id || o._id || '—',
     customer: o.buyerName || 'Customer',
     type: o.type === 'grocery' ? 'Quick Commerce' : o.type === 'ecommerce' ? 'E-Commerce' : (o.type || 'Order'),
-    amount: o.amount ?? 0,
+    amount: o.amount,
     status: o.status || 'Pending',
   }));
   const lowStockAlerts = (ov?.lowStockAlerts || []).map((p) => ({
@@ -35,17 +37,30 @@ export const SuperAdminDashboard = () => {
   const ecomCategories = ov?.ecommerceCategories || [];
   const qcomCategories = ov?.quickCommerceCategories || [];
 
+  if (dashboardOverviewLoading || (!ov && !dashboardOverviewError)) return <section role="status">Loading verified Dashboard data…</section>;
+  if (dashboardOverviewError || !ov) return <section role="alert"><p>{dashboardOverviewError || 'Dashboard unavailable.'}</p><button onClick={fetchDashboardOverview}>Retry Dashboard</button></section>;
+  const metricCards = [['Total Order Value','orderValue'],['Money Collected','collections'],['Bulkimart Revenue','platformRevenue']];
   return (
     <div className="sa-canvas">
 
-      {/* 8 KPI Cards Grid Row */}
+      <button onClick={fetchDashboardOverview}>Refresh Dashboard</button>
+      {dashboardFinanceError && <p role="alert">{dashboardFinanceError} <button onClick={fetchDashboardOverview}>Retry financial metrics</button></p>}
+      {dashboardFinance && <p>All-time · INR · Asia/Kolkata · Snapshot observed {new Date(dashboardFinance.asOf).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}. Collections are not bank settlement.</p>}
+      {/* Financial and operational KPIs */}
       <div className="sa-kpi-grid">
 
-        <div className="sa-kpi-card">
-          <span className="sa-kpi-title">Total Revenue</span>
-          <span className="sa-sa-primary sa-kpi-value">₹{(ov?.revenue || 0).toLocaleString('en-IN')}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Across all completed orders' : 'Loading…'}</span>
-        </div>
+        {metricCards.map(([title,key]) => {
+          const metric=dashboardFinance?.[key];
+          return <div className="sa-kpi-card" key={key}>
+            <span className="sa-kpi-title">{title}</span>
+            <span className="sa-kpi-value">{metric?.status==='complete' ? dashboardMoney(metric.amountPaise/100) : 'Unavailable'}</span>
+            <span className="sa-kpi-trend" style={{color:'var(--sa-text-muted)',whiteSpace:'normal'}}>{key==='orderValue' ? 'Gross completed orders, before subsequent refunds' : key==='collections' ? 'Net verified external order collections; wallets excluded' : 'Recognized platform-wide revenue is not configured'}</span>
+            {metric && metric.status!=='complete' && <small>{key==='platformRevenue' ? 'Posted merchandise commission' : 'Verified records subtotal'}: {dashboardMoney(metric.verifiedSubtotalPaise/100)}. Total unavailable.</small>}
+            {metric?.incompleteRecords>0 && <small>{metric.incompleteRecords} records need reconciliation.</small>}
+            {metric?.excludedRecords>0 && <small>{metric.excludedRecords} unverified or out-of-scope records excluded.</small>}
+            {metric?.blocker && <small>{metric.blocker}</small>}
+          </div>;
+        })}
 
         <div className="sa-kpi-card">
           <span className="sa-kpi-title">Total Orders</span>
@@ -74,42 +89,15 @@ export const SuperAdminDashboard = () => {
         <div className="sa-kpi-card" onClick={() => setActiveTab('sellers')} style={{ cursor: 'pointer' }}>
           <span className="sa-kpi-title">Total Sellers</span>
           <span className="sa-kpi-value">{totalSellersCount}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{sellerCounts.pending || 0} pending</span>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov.pendingSellers} pending · approved sellers above</span>
         </div>
 
       </div>
 
-      {/* Main Analytics Charts Row — no revenue/order-trend endpoint exists
-          yet, so these show an honest empty state instead of invented lines. */}
+      {/* All-time comparisons/distributions; no invented temporal series. */}
       <div className="sa-charts-row">
-
-        <div className="sa-chart-card">
-          <div className="sa-card-header">
-            <h3 className="sa-card-title">Revenue Overview</h3>
-          </div>
-          <div className="sa-chart-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
-            No revenue trend data available.
-          </div>
-        </div>
-
-        <div className="sa-chart-card">
-          <div className="sa-card-header">
-            <h3 className="sa-card-title">Orders Performance</h3>
-          </div>
-          <div className="sa-chart-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
-            No order trend data available.
-          </div>
-        </div>
-
-        <div className="sa-chart-card">
-          <div className="sa-card-header">
-            <h3 className="sa-card-title">Orders by Channel</h3>
-          </div>
-          <div className="sa-chart-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
-            No channel split data available.
-          </div>
-        </div>
-
+        <FinancialOverviewChart finance={dashboardFinance} error={dashboardFinanceError} loading={dashboardOverviewLoading} onRetry={fetchDashboardOverview} />
+        <OrderAnalyticsCharts />
       </div>
 
       {/* Double columns activity grids */}
@@ -134,7 +122,7 @@ export const SuperAdminDashboard = () => {
                   </div>
                 </div>
                 <div className="sa-widget-right">
-                  <span className="sa-widget-value">₹{order.amount}</span>
+                  <span className="sa-widget-value">Order amount: {dashboardMoney(order.amount)}</span>
                   <span className={`sa-status-pill ${(order.status || 'pending').toString().toLowerCase().replace(/\s+/g, '-')}`}>{order.status}</span>
                 </div>
               </div>

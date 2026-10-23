@@ -1,6 +1,7 @@
 import { previewRefundCompensation } from '../controllers/financeWorkflow.controller.js';
 import { getHistoricalExceptions } from '../controllers/financeWorkflow.controller.js';
 import { requireFinancePermission } from '../middlewares/financePermission.middleware.js';
+import { getDashboardFinancialMetrics, getDashboardOrderAnalytics } from '../controllers/adminDashboardMetrics.controller.js';
 import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFinance.controller.js';
 import express from 'express';
 import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
@@ -92,6 +93,8 @@ router.post('/finance/returns/:id/reverse', reverseReturn);
 // ---- dashboard -------------------------------------------------------------
 router.get('/dashboard/pending-counts', getPendingCounts);
 router.get('/dashboard/overview', getDashboardOverview);
+router.get('/dashboard/financial-metrics', requireFinancePermission, getDashboardFinancialMetrics);
+router.get('/dashboard/order-analytics', getDashboardOrderAnalytics);
 
 // ---- general vendors (sellers) ---------------------------------------------
 // Static segment before /sellers/:id, same ordering rule as the fleet stats.

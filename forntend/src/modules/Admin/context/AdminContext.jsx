@@ -1,3 +1,4 @@
+import { readDashboardOverview, readDashboardFinance } from '../utils/dashboardRead';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { productView } from '../utils/productView';
 import { isRetiredAdminTab } from '../utils/retiredFeatures';
@@ -208,17 +209,25 @@ export const AdminProvider = ({ children }) => {
   // Sellers Registered / category-sales widgets, all from one endpoint.
   const [dashboardOverview, setDashboardOverview] = useState(null);
   const [dashboardOverviewLoading, setDashboardOverviewLoading] = useState(false);
-
+  const [dashboardOverviewError, setDashboardOverviewError] = useState('');
+  const [dashboardFinance, setDashboardFinance] = useState(null);
+  const [dashboardFinanceError, setDashboardFinanceError] = useState('');
+  const dashboardEpoch = useRef(0);
+  useEffect(() => () => { dashboardEpoch.current++; }, []);
   const fetchDashboardOverview = useCallback(async () => {
-    setDashboardOverviewLoading(true);
-    try {
-      const { data } = await adminGet('/dashboard/overview');
-      setDashboardOverview(data);
-    } catch {
-      setDashboardOverview(null);
-    } finally {
-      setDashboardOverviewLoading(false);
-    }
+    const generation = ++dashboardEpoch.current;
+    setDashboardOverviewLoading(true); setDashboardOverview(null); setDashboardFinance(null);
+    setDashboardOverviewError(''); setDashboardFinanceError('');
+    const responses = await Promise.allSettled([
+      adminGet('/dashboard/overview').then(result=>readDashboardOverview(result.data)),
+      adminGet('/dashboard/financial-metrics').then(result=>readDashboardFinance(result.data)),
+    ]);
+    if (generation !== dashboardEpoch.current) return;
+    if (responses[0].status === 'fulfilled') setDashboardOverview(responses[0].value);
+    else setDashboardOverviewError('Dashboard data could not be verified. Please retry.');
+    if (responses[1].status === 'fulfilled') setDashboardFinance(responses[1].value);
+    else setDashboardFinanceError('Financial metrics are unavailable. Finance permission and a successful verified response are required.');
+    setDashboardOverviewLoading(false);
   }, []);
 
   /** Load the full registration dossier (all steps + uploaded documents). */
@@ -1156,6 +1165,7 @@ export const AdminProvider = ({ children }) => {
       // Platform Overview dashboard
       dashboardOverview,
       dashboardOverviewLoading,
+      dashboardOverviewError, dashboardFinance, dashboardFinanceError,
       fetchDashboardOverview,
 
       // Users & SHG

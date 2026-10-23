@@ -1,3 +1,4 @@
+import { moneyPaise as dashboardMoneyPaise } from '../utils/financeMoney.js';
 import { resolveVerifiedRiderPayout } from '../services/deliveryPayout.service.js';
 import { requireFinanceOperation } from '../services/financeSafety.service.js';
 import { sellerBalances } from '../services/sellerLedger.service.js';
@@ -1458,20 +1459,17 @@ const computeCategorySales = async (limit = 5) => {
 // @access  Private/Admin
 export const getDashboardOverview = asyncHandler(async (req, res) => {
   const [
-    revenueAgg, totalOrders, ecommerceOrders, groceryOrders,
+    pendingSellers, totalOrders, ecommerceOrders, groceryOrders,
     totalUsers, totalSellers,
     recentOrdersRaw, lowStockRaw, recentSellersRaw, categorySales,
   ] = await Promise.all([
-    Order.aggregate([
-      { $match: { status: { $nin: REVENUE_EXCLUDED_STATUSES } } },
-      { $group: { _id: null, total: { $sum: '$payment.totalAmount' } } },
-    ]),
+    Seller.countDocuments({ status: VENDOR_STATUS.PENDING }),
     Order.countDocuments({}),
     Order.countDocuments({ type: CHANNEL.ECOM }),
     Order.countDocuments({ type: CHANNEL.GROCERY }),
     User.countDocuments({ roles: 'buyer' }),
     Seller.countDocuments({ status: VENDOR_STATUS.APPROVED }),
-    Order.find({}).sort({ createdAt: -1 }).limit(10).populate('userId', 'name phone').lean(),
+    Order.find({}).sort({ createdAt: -1 }).limit(10).select('orderNo type pricing.totalAmount status createdAt').lean(),
     Product.find({ stock: { $lt: 10 }, isDeleted: false, fulfillmentType: { $ne: 'digital' } }).sort({ stock: 1 }).limit(10)
       .populate('sellerId', 'businessName').lean(),
     Seller.find({}).sort({ createdAt: -1 }).limit(5).select('businessName status createdAt').lean(),
@@ -1479,7 +1477,8 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
   ]);
 
   return ok(res, {
-    revenue: revenueAgg[0]?.total || 0,
+    revenue: null, // Deprecated ambiguous metric; use permission-scoped financial-metrics.
+    pendingSellers,
     totalOrders,
     ecommerceOrders,
     groceryOrders,
@@ -1487,9 +1486,10 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
     totalSellers,
     recentOrders: recentOrdersRaw.map((o) => ({
       id: o._id,
-      buyerName: o.userId?.name || o.userId?.phone || 'Customer',
+      buyerName: 'Customer',
+      orderNo: o.orderNo,
       type: o.type,
-      amount: o.payment?.totalAmount || 0,
+      amount: (() => { try { return dashboardMoneyPaise(o.pricing?.totalAmount) / 100; } catch { return null; } })(),
       status: o.status,
       createdAt: o.createdAt,
     })),
