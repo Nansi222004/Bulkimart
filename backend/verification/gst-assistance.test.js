@@ -9,6 +9,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 const notify = jest.fn(async () => ({}));
+const gatewayOrders=new Map(),gatewayPayments=new Map();let uncertainCheckout=false;
+jest.unstable_mockModule('razorpay',()=>({default:class{
+  constructor(){this.orders={create:async input=>{const row={id:`order_gst_${gatewayOrders.size+1}`,...input};gatewayOrders.set(row.id,row);if(uncertainCheckout)throw Error('Synthetic unknown creation');return row;},fetch:async id=>gatewayOrders.get(id),all:async input=>({items:[...gatewayOrders.values()].filter(o=>!input.receipt||o.receipt===input.receipt)}),fetchPayments:async id=>({items:[...gatewayPayments.values()].filter(p=>p.order_id===id)})};this.payments={fetch:async id=>gatewayPayments.get(id)};}
+}}));
 jest.unstable_mockModule('../services/notification.service.js', () => ({ notifyAllAdmins: notify, notifySeller: notify, notifyUser: notify, notifyRider: notify,
   registerPushToken: notify, removePushToken: notify, pushToUser: notify, NOTIFICATION_EVENT: { SYSTEM: 'SYSTEM' } }));
 const originalCloudinary = await import('../services/cloudinary.service.js');
@@ -22,6 +26,11 @@ const [{ default: Seller }, { default: User }, { default: Admin }, { default: Gs
 const app = express(); app.use(express.json());
 app.use('/sellers/gst-assistance', gstAssistanceRouter()); app.use('/admin/gst-assistance', gstAssistanceRouter(true)); app.use('/sellers', sellerRoutes); app.use(errorHandler);
 let db, root, vendor, other, admin, denied, seller;
+const {default:Fee}=await import('../models/GstAssistanceFee.js');
+const {default:Payment}=await import('../models/Payment.js');
+const {default:Ledger}=await import('../models/SellerLedgerEntry.js');
+const {handleGstWebhook}=await import('../services/gstPayment.service.js');
+const crypto=await import('node:crypto');
 const auth = (r, u = vendor, type = 'user', role = 'seller') => r.set('Authorization', `Bearer ${jwt.sign({ id: String(u._id), type, role }, JWT_SECRET)}`);
 const detail = async () => (await auth(request(app).get('/sellers/gst-assistance/me')).expect(200)).body.data;
 const payload = extra => ({ pan: 'ABCDE1234F', gstChoice: 'assistance', gstAssistanceConsent: true, gstContactName: 'Fixture Contact', gstAssistanceMessage: 'Need registration guidance', ...extra });
@@ -38,10 +47,12 @@ beforeAll(async () => {
   delete process.env.MONGO_URI; delete process.env.MONGODB_URI;
   root = await mkdtemp(path.join(tmpdir(), 'bulkimart-gst-test-')); process.env.SERVICE_STORAGE_DIR = root;
   db = await MongoMemoryReplSet.create({ binary: { version: '7.0.14' }, replSet: { count: 1 } }); await mongoose.connect(db.getUri('gst-assistance-isolated'));
-  for (const m of [Seller, User, Admin, Gst]) { await m.createCollection(); if (m !== Gst) await m.init(); }
+  for (const m of [Seller, User, Admin, Gst, Fee, Payment, Ledger]) { await m.createCollection(); if (m !== Gst) await m.init(); }
 });
 beforeEach(async () => {
-  process.env.GST_ASSISTANCE_ENABLED = 'true'; process.env.NODE_ENV = 'test'; delete process.env.DEPLOYMENT_ENV;
+  process.env.GST_ASSISTANCE_ENABLED = 'true'; process.env.NODE_ENV = 'test'; delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
+  gatewayOrders.clear();gatewayPayments.clear();uncertainCheckout=false;
+  Object.assign(process.env,{PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_gst_fixture',RAZORPAY_KEY_SECRET:'isolated-gst-secret',RAZORPAY_WEBHOOK_SECRET:'isolated-gst-webhook'});
   for (const c of Object.values(mongoose.connection.collections)) await c.deleteMany({}); notify.mockClear();
   [vendor, other] = await User.create([{ phone: '9876500171', roles: ['buyer'] }, { phone: '9876500172', roles: ['seller'] }]);
   seller = await Seller.create({ userId: vendor._id, phone: vendor.phone, businessName: 'Synthetic GST shop', businessType: 'proprietorship', status: 'incomplete', onboardingStep: 4,
@@ -79,12 +90,24 @@ test('duplicate and concurrent identical submissions create one request; changed
 });
 test('vendor and admin isolation protects private request list/detail and rejects another portal', async () => {
   await submit().expect(200);
-  await auth(request(app).get('/sellers/gst-assistance/me'), other).expect(404);
+  const empty = await auth(request(app).get('/sellers/gst-assistance/me'), other).expect(200);
+  expect(empty.body.data).toBeNull();
   await auth(request(app).get('/sellers/gst-assistance/me'), vendor, 'user', 'delivery').expect(403);
   await auth(request(app).get('/admin/gst-assistance'), vendor).expect(403);
   await auth(request(app).get('/admin/gst-assistance'), denied, 'admin').expect(403);
   await request(app).get('/admin/gst-assistance').expect(401);
   const r = await auth(request(app).get('/admin/gst-assistance?status=pending'), admin, 'admin').expect(200); expect(r.body.data.requests).toHaveLength(1); expect(r.headers['cache-control']).toBe('private, no-store');
+});
+
+test('optional seller status returns a private empty response without creating an assistance request', async () => {
+  const empty = await auth(request(app).get('/sellers/gst-assistance/me')).expect(200);
+  expect(empty.body).toMatchObject({ success: true, data: null });
+  expect(empty.headers['cache-control']).toBe('private, no-store');
+  expect(await Gst.countDocuments()).toBe(0);
+  await auth(request(app).post('/sellers/gst-assistance/me/actions')).expect(404);
+  await auth(request(app).post('/sellers/gst-assistance/me/payment')).set('Idempotency-Key', 'gst-empty-request-0001').send({}).expect(404);
+  await auth(request(app).get(`/admin/gst-assistance/${seller._id}`), admin, 'admin').expect(404);
+  await request(app).get('/sellers/gst-assistance/me').expect(401);
 });
 test('review transitions, internal notes, self-assignment and additional-information response have an audit trail', async () => {
   await submit().expect(200);
@@ -140,6 +163,79 @@ test.each(['production', 'prod', 'deployment-production'])('production alias %s 
   process.env.DEPLOYMENT_ENV = name;
   expect(gstAssistanceCapabilities().enabled).toBe(false); await submit().expect(503);
   expect(await Gst.countDocuments()).toBe(0); delete process.env.DEPLOYMENT_ENV;
+});
+
+test.each(['production', 'prod', 'deployment-production'])('production alias %s accepts assistance with explicit production intake enabled', async name => {
+  process.env.DEPLOYMENT_ENV = name; process.env.GST_ASSISTANCE_PRODUCTION_ENABLED = 'true';
+  expect(gstAssistanceCapabilities()).toEqual({ enabled: true, productionBlocked: false });
+  await submit().expect(200);
+  expect((await detail()).status).toBe('pending');
+  expect((await Seller.findById(seller._id)).onboardingStep).toBe(5);
+  delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
+});
+
+test('seller can submit registration while GST assistance remains pending', async () => {
+  await submit().expect(200);
+  await auth(request(app).post('/sellers/submit')).expect(200);
+  expect((await Seller.findById(seller._id)).status).toBe('pending');
+  expect((await detail()).status).toBe('pending');
+});
+
+const fee=async amount=>Fee.create({_id:'gst-assistance',amountPaise:amount||10000,currency:'INR',terms:'Synthetic total service fee and cancellation review terms',version:1});
+const checkout=(input={})=>auth(request(app).post('/sellers/gst-assistance/me/payment')).set('Idempotency-Key','gst-manual-checkout-0001').send({amountPaise:10000,feeVersion:1,acceptTerms:true,...input});
+function capture(c,id='pay_gst_fixture',amount=c.amountPaise){const p={id,order_id:c.razorpayOrderId,amount,currency:'INR',status:'captured',captured:true,amount_refunded:0};gatewayPayments.set(id,p);return p;}
+const verify=(c,id='pay_gst_fixture')=>auth(request(app).post('/sellers/gst-assistance/payments/verify')).send({orderId:String(seller._id),razorpay_order_id:c.razorpayOrderId,razorpay_payment_id:id,razorpay_signature:crypto.createHmac('sha256',process.env.RAZORPAY_KEY_SECRET).update(`${c.razorpayOrderId}|${id}`).digest('hex')});
+test('fee settings require finance permission, reject stale/invalid changes and publish configured pricing',async()=>{
+  await auth(request(app).put('/admin/gst-assistance/fee-policy'),admin,'admin').send({amountPaise:10000,terms:'Terms',version:0}).expect(403);
+  await Admin.updateOne({_id:admin._id},{$push:{permissions:'manage_finance'}});
+  await auth(request(app).put('/admin/gst-assistance/fee-policy'),admin,'admin').send({amountPaise:10000,terms:'Terms',version:0}).expect(200);
+  await auth(request(app).put('/admin/gst-assistance/fee-policy'),admin,'admin').send({amountPaise:25000,terms:'New terms',version:0}).expect(409);
+  await auth(request(app).put('/admin/gst-assistance/fee-policy'),admin,'admin').send({amountPaise:0,terms:'Terms',version:1}).expect(400);
+  const r=await request(app).get('/sellers/gst-assistance/capabilities').expect(200);expect(r.body.data.fee.amountPaise).toBe(10000);
+});
+test('registration snapshots the admin fee and later price edits do not reprice its payment',async()=>{
+  await fee();await submit().expect(200);await Fee.updateOne({_id:'gst-assistance'},{$set:{amountPaise:25000,version:2}});
+  expect((await detail()).billing.amountPaise).toBe(10000);await checkout({amountPaise:25000}).expect(409);
+  const a=await checkout().expect(200),b=await checkout().expect(200);expect(a.body.data.razorpayOrderId).toBe(b.body.data.razorpayOrderId);expect(gatewayOrders.size).toBe(1);
+});
+test('GST payment is server verified and replay posts one held receipt outside seller payable',async()=>{
+  await fee();await submit().expect(200);const c=(await checkout().expect(200)).body.data;capture(c);
+  await auth(request(app).post('/sellers/gst-assistance/payments/verify'),other).send({orderId:String(seller._id),razorpay_order_id:c.razorpayOrderId}).expect(404);
+  await verify(c).expect(200);await verify(c).expect(200);expect((await detail()).billing.status).toBe('paid');
+  expect(await Ledger.countDocuments({account:'gst_assistance_collections'})).toBe(1);expect(await Ledger.countDocuments({account:'seller_payable'})).toBe(0);
+  await checkout().expect(409);
+});
+test('mismatched provider amount or browser signature cannot mark GST fee paid',async()=>{
+  await fee();await submit().expect(200);const c=(await checkout().expect(200)).body.data;capture(c,'pay_gst_fixture',1);
+  await verify(c).expect(409);expect((await detail()).billing.status).toBe('pending');expect(await Ledger.countDocuments()).toBe(0);
+  await auth(request(app).post('/sellers/gst-assistance/payments/verify')).send({orderId:String(seller._id),razorpay_order_id:c.razorpayOrderId,razorpay_payment_id:'pay_gst_fixture',razorpay_signature:'invalid'}).expect(401);
+});
+test('uncertain gateway creation blocks duplicate checkout and status recovery binds the original order',async()=>{
+  await fee();await submit().expect(200);uncertainCheckout=true;await checkout().expect(503);await checkout().expect(409);expect(gatewayOrders.size).toBe(1);
+  await auth(request(app).post('/sellers/gst-assistance/me/payment-status')).send({}).expect(200);uncertainCheckout=false;await checkout().expect(200);expect(gatewayOrders.size).toBe(1);
+});
+test('unpaid GST service can finish seller registration but cannot start paid assistance work',async()=>{
+  await fee();await submit().expect(200);await auth(request(app).post('/sellers/submit')).expect(200);
+  await adminAction('transition',{status:'under_review',message:'Review'});
+  expect((await adminAction('transition',{status:'approved',message:'Start work'})).status).toBe(409);
+});
+test('webhook capture and refund refresh update GST receipt without duplicate ledger entries',async()=>{
+  await fee();await submit().expect(200);const c=(await checkout().expect(200)).body.data;const live=capture(c);
+  const event={gatewayOrderId:c.razorpayOrderId,paymentId:live.id,amountPaise:10000,currency:'INR',kind:'payment_completed'};
+  expect(await handleGstWebhook({event:'payment.captured'},event)).toBe(true);expect((await detail()).billing.status).toBe('paid');
+  live.amount_refunded=10000;
+  await handleGstWebhook({event:'refund.processed'},{refundPaymentId:live.id});await handleGstWebhook({event:'refund.processed'},{refundPaymentId:live.id});
+  expect((await detail()).billing.status).toBe('refunded');expect(await Ledger.countDocuments()).toBe(2);
+});
+
+test('concurrent checkout initialization creates one gateway order and a late capture after cancellation is held for review',async()=>{
+  await fee();await submit().expect(200);
+  const attempts=await Promise.all([checkout(),checkout()]);expect(attempts.some(r=>r.status===200)).toBe(true);expect(attempts.every(r=>[200,409].includes(r.status))).toBe(true);expect(gatewayOrders.size).toBe(1);
+  const c=attempts.find(r=>r.status===200).body.data;
+  await adminAction('transition',{status:'cancelled',message:'Vendor cancellation review'});
+  const live=capture(c);await handleGstWebhook({event:'payment.captured'},{gatewayOrderId:c.razorpayOrderId,paymentId:live.id,amountPaise:10000,currency:'INR',kind:'payment_completed'});
+  expect((await detail()).billing.reviewRequired).toBe(true);expect((await detail()).billing.status).not.toBe('paid');
+  expect((await Payment.findOne({gstAssistanceRequestId:seller._id})).refundObligations).toHaveLength(1);
 });
 test('disabled defaults do not block legacy optional-GST onboarding', async () => {
   delete process.env.GST_ASSISTANCE_ENABLED; expect(gstAssistanceCapabilities().enabled).toBe(false);

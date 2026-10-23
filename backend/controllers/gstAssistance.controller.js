@@ -7,6 +7,9 @@ import { financialTransaction } from '../services/financeSafety.service.js';
 import { storeServiceFiles, readServiceFile, removeServiceFiles } from '../services/serviceStorage.service.js';
 import { notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { httpError, ok } from '../utils/response.js';
+import Fee from '../models/GstAssistanceFee.js';
+import { currentGstFee, validateGstFee } from '../services/gstFee.service.js';
+import { initiateGstPayment, verifyGstPayment } from '../services/gstPayment.service.js';
 const isAdmin = req => req.userType === 'admin';
 async function identity(req) {
   if (isAdmin(req)) {
@@ -28,7 +31,40 @@ export async function list(req, res) {
   const rows = await Request.find(req.query.status ? { status: req.query.status } : {}).sort({ submittedAt: -1, _id: -1 }).skip((page - 1) * 30).limit(30);
   return ok(res, { requests: rows.map(r => gstRequestDTO(r, true)), page });
 }
-export async function detail(req, res) { return ok(res, gstRequestDTO(await owned(req), isAdmin(req))); }
+export async function detail(req, res) {
+  let row;
+  if (isAdmin(req)) row = await owned(req);
+  else {
+    // The dashboard checks this optional resource for every seller. Absence is
+    // a normal empty state; actions and downloads still require an owned row.
+    const seller = await Seller.findOne({ userId: req.user._id }).select('_id');
+    row = seller ? await Request.findOne({ _id: seller._id, userId: req.user._id }) : null;
+    if (!row) return ok(res, null);
+  }
+  const dto = gstRequestDTO(row, isAdmin(req));
+  if (!dto.billing) { const fee = await currentGstFee(); if (fee) dto.billing = { ...fee, status: 'unpaid' }; }
+  return ok(res, dto);
+}
+export async function feePolicy(_req, res) { return ok(res, await currentGstFee()); }
+export async function saveFeePolicy(req, res) {
+  if (req.user.role !== 'superAdmin' && !req.user.permissions?.includes('manage_finance')) throw httpError(403, 'Finance permission required to change service fees');
+  const config = validateGstFee(req.body);
+  const fee = await financialTransaction(async session => {
+    let row = await Fee.findById('gst-assistance').session(session);
+    if ((row?.version || 0) !== req.body.version) throw httpError(409, 'Fee changed. Reload before saving');
+    if (!row) row = new Fee({ _id: 'gst-assistance', version: 0 });
+    Object.assign(row, config); row.version++; row.updatedBy = req.user._id;
+    row.history.push({ version: row.version, amountPaise: row.amountPaise, terms: row.terms, by: req.user._id, at: new Date() });
+    await row.save({ session }); return row;
+  });
+  return ok(res, { amountPaise: fee.amountPaise, currency: fee.currency, terms: fee.terms, version: fee.version });
+}
+export async function pay(req, res) { return ok(res, await initiateGstPayment(await identity(req), req.user._id, req.body || {}, req.get('Idempotency-Key'))); }
+export async function verifyPayment(req, res) {
+  if (!mongoose.isValidObjectId(req.body?.orderId)) throw httpError(400, 'A valid GST request ID is required');
+  return ok(res, await verifyGstPayment(req.body.orderId, req.user._id, req.body));
+}
+export async function paymentStatus(req, res) { return ok(res, await verifyGstPayment(await identity(req), req.user._id, {}, true)); }
 const transitions = { pending: ['under_review', 'rejected', 'cancelled'],
   under_review: ['additional_information_required', 'approved', 'rejected', 'cancelled'],
   additional_information_required: ['under_review', 'rejected', 'cancelled'],
@@ -57,6 +93,7 @@ export async function act(req, res) {
       if (row.__v !== version) throw httpError(409, 'Request changed. Refresh before continuing.');
       if (row.files.length + stored.length > 30 || row.events.length >= 500) throw httpError(409, 'Request review limit reached; contact support');
       const from = row.status;
+      if (!admin && action === 'cancel' && row.billing?.paymentId) throw httpError(409, 'A payment has been started. Contact Bulkimart for cancellation and refund review');
       if (!admin) {
         if (action === 'cancel' && row.status !== 'pending') throw httpError(409, 'Only a pending request can be cancelled by the vendor');
         if (action === 'respond' && row.status !== 'additional_information_required') throw httpError(409, 'Additional information has not been requested');
@@ -72,9 +109,11 @@ export async function act(req, res) {
         if (!note) throw httpError(400, 'An internal note is required');
       } else {
         if (!transitions[row.status]?.includes(body.status)) throw httpError(409, 'This assistance status transition is not allowed');
+        if (['approved','completed'].includes(body.status) && (row.billing || await currentGstFee(session)) && (row.billing?.status !== 'paid' || row.billing?.reviewRequired)) throw httpError(409, 'Verified service payment without financial holds is required before starting or completing GST assistance');
         row.status = body.status;
         if (body.status === 'additional_information_required') row.requestedCorrections = message;
         if (body.status === 'completed') {
+          if (row.billing && (row.billing.status !== 'paid' || row.billing.reviewRequired)) throw httpError(409, 'Verified service payment without financial holds is required before completion');
           const gstin = boundedText(body.verifiedGstin, 'Independently verified GSTIN', 15, true);
           const evidence = [...row.files, ...stored].find(f => f.fileId === body.evidenceFileId || (stored.length === 1 && !body.evidenceFileId && f.fileId === stored[0].fileId));
           if (!GSTIN_FORMAT.test(gstin) || body.independentlyVerified !== 'true' || evidence?.kind !== 'verification_evidence') throw httpError(400, 'Completion requires GSTIN format, private verification evidence and explicit independent-verification attestation');
@@ -82,6 +121,7 @@ export async function act(req, res) {
             evidenceFileId: evidence.fileId, verifiedBy: req.user._id, verifiedAt: new Date(), method: 'admin_attested_independent_review' };
         }
       }
+      if (admin && ['rejected','cancelled'].includes(row.status) && row.billing?.paymentId) row.billing.reviewRequired = true;
       row.files.push(...stored);
       row.events.push({ action, from, to: row.status, actorType: admin ? 'admin' : 'vendor', actorId: req.user._id,
         at: new Date(), vendorMessage: message, ...(admin ? { internalNote: note, reviewerId: row.reviewerId } : {}),

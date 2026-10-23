@@ -10,6 +10,7 @@ const paymentSchema = new Schema(
     userId:         { type: ObjectId, ref: "User", required: true },
     parcelDeliveryId: { type: ObjectId, ref: 'ParcelDelivery' },
     serviceApplicationId: { type: ObjectId, ref: 'ServiceApplication' },
+    gstAssistanceRequestId: { type: ObjectId, ref: 'GstAssistanceRequest' },
     quotationVersion: Number,
     // Separate seller collection; never replaces the customer's order payment.
     quickFeeSnapshotId: { type: ObjectId, ref: 'QuickCommerceFinancialSnapshot' },
@@ -129,6 +130,7 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.pre('validate', function () {
+  if (this.gstAssistanceRequestId && (this.method !== 'online' || this.advertising || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]))) throw new Error('GST assistance requires an exclusive online service payment');
   if (this.advertising && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Advertising payments require an exclusive online advertising purpose');
   if(this.advertising&&String(this._id)!==String(this.advertising.campaignId))throw new Error('Advertising payment identity must equal its campaign identity');
   if (this.parcelDeliveryId && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Parcel payment requires an exclusive online parcel reference');

@@ -2,11 +2,14 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
-let vite, Decision, Panel, valid, requests;
+let vite, Decision, Panel, Onboarding, FeeEditor, PaymentPanel, valid, requests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   Decision = (await vite.ssrLoadModule('/src/components/gst/GstDecision.jsx')).default;
   Panel = (await vite.ssrLoadModule('/src/components/gst/GstAssistance.jsx')).default;
+  Onboarding = (await vite.ssrLoadModule('/src/modules/Seller/pages/OnboardingPage.jsx')).default;
+  FeeEditor = (await vite.ssrLoadModule('/src/components/gst/GstFeeEditor.jsx')).default;
+  PaymentPanel = (await vite.ssrLoadModule('/src/components/gst/GstPaymentPanel.jsx')).default;
   valid = (await vite.ssrLoadModule('/src/components/gst/gstApi.js')).gstDecisionValid;
   requests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
 });
@@ -41,6 +44,85 @@ test('no-GSTIN choice offers assistance and decline; assistance stays disabled w
     assert.match(text(h.tree), /applicable GST requirements/);
   } finally { h.close(); }
 });
+
+test('enabled assistance can be selected without a submission or navigation', async () => {
+  const updates=[],h=hookHarness(Decision,{value:{choice:'no_gstin',gstin:''},onChange:value=>updates.push(value)});
+  try {
+    assert.match(text(h.tree), /Checking GST assistance availability/);
+    h.requests[0].resolve({success:true,data:{enabled:true}});await h.settle();
+    const radio=h.find(n=>n.type==='input'&&n.props.name==='gst-assistance');
+    assert.equal(radio.props.disabled,false);radio.props.onChange();
+    assert.equal(updates[0].choice,'assistance');assert.equal(h.requests.length,1);
+  } finally {h.close();}
+});
+
+test('seller continues to review with assistance selected and submits without waiting for GST review',async()=>{
+  const steps=[];
+  const context={onboardingStep:7,setOnboardingStep:step=>steps.push(step),uploadedDocs:{aadhaarFront:{},aadhaarBack:{},passbook:{}},panNumber:'ABCDE1234F',
+    gstDecision:{choice:'assistance',contactName:'Test contact',consent:true},bizForm:{storeName:'Test store'},bankForm:{},selectedTypes:[],submitSellerApplication:async()=>({ok:true})};
+  const h=hookHarness(Onboarding,{},'/seller',context);
+  try{
+    assert.equal(Boolean(h.find(n=>n.type==='button'&&n.props.children==='Continue to Review').props.disabled),false);
+    h.click('Continue to Review');assert.deepEqual(steps,[8]);
+    context.onboardingStep=8;h.rerender();
+    assert.match(text(h.tree),/reviewed separately/);
+    h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});h.flush();
+    const submit=h.find(n=>n.type==='button'&&n.props.children==='Submit for Verification');
+    assert.equal(submit.props.disabled,false);await submit.props.onClick();
+    assert.deepEqual(steps,[8,9]);
+  }finally{h.close();}
+});
+
+test('missing KYC does not hide review navigation and final submission lists the missing items',()=>{
+  const steps=[],context={onboardingStep:7,setOnboardingStep:step=>steps.push(step),uploadedDocs:{},panNumber:'',gstDecision:{choice:'without_gstin'},bizForm:{},bankForm:{},selectedTypes:[]};
+  const h=hookHarness(Onboarding,{},'/seller',context);
+  try{
+    h.click('Continue to Review');assert.deepEqual(steps,[8]);context.onboardingStep=8;h.rerender();
+    assert.match(text(h.tree),/Upload Aadhaar front/);assert.match(text(h.tree),/Upload Aadhaar back/);assert.match(text(h.tree),/passbook/);assert.match(text(h.tree),/10-character PAN/);
+    h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});h.flush();
+    assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Submit for Verification').props.disabled,true);
+    h.click('Complete documents and GST details');assert.deepEqual(steps,[8,7]);
+  }finally{h.close();}
+});
+
+test('GST assistance selection displays the current admin-configured fee',async()=>{
+  const h=hookHarness(Decision,{value:{choice:'assistance'},onChange:()=>{}});
+  try{h.requests[0].resolve({data:{enabled:true,fee:{amountPaise:27500,version:2,terms:'Configured total fee'}}});await h.settle();
+    assert.match(text(h.tree),/₹275.00/);assert.match(text(h.tree),/Configured total fee/);
+  }finally{h.close();}
+});
+
+test('admin fee editor loads and saves versioned price without a hardcoded amount',async()=>{
+  const h=hookHarness(FeeEditor);
+  try{
+    const loading=h.click('GST service fee settings');h.requests[0].resolve({data:{amountPaise:10000,terms:'Initial terms',version:1}});await loading;await h.settle();
+    h.find(n=>n.type==='input'&&n.props.type==='number').props.onChange({target:{value:'249.50'}});h.flush();
+    const save=h.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+    assert.deepEqual(JSON.parse(h.requests[1].options.body),{amountPaise:24950,terms:'Initial terms',version:1});
+    h.requests[1].resolve({data:{amountPaise:24950,terms:'Initial terms',version:2}});await save;await h.settle();
+    assert.match(text(h.tree),/Service fee saved/);
+  }finally{h.close();}
+});
+
+test('vendor fee payment requires explicit acceptance and never exposes a pay action after verified payment',()=>{
+  const bill={amountPaise:24950,version:2,terms:'Fee terms',status:'unpaid'};
+  const h=hookHarness(PaymentPanel,{row:{...row(),billing:bill}});
+  try{assert.match(text(h.tree),/₹\s*249\.50/);assert.equal(h.find(n=>n.type==='button').props.disabled,true);
+    h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});h.flush();assert.equal(h.find(n=>n.type==='button').props.disabled,false);
+  }finally{h.close();}
+  const paid=hookHarness(PaymentPanel,{row:{...row(),billing:{...bill,status:'paid'}}});
+  try{assert.equal(paid.find(n=>n.type==='button'&&text(n).includes('to Bulkimart')),undefined);assert.match(text(paid.tree),/Payment status:.*paid/);}finally{paid.close();}
+});
+
+test('failed availability check offers retry and does not falsely report service disabled',async()=>{
+  const h=hookHarness(Decision,{value:{choice:'no_gstin'},onChange:()=>{}});
+  try{
+    h.requests[0].resolve({message:'Unavailable'},503);await h.settle();
+    assert.match(text(h.tree),/couldn’t check/);assert.doesNotMatch(text(h.tree),/not currently accepting/);
+    h.click('Retry availability');h.requests[1].resolve({data:{enabled:true}});await h.settle();
+    assert.equal(h.find(n=>n.type==='input'&&n.props.name==='gst-assistance').props.disabled,false);
+  }finally{h.close();}
+});
 test('assistance form asks for minimum contact details and consent, without government or payment claims', () => {
   const h = hookHarness(Decision, { value: { choice: 'assistance', consent: false }, onChange: () => {} });
   try {
@@ -49,6 +131,21 @@ test('assistance form asks for minimum contact details and consent, without gove
     assert.equal(h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.checked, false);
   } finally { h.close(); }
 });
+test('seller without assistance has an empty dashboard panel, while a missing endpoint remains an error', async () => {
+  requests.clearPortalRequests(); const empty = hookHarness(Panel);
+  try {
+    empty.requests[0].resolve({ success: true, data: null }); await empty.settle();
+    assert.equal(empty.tree, null);
+    assert.equal(empty.requests.length, 1);
+  } finally { empty.close(); requests.clearPortalRequests(); }
+  const missing = hookHarness(Panel);
+  try {
+    missing.requests[0].resolve({ message: 'Endpoint not found' }, 404); await missing.settle();
+    assert.match(text(missing.tree), /Endpoint not found/);
+    assert.ok(missing.find(n => n.props?.role === 'alert'));
+  } finally { missing.close(); requests.clearPortalRequests(); }
+});
+
 test('vendor pending panel submits a versioned cancellation with the seller session', async () => {
   requests.clearPortalRequests(); const h = hookHarness(Panel);
   try {

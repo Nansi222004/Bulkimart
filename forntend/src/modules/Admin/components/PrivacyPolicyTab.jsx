@@ -1,7 +1,9 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiUrl } from "../../../utils/api";
 import { useAdmin } from "../context/AdminContext";
+import { boundedFetch } from '../../../utils/portalRequests';
+import { privacyPolicyError } from '../utils/privacyPolicy';
 
 const ROLE_TABS = [
   {
@@ -34,6 +36,8 @@ export const PrivacyPolicyTab = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const requestId = useRef(0), loadAbort = useRef(null), saveLock = useRef(false);
 
   // Policy Form State
   const [policyData, setPolicyData] = useState({
@@ -50,15 +54,23 @@ export const PrivacyPolicyTab = () => {
 
   // Fetch Policy for Active Role
   const fetchPolicy = async (roleKey) => {
+    const current = ++requestId.current;
+    loadAbort.current?.abort();
+    const controller = new AbortController(); loadAbort.current = controller;
     setLoading(true);
+    setLoadError('');
     try {
       const activeMeta = ROLE_TABS.find((t) => t.id === roleKey) || ROLE_TABS[0];
-      const res = await fetch(apiUrl(`/api/privacy-policy/${activeMeta.slug}`), {
+      const res = await boundedFetch(apiUrl(`/api/admin/privacy-policy/${activeMeta.slug}`), {
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${localStorage.getItem("adminToken")}`,
         },
       });
       const body = await res.json();
+      if (current !== requestId.current || controller.signal.aborted) return;
+      if (res.status !== 404 && (!res.ok || body.success === false || !body.data)) throw new Error(body.message || 'Failed to load policy data from server');
+      if (body.data?.role && body.data.role !== roleKey) throw new Error('The server returned a different policy. Please reload.');
 
       if (body.success && body.data) {
         setPolicyData({
@@ -85,14 +97,15 @@ export const PrivacyPolicyTab = () => {
         });
       }
     } catch (err) {
-      triggerToast("Failed to load policy data from server", "error");
+      if (current === requestId.current && !controller.signal.aborted) { setLoadError(err.message); triggerToast(err.message, 'error'); }
     } finally {
-      setLoading(false);
+      if (current === requestId.current && !controller.signal.aborted) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchPolicy(activeRoleKey);
+    return () => { requestId.current++; loadAbort.current?.abort(); };
   }, [activeRoleKey]);
 
   // Handler to update section fields
@@ -148,32 +161,34 @@ export const PrivacyPolicyTab = () => {
   // Save Policy to Backend
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!policyData.roleTitle.trim()) {
-      triggerToast("Policy title is required", "error");
+    if (saveLock.current || loading || loadError || policyData.role !== activeRoleKey) return;
+    const validationError = privacyPolicyError(policyData);
+    if (validationError) {
+      triggerToast(validationError, "error");
       return;
     }
-
+    saveLock.current = true;
     setSaving(true);
     try {
-      const res = await fetch(apiUrl(`/api/admin/privacy-policy/${activeTabMeta.slug}`), {
+      const res = await boundedFetch(apiUrl(`/api/admin/privacy-policy/${activeTabMeta.slug}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${localStorage.getItem("adminToken")}`,
         },
-        body: JSON.stringify(policyData),
+        body: JSON.stringify({ ...policyData, isPublished: true, sections: policyData.sections.map((section, index) => ({ ...section, order: index + 1 })) }),
       });
 
       const body = await res.json();
       if (res.ok && body.success) {
         triggerToast(`Privacy Policy for ${activeTabMeta.label} updated & published live!`, "success");
-        fetchPolicy(activeRoleKey);
       } else {
         triggerToast(body.message || "Failed to save privacy policy", "error");
       }
     } catch (err) {
       triggerToast("Error saving privacy policy: " + err.message, "error");
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   };
@@ -223,7 +238,7 @@ export const PrivacyPolicyTab = () => {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || loading}
+            disabled={saving || loading || !!loadError || policyData.role !== activeRoleKey}
             style={{
               padding: "10px 24px",
               borderRadius: "10px",
@@ -255,6 +270,7 @@ export const PrivacyPolicyTab = () => {
           return (
             <button
               key={t.id}
+              disabled={saving}
               onClick={() => setActiveRoleKey(t.id)}
               style={{
                 display: "flex",
@@ -302,6 +318,7 @@ export const PrivacyPolicyTab = () => {
         })}
       </div>
 
+      {loadError && <div role="alert"><p>{loadError}</p><button type="button" onClick={() => fetchPolicy(activeRoleKey)}>Retry loading policy</button></div>}
       {/* Main Workspace: Editor + Optional Live Preview */}
       <div
         style={{
@@ -312,7 +329,7 @@ export const PrivacyPolicyTab = () => {
         }}
       >
         {/* Editor Column */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        <fieldset disabled={saving || !!loadError} style={{ display: "flex", flexDirection: "column", gap: "20px", border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           {loading ? (
             <div style={{ padding: "40px", textAlign: "center", background: "#ffffff", borderRadius: "16px" }}>
               <p style={{ color: "#64748b", fontSize: "14px" }}>Loading policy data...</p>
@@ -593,10 +610,10 @@ export const PrivacyPolicyTab = () => {
               </div>
             </>
           )}
-        </div>
+        </fieldset>
 
         {/* Live Preview Side Column */}
-        {isPreviewOpen && (
+        {isPreviewOpen && !loadError && policyData.role === activeRoleKey && (
           <div
             style={{
               position: "sticky",

@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { gstApi, gstLabels, gstTransitions } from './gstApi';
+import GstFeeEditor from './GstFeeEditor';
+import GstPaymentPanel from './GstPaymentPanel';
+import './gstPayments.css';
 export default function GstAssistance({ admin = false }) {
   const [row, setRow] = useState(null), [rows, setRows] = useState([]), [filter, setFilter] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [page, setPage] = useState(1);
@@ -13,13 +16,13 @@ export default function GstAssistance({ admin = false }) {
     setError('');
     try { const d = await gstApi(admin, admin ? `?page=${page}&status=${filter}` : '/me'); if (current !== generation.current) return;
       if (admin) { setRows(d.requests); setRow(null); } else setRow(d); resetForm();
-    } catch (e) { if (current !== generation.current) return; if (!admin && e.status === 404) setRow(null); else setError(e.message); }
+    } catch (e) { if (current !== generation.current) return; setError(e.message); }
   }
   useEffect(() => { let active = true; const current = ++generation.current;
     async function initial() {
       try { const data = await gstApi(admin, admin ? `?page=${page}&status=${filter}` : '/me');
         if (active && current === generation.current) { if (admin) { setRows(data.requests); setRow(null); } else setRow(data); resetForm(); setError(''); }
-      } catch (e) { if (active && current === generation.current && e.status !== 404) setError(e.message); }
+      } catch (e) { if (active && current === generation.current) setError(e.message); }
     } void initial(); return () => { active = false; generation.current++; };
   }, [admin, filter, page]);
   async function action(actionName) {
@@ -39,8 +42,9 @@ export default function GstAssistance({ admin = false }) {
     } catch (e) { setError(e.message); }
   }
   if (!admin && !row && !error) return null;
-  return <section style={{ padding: 16, margin: '16px 0', border: '1px solid #d1d5db', borderRadius: 12, overflowWrap: 'anywhere' }} aria-label="GST registration assistance">
+  return <section className="gst-registration-assistance" aria-label="GST registration assistance">
     <h2>GST Registration Assistance</h2>
+    {admin && <GstFeeEditor/>}
     {error && <p role="alert">{error}</p>}
     <button type="button" disabled={busy} onClick={load}>Refresh assistance status</button>
     {admin && <><label>Filter by status<select value={filter} disabled={busy} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All</option>{Object.entries(gstLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
@@ -50,8 +54,9 @@ export default function GstAssistance({ admin = false }) {
     {row && <><h3>{gstLabels[row.status]}</h3><p>{row.details.businessName} · {row.details.contactName} {row.details.contactPhone} · Submitted {new Date(row.submittedAt).toLocaleDateString()}</p>
       <p>{row.details.state} {row.details.pincode}</p><p>{row.details.message}</p>
       <p>Assistance does not grant permission to sell or represent government approval. Vendor onboarding is reviewed separately.</p>
+      <GstPaymentPanel key={`${row._id}:${row.billing?.version || 0}`} row={row} admin={admin} onUpdated={load}/>
       {row.requestedCorrections && <p><strong>Requested next steps:</strong> {row.requestedCorrections}</p>}
-      {row.status === 'pending' && <p>Awaiting a reviewer. You can cancel this pending assistance request.</p>}
+      {row.status === 'pending' && <p>Awaiting a reviewer. {['pending','paid','failed','refunded','partial_refund'].includes(row.billing?.status) ? 'Contact Bulkimart for cancellation or payment review.' : 'You can cancel this pending assistance request.'}</p>}
       {row.status === 'under_review' && <p>A reviewer is assessing your assistance request. Refresh for next steps.</p>}
       {['rejected', 'cancelled'].includes(row.status) && <p>Contact support if you need to submit another request.</p>}
       {row.verification && <p>GSTIN reviewed by admin: {row.verification.gstin}. This workflow does not automatically change your seller GST record.</p>}
@@ -68,7 +73,7 @@ export default function GstAssistance({ admin = false }) {
           <label><input type="checkbox" checked={attested} onChange={e => setAttested(e.target.checked)}/> I independently checked the GSTIN on the official GST portal and attached the actual verification evidence.</label></>}
         <button disabled={busy || !message.trim() || (admin && !status)} onClick={() => action(admin ? 'transition' : 'respond')}>{admin ? 'Save assistance status' : 'Send additional information'}</button>
       </>}
-      {!admin && row.status === 'pending' && <button disabled={busy} onClick={() => action('cancel')}>Cancel pending assistance request</button>}
+      {!admin && row.status === 'pending' && <button disabled={busy || ['pending','paid','failed','refunded','partial_refund'].includes(row.billing?.status)} onClick={() => action('cancel')}>Cancel pending assistance request</button>}
       <h4>Status history</h4><ol>{row.events.map((event, i) => <li key={i}>{new Date(event.at).toLocaleString()} — {event.action}: {gstLabels[event.to]}{event.vendorMessage && <p>{event.vendorMessage}</p>}{admin && event.internalNote && <p>Internal: {event.internalNote}</p>}</li>)}</ol>
     </>}
   </section>;

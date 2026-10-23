@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import GstDecision from '../../../components/gst/GstDecision';
 import GstAssistance from '../../../components/gst/GstAssistance';
 import { gstDecisionValid } from '../../../components/gst/gstApi';
+import { sellerDocumentIssues } from '../utils/onboardingValidation';
 import { useSeller } from '../context/SellerContext';
 import { LocationPicker } from '../../../components/LocationPicker';
 import BrandLogo from '../../../components/BrandLogo';
@@ -90,6 +91,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
 
   const totalSteps = 9;
+  const documentIssues = sellerDocumentIssues({ uploadedDocs, panNumber, gstDecision });
 
   return (
     <div className="seller-main-content">
@@ -565,15 +567,13 @@ export const OnboardingPage = ({ onSubmitted }) => {
               className="primary-onboarding-btn"
               style={{ marginTop: 24 }}
               onClick={() => setOnboardingStep(8)}
-              disabled={!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10 || !gstDecisionValid(gstDecision || {})}
             >
               Continue to Review
             </button>
-            {(!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10) && (
-              <p style={{ fontSize: 11, opacity: 0.6, textAlign: 'center', marginTop: 8 }}>
-                Aadhaar front &amp; back, passbook and a valid 10-character PAN are required.
-              </p>
-            )}
+            {documentIssues.length > 0 && <div role="status"><p>You can review now. Complete these items before final submission:</p><ul>{documentIssues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
+            {!gstDecisionValid(gstDecision || {}) && <p role="status" style={{ fontSize: 13, marginTop: 8 }}>
+              {gstDecision?.choice === 'assistance' ? 'Enter the GST assistance contact name and accept consent above to continue.' : 'Choose your GST registration option to continue.'}
+            </p>}
           </>
         )}
 
@@ -621,12 +621,18 @@ export const OnboardingPage = ({ onSubmitted }) => {
               </div>
             </div>
 
+            <div className="review-summary-card">
+              <div className="review-card-header"><h4 className="review-card-title">GST registration</h4><button className="review-edit-btn" onClick={() => setOnboardingStep(7)}>Edit</button></div>
+              <p>{gstDecision?.choice === 'assistance' ? 'GST assistance requested through Bulkimart. Your request will be submitted with this application and reviewed separately. You can complete registration now.' : gstDecision?.choice === 'has_gstin' ? `GSTIN supplied: ${gstDecision.gstin}` : 'Continuing without a GSTIN.'}</p>
+            </div>
+
             {/* Declaration Checkbox */}
             <label className="onboarding-label" style={{ display: 'flex', gap: 8, fontSize: 11, cursor: 'pointer', margin: '20px 0' }}>
               <input type="checkbox" checked={declarationAccepted} onChange={(event) => setDeclarationAccepted(event.target.checked)} />
               <span>I confirm that the information provided is correct.</span>
             </label>
 
+            {documentIssues.length > 0 && <div role="status"><p>Complete these items before submitting:</p><ul>{documentIssues.map(issue => <li key={issue}>{issue}</li>)}</ul><button type="button" className="secondary-onboarding-btn" onClick={() => setOnboardingStep(7)}>Complete documents and GST details</button></div>}
             {submitError && (
               <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 11,
                             background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)' }}>
@@ -636,7 +642,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button
               className="primary-onboarding-btn"
-              disabled={submitting || !declarationAccepted}
+              disabled={submitting || !declarationAccepted || documentIssues.length > 0}
               onClick={async () => {
                 const res = await submitSellerApplication();
                 if (res.ok) {

@@ -31,7 +31,7 @@ import {
   listRiderPayouts, settleRiderPayout,
   listDeliveryPayoutRequests, completeDeliveryPayoutRequest, rejectDeliveryPayoutRequest,
 } from '../controllers/admin.controller.js';
-import { listReturnPolicies, upsertReturnPolicy } from '../controllers/returnPolicy.controller.js';
+import { listReturnPolicies, upsertReturnPolicy, updateGlobalReturnPolicy } from '../controllers/returnPolicy.controller.js';
 import {
   listReturnsAdmin, getReturnAdmin, updateReturnStatusAdmin,
   processReturnRefundAdmin, codSettleReturnAdmin,
@@ -205,6 +205,7 @@ router.patch('/delivery-payouts/:id/reject', rejectDeliveryPayoutRequest);
 
 // ---- Return & Refund — Category Return Policy (Phase 2 foundation) -----
 router.get('/return-policies', listReturnPolicies);
+router.patch('/return-policies/global', updateGlobalReturnPolicy);
 router.patch('/return-policies/:categoryId', upsertReturnPolicy);
 
 // ---- Return & Refund — item-level Return requests (Phase 4) ------------

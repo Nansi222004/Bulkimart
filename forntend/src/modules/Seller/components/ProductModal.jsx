@@ -162,15 +162,18 @@ export const ProductModal = () => {
   useEffect(() => { resetCategoryPicks(); }, [activeChannel]);
 
   /**
-   * QUICK COMMERCE ONLY — read-only "Category Return Window: N Days" shown
-   * next to the Allow Returns toggle below. Never sets anything; a Seller
-   * cannot configure this number, only see what Admin has already set for
-   * the chosen category (GET /api/products/category-return-policy).
+   * Load the admin category limit for physical retail listings. Sellers may
+   * choose a shorter product window but cannot widen this limit.
    */
-  const showReturnableBlock = activeChannel === 'grocery';
+  const showReturnableBlock = !wholesaleProductEditor && !wholesaleOnly && ['grocery','ecommerce','quick'].includes(activeChannel);
   const [catReturnPolicy, setCatReturnPolicy] = useState(null);
+  const returnChoiceTouched = useRef(false);
+  useEffect(() => { returnChoiceTouched.current = false; }, [showAddProductModal, editingProductId]);
+  const [returnPolicyState, setReturnPolicyState] = useState('idle'), [returnPolicyAttempt, retryReturnPolicy] = useState(0);
   useEffect(() => {
-    if (!showReturnableBlock || !effectiveCategoryId) { setCatReturnPolicy(null); return; }
+    setCatReturnPolicy(null);
+    if (!showReturnableBlock || !effectiveCategoryId) { setReturnPolicyState('idle'); return; }
+    setReturnPolicyState('loading');
     let cancelled = false;
     (async () => {
       try {
@@ -178,13 +181,17 @@ export const ProductModal = () => {
           headers: { Authorization: `Bearer ${localStorage.getItem('sellerToken')}` },
         });
         const body = await res.json();
-        if (!cancelled) setCatReturnPolicy(res.ok ? body.data : null);
+        if (!res.ok || body.success === false || typeof body.data?.eligible !== 'boolean') throw new Error('Unable to check category policy');
+        if (!cancelled) {
+          setCatReturnPolicy(body.data); setReturnPolicyState('ready');
+          if (body.data.source === 'global' && editingProduct && editingProduct.type !== 'grocery' && !editingProduct.returnSettings && !returnChoiceTouched.current) setNewProductForm(form => ({ ...form, returnable: false }));
+        }
       } catch {
-        if (!cancelled) setCatReturnPolicy(null);
+        if (!cancelled) { setCatReturnPolicy(null); setReturnPolicyState('error'); }
       }
     })();
     return () => { cancelled = true; };
-  }, [showReturnableBlock, effectiveCategoryId]);
+  }, [showReturnableBlock, effectiveCategoryId, returnPolicyAttempt]);
 
   // ---- images: one cover + up to 4 typed additional slots -------------------
   const coverInputRef = useRef(null);
@@ -354,6 +361,14 @@ export const ProductModal = () => {
       }
     }
 
+    if (!isDigital && showReturnableBlock && newProductForm.returnable && newProductForm.returnWindowDays !== '' && newProductForm.returnWindowDays != null) {
+      const days = Number(newProductForm.returnWindowDays);
+      if (!Number.isSafeInteger(days) || days <= 0) errs.general.push('Return window must be a positive whole number of days');
+      else if (returnPolicyState === 'error' || returnPolicyState === 'loading') errs.general.push('Check the category return policy before saving a product window');
+      else if (!catReturnPolicy?.eligible) errs.general.push('Admin must enable category or global returns before setting a product window');
+      else if (days > catReturnPolicy.returnWindowDays) errs.general.push(`Return window cannot exceed ${catReturnPolicy.returnWindowDays} days`);
+    }
+
     // Category / Groups validation
     if (!pickL1) {
       errs.groups.push('Please select a header category');
@@ -399,7 +414,7 @@ export const ProductModal = () => {
     }
 
     return errs;
-  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile]);
+  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile, showReturnableBlock, catReturnPolicy, returnPolicyState]);
 
   const allErrors = useMemo(() => Object.values(tabErrors).flat(), [tabErrors]);
   const creationTermsValid = !wholesaleProductEditor || (wholesaleAuthorized && (isEditing || variants.some(v=>v.wholesalePricing?.enabled)) && !variants.some(v=>Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length));
@@ -735,16 +750,25 @@ export const ProductModal = () => {
                   <div className="onboarding-form-group" style={{ border: '1.5px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={Boolean(newProductForm.returnable)}
-                        onChange={(e) => setNewProductForm({ ...newProductForm, returnable: e.target.checked })} />
+                        onChange={(e) => { returnChoiceTouched.current = true; setNewProductForm({ ...newProductForm, returnable: e.target.checked }); }} />
                       <span style={{ fontSize: 12.5, fontWeight: 800 }}>↩️ Allow Returns</span>
                     </label>
                     <div style={{ marginTop: 8, marginLeft: 26, fontSize: 11, color: 'var(--text-secondary)' }}>
                       {!effectiveCategoryId
                         ? 'Pick a category to see its return window.'
+                        : returnPolicyState === 'loading' ? 'Checking the category return window…'
+                        : returnPolicyState === 'error' ? <span role="alert">Category return policy could not be checked. <button type="button" onClick={() => retryReturnPolicy(n => n + 1)}>Retry return policy</button></span>
                         : catReturnPolicy?.eligible
-                          ? `Category Return Window: ${catReturnPolicy.returnWindowDays} Day(s)`
-                          : 'This category has no active return window set by Admin — items stay non-returnable either way.'}
+                          ? `${catReturnPolicy.source === 'global' ? 'Global' : 'Category'} limit: ${catReturnPolicy.returnWindowDays} days. Choose your product window below.`
+                          : 'No return window is available. Admin can set a category policy or enable the global default.'}
                     </div>
+                    {newProductForm.returnable && <label className="onboarding-label" style={{ marginTop: 10 }}>Return window (days after delivery)
+                      <input className="onboarding-input" type="number" min="1" step="1" max={catReturnPolicy?.returnWindowDays || undefined}
+                        disabled={returnPolicyState !== 'ready' || !catReturnPolicy?.eligible}
+                        placeholder={catReturnPolicy?.eligible ? `Use ${catReturnPolicy.source === 'global' ? 'global' : 'category'} default (${catReturnPolicy.returnWindowDays} days)` : 'Set an active category or global window first'}
+                        value={newProductForm.returnWindowDays ?? ''} onChange={e => setNewProductForm({ ...newProductForm, returnWindowDays: e.target.value })}/>
+                    </label>}
+                    <p style={{ fontSize: 11, marginTop: 8 }} role="status">{!newProductForm.returnable ? 'Customers will see: Non-Returnable.' : catReturnPolicy?.eligible ? `Customers will see: ${Math.min(Number(newProductForm.returnWindowDays) || catReturnPolicy.returnWindowDays, catReturnPolicy.returnWindowDays)} days return available. Existing orders keep their original policy.` : 'Returns require an active category policy or global default.'}</p>
                   </div>
                 )}
 

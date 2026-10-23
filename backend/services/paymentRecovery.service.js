@@ -112,7 +112,8 @@ const markRefund = async (paymentId, key, token, actor, status, result) => {
 };
 
 export const processRefundObligation = async ({ paymentId, key, actor, reconcile = false, providerRefundId }) => {
-  const purpose = await Payment.findById(paymentId).select('serviceApplicationId parcelDeliveryId advertising');
+  const purpose = await Payment.findById(paymentId).select('serviceApplicationId parcelDeliveryId gstAssistanceRequestId advertising');
+  if (purpose?.gstAssistanceRequestId) { const { requireGstGateway } = await import('./gstPayment.service.js'); requireGstGateway(); }
   if (purpose?.advertising) throw httpError(409, 'Use advertising refund reconciliation for this payment');
   if (purpose?.parcelDeliveryId) { const { requireParcelGateway } = await import('./parcelPolicy.service.js'); requireParcelGateway('refunds'); }
   if (purpose?.serviceApplicationId) { const { requireLegalGateway } = await import('./legalPolicy.service.js'); requireLegalGateway('refunds'); }
@@ -244,7 +245,8 @@ export const ensureReturnObligation = async (paymentId, ret, amountPaise) => {
 
 export const reconcileCreationAttempt = async ({ paymentId, key, actor, gatewayOrderId }) => {
   validateRecoveryInput(paymentId, key);
-  const purpose = await Payment.findById(paymentId).select('serviceApplicationId parcelDeliveryId advertising');
+  const purpose = await Payment.findById(paymentId).select('serviceApplicationId parcelDeliveryId gstAssistanceRequestId advertising');
+  if (purpose?.gstAssistanceRequestId) { const { requireGstGateway } = await import('./gstPayment.service.js'); requireGstGateway(); }
   if (purpose?.advertising) throw httpError(409, 'Use advertising order reconciliation for this payment');
   if (purpose?.parcelDeliveryId) { const { requireParcelGateway } = await import('./parcelPolicy.service.js'); requireParcelGateway(); }
   if (purpose?.serviceApplicationId) { const { requireLegalGateway } = await import('./legalPolicy.service.js'); requireLegalGateway(); }
@@ -256,7 +258,7 @@ export const reconcileCreationAttempt = async ({ paymentId, key, actor, gatewayO
     const client = recoveryClient();
     if (!attempt.merchantOrderId) throw conflict('Attempt has no persisted receipt; manual provider investigation required');
     const candidates = gatewayOrderId ? [await client.orders.fetch(gatewayOrderId)] : await providerRows(page => client.orders.all({ ...page, receipt: attempt.merchantOrderId.slice(0, 40) }));
-    const associated = row => payment.parcelDeliveryId ? row.notes?.parcelDeliveryId === String(payment.parcelDeliveryId) && row.notes?.quotationVersion === String(payment.quotationVersion) : payment.serviceApplicationId ? row.notes?.legalRequestId === String(payment.serviceApplicationId) && row.notes?.quotationVersion === String(payment.quotationVersion) : row.notes?.bulkimartOrderId === String(attempt.orderId);
+    const associated = row => payment.gstAssistanceRequestId ? row.notes?.gstAssistanceRequestId === String(payment.gstAssistanceRequestId) && row.notes?.quotationVersion === String(payment.quotationVersion) : payment.parcelDeliveryId ? row.notes?.parcelDeliveryId === String(payment.parcelDeliveryId) && row.notes?.quotationVersion === String(payment.quotationVersion) : payment.serviceApplicationId ? row.notes?.legalRequestId === String(payment.serviceApplicationId) && row.notes?.quotationVersion === String(payment.quotationVersion) : row.notes?.bulkimartOrderId === String(attempt.orderId);
     const matches = candidates.filter(row => row.receipt === attempt.merchantOrderId.slice(0, 40) && row.notes?.merchantOrderId === attempt.merchantOrderId && associated(row));
     if (matches.length !== 1) throw conflict('Provider absence or ambiguity is not conclusive; attempt remains blocked');
     const found = await client.orders.fetch(matches[0].id);

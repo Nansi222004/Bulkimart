@@ -1,0 +1,24 @@
+.gst-decision {
+  min-width: 0;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #cbdde9;
+  border-radius: 12px;
+  background: #fff;
+  color: #172b4d;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.gst-decision legend { padding: 0 6px; font-size: 16px; font-weight: 700; }
+.gst-decision p { margin: 8px 0; }
+.gst-decision > label,
+.gst-decision section > label { display: block; margin: 6px 0; }
+.gst-decision input[type=radio],
+.gst-decision input[type=checkbox] { width: auto; margin: 0 8px 0 0; accent-color: #078ccb; }
+.gst-decision section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+.gst-decision h4 { margin: 0 0 8px; }
+.gst-decision .onboarding-input,
+.gst-decision .onboarding-textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; }
+.gst-decision-notice { padding: 12px; border-radius: 8px; background: #eaf9fe; color: #075b77; }
+.gst-decision :focus-visible { outline: 3px solid #078ccb; outline-offset: 3px; }

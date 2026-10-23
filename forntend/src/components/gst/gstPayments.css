@@ -1,0 +1,10 @@
+.gst-registration-assistance { padding: 16px; margin: 16px 0; border: 1px solid #d1dfe8; border-radius: 12px; background: #fff; color: #172b4d; overflow-wrap: anywhere; }
+.gst-registration-assistance .gst-payment-panel,
+.gst-registration-assistance .gst-fee-editor form { padding: 16px; margin: 16px 0; border: 1px solid #cbe4ed; border-radius: 10px; background: #f5fbfe; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) { font-size: 14px; line-height: 1.6; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) h4 { margin: 0 0 8px; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) label { display: block; margin: 12px 0; }
+.gst-registration-assistance .gst-fee-editor :is(input, textarea) { display: block; box-sizing: border-box; width: 100%; min-width: 0; margin-top: 6px; padding: 10px; border: 1px solid #b6ccd9; border-radius: 8px; font: inherit; background: #fff; color: inherit; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) button { box-sizing: border-box; min-height: 44px; max-width: 100%; margin: 6px 8px 6px 0; padding: 10px 14px; border: 1px solid #078ccb; border-radius: 8px; background: #078ccb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: normal; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) button:disabled { opacity: .5; cursor: default; }
+.gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) :focus-visible { outline: 3px solid #ed8719; outline-offset: 3px; }

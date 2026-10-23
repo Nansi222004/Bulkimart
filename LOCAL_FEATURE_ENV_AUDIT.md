@@ -52,7 +52,7 @@ LEGAL_SERVICES_PAYOUTS_ENABLED=true
 QUICK_SHIPROCKET_SELLER_COLLECTION_ENABLED=true
 ```
 
-Advertising telemetry now has a generated local signing secret and a 30-day event retention setting. Existing credentials were preserved. `ADVERTISING_PRODUCTION_ENABLED` was not enabled: this request is for local testing. `GST_ASSISTANCE_ENABLED` also remains unset, outside the additional features requested.
+Advertising telemetry now has a generated local signing secret and a 30-day event retention setting. Existing credentials were preserved. `ADVERTISING_PRODUCTION_ENABLED` was not enabled: this request is for local testing. GST assistance was subsequently enabled locally with `GST_ASSISTANCE_ENABLED=true` for seller onboarding. Production GST intake additionally requires `GST_ASSISTANCE_PRODUCTION_ENABLED=true` on the deployed backend.
 
 Verification after reloading the development server:
 
@@ -71,7 +71,7 @@ No payment, payout or seller-fee collection was executed to verify these setting
 | Feature | Environment controls | Additional requirements |
 | --- | --- | --- |
 | Image search | `IMAGE_SEARCH_ENABLED` | Catalogue image index |
-| GST assistance | `GST_ASSISTANCE_ENABLED` | Supported non-production environment |
+| GST assistance | `GST_ASSISTANCE_ENABLED` | Enabled locally; production also requires `GST_ASSISTANCE_PRODUCTION_ENABLED=true` |
 | Finance snapshots | `FINANCE_SNAPSHOTS_ENABLED` | Snapshot/policy configuration |
 | Finance operations | `FINANCE_OPERATIONS_ENABLED` | Policy and E2E approval references |
 | Finance payouts | `FINANCE_PAYOUTS_ENABLED` | Policy and E2E approval references and applicable settlement checks |

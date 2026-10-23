@@ -1,9 +1,11 @@
 import GstRequest from '../models/GstAssistanceRequest.js';
 import { httpError } from '../utils/response.js';
+import { currentGstFee } from './gstFee.service.js';
 export const gstAssistanceCapabilities = () => {
   const production = ['NODE_ENV', 'DEPLOYMENT_ENV', 'APP_ENV', 'VERCEL_ENV', 'RENDER_ENV'].some(k =>
     ['prod', 'production', 'deployment-production'].includes(String(process.env[k] || '').trim().toLowerCase()));
-  return { enabled: process.env.GST_ASSISTANCE_ENABLED === 'true' && !production, productionBlocked: production };
+  const productionBlocked = production && process.env.GST_ASSISTANCE_PRODUCTION_ENABLED !== 'true';
+  return { enabled: process.env.GST_ASSISTANCE_ENABLED === 'true' && !productionBlocked, productionBlocked };
 };
 export function requireGstAssistance() {
   if (!gstAssistanceCapabilities().enabled) throw httpError(503, 'GST assistance is not enabled for this environment');
@@ -37,11 +39,13 @@ export async function createGstRequest(seller, choice, session) {
   }
   if (!seller.businessName || !seller.storeDetails?.state || !seller.storeDetails?.pincode) throw httpError(400, 'Complete business details, state and pincode before requesting assistance');
   const now = new Date();
+  const fee = await currentGstFee(session);
   const [created] = await GstRequest.create([{ _id: seller._id, vendorId: seller._id, userId: seller.userId,
     gstinStatusAtSubmission: 'not_provided', gstinAtSubmission: '',
     details: { contactName: choice.contactName, contactPhone: choice.contactPhone, message: choice.message, businessName: seller.businessName,
       businessType: seller.businessType, state: seller.storeDetails.state, pincode: seller.storeDetails.pincode },
     consent: { accepted: true, version: 'gst-assistance-v1', acceptedAt: now }, submittedAt: now,
+    ...(fee ? { billing: { ...fee, status: 'unpaid' } } : {}),
     events: [{ action: 'submitted', to: 'pending', actorType: 'vendor', actorId: seller.userId, at: now }],
   }], { session });
   return { row: created, created: true };
@@ -53,6 +57,7 @@ export function gstRequestDTO(row, admin = false) {
     requestedCorrections: r.requestedCorrections, verification: r.verification ? { gstin: r.verification.gstin, verifiedAt: r.verification.verifiedAt } : undefined,
     files: r.files.filter(f => admin || f.kind !== 'verification_evidence').map(f => ({ fileId: f.fileId, name: f.name, sizeBytes: f.sizeBytes, kind: f.kind, uploadedAt: f.uploadedAt })),
     events: r.events.map(e => admin ? e : { action: e.action, from: e.from, to: e.to, at: e.at, vendorMessage: e.vendorMessage }) };
+  if (r.billing) dto.billing = { amountPaise: r.billing.amountPaise, currency: r.billing.currency, terms: r.billing.terms, version: r.billing.version, status: r.billing.status, reviewRequired: r.billing.reviewRequired };
   if (admin) Object.assign(dto, { userId: r.userId, reviewerId: r.reviewerId, verification: r.verification });
   return dto;
 }

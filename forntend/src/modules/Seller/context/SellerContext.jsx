@@ -1,6 +1,6 @@
 import { payoutIntent } from '../utils/payoutIntent';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import { gstDecisionValid } from '../../../components/gst/gstApi';
+import { sellerDocumentIssues } from '../utils/onboardingValidation';
 import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import { readSellerFinances } from '../utils/sellerFinanceRead';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
@@ -218,11 +218,9 @@ export const SellerProvider = ({ children }) => {
     // Same-Day is off unless the seller says otherwise — Shop All listings only.
     sameDayEnabled: false,
     processingMinutes: '',
-    // Quick Commerce only — whether THIS product accepts returns at all.
-    // The return WINDOW itself is never seller-controlled; it always comes
-    // from Admin's Category Return Policy (see platformLimits/category
-    // fetch in ProductModal.jsx for the read-only display of that number).
+    // Seller return preference; a blank window uses the category default.
     returnable: false,
+    returnWindowDays: '',
   });
 
   const [payoutAmount, setPayoutAmount] = useState('');
@@ -340,7 +338,8 @@ export const SellerProvider = ({ children }) => {
         : [{ name: 'Default', price: raw.price ?? '', mrp: raw.mrp ?? '', stock: raw.stock ?? '', unit: raw.unit || 'piece', weight: raw.weight ?? '' }],
       sameDayEnabled: Boolean(raw.sameDay?.enabled),
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
-      returnable: Boolean(raw.returnable),
+      returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
+      returnWindowDays: raw.returnSettings?.windowDays ?? '',
     });
     setShowAddProductModal(true);
   };
@@ -442,8 +441,9 @@ export const SellerProvider = ({ children }) => {
       // Quick Commerce only — the backend ignores this for any other
       // channel, but it's kept off the request entirely here too, so an
       // E-commerce/SHG edit's request body is unchanged by this feature.
-      if ((editingProduct?.type || activeChannel) === 'grocery') {
+      if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(editingProduct?.type || activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
+        fd.append('returnWindowDays', form.returnable ? (form.returnWindowDays ?? '') : '');
       }
 
       if (Array.isArray(actualFiles) && actualFiles.length > 0) {
@@ -1181,7 +1181,8 @@ export const SellerProvider = ({ children }) => {
 
     try {
       const salesChannels = selectedModesToChannels(selectedTypes);
-      if (!gstDecisionValid(gstDecision)) throw new Error('Complete the GSTIN choice and any required assistance consent before submitting.');
+      const missing = sellerDocumentIssues({ uploadedDocs, panNumber, gstDecision });
+      if (missing.length) throw new Error(missing.join('. ') + '.');
       await call('/api/sellers/start', {
         method: 'POST',
         headers: JSON_H,
@@ -1346,8 +1347,9 @@ export const SellerProvider = ({ children }) => {
       }
 
       // Quick Commerce only — see the identical guard in submitProductEdit.
-      if (form.fulfillmentType !== 'digital' && activeChannel === 'grocery') {
+      if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
+        fd.append('returnWindowDays', form.returnable ? (form.returnWindowDays ?? '') : '');
       }
 
       files.forEach(({ file }) => fd.append('images', file));
