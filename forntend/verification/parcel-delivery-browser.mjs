@@ -12,15 +12,17 @@ const id='507f1f77bcf86cd799439022',qid='507f1f77bcf86cd799439023',pid='507f1f77
 const address={address:'Synthetic test street',name:'Synthetic contact',phone:'9876500011',pincode:'560001',lat:12.97,lng:77.59};
 const policy={version:1,terms:'Synthetic approved terms: cancellation and failure require admin review.',categories:['test_documents'],prohibitedItems:['synthetic_restricted'],areas:[{name:'Synthetic test area',pincodes:['560001']}],maxWeightKg:5,maxDimensionCm:50,payDriverEnabled:true,payDriverCategories:['test_documents'],cashCollectionPoint:'delivery',ready:true};
 const fresh=()=>({_id:id,reference:'PD-BROWSER-FIXTURE',version:1,policyVersion:1,status:'needs_admin_assignment',paymentMethod:'pay_driver',paymentStatus:'cash_due',feePaise:2040,details:{pickup:address,dropoff:address,category:'test_documents',weightKg:1},cash:{status:'outstanding',amountPaise:0},finance:{held:true,earningPaise:1020},history:[],refund:{status:'none'},assignment:{reason:'no_eligible_driver',attempts:[]}});
-let b=fresh(),lastQuote=null,writes=0,verifications=0,failNext=false;
+let b=fresh(),lastQuote=null,writes=0,verifications=0,failNext=false,parcelEnabled=true,catalogueReads=0;
 const reply=(res,data,status=200,meta={page:1,pages:1,total:1})=>{res.statusCode=status;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:status<400,data,meta,...(status>=400?{message:'Synthetic request error; retry safely'}:{})}));};
 const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""','import.meta.env.VITE_API_URL':'""'},cacheDir:join(temp,'vite-cache'),server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'isolated-parcel-browser-fixtures',configureServer(server){server.middlewares.use(async(req,res,next)=>{
   if(req.url.startsWith('/api/')){
     const url=new URL(req.url,'http://fixture'),p=url.pathname,write=req.method!=='GET';let input={};
     if(write){writes++;let raw='';for await(const chunk of req)raw+=chunk;input=raw?JSON.parse(raw):{};}
     if(failNext){failNext=false;return reply(res,null,503);}
-    if(p==='/api/parcel-delivery/capabilities')return reply(res,{catalogue:true,booking:true,online_payment:true,pay_driver:true,fulfilment:true,productionBlocked:false});
-    if(p==='/api/parcel-delivery/catalogue')return reply(res,policy);
+    if(p==='/api/parcel-delivery/capabilities')return reply(res,{catalogue:parcelEnabled,booking:parcelEnabled,auto_assignment:true,admin_fallback:true,online_payment:true,pay_driver:true,fulfilment:true,productionBlocked:false});
+    if(p==='/api/parcel-delivery/catalogue'){catalogueReads++;return reply(res,policy);}
+    if(p==='/api/customer-services/capabilities')return reply(res,{catalogue:true});
+    if(p==='/api/customer-services')return reply(res,[{_id:id}]);
     if(p==='/api/users/addresses')return reply(res,[]);
     if(p==='/api/admin/parcel-delivery/policy')return reply(res,null);
     if(p==='/api/parcel-delivery/quotes'){lastQuote=input;return reply(res,{_id:qid,expiresAt:new Date(Date.now()+300000),details:input,pricing:{policyVersion:1,totalPaise:2040,distanceMetres:5200},terms:policy.terms},201);}
@@ -63,6 +65,16 @@ try{
   socket.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p?.reject(Error(m.error.message)):p?.resolve(m.result);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text);if(m.method==='Fetch.requestPaused'){const local=new URL(m.params.request.url).origin===origin;command(local?'Fetch.continueRequest':'Fetch.failRequest',{requestId:m.params.requestId,...(local?{}:{errorReason:'BlockedByClient'})}).catch(e=>errors.push(e.message));}});
   await command('Page.enable');await command('Runtime.enable');await command('Network.enable');await command('Fetch.enable',{patterns:[{urlPattern:'*'}]});
   await navigate('/parcel-delivery/book?guest=1');await waitText('Sign in to Bulkimart');assert.equal(await evaluate('document.querySelectorAll("input").length'),0);
+  parcelEnabled=false;
+  await navigate('/parcel-delivery/book');await waitText('Parcel booking is currently unavailable');assert.equal(catalogueReads,0);assert.equal(await evaluate('document.querySelectorAll("form").length'),0);
+  for(const width of [320,1440]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<768});
+    await navigate('/parcel-delivery/book?cards=1');await waitText('Browse Legal Services');await waitText('New deliveries are currently unavailable');
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);
+    assert.equal(await evaluate(`[...document.querySelectorAll('.customer-service-card a')].every(a=>getComputedStyle(a).textDecorationLine==='none'&&a.getBoundingClientRect().height>=44)`),true);
+    assert.equal(await evaluate(`document.querySelector('a[href="/parcel-delivery/book"]').textContent`),'Send a Parcel');
+  }
+  assert.equal(catalogueReads,0);parcelEnabled=true;
   for(const width of [320,375,430,768,1440]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<768});
     b=fresh();for(const [path,text] of [['/parcel-delivery/book','Calculate delivery fee'],['/parcel-delivery/history','PD-BROWSER-FIXTURE'],[`/parcel-delivery/track/${id}`,'needs admin assignment'],['/delivery/parcels','PD-BROWSER-FIXTURE'],['/admin/parcel-delivery','PD-BROWSER-FIXTURE']]){await navigate(path);await waitText(text);assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true,`Overflow ${width} ${path}`);views.push({width,path});

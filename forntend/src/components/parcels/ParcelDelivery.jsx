@@ -6,6 +6,7 @@ import { boundedFetch } from '../../utils/portalRequests';
 import { openRazorpayCheckout } from '../../utils/razorpayCheckout';
 import './parcels.css';
 import CustomerServiceHeading from '../services/CustomerServiceHeading';
+import { parcelBookingEnabled, parcelBookingReady } from './parcelAvailability';
 export function ParcelCustomerEntry() {
   const session=useContext(CustomerSessionContext);
   return session?.verified?<ParcelDelivery/>:<section className="parcel-workspace customer-service-page"><CustomerServiceHeading parcel><p>Book a pickup and delivery for your parcel.</p></CustomerServiceHeading><section className="parcel-card customer-service-state"><h2>Sign in to send a parcel</h2><p>Sign in to book a parcel or view your private delivery history.</p><a className="customer-service-action" href="/account">Sign in to Bulkimart</a></section></section>;
@@ -47,9 +48,14 @@ export default function ParcelDelivery() {
           setRows(b.data);setMeta(b.meta);
         }
       } else {
-        const [f,p]=await Promise.all([request('customer','/capabilities',{signal:c.signal}),request('customer','/catalogue',{signal:c.signal})]);
+        const f=await request('customer','/capabilities',{signal:c.signal});
         if(c.signal.aborted)return;
-        setFlags(f.data||{});setPolicy(p.data&&Array.isArray(p.data.areas)&&Array.isArray(p.data.categories)&&Array.isArray(p.data.prohibitedItems)?p.data:null);
+        if(typeof f.data?.catalogue!=='boolean')throw new Error('Unable to check parcel availability. Please try again.');
+        setFlags(f.data);setPolicy(null);
+        // A disabled service is an availability state, not a failed catalogue request.
+        const p=parcelBookingEnabled(f.data)?await request('customer','/catalogue',{signal:c.signal}):null;
+        if(c.signal.aborted)return;
+        setPolicy(p?.data&&Array.isArray(p.data.areas)&&Array.isArray(p.data.categories)&&Array.isArray(p.data.prohibitedItems)?p.data:null);
       }
       setLoadedKey(readKey);
     }
@@ -67,7 +73,7 @@ export default function ParcelDelivery() {
   if(readError)return shell(<section className="parcel-card"><h2>{track?'Unable to load parcel tracking':history?'Unable to load parcel history':'Unable to load parcel delivery'}</h2><p role="alert" className="parcel-error">{readError}</p>{retryRead}{history&&loadedKey===readKey&&rows.length>0&&<><p>Previously loaded deliveries. Refresh failed; statuses may be outdated.</p>{rows.map(b=><button className="parcel-row" key={b._id} onClick={()=>nav('/parcel-delivery/track/'+b._id)}>{b.reference} · {label(b.status)} · {money(b.feePaise)}</button>)}</>}</section>);
   if(track&&(loadedKey!==readKey||!booking))return shell(<section className="parcel-card"><h2>Parcel tracking unavailable</h2><p>This booking is unavailable or could not be found for your account.</p>{retryRead}</section>);
   return <section className="parcel-workspace customer-service-page"><CustomerServiceHeading parcel><p>Your parcel, collected and delivered by a Bulkimart delivery partner.</p></CustomerServiceHeading><nav><button onClick={()=>nav('/parcel-delivery/book')}>New booking</button><button onClick={()=>nav('/parcel-delivery/history')}>Delivery history</button><button disabled={busy} onClick={()=>refresh(x=>x+1)}>Refresh status</button></nav>
-    {error&&<p role="alert" className="parcel-error">{error}</p>}{notice&&<p role="status">{notice}</p>}{loading?<p role="status">Loading parcel delivery…</p>:!track&&!history&&(!policy||!flags.booking||flags.productionBlocked)?<section className="parcel-card"><h2>Parcel booking is currently unavailable</h2><p>Service areas and booking availability will appear here when the service opens.</p></section>:track&&booking?<>
+    {error&&<p role="alert" className="parcel-error">{error}</p>}{notice&&<p role="status">{notice}</p>}{loading?<p role="status">Loading parcel delivery…</p>:!track&&!history&&!parcelBookingReady(flags,policy)?<section className="parcel-card customer-service-state"><h2>Parcel booking is currently unavailable</h2><p role="status">We’re not accepting new parcel deliveries right now. Please check back later.</p><p>You can still view and track your existing deliveries from Delivery history.</p><button onClick={()=>refresh(x=>x+1)}>Check availability</button><a className="customer-service-action" href="/grocery-home">Back to shopping</a></section>:track&&booking?<>
       <section className="parcel-card"><h2>{booking.reference}</h2><strong>{label(booking.status)}</strong><p>{money(booking.feePaise)} · {label(booking.paymentMethod)} · {label(booking.paymentStatus)}</p><p>Cash: {label(booking.cash.status)} · Refund: {label(booking.refund.status)}</p>{booking.pickupCode&&<p>Pickup code: <strong>{booking.pickupCode}</strong>. Share only at pickup.</p>}{booking.deliveryCode&&<p>Delivery code: <strong>{booking.deliveryCode}</strong>. Share with the recipient only when the parcel arrives.</p>}<p>{booking.details.pickup.address} → {booking.details.dropoff.address}</p></section>
       {booking.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(booking.status)&&<section className="parcel-card"><p>Payment is confirmed only after server verification.</p><button disabled={busy} onClick={()=>run(async()=>{const c=await request('customer',`/bookings/${track}/payment`,{method:'POST',headers:{'Idempotency-Key':paymentKey.current},body:JSON.stringify({policyVersion:booking.policyVersion,acceptTerms:true})});const result=await openRazorpayCheckout(c.data,parcelHeaders('customer'));setNotice(result.ok?'Payment verified. Driver search will begin.':result.message);refresh(x=>x+1);})}>Pay {money(booking.feePaise)} online</button><button disabled={busy} onClick={()=>action('payment-status',{})}>Check payment status</button></section>}
       {!['cancelled','delivered','cancellation_review'].includes(booking.status)&&<form className="parcel-card" onSubmit={e=>{e.preventDefault();action('cancellation',{version:booking.version,reason:new FormData(e.currentTarget).get('reason')});}}><label>Cancellation reason<input name="reason" required maxLength={500}/></label><p>Cancellation and any refund are reviewed under the accepted terms.</p><button disabled={busy}>Request cancellation review</button></form>}<ParcelTimeline events={booking.history}/>

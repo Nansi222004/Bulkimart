@@ -22,4 +22,39 @@ test('legal entry enabled destination and disabled/error states',async()=>{const
 test('home mounts two independent cards with separate capabilities',()=>{const h=hookHarness(ui.HomeServiceEntries);try{assert.ok(h.find(n=>n.type===ui.LegalServiceCard));assert.ok(h.find(n=>n.type===ui.ParcelServiceCard));}finally{h.close();}});
 import {readFile} from 'node:fs/promises';
 test('home keeps separate cards in existing Quick Home and Shop All discovery area',async()=>{const s=await readFile(new URL('../src/modules/User/pages/LandingPage.jsx',import.meta.url),'utf8');assert.match(s,/activeMode === 'shop-all' \|\| activeSubNav === 'grocery--home'/);assert.match(s,/<QuickActions \/>\s*<HomeServiceEntries \/>/);assert.match(s,/<BottomNav \/>/);for(const nav of ['categories','orders','cart','checkout','legal-services'])assert.ok(s.includes("case '"+nav+"':"));});
-test('booking without policy renders unavailable safely',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/book');try{for(const r of h.requests){r.resolve({data:r.url.includes('capabilities')?{booking:true}:null});}await h.settle();assert.ok(has(h,'Parcel booking is currently unavailable'));noForm(h);}finally{h.close();}});
+test('booking without policy renders unavailable safely',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/book');try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();h.requests.find(r=>r.url.endsWith('/catalogue')).resolve({data:null});await h.settle();assert.ok(has(h,'Parcel booking is currently unavailable'));noForm(h);}finally{h.close();}});
+
+const enabledFlags={catalogue:true,booking:true,auto_assignment:true,admin_fallback:true,fulfilment:true,online_payment:true,pay_driver:false,productionBlocked:false};
+const readyPolicy={ready:true,areas:[{name:'Test area'}],categories:['documents'],prohibitedItems:[]};
+test('disabled catalogue shows availability without requesting the disabled endpoint',async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book');
+  try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:{catalogue:false}});await h.settle();
+    assert.ok(has(h,'Parcel booking is currently unavailable'));noForm(h);
+    assert.equal(h.requests.some(r=>r.url.endsWith('/catalogue')),false);
+    assert.equal(has(h,'Unable to load parcel delivery'),undefined);
+    h.click('Check availability');h.requests.findLast(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();
+    h.requests.findLast(r=>r.url.endsWith('/catalogue')).resolve({data:readyPolicy});await h.settle();
+    assert.ok(h.find(n=>n.type==='form'));
+  }finally{h.close();}
+});
+for(const override of [{fulfilment:false},{admin_fallback:false},{productionBlocked:true},{online_payment:false}])test('booking respects dispatch, production and payment prerequisites '+JSON.stringify(override),async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book');
+  try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:{...enabledFlags,...override}});await h.settle();
+    noForm(h);assert.ok(has(h,'Parcel booking is currently unavailable'));assert.equal(h.requests.some(r=>r.url.endsWith('/catalogue')),false);
+  }finally{h.close();}
+});
+test('ineffective policy never opens the booking form',async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book');
+  try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();
+    h.requests.find(r=>r.url.endsWith('/catalogue')).resolve({data:{...readyPolicy,ready:false}});await h.settle();
+    noForm(h);assert.ok(has(h,'Parcel booking is currently unavailable'));
+  }finally{h.close();}
+});
+test('parcel card offers a usable service link while booking is disabled',async()=>{
+  const h=hookHarness(ui.ParcelServiceCard);
+  try{h.requests[0].resolve({data:{catalogue:false}});await h.settle();
+    assert.ok(h.find(n=>n.props?.href==='/parcel-delivery/book'&&n.props.children==='Send a Parcel'));
+    assert.ok(h.find(n=>n.props?.href==='/parcel-delivery/history'));
+    assert.equal(h.requests.length,1);assert.ok(has(h,'currently unavailable'));
+  }finally{h.close();}
+});

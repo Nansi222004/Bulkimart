@@ -3,6 +3,7 @@ import { Package, BriefcaseBusiness } from 'lucide-react';
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import LegalServices from './LegalServices';
+import { parcelBookingEnabled, parcelBookingReady } from '../parcels/parcelAvailability';
 import './customerServices.css';
 
 export function ServicesDiscovery() {
@@ -53,16 +54,16 @@ export function ParcelServiceCard() {
       };
       const f = await get('capabilities');
       if (!f || typeof f.catalogue !== 'boolean') throw new Error('Invalid capabilities');
-      const enabled = ['catalogue','booking','auto_assignment','admin_fallback','fulfilment'].every(k => f[k] === true) && f.productionBlocked === false && (f.online_payment === true || f.pay_driver === true);
+      const enabled = parcelBookingEnabled(f);
       const policy = enabled ? await get('catalogue') : null;
-      if (!c.signal.aborted) setState(enabled && policy?.ready === true && (f.online_payment || (policy.payDriverEnabled && policy.payDriverCategories?.length)) ? 'enabled' : 'disabled');
+      if (!c.signal.aborted) setState(parcelBookingReady(f, policy) ? 'enabled' : 'disabled');
     }
     load().catch(() => { if (!c.signal.aborted) setState('error'); });
     return () => c.abort();
   }, [attempt]);
-  return <article className="customer-service-card"><Package aria-hidden="true"/><h2>Send a Parcel</h2><p>Arrange pickup and delivery of a standalone parcel.</p>
-    {state === 'loading' ? <p role="status">Checking parcel availability…</p> : state === 'enabled' ? <a className="service-book" href="/parcel-delivery/book">Book a Parcel</a> : state === 'error' ? <p role="alert">Parcel availability could not be checked. <button onClick={() => retry(n => n + 1)}>Retry parcel availability</button></p> : <><p role="status">Coming soon · Booking is currently unavailable.</p><button disabled>Book a Parcel</button></>}
-    <a href="/parcel-delivery/history">My parcel deliveries</a>
+  return <article className="customer-service-card"><Package aria-hidden="true"/><h2>Parcel Delivery</h2><p>Have a parcel picked up and delivered to your recipient.</p>
+    {state === 'loading' ? <p role="status">Checking parcel availability…</p> : state === 'enabled' ? <p role="status">Ready to send? Get a delivery fee before confirming.</p> : state === 'error' ? <p role="alert">Parcel availability could not be checked. <button onClick={() => retry(n => n + 1)}>Retry parcel availability</button></p> : <p role="status">New deliveries are currently unavailable. You can still view your delivery history.</p>}
+    <div className="customer-service-actions"><a className="service-book" href="/parcel-delivery/book">Send a Parcel</a><a href="/parcel-delivery/history">Delivery history</a></div>
   </article>;
 }
 
