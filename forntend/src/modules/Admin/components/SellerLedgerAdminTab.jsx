@@ -26,42 +26,40 @@ export default function SellerLedgerAdminTab({ view = 'earnings' }) {
   };
   useEffect(() => { load(); }, [view]);
   const settle = withLock(async (payout) => {
-    const ref = await ui.collect('Enter the confirmed bank transaction reference. This must only be done after the transfer succeeds.', {title:'Bank transaction reference', inputLabel:'Transaction reference'});
+    const ref = await ui.collect('Send the money from Bulkimart’s bank first. Then enter the bank reference (UTR) from your bank statement, e.g. 412345678901.', {title:'Bank reference (UTR)', inputLabel:'Bank reference'});
     if (ref === null) return;
-    const reason = await ui.collect('Describe the independent bank verification evidence.', { title: 'Reconciliation evidence', inputLabel: 'Verification reason' });
+    const reason = await ui.collect('How did you confirm the transfer succeeded? e.g. “Seen as debited in HDFC statement on 23 Oct”.', { title: 'How you confirmed it', inputLabel: 'Confirmation note' });
     if (reason === null) return;
-    return ui.perform({title:'Record this payout as paid?',message:`Reconcile ${payout.payoutRef} · ${money(payout.amount)} INR · ${payout.storeName || payout.sellerId?._id || payout.sellerId} · account ending ${payout.destination?.accountLast4 || 'verified UPI destination'} · verification process ${payout.beneficiaryVerification?.processVersion || 'unverified'} using ${ref}? Only confirm after the external bank transfer has succeeded.`,confirmLabel:'Record as paid'}, async () => {
+    return ui.perform({title:'Mark this payout as paid?',message:`${payout.payoutRef} · ${money(payout.amount)} to ${payout.storeName || payout.sellerId?._id || payout.sellerId} · account ending ${payout.destination?.accountLast4 || 'UPI'} · bank reference ${ref}. Only confirm after the money has left Bulkimart’s account.`,confirmLabel:'Mark as paid'}, async () => {
       await adminPatch(`/vendor-payouts/${payout._id}/settle`, {transactionRef:ref, reason, verified:true});
       await load();
     });
   });
   const reject = withLock(async payout => {
-    const reason = await ui.collect('Explain why this payout reservation should be released.', {title:'Reject payout', inputLabel:'Rejection reason'});
+    const reason = await ui.collect('Why are you rejecting this request? The seller sees this. The amount goes back to their available balance. e.g. “Bank account name does not match”.', {title:'Reject payout', inputLabel:'Rejection reason'});
     if (reason === null) return;
-    return ui.perform({title:'Reject this payout?',message:'This returns the reservation through auditable ledger entries. Existing holds and refund debts still apply.',confirmLabel:'Reject payout'}, async () => {
+    return ui.perform({title:'Reject this payout?',message:'The amount returns to the seller’s available balance.',confirmLabel:'Reject payout'}, async () => {
       await adminPatch(`/vendor-payouts/${payout._id}/reject`, {reason}); await load();
     });
   });
   const reviewBeneficiary = withLock(async payout => {
-    const evidenceReference = await ui.collect('Enter the ownership-verification evidence reference from the approved external process. Account details alone are not verification.', { title: 'Beneficiary review', inputLabel: 'Ownership evidence reference' });
+    const evidenceReference = await ui.collect('Check the bank account belongs to this seller using the method saved in Finance Settings → Payouts & tax. Enter the proof reference, e.g. a penny-drop transaction ID.', { title: 'Check bank account', inputLabel: 'Proof reference' });
     if (!evidenceReference) return;
-    const approvalReference = await ui.collect('Enter the approval reference for the bank verification process.', { title: 'Approved process', inputLabel: 'Process approval reference' });
-    if (!approvalReference) return;
-    const reason = await ui.collect('Describe the reviewed ownership evidence for this destination.', { title: 'Review reason', inputLabel: 'Reason' });
+    const reason = await ui.collect('What did the check show? e.g. “Account holder name matches GST certificate”.', { title: 'Check result', inputLabel: 'Result' });
     if (!reason) return;
-    return ui.perform({ title: 'Record beneficiary verification?', message: payout.payoutRef + ' · ' + money(payout.amount) + ' INR · account ending ' + (payout.destination?.accountLast4 || 'UPI destination') + '. Another finance operator must reconcile the successful external transfer.', confirmLabel: 'Record reviewed evidence' }, async () => {
-      await adminPatch('/vendor-payouts/' + payout._id + '/beneficiary-review', { evidenceReference, approvalReference, reason, fingerprint: payout.destinationFingerprint }); await load();
+    return ui.perform({ title: 'Record the bank account check?', message: payout.payoutRef + ' · ' + money(payout.amount) + ' · account ending ' + (payout.destination?.accountLast4 || 'UPI') + '.', confirmLabel: 'Record check' }, async () => {
+      await adminPatch('/vendor-payouts/' + payout._id + '/beneficiary-review', { evidenceReference, reason, fingerprint: payout.destinationFingerprint }); await load();
     });
   });
   if (loading) return <div style={{ padding: 40 }}>Loading authoritative seller finances…</div>;
   if (error) return <div role="alert">{error}<button onClick={load}>Retry finance read</button></div>;
-  return <div><h2>{view === 'payouts' ? 'Seller payout allocations' : 'Seller ledger balances'}</h2>
-    <p style={{ color: '#64748b' }}>Historical orders are excluded. Amounts shown are derived from append-only ledger entries.</p>
+  return <div><h2>{view === 'payouts' ? 'Seller payouts' : 'Seller balances'}</h2>
+    <p style={{ color: '#64748b' }}>{view === 'payouts' ? 'To pay a request: 1) Check bank account, 2) send the money from Bulkimart’s bank, 3) Mark as paid with the bank reference.' : '“On hold” waits for the return window. “Available” can be withdrawn. Orders placed before the finance system started are under Reports → Old orders.'}</p>
     {error && <div style={{ padding: 12, background: '#fef2f2', color: '#991b1b' }}>{error}</div>}
     <div tabIndex={0} role="region" aria-label="Scrollable data table" style={{ overflowX: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-      {view === 'payouts' ? <><thead><tr>{['Reference','Seller','Amount','Status','Transaction','Action'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
-        <tbody>{rows.length ? rows.map(p => <tr key={p._id} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{p.payoutRef}</td><td>{p.storeName}</td><td>{money(p.amount)}</td><td>{p.status === 'approved' ? 'External transfer confirmed / reconciled' : p.status === 'pending' ? 'Pending Admin review' : 'Rejected'}</td><td>{p.transactionRef || p.settlementBlocker || '—'}</td><td>{p.status === 'pending' ? <>{(p.beneficiaryReviewRequired || !p.beneficiaryVerification?.verifiedAt) && <button disabled={working || !p.destinationFingerprint} onClick={() => reviewBeneficiary(p)}>Review beneficiary evidence</button>}<button disabled={working || !p.settlementEligible} onClick={() => settle(p)}>Reconcile external transfer</button><button disabled={working} onClick={() => reject(p)}>Reject</button></> : '—'}</td></tr>) : <tr><td colSpan="6" style={{ padding: 25 }}>No payout requests.</td></tr>}</tbody></>
-        : <><thead><tr>{['Seller','Pending','Held','Eligible','Reserved','Settled','Freight obligations','Service fees'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
+      {view === 'payouts' ? <><thead><tr>{['Reference','Seller','Amount','Status','Bank reference / what’s needed','Action'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
+        <tbody>{rows.length ? rows.map(p => <tr key={p._id} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{p.payoutRef}</td><td>{p.storeName}</td><td>{money(p.amount)}</td><td>{p.status === 'approved' ? 'Paid' : p.status === 'pending' ? (p.beneficiaryReviewRequired || !p.beneficiaryVerification?.verifiedAt ? 'Waiting: check bank account' : 'Waiting: send money') : 'Rejected'}</td><td>{p.transactionRef || p.settlementBlocker || '—'}</td><td>{p.status === 'pending' ? <>{(p.beneficiaryReviewRequired || !p.beneficiaryVerification?.verifiedAt) && <button disabled={working || !p.destinationFingerprint} onClick={() => reviewBeneficiary(p)}>Check bank account</button>}<button disabled={working || !p.settlementEligible} onClick={() => settle(p)}>Mark as paid</button><button disabled={working} onClick={() => reject(p)}>Reject</button></> : '—'}</td></tr>) : <tr><td colSpan="6" style={{ padding: 25 }}>No payout requests.</td></tr>}</tbody></>
+        : <><thead><tr>{['Seller','Pending','On hold','Available','Payout requested','Paid','Shiprocket freight','Shiprocket fees'].map(h => <th key={h} style={{ padding: 12, textAlign: 'left' }}>{h}</th>)}</tr></thead>
         <tbody>{rows.map(r => <tr key={r.sellerId} style={{ borderTop: '1px solid #eee' }}><td style={{ padding: 12 }}>{r.storeName}</td>{['pending','held','eligible','reserved','settled','quickFreightObligations','bulkimartServiceFees'].map(k => <td key={k}>{money(r.balances?.[k])}</td>)}</tr>)}</tbody></>}
     </table></div>
     {view !== 'payouts' && <div style={{ marginTop: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}><h3>Recent ledger entries</h3>

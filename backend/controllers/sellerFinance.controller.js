@@ -1,16 +1,16 @@
-import { destinationFingerprint, payoutPublic } from '../services/payoutEvidence.service.js';
-import mongoose from 'mongoose';
+import { payoutPublic } from '../services/payoutEvidence.service.js';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import SellerPayout from '../models/SellerPayout.js';
 import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnapshot.js';
-import { assertSellerSettlementClear } from '../services/sellerSettlementEligibility.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated } from '../utils/response.js';
-import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
+import { sellerBalances } from '../services/sellerLedger.service.js';
 import { requireFinanceOperation, financeFlags } from '../services/financeSafety.service.js';
-import { moneyPaise } from '../services/vendorCommission.service.js';
+import { getFinancePolicy } from '../services/financePolicy.service.js';
+import { createSellerPayoutRequest } from '../services/sellerPayout.service.js';
+import { sellerTaxStatement } from '../services/financeReports.service.js';
 
 const ownSeller = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
@@ -20,7 +20,7 @@ const ownSeller = async (req) => {
 
 export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
-  const [balances, payouts, sales] = await Promise.all([
+  const [balances, payouts, sales, policy] = await Promise.all([
     sellerBalances(seller._id),
     SellerPayout.find({ sellerId: seller._id }).sort({ createdAt: -1 }).lean(),
     Order.aggregate([
@@ -34,7 +34,9 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
         orders: [{ $sort: { createdAt: -1, _id: -1 } }, { $limit: 20 }, { $project: { items: 0 } }],
       } },
     ]),
+    getFinancePolicy(),
   ]);
+  const flags = financeFlags();
   return ok(res, {
     balances,
     payouts: payouts.map(payoutPublic),
@@ -49,7 +51,9 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
       historicalOrdersIncluded: false,
       note: 'Zero posted funds do not establish zero historical entitlement. Historical orders require original payment, COD custody and policy evidence; contact finance support with the order reference.',
     },
-    payoutActionsEnabled: balances.eligible > 0 && balances.held >= 0 && financeFlags().payouts && financeFlags().policyApproved && financeFlags().testsApproved,
+    payoutPolicy: { schedule: policy.payoutSchedule, weekday: policy.payoutWeekday, minimum: policy.sellerMinPayout },
+    payoutActionsEnabled: balances.eligible > 0 && balances.eligible >= policy.sellerMinPayout && balances.held >= 0 && policy.payoutSchedule === 'on_request'
+      && flags.payouts && flags.policyApproved && flags.testsApproved,
   }, 'Seller finance summary');
 });
 
@@ -80,59 +84,17 @@ export const getSellerOrderFinance = asyncHandler(async (req, res) => {
   return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, merchandise, financialPosting: order.financialPosting, entries });
 });
 
+// Monthly TCS/TDS withheld from this seller, for their own GST/income-tax filing.
+export const getSellerTaxStatement = asyncHandler(async (req, res) => {
+  const seller = await ownSeller(req);
+  const [statement, policy] = await Promise.all([sellerTaxStatement({ sellerId: seller._id }), getFinancePolicy()]);
+  return ok(res, { ...statement, gstin: seller.gstin || '', pan: seller.pan || '', tcsRatePercent: policy.tcsRatePercent, tdsRatePercent: policy.tdsRatePercent });
+});
+
 export const requestSellerPayout = asyncHandler(async (req, res) => {
   requireFinanceOperation('payouts');
   const seller = await ownSeller(req);
-  const amount = Number(req.body?.amount);
-  const submittedKey = String(req.get('Idempotency-Key') || req.body?.idempotencyKey || '').trim();
-  const idempotencyKey = `SELLER:${seller._id}:${submittedKey}`;
-  moneyPaise(amount);
-  if (!Number.isFinite(amount) || amount <= 0) throw httpError(400, 'Payout amount must be positive');
-  if (!submittedKey || submittedKey.length > 100) throw httpError(400, 'A valid Idempotency-Key is required');
-  const existing = await SellerPayout.findOne({ idempotencyKey });
-  if (existing) {
-    if (String(existing.sellerId) !== String(seller._id) || existing.amount !== amount) throw httpError(409, 'Payout key reused with different financial data');
-    return ok(res, payoutPublic(existing), 'Payout request already recorded');
-  }
-
-  const session = await mongoose.startSession();
-  let payout;
-  try {
-    await session.withTransaction(async () => {
-      await Seller.updateOne({ _id: seller._id }, { $inc: { financialLedgerVersion: 1 } }, { session });
-      const replay = await SellerPayout.findOne({ idempotencyKey }).session(session);
-      if (replay) {
-        if (replay.amount !== amount) throw httpError(409, 'Payout key reused with a different amount');
-        payout = replay; return;
-      }
-      const currentSeller = await Seller.findOne({ _id: seller._id, userId: req.user._id, status: 'approved' }).session(session);
-      if (!currentSeller) throw httpError(403, 'Approved seller is required');
-      const balances = await sellerBalances(seller._id, { session });
-      if (balances.held < 0) throw httpError(409, 'Outstanding seller adjustments require reconciliation');
-      await assertSellerSettlementClear(seller._id, session);
-      if (balances.eligible < amount) throw httpError(409, 'Insufficient settlement-eligible balance');
-      await Seller.updateOne({ _id: seller._id }, { $inc: { financialLedgerVersion: 1 } }, { session });
-      destinationFingerprint(currentSeller.bankDetails);
-      [payout] = await SellerPayout.create([{
-        payoutNo: `PAY-${new mongoose.Types.ObjectId()}`,
-        sellerId: seller._id, amount, status: 'PENDING', idempotencyKey,
-        requestedBy: req.user._id, bankDetails: currentSeller.bankDetails,
-      }], { session });
-      const reserveOut = await postLedgerEntry({
-        idempotencyKey: `PAYOUT:${payout._id}:ELIGIBLE`, sellerId: seller._id, payoutId: payout._id,
-        type: 'payout_reservation', direction: 'debit', bucket: 'eligible', amount,
-        reference: payout.payoutNo, description: `Reserved for payout ${payout.payoutNo}`,
-      }, { session });
-      const reserveIn = await postLedgerEntry({
-        idempotencyKey: `PAYOUT:${payout._id}:RESERVED`, sellerId: seller._id, payoutId: payout._id,
-        type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount,
-        reference: payout.payoutNo, description: `Reserved for payout ${payout.payoutNo}`,
-      }, { session });
-      payout.ledgerEntryIds = [reserveOut.entry._id, reserveIn.entry._id];
-      await payout.save({ session });
-    });
-  } finally {
-    await session.endSession();
-  }
-  return ok(res, payoutPublic(payout), 'Payout request created');
+  const { payout, alreadyProcessed } = await createSellerPayoutRequest({ sellerId: seller._id, userId: req.user._id, amount: Number(req.body?.amount),
+    key: req.get('Idempotency-Key') || req.body?.idempotencyKey, requestedBy: req.user._id });
+  return ok(res, payoutPublic(payout), alreadyProcessed ? 'Payout request already recorded' : 'Payout request created');
 });

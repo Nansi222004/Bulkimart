@@ -403,10 +403,22 @@ export const markReturnDeliveredToSeller = async ({ returnId, sellerId }) => {
     delivery.partnerEarnings = riderPayout(delivery.route?.distanceKm, { mode: payoutModeOf({ type: 'grocery' }), rates: delivery.ratesUsed }).total;
     await delivery.save();
 
-    await DeliveryPartner.updateOne(
-      { _id: delivery.partnerId },
-      { $set: { isAvailable: true }, $inc: { totalDeliveries: 1, 'earnings.total': delivery.partnerEarnings, 'earnings.pending': delivery.partnerEarnings } }
-    );
+    const credit = { $set: { isAvailable: true }, $inc: { totalDeliveries: 1, 'earnings.total': delivery.partnerEarnings, 'earnings.pending': delivery.partnerEarnings } };
+    const rider = await DeliveryPartner.findById(delivery.partnerId).select('financialWorkflowVersion').lean();
+    if (rider?.financialWorkflowVersion === 2 && delivery.partnerEarnings > 0) {
+      // Riders on the ledger get the return-pickup fee there too, so it can be
+      // withdrawn. No customer payment backs it, so it is available at once.
+      const { financialTransaction } = await import('./financeSafety.service.js');
+      const { postLedgerEntry } = await import('./sellerLedger.service.js');
+      await financialTransaction(async session => {
+        await DeliveryPartner.updateOne({ _id: delivery.partnerId }, credit, { session });
+        await postLedgerEntry({ idempotencyKey: `RETURN_PICKUP:${delivery._id}:EARNING`, partnerId: delivery.partnerId, deliveryId: delivery._id, orderId: ret.orderId,
+          account: 'rider_payable', type: 'delivery_earning', direction: 'credit', bucket: 'eligible', amount: Math.round(delivery.partnerEarnings * 100) / 100,
+          description: `Return pickup ${ret.returnNumber}`, metadata: { source: 'return-pickup', returnId: String(ret._id) } }, { session });
+      });
+    } else {
+      await DeliveryPartner.updateOne({ _id: delivery.partnerId }, credit);
+    }
   }
 
   ret.pickup.status = RETURN_PICKUP_STATUS.DELIVERED_TO_SELLER;

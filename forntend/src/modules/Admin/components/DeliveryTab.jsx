@@ -878,12 +878,19 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                           {riderDetail.metrics?.isAvailable ? '✓ Yes (Online)' : '✕ No (Offline)'}
                         </span>
                       </div>
-                      <div style={tileStyle}>
+                      {riderDetail.finance?.balances ? <div style={tileStyle}>
+                        <span style={labelStyle}>Earnings (On hold / Available / Requested / Paid)</span>
+                        <span style={{ ...valueStyle, fontWeight: 700 }}>
+                          ₹{riderDetail.finance.balances.onHold} / ₹{riderDetail.finance.balances.available} / ₹{riderDetail.finance.balances.requested} / ₹{riderDetail.finance.balances.paid}
+                        </span>
+                        {riderDetail.finance.legacyUnverified > 0 && <span style={{ ...labelStyle, marginTop: 4 }}>₹{riderDetail.finance.legacyUnverified} from before the finance ledger needs manual review</span>}
+                        {riderDetail.finance.reportedCodOutstanding > 0 && <span style={{ ...labelStyle, marginTop: 4, color: '#b45309' }}>Holding ₹{riderDetail.finance.reportedCodOutstanding} COD cash</span>}
+                      </div> : <div style={tileStyle}>
                         <span style={labelStyle}>Earnings (Total / Pending / Paid)</span>
                         <span style={{ ...valueStyle, fontWeight: 700 }}>
                           ₹{riderDetail.metrics?.earnings?.total || 0} / ₹{riderDetail.metrics?.earnings?.pending || 0} / ₹{riderDetail.metrics?.earnings?.paid || 0}
                         </span>
-                      </div>
+                      </div>}
                       <div style={tileStyle}>
                         <span style={labelStyle}>Approved At</span>
                         <span style={valueStyle}>{fmtDate(riderDetail.approvedAt)}</span>

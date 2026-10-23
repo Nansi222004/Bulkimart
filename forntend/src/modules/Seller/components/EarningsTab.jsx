@@ -1,25 +1,34 @@
 import React from 'react';
 import { useSeller } from '../context/SellerContext';
 import { sellerMoney as money } from '../utils/sellerFinanceRead';
+import SellerTaxStatement from './SellerTaxStatement';
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const BUCKETS = { pending: 'Pending', held: 'On hold', eligible: 'Available', reserved: 'Payout requested', settled: 'Paid' };
 const label = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const settlementStatus = (order) => {
-  if (order.financialPosting) return `Ledger: ${label(order.financialPosting)}`;
-  if (order.snapshotVersion !== 2) return 'Needs reconciliation: no financial snapshot';
-  if (order.snapshotState === 'held_discount_policy') return 'On hold: discount funding policy needs finance review';
-  if (order.snapshotState !== 'configured') return 'On hold: commission policy missing at checkout';
-  return 'Awaiting payment verification and admin allocation';
+  if (order.financialPosting === 'held') return 'Earned — on hold until the return window ends';
+  if (order.financialPosting === 'eligible') return 'Available to withdraw';
+  if (order.financialPosting === 'reversed') return 'Refunded to customer';
+  if (order.snapshotVersion !== 2) return 'Older order: no financial snapshot, Bulkimart finance will review it';
+  if (order.snapshotState === 'held_discount_policy') return 'On hold: Bulkimart finance is reviewing the discount on this order';
+  if (order.snapshotState !== 'configured') return 'On hold: no commission rate was set when ordered';
+  return order.paymentMethod === 'cod' ? 'Waiting for the cash to reach Bulkimart' : 'Waiting for payment confirmation';
 };
 
 export const EarningsTab = () => {
   const { financeSummary, ledgerEntries, financeLoading, financeError, fetchSellerFinances, setActiveTab } = useSeller();
   const balances = financeSummary?.balances || {};
   const sales = financeSummary?.deliveredSales;
-  const cards = [
-    ['Earned earnings', balances.earnedEarnings, '#0f766e'], ['Pending earnings', balances.pending, '#0284c7'],
-    ['Held earnings', balances.held, '#d97706'], ['Settlement eligible', balances.eligible, '#16a34a'],
-    ['Reserved for payout', balances.reserved, '#7c3aed'], ['Paid / settled', balances.settled, '#334155'],
-    ['Quick freight obligations', balances.quickFreightObligations, '#dc2626'], ['Bulkimart service fees', balances.bulkimartServiceFees, '#ea580c'],
+  const policy = financeSummary?.payoutPolicy;
+  const main = [
+    ['On hold', balances.held, '#d97706', 'Earned, waiting for the return window to end.'],
+    ['Available to withdraw', balances.eligible, '#16a34a', 'You can request this now.'],
+    ['Paid to you', balances.settled, '#334155', 'Sent to your bank so far.'],
+  ];
+  const other = [
+    ['Total earned', balances.earnedEarnings], ['Payout requested', balances.reserved], ['Pending', balances.pending],
+    ['Shiprocket courier charges', balances.quickFreightObligations], ['Shiprocket service fees', balances.bulkimartServiceFees],
   ];
   if (financeLoading) return <div role="status" style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading authoritative seller ledger…</div>;
   if (financeError || !financeSummary) return <section style={{ padding: 20 }}>
@@ -31,49 +40,51 @@ export const EarningsTab = () => {
   return <div style={{ padding: '0 4px 40px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
       <div><h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>Earnings & settlements</h1>
-        <p style={{ color: '#64748b', fontSize: 13 }}>Balances below come only from the append-only seller ledger. Earned earnings and fee cards show cumulative posted activity; they are not the amount available to withdraw.</p></div>
+        <p style={{ color: '#64748b', fontSize: 13 }}>For each item you get the full item price minus Bulkimart’s commission, GST on that commission, and any TCS/TDS. Coupons and coins are paid by Bulkimart, not by you.</p></div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={fetchSellerFinances} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 9, background: '#fff' }}>Refresh</button>
         <button disabled={!financeSummary?.payoutActionsEnabled} onClick={() => setActiveTab('moneyrequest')}
-          title={!financeSummary?.payoutActionsEnabled ? 'No settlement-eligible balance' : 'Request payout'}
+          title={!financeSummary?.payoutActionsEnabled ? 'Nothing available to withdraw yet' : 'Request payout'}
           style={{ padding: '9px 16px', border: 0, borderRadius: 9, color: '#fff', background: financeSummary?.payoutActionsEnabled ? '#0f9f91' : '#94a3b8', cursor: financeSummary?.payoutActionsEnabled ? 'pointer' : 'not-allowed' }}>Request payout</button>
       </div>
     </div>
     {financeError && <div style={{ padding: 14, background: '#fef2f2', color: '#991b1b', borderRadius: 10, marginBottom: 14 }}>{financeError}</div>}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
+      {main.map(([title, value, color, help]) => <div key={title} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16 }}>
+        <div style={{ fontSize: 12, color: '#64748b' }}>{title}</div><div style={{ marginTop: 6, fontSize: 23, fontWeight: 800, color }}>{money(value)}</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{help}</div>
+      </div>)}
+    </div>
+    <p style={{ fontSize: 12, color: '#475569', marginBottom: 20 }}>{other.map(([title, value]) => `${title}: ${money(value)}`).join(' · ')}{policy && <><br />Payouts: {policy.schedule === 'weekly' ? `sent automatically every ${WEEKDAYS[policy.weekday]}` : 'request them any time'}{policy.minimum > 0 ? ` · minimum ${money(policy.minimum)}` : ''}</>}</p>
     {financeSummary?.coverage && <div style={{ padding: 14, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 10, marginBottom: 16, fontSize: 12 }}>
-      Delivery records a sale. Earnings appear after payment verification and admin allocation; withdrawals require release after any return holds. Orders without a financial snapshot need separate reconciliation. Zero posted funds do not establish zero historical entitlement. Contact finance support with the order reference; payment, COD custody and the original commission agreement must be reviewed.
+      How it works: an order is delivered → once payment (or COD cash) reaches Bulkimart, your earning appears as “On hold” → after the return window it becomes “Available” → you withdraw it. Older orders from before this system need a finance review; contact support with the order number.
     </div>}
     {sales && <section style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, marginBottom: 20 }}>
-      <h2 style={{ margin: '0 0 8px', fontSize: 17 }}>Delivered order sales</h2>
-      <strong>{sales.orderCount} delivered orders · {money(sales.grossAmount)} gross item sales</strong>
-      <p style={{ color: '#64748b', fontSize: 13 }}>Before order discounts, commission and refunds. This sales total is separate from settlement balances below.</p>
+      <h2 style={{ margin: '0 0 8px', fontSize: 17 }}>Delivered orders</h2>
+      <strong>{sales.orderCount} delivered orders · {money(sales.grossAmount)} item sales</strong>
+      <p style={{ color: '#64748b', fontSize: 13 }}>Full item prices, before commission and refunds.</p>
       {sales.orders?.length ? <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 13, textAlign: 'left' }}>
-        <thead><tr>{['Order', 'Gross item sales', 'Settlement status'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
+        <thead><tr>{['Order', 'Item sales', 'Where your money is'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
         <tbody>{sales.orders.map(order => <tr key={order._id}>
           <td style={{ padding: 8 }}>{order.orderNo}</td><td style={{ padding: 8 }}>{money(order.grossAmount)}</td><td style={{ padding: 8 }}>{settlementStatus(order)}</td>
         </tr>)}</tbody>
       </table>{sales.orderCount > sales.orders.length && <p>Showing the latest {sales.orders.length} delivered orders. See Orders for the full list.</p>}</div> : <p>No delivered orders yet.</p>}
     </section>}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-      {cards.map(([title, value, color]) => <div key={title} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16 }}>
-        <div style={{ fontSize: 12, color: '#64748b' }}>{title}</div><div style={{ marginTop: 6, fontSize: 21, fontWeight: 800, color }}>{money(value)}</div>
-      </div>)}
-    </div>
+    <SellerTaxStatement />
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
-      <div style={{ padding: 16, fontWeight: 800 }}>Order-level ledger history <small style={{ fontWeight: 400 }}>(latest 50 entries)</small></div><div style={{ overflowX: 'auto' }}>
+      <div style={{ padding: 16, fontWeight: 800 }}>Statement <small style={{ fontWeight: 400 }}>(latest 50 entries)</small></div><div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-        {['Date', 'Reference', 'Description', 'Account', 'Bucket', 'Credit', 'Debit', 'Status'].map((h) => <th key={h} style={{ padding: 12 }}>{h}</th>)}
+        {['Date', 'Reference', 'Description', 'Status', 'Money in', 'Money out'].map((h) => <th key={h} style={{ padding: 12 }}>{h}</th>)}
       </tr></thead><tbody>{ledgerEntries.length ? ledgerEntries.map((entry) => <tr key={entry._id} style={{ borderTop: '1px solid #f1f5f9' }}>
         <td style={{ padding: 12 }}>{new Date(entry.createdAt).toLocaleString('en-IN')}</td><td style={{ padding: 12 }}>{entry.reference || entry.entryNo}</td>
-        <td style={{ padding: 12 }}>{entry.description}</td><td style={{ padding: 12 }}>{label(entry.account || 'seller_payable')}</td><td style={{ padding: 12 }}>{label(entry.bucket)}</td>
+        <td style={{ padding: 12 }}>{entry.description}</td><td style={{ padding: 12 }}>{BUCKETS[entry.bucket] || label(entry.bucket)}</td>
         <td style={{ padding: 12, color: '#15803d' }}>{entry.direction === 'credit' ? money(entry.amount) : '—'}</td>
-        <td style={{ padding: 12, color: '#b91c1c' }}>{entry.direction === 'debit' ? money(entry.amount) : '—'}</td><td style={{ padding: 12 }}>{label(entry.status)}</td>
-      </tr>) : <tr><td colSpan="8" style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>{financeError ? 'Ledger could not be loaded. Please retry.' : 'No earnings have been posted to the ledger yet. Check the delivered-order settlement status above.'}</td></tr>}</tbody></table></div>
+        <td style={{ padding: 12, color: '#b91c1c' }}>{entry.direction === 'debit' ? money(entry.amount) : '—'}</td>
+      </tr>) : <tr><td colSpan="6" style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>{financeError ? 'Ledger could not be loaded. Please retry.' : 'No earnings have been posted to the ledger yet. Check the delivered-order settlement status above.'}</td></tr>}</tbody></table></div>
     </div>
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
       <div style={{ padding: 16, fontWeight: 800 }}>Payout requests</div>
       {(financeSummary?.payouts || []).length ? financeSummary.payouts.map((payout) => <div key={payout._id} style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between' }}>
-        <span>{payout.payoutNo} · {label(payout.status)}</span><strong>{money(payout.amount)}</strong>
+        <span>{payout.payoutNo} · {payout.status === 'APPROVED' ? 'Paid' : payout.status === 'PENDING' ? 'Being processed' : 'Rejected'}</span><strong>{money(payout.amount)}</strong>
       </div>) : <div style={{ padding: 24, color: '#64748b' }}>No payout requests.</div>}
     </div>
   </div>;

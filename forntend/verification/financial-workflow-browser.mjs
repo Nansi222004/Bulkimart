@@ -25,6 +25,11 @@ source = source.replace(marker, marker + `
   if(path==='/api/admin/seller-balances')return {success:true,data:{rows:[]}};
   if(path==='/api/admin/vendor-payouts')return {success:true,data:[],meta:{pages:1,total:0}};
   if(path==='/api/admin/finance/commissions')return {success:true,data:{rules:[],flags:financeFlags}};
+  const financePolicy={configured:false,revision:0,tcsRatePercent:0,tdsRatePercent:0,sellerMinPayout:0,riderMinPayout:100,payoutSchedule:'on_request',payoutWeekday:1,requireIndependentPayoutReviewer:true,bankVerificationMethod:'',history:[]};
+  if(path==='/api/admin/finance/policy')return {success:true,data:{policy:financePolicy,flags:financeFlags}};
+  if(path==='/api/admin/finance/overview')return {success:true,data:{flags:{...financeFlags,snapshots:false},commissionRulesConfigured:false,policy:{...financePolicy,bankVerificationConfigured:false},
+    todo:{cashToVerify:1,cashMismatch:0,cashWithRiders:0,missingRule:0,waitingPayment:1,needsReview:0,onHold:0,sellerPayouts:0,riderPayouts:0},
+    totalsPaise:{sellersOnHold:0,sellersAvailable:0,sellersRequested:0,sellersPaid:0,ridersOnHold:0,ridersAvailable:0,ridersRequested:0,ridersPaid:0,commission:0,commissionGst:0,tcs:0,tds:0,platformDiscounts:0,codShortages:0,codCashWithRiders:10000}}};
   if(path==='/api/admin/finance/orders'||path==='/api/delivery/finances/cod')return {success:true,data:[financeOrder],meta:{page:1,pages:1,total:1}};
   if(path==='/api/admin/finance/reconciliation')return {success:true,data:{exceptions:[{orderNo:'FINANCE-COD-FIXTURE',code:'cod_unverified',detail:'Cash requires verification'}],negativeBalances:[],duplicateEventKeys:[],coverage:{ordersChecked:1,totalOrders:1,maxRiders:100}}};
   if(path==='/api/admin/finance/ledger'||path==='/api/delivery/finances/ledger')return {success:true,data:{rows:[],balances:[{_id:{account:'rider_payable',bucket:'held'},amount:40}],total:0,limit:50,flags:financeFlags}};
@@ -36,19 +41,26 @@ source = source.replace(checkMarker, `
       if(path.startsWith('/admin/')){
         await waitFor(\`!!document.querySelector('.finance-center')\`);
         assert.equal(await evaluate(\`[...document.querySelectorAll('.sa-nav-link')].filter(link=>link.title==='Finance Center').length\`),1);
-        if(path==='/admin/finance-center' || path==='/admin/finance-operations' || path==='/admin/app-settings'){
-          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('disabled pending policy')\`);
-          assert.equal(await evaluate(\`document.querySelector('.finance-center input[type=number]').value\`),'');
-          await evaluate(\`[...document.querySelectorAll('button')].find(button=>button.textContent==='COD and Reconciliation').click()\`);
+        const click=label=>evaluate(\`[...document.querySelectorAll('.finance-center button')].find(button=>button.textContent===\${JSON.stringify(label)}).click()\`);
+        if(path==='/admin/finance-center' || path==='/admin/finance-operations'){
+          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Setup checklist')\`);
+          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('1 · COD handovers to check')\`);
+          await click('Orders & COD'); await click('COD cash');
           await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('FINANCE-COD-FIXTURE')\`);
-          assert.equal(await evaluate(\`[...document.querySelectorAll('button')].find(button=>button.textContent==='Verify cash evidence').disabled\`),true);
-          await evaluate(\`[...document.querySelectorAll('button')].find(button=>button.textContent==='Ledger & reconciliation exceptions').click()\`);
-          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('cod_unverified')\`);
+          assert.equal(await evaluate(\`[...document.querySelectorAll('button')].find(button=>button.textContent==='Confirm cash received').disabled\`),true);
+          await click('Reports'); await click('Ledger & checks');
+          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('cod unverified')\`);
+        }
+        if(path==='/admin/app-settings' || path.includes('view=commissions')){
+          await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Money actions are switched off')\`);
+          assert.equal(await evaluate(\`document.querySelector('.finance-center input[type=number]').value\`),'');
+          assert.ok(await evaluate(\`document.querySelectorAll('.finance-center .finance-hint').length\`) >= 6);
         }
         if(path.includes('view=rates'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Quick Commerce rider pay')\`);
-        if(path.includes('view=charges'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Persisted flat fallback')\`);
+        if(path.includes('view=charges'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Flat charge')\`);
         if(path.includes('view=shiprocket') || path==='/admin/quick-third-party-settings')await waitFor(\`!!document.querySelector('.finance-center input[type=number]')\`);
-        if(path.includes('view=payouts'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('No persisted records')\`);
+        if(path.includes('view=payouts'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Nothing to show here')\`);
+        if(path.includes('view=policies'))await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('TCS rate')\`);
         if(path.includes('view=earnings'))await waitFor(\`!document.querySelector('.finance-center')?.textContent.includes('Loading')\`);
         await evaluate(\`document.querySelectorAll('.finance-center details').forEach(element=>element.open=true)\`);
       }
@@ -65,7 +77,7 @@ try {
   await writeFile(generated, source);
   const exit = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [generated.pathname.replace(/^\/(?:([A-Za-z]:))/, '$1'), '--full',
-      '--paths=/admin/finance-center,/admin/finance-center?area=settings&view=commissions,/admin/finance-center?area=settings&view=rates,/admin/finance-center?area=settings&view=charges,/admin/finance-center?area=settings&view=shiprocket,/admin/finance-center?area=vendors&view=earnings,/admin/finance-center?area=delivery&view=payouts,/admin/finance-center?area=delivery&view=rider-earnings,/admin/finance-center?area=vendors&view=seller-payouts,/admin/finance-center?area=vendors&view=courier-payments,/admin/finance-center?area=settings&view=policies,/admin/app-settings,/admin/finance-operations,/admin/quick-third-party-settings,/delivery/earnings,/seller/orders/507f1f77bcf86cd799439022',
+      '--paths=/admin/finance-center,/admin/finance-center?area=settings&view=commissions,/admin/finance-center?area=settings&view=rates,/admin/finance-center?area=settings&view=charges,/admin/finance-center?area=settings&view=shiprocket,/admin/finance-center?area=payouts&view=earnings,/admin/finance-center?area=payouts&view=payouts,/admin/finance-center?area=payouts&view=rider-earnings,/admin/finance-center?area=payouts&view=seller-payouts,/admin/finance-center?area=payouts&view=courier-payments,/admin/finance-center?area=settings&view=policies,/admin/app-settings,/admin/finance-operations,/admin/quick-third-party-settings,/delivery/earnings,/seller/orders/507f1f77bcf86cd799439022',
       '--widths=320,390,768,1440', '--label=finance-center'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
     child.on('error', reject); child.on('exit', resolve);
   });

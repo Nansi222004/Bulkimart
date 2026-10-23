@@ -1,5 +1,5 @@
 import { moneyPaise as dashboardMoneyPaise } from '../utils/financeMoney.js';
-import { resolveVerifiedRiderPayout } from '../services/deliveryPayout.service.js';
+import { resolveVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
 import { requireFinanceOperation } from '../services/financeSafety.service.js';
 import { sellerBalances } from '../services/sellerLedger.service.js';
 import User from '../models/User.js';
@@ -926,6 +926,8 @@ export const getDeliveryPartnerDetail = asyncHandler(async (req, res) => {
       earnings: p.earnings,
       isAvailable: p.isAvailable,
     },
+    // Ledger balances (authoritative) for riders on the finance workflow.
+    finance: await riderFinancialSummary(p),
   });
 });
 

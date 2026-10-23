@@ -26,7 +26,7 @@ import {
 import { protect, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import {
-  getSellerFinanceSummary, listSellerLedger, getSellerOrderFinance, requestSellerPayout,
+  getSellerFinanceSummary, listSellerLedger, getSellerOrderFinance, requestSellerPayout, getSellerTaxStatement,
 } from '../controllers/sellerFinance.controller.js';
 import { uploadFields, uploadSingle } from '../middlewares/upload.middleware.js';
 import Seller from '../models/Seller.js';
@@ -114,6 +114,7 @@ router.post('/orders/:id/fulfillment/shiprocket', requireApprovedSeller, createS
 router.get('/orders/:id/financial-breakdown', requireApprovedSeller, getSellerOrderFinance);
 router.get('/finances/summary', requireApprovedSeller, getSellerFinanceSummary);
 router.get('/finances/ledger', requireApprovedSeller, listSellerLedger);
+router.get('/finances/tax-statement', requireApprovedSeller, getSellerTaxStatement);
 router.post('/payouts', requireApprovedSeller, requestSellerPayout);
 router.patch('/channels', requireApprovedSeller, updateSalesChannels);
 router.post('/wholesale-request', requireApprovedSeller, requestWholesaleChannel);

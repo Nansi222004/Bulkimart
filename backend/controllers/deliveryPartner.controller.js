@@ -19,7 +19,7 @@ import { canTakeAnother, maxConcurrentDeliveries } from '../services/riderCapaci
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
 import { requestVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
-import { recordDeliveryEarning } from '../services/orderFinance.service.js';
+import { recordDeliveryEarning, recordCodEvent } from '../services/orderFinance.service.js';
 import { DELIVERY_PAYOUT_STATUS, DELIVERY_MIN_PAYOUT_AMOUNT } from '../constants/enums.js';
 
 /**
@@ -1636,6 +1636,20 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
     throw httpError(409, `This delivery is already ${current?.status || 'resolved'} — it cannot be completed`);
   }
 
+  // COD cash is recorded in the same step as delivery, so it cannot be
+  // forgotten. A failure here never undoes the completed delivery; the rider
+  // can still report it from the earnings screen.
+  let codCollection = null;
+  if (order.paymentMethod === 'cod' && order.financialSnapshot?.version === 2 && req.body.codCollected != null && req.body.codCollected !== '') {
+    try {
+      await recordCodEvent({ orderId: order._id, partnerId: req.partner._id, actorId: req.user._id, action: 'collect',
+        input: { amount: Number(req.body.codCollected), method: 'cash', reference: `OTP-${delivery._id}`, reason: 'Recorded by the rider at OTP delivery' } });
+      codCollection = { recorded: true };
+    } catch (error) {
+      codCollection = { recorded: false, message: error.message };
+    }
+  }
+
   // Notify buyer and seller
   try {
     const { emitToUser, emitToSeller } = await import('../socket/rooms.js');
@@ -1668,7 +1682,7 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
     console.error(err);
   }
 
-  return ok(res, { earnings: creditedEarnings, tip: creditedTip, earningStatus },
+  return ok(res, { earnings: creditedEarnings, tip: creditedTip, earningStatus, codCollection },
     earningStatus === 'reconciliation_required' ? 'Delivery completed; earnings require verified rate and distance reconciliation' : earningStatus === 'held' ? 'Delivery completed; earnings recorded as held pending verified-funds release' : tipEarned > 0
       ? `Delivery completed — ₹${earnings} earned, including a ₹${tipEarned} tip from the customer`
       : 'Delivery verified and completed successfully');

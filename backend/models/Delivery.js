@@ -99,7 +99,7 @@ const deliverySchema = new Schema(
     startTime:      Date,
     endTime:        Date,
     partnerEarnings:Number,
-    financialEarningStatus: { type: String, enum: ['held', 'reconciliation_required', 'zero_value'] },
+    financialEarningStatus: { type: String, enum: ['held', 'eligible', 'reconciliation_required', 'zero_value'] },
 
     /**
      * How much of partnerEarnings was the customer's tip.

@@ -26,6 +26,7 @@ import { ORDER_STATUS, CHANNEL } from '../constants/enums.js';
 
 import { sweepEligibleSellerOrders } from './sellerOrderNotification.service.js';
 import { sweepAdvertisingLifecycle } from './advertisingBilling.service.js';
+import { sweepFinanceAutomation } from './financeAutomation.service.js';
 const SWEEP_INTERVAL_MS = 30 * 1000;
 
 /** How long a Quick order may sit unaccepted before it is given up on. */
@@ -84,6 +85,9 @@ export const startOrderSweeper = () => {
     // job pattern as the two above: its own try/catch, so a broadcast bug
     // can never block order cancellation or Coins.
     sweepScheduledBroadcastsOnce().catch((err) => console.error('[BROADCAST SWEEPER] failed:', err.message));
+    // Finance automation throttles itself and only runs once the finance
+    // release flags are on; its own catch keeps it from blocking the others.
+    sweepFinanceAutomation().catch((err) => console.error('[FINANCE SWEEPER] failed:', err.message));
   }, SWEEP_INTERVAL_MS);
 
   // Do not hold the process open on its own account — a shutdown should not

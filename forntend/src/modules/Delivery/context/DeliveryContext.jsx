@@ -1369,13 +1369,14 @@ export const DeliveryProvider = ({ children }) => {
     }
   };
 
-  const verifyOTPAndComplete = async (enteredOtp) => {
+  const verifyOTPAndComplete = async (enteredOtp, { codCollected } = {}) => {
     if (!activeOrder) return false;
     try {
       const res = await fetch(apiUrl(`/api/delivery/orders/${activeOrder.orderId}/verify-otp`), {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ otp: enteredOtp })
+        // COD cash is recorded in the same request, so it cannot be forgotten.
+        body: JSON.stringify({ otp: enteredOtp, ...(codCollected !== undefined && codCollected !== '' ? { codCollected: Number(codCollected) } : {}) })
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.message || 'OTP verification failed');
@@ -1413,6 +1414,9 @@ export const DeliveryProvider = ({ children }) => {
         ? 'Delivery completed. Earnings are awaiting rate and distance reconciliation.' : earnings === null
         ? 'Order delivered. Check your earnings screen for the payment.'
         : `Order Delivered successfully! Earned ₹${earnings}`);
+      if (body.data?.codCollection?.recorded === false) {
+        triggerToast(`Delivered, but the cash amount was not saved: ${body.data.codCollection.message}. Report it from the Earnings screen.`, { type: 'error' });
+      }
       return true;
     } catch (err) {
       triggerToast(err.message || 'Error verifying OTP', {type:'error'});

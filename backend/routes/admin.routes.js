@@ -5,7 +5,10 @@ import { getDashboardFinancialMetrics, getDashboardOrderAnalytics } from '../con
 import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFinance.controller.js';
 import express from 'express';
 import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
-  verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod } from '../controllers/financeWorkflow.controller.js';
+  verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod,
+  writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
+  getTaxReport, getAccountingJournal, getTrialBalance,
+  getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute } from '../controllers/financeWorkflow.controller.js';
 import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
@@ -84,6 +87,18 @@ router.get('/finance/historical-exceptions', getHistoricalExceptions);
 router.get('/finance/reconciliation', getFinancialExceptions);
 router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
 router.post('/finance/orders/:id/cod/dispute', disputeCod);
+router.post('/finance/orders/:id/cod/writeoff', writeOffCodShortage);
+router.get('/finance/overview', getFinanceOverview);
+router.get('/finance/policy', getFinancePolicySettings);
+router.put('/finance/policy', saveFinancePolicySettings);
+router.get('/finance/tax-report', getTaxReport);
+router.get('/finance/journal', getAccountingJournal);
+router.get('/finance/trial-balance', getTrialBalance);
+router.get('/finance/historical-batches', getHistoricalBatches);
+router.post('/finance/historical-batches', postHistoricalBatch);
+router.post('/finance/historical-batches/:id/review', reviewHistoricalBatchRoute);
+router.post('/finance/historical-batches/:id/apply', applyHistoricalBatchRoute);
+router.post('/finance/historical-batches/:id/release', releaseHistoricalBatchRoute);
 router.post('/finance/orders/:id/allocate', allocateOrder);
 router.post('/finance/orders/:id/release', releaseOrder);
 router.post('/finance/orders/:id/release-rider', releaseRider);

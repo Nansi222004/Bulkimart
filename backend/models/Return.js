@@ -134,6 +134,12 @@ const returnSchema = new Schema(
     refundReference:     String, // PhonePe refundId on success; 'MANUAL-COD' on a manual COD settlement
     zeroRefundEvidence: { key: String, actorId: { type: ObjectId, ref: 'Admin' }, reason: String, completedAt: Date },
     refundAllocationStartQuantity: Number,
+    // Set once seller earnings have been reduced for this refund, or when the
+    // order has no finance snapshot to reduce. Lets automation find every
+    // unprocessed refund regardless of age.
+    financeReconciledAt: Date,
+    financeSkipReason: String,
+    financeRetryAfter: Date,
     refundFailureReason: String,
     refundAttemptedAt:   Date,
     // Atomic processing lock (Phase 6J/6K) — set only while a refund attempt

@@ -13,6 +13,7 @@ import { ok, httpError, paginated } from '../utils/response.js';
 import { getQuickCommerceConfig, saveQuickCommerceDraft } from '../services/quickCommerceFinance.service.js';
 import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
 import { requireFinanceOperation, financeFlags, financialTransaction } from '../services/financeSafety.service.js';
+import { getFinancePolicy, BANK_VERIFICATION_PROCESS_ID } from '../services/financePolicy.service.js';
 
 export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
   return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
@@ -103,6 +104,7 @@ export const listFinancialReconciliationAdmin = asyncHandler(async (req, res) =>
 export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
   const flags = financeFlags();
   const enabled = flags.payouts && flags.policyApproved && flags.testsApproved;
+  const { requireIndependentPayoutReviewer: requireIndependent } = await getFinancePolicy();
   const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name').sort({ createdAt: -1 }).lean();
   const rows = await Promise.all(payouts.map(async (payout) => {
     const reservation = await SellerLedgerEntry.findOne({
@@ -110,7 +112,7 @@ export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
     }).select('_id').lean();
     let reviewBlocker = null, beneficiaryReviewRequired = !payout.beneficiaryVerification?.verifiedAt;
     try {
-      assertBeneficiaryReview(payout, req.user._id);
+      assertBeneficiaryReview(payout, req.user._id, { requireIndependent });
       const process = await approvedBeneficiaryProcess(mongoose.connection, payout.beneficiaryVerification.approvalReference, null);
       if (process.version !== payout.beneficiaryVerification.processVersion) { reviewBlocker = 'Beneficiary process changed; reviewed evidence must be renewed'; beneficiaryReviewRequired = true; }
     } catch (error) { if (!error.status) throw error; reviewBlocker = error.message; }
@@ -130,6 +132,7 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
   if (req.body?.verified !== true || reconciliationReason.length < 5) throw httpError(400, 'Verified bank transfer evidence and reconciliation reason are required');
   const transactionRef = String(req.body?.transactionRef || '').trim();
   if (transactionRef.length < 4 || transactionRef.length > 200) throw httpError(400, 'Confirmed bank transaction reference is required');
+  const { requireIndependentPayoutReviewer: requireIndependent } = await getFinancePolicy();
   const session = await mongoose.startSession();
   let payout;
   try {
@@ -140,7 +143,7 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
         if (existing?.status === 'APPROVED' && existing.transactionRef?.toUpperCase() === transactionRef.toUpperCase() && existing.reconciliationReason === reconciliationReason && String(existing.processedBy) === String(req.user._id)) { payout = existing; return; }
         throw httpError(409, 'Payout is not pending');
       }
-      assertBeneficiaryReview(payout, req.user._id);
+      assertBeneficiaryReview(payout, req.user._id, { requireIndependent });
       const process = await approvedBeneficiaryProcess(mongoose.connection, payout.beneficiaryVerification.approvalReference, session);
       if (process.version !== payout.beneficiaryVerification.processVersion) throw httpError(409, 'Beneficiary verification process changed; renewed review is required');
       if ((payout.currency || 'INR') !== 'INR') throw httpError(409, 'Payout currency requires reconciliation');
@@ -211,7 +214,9 @@ export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
 
 export const verifySellerPayoutBeneficiaryAdmin = asyncHandler(async (req, res) => {
   requireFinanceOperation('payouts');
-  const { evidenceReference, approvalReference, reason, fingerprint } = req.body || {};
+  const { evidenceReference, reason, fingerprint } = req.body || {};
+  // The bank-verification method saved in Finance Settings is the default process.
+  const approvalReference = req.body?.approvalReference || BANK_VERIFICATION_PROCESS_ID;
   if (![evidenceReference, approvalReference, reason].every(value => typeof value === 'string' && value.trim().length >= 5 && value.length <= 500)) throw httpError(400, 'Approved verification process reference, ownership evidence and reason are required');
   const payout = await financialTransaction(async session => {
     const row = await SellerPayout.findById(req.params.id).session(session);

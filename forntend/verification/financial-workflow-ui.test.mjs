@@ -38,7 +38,8 @@ test('seller earnings shows unposted delivered sales separately from withdrawabl
   const h = hookHarness(Earnings, {}, '/seller/earnings', context);
   try {
     assert.match(body(h), /LEGACY-DELIVERED/); assert.match(body(h), /₹1,150.00/);
-    assert.match(body(h), /no financial snapshot/); assert.match(body(h), /Awaiting payment verification and admin allocation/);
+    assert.match(body(h), /no financial snapshot/); assert.match(body(h), /Waiting for payment confirmation/);
+    assert.match(body(h), /Coupons and coins are paid by Bulkimart/);
     assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Request payout').props.disabled, true);
     assert.equal(h.requests.length, 0);
   } finally { h.close(); }
@@ -186,11 +187,66 @@ test('historical Admin evidence view is read-only and keeps unresolved entitleme
   const Historical = (await vite.ssrLoadModule('/src/modules/Admin/components/HistoricalFinancePanel.jsx')).default;
   const h = hookHarness(Historical,{},'/admin/finance-center');
   try {
-    assert.equal(h.requests.length,1); assert.match(h.requests[0].url,/historical-exceptions/);
-    h.requests[0].resolve({success:true,data:{mode:'dry-run',limit:50,totalOrders:1,rows:[{idempotencyKey:'HISTORICAL-TEST',orderNo:'LEGACY-TEST',sellerId:'seller',itemId:'item',classification:'missing_payment_evidence',reasons:['missing_payment_evidence'],evidenceHash:'hash',evidence:{payment:{method:'online',status:'paid',legacyCapturePresent:true}}}]}});
+    assert.equal(h.requests.length,2); assert.match(h.requests[0].url,/historical-exceptions/); assert.match(h.requests[1].url,/historical-batches$/);
+    h.requests[0].resolve({success:true,data:{mode:'dry-run',limit:50,totalOrders:1,rows:[{idempotencyKey:'HISTORICAL-TEST',orderId:'507f1f77bcf86cd799439011',orderNo:'LEGACY-TEST',sellerId:'seller',itemId:'507f1f77bcf86cd799439012',classification:'missing_payment_evidence',reasons:['missing_payment_evidence'],evidenceHash:'hash',evidence:{price:50,qty:2,returns:[],payouts:[],unattributedEntries:[],payment:{method:'cod',status:'paid',legacyCapturePresent:true}}}]}});
+    h.requests[1].resolve({success:true,data:{batches:[]}});
     await h.settle(); assert.match(body(h),/Payable: unresolved|requires review/); assert.match(body(h),/LEGACY-TEST/);
     assert.equal(h.requests.filter(row=>['POST','PATCH'].includes(row.options.method)).length,0);
+    // Preparing a batch: every proof field has help text and the payload carries exact amounts.
+    h.click('Add to batch'); assert.match(body(h),/LEGACY-TEST · item price ₹100.00/);
+    for (const [label,value] of [['Commission (₹)','10'],['GST on commission (₹)','1.8'],['Original commission agreement','Agreement 2025 clause 4'],['Payment proof','Cash book page 12'],['Amount approval','Finance head email'],['COD cash proof','Hub receipt 0042'],['Batch note','October old orders']]) {
+      const node = h.find(n => n.type === 'label' && [n.props.children].flat().includes(label)); assert.ok(node, label);
+      assert.ok([node.props.children].flat().some(child => child?.props?.className === 'finance-hint'), `help text: ${label}`);
+      change(h, label, value);
+    }
+    assert.match(body(h),/Seller will get: ₹88.20/);
+    h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
+    const post = h.requests.find(row => row.options.method === 'POST'); assert.match(post.url, /historical-batches$/);
+    assert.deepEqual(JSON.parse(post.options.body), { note:'October old orders', rows:[{ orderId:'507f1f77bcf86cd799439011', itemId:'507f1f77bcf86cd799439012', commission:10, commissionGst:1.8, agreementReference:'Agreement 2025 clause 4',
+      fundingEvidenceReference:'Cash book page 12', entitlementApprovalReference:'Finance head email', codCustodyApprovalReference:'Hub receipt 0042', refundReconciliationReference:'', priorPayoutReconciliationReference:'' }] });
   } finally {h.close();}
+});
+
+test('old-order batches show the next step for their status', async () => {
+  const Historical = (await vite.ssrLoadModule('/src/modules/Admin/components/HistoricalFinancePanel.jsx')).default;
+  const h = hookHarness(Historical,{},'/admin/finance-center');
+  try {
+    h.requests[0].resolve({success:true,data:{mode:'dry-run',limit:50,totalOrders:0,rows:[]}});
+    const row = { proposedPayablePaise: 9000 };
+    h.requests[1].resolve({success:true,data:{batches:[{_id:'HB-1',status:'pending_approval',note:'Batch one',rows:[row]},{_id:'HB-2',status:'approved',note:'Batch two',rows:[row]},{_id:'HB-3',status:'applied',note:'Batch three',rows:[row]}]}});
+    await h.settle();
+    assert.match(body(h),/HB-1 · Waiting for a second admin/); assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Approve'));
+    assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Apply')); assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Release to sellers'));
+    h.click('Release to sellers'); const post = h.requests.find(r => r.options.method === 'POST'); assert.match(post.url, /historical-batches\/HB-3\/release$/);
+  } finally { h.close(); }
+});
+
+test('seller tax statement lists monthly TCS/TDS and asks for missing GSTIN/PAN', async () => {
+  const Statement = (await vite.ssrLoadModule('/src/modules/Seller/components/SellerTaxStatement.jsx')).default;
+  const h = hookHarness(Statement,{},'/seller/earnings');
+  try {
+    assert.match(h.requests[0].url,/finances\/tax-statement$/);
+    h.requests[0].resolve({success:true,data:{gstin:'',pan:'ABCDE1234F',tcsRatePercent:0.5,tdsRatePercent:0.1,months:[{month:'2026-10',grossPaise:10000,taxablePaise:8475,tcsPaise:42,tdsPaise:10},{month:'2026-09',grossPaise:0,taxablePaise:0,tcsPaise:0,tdsPaise:0}]}});
+    await h.settle();
+    assert.match(body(h),/₹84.75/); assert.match(body(h),/₹0.42/); assert.match(body(h),/Add your GSTIN in your profile/); assert.doesNotMatch(body(h),/September/);
+  } finally { h.close(); }
+});
+
+test('rider must enter the COD cash collected, and it is sent with the OTP', async () => {
+  const Page = (await vite.ssrLoadModule('/src/modules/Delivery/pages/ActiveDeliveryPage.jsx')).default;
+  const calls = [], toasts = [];
+  const context = { activeOrder: { step: 'transit', otpSent: true, paymentMethod: 'COD', codAmount: 500, items: [], orderId: 'o1' }, verifyOTPAndComplete: async (...args) => { calls.push(args); return true; },
+    triggerToast: message => toasts.push(message), completePickup() {}, markArrivedAtStore() {}, markArrivedAtCustomer() {}, requestDeliveryOtp() {}, cancelOrder() {}, riderLocation: null };
+  const h = hookHarness(Page, {}, '/delivery/active', context);
+  try {
+    const otp = h.find(n => n.type === 'input' && n.props.maxLength === '4'); otp.props.onChange({ target: { value: '1234' } }); h.flush();
+    const form = () => h.find(n => n.type === 'form');
+    await form().props.onSubmit({ preventDefault() {} }); h.flush();
+    assert.equal(calls.length, 0); assert.match(toasts[0], /cash you collected/);
+    const cash = h.find(n => n.type === 'input' && n.props.inputMode === 'decimal'); cash.props.onChange({ target: { value: '480' } }); h.flush();
+    await form().props.onSubmit({ preventDefault() {} }); h.flush();
+    assert.deepEqual(calls[0], ['1234', { codCollected: '480' }]);
+  } finally { h.close(); }
 });
 
 test('Admin payout view blocks unverified transfer actions and rejects malformed reads', async () => {
@@ -200,7 +256,7 @@ test('Admin payout view blocks unverified transfer actions and rejects malformed
     try {
       h.requests[0].resolve({success:true,data});await h.settle();
       if (!data) {assert.match(body(h),/Payout review data is incomplete/);assert.doesNotMatch(body(h),/No payout requests/);}
-      else {assert.match(body(h),/Pending Admin review/);assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Reconcile external transfer').props.disabled,true);assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Review beneficiary evidence'));}
+      else {assert.match(body(h),/Waiting: check bank account/);assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Mark as paid').props.disabled,true);assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Check bank account'));}
       assert.equal(h.requests.filter(row=>['POST','PATCH'].includes(row.options.method)).length,0);
     } finally {h.close();}
   }
@@ -261,15 +317,17 @@ for (const status of [401, 403, 500]) test('finance HTTP ' + status + ' remains 
 test('commission editor starts without invented rates and never posts on load', async () => {
   const h = hookHarness(Admin); try {
     h.requests[0].resolve(config(false)); await h.settle();
-    assert.equal(field(h, 'Approved value').props.value, ''); assert.equal(field(h, 'Approved tax rate (%)').props.value, '');
-    assert.match(body(h), /disabled pending policy/); assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0);
+    assert.equal(field(h, 'Commission value').props.value, ''); assert.equal(field(h, 'GST rate on commission (%)').props.value, '');
+    assert.match(body(h), /Money actions are switched off on the server/); assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0);
+    for (const label of ['Channel', 'Commission method', 'Commission value', 'GST treatment', 'Starts from', 'Change reason'])
+      assert.ok([field(h, label) && h.find(n => n.type === 'label' && [n.props.children].flat().includes(label)).props.children].flat().some(child => child?.props?.className === 'finance-hint'), `Missing help text: ${label}`);
   } finally { h.close(); }
 });
 test('commission form saves explicit version data and displays backend validation errors', async () => {
   const h = hookHarness(Admin); try {
     h.requests[0].resolve(config(false)); await h.settle();
-    change(h, 'Approved value', '10'); change(h, 'Approved tax rate (%)', '0'); change(h, 'Tax treatment', 'exempt');
-    change(h, 'Effective date and time', '2026-01-01T12:00'); change(h, 'Change reason', 'Synthetic fixture only');
+    change(h, 'Commission value', '10'); change(h, 'GST rate on commission (%)', '0'); change(h, 'GST treatment', 'exempt');
+    change(h, 'Starts from', '2026-01-01T12:00'); change(h, 'Change reason', 'Synthetic fixture only');
     h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
     assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0, 'Review must precede persistence');
     h.find(node => node.type?.name === 'FinanceReview').props.onConfirm(); h.flush();
@@ -278,16 +336,39 @@ test('commission form saves explicit version data and displays backend validatio
     assert.equal(payload.value, 10); assert.equal(payload.taxRate, 0); assert.equal(payload.isActive, false);
     assert.equal(payload.base, 'eligible_item_subtotal'); assert.equal(payload.fixedScope, 'order_item'); assert.equal(payload.supersedes, null);
     pending.resolve({ message: 'Commission changed; refresh before saving' },409); await h.settle();
-    assert.match(body(h), /Commission changed/); assert.equal(field(h, 'Approved value').props.value, '10');
+    assert.match(body(h), /Commission changed/); assert.equal(field(h, 'Commission value').props.value, '10');
   } finally { h.close(); }
 });
 test('COD actions remain disabled until server release gates are satisfied', async () => {
   const h = hookHarness(Admin); try {
-    h.requests[0].resolve(config(false)); await h.settle(); h.click('COD reconciliation');
+    h.requests[0].resolve(config(false)); await h.settle(); h.click('COD cash');
     h.requests[1].resolve(config(false)); await h.settle();
     h.requests[2].resolve({ data: [{ ...cashRow, cash: { ...cashRow.cash, status:'remittance_reported' } }], meta:{ pages:1 } }); await h.settle();
-    assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Verify cash evidence').props.disabled, true);
+    assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Confirm cash received').props.disabled, true);
+    assert.match(body(h), /Rider says handed over/);
     assert.equal(h.requests.filter(row=>row.options.method==='POST').length,0);
+  } finally { h.close(); }
+});
+test('a verified COD shortage can be written off by the platform without typing an amount', async () => {
+  const h = hookHarness(Admin, { initialTab: 'cod', hideNavigation: true }); try {
+    h.requests[0].resolve(config(true)); await h.settle();
+    const row = { ...cashRow, financialRevision: 4, exceptions: ['cash_discrepancy'], cash: { ...cashRow.cash, status: 'discrepancy', collectedPaise: 10000, reportedPaise: 9000, verifiedPaise: 9000, shortagePaise: 1000 } };
+    h.requests[1].resolve({ data: [row], meta: { pages: 1 } }); await h.settle();
+    assert.match(body(h), /Amount mismatch/);
+    h.click('Write off shortage'); assert.match(body(h), /Bulkimart absorbs the ₹10.00 shortage/);
+    assert.equal(h.find(n => n.type === 'label' && [n.props.children].flat().includes('Cash received (₹)')), undefined);
+    change(h, 'Evidence reference', 'SHORT-0001'); change(h, 'Reason', 'Customer paid ₹10 less');
+    h.find(n => n.type === 'form' && n.props.className?.includes('finance-review')).props.onSubmit({ preventDefault() {} }); h.flush();
+    const post = h.requests.find(r => r.options.method === 'POST'); assert.match(post.url, /finance\/orders\/order-fixture\/cod\/writeoff$/);
+    assert.deepEqual(JSON.parse(post.options.body), { expectedRevision: 4, reference: 'SHORT-0001', reason: 'Customer paid ₹10 less' });
+  } finally { h.close(); }
+});
+test('orders the automatic process could not finish show the reason and a manual action', async () => {
+  const h = hookHarness(Admin, { initialTab: 'orders', hideNavigation: true }); try {
+    h.requests[0].resolve(config(true)); await h.settle();
+    h.requests[1].resolve({ data: [{ ...cashRow, paymentMethod: 'online', exceptions: ['allocation_not_posted', 'needs_admin_review'], financeAutomation: { step: 'post', lastError: 'Authoritative captured payment evidence is required' } }], meta: { pages: 1 } }); await h.settle();
+    assert.match(body(h), /Needs your review/); assert.match(body(h), /Why: Authoritative captured payment evidence/);
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Add earnings now').props.disabled, false);
   } finally { h.close(); }
 });
 test('seller per-order view renders frozen commission version and fees separately', async () => {

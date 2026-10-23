@@ -36,6 +36,8 @@ import { historicalExceptions, applyReviewedHistoricalBatch } from '../services/
 import { historicalManifestRow } from '../utils/historicalManifest.js';
 import { destinationFingerprint } from '../services/payoutEvidence.service.js';
 import { eligibleValueOfOrder, computeItemEligibleValue } from '../services/coin.service.js';
+import { saveFinancePolicy, getFinancePolicy } from '../services/financePolicy.service.js';
+import { runFinanceAutomationOnce } from '../services/financeAutomation.service.js';
 
 const app = express(); app.use(express.json());
 app.use('/api/admin', adminRoutes); app.use('/api/delivery', deliveryRoutes); app.use('/api/sellers', sellerRoutes); app.use(errorHandler);
@@ -122,13 +124,14 @@ test('database failure is a summary API error rather than a successful zero bala
   } finally { spy.mockRestore(); }
 });
 
-test('legacy coupon alias is normalized without a write; unknown funding blocks posting', async () => {
+test('legacy coupon alias is normalized without a write; platform funds the discount', async () => {
   const copy = order.toObject();
   // Exact shape written by createOrder: discount includes couponDiscount already.
   copy.pricing = { subtotal: 100, discount: 10, couponDiscount: 10, totalAmount: 90 };
   const frozen = await buildOrderFinancialSnapshot(copy);
-  expect(frozen).toMatchObject({ expectedPaise: 9000, discountRepresentation: 'legacy-coupon-alias', state: 'held_discount_policy' });
-  expect(frozen.lines[0].eligiblePaise).toBe(9000); expect(frozen.lines[0].netPaise).toBeUndefined();
+  expect(frozen).toMatchObject({ expectedPaise: 9000, discountRepresentation: 'legacy-coupon-alias', state: 'configured', discountFunding: 'platform' });
+  // ₹100 item, ₹10 coupon, 10% commission on the ₹90 paid: seller gets ₹91.
+  expect(frozen.lines[0]).toMatchObject({ grossPaise: 10000, eligiblePaise: 9000, commissionPaise: 900, platformDiscountPaise: 1000, netPaise: 9100 });
   expect(copy.pricing.discount).toBe(10);
   expect(await Ledger.countDocuments()).toBe(0);
 });
@@ -192,8 +195,9 @@ test('cash reports do not mark payment paid; verified reconciliation allocates c
   expect(await Ledger.countDocuments({ account: 'commission_revenue' })).toBe(1);
   expect(await Ledger.countDocuments({ account: 'cod_custody' })).toBe(2);
 });
-test('incorrect collection, duplicate evidence, unauthorized rider and unverified delivery fail closed', async () => {
-  enable(); await expect(cod('collect', 99)).rejects.toThrow(/match/);
+test('impossible collection, duplicate evidence, unauthorized rider and unverified delivery fail closed', async () => {
+  enable(); await expect(cod('collect', 101)).rejects.toThrow(/at most the order amount/);
+  await expect(cod('collect', 0)).rejects.toThrow(/more than zero/);
   await expect(recordCodEvent({ orderId: order._id, partnerId: id(), actorId: rider._id, action: 'collect', input: { amount: 100, method: 'cash', reference: 'TEST', reason: 'Fixture evidence' } })).rejects.toMatchObject({ status: 404 });
   await cod('collect'); await cod('collect');
   expect(await Ledger.countDocuments({ account: 'cod_custody' })).toBe(1);
@@ -294,7 +298,8 @@ test('discount and multi-vendor allocation conserve every paisa even for fully d
   const data=order.toObject();data.items=[{_id:id(),productId:product._id,sellerId:seller._id,type:'grocery',qty:1,price:.01},{_id:id(),productId:product._id,sellerId:id(),type:'grocery',qty:1,price:.01}];
   data.pricing={subtotal:.02,couponDiscount:.01,coinDiscount:.01,totalAmount:0};
   const snapshot=await buildOrderFinancialSnapshot(data);
-  expect(snapshot.lines.every(line=>line.eligiblePaise===0&&line.netPaise===undefined)).toBe(true);
+  // Fully discounted lines carry no commission; the platform-funded discount pays the seller the item price.
+  expect(snapshot.lines.every(line=>line.eligiblePaise===0&&line.commissionPaise===0&&line.platformDiscountPaise===1&&line.netPaise===1)).toBe(true);
   expect(snapshot.lines.reduce((n,line)=>n+line.allocatedDiscounts.couponDiscount,0)).toBe(1);
   expect(snapshot.lines.reduce((n,line)=>n+line.allocatedDiscounts.coinDiscount,0)).toBe(1);
 });
@@ -703,4 +708,245 @@ test('beneficiary process revision blocks stale evidence and retains earlier rev
     .send({fingerprint:destinationFingerprint(seller.bankDetails),evidenceReference:'NEW-OWNERSHIP-EVIDENCE',approvalReference:'FIXTURE-PROCESS',reason:'Synthetic renewed ownership review'});
   expect(renewed.status).toBe(200); expect(renewed.body.data.beneficiaryVerificationHistory).toHaveLength(1);
   expect((await settleSeller(payoutId,'BANK-RENEW')).status).toBe(200);
+});
+
+// ---- Approved end-to-end policy: platform-funded discounts, TCS/TDS, COD
+// shortage write-off, admin payout policy and automation.
+const policyInput = (changes = {}) => ({ tcsRatePercent: 0, tdsRatePercent: 0, sellerMinPayout: 0, riderMinPayout: 100, payoutSchedule: 'on_request', payoutWeekday: 1,
+  requireIndependentPayoutReviewer: true, bankVerificationMethod: '', note: 'Synthetic approved finance policy', ...changes });
+const setPolicy = async changes => saveFinancePolicy({ ...policyInput(changes), revision: (await getFinancePolicy()).revision }, admin._id);
+const discountedCodOrder = async () => {
+  await Payment.updateOne({ _id: payment._id }, { $set: { amount: 90 } });
+  await Order.collection.deleteOne({ _id: order._id });
+  process.env.FINANCE_SNAPSHOTS_ENABLED = 'true';
+  order = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId: product._id, sellerId: seller._id, type: 'grocery', name: 'Fixture', qty: 2, price: 50, deliveredAt: new Date('2020-01-01') }],
+    paymentMethod: 'cod', paymentId: payment._id, status: 'delivered', deliveryId: delivery._id, deliveryPartnerId: partner._id,
+    pricing: { discountRepresentation: 'components-v1', subtotal: 100, couponDiscount: 10, totalAmount: 90 } });
+  delete process.env.FINANCE_SNAPSHOTS_ENABLED;
+  await Payment.updateOne({ _id: payment._id }, { $set: { orderId: order._id } });
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { orderId: order._id } });
+};
+
+test('platform-funded coupon: seller is paid on full price with TCS/TDS withheld, and refunds return the same net', async () => {
+  enable(); await setPolicy({ tcsRatePercent: 0.5, tdsRatePercent: 0.1 }); await discountedCodOrder();
+  expect(order.financialSnapshot.lines[0]).toMatchObject({ grossPaise: 10000, eligiblePaise: 9000, commissionPaise: 900, tcsPaise: 50, tdsPaise: 10, platformDiscountPaise: 1000, netPaise: 9040 });
+  await cod('collect', 90); await cod('remit', 90); await cod('verify', 90);
+  await postOrderFinance(order._id, admin._id);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 90.4, earnedEarnings: 90.4 });
+  for (const [account, amount] of [['platform_discount_expense', 10], ['tcs_liability', .5], ['tds_liability', .1], ['commission_revenue', 9]]) expect((await Ledger.findOne({ account })).amount).toBe(amount);
+  const retId = id(); await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: order.items[0]._id, quantity: 1, status: 'REFUNDED', refundReference: 'MANUAL-COD', codSettledBy: admin._id, codSettledAt: new Date(), codSettlementNote: 'Synthetic manual cash receipt', refundAmount: 45, returnNumber: 'RET-PLATFORM' });
+  await reverseRefundedReturn(retId, admin._id);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 45.2 });
+  expect((await financialReconciliation()).exceptions.filter(row => row.code === 'merchandise_posting_mismatch')).toHaveLength(0);
+});
+
+test('a verified COD shortage is absorbed by the platform and unblocks settlement exactly once', async () => {
+  enable(); await cod('collect'); await cod('remit', 90); await cod('verify', 90);
+  const writeoff = () => recordCodEvent({ orderId: order._id, actorId: admin._id, action: 'writeoff', input: { reference: 'WRITEOFF-TEST', reason: 'Approved platform shortage absorption' } });
+  await expect(postOrderFinance(order._id, admin._id)).rejects.toThrow(/not verified/);
+  await Promise.all([writeoff(), writeoff()]);
+  const cash = (await queryOrder()).codFinance;
+  expect(cash).toMatchObject({ status: 'verified', writtenOffPaise: 1000, writtenOffCustodyPaise: 1000 });
+  expect((await Payment.findById(payment._id)).status).toBe('paid');
+  const custody = await Ledger.find({ account: 'cod_custody' }); expect(custody.reduce((sum, row) => sum + (row.direction === 'credit' ? row.amount : -row.amount), 0)).toBe(0);
+  expect((await Ledger.findOne({ account: 'cod_shortage_expense' })).amount).toBe(10);
+  await expect(recordCodEvent({ orderId: order._id, actorId: admin._id, action: 'writeoff', input: { reference: 'SECOND-WRITEOFF', reason: 'Second write-off attempt' } })).rejects.toThrow(/Only a verified cash shortage/);
+  await postOrderFinance(order._id, admin._id); expect(await sellerBalances(seller._id)).toMatchObject({ held: 90 });
+  expect((await financialReconciliation()).exceptions.filter(row => row.code === 'cod_custody_mismatch')).toHaveLength(0);
+});
+
+test('a short doorstep collection is recorded honestly and settled by write-off', async () => {
+  enable(); await cod('collect', 95); await cod('remit', 95); await cod('verify', 95);
+  expect((await queryOrder()).codFinance).toMatchObject({ status: 'discrepancy', shortagePaise: 500 });
+  await recordCodEvent({ orderId: order._id, actorId: admin._id, action: 'writeoff', input: { reference: 'SHORT-COLLECTION', reason: 'Customer paid short at the door' } });
+  expect((await queryOrder()).codFinance).toMatchObject({ status: 'verified', writtenOffPaise: 500, writtenOffCustodyPaise: 0 });
+  expect((await financialReconciliation()).exceptions.filter(row => row.code === 'cod_custody_mismatch')).toHaveLength(0);
+});
+
+test('rider cannot be paid while holding unverified COD cash', async () => {
+  enable(); await fundedRider(); await cod('collect');
+  await expect(requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'cash-in-hand' })).rejects.toThrow(/Hand over/);
+  await cod('remit'); await cod('verify');
+  expect((await requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'cash-in-hand' })).payout.amount).toBe(300);
+});
+
+test('admin payout policy enforces minimums and turns manual requests off on a weekly schedule', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id, admin._id); await releaseOrderFinance(order._id, admin._id); await fundedRider();
+  await setPolicy({ sellerMinPayout: 50, riderMinPayout: 350 });
+  expect((await fundedSellerRequest('below-minimum', 30)).status).toBe(400);
+  await expect(requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'below-minimum' })).rejects.toThrow(/Minimum payout amount is ₹350/);
+  await setPolicy({ payoutSchedule: 'weekly' });
+  expect((await fundedSellerRequest('weekly-manual', 60)).status).toBe(409);
+  await expect(requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'weekly-manual' })).rejects.toThrow(/automatically every week/);
+  const summary = await request(app).get('/api/sellers/finances/summary').set('Authorization', bearer(user, 'user', 'seller'));
+  expect(summary.body.data.payoutPolicy).toMatchObject({ schedule: 'weekly', minimum: 0 }); expect(summary.body.data.payoutActionsEnabled).toBe(false);
+});
+
+test('automation posts, releases seller and rider earnings, reverses refunds and creates weekly payouts', async () => {
+  enable();
+  const settlement = { total: 40, tip: 0, base: 20, perKm: 10, distanceKm: 2 };
+  await financialTransaction(session => recordDeliveryEarning({ order, delivery, settlement, session }));
+  await Partner.updateOne({ _id: partner._id }, { $set: { 'earnings.held': 40, 'earnings.total': 40 } });
+  expect(await runFinanceAutomationOnce()).toEqual({});
+  expect((await queryOrder()).financialPosting).toBeUndefined();
+  await verifyCash();
+  expect(await runFinanceAutomationOnce()).toMatchObject({ post: 1, release: 1, rider_release: 1 });
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 0, eligible: 90 });
+  expect((await Partner.findById(partner._id)).earnings).toMatchObject({ held: 0, pending: 40 });
+  expect((await Delivery.findById(delivery._id)).financialEarningStatus).toBe('eligible');
+  expect(await runFinanceAutomationOnce()).toEqual({});
+  const now = Date.now(); const weekday = new Date(now + 5.5 * 3600 * 1000).getUTCDay();
+  await setPolicy({ payoutSchedule: 'weekly', payoutWeekday: weekday, riderMinPayout: 10 });
+  await runFinanceAutomationOnce({ now }); await runFinanceAutomationOnce({ now });
+  expect((await SellerPayout.find({})).map(row => row.amount)).toEqual([90]);
+  expect((await DeliveryPayout.find({})).map(row => row.amount)).toEqual([40]);
+});
+
+test('automation records why an order still needs an admin and retries later', async () => {
+  enable(); await prepaidFixture('online'); await Payment.updateOne({ _id: payment._id }, { $set: { captures: [] } });
+  const now = Date.now();
+  await runFinanceAutomationOnce({ now });
+  expect((await queryOrder()).financeAutomation).toMatchObject({ step: 'post', lastError: expect.stringMatching(/captured/) });
+  const listed = await request(app).get('/api/admin/finance/orders').set('Authorization', bearer(admin, 'admin'));
+  expect(listed.body.data[0].exceptions).toContain('needs_admin_review');
+  expect(await runFinanceAutomationOnce({ now: now + 60 * 1000 })).toEqual({});
+  await prepaidFixture('online');
+  expect(await runFinanceAutomationOnce({ now: now + 16 * 60 * 1000 })).toMatchObject({ post: 1 });
+  expect((await queryOrder()).financeAutomation).toBeUndefined();
+});
+
+test('finance policy API validates, versions and registers the bank verification process', async () => {
+  const put = body => request(app).put('/api/admin/finance/policy').set('Authorization', bearer(admin, 'admin')).send(body);
+  expect((await put({ ...policyInput(), note: '' })).status).toBe(400);
+  expect((await put({ ...policyInput(), tcsRatePercent: 9 })).status).toBe(400);
+  const saved = await put({ ...policyInput({ bankVerificationMethod: 'Penny-drop test plus cancelled cheque' }), revision: 0 });
+  expect(saved.status).toBe(200); expect(saved.body.data.policy).toMatchObject({ revision: 1, configured: true });
+  expect((await put({ ...policyInput(), revision: 0 })).status).toBe(409);
+  const read = await request(app).get('/api/admin/finance/policy').set('Authorization', bearer(admin, 'admin'));
+  expect(read.body.data.policy.bankVerificationMethod).toBe('Penny-drop test plus cancelled cheque');
+  enable(); await verifyCash(); await postOrderFinance(order._id, admin._id); await releaseOrderFinance(order._id, admin._id);
+  const payoutId = (await fundedSellerRequest('default-process')).body.data._id;
+  const review = await request(app).patch(`/api/admin/vendor-payouts/${payoutId}/beneficiary-review`).set('Authorization', bearer(admin, 'admin'))
+    .send({ fingerprint: destinationFingerprint(seller.bankDetails), evidenceReference: 'PENNY-DROP-OK', reason: 'Penny-drop name matched' });
+  expect(review.status).toBe(200);
+  expect((await settleSeller(payoutId, 'BANK-SAME-ADMIN')).status).toBe(409);
+  await setPolicy({ bankVerificationMethod: 'Penny-drop test plus cancelled cheque', requireIndependentPayoutReviewer: false });
+  expect((await settleSeller(payoutId, 'BANK-SAME-ADMIN')).status).toBe(200);
+});
+
+test('overview reports work to do and money totals from the ledger', async () => {
+  enable(); await cod('collect'); await cod('remit');
+  let overview = await request(app).get('/api/admin/finance/overview').set('Authorization', bearer(admin, 'admin'));
+  expect(overview.status).toBe(200); expect(overview.body.data.todo).toMatchObject({ cashToVerify: 1, waitingPayment: 1 });
+  expect(overview.body.data.totalsPaise.codCashWithRiders).toBe(10000);
+  await cod('verify'); await postOrderFinance(order._id, admin._id);
+  overview = await request(app).get('/api/admin/finance/overview').set('Authorization', bearer(admin, 'admin'));
+  expect(overview.body.data.totalsPaise).toMatchObject({ sellersOnHold: 9000, commission: 1000, codCashWithRiders: 0 });
+  expect(overview.body.data.commissionRulesConfigured).toBe(true);
+});
+
+// ---- Follow-up fixes: ledger-only rider balances, COD at OTP, TCS base,
+// tax reports, accounting journal, ageless refund reconciliation, old-order batches.
+test('TCS is withheld on the value excluding the product GST; TDS on the full price', async () => {
+  await setPolicy({ tcsRatePercent: 0.5, tdsRatePercent: 0.1 });
+  await Product.collection.updateOne({ _id: product._id }, { $set: { gstRate: 18 } });
+  const line = (await buildOrderFinancialSnapshot(order)).lines[0];
+  // ₹100 incl. 18% GST → taxable ₹84.75; TCS 0.5% = ₹0.42; TDS 0.1% of ₹100 = ₹0.10.
+  expect(line).toMatchObject({ gstRatePercent: 18, taxableValuePaise: 8475, tcsPaise: 42, tdsPaise: 10, netPaise: 10000 - 1000 - 42 - 10 });
+});
+
+test('rider payouts and balances come only from the ledger', async () => {
+  enable(); await fundedRider();
+  await Partner.updateOne({ _id: partner._id }, { $set: { financialWorkflowVersion: 2, 'earnings.pending': 50 } });
+  const { riderFinancialSummary } = await import('../services/deliveryPayout.service.js');
+  const summary = await riderFinancialSummary(await Partner.findById(partner._id));
+  expect(summary).toMatchObject({ verifiedPayable: 400, balances: { onHold: 0, available: 400, requested: 0, paid: 0 }, legacyUnverified: 0, balanceMismatch: true });
+  const { payout } = await requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'ledger-only' });
+  await resolveVerifiedRiderPayout({ payoutId: payout._id, actorId: admin._id, complete: true, input: { verified: true, transactionRef: 'BANK-LEDGER', reason: 'Verified bank statement' } });
+  expect((await riderFinancialSummary(await Partner.findById(partner._id))).balances).toMatchObject({ available: 100, requested: 0, paid: 300 });
+});
+
+test('rider records COD cash in the OTP delivery step', async () => {
+  enable();
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'out_for_delivery' } });
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'in_transit', otp: '1234', otpVerified: false } });
+  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '1234', codCollected: 95 });
+  expect(response.status).toBe(200); expect(response.body.data.codCollection).toEqual({ recorded: true });
+  expect((await queryOrder()).codFinance).toMatchObject({ status: 'collected', collectedPaise: 9500, collectedAt: expect.any(Date) });
+  await Order.updateOne({ _id: order._id }, { $set: { 'codFinance.collectedAt': new Date(Date.now() - 25 * 3600 * 1000) } });
+  const overview = await request(app).get('/api/admin/finance/overview').set('Authorization', bearer(admin, 'admin'));
+  expect(overview.body.data.todo).toMatchObject({ cashWithRiders: 1, cashOverdue: 1 });
+});
+
+test('a failed cash record never undoes the delivery', async () => {
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'out_for_delivery' } });
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'in_transit', otp: '4321', otpVerified: false } });
+  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', codCollected: 100 });
+  expect(response.status).toBe(200); expect(response.body.data.codCollection.recorded).toBe(false);
+  expect((await queryOrder()).status).toBe('delivered');
+});
+
+test('monthly tax report and seller statement show TCS/TDS with GSTIN/PAN gaps', async () => {
+  enable(); await setPolicy({ tcsRatePercent: 0.5, tdsRatePercent: 0.1 }); await discountedCodOrder();
+  await cod('collect', 90); await cod('remit', 90); await cod('verify', 90); await postOrderFinance(order._id, admin._id);
+  const istNow = new Date(Date.now() + 5.5 * 3600 * 1000), month = istNow.toISOString().slice(0, 7);
+  const report = await request(app).get(`/api/admin/finance/tax-report?month=${month}`).set('Authorization', bearer(admin, 'admin'));
+  expect(report.status).toBe(200);
+  expect(report.body.data.rows[0]).toMatchObject({ grossPaise: 10000, taxablePaise: 10000, tcsPaise: 50, tdsPaise: 10, missing: ['GSTIN', 'PAN'] });
+  const csv = await request(app).get(`/api/admin/finance/tax-report?month=${month}&format=csv`).set('Authorization', bearer(admin, 'admin'));
+  expect(csv.headers['content-type']).toMatch(/text\/csv/); expect(csv.text).toContain('"0.50"');
+  expect((await request(app).get('/api/admin/finance/tax-report?month=2026-13').set('Authorization', bearer(admin, 'admin'))).status).toBe(400);
+  const statement = await request(app).get('/api/sellers/finances/tax-statement').set('Authorization', bearer(user, 'user', 'seller'));
+  expect(statement.status).toBe(200); expect(statement.body.data.months[0]).toMatchObject({ month, tcsPaise: 50, tdsPaise: 10 });
+  expect(statement.body.data.months).toHaveLength(12);
+});
+
+test('accounting journal is balanced and clears COD customer money to zero', async () => {
+  enable(); await cod('collect'); await cod('remit'); await cod('verify'); await postOrderFinance(order._id, admin._id);
+  const settlement = { total: 40, tip: 0, base: 20, perKm: 10, distanceKm: 2 };
+  await financialTransaction(session => recordDeliveryEarning({ order, delivery, settlement, session }));
+  const day = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  const tb = await request(app).get(`/api/admin/finance/trial-balance?from=${day}&to=${day}`).set('Authorization', bearer(admin, 'admin'));
+  expect(tb.status).toBe(200); expect(tb.body.data.balanced).toBe(true);
+  const balance = name => tb.body.data.rows.find(row => row.account === name)?.balancePaise ?? 0;
+  expect(balance('Customer payments clearing')).toBe(0); expect(balance('Bank')).toBe(10000);
+  expect(balance('Seller payable')).toBe(-9000); expect(balance('Commission income')).toBe(-1000);
+  expect(balance('COD cash with riders')).toBe(0); expect(balance('Delivery cost')).toBe(4000); expect(balance('Rider payable')).toBe(-4000);
+  const csv = await request(app).get(`/api/admin/finance/journal?from=${day}&to=${day}&format=csv`).set('Authorization', bearer(admin, 'admin'));
+  expect(csv.text.split('\r\n')[0]).toContain('Debit account');
+  expect((await request(app).get('/api/admin/finance/journal?from=2026-01-02&to=2026-01-01').set('Authorization', bearer(admin, 'admin'))).status).toBe(400);
+});
+
+test('automation reconciles old refunds with no age limit and skips orders without a snapshot once', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id, admin._id);
+  const retId = await recordedOnlineReturn();
+  await Return.collection.updateOne({ _id: retId }, { $set: { updatedAt: new Date('2020-01-01') } });
+  const legacy = { ...order.toObject(), _id: id(), orderNo: 'LEGACY-REFUND', paymentId: id() }; delete legacy.financialSnapshot; await Order.collection.insertOne(legacy);
+  const legacyReturn = id(); await Return.collection.insertOne({ _id: legacyReturn, orderId: legacy._id, orderItemId: legacy.items[0]._id, quantity: 1, status: 'REFUNDED', refundReference: 'OLD', refundAmount: 50, returnNumber: 'RET-OLD' });
+  expect(await runFinanceAutomationOnce()).toMatchObject({ refund: 1 });
+  expect((await Return.findById(retId)).financeReconciledAt).toBeInstanceOf(Date);
+  expect((await Return.findById(legacyReturn)).financeSkipReason).toBe('no_finance_snapshot');
+  expect(await sellerBalances(seller._id)).toMatchObject({ eligible: 45, held: 0 });
+});
+
+test('old-order batch needs a second admin, then applies and releases exactly once', async () => {
+  enable(); const legacy = { ...order.toObject(), _id: id(), orderNo: 'OLD-ORDER-BATCH' }; delete legacy.financialSnapshot;
+  await Order.collection.insertOne(legacy);
+  const post = (path, body, who = admin) => request(app).post(`/api/admin/finance/historical-batches${path}`).set('Authorization', bearer(who, 'admin')).send(body);
+  const row = { orderId: String(legacy._id), itemId: String(legacy.items[0]._id), commission: 10, commissionGst: 0, agreementReference: 'Signed agreement 2025', fundingEvidenceReference: 'Cash book page 12',
+    entitlementApprovalReference: 'Finance head email 1 Oct', codCustodyApprovalReference: 'Hub receipt 0042' };
+  expect((await post('', { rows: [{ ...row, commission: 200 }], note: 'October old orders' })).status).toBe(400);
+  const created = await post('', { rows: [row], note: 'October old orders' }); expect(created.status).toBe(200);
+  const batchId = created.body.data._id; expect(created.body.data.rows[0]).toMatchObject({ grossPaise: 10000, proposedPayablePaise: 9000 });
+  expect((await post('', { rows: [row], note: 'Duplicate attempt' })).status).toBe(409);
+  expect((await post(`/${batchId}/review`, { approve: true, note: 'Checked evidence' })).status).toBe(409);
+  const reviewer = id(); await Admin.collection.insertOne({ _id: reviewer, name: 'Reviewer', email: 'old-batch@example.test', role: 'admin', permissions: ['manage_finance'], isActive: true });
+  expect((await post(`/${batchId}/release`, {})).status).toBe(409);
+  expect((await post(`/${batchId}/review`, { approve: true, note: 'Checked evidence' }, { _id: reviewer })).status).toBe(200);
+  expect((await post(`/${batchId}/apply`, {})).status).toBe(200);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 90, eligible: 0 });
+  await Promise.all([post(`/${batchId}/release`, {}), post(`/${batchId}/release`, {})]);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 0, eligible: 90 });
+  const list = await request(app).get('/api/admin/finance/historical-batches').set('Authorization', bearer(admin, 'admin'));
+  expect(list.body.data.batches[0].status).toBe('released');
 });

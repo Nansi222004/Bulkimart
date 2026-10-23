@@ -336,6 +336,9 @@ const orderSchema = new Schema(
     financialReturnQuantities: { type: Schema.Types.Mixed, default: {} },
     // Cash evidence is separate from customer payment and seller payable.
     codFinance: { type: Schema.Types.Mixed },
+    // Last attempt by the finance automation job; an error explains why the
+    // order still needs admin attention. Never holds money values.
+    financeAutomation: { type: Schema.Types.Mixed },
 
     // Vendor acceptance is deliberately separate from payment state. Online
     // payment may complete before the shop responds; it must never count as

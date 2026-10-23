@@ -1,6 +1,12 @@
 import { moneyPaise, allocatePaise } from '../utils/financeMoney.js';
 import { httpError } from '../utils/response.js';
 
+// Approved business policy: Bulkimart funds every order-level coupon, coin and
+// CDS discount. The seller is paid on the full item price; commission is
+// charged on the price after discount (see buildOrderFinancialSnapshot).
+export const DISCOUNT_FUNDING_POLICY = { PLATFORM: 'platform' };
+export const getDiscountFundingPolicy = () => DISCOUNT_FUNDING_POLICY.PLATFORM;
+
 // No writes: legacy alias detection is permitted only when the authoritative
 // total proves that discount includes coupon. Ambiguous shapes fail closed.
 export const discountAllocation = (pricing, gross) => {
@@ -23,8 +29,6 @@ export const discountAllocation = (pricing, gross) => {
     remaining = remaining.map((budget, row) => budget - allocation[row]);
     return [key, allocation];
   }));
-  // Funding ownership has no approved configuration in the existing schema.
-  // Customer prices remain valid, but discounted new snapshots cannot post an
-  // assumed seller deduction. Product campaign prices are already frozen gross.
-  return { keys, discounts, representation, fundingUnresolved: totals.some(value => value > 0) };
+  const hasDiscounts = totals.some(value => value > 0);
+  return { keys, discounts, representation, fundingUnresolved: false, fundingPolicy: hasDiscounts ? getDiscountFundingPolicy() : 'none' };
 };

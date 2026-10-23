@@ -19,6 +19,7 @@ export const ActiveDeliveryPage = () => {
   } = useDelivery();
 
   const [otpInput, setOtpInput] = useState('');
+  const [codCollected, setCodCollected] = useState('');
   const [checkedItems, setCheckedItems] = useState({});
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes SLA (in seconds)
   const [route, setRoute] = useState(null);
@@ -61,9 +62,15 @@ export const ActiveDeliveryPage = () => {
       triggerToast('Please enter customer delivery OTP.');
       return;
     }
-    const success = await verifyOTPAndComplete(otpInput);
+    const isCod = activeOrder.paymentMethod === 'COD';
+    if (isCod && (codCollected === '' || !(Number(codCollected) > 0))) {
+      triggerToast('Enter the cash you collected from the customer.');
+      return;
+    }
+    const success = await verifyOTPAndComplete(otpInput, isCod ? { codCollected } : {});
     if (success) {
       setOtpInput('');
+      setCodCollected('');
     }
   };
 
@@ -468,6 +475,23 @@ export const ActiveDeliveryPage = () => {
               {activeOrder.paymentMethod === 'COD' && (
                 <div className="delivery-cod-alert-box">
                   💵 <strong>COLLECT COD CASH:</strong> Please collect <strong>₹{activeOrder.codAmount}</strong> in cash from customer before entering OTP.
+                  <label style={{ display: 'block', marginTop: 10, fontWeight: 700 }}>
+                    Cash collected (₹)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      className="delivery-otp-digit-input"
+                      placeholder={String(activeOrder.codAmount ?? '')}
+                      value={codCollected}
+                      onChange={(e) => setCodCollected(e.target.value)}
+                      style={{ display: 'block', width: '100%', marginTop: 6 }}
+                    />
+                  </label>
+                  <small style={{ display: 'block', marginTop: 4, fontWeight: 400 }}>
+                    Enter what the customer actually paid, even if it is less. This cash belongs to Bulkimart — hand it over before your next cashout.
+                  </small>
                 </div>
               )}
 

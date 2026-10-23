@@ -56,6 +56,13 @@ export const EarningsPage = () => {
             ? `${riderProfile.bankDetails.bankName} (•••• ${riderProfile.bankDetails.accountNo ? riderProfile.bankDetails.accountNo.slice(-4) : '4321'})`
             : 'No bank/UPI on file — add one before requesting a payout'}
         </p>
+        {!payoutActionsEnabled && !hasPendingRequest && riderProfile?.finance && (
+          <p className="delivery-payout-footer-label">
+            {riderProfile.finance.payoutSchedule === 'weekly' ? 'Payouts are sent automatically once a week — no request needed.'
+              : riderProfile.finance.reportedCodOutstanding > 0 ? `Hand over the ₹${riderProfile.finance.reportedCodOutstanding} COD cash you are holding before cashing out.`
+              : riderProfile.finance.minimumPayout > 0 && payoutBalance < riderProfile.finance.minimumPayout ? `Minimum cashout is ₹${riderProfile.finance.minimumPayout}.` : 'Cashout is not available right now.'}
+          </p>
+        )}
         {hasPendingRequest && (
           <p className="delivery-payout-footer-label">
             A payout request is already awaiting processing — it will settle to your bank/UPI, tracked below.

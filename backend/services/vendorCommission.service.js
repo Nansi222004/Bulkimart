@@ -63,9 +63,9 @@ export const saveCommissionVersion = async (input, adminId) => {
   });
 };
 
-export const calculateCommission = (eligiblePaise, rule) => {
+const roundedRatio = (amount, multiplier, divisor) => Number((BigInt(amount) * BigInt(multiplier) + BigInt(Math.floor(divisor / 2))) / BigInt(divisor));
+const commissionCharge = (eligiblePaise, rule) => {
   if (!Number.isSafeInteger(eligiblePaise) || eligiblePaise < 0) throw httpError(400, 'Invalid eligible subtotal');
-  const roundedRatio = (amount, multiplier, divisor) => Number((BigInt(amount) * BigInt(multiplier) + BigInt(Math.floor(divisor / 2))) / BigInt(divisor));
   let charge = rule.method === 'fixed' ? moneyPaise(rule.value) : roundedRatio(eligiblePaise, moneyPaise(rule.value), 10000);
   if (rule.minimum != null) charge = Math.max(charge, moneyPaise(rule.minimum));
   if (rule.maximum != null) charge = Math.min(charge, moneyPaise(rule.maximum));
@@ -73,10 +73,39 @@ export const calculateCommission = (eligiblePaise, rule) => {
   if (eligiblePaise === 0) charge = 0;
   const tax = rule.taxTreatment === 'exempt' ? 0 : rule.taxTreatment === 'inclusive'
     ? charge - roundedRatio(charge, 10000, 10000 + moneyPaise(rule.taxRate)) : roundedRatio(charge, moneyPaise(rule.taxRate), 10000);
-  const commission = rule.taxTreatment === 'inclusive' ? charge - tax : charge;
-  const deduction = commission + tax;
+  return { commissionPaise: rule.taxTreatment === 'inclusive' ? charge - tax : charge, taxPaise: tax };
+};
+
+export const calculateCommission = (eligiblePaise, rule) => {
+  const { commissionPaise, taxPaise } = commissionCharge(eligiblePaise, rule);
+  const deduction = commissionPaise + taxPaise;
   if (deduction > eligiblePaise) throw httpError(409, 'Commission and tax exceed eligible item subtotal; policy review required');
-  return { commissionPaise: commission, taxPaise: tax, netPaise: eligiblePaise - deduction };
+  return { commissionPaise, taxPaise, netPaise: eligiblePaise - deduction };
+};
+
+/**
+ * One marketplace order line under the approved platform-funded discount
+ * policy: commission (and GST on it) is charged on the price the customer
+ * paid after discounts, but the seller is paid on the full item price because
+ * Bulkimart funds the discount. Item prices include GST, so TCS (GST s.52) is
+ * withheld on the value excluding the item's GST, and TDS (194-O) on the full
+ * item price, at the admin-set rates.
+ */
+export const calculateMarketplaceLine = (grossPaise, eligiblePaise, rule, { tcsRatePercent = 0, tdsRatePercent = 0, gstRatePercent = 0 } = {}) => {
+  if (!Number.isSafeInteger(grossPaise) || grossPaise < eligiblePaise) throw httpError(400, 'Invalid item subtotal');
+  const { commissionPaise, taxPaise } = commissionCharge(eligiblePaise, rule);
+  const taxableValuePaise = roundedRatio(grossPaise, 10000, 10000 + moneyPaise(gstRatePercent));
+  const tcsPaise = roundedRatio(taxableValuePaise, moneyPaise(tcsRatePercent), 10000);
+  const tdsPaise = roundedRatio(grossPaise, moneyPaise(tdsRatePercent), 10000);
+  const deduction = commissionPaise + taxPaise + tcsPaise + tdsPaise;
+  if (deduction > grossPaise) throw httpError(409, 'Commission, tax and withholding exceed the item price; policy review required');
+  return { commissionPaise, taxPaise, tcsPaise, tdsPaise, gstRatePercent, taxableValuePaise, platformDiscountPaise: grossPaise - eligiblePaise, netPaise: grossPaise - deduction };
+};
+
+// Product GST rate frozen into the order; anything unusable counts as exempt (0%).
+const productGstRate = product => {
+  const rate = Number(product?.gstRate);
+  return Number.isFinite(rate) && rate >= 0 && rate <= 40 && Math.abs(rate * 100 - Math.round(rate * 100)) < 1e-6 ? rate : 0;
 };
 
 // Same proportional gross-value basis as calculateReturnRefund; distribute
@@ -87,7 +116,7 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
   const query = Commission.find({ financeVersion: 2, channel, effectiveDate: { $lte: at } }).sort({ effectiveDate: -1, createdAt: -1, _id: -1 }).lean();
   if (session) query.session(session);
   const rules = await query;
-  const productQuery = Product.find({ _id: { $in: order.items.map(item => item.productId) } }).select('category type channels').lean();
+  const productQuery = Product.find({ _id: { $in: order.items.map(item => item.productId) } }).select('category type channels gstRate').lean();
   if (session) productQuery.session(session);
   const products = await productQuery;
   const gross = order.items.map(item => {
@@ -98,7 +127,10 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
   });
   const p = order.pricing;
   if (gross.reduce((a, b) => a + b, 0) !== moneyPaise(p.subtotal)) throw httpError(409, 'Merchandise subtotal does not reconcile');
-  const { keys: discountKeys, discounts, fundingUnresolved, representation } = discountAllocation(p, gross);
+  const { keys: discountKeys, discounts, representation } = discountAllocation(p, gross);
+  const { getFinancePolicy } = await import('./financePolicy.service.js');
+  const { tcsRatePercent, tdsRatePercent } = await getFinancePolicy({ session });
+  const withholding = { tcsRatePercent, tdsRatePercent };
   const lines = order.items.map((item, index) => {
     const product = products.find(product => String(product._id) === String(item.productId));
     const categoryId = !product?.type || product.type === order.type ? product?.category
@@ -122,14 +154,14 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
       qty: item.qty, grossPaise: gross[index], allocatedDiscounts, eligiblePaise,
       rule: rule ? { id: String(rule._id), version: rule.version, method: rule.method, value: rule.value, minimum: rule.minimum, maximum: rule.maximum,
         base: rule.base, fixedScope: rule.fixedScope, taxTreatment: rule.taxTreatment, taxRate: rule.taxRate, effectiveDate: rule.effectiveDate } : null,
-      ...(rule && !fundingUnresolved ? calculateCommission(eligiblePaise, rule) : { blocker: fundingUnresolved ? 'Discount funding policy is not approved' : 'No approved enabled commission rule' }) };
+      ...(rule ? calculateMarketplaceLine(gross[index], eligiblePaise, rule, { ...withholding, gstRatePercent: productGstRate(product) }) : { platformDiscountPaise: gross[index] - eligiblePaise, gstRatePercent: productGstRate(product), blocker: 'No approved enabled commission rule' }) };
   });
   const expectedPaise = moneyPaise(p.totalAmount);
   const components = { merchandisePaise: lines.reduce((n, line) => n + line.eligiblePaise, 0), deliveryPaise: moneyPaise(p.deliveryCharge || 0), tipPaise: moneyPaise(p.tipAmount || 0), donationPaise: moneyPaise(p.donationAmount || 0) };
   if (Object.values(components).reduce((a, b) => a + b, 0) !== expectedPaise) throw httpError(409, 'Order financial components do not reconcile');
   return { version: 2, snapshotId: new mongoose.Types.ObjectId().toString(), currency: 'INR', frozenAt: at,
     channel, paymentMethod: order.paymentMethod, paymentId: String(order.paymentId), expectedPaise, components, lines,
-    discountRepresentation: representation,
-    state: fundingUnresolved ? 'held_discount_policy' : lines.every(line => line.rule) ? 'configured' : 'held_missing_rule',
+    discountRepresentation: representation, discountFunding: 'platform', withholding,
+    state: lines.every(line => line.rule) ? 'configured' : 'held_missing_rule',
     allocationPolicy: 'proportional-gross-conserved-components-v1', postingPolicy: 'delivered-verified-payment-return-hold-v1' };
 };

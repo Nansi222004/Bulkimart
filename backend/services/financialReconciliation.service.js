@@ -32,13 +32,14 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
       if (['cancelled','returned','refunded'].includes(order.status) && order.codFinance?.collectedPaise) issue('terminal_order_cash_review', 'Cash custody and customer refund require separate reconciliation');
       if (!['verified', 'allocated'].includes(order.codFinance?.status)) issue('cod_unverified', 'Cash remains unavailable for settlement');
       const cash = entries.filter(row => row.account === 'cod_custody').reduce((sum,row) => sum + (row.direction === 'credit' ? 1 : -1) * cents(row.amount),0);
-      const expectedCustody = Math.max(0, (order.codFinance?.collectedPaise || 0) - Math.min(snapshot.expectedPaise, order.codFinance?.verifiedPaise || 0));
+      const expectedCustody = Math.max(0, (order.codFinance?.collectedPaise || 0) - Math.min(snapshot.expectedPaise, order.codFinance?.verifiedPaise || 0) - (order.codFinance?.writtenOffCustodyPaise || 0));
       if (cash !== expectedCustody) issue('cod_custody_mismatch', `Ledger ${cash} paise; expected custody ${expectedCustody} paise`);
       if (order.codFinance?.status === 'discrepancy') issue('cash_discrepancy', `Shortage ${order.codFinance.shortagePaise} paise; excess ${order.codFinance.excessPaise} paise`);
       if (order.codFinance?.status === 'disputed') issue('cash_disputed', 'Cash receipt is under investigation; settlement is blocked');
     } else if (order.financialPosting && payment?.status !== 'paid' && !returns.length) issue('payment_settlement_mismatch', 'Allocated order lacks paid customer payment');
     if (order.financialPosting) for (const line of snapshot.lines) {
-      for (const [account, type, expected] of [['seller_payable','order_earning',line.netPaise],['commission_revenue','platform_commission',line.commissionPaise],['tax_liability','commission_tax',line.taxPaise]]) {
+      for (const [account, type, expected] of [['seller_payable','order_earning',line.netPaise],['commission_revenue','platform_commission',line.commissionPaise],['tax_liability','commission_tax',line.taxPaise],
+        ['tcs_liability','tcs_deduction',line.tcsPaise || 0],['tds_liability','tds_deduction',line.tdsPaise || 0],['platform_discount_expense','platform_discount',snapshot.discountFunding === 'platform' ? line.platformDiscountPaise || 0 : 0]]) {
         const actual = entries.filter(row => row.account === account && row.type === type && row.direction === 'credit' && row.metadata?.itemId === line.itemId).reduce((sum,row) => sum + cents(row.amount),0);
         if (actual !== expected) issue('merchandise_posting_mismatch', `${line.itemId}: ${account} ${actual} paise; expected ${expected} paise`);
       }
