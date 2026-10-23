@@ -27,9 +27,10 @@ const pickupFor = async (order) => {
   };
 };
 
-const isRiderEligible = async (partner, pickup, order) => {
+const isRiderEligible = async (partner, pickup, order, { session = null, checkCapacity = true } = {}) => {
+  if (partner.parcelReservation?.bookingId) return false;
   if (partner.status !== 'approved' || !partner.isAvailable) return false;
-  const user = await User.findById(partner.userId).select('isActive roles');
+  const user = await User.findById(partner.userId).select('isActive roles').session(session);
   if (!user?.isActive || !user.roles?.includes('delivery')) return false;
   const zones = partner.zones || [];
   if (zones.length && !zones.includes(pickup.pincode) && !zones.includes(order.shippingAddress?.pincode)) return false;
@@ -38,7 +39,7 @@ const isRiderEligible = async (partner, pickup, order) => {
     const distance = distanceKm(origin, pickup);
     if (distance === undefined || !Number.isFinite(distance) || distance > partner.deliveryRadiusKm) return false;
   }
-  return (await canTakeAnother(partner._id)).ok;
+  return !checkCapacity || (await canTakeAnother(partner._id, { session })).ok;
 };
 
 export const getManualAssignmentQueue = asyncHandler(async (_req, res) => {
@@ -103,7 +104,7 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
     return ok(res, { orderId: order._id, deliveryId: order.deliveryId, partnerId: partner._id }, 'This rider is already assigned');
   }
   const { pickup } = await pickupFor(order);
-  if (!await isRiderEligible(partner, pickup, order)) {
+  if (!await isRiderEligible(partner, pickup, order, { checkCapacity: false })) {
     throw httpError(409, 'This rider is offline, outside the service area, or at active-order capacity');
   }
   const drop = {
@@ -129,7 +130,12 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
       // Re-read the actual store and rider before creating the delivery snapshot.
       const currentPickup = await pickupFor(fresh);
       const currentPartner = await DeliveryPartner.findById(partnerId).session(session);
-      if (!currentPartner || !await isRiderEligible(currentPartner, currentPickup.pickup, fresh)) throw httpError(409, 'The selected rider is no longer available or eligible');
+      if (!currentPartner || !await isRiderEligible(currentPartner, currentPickup.pickup, fresh, { session, checkCapacity: false })) throw httpError(409, 'The selected rider is no longer available or eligible');
+      const parcelGuard = await DeliveryPartner.updateOne({ _id: partnerId, 'parcelReservation.bookingId': { $exists: false }, 'parcelReturnClaim.token': { $exists: false } }, { $inc: { __v: 1 } }, { session });
+      if (!parcelGuard.matchedCount) throw httpError(409, 'Driver is reserved for a parcel task or return pickup claim');
+      // Serialize first; recount within this transaction on every retry.
+      const capacity = await canTakeAnother(partnerId, { session });
+      if (!capacity.ok) throw httpError(409, capacity.reason);
       if (fresh.deliveryId) {
         const old = await Delivery.findById(fresh.deliveryId).session(session);
         if (old && !['assigned', 'accepted', 'arrived_at_store'].includes(old.status)) {

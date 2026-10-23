@@ -18,7 +18,7 @@ export const settleSellerPromotionPayment = async ({ payment, state, gatewayOrde
       if (state === 'COMPLETED') fresh.paidAt = new Date();
       fresh.gateway = { ...(fresh.gateway || {}), orderId: gatewayOrderId, ...(state === 'COMPLETED' ? { paymentDetails } : { errorCode }) };
       await fresh.save({ session });
-      await SellerPromotion.updateOne({ _id: fresh.sellerPromotionId }, { $set: { status: 'DISABLED' } }, { session });
+      await SellerPromotion.updateOne({ _id: fresh.sellerPromotionId, advertisingVersion: { $ne: 2 } }, { $set: { status: 'DISABLED' } }, { session });
       result = { changed: true, status: fresh.status };
     });
   } finally { await session.endSession(); }

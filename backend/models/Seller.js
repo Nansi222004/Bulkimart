@@ -159,6 +159,7 @@ const sellerSchema = new Schema(
 
     // Step 4 — Legal Documents
     gstin:        String,
+    gstRegistrationChoice: { type: String, enum: ['has_gstin', 'assistance', 'without_gstin'] },
     pan:          String,
     fssai:        String, // for food sellers
     tradeLicense: String,

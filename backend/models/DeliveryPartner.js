@@ -78,6 +78,9 @@ const deliveryPartnerSchema = new Schema(
 
     // ---- Live status --------------------------------------------------------
     isAvailable:     { type: Boolean, default: false },
+    // Parcel-only reservation; existing order dispatch sees the duty switch off.
+    parcelReservation: { bookingId: { type: ObjectId, ref: 'ParcelDelivery' }, previousDuty: Boolean },
+    parcelReturnClaim: { token: String, startedAt: Date },
     currentLocation: {
       lat:       Number,
       lng:       Number,

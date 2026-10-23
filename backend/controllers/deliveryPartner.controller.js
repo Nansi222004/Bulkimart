@@ -853,11 +853,9 @@ export const acceptOrder = asyncHandler(async (req, res) => {
    * RIDER_MAX_CONCURRENT_DELIVERIES and is unset during development.
    */
   /**
-   * Everything that can refuse this request happens before the claim.
-   *
-   * Once the order is claimed it is off the market for every other rider, so a
-   * failure after that point strands it: assigned to somebody, with no delivery
-   * record, and invisible to the riders who could still have taken it.
+   * Validate the route before starting the claim. Capacity and reservations
+   * are authoritative only inside the transaction; a refusal there rolls back
+   * the entire claim instead of stranding an order without a Delivery.
    */
   // `type` is load-bearing: it decides which statuses a rider may claim from,
   // and leaving it out of the projection quietly treated every Quick order as a
@@ -873,9 +871,6 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     const existingDelivery = await Delivery.findOne({ _id: candidate.deliveryId, orderId: candidate._id, partnerId: partner._id });
     if (existingDelivery) return ok(res, { orderId: candidate._id, deliveryId: existingDelivery._id, status: existingDelivery.status }, 'You already accepted this order');
   }
-  const capacity = await canTakeAnother(partner._id);
-  if (!capacity.ok) throw httpError(409, capacity.reason);
-
   if (candidate.deliveryType === 'shiprocket') throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
   const { seller: pickupSeller, shop } = await requireOrderPickup(candidate);
   if (!pickupCoordinates(candidate.shippingAddress)) throw httpError(409, 'The customer delivery address needs a valid map pin before acceptance');
@@ -1073,8 +1068,16 @@ export const acceptOrder = asyncHandler(async (req, res) => {
    * regardless would have taken them off the pool after the first order and
    * quietly reinstated the very restriction the limit is meant to control.
    */
-  if (maxConcurrentDeliveries() === 1) {
-    await DeliveryPartner.updateOne({ _id: partner._id }, { $set: { isAvailable: false } }, { session });
+  // Existing reservations outlive rollout switches. Always serialize the
+  // cross-product guard; only the established capacity=1 rule changes duty.
+  {
+    const parcelGuard = await DeliveryPartner.updateOne({ _id: partner._id, 'parcelReservation.bookingId': { $exists: false }, 'parcelReturnClaim.token': { $exists: false } }, maxConcurrentDeliveries() === 1 ? { $set: { isAvailable: false }, $inc: { __v: 1 } } : { $inc: { __v: 1 } }, { session });
+    if (!parcelGuard.matchedCount) throw httpError(409, 'Driver is reserved for a parcel task or return pickup claim');
+    // The shared partner write forces competing claims to conflict/retry.
+    // Recount on EVERY retry in its snapshot, excluding our uncommitted order.
+    // A refusal rolls back the order, delivery, offer history and duty together.
+    const currentCapacity = await canTakeAnother(partner._id, { session, excludeOrderId: order._id });
+    if (!currentCapacity.ok) throw httpError(409, currentCapacity.reason);
   }
     });
   } finally { await session.endSession(); }

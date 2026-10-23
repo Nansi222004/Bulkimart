@@ -1,3 +1,4 @@
+import { destinationFingerprint, payoutPublic } from '../services/payoutEvidence.service.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
@@ -25,7 +26,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
     Order.aggregate([
       { $match: { status: 'delivered', 'items.sellerId': seller._id } },
       { $project: { orderNo: 1, createdAt: 1, financialPosting: 1,
-        snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
+        paymentMethod: 1, cashState: '$codFinance.status', snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
         items: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
       { $set: { grossAmount: { $sum: { $map: { input: '$items', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
       { $facet: {
@@ -36,7 +37,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
   ]);
   return ok(res, {
     balances,
-    payouts,
+    payouts: payouts.map(payoutPublic),
     deliveredSales: {
       orderCount: sales[0]?.totals[0]?.orderCount || 0,
       grossAmount: Number((sales[0]?.totals[0]?.grossAmount || 0).toFixed(2)),
@@ -46,7 +47,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
     coverage: {
       authoritativeFrom: 'seller-ledger-v1',
       historicalOrdersIncluded: false,
-      note: 'Historical orders are not deducted or backfilled without separate approval.',
+      note: 'Zero posted funds do not establish zero historical entitlement. Historical orders require original payment, COD custody and policy evidence; contact finance support with the order reference.',
     },
     payoutActionsEnabled: balances.eligible > 0 && balances.held >= 0 && financeFlags().payouts && financeFlags().policyApproved && financeFlags().testsApproved,
   }, 'Seller finance summary');
@@ -91,7 +92,7 @@ export const requestSellerPayout = asyncHandler(async (req, res) => {
   const existing = await SellerPayout.findOne({ idempotencyKey });
   if (existing) {
     if (String(existing.sellerId) !== String(seller._id) || existing.amount !== amount) throw httpError(409, 'Payout key reused with different financial data');
-    return ok(res, existing, 'Payout request already recorded');
+    return ok(res, payoutPublic(existing), 'Payout request already recorded');
   }
 
   const session = await mongoose.startSession();
@@ -104,15 +105,18 @@ export const requestSellerPayout = asyncHandler(async (req, res) => {
         if (replay.amount !== amount) throw httpError(409, 'Payout key reused with a different amount');
         payout = replay; return;
       }
+      const currentSeller = await Seller.findOne({ _id: seller._id, userId: req.user._id, status: 'approved' }).session(session);
+      if (!currentSeller) throw httpError(403, 'Approved seller is required');
       const balances = await sellerBalances(seller._id, { session });
       if (balances.held < 0) throw httpError(409, 'Outstanding seller adjustments require reconciliation');
       await assertSellerSettlementClear(seller._id, session);
       if (balances.eligible < amount) throw httpError(409, 'Insufficient settlement-eligible balance');
       await Seller.updateOne({ _id: seller._id }, { $inc: { financialLedgerVersion: 1 } }, { session });
+      destinationFingerprint(currentSeller.bankDetails);
       [payout] = await SellerPayout.create([{
         payoutNo: `PAY-${new mongoose.Types.ObjectId()}`,
         sellerId: seller._id, amount, status: 'PENDING', idempotencyKey,
-        requestedBy: req.user._id, bankDetails: seller.bankDetails,
+        requestedBy: req.user._id, bankDetails: currentSeller.bankDetails,
       }], { session });
       const reserveOut = await postLedgerEntry({
         idempotencyKey: `PAYOUT:${payout._id}:ELIGIBLE`, sellerId: seller._id, payoutId: payout._id,
@@ -130,5 +134,5 @@ export const requestSellerPayout = asyncHandler(async (req, res) => {
   } finally {
     await session.endSession();
   }
-  return ok(res, payout, 'Payout request created');
+  return ok(res, payoutPublic(payout), 'Payout request created');
 });

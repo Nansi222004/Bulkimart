@@ -6,8 +6,8 @@ const ObjectId = Schema.Types.ObjectId;
 const sellerPayoutSchema = new Schema(
   {
     payoutNo: { type: String, required: true, unique: true, index: true },
-    sellerId: { type: ObjectId, ref: "Seller", required: true, index: true },
-    amount: { type: Number, required: true, min: 0 },
+    sellerId: { type: ObjectId, ref: "Seller", required: true, index: true, immutable: true },
+    amount: { type: Number, required: true, min: 0.01, immutable: true },
     status: {
       type: String,
       enum: ["PENDING", "APPROVED", "REJECTED"],
@@ -15,13 +15,19 @@ const sellerPayoutSchema = new Schema(
       index: true,
     },
     bankDetails: {
-      holderName: String,
-      bankName: String,
-      accountNo: String,
-      ifsc: String,
-      upiId: String,
+      holderName: { type: String, immutable: true },
+      bankName: { type: String, immutable: true },
+      accountNo: { type: String, immutable: true },
+      ifsc: { type: String, immutable: true },
+      upiId: { type: String, immutable: true },
     },
     transactionRef: { type: String, default: "" },
+    beneficiaryVerification: {
+      processVersion: String, fingerprint: String, reviewedBy: { type: ObjectId, ref: 'Admin' }, verifiedAt: Date,
+      evidenceReference: String, approvalReference: String, reason: String,
+    },
+    beneficiaryVerificationHistory: { type: [Schema.Types.Mixed], default: undefined },
+    currency: { type: String, enum: ['INR'], default: 'INR' },
     reconciliationReason: String,
     requestedAt: { type: Date, default: Date.now },
     processedAt: { type: Date },

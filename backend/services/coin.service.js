@@ -1,3 +1,4 @@
+import { moneyPaise, allocatePaise, cumulativePaise } from '../utils/financeMoney.js';
 import CoinWallet from '../models/CoinWallet.js';
 import CoinTransaction from '../models/CoinTransaction.js';
 import Order from '../models/Order.js';
@@ -103,7 +104,7 @@ export const calculateRedemptionEligibility = (eligibleOrderValue, availableCoin
  * "determine eligible purchase value from authoritative order data"), never
  * recomputed from live product/campaign prices.
  *
- * `order.pricing.discount` already has `couponDiscount` folded into it (see
+ * Legacy `order.pricing.discount` has `couponDiscount` folded into it (see
  * order.controller.js::createOrder's Order.create call) — subtracting both
  * would double-count the coupon. Deliberately excludes `coinDiscount`: a
  * Coin discount must never shrink the value Coins are earned on (Section
@@ -111,8 +112,11 @@ export const calculateRedemptionEligibility = (eligibleOrderValue, availableCoin
  * calculation"), and excludes delivery/donation, which were never part of
  * the merchandise value to begin with.
  */
+// Canonical orders subtract distinct promotion + coupon once; Coins and CDS
+// remain excluded from the reward deduction under the existing reward policy.
 export const eligibleValueOfOrder = (order) => {
   const p = order?.pricing || {};
+  if (p.discountRepresentation === 'components-v1') return Math.max(0, moneyPaise(p.subtotal) - moneyPaise(p.discount || 0) - moneyPaise(p.couponDiscount || 0)) / 100;
   const value = (Number(p.subtotal) || 0) - (Number(p.discount) || 0);
   return Math.max(0, Math.round(value * 100) / 100);
 };
@@ -328,7 +332,7 @@ export const reconcileWallet = async (userId) => {
  * in services/return.service.js::calculateReturnRefund (Phase 6B), so this
  * is a reused convention, not a second invented rule.
  *
- * `order.pricing.discount` already equals the coupon discount (see
+ * On legacy orders `order.pricing.discount` equals the coupon discount (see
  * order.controller.js's `Order.create` — `discount: pricing.discount +
  * pricing.couponDiscount`, where the local `discount` is always 0), which is
  * exactly what `eligibleValueOfOrder` itself excludes — kept identical here
@@ -337,6 +341,14 @@ export const reconcileWallet = async (userId) => {
  */
 export const computeItemEligibleValue = (order, item) => {
   const pricing = order?.pricing || {};
+  if (pricing.discountRepresentation === 'components-v1') {
+    const gross = order.items.map(row => moneyPaise(row.price) * row.qty);
+    const index = order.items.findIndex(row => String(row._id) === String(item._id));
+    if (index < 0) throw httpError(409, 'Coin reward item ownership is missing');
+    const discounts = allocatePaise(moneyPaise(pricing.discount || 0) + moneyPaise(pricing.couponDiscount || 0), gross);
+    const remaining = Math.max(0, item.qty - (item.returnedQty || 0));
+    return cumulativePaise(gross[index] - discounts[index], remaining, item.qty) / 100;
+  }
   const orderSubtotal = (order?.items || []).reduce((sum, it) => sum + (it.price || 0) * (it.qty || 0), 0);
   const itemLineGross = (item.price || 0) * (item.qty || 0);
   const shareOfOrder = orderSubtotal > 0 ? itemLineGross / orderSubtotal : 0;

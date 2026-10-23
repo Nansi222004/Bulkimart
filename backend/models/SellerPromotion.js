@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { advertisingCampaignSchema } from './advertising.schema.js';
 
 const { Schema, model } = mongoose;
 const ObjectId = Schema.Types.ObjectId;
@@ -53,6 +54,9 @@ const STATUSES = [
 
 const sellerPromotionSchema = new Schema(
   {
+    // Explicit opt-in only. Legacy documents must never acquire v2 semantics.
+    advertisingVersion: { type: Number, enum: [2] },
+    advertising: { type: advertisingCampaignSchema, default: undefined },
     sellerId: { type: ObjectId, ref: "Seller", required: true },
     // Chosen once, at creation — never edited afterwards (Section 11's "one
     // advertisement = one module"). Everything downstream (eligible
@@ -97,6 +101,12 @@ const sellerPromotionSchema = new Schema(
 );
 
 sellerPromotionSchema.index({ sellerId: 1, module: 1, status: 1 });
+sellerPromotionSchema.pre('validate', function () {
+  if (this.advertisingVersion === 2 && (!this.advertising || this.status !== 'DISABLED')) {
+    this.invalidate('advertising', 'Versioned advertising requires its isolated state and a disabled legacy status');
+  }
+  if (this.advertisingVersion !== 2 && this.advertising) this.invalidate('advertising', 'Advertising data requires explicit version 2');
+});
 sellerPromotionSchema.index({ status: 1, expiresAt: 1 });
 
 export const SELLER_PROMOTION_STATUSES = STATUSES;

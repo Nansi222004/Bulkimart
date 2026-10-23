@@ -5,6 +5,7 @@ import { openRazorpayCheckout } from '../../utils/razorpayCheckout';
 import { DynamicFields } from './ServicesPanel';
 import { SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, SERVICE_ANSWER_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
 import './legalServices.css';
+import CustomerServiceHeading from './CustomerServiceHeading';
 
 export const money = n => `₹${((n || 0) / 100).toFixed(2)}`;
 export const statusLabel = s => String(s || '').replaceAll('_', ' ');
@@ -15,7 +16,7 @@ export function useLegalApi(admin = false) {
     const r = await boundedFetch(apiUrl(path), { ...options, headers: { Authorization: `Bearer ${token || ''}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
     if (blob && r.ok) return r.blob();
     const b = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error(b.message || 'Unable to load Legal Services'), { fields: b.meta?.fields, status: r.status });
+    if (!r.ok || b.success === false) throw Object.assign(new Error(b.message || 'Unable to load Legal Services'), { fields: b.meta?.fields, status: r.status });
     return b;
   }, [admin]);
 }
@@ -54,7 +55,16 @@ export default function LegalServices() {
   useEffect(() => {
     const c = new AbortController(); setLoading(true); setError(''); setDetail(null); setAnswers({}); setFiles({}); setAccepted(false); setReview(false);
     const url = history ? `/api/customer-services/applications${id ? `/${id}` : `?page=${page}`}` : id ? `/api/customer-services/catalogue/${id}` : `/api/customer-services?q=${encodeURIComponent(search)}&page=${page}`;
-    request(url, { signal: c.signal }).then(b => { if (!c.signal.aborted) { if (id) setDetail(b.data); else { setItems(b.data); setMeta(b.meta); } } }).catch(e => { if (!c.signal.aborted) setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); });
+    request(url, { signal: c.signal }).then(b => {
+      if (c.signal.aborted) return;
+      if (id) {
+        if (!b.data || String(b.data._id).toLowerCase() !== id.toLowerCase() || (!history && !Array.isArray(b.data.fields))) throw new Error('Invalid Legal Services response. Please reload.');
+        setDetail(b.data);
+      } else {
+        if (!Array.isArray(b.data) || !Number.isSafeInteger(b.meta?.total) || b.meta.total < 0 || b.data.some(s => !/^[a-f\d]{24}$/i.test(s?._id || ''))) throw new Error('Invalid Legal Services response. Please reload.');
+        setItems(b.data); setMeta(b.meta);
+      }
+    }).catch(e => { if (!c.signal.aborted) setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); });
     return () => c.abort();
   }, [request, history, id, search, page, revision]);
   const run = async fn => { if (lock.current) return; lock.current = true; setBusy(true); setError(''); setErrors({}); try { await fn(); } catch (e) { setError(e.message); setErrors(e.fields || {}); } finally { lock.current = false; setBusy(false); } };
@@ -77,9 +87,9 @@ export default function LegalServices() {
     if (outcome.verified) sessionStorage.removeItem(paymentKey);
     refresh(n => n + 1);
   });
-  return <section className="legal-services" aria-label="Legal Services"><header><h2>{history ? 'My Legal Service Requests' : 'Legal Services'}</h2><nav><button onClick={() => navigate('/legal-services')}>Browse services</button><button onClick={() => navigate('/legal-services/requests')}>My requests</button><a href="/account">Account / sign in</a></nav></header>
-    {notice && <p role="status">{notice}</p>}{error && <p role="alert">{error} <button disabled={busy} onClick={() => refresh(n => n + 1)}>Reload latest</button></p>}
-    {loading ? <p role="status">Loading Legal Services…</p> : detail ? history ? <>
+  return <section className="legal-services customer-service-page" aria-label="Legal Services"><CustomerServiceHeading title={history ? 'My Legal Service Requests' : 'Legal Services'}><p>Explore legal services and submit a private request. Final pricing is confirmed after review.</p></CustomerServiceHeading><nav><button onClick={() => navigate('/legal-services')}>Browse services</button><button onClick={() => navigate('/legal-services/requests')}>My requests</button><a href="/account">Account / sign in</a></nav>
+    {notice && <p role="status">{notice}</p>}{error && <section className="customer-service-state" role="alert"><h2>Legal Services update</h2><p>{error}</p><button disabled={busy} onClick={() => refresh(n => n + 1)}>Reload latest</button></section>}
+    {loading ? <section className="customer-service-state" role="status"><p>Loading Legal Services…</p></section> : detail ? history ? <>
       <h3>{detail.serviceName}</h3><p>Reference: {detail._id}</p><p><strong>{statusLabel(detail.status)}</strong> · Payment: {statusLabel(detail.paymentStatus)}</p>
       {detail.informationRequest && <p>Information requested: {detail.informationRequest}</p>}{detail.rejectionReason && <p>{detail.rejectionReason}</p>}
       <QuoteBreakdown quotation={detail.quotation} />{detail.receipt && <p>Payment receipt: {detail.receipt.transactionReference} · {money(detail.receipt.capturedPaise)}</p>}
@@ -93,7 +103,7 @@ export default function LegalServices() {
       {detail.cancellation && <p>Cancellation/refund review requested.</p>}{detail.refunds?.map(r => <p key={r.key}>Refund {money(r.amountPaise)}: {statusLabel(r.status)}</p>)}<h3>Request history</h3><RequestTimeline events={detail.events} />
     </> : <><h3>{detail.name}</h3><p>{detail.description}</p><p>{detail.instructions}</p>{detail.startingPrice && <p>Starting price: {detail.startingPrice.currency} {Number(detail.startingPrice.amount).toFixed(2)}. Final quotation follows admin review.</p>}<p>Only submit information required for this service. Documents are private. No payment is collected on submission.</p>
       <form onSubmit={e => { e.preventDefault(); if (!review) setReview(true); else submit(); }}><DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy || review} />{review && <p>Review the information above, then submit your request for admin review.</p>}{review && <button type="button" onClick={() => setReview(false)}>Edit details</button>}<button disabled={busy}>{review ? 'Submit Service Request' : 'Review request'}</button></form></>
-      : <>{!history && <label>Search legal services<input type="search" maxLength={100} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></label>}<div className="legal-grid">{items.map(a => <article className="legal-card" key={a._id}><h3>{a.name || a.serviceName}</h3>{history ? <><p>{statusLabel(a.status)} · {statusLabel(a.paymentStatus)}</p><p>{new Date(a.createdAt).toLocaleDateString()}</p></> : <p>{a.description}</p>}<button onClick={() => navigate(history ? legalRequestPath(a._id) : `/legal-services/${a._id}`)}>{history ? 'View request' : 'View service'}</button></article>)}</div>{!items.length && <p>No {history ? 'requests' : 'eligible services'} available.</p>}<nav><button disabled={page === 1} onClick={() => setPage(n => n - 1)}>Previous</button><span>Page {page}</span><button disabled={page * 20 >= meta.total} onClick={() => setPage(n => n + 1)}>Next</button></nav></>}
+      : !error && <>{!history && <label>Search legal services<input type="search" maxLength={100} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /></label>}<div className="legal-grid">{items.map(a => <article className="legal-card" key={a._id}><h3>{a.name || a.serviceName}</h3>{history ? <><p>{statusLabel(a.status)} · {statusLabel(a.paymentStatus)}</p><p>{new Date(a.createdAt).toLocaleDateString()}</p></> : <p>{a.description}</p>}<button onClick={() => navigate(history ? legalRequestPath(a._id) : `/legal-services/${a._id}`)}>{history ? 'View request' : 'View service'}</button></article>)}</div>{!items.length && <section className="customer-service-state" role="status"><h2>{history ? 'No requests yet' : 'No eligible services available'}</h2><p>{history ? 'Your private legal service requests will appear here.' : search ? 'Try another search to find a legal service.' : 'Legal services are currently unavailable. Please check back for available services.'}</p></section>}{meta.total > 20 && <nav className="customer-service-pagination"><button disabled={page === 1} onClick={() => setPage(n => n - 1)}>Previous</button><span>Page {page}</span><button disabled={page * 20 >= meta.total} onClick={() => setPage(n => n + 1)}>Next</button></nav>}</>}
   </section>;
 }
 export function validateFollowUp(data) {

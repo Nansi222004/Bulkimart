@@ -1,4 +1,8 @@
 import express from "express";
+import { advertisingRouter } from './advertising.routes.js';
+import { advertisingPublicRouter } from './advertisingPublic.routes.js';
+import { gstAssistanceRouter } from './gstAssistance.routes.js';
+import { customerParcelRouter, driverParcelRouter, adminParcelRouter } from './parcelDelivery.routes.js';
 import { customerLegalRouter, adminLegalRouter, providerLegalRouter } from './legalServices.routes.js';
 import serviceRoutes, { serviceRouter } from './serviceManagement.routes.js';
 import authRoutes from "./auth.routes.js";
@@ -29,6 +33,14 @@ import shiprocketRoutes from "./shiprocket.routes.js";
 import digitalCommerceRoutes from './digitalCommerce.routes.js';
 
 const router = express.Router();
+router.use('/advertising', advertisingPublicRouter);
+router.use('/sellers/advertising', advertisingRouter());
+router.use('/admin/advertising', advertisingRouter(true));
+router.use('/sellers/gst-assistance', gstAssistanceRouter());
+router.use('/admin/gst-assistance', gstAssistanceRouter(true));
+router.use('/parcel-delivery', customerParcelRouter);
+router.use('/delivery/parcels', driverParcelRouter);
+router.use('/admin/parcel-delivery', adminParcelRouter);
 router.use('/customer-services', customerLegalRouter);
 router.use('/admin/services/legal', adminLegalRouter);
 router.use('/legal-provider', providerLegalRouter);

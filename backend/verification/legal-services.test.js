@@ -27,8 +27,9 @@ jest.unstable_mockModule('../services/notification.service.js', () => ({ notifyU
 const [{ customerLegalRouter, adminLegalRouter, providerLegalRouter }, { default: Service }, { default: Application }, { default: Provider }, { default: Payment }, { default: Ledger }, { default: User }, { default: Admin }, { default: Commission }, { errorHandler }, { JWT_SECRET }, policy, workflow, payments, { razorpayWebhook }] = await Promise.all([
   import('../routes/legalServices.routes.js'), import('../models/Service.js'), import('../models/ServiceApplication.js'), import('../models/LegalProvider.js'), import('../models/Payment.js'), import('../models/SellerLedgerEntry.js'), import('../models/User.js'), import('../models/Admin.js'), import('../models/Commission.js'), import('../middlewares/error.middleware.js'), import('../config/jwt.js'), import('../services/legalPolicy.service.js'), import('../services/legalWorkflow.service.js'), import('../services/legalPayment.service.js'), import('../controllers/payment.controller.js'),
 ]);
+const { serviceRouter } = await import('../routes/serviceManagement.routes.js');
 const app = express(); app.use(express.json({ verify: (req, _res, b) => { req.rawBody = Buffer.from(b); } }));
-app.use('/c', customerLegalRouter); app.use('/a', adminLegalRouter); app.use('/p', providerLegalRouter); app.post('/webhook', razorpayWebhook); app.use(errorHandler);
+app.use('/c', customerLegalRouter); app.use('/a', adminLegalRouter); app.use('/p', providerLegalRouter); app.use('/manage', serviceRouter(true)); app.use('/v', serviceRouter()); app.post('/webhook', razorpayWebhook); app.use(errorHandler);
 let db, storage, customer, other, professional, admin, limited, service, provider;
 const token = (u, type = 'user', role = 'buyer') => jwt.sign({ id: String(u._id), type, ...(type === 'user' ? { role } : {}) }, JWT_SECRET);
 const auth = (r, u = customer, type = 'user', role = 'buyer') => r.set('Authorization', `Bearer ${token(u, type, role)}`);
@@ -77,6 +78,77 @@ test('legacy defaults and drafts are excluded; customer DTO contains no administ
   await Service.create({ name: 'Legacy', slug: 'legacy', status: 'published' });
   await Service.create({ name: 'Draft', slug: 'draft', audiences: ['customer'], status: 'draft' });
   const r = await request(app).get('/c').expect(200); expect(r.body.data).toHaveLength(1); expect(JSON.stringify(r.body)).not.toMatch(/createdBy|updatedBy|submissionCount|__v/);
+});
+
+test('Admin create and publish preserves INR 100 requirements and enables only explicitly eligible customer applications', async () => {
+  await Service.deleteMany({});
+  process.env.LEGAL_SERVICES_CATALOGUE_ENABLED = 'false'; // Obsolete setting cannot hide Admin-published customer services.
+  const definition = { name: 'Legal Services for Businesses', slug: 'legal-services', description: 'Isolated customer eligible offering', instructions: 'Provide business name and proof', audiences: ['vendor', 'customer'], pricing: { mode: 'fixed', amount: 100, currency: 'INR' }, fields: service.fields.map(f => ({ ...f })) };
+  const created = (await asAdmin(request(app).post('/manage')).send(definition).expect(201)).body.data;
+  expect(created.status).toBe('draft');
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(false);
+  expect((await request(app).get('/c').expect(200)).body.data).toEqual([]);
+  await request(app).get(`/c/catalogue/${created._id}`).expect(404);
+  const published = (await asAdmin(request(app).post(`/manage/${created._id}/publication`)).send({ status: 'published', version: created.__v }).expect(200)).body.data;
+  service = published;
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(true);
+  const catalogue = (await request(app).get('/c?page=1&limit=1').expect(200)).body;
+  expect(catalogue.meta.total).toBe(1);
+  expect(catalogue.data[0]._id).toBe(created._id);
+  expect(catalogue.data[0].startingPrice).toEqual({ amount: 100, currency: 'INR' });
+  expect(catalogue.data[0].fields.map(f => f.id)).toEqual(['name', 'proof']);
+  const detail = (await request(app).get(`/c/catalogue/${created._id}`).expect(200)).body.data;
+  expect(detail.instructions).toBe(definition.instructions);
+  await request(app).post(`/c/catalogue/${created._id}/applications`).expect(401);
+  const application = (await submit().expect(201)).body.data;
+  expect(application.serviceName).toBe(definition.name);
+  expect(application.answers.name).toBe('Private fixture');
+  expect(application.canPay).toBe(false);
+  expect((await Service.findById(created._id)).pricing.amount).toBe(100);
+  await asAdmin(request(app).post(`/manage/${created._id}/publication`)).send({ status: 'unpublished', version: published.__v }).expect(200);
+  expect((await request(app).get('/c').expect(200)).body.data).toEqual([]);
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(false);
+  await submit().expect(404);
+});
+
+test('legacy published business service is seller-only; customer capability reflects published customer records', async () => {
+  await Service.deleteMany({});
+  customer.roles.push('seller'); await customer.save();
+  await mongoose.connection.collection('sellers').insertOne({ userId: customer._id, status: 'approved' });
+  const legacy = { _id: new mongoose.Types.ObjectId(), name: 'Legal Services for Businesses', slug: 'legacy-business', status: 'published', pricing: { mode: 'fixed', amount: 100, currency: 'INR' }, fields: [], formVersion: 1, __v: 1 };
+  await Service.collection.insertOne(legacy); // Deliberately absent audiences, like the verified live record.
+  const seller = (await auth(request(app).get('/v?page=1&limit=20'), customer, 'user', 'seller').expect(200)).body.data;
+  expect(seller).toHaveLength(1); expect(seller[0]._id).toBe(String(legacy._id)); expect(seller[0].pricing.amount).toBe(100);
+  expect((await request(app).get('/c').expect(200)).body.data).toEqual([]);
+  await request(app).get(`/c/catalogue/${legacy._id}`).expect(404);
+  await auth(request(app).get('/v'), other).expect(403);
+  process.env.LEGAL_SERVICES_CATALOGUE_ENABLED = 'false';
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(false);
+  expect((await request(app).get('/c').expect(200)).body.data).toEqual([]);
+  // Customer eligibility never disables the approved seller catalogue.
+  await auth(request(app).get('/v'), customer, 'user', 'seller').expect(200);
+});
+
+test('Admin customer checkbox alone controls visibility of an already-published service without environment configuration', async () => {
+  delete process.env.LEGAL_SERVICES_CATALOGUE_ENABLED;
+  const definition = { ...service.toObject(), audiences: ['vendor'], version: service.__v };
+  const hidden = (await asAdmin(request(app).put(`/manage/${service._id}`)).send(definition).expect(200)).body.data;
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(false);
+  await request(app).get(`/c/catalogue/${service._id}`).expect(404);
+  const visible = (await asAdmin(request(app).put(`/manage/${service._id}`)).send({ ...definition, audiences: ['vendor', 'customer'], version: hidden.__v }).expect(200)).body.data;
+  expect(visible.status).toBe('published');
+  expect(visible.pricing.amount).toBe(100);
+  expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(true);
+  await request(app).get(`/c/catalogue/${service._id}`).expect(200);
+});
+
+test('capability database failures propagate as API errors rather than catalogue:false', async () => {
+  const spy = jest.spyOn(Service, 'exists').mockRejectedValue(new Error('Isolated database failure'));
+  try {
+    const r = await request(app).get('/c/capabilities').expect(500);
+    expect(r.body.success).toBe(false);
+    expect(r.body.data).toBeNull();
+  } finally { spy.mockRestore(); }
 });
 test('customer submissions require authentication and buyer context; ordinary admin has no implicit service permission', async () => {
   await request(app).get('/c/applications').expect(401); await auth(request(app).get('/c/applications'), customer, 'user', 'seller').expect(403);

@@ -1,3 +1,5 @@
+import { allocatePaise, cumulativePaise, moneyPaise } from '../utils/financeMoney.js';
+import { discountAllocation } from './orderDiscounts.service.js';
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Return from '../models/Return.js';
@@ -368,6 +370,26 @@ const adminComment = (c) => typeof c === 'string' && c.trim().length > 0;
  * Both are named explicitly in `limitations`, not silently dropped.
  */
 export const calculateReturnRefund = (returnDoc, order) => {
+  if (order?.financialSnapshot?.version === 2 || order?.pricing?.discountRepresentation === 'components-v1') {
+    const snapshot = order.financialSnapshot;
+    const index = order.items.findIndex(item => String(item._id) === String(returnDoc.orderItemId));
+    const item = order.items[index];
+    if (!item) throw httpError(409, 'Refund item is missing');
+    const gross = order.items.map(row => moneyPaise(row.price) * row.qty);
+    const allocation = snapshot ? null : discountAllocation(order.pricing, gross);
+    const line = snapshot?.lines.find(row => row.itemId === String(returnDoc.orderItemId));
+    if (snapshot && !line) throw httpError(409, 'Frozen refund allocation is missing');
+    const discounts = line?.allocatedDiscounts || Object.fromEntries(allocation.keys.map(key => [key, allocation.discounts[key][index]]));
+    const before = returnDoc.refundAllocationStartQuantity ?? 0;
+    const after = before + returnDoc.quantity;
+    const share = amount => cumulativePaise(amount, after, item.qty) - cumulativePaise(amount, before, item.qty);
+    const grossPaise = line?.grossPaise ?? gross[index];
+    const eligible = line?.eligiblePaise ?? grossPaise - Object.values(discounts).reduce((a,b) => a+b,0);
+    return { itemGrossAmount: share(grossPaise)/100, allocatedCouponDiscount: share(discounts.couponDiscount || 0)/100,
+      allocatedPromotionDiscount: share(discounts.discount || 0)/100, allocatedCdsDiscount: share(discounts.cdsDiscount || 0)/100, allocatedLegacyDiscount: share(discounts.cdsDiscount || 0)/100,
+      allocatedCoinDiscount: share(discounts.coinDiscount || 0)/100, allocatedCoinsCount: share(allocatePaise(order.pricing.coinsUsed || 0, gross)[index]),
+      refundAmount: share(eligible)/100, limitations: ['Frozen conserved merchandise allocation; delivery is excluded.'] };
+  }
   const itemGrossAmount = round2(returnDoc.unitPriceSnapshot * returnDoc.quantity);
   const pricing = order?.pricing || {};
   const orderSubtotal = (order?.items || []).reduce((sum, it) => sum + (it.price || 0) * (it.qty || 0), 0);
@@ -386,7 +408,7 @@ export const calculateReturnRefund = (returnDoc, order) => {
   ];
   if (orderSubtotal <= 0) limitations.push('Order subtotal could not be computed from item data — discount allocation defaulted to 0.');
 
-  return { itemGrossAmount, allocatedCouponDiscount, allocatedLegacyDiscount, allocatedCoinDiscount, allocatedCoinsCount, refundAmount, limitations };
+  return { itemGrossAmount, allocatedCouponDiscount, allocatedLegacyDiscount, allocatedCdsDiscount: allocatedLegacyDiscount, allocatedCoinDiscount, allocatedCoinsCount, refundAmount, limitations };
 };
 
 /* ============================================================================
@@ -445,6 +467,21 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
 
     // Freeze the breakdown once, on first entry — never silently recomputed
     // on a retry, so the audited figure can never drift.
+    if ((order.financialSnapshot?.version === 2 || order.pricing?.discountRepresentation === 'components-v1') && ret.refundAllocationStartQuantity == null) {
+      const { financialTransaction } = await import('./financeSafety.service.js');
+      const start = await financialTransaction(async session => {
+        await Order.updateOne({ _id: order._id }, { $inc: { financialRevision: 1 } }, { session });
+        const fresh = await Return.findById(ret._id).session(session);
+        if (fresh.refundAllocationStartQuantity != null) return fresh.refundAllocationStartQuantity;
+        const earlier = await Return.find({ orderId: order._id, orderItemId: ret.orderItemId, _id: { $ne: ret._id }, refundAllocationStartQuantity: { $exists: true } }).session(session);
+        const next = earlier.reduce((sum, row) => sum + row.quantity, 0);
+        const item = order.items.find(row => String(row._id) === String(ret.orderItemId));
+        if (!item || next + ret.quantity > item.qty) throw httpError(409, 'Refund allocation quantity conflict');
+        await Return.updateOne({ _id: ret._id }, { $set: { refundAllocationStartQuantity: next } }, { session });
+        return next;
+      });
+      ret.refundAllocationStartQuantity = start;
+    }
     let breakdown = ret.refundBreakdown?.refundAmount != null
       ? ret.refundBreakdown.toObject?.() || ret.refundBreakdown
       : calculateReturnRefund(ret, order);
@@ -655,6 +692,10 @@ const completeRefund = async (ret, { refundReference, refundStatus, adminId, not
   ret.refundStatus = refundStatus;
   ret.refundReference = refundReference;
   ret.refundedAt = now;
+  if (ret.refundAmount === 0) {
+    if (!adminId || refundReference) throw httpError(409, 'Zero refund requires internal actor evidence only');
+    ret.zeroRefundEvidence = { key: `ZERO_RETURN:${ret._id}`, actorId: adminId, reason: note, completedAt: now };
+  }
   ret.history.push({ fromStatus: RETURN_STATUS.REFUND_PENDING, toStatus: RETURN_STATUS.REFUNDED, changedBy: adminId, changedByModel: 'Admin', changedByRole: 'admin', comment: note, timestamp: now });
   await ret.save();
 

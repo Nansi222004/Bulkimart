@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'node:crypto';
 import Return from '../models/Return.js';
 import Order from '../models/Order.js';
 import Seller from '../models/Seller.js';
@@ -160,54 +161,80 @@ export const arrangeReturnPickup = async ({ returnId, sellerId }) => {
 };
 
 export const acceptReturnPickup = async ({ returnId, partnerId }) => {
+  // A parcel reservation and an in-flight reverse acceptance share one rider
+  // document as their arbiter. The core capacity, status and earning behavior
+  // stays unchanged; reservation protection survives rollout flag changes.
+  // No expired claim is automatically taken over.
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
+  const token = crypto.randomUUID();
+  const claimedPartner = await DeliveryPartner.findOneAndUpdate({ _id: partnerId, 'parcelReservation.bookingId': { $exists: false }, 'parcelReturnClaim.token': { $exists: false } }, { $set: { parcelReturnClaim: { token, startedAt: new Date() } } }, { returnDocument: 'after' });
+  if (!claimedPartner) throw httpError(409, 'Driver is reserved for another task');
+  try { return await acceptReturnPickupCore({ returnId, partnerId, token }); }
+  finally { await DeliveryPartner.updateOne({ _id: partnerId, 'parcelReturnClaim.token': token }, { $unset: { parcelReturnClaim: 1 } }); }
+};
+
+const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
   if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
 
-  const cap = await canTakeAnother(partnerId);
-  if (!cap.ok) throw httpError(409, cap.reason, { code: 'CAPACITY_EXCEEDED' });
+  const session = await mongoose.startSession();
+  let claimed, delivery;
+  try {
+    await session.withTransaction(async () => {
+      // The durable token excludes forward/manual/parcel claims even if this
+      // process crashes. The transactional write also conflicts with claims that
+      // began before token acquisition; their retry must observe the token.
+      const guard = await DeliveryPartner.updateOne({ _id: partnerId,
+        'parcelReturnClaim.token': token, 'parcelReservation.bookingId': { $exists: false },
+      }, { $inc: { __v: 1 } }, { session });
+      if (!guard.matchedCount) throw httpError(409, 'Driver claim changed; refresh before accepting');
+      const cap = await canTakeAnother(partnerId, { session });
+      if (!cap.ok) throw httpError(409, cap.reason, { code: 'CAPACITY_EXCEEDED' });
 
-  const claimed = await Return.findOneAndUpdate(
-    {
-      _id: returnId,
-      'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED,
-      'pickup.partnerId': { $exists: false },
-      $nor: [{ 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: { $ne: OFFER_ATTEMPT_STATUS.OFFERED } } } }],
-    },
-    {
-      $set: {
-        'pickup.partnerId': partnerId,
-        'pickup.status': RETURN_PICKUP_STATUS.ASSIGNED,
-        'pickup.offerAttempts.$[o].status': OFFER_ATTEMPT_STATUS.ACCEPTED,
-        'pickup.offerAttempts.$[o].respondedAt': new Date(),
-      },
-    },
-    { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId }] }
-  );
+      claimed = await Return.findOneAndUpdate(
+        {
+          _id: returnId,
+          'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED,
+          'pickup.partnerId': { $exists: false },
+          $nor: [{ 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: { $ne: OFFER_ATTEMPT_STATUS.OFFERED } } } }],
+        },
+        {
+          $set: {
+            'pickup.partnerId': partnerId,
+            'pickup.status': RETURN_PICKUP_STATUS.ASSIGNED,
+            'pickup.offerAttempts.$[o].status': OFFER_ATTEMPT_STATUS.ACCEPTED,
+            'pickup.offerAttempts.$[o].respondedAt': new Date(),
+          },
+        },
+        { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId }], session }
+      );
 
-  if (!claimed) {
-    const fresh = await Return.findById(returnId).lean();
-    if (!fresh) throw httpError(404, 'Return not found');
-    if (fresh.pickup?.partnerId) throw httpError(409, 'This pickup has already been taken by another rider', { code: 'ALREADY_ASSIGNED' });
-    throw httpError(409, 'This offer is no longer available', { code: 'OFFER_NOT_AVAILABLE' });
-  }
+      if (!claimed) {
+        const fresh = await Return.findById(returnId).session(session).lean();
+        if (!fresh) throw httpError(404, 'Return not found');
+        if (fresh.pickup?.partnerId) throw httpError(409, 'This pickup has already been taken by another rider', { code: 'ALREADY_ASSIGNED' });
+        throw httpError(409, 'This offer is no longer available', { code: 'OFFER_NOT_AVAILABLE' });
+      }
 
-  const order = await Order.findById(claimed.orderId).select('shippingAddress userId').lean();
-  const seller = await Seller.findById(claimed.sellerId).select('storeDetails businessName').lean();
-  const km = distanceKm(order?.shippingAddress, seller?.storeDetails);
+      const order = await Order.findById(claimed.orderId).select('shippingAddress userId').session(session).lean();
+      const seller = await Seller.findById(claimed.sellerId).select('storeDetails businessName').session(session).lean();
+      const km = distanceKm(order?.shippingAddress, seller?.storeDetails);
 
-  const delivery = await Delivery.create({
-    returnId: claimed._id,
-    partnerId,
-    direction: 'return_pickup',
-    pickupLocation: { address: [order?.shippingAddress?.line1, order?.shippingAddress?.city].filter(Boolean).join(', '), lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng },
-    dropLocation: { address: seller?.storeDetails?.address || seller?.storeDetails?.name, lat: seller?.storeDetails?.lat, lng: seller?.storeDetails?.lng },
-    route: { distanceKm: km },
-    status: 'accepted',
-    ratesUsed: rateSnapshotFor(PAYOUT_MODE.QUICK),
-    partnerLocation: { lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng, updatedAt: new Date() },
-  });
+      [delivery] = await Delivery.create([{
+        returnId: claimed._id,
+        partnerId,
+        direction: 'return_pickup',
+        pickupLocation: { address: [order?.shippingAddress?.line1, order?.shippingAddress?.city].filter(Boolean).join(', '), lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng },
+        dropLocation: { address: seller?.storeDetails?.address || seller?.storeDetails?.name, lat: seller?.storeDetails?.lat, lng: seller?.storeDetails?.lng },
+        route: { distanceKm: km },
+        status: 'accepted',
+        ratesUsed: rateSnapshotFor(PAYOUT_MODE.QUICK),
+        partnerLocation: { lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng, updatedAt: new Date() },
+      }], { session });
 
-  claimed.pickup.deliveryId = delivery._id;
-  await claimed.save();
+      claimed.pickup.deliveryId = delivery._id;
+      await claimed.save({ session });
+    });
+  } finally { await session.endSession(); }
 
   if (claimed.sellerId) {
     notifySeller(claimed.sellerId, {

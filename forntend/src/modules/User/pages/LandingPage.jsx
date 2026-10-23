@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import LegalServices, { LegalDiscovery } from '../../../components/services/LegalServices';
+import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
+import LegalServices from '../../../components/services/LegalServices';
+import { ParcelCustomerEntry } from '../../../components/parcels/ParcelDelivery';
 import { readProductRoute, rememberWholesaleReturn } from '../utils/productRoute';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import { UserProvider, useUser } from '../context/UserContext';
@@ -129,7 +131,7 @@ export const LandingPageContent = () => {
                 <>
                   {/* Customer discovery shortcuts */}
                   <QuickActions />
-                  <LegalDiscovery />
+                  <HomeServiceEntries />
 
                   {/* Popular circular categories */}
                   <PopularCategories />
@@ -216,8 +218,12 @@ export const LandingPageContent = () => {
         );
       case 'search':
         return <SearchPage />;
+      case 'services':
+        return <><UnifiedHeader /><CustomerServices /></>;
       case 'legal-services':
         return <><UnifiedHeader /><LegalServices /></>;
+      case 'parcel-delivery':
+        return <><UnifiedHeader /><ParcelCustomerEntry /></>;
       case 'categories':
         return <CategoriesPage />;
       case 'orders':

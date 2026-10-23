@@ -1,4 +1,6 @@
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
+import { parseGstChoice, createGstRequest } from '../services/gstAssistance.service.js';
+import { financialTransaction } from '../services/financeSafety.service.js';
 import { storePickup, pickupLocationError, pickupCoordinates } from '../services/storePickup.service.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
@@ -253,18 +255,23 @@ export const submitStep4 = asyncHandler(async (req, res) => {
   }
 
   const { gstin, pan, fssai, tradeLicense } = req.body;
+  const gstChoice = parseGstChoice(req.body);
+  if (gstChoice?.choice === 'assistance') gstChoice.contactPhone = req.user.phone;
+  if (gstChoice && !['incomplete', 'rejected'].includes(seller.status)) throw httpError(409, 'GST registration choices can only be changed during onboarding');
+  if (gstChoice?.choice === 'assistance' && seller.gstin) throw httpError(409, 'A GSTIN is already recorded. Contact support to review it before requesting assistance.');
   if (!pan) {
     res.status(400);
     throw new Error('PAN number is required');
   }
 
-  seller.gstin = gstin;
+  seller.gstin = gstChoice ? gstChoice.gstin : gstin;
+  if (gstChoice) seller.gstRegistrationChoice = gstChoice.choice;
   seller.pan = pan;
   seller.fssai = fssai;
   seller.tradeLicense = tradeLicense;
 
+  const uploadedDocs = [];
   if (req.files) {
-    const uploadedDocs = [];
     for (const [key, files] of Object.entries(req.files)) {
       const file = files[0];
       const url = await uploadToCloudinary(file.buffer, `seller-docs/${req.user._id}`);
@@ -277,7 +284,25 @@ export const submitStep4 = asyncHandler(async (req, res) => {
     seller.onboardingStep = 5;
   }
 
-  await seller.save();
+  if (gstChoice?.choice === 'assistance') {
+    let created = false;
+    // Serialize the seller application and its singleton request together.
+    // Re-read on retries; Mongoose document state from an aborted attempt is
+    // not reused as the authoritative application state.
+    await financialTransaction(async session => {
+      const fresh = await Seller.findById(seller._id).session(session);
+      if (!fresh || !['incomplete', 'rejected'].includes(fresh.status) || fresh.gstin) throw httpError(409, 'Seller application changed; reload before requesting assistance');
+      created = (await createGstRequest(fresh, gstChoice, session)).created;
+      await Seller.updateOne({ _id: fresh._id }, { $set: { gstin: seller.gstin, pan: seller.pan, fssai: seller.fssai,
+        tradeLicense: seller.tradeLicense, documents: [...fresh.documents, ...uploadedDocs], onboardingStep: Math.max(fresh.onboardingStep, 5),
+        gstRegistrationChoice: gstChoice.choice }, $inc: { __v: 1 } }, { session, runValidators: true });
+    });
+    if (created) {
+      try { await notifyAllAdmins({ event: NOTIFICATION_EVENT.SYSTEM, title: 'GST assistance requested',
+        message: 'A vendor application has requested GST registration assistance. Authorized reviewers can open the GST assistance workspace.', route: '/admin' }); }
+      catch { /* committed request is visible through the authorized queue */ }
+    }
+  } else await seller.save();
   res.status(200).json({ success: true, seller });
 });
 

@@ -4,12 +4,14 @@ import './FinanceWorkflow.css';
 import FinanceReview from './FinanceReview';
 import CommissionSimulation from './CommissionSimulation';
 
-const rupees = paise => `₹${(Number(paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const rupees = paise => typeof paise === 'number' && Number.isFinite(paise) ? `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 const empty = { channel: 'ecommerce', vendorType: 'general', method: 'percentage', value: '', minimum: '', maximum: '',
   categoryId: '', productId: '', taxTreatment: '', taxRate: '', effectiveDate: '', isActive: false, reason: '' };
 
 export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNavigation = false, account = '' } = {}) {
   const generation = useRef(0);
+  const mutationLock = useRef(false);
+  const [refundPreview, setRefundPreview] = useState(null), [refundProof, setRefundProof] = useState({ reason: '', reference: '' });
   const [review, setReview] = useState(false);
   const [tab, setTab] = useState(initialTab), [rules, setRules] = useState([]), [flags, setFlags] = useState({});
   const [draft, setDraft] = useState(empty), [rows, setRows] = useState([]), [balances, setBalances] = useState([]);
@@ -49,10 +51,12 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     return () => { active = false; generation.current++; };
   }, [tab, page]);
   const perform = async work => {
+    if (mutationLock.current) return;
+    mutationLock.current = true;
     setBusy(true); setMessage('');
     try { await work(); await load(); setMessage('Saved and reloaded from the server.'); }
-    catch (error) { setMessage(error.message); setReview(false); }
-    finally { setBusy(false); }
+    catch (error) { setMessage(error.message); setReview(false); setRefundPreview(null); }
+    finally { mutationLock.current = false; setBusy(false); }
   };
   const saveRule = event => {
     event.preventDefault();
@@ -72,7 +76,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     event.preventDefault();
     perform(async () => {
       if (tab === 'payouts') await adminPatch(`/delivery-payouts/${selection._id}/${action}`, { reason: proof.reason, verified: proof.verified, transactionRef: proof.reference });
-      else await adminPost(`/finance/orders/${selection._id}/${action}`, { amount: Number(proof.amount), reference: proof.reference, reason: proof.reason });
+      else await adminPost(`/finance/orders/${selection._id}/${action}`, { expectedRevision: selection.financialRevision || 0, amount: Number(proof.amount), reference: proof.reference, reason: proof.reason });
       setSelection(null);
     });
   };
@@ -106,7 +110,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
         <button disabled={busy} type="submit">Review new version</button>
       </form>}
       <CommissionSimulation rule={draft} />
-      <div className="finance-panel"><h3>Configuration history</h3><p>Product overrides take precedence over category overrides, then the channel rule. Disabled versions supersede the same scope. Historical snapshots stay frozen.</p>
+      <div className="finance-panel"><h3>Configuration history</h3><p>Product overrides take precedence over category overrides, then the channel rule. Disabled versions supersede the same scope. Historical snapshots stay frozen. Legacy commission rates are excluded; they are not approved finance rules. Discount funding policy must be approved separately.</p>
         {rules.length ? rules.map(rule => <details key={rule._id}><summary>{rule.channel} · {rule.method} {rule.value} · {!rule.isActive ? 'Disabled' : new Date(rule.effectiveDate) > new Date() ? 'Scheduled' : !flags.snapshots ? 'Blocked by release prerequisites' : 'Active for new snapshots'} · {new Date(rule.effectiveDate).toLocaleString()}</summary><p>Version: {rule.version}<br />Tax: {rule.taxTreatment} {rule.taxRate}%<br />Actor: {rule.createdBy}<br />Reason: {rule.reason}<br />Product: {rule.productId || 'All'} · Category: {rule.categoryId || 'All'}</p><button type="button" onClick={() => setDraft({ ...empty, ...rule, categoryId: rule.categoryId || '', productId: rule.productId || '', minimum: rule.minimum ?? '', maximum: rule.maximum ?? '', effectiveDate: '', reason: '' })}>Prepare next version</button></details>) : <p>Not configured. No versioned rules. No commission rate is assumed.</p>}
       </div>
     </> : <>
@@ -124,11 +128,11 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
         {report.duplicateEventKeys.map(row => <p key={row._id}>Duplicate financial event {row._id}: {row.count} records</p>)}
         {!report.exceptions.length && !report.negativeBalances.length && !report.duplicateEventKeys.length && <p>No exceptions found within the stated coverage.</p>}
       </div>}
-      {tab === 'ledger' && !account && <form className="finance-panel" onSubmit={event => { event.preventDefault(); perform(async () => { await adminPost(`/finance/returns/${refundId}/reverse`); setRefundId(''); }); }}><h3>Refund compensation</h3><p>Use a completed, verified refund. The server calculates the adjustment from its frozen item allocation and retains the original ledger entries.</p><label>Completed refund Return ID<input required pattern="[a-fA-F0-9]{24}" value={refundId} onChange={e => setRefundId(e.target.value)} /></label><button disabled={busy || !operational}>Post reviewed refund compensation</button></form>}
+      {tab === 'ledger' && !account && <form className="finance-panel" onSubmit={event => { event.preventDefault(); perform(async () => { if (!refundPreview) { const response = await adminGet(`/finance/returns/${refundId}/preview`); setRefundPreview(response.data); return; } await adminPost(`/finance/returns/${refundId}/reverse`, { ...refundProof, expectedRevision: refundPreview.expectedRevision }); setRefundId(''); setRefundPreview(null); }); }}><h3>Refund compensation</h3><p>Use a completed, verified refund. The server calculates the adjustment from its frozen item allocation and retains the original ledger entries.</p><label>Completed refund Return ID<input required pattern="[a-fA-F0-9]{24}" value={refundId} onChange={e => { setRefundId(e.target.value); setRefundPreview(null); }} /></label><label>Refund evidence reference<input required minLength={4} value={refundProof.reference} onChange={e => setRefundProof({ ...refundProof, reference: e.target.value })} /></label><label>Compensation reason<input required minLength={5} value={refundProof.reason} onChange={e => setRefundProof({ ...refundProof, reason: e.target.value })} /></label>{refundPreview && <p role="status">{refundPreview.orderNo} · Seller {refundPreview.sellerId} · Policy {refundPreview.policyVersion} · Compensation {rupees(refundPreview.sellerCompensationPaise)} INR. {refundPreview.consequence}</p>}<button disabled={busy || !operational}>{refundPreview ? 'Confirm reviewed refund compensation' : 'Preview refund compensation'}</button></form>}
       <div className="finance-table" role="region" tabIndex={0} aria-label="Finance records"><table><thead><tr>{(tab === 'ledger' ? ['Event','Account','Bucket','Amount','Reference'] : tab === 'payouts' ? ['Rider','Amount','Status','Evidence','Action'] : ['Order','Order state','Expected COD','Collected / reported / verified','Finance state','Details & actions']).map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>
         {rows.map(row => tab === 'ledger' ? <tr key={row._id}><td>{row.description}</td><td>{row.account || 'seller_payable'}</td><td>{row.bucket}</td><td>{row.direction === 'debit' ? '−' : '+'}{rupees(row.amount * 100)}</td><td>{row.reference || row.idempotencyKey}<br />Partner: {row.partnerId || '—'}<br />Order: {row.orderId || '—'}<br />Delivery: {row.deliveryId || '—'}</td></tr> : tab === 'payouts' ? <tr key={row._id}><td>{row.partnerId?.userId?.name || row.partnerId?._id}</td><td>{rupees(row.amount * 100)}</td><td>{row.status}</td><td>{row.transactionRef || 'No verified transfer recorded'}</td><td>{row.status === 'pending' && row.financeVersion === 2 && <><button disabled={busy || !payoutsEnabled} onClick={() => choose(row, 'complete')}>Reconcile paid transfer</button><button disabled={busy || !payoutsEnabled} onClick={() => choose(row, 'reject')}>Reject request</button></>}</td></tr> : <tr key={row._id}>
           <td>{row.orderNo}</td><td>{row.status}</td><td>{row.paymentMethod === 'cod' ? rupees(row.cash.expectedPaise) : 'Prepaid'}</td><td>{row.paymentMethod === 'cod' ? `${rupees(row.cash.collectedPaise)} / ${rupees(row.cash.reportedPaise)} / ${rupees(row.cash.verifiedPaise)}` : '—'}</td><td>{row.cash.status} · {row.financialPosting || 'unposted'}<br />{row.exceptions.join(', ')}</td>
-          <td><details><summary>Financial details</summary>{row.financialSnapshot.lines.map(line => <p key={line.itemId}>Item {line.itemId}<br />Subtotal {rupees(line.grossPaise)} · Eligible {rupees(line.eligiblePaise)}<br />Commission {line.rule ? rupees(line.commissionPaise) : 'Rule missing'} · Tax {rupees(line.taxPaise)} · Net {line.rule ? rupees(line.netPaise) : 'Held'}<br />Rule {line.rule?.version || 'Missing'}</p>)}{row.codFinance?.events.map((entry,index) => <p key={index}>{entry.action} · {rupees(entry.amountPaise)} · {entry.reference} · {entry.reason} · {entry.actorId}</p>)}</details>
+          <td><details><summary>Financial details</summary>{row.financialSnapshot.lines.map(line => <p key={line.itemId}>Item {line.itemId} · Seller {line.sellerId} · INR<br />Subtotal {rupees(line.grossPaise)} · Eligible {rupees(line.eligiblePaise)}<br />Commission {line.rule ? rupees(line.commissionPaise) : 'Rule missing'} · Tax {rupees(line.taxPaise)} · Net {line.rule ? rupees(line.netPaise) : 'Held'}<br />Rule {line.rule?.version || 'Missing'}{line.blocker && <><br />Held: {line.blocker}</>}</p>)}{row.codFinance?.events.map((entry,index) => <p key={index}>{entry.action} · {rupees(entry.amountPaise)} · {entry.reference} · {entry.reason} · {entry.actorId}</p>)}</details>
             {['remittance_reported','discrepancy','disputed'].includes(row.cash.status) && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/verify')}>Verify cash evidence</button>}
             {row.paymentMethod === 'cod' && row.cash.status !== 'expected' && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/dispute')}>Record cash dispute</button>}
             <button disabled={busy || !operational} onClick={() => choose(row, row.financialPosting === 'held' ? 'release' : 'allocate')}>{row.financialPosting === 'held' ? 'Release seller hold' : 'Allocate verified funds'}</button>
@@ -141,7 +145,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
       {selection && <form className="finance-panel" onSubmit={submitAction}><h3>{action} · {selection.orderNo || selection._id}</h3>
         <p>Confirm only after reviewing the supporting records. Cash verification requires evidence of the actual handover; a rider report alone is insufficient.</p>
         {action.startsWith('cod/') && <label>{action === 'cod/verify' ? 'Amount physically verified (INR)' : 'Expected order amount under dispute (INR)'}<input required type="number" min="0" step="0.01" value={proof.amount} onChange={e => setProof({ ...proof, amount: e.target.value })} /></label>}
-        {(action.startsWith('cod/') || tab === 'payouts') && <><label>Evidence / bank transaction reference<input required={action !== 'reject'} minLength={4} value={proof.reference} onChange={e => setProof({ ...proof, reference: e.target.value })} /></label><label>Reconciliation reason<input required minLength={5} value={proof.reason} onChange={e => setProof({ ...proof, reason: e.target.value })} /></label></>}
+        {<><label>Evidence / bank transaction reference<input required={action !== 'reject'} minLength={4} value={proof.reference} onChange={e => setProof({ ...proof, reference: e.target.value })} /></label><label>Reconciliation reason<input required minLength={5} value={proof.reason} onChange={e => setProof({ ...proof, reason: e.target.value })} /></label></>}
         {action === 'complete' && <label className="finance-check"><input required type="checkbox" checked={proof.verified} onChange={e => setProof({ ...proof, verified: e.target.checked })} />I independently verified the successful bank transfer</label>}
         <button disabled={busy}>Confirm reviewed action</button><button type="button" disabled={busy} onClick={() => setSelection(null)}>Cancel</button>
       </form>}

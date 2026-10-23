@@ -1,4 +1,5 @@
 import { sweepSellerPickupSync } from './sellerPickupSync.service.js';
+import { sweepParcelsOnce } from './parcelAssignment.service.js';
 import Order from '../models/Order.js';
 import { cancelOrderAndRestore } from '../controllers/order.controller.js';
 import { processReturnWindowRewards } from './coin.service.js';
@@ -24,6 +25,7 @@ import { ORDER_STATUS, CHANNEL } from '../constants/enums.js';
  */
 
 import { sweepEligibleSellerOrders } from './sellerOrderNotification.service.js';
+import { sweepAdvertisingLifecycle } from './advertisingBilling.service.js';
 const SWEEP_INTERVAL_MS = 30 * 1000;
 
 /** How long a Quick order may sit unaccepted before it is given up on. */
@@ -72,6 +74,8 @@ export const startOrderSweeper = () => {
   if (timer) return;
 
   timer = setInterval(() => {
+    sweepAdvertisingLifecycle().catch(()=>console.warn('[ADVERTISING] Service lifecycle reconciliation will retry.'));
+    sweepParcelsOnce().catch(() => console.warn('[PARCEL] Durable assignment sweep will retry.'));
     sweepEligibleSellerOrders().catch(() => console.warn('[NOTIFICATION] Eligible order reconciliation will retry.'));
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
     sweepOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));

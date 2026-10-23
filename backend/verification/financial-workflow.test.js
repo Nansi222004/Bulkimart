@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { jest } from '@jest/globals';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import express from 'express';
 import request from 'supertest';
@@ -29,6 +30,12 @@ import deliveryRoutes from '../routes/delivery.routes.js';
 import sellerRoutes from '../routes/seller.routes.js';
 import { errorHandler } from '../middlewares/error.middleware.js';
 import { JWT_SECRET } from '../config/jwt.js';
+import { discountAllocation } from '../services/orderDiscounts.service.js';
+import { calculateReturnRefund, processReturnRefund } from '../services/return.service.js';
+import { historicalExceptions, applyReviewedHistoricalBatch } from '../services/historicalFinance.service.js';
+import { historicalManifestRow } from '../utils/historicalManifest.js';
+import { destinationFingerprint } from '../services/payoutEvidence.service.js';
+import { eligibleValueOfOrder, computeItemEligibleValue } from '../services/coin.service.js';
 
 const app = express(); app.use(express.json());
 app.use('/api/admin', adminRoutes); app.use('/api/delivery', deliveryRoutes); app.use('/api/sellers', sellerRoutes); app.use(errorHandler);
@@ -41,6 +48,7 @@ let db, user, rider, admin, seller, product, partner, order, payment, delivery;
 const bearer = (who, type = 'user', role = 'delivery') => `Bearer ${jwt.sign({ id: String(who._id), type, ...(type === 'user' ? { role } : {}) }, JWT_SECRET)}`;
 const cod = (action, amount = 100, extra = {}) => recordCodEvent({ orderId: order._id, partnerId: partner._id, actorId: action === 'verify' ? admin._id : rider._id, action,
   input: { amount, method: 'cash', reference: `${action}-TEST`, reason: 'Synthetic cash evidence', ...extra } });
+const seedBeneficiaryProcess = async reference => mongoose.connection.collection('finance_approved_processes').updateOne({ _id: reference }, { $set: { kind: 'bank_beneficiary_verification', status: 'approved', approvedBy: admin._id, approvalEvidenceReference: 'SYNTHETIC-PROCESS-APPROVAL', version: 'fixture-v1', effectiveAt: new Date('2020-01-01') } }, { upsert: true });
 const verifyCash = async () => { await cod('collect'); await cod('remit'); await cod('verify'); };
 const queryOrder = () => Order.findById(order._id);
 beforeAll(async () => {
@@ -54,7 +62,7 @@ beforeEach(async () => {
   for (const name of ['FINANCE_SNAPSHOTS_ENABLED','FINANCE_OPERATIONS_ENABLED','FINANCE_PAYOUTS_ENABLED','FINANCE_POLICY_APPROVAL_REFERENCE','FINANCE_E2E_APPROVAL_REFERENCE']) delete process.env[name];
   user = await User.create({ name: 'Customer', phone: '9876600001', roles: ['buyer'], isActive: true });
   rider = await User.create({ name: 'Fixture rider', phone: '9876600002', roles: ['delivery'], isActive: true });
-  const adminId = id(); await Admin.collection.insertOne({ _id: adminId, name: 'Fixture admin', email: 'fixture@example.test', password: 'not-a-password', role: 'admin', isActive: true }); admin = await Admin.findById(adminId);
+  const adminId = id(); await Admin.collection.insertOne({ _id: adminId, name: 'Fixture admin', email: 'fixture@example.test', password: 'not-a-password', role: 'admin', permissions: ['manage_finance'], isActive: true }); admin = await Admin.findById(adminId);
   const sellerId = id(); await Seller.collection.insertOne({ _id: sellerId, userId: user._id, businessName: 'Fixture store', status: 'approved', bankDetails: { upiId: 'fixture@test' } }); seller = await Seller.findById(sellerId);
   const productId = id(); await Product.collection.insertOne({ _id: productId, category: id(), type: 'grocery' }); product = await Product.findById(productId);
   await Category.collection.insertOne({ _id: product.category, name: 'Fixture category', type: 'grocery' });
@@ -91,6 +99,37 @@ test('seller summary includes delivered sales without creating or exposing settl
   expect(history.items).toBeUndefined();
   expect(response.body.data.balances).toMatchObject({ earnedEarnings: 0, eligible: 0 });
   expect(response.body.data.payoutActionsEnabled).toBe(false);
+  expect(await Ledger.countDocuments()).toBe(0);
+});
+
+test('legacy delivered order cannot be allocated or backfilled by a financial read', async () => {
+  enable();
+  const legacy = { ...order.toObject(), _id: id(), orderNo: 'AUDIT-LEGACY' };
+  delete legacy.financialSnapshot;
+  await Order.collection.insertOne(legacy);
+  await expect(postOrderFinance(legacy._id, admin._id)).rejects.toThrow(/historical backfill/);
+  const report = await financialReconciliation();
+  expect(report.coverage.totalOrders).toBe(1); // Legacy absent from v2 monitoring, not auto-repaired.
+  expect((await Order.collection.findOne({ _id: legacy._id })).financialSnapshot).toBeUndefined();
+  expect(await Ledger.countDocuments()).toBe(0);
+});
+
+test('database failure is a summary API error rather than a successful zero balance', async () => {
+  const spy = jest.spyOn(Ledger, 'aggregate').mockRejectedValue(new Error('Isolated ledger read failure'));
+  try {
+    const r = await request(app).get('/api/sellers/finances/summary').set('Authorization', bearer(user, 'user', 'seller'));
+    expect(r.status).toBe(500); expect(r.body.success).toBe(false); expect(r.body.data).toBeNull();
+  } finally { spy.mockRestore(); }
+});
+
+test('legacy coupon alias is normalized without a write; unknown funding blocks posting', async () => {
+  const copy = order.toObject();
+  // Exact shape written by createOrder: discount includes couponDiscount already.
+  copy.pricing = { subtotal: 100, discount: 10, couponDiscount: 10, totalAmount: 90 };
+  const frozen = await buildOrderFinancialSnapshot(copy);
+  expect(frozen).toMatchObject({ expectedPaise: 9000, discountRepresentation: 'legacy-coupon-alias', state: 'held_discount_policy' });
+  expect(frozen.lines[0].eligiblePaise).toBe(9000); expect(frozen.lines[0].netPaise).toBeUndefined();
+  expect(copy.pricing.discount).toBe(10);
   expect(await Ledger.countDocuments()).toBe(0);
 });
 
@@ -229,7 +268,7 @@ test('concurrent reject and complete cannot both move reserved money', async () 
 });
 test('partial/full refunds append compensations and cannot reverse the same refund twice', async () => {
   enable(); await verifyCash(); await postOrderFinance(order._id,admin._id);
-  const retId=id(); await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'TEST-REFUND',refundAmount:50,returnNumber:'RET-TEST'});
+  const retId=id(); await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'MANUAL-COD',codSettledBy:admin._id,codSettledAt:new Date(),codSettlementNote:'Synthetic manual cash receipt',refundAmount:50,returnNumber:'RET-TEST'});
   await Promise.all([reverseRefundedReturn(retId,admin._id),reverseRefundedReturn(retId,admin._id)]);
   expect(await sellerBalances(seller._id)).toMatchObject({held:45});
   await releaseOrderFinance(order._id,admin._id); expect(await sellerBalances(seller._id)).toMatchObject({held:0,eligible:45});
@@ -255,7 +294,7 @@ test('discount and multi-vendor allocation conserve every paisa even for fully d
   const data=order.toObject();data.items=[{_id:id(),productId:product._id,sellerId:seller._id,type:'grocery',qty:1,price:.01},{_id:id(),productId:product._id,sellerId:id(),type:'grocery',qty:1,price:.01}];
   data.pricing={subtotal:.02,couponDiscount:.01,coinDiscount:.01,totalAmount:0};
   const snapshot=await buildOrderFinancialSnapshot(data);
-  expect(snapshot.lines.every(line=>line.eligiblePaise===0&&line.netPaise===0)).toBe(true);
+  expect(snapshot.lines.every(line=>line.eligiblePaise===0&&line.netPaise===undefined)).toBe(true);
   expect(snapshot.lines.reduce((n,line)=>n+line.allocatedDiscounts.couponDiscount,0)).toBe(1);
   expect(snapshot.lines.reduce((n,line)=>n+line.allocatedDiscounts.coinDiscount,0)).toBe(1);
 });
@@ -277,10 +316,44 @@ test('online verified capture posts once; an unpaid or missing capture cannot ac
   await prepaidFixture('online');await Promise.all([postOrderFinance(order._id,admin._id),postOrderFinance(order._id,admin._id)]);
   expect(await sellerBalances(seller._id)).toMatchObject({held:90,eligible:0});
 });
+
+test('a valid capture for a smaller payment cannot fund a larger frozen order', async () => {
+  enable(); await prepaidFixture('online');
+  await Payment.updateOne({_id:payment._id},{$set:{amount:90,'captures.0.amountPaise':9000}});
+  await expect(postOrderFinance(order._id,admin._id)).rejects.toThrow(/original payment funding/);
+  expect(await Ledger.countDocuments()).toBe(0);
+});
 test('wallet payment status alone cannot substitute for the authoritative wallet debit', async () => {
   enable();await prepaidFixture('wallet');await expect(postOrderFinance(order._id,admin._id)).rejects.toThrow(/Wallet debit/);
   await WalletLedger.collection.insertOne({userId:user._id,direction:'debit',referenceId:String(order._id),amount:100,status:'completed',transactionId:'WALLET-TEST'});
   await postOrderFinance(order._id,admin._id);expect(await sellerBalances(seller._id)).toMatchObject({held:90});
+});
+
+test('wallet partial refund needs matching debit and refund credit before remaining net releases', async () => {
+  enable(); await prepaidFixture('wallet');
+  await WalletLedger.collection.insertOne({userId:user._id,direction:'debit',referenceId:String(order._id),amount:100,status:'completed',transactionId:'WALLET-DEBIT'});
+  await postOrderFinance(order._id,admin._id);
+  const retId=id();await Return.collection.insertOne({_id:retId,customerId:user._id,sellerId:seller._id,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'WALLET-CREDIT',refundAmount:50,returnNumber:'RET-WALLET'});
+  await Payment.updateOne({_id:payment._id},{$set:{status:'partial_refund','refund.totalRefundedAmount':50}});
+  await expect(reverseRefundedReturn(retId,admin._id)).rejects.toThrow(/Wallet refund credit/);
+  await WalletLedger.collection.insertOne({userId:user._id,direction:'credit',referenceType:'RETURN',referenceId:String(retId),amount:50,status:'completed',transactionId:'WALLET-CREDIT'});
+  await reverseRefundedReturn(retId,admin._id);await releaseOrderFinance(order._id,admin._id);
+  expect(await sellerBalances(seller._id)).toMatchObject({held:0,eligible:45});
+});
+
+test('one prepaid payment funds only the exact sum of its seller-scoped sibling orders', async () => {
+  enable(); await prepaidFixture('online');
+  order = await queryOrder();
+  const groupRef='SYNTHETIC-SHARED-PAYMENT',otherSeller=id();
+  await Seller.collection.insertOne({_id:otherSeller,userId:id(),status:'approved'});
+  await Order.updateOne({_id:order._id},{$set:{groupRef}});
+  const siblingId=id(),itemId=id(),original=order.financialSnapshot;
+  const sibling={...order.toObject(),_id:siblingId,orderNo:'SYNTHETIC-SIBLING',groupRef,items:[{...order.items[0].toObject(),_id:itemId,sellerId:otherSeller}],financialSnapshot:{...original,snapshotId:String(id()),lines:original.lines.map(line=>({...line,itemId:String(itemId),sellerId:String(otherSeller)}))}};
+  await Order.collection.insertOne(sibling);
+  await Payment.updateOne({_id:payment._id},{$set:{groupRef,amount:200,'captures.0.amountPaise':20000}});
+  await Promise.all([postOrderFinance(order._id,admin._id),postOrderFinance(siblingId,admin._id)]);
+  expect(await sellerBalances(seller._id)).toMatchObject({held:90});expect(await sellerBalances(otherSeller)).toMatchObject({held:90});
+  expect(await Ledger.countDocuments({account:'seller_payable',type:'order_earning'})).toBe(2);
 });
 test.each(['placed','confirmed','cancelled'])('%s status cannot establish collected cash or earnings',async status=>{
   enable();await Order.updateOne({_id:order._id},{$set:{status}});
@@ -289,7 +362,7 @@ test.each(['placed','confirmed','cancelled'])('%s status cannot establish collec
 });
 test('full refund compensates every remaining paisa and does not rewrite the original entries', async()=>{
   enable();await verifyCash();await postOrderFinance(order._id,admin._id);
-  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:2,status:'REFUNDED',refundReference:'REFUND-FULL',refundAmount:100,returnNumber:'RET-FULL'});
+  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:2,status:'REFUNDED',refundReference:'MANUAL-COD',codSettledBy:admin._id,codSettledAt:new Date(),codSettlementNote:'Synthetic manual cash receipt',refundAmount:100,returnNumber:'RET-FULL'});
   await reverseRefundedReturn(retId,admin._id);await releaseOrderFinance(order._id,admin._id);
   expect(await sellerBalances(seller._id)).toMatchObject({held:0,eligible:0});
   expect((await Ledger.findOne({type:'order_earning'})).amount).toBe(90);
@@ -297,13 +370,13 @@ test('full refund compensates every remaining paisa and does not rewrite the ori
 test('post-settlement refund creates explicit held debt and reconciliation exceptions',async()=>{
   enable();await verifyCash();await postOrderFinance(order._id,admin._id);await releaseOrderFinance(order._id,admin._id);
   await postLedgerEntry({idempotencyKey:'fixture-paid',sellerId:seller._id,account:'seller_payable',type:'payout_reservation',direction:'debit',bucket:'eligible',amount:90,description:'Synthetic completed withdrawal'});
-  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'REFUND-LATE',refundAmount:50,returnNumber:'RET-LATE'});
+  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'MANUAL-COD',codSettledBy:admin._id,codSettledAt:new Date(),codSettlementNote:'Synthetic manual cash receipt',refundAmount:50,returnNumber:'RET-LATE'});
   await reverseRefundedReturn(retId,admin._id);expect(await sellerBalances(seller._id)).toMatchObject({eligible:0,held:-45});
   const report=await financialReconciliation();expect(report.negativeBalances.some(row=>row._id.account==='seller_payable'&&row.amount===-45)).toBe(true);
 });
 test('refund allocation mismatch requires reconciliation and cannot silently alter earnings',async()=>{
   enable();await verifyCash();await postOrderFinance(order._id,admin._id);
-  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'REFUND-BAD',refundAmount:49.99,returnNumber:'RET-BAD'});
+  const retId=id();await Return.collection.insertOne({_id:retId,orderId:order._id,orderItemId:order.items[0]._id,quantity:1,status:'REFUNDED',refundReference:'MANUAL-COD',codSettledBy:admin._id,codSettledAt:new Date(),codSettlementNote:'Synthetic manual cash receipt',refundAmount:49.99,returnNumber:'RET-BAD'});
   await expect(reverseRefundedReturn(retId,admin._id)).rejects.toThrow(/differs/);expect(await sellerBalances(seller._id)).toMatchObject({held:90});
 });
 test('missing rider rate evidence holds financial eligibility without fabricating earnings',async()=>{
@@ -354,6 +427,10 @@ test('seller payout reservation and verified reconciliation are idempotent and c
   expect((await withdraw(31)).status).toBe(409);expect(await sellerBalances(seller._id)).toMatchObject({eligible:60,reserved:30});
   const payoutId=a.body.data._id;
   expect((await request(app).patch(`/api/admin/vendor-payouts/${payoutId}/settle`).set('Authorization',bearer(admin,'admin')).send({transactionRef:'BANK-TEST'})).status).toBe(400);
+  const reviewer = id(); await Admin.collection.insertOne({ _id: reviewer, name: 'Independent reviewer', email: 'reviewer@example.test', role: 'admin', permissions: ['manage_finance'], isActive: true });
+  await seedBeneficiaryProcess('TEST-APPROVED-PROCESS');
+  const { destinationFingerprint } = await import('../services/payoutEvidence.service.js');
+  expect((await request(app).patch(`/api/admin/vendor-payouts/${payoutId}/beneficiary-review`).set('Authorization', bearer({_id:reviewer},'admin')).send({ fingerprint: destinationFingerprint(seller.bankDetails), evidenceReference: 'TEST-OWNERSHIP', approvalReference: 'TEST-APPROVED-PROCESS', reason: 'Synthetic bank ownership review' })).status).toBe(200);
   const settle=()=>request(app).patch(`/api/admin/vendor-payouts/${payoutId}/settle`).set('Authorization',bearer(admin,'admin')).send({verified:true,transactionRef:'BANK-SELLER-TEST',reason:'Verified synthetic bank statement'});
   const results=await Promise.all([settle(),settle()]);expect(results.map(row=>row.status)).toEqual([200,200]);expect(await sellerBalances(seller._id)).toMatchObject({eligible:60,reserved:0,settled:30});
 });
@@ -363,4 +440,267 @@ test('seller payout rejection returns only the existing reservation and retains 
   const reject=()=>request(app).patch(`/api/admin/vendor-payouts/${created.body.data._id}/reject`).set('Authorization',bearer(admin,'admin')).send({reason:'Synthetic bank detail correction'});
   const responses=await Promise.all([reject(),reject()]);expect(responses.map(row=>row.status)).toEqual([200,200]);expect(await sellerBalances(seller._id)).toMatchObject({eligible:90,reserved:0,settled:0});
   expect((await SellerPayout.findById(created.body.data._id)).rejectionReason).toBe('Synthetic bank detail correction');
+});
+
+test('simultaneous seller payout requests cannot reserve the same eligible money twice', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id, admin._id); await releaseOrderFinance(order._id, admin._id);
+  const requestPayout = key => request(app).post('/api/sellers/payouts').set('Authorization', bearer(user, 'user', 'seller')).set('Idempotency-Key', key).send({ amount: 70 });
+  const rows = await Promise.all([requestPayout('audit-concurrent-a'), requestPayout('audit-concurrent-b')]);
+  expect(rows.map(r => r.status).sort()).toEqual([200, 409]);
+  expect(await sellerBalances(seller._id)).toMatchObject({ eligible: 20, reserved: 70, settled: 0 });
+  expect(await SellerPayout.countDocuments()).toBe(1);
+});
+
+test('partial refund with missing provider evidence remains blocked after compensation', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id, admin._id);
+  const retId = id();
+  await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: order.items[0]._id, sellerId: seller._id, quantity: 1, status: 'REFUNDED', refundReference: 'AUDIT-REFUND', refundAmount: 50, returnNumber: 'AUDIT-RETURN' });
+  await Payment.updateOne({ _id: payment._id }, { $set: { status: 'partial_refund' } });
+  await expect(reverseRefundedReturn(retId, admin._id)).rejects.toThrow(/Verified provider refund evidence/);
+  await expect(releaseOrderFinance(order._id, admin._id)).rejects.toThrow(/Verified provider refund evidence/);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 90, eligible: 0 });
+});
+
+test('audit integration blocker: reference-free zero-value refunded return cannot be financially reconciled', async () => {
+  enable();
+  const retId = id();
+  await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: order.items[0]._id, quantity: 1, status: 'REFUNDED', refundReference: null, refundAmount: 0, returnNumber: 'AUDIT-ZERO' });
+  await expect(reverseRefundedReturn(retId, admin._id)).rejects.toThrow(/Authoritatively completed refund/);
+});
+
+test.each([
+  [{ subtotal: 100, totalAmount: 100 }, [10000], 10000],
+  [{ subtotal: 90, totalAmount: 90 }, [9000], 9000], // campaign already lowered frozen item price
+  [{ discountRepresentation: 'components-v1', subtotal: 100, couponDiscount: 10, totalAmount: 90 }, [2500,7500], 9000],
+  [{ discountRepresentation: 'components-v1', subtotal: 100, discount: 1, couponDiscount: 2, cdsDiscount: 3, coinDiscount: 4, totalAmount: 90 }, [3333,6667], 9000],
+  [{ subtotal: 100, discount: 12, couponDiscount: 10, totalAmount: 88 }, [10000], 8800], // legacy aggregate = promotion2 + coupon10
+  [{ subtotal: .03, couponDiscount: .02, totalAmount: .01 }, [1,1,1], 1],
+])('canonical discount allocation conserves payment components %j', (pricing, gross, expected) => {
+  const result = discountAllocation(pricing, gross);
+  const net = gross.map((value,index) => value - result.keys.reduce((sum,key) => sum + result.discounts[key][index],0));
+  expect(net.every(value => value >= 0)).toBe(true); expect(net.reduce((a,b) => a+b,0)).toBe(expected);
+});
+
+test('canonical fields cannot silently use legacy alias normalization', () => {
+  expect(() => discountAllocation({ discountRepresentation: 'components-v1', discount: 10, couponDiscount: 10, totalAmount: 90 }, [10000])).toThrow(/reconcile/);
+});
+
+test('Coins reward base preserves the old coupon deduction and excludes its own redemption', () => {
+  const items = [{ _id:id(),price:25,qty:1 },{ _id:id(),price:75,qty:1 }];
+  const legacy = {items,pricing:{subtotal:100,discount:10,couponDiscount:10,coinDiscount:5}};
+  const canonical = {items,pricing:{subtotal:100,discountRepresentation:'components-v1',discount:0,couponDiscount:10,coinDiscount:5}};
+  expect(eligibleValueOfOrder(canonical)).toBe(eligibleValueOfOrder(legacy));
+  expect(eligibleValueOfOrder(canonical)).toBe(90);
+  expect(items.map(item=>computeItemEligibleValue(canonical,item))).toEqual([22.5,67.5]);
+  expect(computeItemEligibleValue(canonical,{...items[1],returnedQty:1})).toBe(0);
+});
+
+const recordedOnlineReturn = async (quantity = 1) => {
+  const retId = id(), amount = quantity * 50, reference = `refund-${retId}`;
+  await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: order.items[0]._id, quantity, status: 'REFUNDED', refundStatus: 'completed', refundReference: reference, refundAmount: amount, returnNumber: `RET-${retId}` });
+  await Payment.updateOne({ _id: payment._id }, { $set: { status: quantity === 2 ? 'refunded' : 'partial_refund', 'refund.totalRefundedAmount': amount,
+    refundObligations: [{ key: `RETURN_REFUND:${retId}`, returnId: retId, orderId: order._id, gatewayPaymentId: 'pay-test', amountPaise: amount * 100, currency: 'INR', status: 'processed', providerRefundId: reference, verifiedAt: new Date() }] } });
+  return retId;
+};
+
+test('verified online partial refund releases only compensated remaining net, once', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id, admin._id);
+  const retId = await recordedOnlineReturn();
+  await expect(releaseOrderFinance(order._id, admin._id)).rejects.toThrow(/financial reconciliation/);
+  await Promise.all([reverseRefundedReturn(retId, admin._id), reverseRefundedReturn(retId, admin._id)]);
+  await Promise.all([releaseOrderFinance(order._id, admin._id), releaseOrderFinance(order._id, admin._id)]);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 0, eligible: 45, earnedEarnings: 90, reversals: 45 });
+});
+
+test('fully refunded online order compensates all net and releases no money', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id, admin._id);
+  const retId = await recordedOnlineReturn(2);
+  await expect(releaseOrderFinance(order._id, admin._id)).rejects.toThrow(/Fully refunded/);
+  await reverseRefundedReturn(retId, admin._id);
+  expect(await releaseOrderFinance(order._id, admin._id)).toMatchObject({ status: 'reversed' });
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 0, eligible: 0 });
+});
+
+test('refund projection mismatch and unverified provider obligation block remaining funds', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id, admin._id);
+  const retId = await recordedOnlineReturn(); await reverseRefundedReturn(retId, admin._id);
+  await Payment.updateOne({ _id: payment._id }, { $set: { 'refund.totalRefundedAmount': 49 } });
+  await expect(releaseOrderFinance(order._id, admin._id)).rejects.toThrow(/totals do not reconcile/);
+  await Payment.updateOne({ _id: payment._id }, { $set: { 'refund.totalRefundedAmount': 50, 'refundObligations.0.status': 'processing' } });
+  await expect(releaseOrderFinance(order._id, admin._id)).rejects.toThrow(/evidence/);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 45, eligible: 0 });
+});
+
+test('zero return completion records internal evidence and never a provider transfer or payable credit', async () => {
+  enable();
+  // Synthetic historical approved funding fixture: one free line and one paid
+  // line. The new checkout cannot assume this historical sponsorship policy.
+  const frozen = order.financialSnapshot, freeItem = { ...order.items[0].toObject(), _id: id() };
+  const freeLine = { ...frozen.lines[0], itemId: String(freeItem._id), eligiblePaise: 0, commissionPaise: 0, taxPaise: 0, netPaise: 0, allocatedDiscounts: { couponDiscount: 10000 } };
+  await Order.collection.updateOne({ _id: order._id }, { $set: { items: [freeItem, ...order.items.map(row=>row.toObject())], pricing: { subtotal: 200, couponDiscount: 100, totalAmount: 100 }, financialSnapshot: { ...frozen, lines: [freeLine, ...frozen.lines] } } });
+  await verifyCash(); await postOrderFinance(order._id, admin._id);
+  const retId = id(); await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: freeItem._id, customerId: user._id, sellerId: seller._id,
+    quantity: 1, productId: product._id, reason: 'OTHER', unitPriceSnapshot: 50, status: 'RETURN_RECEIVED', returnNumber: 'RET-ZERO', history: [], refundAllocationStartQuantity: 0 });
+  const before = await Ledger.countDocuments();
+  const ret = await processReturnRefund({ returnId: retId, adminId: admin._id });
+  expect(ret.refundReference).toBeNull(); expect(ret.refundAmount).toBe(0); expect(ret.zeroRefundEvidence.key).toBe(`ZERO_RETURN:${retId}`);
+  expect(ret.zeroRefundEvidence.actorId).toEqual(admin._id);
+  await Promise.all([reverseRefundedReturn(retId, admin._id), reverseRefundedReturn(retId, admin._id)]);
+  // Gross reporting compensation is allowed; no fictitious zero cash/payable entry.
+  expect(await Ledger.countDocuments({ 'metadata.returnId': String(retId), account: 'seller_payable' })).toBe(0);
+  expect(await Ledger.countDocuments()).toBe(before + 1);
+  expect((await Payment.findById(payment._id)).refundObligations).toHaveLength(0);
+  await releaseOrderFinance(order._id, admin._id);
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 0, eligible: 90 });
+});
+
+test('snapshot refund allocation conserves every paisa across partial quantities', () => {
+  const itemId = id();
+  const data = { items: [{ _id: itemId, price: .01, qty: 3 }], pricing: { coinsUsed: 0 }, financialSnapshot: { version: 2, lines: [{ itemId: String(itemId), grossPaise: 3, eligiblePaise: 2, allocatedDiscounts: { couponDiscount: 1 } }] } };
+  const amounts = [0,1,2].map(start => calculateReturnRefund({ orderItemId: itemId, quantity: 1, refundAllocationStartQuantity: start }, data).refundAmount);
+  expect(amounts).toEqual([.01,0,.01]); expect(Math.round(amounts.reduce((a,b)=>a+b,0)*100)).toBe(2);
+});
+
+test('finance routes require explicit permission, including recovery and legacy aliases', async () => {
+  await Admin.updateOne({ _id: admin._id }, { $set: { permissions: [] } });
+  for (const route of ['/finance/commissions','/finance/historical-exceptions','/vendor-sales','/vendor-payouts','/seller-balances','/payment-attempt-recovery']) {
+    expect((await request(app).get(`/api/admin${route}`).set('Authorization', bearer(admin,'admin'))).status).toBe(403);
+  }
+});
+
+test('ledger refuses fractional paisa, other currencies, and conflicting currency replay', async () => {
+  const payload = { idempotencyKey: 'precision-fixture', sellerId: seller._id, amount: 1, type: 'adjustment', direction: 'credit', bucket: 'held', description: 'Synthetic precision fixture' };
+  await expect(postLedgerEntry({ ...payload, amount: .001 })).rejects.toThrow(/decimal/);
+  await expect(postLedgerEntry({ ...payload, currency: 'USD' })).rejects.toThrow(/INR/);
+  await postLedgerEntry(payload);
+  await expect(postLedgerEntry({ ...payload, currency: 'USD' })).rejects.toThrow(/INR/);
+  await Ledger.collection.insertOne({ ...payload, idempotencyKey: 'RAW-BAD', currency: 'USD' });
+  await expect(sellerBalances(seller._id)).rejects.toThrow(/currency or precision/);
+});
+
+test('ledger activity and buckets sum integer paisa and convert to rupees exactly once', async () => {
+  for (const [key,type,direction,amount] of [['a','order_earning','credit',1.01],['b','quick_freight_obligation','debit',.1],['c','quick_service_fee','debit',.2]]) await postLedgerEntry({idempotencyKey:key,sellerId:seller._id,type,direction,bucket:'held',amount,description:'Synthetic precision event'});
+  expect(await sellerBalances(seller._id)).toMatchObject({held:.71,earnedEarnings:1.01,quickFreightObligations:.1,bulkimartServiceFees:.2});
+});
+
+test('historical report is read-only, payable unknown, and known online/COD evidence stays blocked', async () => {
+  for (const [orderNo, method] of [['ORD-20261015-K2OCHK','online'],['ORD-20261019-CIRFK5','cod']]) {
+    const legacy = { ...order.toObject(), _id: id(), orderNo, paymentMethod: method }; delete legacy.financialSnapshot;
+    await Order.collection.insertOne(legacy);
+  }
+  const before = await Order.find({}).lean();
+  const report = await historicalExceptions();
+  expect(report.rows).toHaveLength(2); expect(report.mutations).toBe(0);
+  expect(report.rows.every(row => row.proposedPayable === null && row.proposedPostings.length === 0)).toBe(true);
+  expect(report.rows.find(row=>row.orderNo==='ORD-20261019-CIRFK5').classification).toBe('missing_cod_custody_evidence');
+  expect(report.rows.find(row=>row.orderNo==='ORD-20261015-K2OCHK').reasons).toContain('missing_payment_evidence');
+  expect(await Order.find({}).lean()).toEqual(before); expect(await Ledger.countDocuments()).toBe(0);
+  enable(); await expect(applyReviewedHistoricalBatch({ batchId: 'unreviewed', actorId: admin._id, approvalReference: 'TEST-ONLY' })).rejects.toThrow(/approval is missing/);
+});
+
+const fundedSellerRequest = async (key, amount = 30) => request(app).post('/api/sellers/payouts')
+  .set('Authorization', bearer(user,'user','seller')).set('Idempotency-Key', key).send({amount});
+const financeReviewer = async () => {
+  await seedBeneficiaryProcess('FIXTURE-PROCESS');
+  const reviewer = id(); await Admin.collection.insertOne({ _id: reviewer, name: 'Review operator', email: `${reviewer}@example.test`, role: 'admin', permissions: ['manage_finance'], isActive: true }); return reviewer;
+};
+const beneficiaryReview = (payoutId, reviewer) => request(app).patch(`/api/admin/vendor-payouts/${payoutId}/beneficiary-review`)
+  .set('Authorization', bearer({_id:reviewer},'admin')).send({ fingerprint: destinationFingerprint(seller.bankDetails), evidenceReference: 'FIXTURE-OWNERSHIP', approvalReference: 'FIXTURE-PROCESS', reason: 'Synthetic independent beneficiary evidence' });
+const settleSeller = (payoutId, reference, actor = admin._id) => request(app).patch(`/api/admin/vendor-payouts/${payoutId}/settle`)
+  .set('Authorization', bearer({_id:actor},'admin')).send({ verified: true, transactionRef: reference, reason: 'Synthetic verified bank receipt' });
+
+test('unverified beneficiary and same-operator reconciliation cannot mark a payout paid', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id,admin._id); await releaseOrderFinance(order._id,admin._id);
+  const created = await fundedSellerRequest('review-required'); const payoutId = created.body.data._id;
+  expect(created.body.data.bankDetails).toBeUndefined(); expect(created.body.data.transferMode).toBe('manual_external');
+  expect((await settleSeller(payoutId, 'BANK-SECURITY')).status).toBe(409);
+  expect((await beneficiaryReview(payoutId,admin._id)).status).toBe(409);
+  await seedBeneficiaryProcess('FIXTURE-PROCESS');
+  expect((await beneficiaryReview(payoutId,admin._id)).status).toBe(200);
+  expect((await settleSeller(payoutId, 'BANK-SECURITY')).status).toBe(409);
+  const independent = await financeReviewer(); expect((await settleSeller(payoutId,'BANK-SECURITY',independent)).status).toBe(200);
+  expect(await sellerBalances(seller._id)).toMatchObject({ reserved: 0, settled: 30 });
+});
+
+test('bank reference is unique across payouts after whitespace and case normalization', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id,admin._id); await releaseOrderFinance(order._id,admin._id);
+  const first = (await fundedSellerRequest('first-transfer')).body.data._id;
+  const second = (await fundedSellerRequest('second-transfer')).body.data._id;
+  const reviewer = await financeReviewer(); await beneficiaryReview(first,reviewer); await beneficiaryReview(second,reviewer);
+  expect((await settleSeller(first,'Bank-Unique')).status).toBe(200);
+  expect((await settleSeller(second,'  bank-unique  ')).status).toBe(409);
+  expect((await SellerPayout.findById(second)).status).toBe('PENDING');
+  expect(await sellerBalances(seller._id)).toMatchObject({ eligible: 30, reserved: 30, settled: 30 });
+  const response = await request(app).get('/api/admin/vendor-payouts').set('Authorization',bearer(admin,'admin'));
+  expect(JSON.stringify(response.body)).not.toContain('fixture@test');
+  expect(response.body.data[0].bankDetails).toBeUndefined();
+});
+
+test('Admin allocation needs a reviewed current revision and records evidence atomically', async () => {
+  enable(); await verifyCash(); const current = await queryOrder();
+  const route = `/api/admin/finance/orders/${order._id}/allocate`;
+  expect((await request(app).post(route).set('Authorization',bearer(admin,'admin')).send({})).status).toBe(400);
+  const proof = { expectedRevision: current.financialRevision, reference: 'ALLOCATE-TEST', reason: 'Reviewed synthetic allocation evidence' };
+  expect((await request(app).post(route).set('Authorization',bearer(admin,'admin')).send(proof)).status).toBe(200);
+  expect((await request(app).post(route).set('Authorization',bearer(admin,'admin')).send(proof)).status).toBe(409);
+  const updated = await queryOrder(); expect(updated.financialOperationLog).toHaveLength(1);
+  expect(updated.financialOperationLog[0].reference).toBe('ALLOCATE-TEST');
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 90 });
+});
+
+test('reviewed historical batch posts exact approved held amounts once; stale evidence and unknown payable fail', async () => {
+  enable(); const legacy = { ...order.toObject(), _id: id(), orderNo: 'SYNTHETIC-HISTORICAL-ONLY' }; delete legacy.financialSnapshot;
+  await Order.collection.insertOne(legacy);
+  const report = await historicalExceptions({ orderIds: [legacy._id] }); const row = report.rows[0];
+  const reviewer = await financeReviewer(); const batchId = 'ISOLATED-APPROVED-BATCH';
+  const proposal = { ...row, policyVersion: 'SYNTHETIC-ORIGINAL-CONTRACT', originalAgreementReference: 'FIXTURE-CONTRACT', fundingEvidenceReference: 'FIXTURE-CASH-RECEIPT', codCustodyApprovalReference: 'FIXTURE-INDEPENDENT-CUSTODY', entitlementApprovalReference: 'FIXTURE-EXACT-AMOUNT',
+    proposedPayablePaise: 9000, grossPaise: 10000, eligiblePaise: 10000, commissionPaise: 1000, taxPaise: 0 };
+  const { createHash } = await import('node:crypto');
+  const batch = { _id: batchId, manifestVersion: 1, status: 'approved', operatorId: admin._id, reviewerId: reviewer, approvalReference: 'FIXTURE-APPROVAL', rows: [proposal] };
+  batch.manifestHash = createHash('sha256').update(JSON.stringify(batch.rows)).digest('hex');
+  const unresolved = { ...batch, _id:'UNRESOLVED-BATCH', rows:[{...proposal,proposedPayablePaise:null}] };
+  unresolved.manifestHash=createHash('sha256').update(JSON.stringify(unresolved.rows)).digest('hex');
+  await mongoose.connection.collection('finance_historical_reviewed_batches').insertOne(unresolved);
+  await expect(applyReviewedHistoricalBatch({batchId:'UNRESOLVED-BATCH',actorId:admin._id,approvalReference:'FIXTURE-APPROVAL'})).rejects.toThrow(/unresolved/);
+  expect(await Ledger.countDocuments()).toBe(0);
+  await mongoose.connection.collection('finance_historical_reviewed_batches').insertOne(batch);
+  const apply = () => applyReviewedHistoricalBatch({ batchId, actorId:admin._id, approvalReference:'FIXTURE-APPROVAL' });
+  await Promise.all([apply(),apply()]);
+  expect(await sellerBalances(seller._id)).toMatchObject({held:90,eligible:0});
+  expect(await Ledger.countDocuments({'metadata.source':'historical-reviewed-v1'})).toBe(3);
+  expect((await Order.findById(legacy._id)).financialSnapshot).toBeUndefined();
+  await expect(postOrderFinance(legacy._id,admin._id)).rejects.toThrow(/historical backfill/);
+  const second = { ...batch, _id:'SECOND-BATCH', status:'approved' }; await mongoose.connection.collection('finance_historical_reviewed_batches').insertOne(second);
+  await expect(applyReviewedHistoricalBatch({batchId:'SECOND-BATCH',actorId:admin._id,approvalReference:'FIXTURE-APPROVAL'})).rejects.toThrow(/stale or conflicts/);
+});
+
+test('refund, release and payout race cannot withdraw the refunded entitlement', async () => {
+  enable(); await prepaidFixture('online'); await postOrderFinance(order._id,admin._id); await releaseOrderFinance(order._id,admin._id);
+  const retId = await recordedOnlineReturn();
+  const results = await Promise.allSettled([reverseRefundedReturn(retId,admin._id), releaseOrderFinance(order._id,admin._id), fundedSellerRequest('racing-refund',80)]);
+  expect(results[0].status).toBe('fulfilled');
+  expect(results[2].value.status).toBe(409);
+  expect(await sellerBalances(seller._id)).toMatchObject({held:0,eligible:45,reserved:0});
+});
+
+test('concurrent same-reference transfers can settle only one request', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id,admin._id); await releaseOrderFinance(order._id,admin._id);
+  const first = (await fundedSellerRequest('receipt-race-a')).body.data._id, second = (await fundedSellerRequest('receipt-race-b')).body.data._id;
+  const reviewer = await financeReviewer(); await beneficiaryReview(first,reviewer); await beneficiaryReview(second,reviewer);
+  const results = await Promise.all([settleSeller(first,'BANK-RACE'),settleSeller(second,'bank-race')]);
+  expect(results.map(row=>row.status).sort()).toEqual([200,409]);
+  expect(await sellerBalances(seller._id)).toMatchObject({eligible:30,reserved:30,settled:30});
+});
+
+test('beneficiary process revision blocks stale evidence and retains earlier reviews on renewal', async () => {
+  enable(); await verifyCash(); await postOrderFinance(order._id,admin._id); await releaseOrderFinance(order._id,admin._id);
+  const payoutId=(await fundedSellerRequest('process-revision')).body.data._id, reviewer=await financeReviewer();
+  expect((await beneficiaryReview(payoutId,reviewer)).status).toBe(200);
+  await mongoose.connection.collection('finance_approved_processes').updateOne({_id:'FIXTURE-PROCESS'},{$set:{version:'fixture-v2'}});
+  expect((await settleSeller(payoutId,'BANK-RENEW')).status).toBe(409);
+  expect((await beneficiaryReview(payoutId,reviewer)).status).toBe(409);
+  const renewed=await request(app).patch(`/api/admin/vendor-payouts/${payoutId}/beneficiary-review`).set('Authorization',bearer({_id:reviewer},'admin'))
+    .send({fingerprint:destinationFingerprint(seller.bankDetails),evidenceReference:'NEW-OWNERSHIP-EVIDENCE',approvalReference:'FIXTURE-PROCESS',reason:'Synthetic renewed ownership review'});
+  expect(renewed.status).toBe(200); expect(renewed.body.data.beneficiaryVerificationHistory).toHaveLength(1);
+  expect((await settleSeller(payoutId,'BANK-RENEW')).status).toBe(200);
 });

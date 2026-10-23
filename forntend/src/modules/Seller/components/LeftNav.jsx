@@ -1,13 +1,16 @@
 import React from 'react';
 import { useSeller } from '../context/SellerContext';
 import BrandLogo from '../../../components/BrandLogo';
+import { useAdvertisingNavigation } from '../../../components/advertising/useAdvertisingNavigation';
 
 const NavIcon = ({ children }) => children;
 
 export const LeftNav = ({ isCollapsed, onToggleCollapse }) => {
+  const advertisingEnabled = useAdvertisingNavigation();
   const { activeTab, setActiveTab, setTrackingOrder, setShowReturnPanel, logoutSeller } = useSeller();
 
   const navItems = [
+    ...(advertisingEnabled ? [{ id: 'advertising', label: 'Advertising', icon: <span aria-hidden="true">▤</span> }] : []),
     {
       id: 'dashboard',
       label: 'Dashboard',

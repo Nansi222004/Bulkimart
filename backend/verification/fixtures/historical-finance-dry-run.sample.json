@@ -1,0 +1,147 @@
+{
+  "manifestVersion": 1,
+  "mode": "dry-run",
+  "sourceObservedAt": "2026-10-23T07:34:10.476Z",
+  "mutations": 0,
+  "rows": [
+    {
+      "manifestVersion": 1,
+      "orderId": "6ad12739e87a768124c73d2a",
+      "orderNo": "ORD-20261015-K2OCHK",
+      "itemId": "6ad12739e87a768124c73d2b",
+      "sellerId": "6ace1e155e84238166d1e47a",
+      "currency": "INR",
+      "classification": "missing_payment_evidence",
+      "reasons": [
+        "missing_payment_evidence",
+        "missing_historical_commission_policy",
+        "incomplete_delivery_evidence"
+      ],
+      "evidence": {
+        "orderId": "6ad12739e87a768124c73d2a",
+        "orderNo": "ORD-20261015-K2OCHK",
+        "itemId": "6ad12739e87a768124c73d2b",
+        "sellerId": "6ace1e155e84238166d1e47a",
+        "status": "delivered",
+        "price": 250,
+        "qty": 1,
+        "pricing": {
+          "subtotal": 250,
+          "discount": 0,
+          "couponDiscount": 0,
+          "deliveryCharge": 0,
+          "totalAmount": 250,
+          "cdsDiscount": 0,
+          "donationAmount": 0,
+          "donationComment": "",
+          "tipAmount": 0,
+          "coinsUsed": 0,
+          "coinDiscount": 0
+        },
+        "deliveredAt": null,
+        "payment": {
+          "id": "6ad12739e87a768124c73d29",
+          "method": "online",
+          "status": "paid",
+          "amount": 250,
+          "captures": [],
+          "refunds": [],
+          "legacyCapturePresent": true
+        },
+        "cash": null,
+        "deliveries": [],
+        "returns": [],
+        "entries": [],
+        "payouts": [],
+        "unattributedEntries": [],
+        "currentRuleIds": [
+          "650500000000000000000001",
+          "650500000000000000000003",
+          "650500000000000000000002"
+        ],
+        "historicalPolicyEstablished": false
+      },
+      "evidenceHash": "05ff11a94015eb69015856d409aadc0f25981eebcefe720ea14a3de7558dddef",
+      "policyVersion": null,
+      "proposedPayable": null,
+      "proposedPostings": [],
+      "idempotencyKey": "HISTORICAL:6ad12739e87a768124c73d2a:6ad12739e87a768124c73d2b:v1",
+      "operator": null,
+      "approvalReference": null,
+      "batchId": null
+    },
+    {
+      "manifestVersion": 1,
+      "orderId": "6ad5ed0549802e193bd99c1e",
+      "orderNo": "ORD-20261019-CIRFK5",
+      "itemId": "6ad5ed0549802e193bd99c22",
+      "sellerId": "6ace1e155e84238166d1e47a",
+      "currency": "INR",
+      "classification": "missing_cod_custody_evidence",
+      "reasons": [
+        "missing_payment_evidence",
+        "missing_cod_custody_evidence",
+        "missing_historical_commission_policy"
+      ],
+      "evidence": {
+        "orderId": "6ad5ed0549802e193bd99c1e",
+        "orderNo": "ORD-20261019-CIRFK5",
+        "itemId": "6ad5ed0549802e193bd99c22",
+        "sellerId": "6ace1e155e84238166d1e47a",
+        "status": "delivered",
+        "price": 900,
+        "qty": 1,
+        "pricing": {
+          "subtotal": 900,
+          "discount": 0,
+          "couponDiscount": 0,
+          "couponCode": null,
+          "cdsDiscount": 0,
+          "deliveryCharge": 20,
+          "tipAmount": 0,
+          "coinsUsed": 0,
+          "coinDiscount": 0,
+          "totalAmount": 920,
+          "donationAmount": 0,
+          "donationComment": ""
+        },
+        "deliveredAt": "2026-10-19T10:59:45.745Z",
+        "payment": {
+          "id": "6ad5ed0549802e193bd99c20",
+          "method": "cod",
+          "status": "pending",
+          "amount": 920,
+          "captures": [],
+          "refunds": [],
+          "legacyCapturePresent": false
+        },
+        "cash": null,
+        "deliveries": [
+          {
+            "id": "6ad5f219b0b594522028bc2d",
+            "status": "delivered",
+            "otpVerified": true
+          }
+        ],
+        "returns": [],
+        "entries": [],
+        "payouts": [],
+        "unattributedEntries": [],
+        "currentRuleIds": [
+          "650500000000000000000001",
+          "650500000000000000000003",
+          "650500000000000000000002"
+        ],
+        "historicalPolicyEstablished": false
+      },
+      "evidenceHash": "9b19c7590ab5fb2842a8958a138dffaba2c76c6e47de433b5546a4632d18b12c",
+      "policyVersion": null,
+      "proposedPayable": null,
+      "proposedPostings": [],
+      "idempotencyKey": "HISTORICAL:6ad5ed0549802e193bd99c1e:6ad5ed0549802e193bd99c22:v1",
+      "operator": null,
+      "approvalReference": null,
+      "batchId": null
+    }
+  ]
+}

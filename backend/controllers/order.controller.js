@@ -617,7 +617,8 @@ export const createOrder = asyncHandler(async (req, res) => {
       shippingAddress: address,
       pricing: {
         subtotal: pricing.subtotal,
-        discount: pricing.discount + pricing.couponDiscount,
+        discountRepresentation: 'components-v1',
+        discount: pricing.discount,
         couponDiscount: pricing.couponDiscount,
         couponCode: pricing.couponCode,
         cdsDiscount: pricing.cdsDiscount,

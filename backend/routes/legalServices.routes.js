@@ -17,7 +17,7 @@ const validBody = (req, _res, next) => {
 };
 export const customerLegalRouter = express.Router();
 customerLegalRouter.use(privacy);
-customerLegalRouter.get('/capabilities', c.capabilities);
+customerLegalRouter.get('/capabilities', wrap(c.capabilities));
 customerLegalRouter.use(rateLimit({ windowMs: 60000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 customerLegalRouter.get('/', wrap(c.catalogue));
 customerLegalRouter.get('/catalogue/:id', wrap(c.detail));

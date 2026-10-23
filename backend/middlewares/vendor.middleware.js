@@ -106,5 +106,8 @@ export const requireApprovedPartner = asyncHandler(async (req, res, next) => {
   }
 
   req.partner = partner;   // downstream handlers reuse this instead of re-querying
+  if (partner.parcelReservation?.bookingId && req.method !== 'GET') {
+    return res.status(409).json({ success: false, message: 'Finish or resolve the active parcel task before changing order delivery or duty.' });
+  }
   next();
 });

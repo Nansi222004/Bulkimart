@@ -122,6 +122,8 @@ const returnSchema = new Schema(
     refundBreakdown: {
       itemGrossAmount:          Number,
       allocatedCouponDiscount:  Number,
+      allocatedPromotionDiscount: Number,
+      allocatedLegacyDiscount: Number,
       allocatedCdsDiscount:     Number,
       allocatedCoinDiscount:    Number,
       allocatedCoinsCount:      Number, // whole Coins to restore via coin.service.js::refundRedeemedCoins
@@ -130,6 +132,8 @@ const returnSchema = new Schema(
     refundAmount:        Number, // mirrors refundBreakdown.refundAmount — kept flat for existing readers (admin list/detail, customer UI)
     refundStatus:        { type: String, enum: RETURN_REFUND_STATUSES },
     refundReference:     String, // PhonePe refundId on success; 'MANUAL-COD' on a manual COD settlement
+    zeroRefundEvidence: { key: String, actorId: { type: ObjectId, ref: 'Admin' }, reason: String, completedAt: Date },
+    refundAllocationStartQuantity: Number,
     refundFailureReason: String,
     refundAttemptedAt:   Date,
     // Atomic processing lock (Phase 6J/6K) — set only while a refund attempt

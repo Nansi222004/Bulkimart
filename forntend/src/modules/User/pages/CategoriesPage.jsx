@@ -4,6 +4,7 @@ import { useUser } from '../context/UserContext';
 import { descendantIds, useCategoryTree } from '../hooks/useCategoryTree';
 import { formatCurrency } from '../utils/helpers';
 import WishlistHeartButton from '../components/WishlistHeartButton';
+import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
 
 const customerRoots = (tree) => (tree || []).flatMap((category) => {
   if (!category.isSystem) return [category];
@@ -168,6 +169,7 @@ const CategoriesPage = () => {
             <div><span>Products in</span><h2>{selected.name}</h2></div>
             <button type="button" onClick={() => { setSelected(null); setProducts([]); }}>Close</button>
           </div>
+          <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} organicProducts={products} ready={!productsLoading && !productsError} />
           {productsLoading ? (
             <div className="category-products-grid">{Array.from({ length: 4 }, (_, index) => <div className="category-result-card skeleton" key={index} />)}</div>
           ) : productsError ? (

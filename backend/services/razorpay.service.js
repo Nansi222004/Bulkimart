@@ -97,6 +97,7 @@ export const getRazorpayPaymentStatus = async (
     orderId: payment.order_id || orderId,
     paymentId: payment.id,
     amountPaise: Number(payment.amount),
+    refundedPaise: payment.amount_refunded === undefined ? undefined : Number(payment.amount_refunded),
     currency: payment.currency,
     errorCode: payment.error_code,
     paymentDetails: [{

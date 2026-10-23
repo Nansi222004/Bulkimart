@@ -1,11 +1,14 @@
 import mongoose from "mongoose";
+import { adPaymentSchema } from './advertisingBilling.schema.js';
 
 const { Schema, model } = mongoose;
 const ObjectId = Schema.Types.ObjectId;
 
 const paymentSchema = new Schema(
   {
+    advertising: { type: adPaymentSchema, default: undefined },
     userId:         { type: ObjectId, ref: "User", required: true },
+    parcelDeliveryId: { type: ObjectId, ref: 'ParcelDelivery' },
     serviceApplicationId: { type: ObjectId, ref: 'ServiceApplication' },
     quotationVersion: Number,
     // Separate seller collection; never replaces the customer's order payment.
@@ -125,7 +128,14 @@ const paymentSchema = new Schema(
   { timestamps: true }
 );
 
+paymentSchema.pre('validate', function () {
+  if (this.advertising && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Advertising payments require an exclusive online advertising purpose');
+  if(this.advertising&&String(this._id)!==String(this.advertising.campaignId))throw new Error('Advertising payment identity must equal its campaign identity');
+  if (this.parcelDeliveryId && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Parcel payment requires an exclusive online parcel reference');
+});
 paymentSchema.index({ userId: 1, createdAt: -1 });
+paymentSchema.index({'gateway.orderId':1},{unique:true,name:'advertising_gateway_order_unique',partialFilterExpression:{'advertising.campaignId':{$type:'objectId'},'gateway.orderId':{$type:'string'}}});
+paymentSchema.index({'captures.gatewayPaymentId':1},{unique:true,name:'advertising_capture_unique',partialFilterExpression:{'advertising.campaignId':{$type:'objectId'},'captures.gatewayPaymentId':{$type:'string'}}});
 paymentSchema.index({ quickFeeSnapshotId: 1 }, { unique: true, partialFilterExpression: { quickFeeSnapshotId: { $type: 'objectId' } } });
 // the webhook arrives with only this id to go on
 paymentSchema.index({ 'gateway.merchantOrderId': 1 });

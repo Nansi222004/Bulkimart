@@ -9,6 +9,8 @@ import RiderHistoryPage from '../pages/RiderHistoryPage';
 import ReturnPickupsPage from '../pages/ReturnPickupsPage';
 import DeliveryProfilePage from '../pages/DeliveryProfilePage';
 import DeliverySupportPage from '../pages/DeliverySupportPage';
+import ParcelOperations from '../../../components/parcels/ParcelOperations';
+import { ParcelDiscovery } from '../../../components/parcels/ParcelDelivery';
 import DeliveryNavbar from '../components/DeliveryNavbar';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
@@ -44,6 +46,7 @@ const DeliveryRoutesContent = () => {
 
   // Determine active tab from URL subpath
   const getActiveTab = () => {
+    if (currentPath.endsWith('/parcels')) return 'parcels';
     if (currentPath.endsWith('/earnings')) return 'earnings';
     if (currentPath.endsWith('/history')) return 'history';
     if (currentPath.endsWith('/returns')) return 'returns';
@@ -99,6 +102,7 @@ const DeliveryRoutesContent = () => {
 
   // Active delivery overlay overrides subpaths if an active order is being processed
   const renderActiveView = () => {
+    if (activeTab === 'parcels') return <ParcelOperations />;
     if (activeOrder) {
       return <ActiveDeliveryPage />;
     }
@@ -128,6 +132,7 @@ const DeliveryRoutesContent = () => {
 
       {/* Main content scroll container */}
       <div className="delivery-main-viewport">
+        {activeTab === 'dashboard' && !activeOrder && <ParcelDiscovery driver />}
         {renderActiveView()}
       </div>
 

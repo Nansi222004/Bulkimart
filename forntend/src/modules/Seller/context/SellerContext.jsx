@@ -1,5 +1,8 @@
+import { payoutIntent } from '../utils/payoutIntent';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
+import { gstDecisionValid } from '../../../components/gst/gstApi';
 import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
+import { readSellerFinances } from '../utils/sellerFinanceRead';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
 // Import image assets for product listings
@@ -130,6 +133,7 @@ export const SellerProvider = ({ children }) => {
   });
 
   const [panNumber, setPanNumber] = useState('');
+  const [gstDecision, setGstDecision] = useState({ choice: '', gstin: '', contactName: '', message: '', consent: false });
 
   // Live application state returned by the backend
   const [submitting, setSubmitting] = useState(false);
@@ -166,6 +170,7 @@ export const SellerProvider = ({ children }) => {
         setBankForm({ holderName: '', bankName: '', accountNumber: '', ifscCode: '' });
         setUploadedDocs({ aadhaarFront: null, aadhaarBack: null, pan: null, passbook: null, businessCert: null });
         setPanNumber('');
+        setGstDecision({ choice: '', gstin: '', contactName: '', message: '', consent: false });
         setSubmittedSeller(null);
       }
       setDraftIdentityKey(draftKey);
@@ -221,6 +226,8 @@ export const SellerProvider = ({ children }) => {
   });
 
   const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutSubmitting, setPayoutSubmitting] = useState(false);
+  const payoutSubmissionLock = React.useRef(false);
 
   // ==========================================================================
   // SELLER PANEL DATA — live from the API. Mock rows removed: a seller who has
@@ -882,9 +889,10 @@ export const SellerProvider = ({ children }) => {
       if (!current()) return;
       if (!summaryRes.ok) throw new Error(summaryBody.message || 'Could not load seller balances');
       if (!ledgerRes.ok) throw new Error(ledgerBody.message || 'Could not load seller ledger');
-      setFinanceSummary(summaryBody.data || null);
-      setPayouts(summaryBody.data?.payouts || []);
-      setLedgerEntries(ledgerBody.data || []);
+      const { summary, entries } = readSellerFinances(summaryBody, ledgerBody);
+      setFinanceSummary(summary);
+      setPayouts(summary.payouts);
+      setLedgerEntries(entries);
     } catch (error) {
       if (!current()) return;
       setFinanceError(error.message || 'Could not load seller finances');
@@ -1173,6 +1181,7 @@ export const SellerProvider = ({ children }) => {
 
     try {
       const salesChannels = selectedModesToChannels(selectedTypes);
+      if (!gstDecisionValid(gstDecision)) throw new Error('Complete the GSTIN choice and any required assistance consent before submitting.');
       await call('/api/sellers/start', {
         method: 'POST',
         headers: JSON_H,
@@ -1220,6 +1229,13 @@ export const SellerProvider = ({ children }) => {
 
       const f4 = new FormData();
       f4.append('pan', panNumber);
+      f4.append('gstChoice', gstDecision.choice);
+      if (gstDecision.choice === 'has_gstin') f4.append('gstin', gstDecision.gstin);
+      if (gstDecision.choice === 'assistance') {
+        f4.append('gstAssistanceConsent', String(gstDecision.consent));
+        f4.append('gstContactName', gstDecision.contactName);
+        f4.append('gstAssistanceMessage', gstDecision.message);
+      }
       if (uploadedDocs.pan) f4.append('pan_card', uploadedDocs.pan);
       if (uploadedDocs.businessCert) f4.append('trade_license', uploadedDocs.businessCert);
       await call('/api/sellers/step/4', { method: 'PUT', headers: AUTH, body: f4 }, 'Legal documents');
@@ -1470,6 +1486,8 @@ export const SellerProvider = ({ children }) => {
   // SUBMIT PAYOUT REQUEST
   const handleRequestPayout = async (e) => {
     e.preventDefault();
+    if (payoutSubmissionLock.current) return { ok: false };
+    if (!financeSummary?.payoutActionsEnabled) return { ok: false, message: 'Payout requests are unavailable' };
     const amount = Number(payoutAmount);
     if (!amount || amount <= 0) {
       triggerToast('Please enter a valid amount');
@@ -1479,18 +1497,24 @@ export const SellerProvider = ({ children }) => {
       triggerToast('Insufficient withdrawable balance!');
       return { ok: false };
     }
-    const idempotencyKey = `seller-payout:${Date.now()}:${amount}`;
+    const payoutSessionToken = localStorage.getItem('sellerToken');
+    payoutSubmissionLock.current = true; setPayoutSubmitting(true);
     try {
+      const intent = payoutIntent(sessionStorage, sellerProfile?._id, amount, () => crypto.randomUUID());
+      const idempotencyKey = intent.key;
       const res = await fetch(apiUrl('/api/sellers/payouts'), {
         method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({ amount }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || 'Payout request failed');
+      if (!res.ok || body.success !== true || !body.data?._id || body.data.amount !== amount || !['PENDING', 'APPROVED', 'REJECTED'].includes(body.data.status)) throw new Error(body.message || 'Payout request could not be confirmed; retry uses the same request reference');
+      if (payoutSessionToken !== localStorage.getItem('sellerToken')) return { ok: false, sessionChanged: true };
+      intent.complete();
       setPayoutAmount(''); setActiveFinanceTab('Overview');
       await fetchSellerFinances(); triggerToast('Payout request submitted.');
       return { ok: true };
-    } catch (error) { triggerToast(error.message, {type:'error'}); return { ok: false, message: error.message }; }
+    } catch (error) { if (payoutSessionToken !== localStorage.getItem('sellerToken')) return { ok: false, sessionChanged: true }; triggerToast(error.message, {type:'error'}); return { ok: false, message: error.message }; }
+    finally { payoutSubmissionLock.current = false; setPayoutSubmitting(false); }
   };
 
 
@@ -1577,6 +1601,8 @@ export const SellerProvider = ({ children }) => {
         uploadedDocs,
         panNumber,
         setPanNumber,
+        gstDecision,
+        setGstDecision,
         submitting,
         submitError,
         submittedSeller,
@@ -1617,6 +1643,7 @@ export const SellerProvider = ({ children }) => {
         handleToggleProductStatus,
         handleDeleteProduct,
         deletingProductId,
+        payoutSubmitting,
         payoutAmount,
         setPayoutAmount,
         handleRequestPayout,

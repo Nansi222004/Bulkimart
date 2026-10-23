@@ -23,7 +23,8 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
       Ledger.find({ orderId: order._id }).lean(), Payment.findById(order.paymentId).lean(),
       Return.find({ orderId: order._id, status: { $nin: ['REJECTED', 'CANCELLED'] } }).select('_id status').lean(),
     ]);
-    if (snapshot.state !== 'configured') issue('commission_rule_missing', 'No historical recalculation is permitted');
+    if (snapshot.state === 'held_discount_policy') issue('discount_funding_policy_missing', 'Discount sponsor allocation is not approved; no seller deduction is assumed');
+    else if (snapshot.state !== 'configured') issue('commission_rule_missing', 'No historical recalculation is permitted');
     if (Object.values(snapshot.components).reduce((a,b) => a+b,0) !== snapshot.expectedPaise) issue('order_total_mismatch', 'Frozen components differ from expected payment');
     if (!payment) issue('payment_missing', 'Linked customer payment is missing');
     if (order.status === 'delivered' && !order.financialPosting) issue('allocation_missing', 'Delivered order has no merchandise allocation');

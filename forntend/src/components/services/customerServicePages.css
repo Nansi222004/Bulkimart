@@ -1,0 +1,52 @@
+/* Customer route layout only; operations/provider workspaces retain their styles. */
+.user-main-content:is(.page-legal-services, .page-parcel-delivery) {
+  padding: 0 0 calc(90px + env(safe-area-inset-bottom, 0px));
+  gap: 0;
+  background: var(--bg-page, #f7fafc);
+}
+.user-main-content:is(.page-legal-services, .page-parcel-delivery) > .unified-header-container { margin: 0; flex-shrink: 0; }
+:is(.legal-services, .parcel-workspace).customer-service-page {
+  --primary: #078ccb;
+  --primary-light: #eaf9fe;
+  --text-primary: #172b4d;
+  --border-color: #e2e8f0;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 1120px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 auto;
+  padding: clamp(16px, 3vw, 24px);
+  background: transparent;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.customer-service-page .customer-service-heading { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 20px; }
+.customer-service-heading > div { min-width: 0; }
+.customer-service-page .customer-service-heading h1 { font-size: clamp(22px, 3vw, 28px); line-height: 1.25; margin: 3px 0 6px; }
+.customer-service-page .customer-service-heading p { margin: 0; color: #52647b; font-size: 14px; line-height: 1.6; white-space: normal; }
+.customer-service-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px; background: #eaf9fe; color: #078ccb; border: 1px solid #cbeaf5; }
+.customer-service-page :is(.legal-card, .parcel-card, .customer-service-state) { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: clamp(16px, 3vw, 22px); margin: 16px 0; box-shadow: none; min-width: 0; }
+.customer-service-page .customer-service-state { border-top: 3px solid #ff8500; }
+.customer-service-page :is(h2, h3) { font-size: 18px; line-height: 1.4; margin: 0 0 10px; }
+.customer-service-page p { line-height: 1.6; white-space: normal; }
+.customer-service-page :is(button, .customer-service-action) { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; max-width: 100%; padding: 10px 14px; margin: 0; border: 1px solid #b8deed; border-radius: 9px; background: #eaf9fe; color: #076a99; font: inherit; font-size: 14px; font-weight: 600; white-space: normal; text-align: center; text-decoration: none; cursor: pointer; }
+.customer-service-page button:disabled { cursor: default; opacity: .5; }
+.customer-service-page a { color: #076a99; }
+.customer-service-page .customer-service-action { background: #078ccb; border-color: #078ccb; color: white; }
+.customer-service-page nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+.customer-service-page :focus-visible { outline: 3px solid #ff8500; outline-offset: 3px; }
+.customer-service-page .parcel-grid { gap: 16px; }
+.customer-service-page fieldset { min-width: 0; }
+.customer-service-page .parcel-card > button { margin: 4px 6px 4px 0; }
+.customer-service-page .parcel-row { display: block; text-align: left; }
+.customer-service-page .legal-grid .legal-card { margin: 0; }
+.customer-service-page .customer-service-pagination { margin-top: 20px; }
+@media (max-width: 480px) {
+  .customer-service-page nav button { flex: 1 1 auto; }
+  .customer-service-page .customer-service-action { width: 100%; }
+}
+@media (min-width: 769px) {
+  .user-main-content:is(.page-legal-services, .page-parcel-delivery) { padding-bottom: 24px; }
+}

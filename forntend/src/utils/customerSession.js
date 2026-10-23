@@ -36,5 +36,5 @@ export function acquireCustomerSession(token, timeoutMs = SESSION_TIMEOUT_MS) {
 export function isPublicCustomerPath(path) {
   if (typeof path !== 'string') return false;
   if (/^\/legal-services(?:\/[a-f\d]{24})?\/?$/i.test(path)) return true;
-  return /^\/(?:$|(?:home|smart-buy|hot-deals|fashion|groceries|garments|electronics|coupons|categories|search|wholesale|ebooks|cart|wishlist|products?|(?:grocery|ecommerce|shg)--[a-z0-9-]+)(?:\/|\?|#|$))/i.test(path);
+  return /^\/(?:$|(?:services|home|smart-buy|hot-deals|fashion|groceries|garments|electronics|coupons|categories|search|wholesale|ebooks|cart|wishlist|products?|(?:grocery|ecommerce|shg)--[a-z0-9-]+)(?:\/|\?|#|$))/i.test(path);
 }

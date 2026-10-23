@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { advertisingPackageSchema } from './advertising.schema.js';
 
 const { Schema, model } = mongoose;
 
@@ -21,11 +22,13 @@ const { Schema, model } = mongoose;
  */
 const promotionPackageSchema = new Schema(
   {
+    advertisingVersion: { type: Number, enum: [2] },
+    advertising: { type: advertisingPackageSchema, default: undefined },
     name:         { type: String, required: true },
     module:       { type: String, enum: ['QUICK', 'ECOMMERCE'], required: true },
     durationDays: { type: Number, required: true, min: 1 },
     price:        { type: Number, required: true, min: 0 },
-    placement:    { type: String, enum: ['HOME_HERO'], default: 'HOME_HERO' },
+    placement:    { type: String, enum: ['HOME_HERO', 'CATEGORY_SPONSORED'], default: 'HOME_HERO' },
     maxProducts:  { type: Number, required: true, min: 1 },
     isActive:     { type: Boolean, default: true },
   },
@@ -33,6 +36,10 @@ const promotionPackageSchema = new Schema(
 );
 
 promotionPackageSchema.index({ module: 1, isActive: 1 });
+promotionPackageSchema.pre('validate', function () {
+  if (this.advertisingVersion === 2 && (!this.advertising || this.placement !== 'CATEGORY_SPONSORED')) this.invalidate('advertising', 'Versioned advertising package configuration is required');
+  if (this.advertisingVersion !== 2 && (this.advertising || this.placement === 'CATEGORY_SPONSORED')) this.invalidate('advertising', 'Advertising packages require explicit version 2');
+});
 
 const PromotionPackage = model("PromotionPackage", promotionPackageSchema);
 export default PromotionPackage;

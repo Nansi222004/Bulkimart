@@ -4,7 +4,7 @@ import { apiUrl } from '../../../utils/api';
 
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
-const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const money = n => typeof n === 'number' && Number.isFinite(n) ? `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 
 export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
   const [subTab, setSubTab] = useState(defaultSubTab); // 'sales' | 'earnings' | 'payouts'
@@ -131,7 +131,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
             {subTab === 'payouts' && 'Vendor Payouts & Disbursals'}
           </h2>
           <p style={{ margin: '6px 0 0 0', opacity: 0.8, fontSize: '14px' }}>
-            {subTab === 'sales' && 'Real-time sales revenue, commission deductions, and gross order volumes across all sellers.'}
+            {subTab === 'sales' && 'Gross item sales aggregates only. Commission and seller entitlement require the authoritative finance ledger.'}
             {subTab === 'earnings' && 'Comprehensive net payable ledger, commission breakdown, and bank account details for sellers.'}
             {subTab === 'payouts' && 'Manage IMPS/NEFT bank transfers, approve pending payouts, and view settled history.'}
           </p>
@@ -300,7 +300,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                       return (
                         <tr key={item._id || item.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '14px 16px' }}>
-                            <div style={{ fontWeight: 600, color: '#0f172a' }}>#{item.orderId || item._id}</div>
+                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.orderId || 'Seller aggregate'}</div>
                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{fmtDate(item.createdAt)}</div>
                           </td>
                           <td style={{ padding: '14px 16px' }}>

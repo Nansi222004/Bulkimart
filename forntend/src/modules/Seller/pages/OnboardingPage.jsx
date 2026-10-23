@@ -1,4 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
+import GstDecision from '../../../components/gst/GstDecision';
+import GstAssistance from '../../../components/gst/GstAssistance';
+import { gstDecisionValid } from '../../../components/gst/gstApi';
 import { useSeller } from '../context/SellerContext';
 import { LocationPicker } from '../../../components/LocationPicker';
 import BrandLogo from '../../../components/BrandLogo';
@@ -69,6 +72,8 @@ export const OnboardingPage = ({ onSubmitted }) => {
     handleDocDelete,
     panNumber,
     setPanNumber,
+    gstDecision,
+    setGstDecision,
     submitting,
     submitError,
     submitSellerApplication,
@@ -554,12 +559,13 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <DocRow label="Business Registration Certificate" hint="Optional" docKey="businessCert"
               file={uploadedDocs.businessCert} onPick={handleDocUpload} onDelete={handleDocDelete} />
+            <GstDecision value={gstDecision || { choice: '' }} onChange={setGstDecision} />
 
             <button
               className="primary-onboarding-btn"
               style={{ marginTop: 24 }}
               onClick={() => setOnboardingStep(8)}
-              disabled={!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10}
+              disabled={!uploadedDocs.aadhaarFront || !uploadedDocs.aadhaarBack || !uploadedDocs.passbook || panNumber.length !== 10 || !gstDecisionValid(gstDecision || {})}
             >
               Continue to Review
             </button>
@@ -647,6 +653,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
         {/* SCREEN APPLICATION SUBMITTED STATUS */}
         {onboardingStep === 9 && (
           <>
+            <GstAssistance />
             <div className="onboarding-status-box">
               <div className="status-icon-circle review">⏱</div>
               <h4 className="status-title">Application Under Review</h4>

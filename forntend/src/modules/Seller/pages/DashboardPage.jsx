@@ -1,7 +1,9 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
+import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import ServicesPanel from '../../../components/services/ServicesPanel';
+import GstAssistance from '../../../components/gst/GstAssistance';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
 import LeftNav from '../components/LeftNav';
@@ -37,6 +39,7 @@ const resolvePopupNav = (route) => {
 };
 
 const TAB_TITLES = {
+  advertising: 'Advertising',
   services: 'Services',
   dashboard: 'Dashboard',
   products: 'Products',
@@ -72,6 +75,7 @@ export const DashboardPage = () => {
 
   const renderActiveTab = () => {
     switch (activeTab) {
+      case 'advertising': return <AdvertisingWorkspace />;
       case 'services': return <ServicesPanel />;
       case 'dashboard':     return <DashboardTab />;
       case 'products':      return <ProductsTab />;
@@ -105,6 +109,7 @@ export const DashboardPage = () => {
       <LeftNav isCollapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
 
       <div className="seller-main-content">
+        <GstAssistance />
         <RealtimeNotice />
         {/* Header — layout lives in Seller.css (.seller-header-row etc.) */}
         <div className="seller-header-row">

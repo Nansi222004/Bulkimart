@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { destinationFingerprint, payoutPublic, assertBeneficiaryReview, approvedBeneficiaryProcess } from '../services/payoutEvidence.service.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
@@ -50,7 +52,7 @@ export const updateQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, r
 export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
-  const query = {};
+  const query = {advertisingCampaignId:{$exists:false}};
   if (mongoose.Types.ObjectId.isValid(req.query.sellerId)) query.sellerId = req.query.sellerId;
   if (req.query.bucket) query.bucket = req.query.bucket;
   if (req.query.type) query.type = req.query.type;
@@ -63,11 +65,11 @@ export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {
 });
 
 export const getSellerBalancesAdmin = asyncHandler(async (req, res) => {
-  const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name bankDetails').lean();
+  const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name').lean();
   const rows = await Promise.all(sellers.map(async (seller) => ({
     sellerId: seller._id, businessName: seller.businessName,
     storeName: seller.storeDetails?.name || seller.businessName,
-    bankDetails: seller.bankDetails || {}, balances: await sellerBalances(seller._id),
+    balances: await sellerBalances(seller._id),
   })));
   return ok(res, { rows, coverage: { historicalOrdersIncluded: false, authoritativeFrom: 'seller-ledger-v1' } });
 });
@@ -101,16 +103,22 @@ export const listFinancialReconciliationAdmin = asyncHandler(async (req, res) =>
 export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
   const flags = financeFlags();
   const enabled = flags.payouts && flags.policyApproved && flags.testsApproved;
-  const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name bankDetails').sort({ createdAt: -1 }).lean();
+  const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name').sort({ createdAt: -1 }).lean();
   const rows = await Promise.all(payouts.map(async (payout) => {
     const reservation = await SellerLedgerEntry.findOne({
-      payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
+      payoutId: payout._id, sellerId: payout.sellerId?._id || payout.sellerId, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
     }).select('_id').lean();
+    let reviewBlocker = null, beneficiaryReviewRequired = !payout.beneficiaryVerification?.verifiedAt;
+    try {
+      assertBeneficiaryReview(payout, req.user._id);
+      const process = await approvedBeneficiaryProcess(mongoose.connection, payout.beneficiaryVerification.approvalReference, null);
+      if (process.version !== payout.beneficiaryVerification.processVersion) { reviewBlocker = 'Beneficiary process changed; reviewed evidence must be renewed'; beneficiaryReviewRequired = true; }
+    } catch (error) { if (!error.status) throw error; reviewBlocker = error.message; }
     return {
-      ...payout, status: payout.status.toLowerCase(), payoutRef: payout.payoutNo,
+      ...payoutPublic(payout), destinationFingerprint: destinationFingerprint(payout.bankDetails, false), status: payout.status.toLowerCase(), payoutRef: payout.payoutNo,
       storeName: payout.sellerId?.storeDetails?.name || payout.sellerId?.businessName,
-      bankAccount: payout.bankDetails, settlementEligible: Boolean(reservation) && enabled,
-      settlementBlocker: !enabled ? 'Payout reconciliation disabled pending approval' : reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
+      beneficiaryReviewRequired, settlementEligible: Boolean(reservation) && enabled && !reviewBlocker,
+      settlementBlocker: !enabled ? 'Payout reconciliation disabled pending approval' : reviewBlocker ? reviewBlocker : reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
     };
   }));
   return ok(res, rows);
@@ -121,7 +129,7 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
   const reconciliationReason = String(req.body?.reason || '').trim();
   if (req.body?.verified !== true || reconciliationReason.length < 5) throw httpError(400, 'Verified bank transfer evidence and reconciliation reason are required');
   const transactionRef = String(req.body?.transactionRef || '').trim();
-  if (transactionRef.length < 4) throw httpError(400, 'Confirmed bank transaction reference is required');
+  if (transactionRef.length < 4 || transactionRef.length > 200) throw httpError(400, 'Confirmed bank transaction reference is required');
   const session = await mongoose.startSession();
   let payout;
   try {
@@ -129,15 +137,30 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
       payout = await SellerPayout.findOne({ _id: req.params.id, status: 'PENDING' }).session(session);
       if (!payout) {
         const existing = await SellerPayout.findById(req.params.id).session(session);
-        if (existing?.status === 'APPROVED' && existing.transactionRef === transactionRef) { payout = existing; return; }
+        if (existing?.status === 'APPROVED' && existing.transactionRef?.toUpperCase() === transactionRef.toUpperCase() && existing.reconciliationReason === reconciliationReason && String(existing.processedBy) === String(req.user._id)) { payout = existing; return; }
         throw httpError(409, 'Payout is not pending');
       }
+      assertBeneficiaryReview(payout, req.user._id);
+      const process = await approvedBeneficiaryProcess(mongoose.connection, payout.beneficiaryVerification.approvalReference, session);
+      if (process.version !== payout.beneficiaryVerification.processVersion) throw httpError(409, 'Beneficiary verification process changed; renewed review is required');
+      if ((payout.currency || 'INR') !== 'INR') throw httpError(409, 'Payout currency requires reconciliation');
+      const normalizedRef = transactionRef.toUpperCase();
+      const duplicate = await SellerPayout.aggregate([{ $match: { _id: { $ne: payout._id }, status: 'APPROVED' } }, { $match: { $expr: { $eq: [{ $toUpper: { $trim: { input: { $ifNull: ['$transactionRef', ''] } } } }, normalizedRef] } } }]).session(session);
+      if (duplicate.length) throw httpError(409, 'Transfer reference already belongs to another payout');
+      // Built-in _id uniqueness supplies the atomic cross-seller receipt claim;
+      // no deployment-time secondary index creation is required.
+      const receiptId = crypto.createHash('sha256').update(normalizedRef).digest('hex');
+      const receipts = mongoose.connection.collection('seller_payout_receipts');
+      const claimed = await receipts.findOne({ _id: receiptId }, { session });
+      if (claimed && String(claimed.payoutId) !== String(payout._id)) throw httpError(409, 'Transfer reference already allocated');
+      if (!claimed) await receipts.insertOne({ _id: receiptId, payoutId: payout._id, sellerId: payout.sellerId, amount: payout.amount, currency: payout.currency || 'INR', destinationFingerprint: destinationFingerprint(payout.bankDetails), actorId: req.user._id, at: new Date() }, { session });
       const reservation = await SellerLedgerEntry.findOne({
-        payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
+        payoutId: payout._id, sellerId: payout.sellerId?._id || payout.sellerId, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
       }).session(session);
       if (!reservation) throw httpError(409, 'Payout has no matching ledger reservation and cannot be marked paid');
       await Seller.updateOne({ _id: payout.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
       const balances = await sellerBalances(payout.sellerId, { session });
+      if (balances.reserved < payout.amount) throw httpError(409, 'Reserved funds require reconciliation');
       if (balances.held < 0) throw httpError(409, 'Seller refund debt requires reconciliation before payout');
       await assertSellerSettlementClear(payout.sellerId, session);
       const out = await postLedgerEntry({
@@ -157,7 +180,7 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
       await payout.save({ session });
     });
   } finally { await session.endSession(); }
-  return ok(res, payout, 'Payout settlement recorded');
+  return ok(res, payoutPublic(payout), 'External transfer evidence reconciled; no transfer initiated by this application');
 });
 
 export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
@@ -170,8 +193,9 @@ export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
     if (payout.status === 'REJECTED') return payout;
     if (payout.status !== 'PENDING') throw httpError(409, 'Payout is already resolved');
     await Seller.updateOne({ _id: payout.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
-    const reservation = await SellerLedgerEntry.findOne({ payoutId: payout._id, type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount }).session(session);
+    const reservation = await SellerLedgerEntry.findOne({ payoutId: payout._id, sellerId: payout.sellerId, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount }).session(session);
     if (!reservation) throw httpError(409, 'Matching seller payout reservation is missing');
+    if ((await sellerBalances(payout.sellerId, { session })).reserved < payout.amount) throw httpError(409, 'Reserved funds require reconciliation');
     const entries = [];
     for (const [bucket, direction] of [['reserved','debit'],['eligible','credit']]) {
       const { entry } = await postLedgerEntry({ idempotencyKey: `PAYOUT:${payout._id}:REJECT:${bucket}`, sellerId: payout.sellerId, payoutId: payout._id,
@@ -182,5 +206,31 @@ export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
     payout.status = 'REJECTED'; payout.rejectionReason = reason; payout.processedBy = req.user._id; payout.processedAt = new Date();
     payout.ledgerEntryIds.push(...entries); await payout.save({ session }); return payout;
   });
-  return ok(res, payout, 'Payout rejected; reservation returned through compensating entries');
+  return ok(res, payoutPublic(payout), 'Payout rejected; reservation returned through compensating entries');
+});
+
+export const verifySellerPayoutBeneficiaryAdmin = asyncHandler(async (req, res) => {
+  requireFinanceOperation('payouts');
+  const { evidenceReference, approvalReference, reason, fingerprint } = req.body || {};
+  if (![evidenceReference, approvalReference, reason].every(value => typeof value === 'string' && value.trim().length >= 5 && value.length <= 500)) throw httpError(400, 'Approved verification process reference, ownership evidence and reason are required');
+  const payout = await financialTransaction(async session => {
+    const row = await SellerPayout.findById(req.params.id).session(session);
+    if (!row || row.status !== 'PENDING') throw httpError(409, 'Pending payout is required');
+    const process = await approvedBeneficiaryProcess(mongoose.connection, approvalReference, session);
+    const actual = destinationFingerprint(row.bankDetails);
+    if (fingerprint !== actual) throw httpError(409, 'Destination changed; refresh the review');
+    if (row.beneficiaryVerification?.verifiedAt) {
+      const old = row.beneficiaryVerification;
+      if (old.processVersion === process.version && old.approvalReference === approvalReference) {
+        if (old.fingerprint === actual && old.evidenceReference === evidenceReference && old.reason === reason && String(old.reviewedBy) === String(req.user._id)) return row;
+        throw httpError(409, 'Beneficiary review already recorded; conflicting evidence requires investigation');
+      }
+      if (old.evidenceReference === evidenceReference) throw httpError(409, 'Renewed verification requires new ownership evidence');
+      row.beneficiaryVerificationHistory ||= [];
+      row.beneficiaryVerificationHistory.push(old.toObject?.() || old);
+    }
+    row.beneficiaryVerification = { processVersion: process.version, fingerprint: actual, reviewedBy: req.user._id, verifiedAt: new Date(), evidenceReference, approvalReference, reason };
+    await row.save({ session }); return row;
+  });
+  return ok(res, payoutPublic(payout), 'Beneficiary review recorded; independent transfer reconciliation still required');
 });

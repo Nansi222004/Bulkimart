@@ -1,0 +1,108 @@
+import mongoose from 'mongoose';
+import Seller from '../models/Seller.js';
+import Admin from '../models/Admin.js';
+import Request, { GST_ASSISTANCE_STATUSES } from '../models/GstAssistanceRequest.js';
+import { boundedText, gstRequestDTO, GSTIN_FORMAT } from '../services/gstAssistance.service.js';
+import { financialTransaction } from '../services/financeSafety.service.js';
+import { storeServiceFiles, readServiceFile, removeServiceFiles } from '../services/serviceStorage.service.js';
+import { notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { httpError, ok } from '../utils/response.js';
+const isAdmin = req => req.userType === 'admin';
+async function identity(req) {
+  if (isAdmin(req)) {
+    if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'A valid request ID is required');
+    return req.params.id;
+  }
+  const seller = await Seller.findOne({ userId: req.user._id }).select('_id');
+  if (!seller) throw httpError(404, 'Vendor application not found');
+  return seller._id;
+}
+async function owned(req, session = null) {
+  const row = await Request.findById(await identity(req)).session(session);
+  if (!row || (!isAdmin(req) && String(row.userId) !== String(req.user._id))) throw httpError(404, 'GST assistance request not found');
+  return row;
+}
+export async function list(req, res) {
+  if (req.query.status && !GST_ASSISTANCE_STATUSES.includes(req.query.status)) throw httpError(400, 'Invalid status filter');
+  const page = Math.max(1, Math.min(10000, Number.parseInt(req.query.page, 10) || 1));
+  const rows = await Request.find(req.query.status ? { status: req.query.status } : {}).sort({ submittedAt: -1, _id: -1 }).skip((page - 1) * 30).limit(30);
+  return ok(res, { requests: rows.map(r => gstRequestDTO(r, true)), page });
+}
+export async function detail(req, res) { return ok(res, gstRequestDTO(await owned(req), isAdmin(req))); }
+const transitions = { pending: ['under_review', 'rejected', 'cancelled'],
+  under_review: ['additional_information_required', 'approved', 'rejected', 'cancelled'],
+  additional_information_required: ['under_review', 'rejected', 'cancelled'],
+  approved: ['additional_information_required', 'completed', 'rejected', 'cancelled'] };
+export async function preflight(req, _res, next) { try { await owned(req); next(); } catch (e) { next(e); } }
+export async function act(req, res) {
+  const admin = isAdmin(req), body = req.body || {};
+  const version = Number(body.version);
+  if (!Number.isSafeInteger(version) || version < 0 || body.version === '') throw httpError(400, 'An integer request version is required');
+  const action = body.action;
+  const allowed = admin ? ['transition', 'note', 'assign'] : ['respond', 'cancel'];
+  if (!allowed.includes(action)) throw httpError(400, 'Unsupported GST assistance action');
+  const message = boundedText(body.message, 'Vendor-visible next steps', 2000, action === 'respond' || (action === 'transition'));
+  const note = admin ? boundedText(body.internalNote, 'Internal note') : '';
+  const files = req.files || [];
+  if (files.some(f => f.fieldname !== 'documents') || files.length > 3) throw httpError(400, 'Upload at most three documents');
+  if ((!admin && action !== 'respond') || (admin && action !== 'transition')) {
+    if (files.length) throw httpError(400, 'Documents are not accepted for this action');
+  }
+  let stored = [], committed = false, saved;
+  try {
+    // Authorization and existence were checked before buffering multipart data.
+    if (files.length) stored = await storeServiceFiles(files, admin ? 'verification_evidence' : 'vendor_response');
+    saved = await financialTransaction(async session => {
+      const row = await owned(req, session);
+      if (row.__v !== version) throw httpError(409, 'Request changed. Refresh before continuing.');
+      if (row.files.length + stored.length > 30 || row.events.length >= 500) throw httpError(409, 'Request review limit reached; contact support');
+      const from = row.status;
+      if (!admin) {
+        if (action === 'cancel' && row.status !== 'pending') throw httpError(409, 'Only a pending request can be cancelled by the vendor');
+        if (action === 'respond' && row.status !== 'additional_information_required') throw httpError(409, 'Additional information has not been requested');
+        row.status = action === 'cancel' ? 'cancelled' : 'under_review';
+        if (action === 'respond') row.requestedCorrections = '';
+      } else if (action === 'assign') {
+        if (body.reviewerId === 'self') body.reviewerId = String(req.user._id);
+        if (!mongoose.isValidObjectId(body.reviewerId)) throw httpError(400, 'Select an authorized reviewer');
+        const reviewer = await Admin.findOne({ _id: body.reviewerId, isActive: true }).session(session);
+        if (!reviewer || (reviewer.role !== 'superAdmin' && !reviewer.permissions?.includes('manage_sellers'))) throw httpError(400, 'Reviewer needs vendor management permission');
+        row.reviewerId = reviewer._id;
+      } else if (action === 'note') {
+        if (!note) throw httpError(400, 'An internal note is required');
+      } else {
+        if (!transitions[row.status]?.includes(body.status)) throw httpError(409, 'This assistance status transition is not allowed');
+        row.status = body.status;
+        if (body.status === 'additional_information_required') row.requestedCorrections = message;
+        if (body.status === 'completed') {
+          const gstin = boundedText(body.verifiedGstin, 'Independently verified GSTIN', 15, true);
+          const evidence = [...row.files, ...stored].find(f => f.fileId === body.evidenceFileId || (stored.length === 1 && !body.evidenceFileId && f.fileId === stored[0].fileId));
+          if (!GSTIN_FORMAT.test(gstin) || body.independentlyVerified !== 'true' || evidence?.kind !== 'verification_evidence') throw httpError(400, 'Completion requires GSTIN format, private verification evidence and explicit independent-verification attestation');
+          row.verification = { gstin, source: 'GST portal taxpayer search', reference: boundedText(body.verificationReference, 'Verification evidence reference', 500, true),
+            evidenceFileId: evidence.fileId, verifiedBy: req.user._id, verifiedAt: new Date(), method: 'admin_attested_independent_review' };
+        }
+      }
+      row.files.push(...stored);
+      row.events.push({ action, from, to: row.status, actorType: admin ? 'admin' : 'vendor', actorId: req.user._id,
+        at: new Date(), vendorMessage: message, ...(admin ? { internalNote: note, reviewerId: row.reviewerId } : {}),
+        fileIds: stored.map(f => f.fileId) });
+      row.markModified('files'); row.markModified('events'); await row.save({ session }); return row;
+    });
+    committed = true;
+  } finally { if (!committed && stored.length) await removeServiceFiles(stored); }
+  const notification = { event: NOTIFICATION_EVENT.SYSTEM, title: 'GST assistance update',
+    message: 'Your GST assistance request has an update. Open your vendor application for details.',
+    route: '/seller', dedupeKey: `gst-assistance:${saved._id}:${saved.__v}` };
+  try { if (admin && action !== 'note' && action !== 'assign') await notifySeller(saved.vendorId, notification);
+    else if (!admin) await notifyAllAdmins({ ...notification, message: 'A GST assistance request needs review.', route: '/admin' });
+  } catch { /* committed state is authoritative; notifications are best effort */ }
+  return ok(res, gstRequestDTO(saved, admin));
+}
+export async function download(req, res) {
+  const row = await owned(req), file = row.files.find(f => f.fileId === req.params.fileId);
+  if (!file || (!isAdmin(req) && file.kind === 'verification_evidence')) throw httpError(404, 'Document not found');
+  const bytes = await readServiceFile(file);
+  res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "sandbox; default-src 'none'",
+    'Content-Type': { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg' }[file.format],
+    'Content-Disposition': `attachment; filename="${file.name}"` }); res.send(bytes);
+}

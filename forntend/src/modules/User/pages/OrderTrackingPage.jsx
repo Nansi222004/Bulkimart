@@ -1,3 +1,4 @@
+import { orderDiscountRows } from '../../../utils/orderDiscounts';
 import ModalPortal from '../../../components/ModalPortal';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
@@ -993,12 +994,11 @@ export const OrderTrackingPage = () => {
             <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.deliveryCharge || 0}</span>
           </div>
-          {selectedOrder.pricing?.discount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
-              <span>Total Discount</span>
-              <span>-₹{selectedOrder.pricing.discount}</span>
+          {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => (
+            <div key={title} style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
+              <span>{title}</span><span>-₹{amount.toFixed(2)}</span>
             </div>
-          )}
+          ))}
           {selectedOrder.pricing?.donationAmount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
               <span>{selectedOrder.pricing.donationTitle || 'Social Work Contribution'}</span>

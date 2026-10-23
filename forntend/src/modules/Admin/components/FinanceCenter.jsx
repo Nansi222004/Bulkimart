@@ -1,3 +1,4 @@
+import HistoricalFinancePanel from './HistoricalFinancePanel';
 import React, { useEffect, useState } from 'react';
 import FinanceWorkflowTab from './FinanceWorkflowTab';
 import DeliveryRatesTab, { CustomerDeliveryChargeCard } from './DeliveryRatesTab';
@@ -7,7 +8,7 @@ import './FinanceCenter.css';
 
 export const financeAreas = {
   settings: { label: 'Financial Settings', description: 'Configure approved rules. Each form identifies whose money it affects.', views: [['commissions','Vendor Commission'],['rates','Delivery Partner Rates'],['charges','Customer Delivery Charges'],['shiprocket','Shiprocket Service Fees'],['policies','Tax and Settlement Policies']] },
-  vendors: { label: 'Vendor Finance', description: 'Inspect frozen order breakdowns, seller balances and reviewed settlements.', views: [['orders','Commission history & orders'],['earnings','Seller earnings'],['seller-payouts','Seller payout requests'],['courier-payments','Shiprocket fee payments']] },
+  vendors: { label: 'Vendor Finance', description: 'Inspect frozen order breakdowns, seller balances and reviewed settlements.', views: [['orders','Commission history & orders'],['historical','Historical order exceptions'],['earnings','Seller earnings'],['seller-payouts','Seller payout requests'],['courier-payments','Shiprocket fee payments']] },
   delivery: { label: 'Delivery Finance', description: 'Review held, payable and reserved rider earnings separately from COD cash.', views: [['rider-earnings','Delivery partner earnings'],['payouts','Rider payouts'],['rider-rules','Rider earning rules']] },
   cod: { label: 'COD and Reconciliation', description: 'Expected amount → rider collects cash → handover reported → independent receipt verification → allocation → eligible seller and rider settlement.', views: [['cod','COD collection & remittance'],['ledger','Ledger & reconciliation exceptions']] },
 };
@@ -31,7 +32,8 @@ export default function FinanceCenter({ legacyTab }) {
   useEffect(()=>{const update=()=>setLocation(readFinanceLocation(legacyTab));update();window.addEventListener('popstate',update);return()=>window.removeEventListener('popstate',update);},[legacyTab]);
   const navigate=(nextArea,nextView)=>{window.history.pushState(null,'','/admin/finance-center?'+new URLSearchParams({area:nextArea,view:nextView}));setLocation([nextArea,nextView]);window.dispatchEvent(new Event('popstate'));};
   let content;
-  if(view==='rates' || view==='rider-rules')content=<DeliveryRatesTab includeCustomer={false}/>;
+  if(view==='historical')content=<HistoricalFinancePanel/>;
+  else if(view==='rates' || view==='rider-rules')content=<DeliveryRatesTab includeCustomer={false}/>;
   else if(view==='charges')content=<CustomerDeliveryChargeCard/>;
   else if(view==='shiprocket' || view==='courier-payments')content=<QuickThirdPartySettingsTab view={view==='shiprocket'?'settings':'records'}/>;
   else if(view==='earnings' || view==='seller-payouts')content=<SellerLedgerAdminTab view={view==='earnings'?'earnings':'payouts'}/>;

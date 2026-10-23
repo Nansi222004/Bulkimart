@@ -1,3 +1,5 @@
+import { verifyReturnCashEvidence, verifyRefundedFunding } from './refundFunding.service.js';
+import { cumulativePaise } from '../utils/financeMoney.js';
 import mongoose from 'mongoose';
 import crypto from 'node:crypto';
 import Order from '../models/Order.js';
@@ -23,11 +25,19 @@ const snapshotOf = order => {
   if (snapshot?.version !== 2) throw httpError(409, 'Order has no versioned financial snapshot; historical backfill is not permitted');
   return snapshot;
 };
-const lockOrder = async (id, session) => {
+const lockOrder = async (id, session, review) => {
   if (!mongoose.isValidObjectId(id)) throw httpError(400, 'Invalid order reference');
   const order = await Order.findOneAndUpdate({ _id: id }, { $inc: { financialRevision: 1 } }, { session, returnDocument: 'after' });
   if (!order) throw httpError(404, 'Order not found');
   snapshotOf(order);
+  if (review) {
+    const proof = evidence(review);
+    const priorRevision = (order.financialRevision || 1) - 1;
+    if (!Number.isSafeInteger(review.expectedRevision) || review.expectedRevision !== priorRevision) throw httpError(409, 'Financial record changed; refresh the preview');
+    const prior = order.financialOperationLog?.find(row => row.reference === proof.reference);
+    if (prior && (prior.reason !== proof.reason || prior.action !== review.action || String(prior.actorId) !== String(review.actorId))) throw httpError(409, 'Operation reference reused with conflicting review');
+    if (!prior) await Order.updateOne({ _id: order._id }, { $push: { financialOperationLog: { ...proof, actorId: review.actorId, action: review.action, at: new Date(), revision: priorRevision } } }, { session });
+  }
   return order;
 };
 const cashLedger = async (order, direction, suffix, actor, session, amountPaise = order.financialSnapshot.expectedPaise, account = 'cod_custody', reference) => postLedgerEntry({
@@ -45,7 +55,7 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
   const proof = evidence(input);
   const amountPaise = moneyPaise(input.amount);
   return financialTransaction(async session => {
-    const order = await lockOrder(orderId, session);
+    const order = await lockOrder(orderId, session, ['verify','dispute'].includes(action) && input.expectedRevision != null ? { ...input, actorId, action: `cod:${action}` } : undefined);
     if (order.paymentMethod !== 'cod') throw httpError(409, 'Order is not COD');
     if (!['verify', 'dispute'].includes(action) && String(order.deliveryPartnerId) !== String(partnerId)) throw httpError(404, 'COD assignment not found');
     const delivery = await Delivery.findOne({ _id: order.deliveryId, orderId: order._id, partnerId: order.deliveryPartnerId }).session(session);
@@ -95,7 +105,7 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
         // amount appends evidence without posting a second cash receipt.
         // Shared checkout Payment becomes paid only after every sibling's cash
         // is verified. Write Payment first to serialize concurrent siblings.
-        const payment = await Payment.findById(order.paymentId).session(session);
+        const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
         if (!payment || payment.method !== 'cod') throw httpError(409, 'COD payment association is missing');
         payment.settlementRevision = (payment.settlementRevision || 0) + 1;
         await payment.save({ session });
@@ -113,16 +123,30 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
   });
 };
 
-const ensurePayment = async (order, session) => {
+const ensurePayment = async (order, session, allowCompensatedRefunds = false) => {
   if (snapshotOf(order).paymentMethod !== order.paymentMethod) throw httpError(409, 'Payment method differs from frozen financial snapshot');
   if (snapshotOf(order).paymentId !== String(order.paymentId)) throw httpError(409, 'Payment association differs from frozen financial snapshot');
   if (order.paymentMethod === 'cod') {
     if (!['verified', 'allocated'].includes(order.codFinance?.status) || order.codFinance?.verifiedPaise !== snapshotOf(order).expectedPaise) throw httpError(409, 'COD cash is not verified');
     return;
   }
-  const payment = await Payment.findById(order.paymentId).session(session);
-  if (!payment || payment.status !== 'paid') throw httpError(409, 'Verified customer payment is required');
+  const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
+  if (!payment) throw httpError(409, 'Verified customer payment is required');
+  const cashReturns = allowCompensatedRefunds && await Return.exists({ orderId: { $in: (await Order.find({ paymentId: payment._id }).select('_id').session(session)).map(row => row._id) }, status: { $nin: ['REJECTED', 'CANCELLED'] }, refundAmount: { $gt: 0 } }).session(session);
+  const captureRefunds = allowCompensatedRefunds && payment.refundObligations.some(row => payment.captures.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId === row.gatewayPaymentId));
+  if (payment.status !== 'paid' || cashReturns || captureRefunds) {
+    if (!allowCompensatedRefunds) throw httpError(409, 'Verified customer payment is required');
+    await verifyRefundedFunding(payment, order, session);
+  }
   if (payment.method !== order.paymentMethod || String(payment.userId) !== String(order.userId) || !(payment.groupRef && payment.groupRef === order.groupRef || String(payment.orderId) === String(order._id))) throw httpError(409, 'Customer payment ownership mismatch');
+  const siblings = await Order.find({ paymentId: payment._id }).select('_id userId paymentMethod groupRef financialSnapshot').session(session);
+  const originalTotal = siblings.reduce((sum, row) => {
+    const frozen = snapshotOf(row);
+    if (String(row.userId) !== String(payment.userId) || row.paymentMethod !== payment.method || frozen.paymentId !== String(payment._id)
+      || !Number.isSafeInteger(frozen.expectedPaise) || frozen.expectedPaise < 0 || (payment.groupRef ? row.groupRef !== payment.groupRef : String(row._id) !== String(payment.orderId))) throw httpError(409, 'Payment sibling allocation requires reconciliation');
+    return sum + frozen.expectedPaise;
+  }, 0);
+  if (!Number.isSafeInteger(originalTotal) || originalTotal !== moneyPaise(payment.amount)) throw httpError(409, 'Frozen order totals do not reconcile with original payment funding');
   if (order.paymentMethod === 'online' && !payment.captures?.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId && capture.currency === 'INR' && capture.amountPaise === moneyPaise(payment.amount))) throw httpError(409, 'Authoritative captured payment evidence is required');
   if (order.paymentMethod === 'wallet') {
     const { default: WalletLedger } = await import('../models/WalletLedger.js');
@@ -130,13 +154,14 @@ const ensurePayment = async (order, session) => {
   }
 };
 
-export const postOrderFinance = async (orderId, actorId) => {
+export const postOrderFinance = async (orderId, actorId, review) => {
   requireFinanceOperation();
   return financialTransaction(async session => {
-    const order = await lockOrder(orderId, session);
+    const order = await lockOrder(orderId, session, review && { ...review, actorId, action: 'postOrderFinance' });
     if (order.financialPosting) return { status: order.financialPosting, alreadyProcessed: true };
     if (order.status !== 'delivered') throw httpError(409, 'Only completed deliveries can accrue merchandise earnings');
     const snapshot = snapshotOf(order);
+    if (snapshot.state === 'held_discount_policy') throw httpError(409, 'Discount funding policy is not approved; no seller deduction may be assumed');
     if (snapshot.state !== 'configured') throw httpError(409, 'Commission policy was missing at checkout; historical recalculation is prohibited');
     await ensurePayment(order, session);
     const legacy = await SellerLedgerEntry.exists({ orderId: order._id, type: { $in: ['order_earning', 'platform_commission'] } }).session(session);
@@ -161,14 +186,14 @@ export const postOrderFinance = async (orderId, actorId) => {
   });
 };
 
-export const releaseOrderFinance = async (orderId, actorId) => {
+export const releaseOrderFinance = async (orderId, actorId, review) => {
   requireFinanceOperation();
   return financialTransaction(async session => {
-    const order = await lockOrder(orderId, session);
+    const order = await lockOrder(orderId, session, review && { ...review, actorId, action: 'releaseOrderFinance' });
     if (order.financialPosting === 'eligible') return { status: 'eligible', alreadyProcessed: true };
     if (order.financialPosting === 'reversed') return { status: 'reversed', alreadyProcessed: true };
     if (order.financialPosting !== 'held' || order.status !== 'delivered') throw httpError(409, 'Held delivered earnings are required');
-    await ensurePayment(order, session);
+    await ensurePayment(order, session, true);
     if (order.items.some(item => !item.deliveredAt || (item.returnEligibleUntil && new Date(item.returnEligibleUntil) > new Date()))) throw httpError(409, 'Delivery evidence or return hold has not cleared');
     const returns = await Return.find({ orderId: order._id, status: { $nin: ['REJECTED', 'CANCELLED'] } }).session(session);
     if (returns.some(ret => ret.status !== 'REFUNDED' || !order.financialReturnQuantities?.[`return_${ret._id}`])) throw httpError(409, 'Returns require financial reconciliation before release');
@@ -208,10 +233,10 @@ export const recordDeliveryEarning = async ({ order, delivery, settlement, sessi
   return { credited: true, status: 'held' };
 };
 
-export const releaseDeliveryEarning = async (orderId, actorId) => {
+export const releaseDeliveryEarning = async (orderId, actorId, review) => {
   requireFinanceOperation();
   return financialTransaction(async session => {
-    const order = await lockOrder(orderId, session);
+    const order = await lockOrder(orderId, session, review && { ...review, actorId, action: 'releaseDeliveryEarning' });
     if (order.status !== 'delivered') throw httpError(409, 'Delivered order required');
     await ensurePayment(order, session);
     const earning = await SellerLedgerEntry.findOne({ orderId: order._id, account: 'rider_payable', type: 'delivery_earning', bucket: 'held', direction: 'credit' }).session(session);
@@ -228,22 +253,28 @@ export const releaseDeliveryEarning = async (orderId, actorId) => {
   });
 };
 
-export const reverseRefundedReturn = async (returnId, actorId) => {
+export const reverseRefundedReturn = async (returnId, actorId, review) => {
   requireFinanceOperation();
   return financialTransaction(async session => {
     const ret = await Return.findById(returnId).session(session);
-    if (!ret || ret.status !== 'REFUNDED' || !ret.refundReference) throw httpError(409, 'Authoritatively completed refund is required');
-    const order = await lockOrder(ret.orderId, session);
+    if (!ret || ret.status !== 'REFUNDED') throw httpError(409, 'Authoritatively completed refund is required');
+    const zero = ret.refundAmount === 0 && ret.refundStatus === 'completed' && ret.refundBreakdown?.refundAmount === 0 && ret.zeroRefundEvidence?.key === `ZERO_RETURN:${ret._id}` && ret.zeroRefundEvidence.actorId && ret.zeroRefundEvidence.reason?.length >= 5 && ret.zeroRefundEvidence.completedAt && !ret.refundReference;
+    if (!ret.refundReference && !zero) throw httpError(409, 'Authoritatively completed refund is required');
+    const order = await lockOrder(ret.orderId, session, review && { ...review, actorId, action: 'reverseRefundedReturn' });
     const snapshot = snapshotOf(order);
+    const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
+    if (!payment || snapshot.paymentId !== String(payment._id) || payment.method !== snapshot.paymentMethod || String(payment.userId) !== String(order.userId) || !(payment.groupRef && payment.groupRef === order.groupRef || String(payment.orderId) === String(order._id))) throw httpError(409, 'Original refund payment association differs from frozen order');
+    if (!zero) await verifyReturnCashEvidence(payment, ret, session);
     const line = snapshot.lines.find(line => line.itemId === String(ret.orderItemId));
     if (!line || !line.rule || !order.financialPosting) throw httpError(409, 'Original order allocation is missing');
     const key = `RETURN_FINANCE:${ret._id}`;
     if (order.financialReturnQuantities?.[`return_${ret._id}`]) return { alreadyProcessed: true };
     if (await SellerLedgerEntry.exists({ 'metadata.returnId': String(ret._id), 'metadata.source': 'order-finance-v2', type: 'reversal' }).session(session)) return { alreadyProcessed: true };
     const before = order.financialReturnQuantities?.[line.itemId] || 0;
+    if (ret.refundAllocationStartQuantity != null && ret.refundAllocationStartQuantity !== before) throw httpError(409, 'Earlier refund allocations must be compensated first');
     const after = before + ret.quantity;
     if (!Number.isSafeInteger(ret.quantity) || ret.quantity <= 0 || after > line.qty) throw httpError(409, 'Refund quantity exceeds original allocation');
-    const proportional = amount => Math.round(amount * after / line.qty) - Math.round(amount * before / line.qty);
+    const proportional = amount => cumulativePaise(amount, after, line.qty) - cumulativePaise(amount, before, line.qty);
     const refundBase = proportional(line.eligiblePaise);
     if (moneyPaise(ret.refundAmount) !== refundBase) throw httpError(409, 'Refund differs from frozen merchandise allocation; manual reconciliation required');
     // Hold the seller fence also used by reservation/settlement, so a refund
@@ -263,7 +294,7 @@ export const reverseRefundedReturn = async (returnId, actorId) => {
     ]) {
       if (amount > 0) await postLedgerEntry({ idempotencyKey: `${key}:${suffix}`, sellerId: line.sellerId, orderId: order._id,
         account, type: 'reversal', status: 'reversal', direction: 'debit', bucket, amount: amount / 100,
-        description: `Refund compensation ${ret.returnNumber}`, reference: ret.refundReference, postedBy: actorId, postedByRole: 'admin',
+        description: `Refund compensation ${ret.returnNumber}`, reference: ret.refundReference || ret.zeroRefundEvidence.key, postedBy: actorId, postedByRole: 'admin',
         metadata: { source: 'order-finance-v2', returnId: String(ret._id), itemId: line.itemId, ruleVersion: line.rule.version, snapshotId: snapshot.snapshotId, quantity: ret.quantity },
       }, { session });
     }

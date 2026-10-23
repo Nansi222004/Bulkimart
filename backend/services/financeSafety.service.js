@@ -21,7 +21,7 @@ export const financialTransaction = async (work) => {
     await session.withTransaction(async () => { result = await work(session); });
     return result;
   } catch (error) {
-    if (error.code === 20 || /Transaction numbers are only allowed|replica set/i.test(error.message)) {
+    if (error.code === 20 || /Transaction numbers are only allowed|replica set|deployment does not support retryable writes/i.test(error.message)) {
       throw httpError(503, 'Financial operations require a MongoDB replica set or supported sharded transaction topology');
     }
     throw error;

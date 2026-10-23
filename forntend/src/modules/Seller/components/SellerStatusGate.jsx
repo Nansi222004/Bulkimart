@@ -1,4 +1,5 @@
 import React from 'react';
+import GstAssistance from '../../../components/gst/GstAssistance';
 
 /**
  * Blocks the seller panel until an admin has approved the account.
@@ -70,6 +71,7 @@ export const SellerStatusGate = ({ status, storeName, rejectionReason, onRetry, 
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>{storeName}</div>
         )}
 
+        <GstAssistance />
         <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 10px', color: s.tone }}>
           {s.title}
         </h2>

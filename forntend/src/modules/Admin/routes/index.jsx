@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import GstAssistance from '../../../components/gst/GstAssistance';
+import ParcelOperations from '../../../components/parcels/ParcelOperations';
 import AdminSessionGate from '../../../components/AdminSessionGate';
 import { clearPortalRequests } from '../../../utils/portalRequests';
 import AdminProductDetailsPage from '../pages/AdminProductDetailsPage';
@@ -35,6 +37,7 @@ import RiderPayoutsTab from '../components/RiderPayoutsTab';
 import TipSettingsTab from '../components/TipSettingsTab';
 import BannersTab from '../components/BannersTab';
 import CampaignsTab from '../components/CampaignsTab';
+import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import ReturnsTab from '../components/ReturnsTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
@@ -60,6 +63,8 @@ const AdminRoutesContent = ({ onLogout }) => {
       return <CategoriesTab subTab={activeTab.startsWith('categories-') ? activeTab : 'categories-all'} />;
     }
     switch (activeTab) {
+      case 'parcel-delivery': return <ParcelOperations admin />;
+      case 'advertising': return <AdvertisingWorkspace admin />;
       case 'services': return <AdminServicesWorkspace />;
       case 'users':             
       case 'users-all':         return <UsersTab defaultStatusFilter="All" />;
@@ -72,6 +77,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'user-orders':       return <ConsumerOrdersTab />;
       case 'vendor-ratings-reviews': return <UserReviewsTab />;
       case 'vendor-dashboard': return <VendorDashboardTab />;
+      case 'gst-assistance': return <GstAssistance admin />;
       case 'delivery-dashboard':return <DeliveryDashboardTab />;
       case 'delivery-partners':
       case 'delivery-all':       return <DeliveryTab defaultStatusFilter="All" />;

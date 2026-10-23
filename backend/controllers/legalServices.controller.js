@@ -41,16 +41,16 @@ const page = req => {
   if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) fail('Invalid pagination');
   return { page, limit };
 };
-export const capabilities = (_req, res) => send(res, { catalogue: legalFlags().catalogue, submissions: legalFlags().submissions });
+export const capabilities = async (_req, res) => send(res, { catalogue: Boolean(await Service.exists(visibility)), submissions: legalFlags().submissions });
 export async function catalogue(req, res) {
-  requireLegalFlag('catalogue'); const { page: p, limit } = page(req), match = { ...visibility };
+  const { page: p, limit } = page(req), match = { ...visibility };
   if (req.query.q) { const q = text(req.query.q, 'Search', 100).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); match.$or = [{ name: { $regex: q, $options: 'i' } }, { description: { $regex: q, $options: 'i' } }]; }
   if (req.query.category) match.legalCategory = text(req.query.category, 'Category', 100);
   const [items, total] = await Promise.all([Service.find(match).sort({ createdAt: -1, _id: -1 }).skip((p - 1) * limit).limit(limit), Service.countDocuments(match)]);
   send(res, items.map(publicService), { total, page: p, limit });
 }
 export async function detail(req, res) {
-  requireLegalFlag('catalogue'); const s = await Service.findOne({ _id: oid(req.params.id), ...visibility });
+  const s = await Service.findOne({ _id: oid(req.params.id), ...visibility });
   if (!s) fail('Service not available', 404); send(res, publicService(s));
 }
 export async function submit(req, res) {

@@ -1,11 +1,12 @@
 import React from 'react';
 import { useSeller } from '../context/SellerContext';
+import { sellerMoney as money } from '../utils/sellerFinanceRead';
 
-const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const label = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 const settlementStatus = (order) => {
   if (order.financialPosting) return `Ledger: ${label(order.financialPosting)}`;
   if (order.snapshotVersion !== 2) return 'Needs reconciliation: no financial snapshot';
+  if (order.snapshotState === 'held_discount_policy') return 'On hold: discount funding policy needs finance review';
   if (order.snapshotState !== 'configured') return 'On hold: commission policy missing at checkout';
   return 'Awaiting payment verification and admin allocation';
 };
@@ -20,12 +21,17 @@ export const EarningsTab = () => {
     ['Reserved for payout', balances.reserved, '#7c3aed'], ['Paid / settled', balances.settled, '#334155'],
     ['Quick freight obligations', balances.quickFreightObligations, '#dc2626'], ['Bulkimart service fees', balances.bulkimartServiceFees, '#ea580c'],
   ];
-  if (financeLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading authoritative seller ledger…</div>;
+  if (financeLoading) return <div role="status" style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading authoritative seller ledger…</div>;
+  if (financeError || !financeSummary) return <section style={{ padding: 20 }}>
+    <h1>Earnings & settlements</h1><div role={financeError ? 'alert' : 'status'}>{financeError || 'Seller finances have not loaded yet.'}</div>
+    <p>Balances, ledger history and payout requests are unavailable. This does not mean your balances are zero.</p>
+    <button onClick={fetchSellerFinances}>Refresh</button>
+  </section>;
 
   return <div style={{ padding: '0 4px 40px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
       <div><h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>Earnings & settlements</h1>
-        <p style={{ color: '#64748b', fontSize: 13 }}>Balances below come only from the append-only seller ledger.</p></div>
+        <p style={{ color: '#64748b', fontSize: 13 }}>Balances below come only from the append-only seller ledger. Earned earnings and fee cards show cumulative posted activity; they are not the amount available to withdraw.</p></div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={fetchSellerFinances} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 9, background: '#fff' }}>Refresh</button>
         <button disabled={!financeSummary?.payoutActionsEnabled} onClick={() => setActiveTab('moneyrequest')}
@@ -35,7 +41,7 @@ export const EarningsTab = () => {
     </div>
     {financeError && <div style={{ padding: 14, background: '#fef2f2', color: '#991b1b', borderRadius: 10, marginBottom: 14 }}>{financeError}</div>}
     {financeSummary?.coverage && <div style={{ padding: 14, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 10, marginBottom: 16, fontSize: 12 }}>
-      Delivery records a sale. Earnings appear after payment verification and admin allocation; withdrawals require release after any return holds. Orders without a financial snapshot need separate reconciliation.
+      Delivery records a sale. Earnings appear after payment verification and admin allocation; withdrawals require release after any return holds. Orders without a financial snapshot need separate reconciliation. Zero posted funds do not establish zero historical entitlement. Contact finance support with the order reference; payment, COD custody and the original commission agreement must be reviewed.
     </div>}
     {sales && <section style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, marginBottom: 20 }}>
       <h2 style={{ margin: '0 0 8px', fontSize: 17 }}>Delivered order sales</h2>
@@ -54,7 +60,7 @@ export const EarningsTab = () => {
       </div>)}
     </div>
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
-      <div style={{ padding: 16, fontWeight: 800 }}>Order-level ledger history</div><div style={{ overflowX: 'auto' }}>
+      <div style={{ padding: 16, fontWeight: 800 }}>Order-level ledger history <small style={{ fontWeight: 400 }}>(latest 50 entries)</small></div><div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left' }}>
         {['Date', 'Reference', 'Description', 'Account', 'Bucket', 'Credit', 'Debit', 'Status'].map((h) => <th key={h} style={{ padding: 12 }}>{h}</th>)}
       </tr></thead><tbody>{ledgerEntries.length ? ledgerEntries.map((entry) => <tr key={entry._id} style={{ borderTop: '1px solid #f1f5f9' }}>

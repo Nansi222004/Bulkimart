@@ -112,7 +112,7 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
         userId: req.user._id,
         type: 'ecommerce',
         items: lines,
-        pricing: { subtotal, discount: couponDiscount, couponDiscount, couponCode: applied?.coupon?.code, deliveryCharge: 0, totalAmount },
+        pricing: { discountRepresentation: 'components-v1', subtotal, discount: 0, couponDiscount, couponCode: applied?.coupon?.code, deliveryCharge: 0, totalAmount },
         coupon: applied?.coupon?._id,
         paymentMethod: 'online',
         paymentId: payment._id,

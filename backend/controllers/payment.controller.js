@@ -50,6 +50,7 @@ const publishSellerPaymentResult = async payment => {
 
 /** Move an order to paid/failed exactly once, whichever signal arrives first. */
 export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode, gatewayPaymentId, amountPaise, currency }) => {
+  if(payment.advertising)throw httpError(409,'Advertising requires its dedicated settlement handler');
   if (payment.quickFeeSnapshotId) return settleQuickShiprocketCollection({ payment, state, gatewayOrderId, gatewayPaymentId, amountPaise, currency });
   // Exact Razorpay capture replay is a no-op; distinct successes still need
   // financial reconciliation after settlement/failure. Other provider signals
@@ -375,6 +376,21 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   }
 
   const evt = parseRazorpayWebhookEvent(req.body);
+  // Dispatch by stored purpose before importing the advertising domain. Other
+  // payment purposes retain their own handlers and dependencies.
+  const entity=req.body.payload?.payment?.entity||req.body.payload?.order?.entity;
+  const advertisingReference=entity?.notes?.advertisingPaymentId;
+  const adPayment=await Payment.findOne({'advertising.campaignId':{$exists:true},$or:[
+    {'gateway.orderId':evt.gatewayOrderId||'__missing__'},
+    {'captures.gatewayPaymentId':evt.refundPaymentId||'__missing__'},
+    ...(/^[a-f\d]{24}$/i.test(advertisingReference||'')?[{_id:advertisingReference}]:[]),
+  ]});
+  if(adPayment?.advertising||entity?.notes?.purpose==='ADVERTISING_V2'){
+    const { handleAdvertisingWebhook } = await import('../services/advertisingBilling.service.js');
+    if(await handleAdvertisingWebhook(req.body,evt,req.get('x-razorpay-event-id')))return res.status(200).json({success:true});
+  }
+  const { handleParcelWebhook } = await import('../services/parcelPayment.service.js');
+  if (await handleParcelWebhook(req.body, evt)) return res.status(200).json({ success: true });
   const { handleLegalWebhook } = await import('../services/legalPayment.service.js');
   if (await handleLegalWebhook(req.body, evt)) return res.status(200).json({ success: true });
   if (['refund_completed', 'refund_failed'].includes(evt.kind)) {
@@ -397,6 +413,10 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   ] });
   if (!payment) payment = await recoverCreationFromWebhook(evt);
   if (!payment) return res.status(200).json({ success: true, message: 'Unknown order' });
+  if (payment.parcelDeliveryId) {
+    await handleParcelWebhook(req.body, evt);
+    return res.status(200).json({ success: true });
+  }
   if (payment.serviceApplicationId) {
     await handleLegalWebhook(req.body, evt);
     return res.status(200).json({ success: true });

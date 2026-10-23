@@ -1,15 +1,12 @@
+import { discountAllocation } from './orderDiscounts.service.js';
+import { moneyPaise, allocatePaise } from '../utils/financeMoney.js';
+export { moneyPaise, allocatePaise } from '../utils/financeMoney.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Commission from '../models/Commission.js';
 import Product from '../models/Product.js';
 import { httpError } from '../utils/response.js';
 
-export const moneyPaise = (value, label = 'Amount') => {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || !Number.isSafeInteger(Math.round(value * 100)) || Math.abs(value * 100 - Math.round(value * 100)) > 0.00001) {
-    throw httpError(400, `${label} must be a nonnegative amount with at most two decimal places`);
-  }
-  return Math.round(value * 100);
-};
 const id = (value, name) => {
   if (value == null || value === '') return null;
   if (typeof value !== 'string' || !/^[a-f\d]{24}$/i.test(value)) throw httpError(400, `Invalid ${name}`);
@@ -84,17 +81,6 @@ export const calculateCommission = (eligiblePaise, rule) => {
 
 // Same proportional gross-value basis as calculateReturnRefund; distribute
 // rounding residuals deterministically so the snapshot conserves every paisa.
-export const allocatePaise = (total, weights) => {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (!Number.isSafeInteger(sum) || weights.some(value => !Number.isSafeInteger(value) || value < 0)) throw httpError(409, 'Invalid allocation weights');
-  if (!Number.isSafeInteger(total) || total < 0 || total > sum) throw httpError(409, 'Discount allocation exceeds merchandise');
-  if (!sum) return weights.map(() => 0);
-  const rows = weights.map((weight, index) => ({ index, amount: Number((BigInt(total) * BigInt(weight)) / BigInt(sum)), remainder: (BigInt(total) * BigInt(weight)) % BigInt(sum) }));
-  let rest = total - rows.reduce((n, row) => n + row.amount, 0);
-  [...rows].sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1).forEach(row => { if (rest > 0) { row.amount++; rest--; } });
-  return rows.map(row => row.amount);
-};
-
 export const buildOrderFinancialSnapshot = async (order, session) => {
   const at = new Date();
   const channel = order.salesChannel === 'wholesale' ? 'wholesale' : order.type === 'ecommerce' ? 'ecommerce' : 'quick';
@@ -112,14 +98,7 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
   });
   const p = order.pricing;
   if (gross.reduce((a, b) => a + b, 0) !== moneyPaise(p.subtotal)) throw httpError(409, 'Merchandise subtotal does not reconcile');
-  const discountKeys = ['discount', 'couponDiscount', 'cdsDiscount', 'coinDiscount'];
-  const componentTotals = discountKeys.map(key => moneyPaise(p[key] || 0));
-  let remaining = allocatePaise(componentTotals.reduce((a,b) => a+b,0), gross);
-  const discounts = Object.fromEntries(discountKeys.map((key, index) => {
-    const allocation = allocatePaise(componentTotals[index], remaining);
-    remaining = remaining.map((budget, row) => budget - allocation[row]);
-    return [key, allocation];
-  }));
+  const { keys: discountKeys, discounts, fundingUnresolved, representation } = discountAllocation(p, gross);
   const lines = order.items.map((item, index) => {
     const product = products.find(product => String(product._id) === String(item.productId));
     const categoryId = !product?.type || product.type === order.type ? product?.category
@@ -143,13 +122,14 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
       qty: item.qty, grossPaise: gross[index], allocatedDiscounts, eligiblePaise,
       rule: rule ? { id: String(rule._id), version: rule.version, method: rule.method, value: rule.value, minimum: rule.minimum, maximum: rule.maximum,
         base: rule.base, fixedScope: rule.fixedScope, taxTreatment: rule.taxTreatment, taxRate: rule.taxRate, effectiveDate: rule.effectiveDate } : null,
-      ...(rule ? calculateCommission(eligiblePaise, rule) : { blocker: 'No approved enabled commission rule' }) };
+      ...(rule && !fundingUnresolved ? calculateCommission(eligiblePaise, rule) : { blocker: fundingUnresolved ? 'Discount funding policy is not approved' : 'No approved enabled commission rule' }) };
   });
   const expectedPaise = moneyPaise(p.totalAmount);
   const components = { merchandisePaise: lines.reduce((n, line) => n + line.eligiblePaise, 0), deliveryPaise: moneyPaise(p.deliveryCharge || 0), tipPaise: moneyPaise(p.tipAmount || 0), donationPaise: moneyPaise(p.donationAmount || 0) };
   if (Object.values(components).reduce((a, b) => a + b, 0) !== expectedPaise) throw httpError(409, 'Order financial components do not reconcile');
   return { version: 2, snapshotId: new mongoose.Types.ObjectId().toString(), currency: 'INR', frozenAt: at,
     channel, paymentMethod: order.paymentMethod, paymentId: String(order.paymentId), expectedPaise, components, lines,
-    state: lines.every(line => line.rule) ? 'configured' : 'held_missing_rule',
+    discountRepresentation: representation,
+    state: fundingUnresolved ? 'held_discount_policy' : lines.every(line => line.rule) ? 'configured' : 'held_missing_rule',
     allocationPolicy: 'proportional-gross-conserved-components-v1', postingPolicy: 'delivered-verified-payment-return-hold-v1' };
 };

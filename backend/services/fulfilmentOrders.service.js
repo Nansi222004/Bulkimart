@@ -266,6 +266,7 @@ export const createOrdersFromGroups = async ({
        */
       pricing: {
         subtotal: g.subtotal,
+        discountRepresentation: 'components-v1',
         discount: 0,
         couponDiscount: 0,
         cdsDiscount: 0,

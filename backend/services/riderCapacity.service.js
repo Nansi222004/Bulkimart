@@ -25,8 +25,10 @@ export const maxConcurrentDeliveries = () => {
 const OPEN = ['delivered', 'cancelled', 'returned', 'refunded'];
 
 /** How many FORWARD deliveries (seller -> customer) this rider is currently holding. */
-export const openDeliveryCount = (partnerId) =>
-  Order.countDocuments({ deliveryPartnerId: partnerId, status: { $nin: OPEN } });
+export const openDeliveryCount = (partnerId, { session = null, excludeOrderId } = {}) =>
+  Order.countDocuments({ deliveryPartnerId: partnerId, status: { $nin: OPEN },
+    ...(excludeOrderId ? { _id: { $ne: excludeOrderId } } : {}),
+  }).session(session);
 
 /**
  * QUICK COMMERCE ONLY — how many REVERSE pickups (customer -> seller) this
@@ -41,8 +43,8 @@ export const openDeliveryCount = (partnerId) =>
  * still in progress and counts against capacity.
  */
 const OPEN_DELIVERY_STATUSES = ['rejected', 'delivered', 'failed'];
-export const openReturnPickupCount = (partnerId) =>
-  Delivery.countDocuments({ partnerId, direction: 'return_pickup', status: { $nin: OPEN_DELIVERY_STATUSES } });
+export const openReturnPickupCount = (partnerId, { session = null } = {}) =>
+  Delivery.countDocuments({ partnerId, direction: 'return_pickup', status: { $nin: OPEN_DELIVERY_STATUSES } }).session(session);
 
 /**
  * May this rider take on one more — forward delivery OR return pickup? Both
@@ -51,14 +53,17 @@ export const openReturnPickupCount = (partnerId) =>
  * evaluated exactly as if a second forward order had been offered instead.
  * @returns {Promise<{ok: true} | {ok: false, open: number, limit: number, reason: string}>}
  */
-export const canTakeAnother = async (partnerId) => {
+// Discovery may use a nontransactional estimate. Claim paths must first write
+// the shared partner document, then call this in the same retried transaction.
+// excludeOrderId is only for a forward claim already written in that transaction:
+// evaluate the workload before adding that claim, without counting it twice.
+export const canTakeAnother = async (partnerId, options = {}) => {
   const limit = maxConcurrentDeliveries();
   if (limit === 0) return { ok: true };
 
-  const [forward, returnPickups] = await Promise.all([
-    openDeliveryCount(partnerId),
-    openReturnPickupCount(partnerId),
-  ]);
+  // Mongo sessions do not support parallel operations within a transaction.
+  const forward = await openDeliveryCount(partnerId, options);
+  const returnPickups = await openReturnPickupCount(partnerId, options);
   const open = forward + returnPickups;
   if (open < limit) return { ok: true };
 

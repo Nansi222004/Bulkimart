@@ -2917,7 +2917,8 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
           salesMap.set(sId, { ordersCount: 0, unitsSold: 0, grossSales: 0 });
         }
         const st = salesMap.get(sId);
-        st.ordersCount += 1;
+        st.orderIds ||= new Set();
+        st.orderIds.add(String(o._id)); st.ordersCount = st.orderIds.size;
         st.unitsSold += item.qty || 1;
         st.grossSales += (item.price || 0) * (item.qty || 1);
       }
@@ -2927,15 +2928,10 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
   let rows = sellers.map((s) => {
     const sId = String(s._id);
     const stats = salesMap.get(sId) || { ordersCount: 0, unitsSold: 0, grossSales: 0 };
-    const commRate = s.commissionRate || 5;
-    const platformFee = Number(((stats.grossSales * commRate) / 100).toFixed(2));
-    const gstAmount = Number((platformFee * 0.18).toFixed(2));
-    const netEarnings = Number((stats.grossSales - platformFee).toFixed(2));
-
     return {
       _id: s._id,
       sellerId: s._id,
-      orderId: `ORD-${s._id.toString().slice(-6).toUpperCase()}`,
+      orderId: null, accountingBasis: 'Gross item sales only; commission and seller net require posted ledger',
       businessName: s.businessName || 'General Seller',
       storeName: s.storeDetails?.name || s.businessName || 'Store',
       city: s.storeDetails?.city || '—',
@@ -2946,13 +2942,13 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
       subTotal: stats.grossSales,
       totalAmount: stats.grossSales,
       grossSales: stats.grossSales,
-      adminCommissionPercent: commRate,
-      adminCommissionAmount: platformFee,
-      vendorEarnings: netEarnings,
-      netEarnings: netEarnings,
+      adminCommissionPercent: null,
+      adminCommissionAmount: null,
+      vendorEarnings: null,
+      netEarnings: null,
       paymentMethod: 'Online / COD',
-      status: s.status === 'approved' ? 'delivered' : 'placed',
-      bankDetails: s.bankDetails || {},
+      status: 'aggregate',
+
       createdAt: s.createdAt || new Date(),
     };
   });
@@ -2969,7 +2965,7 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
   return ok(res, rows, {
     summary: {
       totalGrossSales: Number(totalGrossSales.toFixed(2)),
-      totalCommission: Number(totalCommission.toFixed(2)),
+      totalCommission: null,
       totalOrders,
       deliveredOrders: totalOrders,
     },

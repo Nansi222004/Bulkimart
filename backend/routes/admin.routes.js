@@ -1,3 +1,7 @@
+import { previewRefundCompensation } from '../controllers/financeWorkflow.controller.js';
+import { getHistoricalExceptions } from '../controllers/financeWorkflow.controller.js';
+import { requireFinancePermission } from '../middlewares/financePermission.middleware.js';
+import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFinance.controller.js';
 import express from 'express';
 import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
   verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod } from '../controllers/financeWorkflow.controller.js';
@@ -65,16 +69,24 @@ const router = express.Router();
 
 // Every admin route is behind auth + admin check — applied once here.
 router.use(protect, requireAdmin);
+// All finance surfaces, including legacy aliases and recovery controls.
+router.use((req, res, next) => {
+  if (/^\/(finance(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
+  next();
+});
+router.patch('/vendor-payouts/:id/beneficiary-review', verifySellerPayoutBeneficiaryAdmin);
 router.get('/finance/commissions', getCommissionConfiguration);
 router.post('/finance/commissions', createCommissionConfiguration);
 router.get('/finance/orders', listFinanceOrders);
 router.get('/finance/ledger', listFinanceLedger);
+router.get('/finance/historical-exceptions', getHistoricalExceptions);
 router.get('/finance/reconciliation', getFinancialExceptions);
 router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
 router.post('/finance/orders/:id/cod/dispute', disputeCod);
 router.post('/finance/orders/:id/allocate', allocateOrder);
 router.post('/finance/orders/:id/release', releaseOrder);
 router.post('/finance/orders/:id/release-rider', releaseRider);
+router.get('/finance/returns/:id/preview', previewRefundCompensation);
 router.post('/finance/returns/:id/reverse', reverseReturn);
 
 // ---- dashboard -------------------------------------------------------------

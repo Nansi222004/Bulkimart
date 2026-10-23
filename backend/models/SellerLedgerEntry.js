@@ -1,9 +1,11 @@
+import { moneyPaise } from '../utils/financeMoney.js';
 import mongoose from 'mongoose';
 
 const { Schema, model } = mongoose;
 
 export const SELLER_LEDGER_BUCKETS = ['pending', 'held', 'eligible', 'reserved', 'settled'];
 export const SELLER_LEDGER_TYPES = [
+  'advertising_receipt', 'advertising_tax', 'advertising_refund', 'advertising_recognition',
   'order_earning', 'platform_commission', 'quick_freight_obligation',
   'quick_service_fee', 'payout_reservation', 'payout_settlement',
   'adjustment', 'reversal', 'cod_hold', 'return_hold', 'quick_fee_tax', 'quick_fee_payment',
@@ -16,7 +18,11 @@ const sellerLedgerEntrySchema = new Schema({
   sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
   partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
   deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
-  account: { type: String, enum: ['seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections'], default: 'seller_payable', immutable: true },
+  account: { type: String, enum: ['advertising_cash','advertising_liability','advertising_tax','advertising_revenue','seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue'], default: 'seller_payable', immutable: true },
+  advertisingCampaignId: { type: Schema.Types.ObjectId, ref: 'SellerPromotion', immutable: true },
+  advertiserSellerId: { type: Schema.Types.ObjectId, ref: 'Seller', immutable: true },
+  advertisingRevision: { type: Number, immutable: true },
+  parcelDeliveryId: { type: Schema.Types.ObjectId, ref: 'ParcelDelivery', immutable: true },
   orderId: { type: Schema.Types.ObjectId, ref: 'Order', index: true, immutable: true },
   payoutId: { type: Schema.Types.ObjectId, ref: 'SellerPayout', index: true, immutable: true },
   deliveryPayoutId: { type: Schema.Types.ObjectId, ref: 'DeliveryPayout', immutable: true },
@@ -53,8 +59,17 @@ for (const operation of ['replaceOne', 'findOneAndReplace', 'findOneAndDelete'])
 sellerLedgerEntrySchema.pre('bulkWrite', denyMutation);
 sellerLedgerEntrySchema.pre('save', function () { if (!this.isNew) denyMutation(); });
 sellerLedgerEntrySchema.pre('validate', function () {
+  moneyPaise(this.amount);
+  if (this.currency !== 'INR') throw new Error('Only INR ledger entries are supported');
+  if (this.advertisingCampaignId || this.account?.startsWith('advertising_')) {
+    if (!this.advertisingCampaignId || !this.advertiserSellerId || !this.advertisingRevision || !this.paymentId || !this.account?.startsWith('advertising_') || !this.type?.startsWith('advertising_') || this.bucket !== 'held' || this.currency !== 'INR'
+      || ['sellerId','partnerId','orderId','payoutId','deliveryId','deliveryPayoutId','parcelDeliveryId','serviceApplicationId','providerId','snapshotId'].some(k=>this[k])) throw Error('Advertising postings require exclusive advertising references and accounts');
+  }
+  if (this.parcelDeliveryId && (this.bucket!=='held' || this.currency!=='INR' || !['parcel_collections','parcel_cash_custody','parcel_driver_payable','parcel_revenue','tax_liability'].includes(this.account) || ['sellerId','orderId','deliveryId','payoutId','deliveryPayoutId','serviceApplicationId','providerId','snapshotId'].some(k=>this[k]))) throw new Error('Parcel postings require held INR balances and exclusive parcel references and accounts');
   if (this.account === 'seller_payable' && !this.sellerId) throw new Error('Seller payable requires sellerId');
   if (this.account === 'rider_payable' && !this.partnerId) throw new Error('Rider payable requires partnerId');
+  if (this.account?.startsWith('parcel_') && !this.parcelDeliveryId) throw new Error('Parcel account requires parcelDeliveryId');
+  if (this.account === 'parcel_driver_payable' && !this.partnerId) throw new Error('Parcel driver payable requires partnerId');
   if (this.account === 'legal_provider_payable' && !this.providerId) throw new Error('Legal payable requires providerId');
 });
 

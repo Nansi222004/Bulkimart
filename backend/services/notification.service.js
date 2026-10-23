@@ -17,6 +17,7 @@ import { sendPushNotification, sendBulkNotification } from './fcm.service.js';
 
 // Fine-grained business-event constants — stored on Notification.event.
 export const NOTIFICATION_EVENT = {
+  PARCEL_UPDATED: 'PARCEL_UPDATED',
   ORDER_CREATED: 'ORDER_CREATED',
   ORDER_STATUS_UPDATED: 'ORDER_STATUS_UPDATED',
   ORDER_CANCELLED: 'ORDER_CANCELLED',
@@ -72,6 +73,7 @@ export const NOTIFICATION_EVENT = {
 // `type` enum, so every already-written row and any query against `type`
 // keeps working unchanged.
 const EVENT_CATEGORY = {
+  PARCEL_UPDATED: 'delivery',
   ORDER_CREATED: 'order',
   ORDER_STATUS_UPDATED: 'order',
   ORDER_CANCELLED: 'order',

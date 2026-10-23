@@ -291,7 +291,8 @@ const orderSchema = new Schema(
 
     pricing: {
       subtotal:       { type: Number, default: 0 },
-      discount:       { type: Number, default: 0 }, // promotions + coupon
+      discountRepresentation: { type: String, enum: ['components-v1'] },
+      discount:       { type: Number, default: 0 }, // distinct promotion component; coupon stored separately
       couponDiscount: { type: Number, default: 0 },
       couponCode:     String,
       cdsDiscount:    { type: Number, default: 0 }, // CDS member discount
@@ -329,6 +330,7 @@ const orderSchema = new Schema(
     paymentMethod: { type: String, enum: PAYMENT_METHODS },
     paymentId:     { type: ObjectId, ref: "Payment" },
     financialSnapshot: { type: Schema.Types.Mixed, immutable: true },
+    financialOperationLog: { type: [Schema.Types.Mixed], default: undefined },
     financialRevision: { type: Number, default: 0 },
     financialPosting: { type: String, enum: ['held', 'eligible', 'reversed'] },
     financialReturnQuantities: { type: Schema.Types.Mixed, default: {} },
