@@ -27,7 +27,7 @@ afterAll(async()=>{await mongoose.disconnect();await db?.stop();});
 beforeEach(async()=>{
   for(const collection of Object.values(mongoose.connection.collections))await collection.deleteMany({});
   providerRefunds.length=0;client.payments.refund.mockClear();process.env.RAZORPAY_MODE='test';
-  process.env.FINANCE_OPERATIONS_ENABLED='true';process.env.FINANCE_POLICY_APPROVAL_REFERENCE='SYNTHETIC';process.env.FINANCE_E2E_APPROVAL_REFERENCE='SYNTHETIC';
+  process.env.FINANCE_POLICY_APPROVAL_REFERENCE='SYNTHETIC';process.env.FINANCE_E2E_APPROVAL_REFERENCE='SYNTHETIC';
 });
 afterEach(()=>{for(const key of ['FINANCE_OPERATIONS_ENABLED','FINANCE_POLICY_APPROVAL_REFERENCE','FINANCE_E2E_APPROVAL_REFERENCE','FINANCE_SNAPSHOTS_ENABLED','RAZORPAY_MODE'])delete process.env[key];});
 
@@ -38,7 +38,6 @@ test.each([1,2])('actual verified provider refund → compensation → release, 
   const productId=new mongoose.Types.ObjectId();await Product.collection.insertOne({_id:productId,type:'grocery'});
   await saveCommissionVersion({vendorType:'general',channel:'quick',method:'percentage',value:10,base:'eligible_item_subtotal',fixedScope:'order_item',taxTreatment:'exempt',taxRate:0,effectiveDate:'2020-01-01',isActive:true,reason:'Synthetic fixture contract'},adminId);
   const payment=await Payment.create({userId:user._id,amount:100,method:'online',status:'paid',gateway:{provider:'razorpay',orderId:'order-fixture',paymentId:'pay-fixture'},captures:[{gatewayOrderId:'order-fixture',gatewayPaymentId:'pay-fixture',amountPaise:10000,currency:'INR',disposition:'settled'}]});
-  process.env.FINANCE_SNAPSHOTS_ENABLED='true';
   const order=await Order.create({userId:user._id,type:'grocery',status:'delivered',paymentMethod:'online',paymentId:payment._id,pricing:{discountRepresentation:'components-v1',subtotal:100,totalAmount:100},items:[{sellerId,productId,type:'grocery',name:'Fixture',price:50,qty:2,deliveredAt:new Date('2020-01-01')}]});
   delete process.env.FINANCE_SNAPSHOTS_ENABLED;payment.orderId=order._id;await payment.save();
   await postOrderFinance(order._id,adminId);

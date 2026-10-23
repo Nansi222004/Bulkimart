@@ -6,7 +6,7 @@ import Index from '../models/ProductImageIndex.js';
 import { enqueueImageSearchIndex, processImageIndexJob } from '../services/imageSearchIndexer.service.js';
 
 // Explicit operational command only; never invoked by tests or deployment.
-if (process.env.IMAGE_SEARCH_ENABLED !== 'true' || !process.env.MONGO_URI) throw new Error('Set IMAGE_SEARCH_ENABLED=true and MONGO_URI for the intended environment.');
+if (!process.env.MONGO_URI) throw new Error('Set MONGO_URI for the intended environment.');
 try {
   await mongoose.connect(process.env.MONGO_URI); await Promise.all([Job.init(), Index.init()]);
   let queued = 0, processed = 0;

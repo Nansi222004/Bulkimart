@@ -1,5 +1,6 @@
 // Read-only forensic probe. No models, startup, jobs, providers, indexes or mutations.
 import '../config/environment.js';
+import { financeFlags } from '../services/financeSafety.service.js';
 import { setServers } from 'node:dns';
 import { MongoClient } from 'mongodb';
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -21,7 +22,7 @@ try {
   const orderIds = orders.map(o => o._id), sellerIds = [...new Map(orders.flatMap(o => o.items || []).filter(i => i.sellerId).map(i => [String(i.sellerId), i.sellerId])).values()];
   const paymentIds = orders.map(o => o.paymentId).filter(Boolean);
   const evidence = { observedAt: new Date().toISOString(), database: db.databaseName, readOnly: true,
-    flags: Object.fromEntries(['FINANCE_SNAPSHOTS_ENABLED','FINANCE_OPERATIONS_ENABLED','FINANCE_PAYOUTS_ENABLED','FINANCE_POLICY_APPROVAL_REFERENCE','FINANCE_E2E_APPROVAL_REFERENCE'].map(k => [k, k.endsWith('_REFERENCE') ? Boolean(process.env[k]?.trim()) : process.env[k] === 'true'])),
+    flags: financeFlags(),
     orders,
     sellers: await db.collection('sellers').find({ _id: { $in: sellerIds } }, { projection: { userId: 1, status: 1, businessName: 1, financialLedgerVersion: 1, earnings: 1, balance: 1, createdAt: 1, 'bankDetails.verified': 1, 'bankDetails.verificationStatus': 1 } }).toArray(),
     payments: await db.collection('payments').find({ $or: [{ _id: { $in: paymentIds } }, { orderId: { $in: orderIds } }] }, { projection: { orderId: 1, groupRef: 1, amount: 1, method: 1, status: 1, currency: 1, gateway: 1, gatewayOrderId: 1, gatewayPaymentId: 1, paidAt: 1, createdAt: 1, settlementRevision: 1, 'captures.amountPaise': 1, 'captures.currency': 1, 'captures.disposition': 1, 'captures.gatewayPaymentId': 1, 'refunds.status': 1, 'refunds.amountPaise': 1, 'refundObligations.amountPaise': 1, 'refundObligations.status': 1 } }).toArray(),

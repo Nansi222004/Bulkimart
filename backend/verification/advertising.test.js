@@ -39,7 +39,6 @@ beforeEach(async () => {
   app = express(); app.use(express.json());
   app.use('/seller', advertisingRouter()); app.use('/admin', advertisingRouter(true));
   app.use('/public', advertisingPublicRouter); app.use(errorHandler);
-  process.env.ADVERTISING_MANAGEMENT_ENABLED = 'true';
   delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;
   for (const c of Object.values(mongoose.connection.collections)) await c.deleteMany({});
   [user, other] = await User.create([{ phone: '9876500901', roles: ['seller', 'buyer'] }, { phone: '9876500902', roles: ['seller'] }]);
@@ -52,12 +51,12 @@ beforeEach(async () => {
   pack = (await auth(request(app).post('/admin/packages'), admin, 'admin').send(packageInput()).expect(201)).body.data;
 });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); delete process.env.ADVERTISING_MANAGEMENT_ENABLED; delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED; });
-test('disabled by default; capabilities do not claim payment or delivery readiness', async () => {
+test('management is enabled without env flags; gateway readiness is still required', async () => {
   delete process.env.ADVERTISING_MANAGEMENT_ENABLED;
   const r = await auth(request(app).get('/seller/capabilities')).expect(200);
-  expect(r.body.data).toMatchObject({ managementEnabled: false, paymentsEnabled: false, deliveryEnabled: false });
+  expect(r.body.data).toMatchObject({ managementEnabled: true, pilotEnabled: true, paymentsEnabled: false, deliveryEnabled: false });
   expect(r.headers['cache-control']).toBe('private, no-store');
-  await auth(request(app).post('/seller/campaigns')).send(input()).expect(503);
+  await auth(request(app).post('/seller/campaigns')).send(input()).expect(201);
 });
 test('seller identity, live membership, activity and approval are mandatory', async () => {
   await request(app).get('/seller/campaigns').expect(401);
@@ -167,7 +166,6 @@ test('blocked payment endpoints and legacy settlement cannot fund or activate v2
 
 const pilotSchedule = () => ({ enabled: true, startAt: new Date(Date.now() - 1000).toISOString(), endAt: new Date(Date.now() + 3600000).toISOString() });
 async function pilot() {
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED = 'true';
   const pending = await submit(await make());
   const approved = (await decide(pending, 'approve').expect(200)).body.data;
   return (await decide(approved, 'pilot', reviewer, pilotSchedule()).expect(200)).body.data;
@@ -176,8 +174,6 @@ const placements = (extra = {}) => request(app).get('/public/placements').query(
 test('pilot is explicit, permission gated and cannot mark unpaid service as funded', async () => {
   const pending = await submit(await make());
   const approved = (await decide(pending, 'approve').expect(200)).body.data;
-  await decide(approved, 'pilot', reviewer, pilotSchedule()).expect(503);
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED = 'true';
   await decide(approved, 'pilot', configurer, pilotSchedule()).expect(403);
   const r = await decide(approved, 'pilot', reviewer, pilotSchedule()).expect(200);
   expect(r.body.data).toMatchObject({ funding: 'UNPAID', delivery: 'NOT_SCHEDULED', pilot: { enabled: true, billable: false } });
@@ -190,16 +186,15 @@ test('pilot is explicit, permission gated and cannot mark unpaid service as fund
   expect(JSON.stringify(result.body)).not.toMatch(/amountPaise|sellerPromotionId|authorizedBy|userId|bankDetails|wholesalePricing/);
 });
 test('ordinary approved unpaid campaigns and historical active promotions do not serve', async () => {
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED = 'true';
   const pending = await submit(await make()); await decide(pending, 'approve').expect(200);
   await Promotion.create({ sellerId: seller._id, module: 'ECOMMERCE', status: 'ACTIVE', selectedProducts: [product._id] });
   expect((await placements()).body.data).toEqual([]);
 });
-test('disabled management/pilot flags return an empty optional block', async () => {
+test('legacy management/pilot flags cannot disable an authorized local pilot', async () => {
   await pilot(); delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;
-  expect((await placements()).body.data).toEqual([]);
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED = 'true'; delete process.env.ADVERTISING_MANAGEMENT_ENABLED;
-  expect((await placements()).body.data).toEqual([]);
+  expect((await placements()).body.data).toHaveLength(1);
+  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED = 'false'; process.env.ADVERTISING_MANAGEMENT_ENABLED = 'false';
+  expect((await placements()).body.data).toHaveLength(1);
 });
 test.each(['NODE_ENV','DEPLOYMENT_ENV','APP_ENV','VERCEL_ENV','RENDER_ENV'])('production aliases block pilot: %s', async key => {
   const row = await pilot(); const previous = process.env[key]; process.env[key] = 'production';
@@ -270,7 +265,6 @@ test('public reads never mutate campaigns/products and database failures fail op
   } finally { failing.mockRestore(); }
 });
 test('Quick uses its own approved module/category and normal inventory contract', async () => {
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED='true';
   await Category.updateOne({_id:category._id},{$set:{type:'grocery'}});
   await Product.updateOne({_id:product._id},{$set:{type:'grocery'}});
   await Seller.updateOne({_id:seller._id},{$set:{salesChannels:['grocery']}});

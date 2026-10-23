@@ -24,7 +24,7 @@ afterAll(async()=>{delete process.env.RIDER_MAX_CONCURRENT_DELIVERIES;delete pro
 test('release blocker: two concurrent shopping accepts must respect RIDER_MAX_CONCURRENT_DELIVERIES=1',async()=>{
   driver=await User.create({phone:'9876500099',roles:['delivery']});partner=await Partner.create({userId:driver._id,status:'approved',isAvailable:true});
   const sellerId=new mongoose.Types.ObjectId();await Seller.collection.insertOne({_id:sellerId,userId:new mongoose.Types.ObjectId(),businessName:'Synthetic capacity fixture',storeDetails:{name:'Fixture store',address:'Fixture',city:'Fixture',pincode:'560001',lat:12.97,lng:77.59}});
-  const make=()=>Order.create({userId:driver._id,type:'grocery',paymentMethod:'cod',deliveryType:'internal',status:'dispatched',items:[{sellerId,name:'Synthetic product',qty:1,price:10}],shippingAddress:{name:'Fixture',line1:'Fixture',pincode:'560001',lat:12.98,lng:77.60},pricing:{totalAmount:10}});
+  const make=()=>Order.create({userId:driver._id,type:'grocery',paymentMethod:'cod',deliveryType:'internal',status:'dispatched',items:[{sellerId,name:'Synthetic product',qty:1,price:10}],shippingAddress:{name:'Fixture',line1:'Fixture',pincode:'560001',lat:12.98,lng:77.60},pricing:{subtotal:10,totalAmount:10}});
   const a=await make(),b=await make();let arrived,resume;
   const paused=new Promise(r=>arrived=r),release=new Promise(r=>resume=r),create=Delivery.create.bind(Delivery);
   const spy=jest.spyOn(Delivery,'create').mockImplementation(async(...args)=>{const result=await create(...args);if(String(args[0]?.[0]?.orderId)===String(a._id)){arrived();await release;}return result;});

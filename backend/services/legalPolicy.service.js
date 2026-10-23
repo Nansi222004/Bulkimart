@@ -4,7 +4,11 @@ import { fail, text } from './serviceForms.service.js';
 import { moneyPaise, calculateCommission } from './vendorCommission.service.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
 
-export const legalFlags = () => Object.fromEntries(['submissions', 'fulfilment', 'payments', 'refunds', 'payouts'].map(k => [k, process.env[`LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`] === 'true']));
+export const legalFlags = () => ({
+  submissions: true, fulfilment: true, payments: true, refunds: true,
+  // External provider transfers need a payout adapter and verified banking.
+  payouts: false,
+});
 export function requireLegalFlag(kind) {
   if (!legalFlags()[kind]) fail('Legal Services capability is not enabled', 503);
   if (kind !== 'catalogue' && (process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_ENV === 'production')) fail('Production Legal Services operations are release-blocked', 503);

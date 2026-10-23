@@ -502,7 +502,7 @@ for (const operation of ['replaceOne', 'findOneAndReplace']) orderSchema.pre(ope
 // Generate orderNo BEFORE validation — `unique` + required checks run at validate time,
 // so a pre('save') hook would fire too late and the first two orders would collide on null.
 orderSchema.pre("validate", async function () {
-  if (this.isNew && process.env.FINANCE_SNAPSHOTS_ENABLED === 'true' && !this.financialSnapshot) {
+  if (this.isNew && !this.financialSnapshot) {
     const { buildOrderFinancialSnapshot } = await import('../services/vendorCommission.service.js');
     this.financialSnapshot = await buildOrderFinancialSnapshot(this, this.$session());
   }

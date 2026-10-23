@@ -37,7 +37,7 @@ const makeOrder = () => Order.create({
   userId: driver._id, type: 'grocery', paymentMethod: 'cod', deliveryType: 'internal', status: 'dispatched',
   items: [{ sellerId, productId: new mongoose.Types.ObjectId(), name: 'Synthetic product', qty: 1, price: 10 }],
   shippingAddress: { name: 'Fixture', line1: 'Fixture', pincode: '560001', lat: 12.98, lng: 77.60 },
-  pricing: { totalAmount: 10 },
+  pricing: { subtotal: 10, totalAmount: 10 },
 });
 async function makeReturn() {
   const order = await makeOrder();

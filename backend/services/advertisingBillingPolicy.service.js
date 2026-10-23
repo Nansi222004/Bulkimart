@@ -2,15 +2,14 @@ import { httpError } from '../utils/response.js';
 import { validateRazorpayConfig } from './razorpay.service.js';
 export const advertisingProduction = () => ['NODE_ENV','DEPLOYMENT_ENV','APP_ENV','VERCEL_ENV','RENDER_ENV'].some(k => ['production','prod','deployment-production'].includes(String(process.env[k] || '').trim().toLowerCase()));
 export function advertisingBillingEnabled() {
-  return process.env.ADVERTISING_MANAGEMENT_ENABLED === 'true' && process.env.ADVERTISING_BILLING_ENABLED === 'true'
-    && (!advertisingProduction() || process.env.ADVERTISING_PRODUCTION_ENABLED === 'true');
+  return !advertisingProduction() || process.env.ADVERTISING_PRODUCTION_ENABLED === 'true';
 }
 export function requireAdvertisingGateway() {
   if (!advertisingBillingEnabled()) throw httpError(503, 'Advertising billing is disabled');
   validateAdvertisingGatewayEnvironment();
 }
 export function requireAdvertisingRefundGateway(){
-  if(process.env.ADVERTISING_REFUNDS_ENABLED!=='true'||(advertisingProduction()&&process.env.ADVERTISING_PRODUCTION_ENABLED!=='true'))throw httpError(503,'Advertising refunds are disabled');
+  if(advertisingProduction()&&process.env.ADVERTISING_PRODUCTION_ENABLED!=='true')throw httpError(503,'Advertising refunds are disabled');
   validateAdvertisingGatewayEnvironment();
 }
 function validateAdvertisingGatewayEnvironment(){

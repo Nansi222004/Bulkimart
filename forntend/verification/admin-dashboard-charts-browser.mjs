@@ -54,6 +54,18 @@ replace('      if (startupOnly) {',`
       assert.ok(!chartText.join('').includes('Private fixture error'));
       const clippedCharts=await evaluate(\`[...document.querySelectorAll('.sa-dashboard-chart,.sa-dashboard-bar-label')].filter(el=>el.scrollWidth>el.clientWidth+1).length\`);
       assert.equal(clippedCharts,0,'Chart labels and cards do not clip');
+      const cards=await evaluate(\`({financial:[...document.querySelectorAll('.sa-financial-grid > .sa-kpi-card')].map(el=>({top:el.offsetTop,height:el.offsetHeight})),activity:[...document.querySelectorAll('.sa-activity-grid > .sa-kpi-card')].map(el=>el.offsetTop)})\`);
+      assert.equal(cards.financial.length,3);
+      assert.equal(cards.activity.length,5);
+      assert.ok(cards.financial.every(card=>card.height<300),'Collapsed financial cards stay compact');
+      if(width>=1280){
+        assert.equal(new Set(cards.financial.map(card=>card.top)).size,1,'Financial cards use one wide row');
+        assert.equal(new Set(cards.activity).size,1,'Activity cards use their own row');
+        assert.ok(cards.activity[0]>cards.financial[0].top,'Activity is below financial metrics');
+      }
+      await evaluate(\`document.querySelector('.sa-metric-details summary').click()\`);
+      assert.equal(await evaluate(\`document.querySelector('.sa-metric-details').open\`),true,'Metric explanations expand');
+      await evaluate(\`document.querySelector('.sa-metric-details summary').click()\`);
       if(width===390 || width===1440){
         const directory=resolve('../test-artifacts/admin-dashboard-charts');await mkdir(directory,{recursive:true});
         await writeFile(join(directory,layoutScenario+'-'+width+'.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));

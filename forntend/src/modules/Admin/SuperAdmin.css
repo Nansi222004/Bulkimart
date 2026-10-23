@@ -433,41 +433,81 @@
   background-color: #0284c7;
 }
 
-/* 8 KPI cards grid layout */
+/* Financial metrics and platform activity each get their own row. */
+.sa-overview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.sa-section-title { margin: 0; font-size: 20px; font-weight: 700; }
+.sa-overview-meta { margin: 5px 0 0; color: var(--sa-text-secondary); font-size: 12px; }
+.sa-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--sa-border);
+  border-radius: 8px;
+  background: white;
+  color: var(--sa-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sa-refresh-button:hover { background: #eef6fc; border-color: #bdd6e8; }
+.sa-overview-section { margin-bottom: 24px; }
+.sa-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+.sa-section-heading h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.sa-section-heading p { margin: 0; color: var(--sa-text-secondary); font-size: 12px; }
+.sa-finance-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px; margin-bottom: 20px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; font-size: 13px; }
 .sa-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
 }
-
-@media (min-width: 768px) {
-  .sa-kpi-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+.sa-financial-grid { grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) {
+  .sa-financial-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sa-activity-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) {
-  .sa-kpi-grid {
-    grid-template-columns: repeat(8, 1fr);
-  }
+  .sa-activity-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .sa-canvas { padding: 16px 12px; }
+  .sa-kpi-grid { gap: 10px; }
 }
 
 .sa-kpi-card {
   background-color: var(--sa-bg-card);
   border: 1px solid var(--sa-border);
   border-radius: var(--sa-radius-md);
-  padding: 12px;
+  padding: 20px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02);
   display: flex;
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 .sa-kpi-card:hover {
-  transform: translateY(-1px);
   box-shadow: 0 4px 6px rgba(0,0,0,0.04);
 }
+.sa-kpi-link { font: inherit; text-align: left; cursor: pointer; }
+.sa-kpi-link:hover { border-color: var(--sa-primary); }
+.sa-kpi-link:focus-visible, .sa-refresh-button:focus-visible, .sa-metric-details summary:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; }
+.sa-kpi-description { color: var(--sa-text-secondary); font-size: 13px; line-height: 1.6; }
+.sa-kpi-value.sa-value-unavailable { font-size: 24px; color: #64748b; }
+.sa-metric-details { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf1f5; font-size: 12px; line-height: 1.7; }
+.sa-metric-details summary { color: #036a94; cursor: pointer; padding: 4px 0; }
+.sa-metric-explanation { color: var(--sa-text-secondary); overflow-wrap: anywhere; }
+.sa-metric-explanation p { margin: 8px 0 0; }
 
 .sa-kpi-card::before {
   content: "";
@@ -485,21 +525,21 @@
 
 .sa-kpi-title {
   font-size: 12px;
-  font-weight: 800;
-  color: var(--sa-text-muted);
+  font-weight: 600;
+  color: var(--sa-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   margin: 0;
 }
 .sa-kpi-value {
-  font-size: 16px;
-  font-weight: 800;
-  margin: 6px 0 2px 0;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 10px 0 6px 0;
   color: var(--sa-text-primary);
 }
 .sa-kpi-trend {
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
   color: var(--sa-success);
 }
 .sa-kpi-trend.down {

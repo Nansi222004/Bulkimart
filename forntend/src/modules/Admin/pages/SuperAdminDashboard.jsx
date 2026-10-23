@@ -43,25 +43,45 @@ export const SuperAdminDashboard = () => {
   return (
     <div className="sa-canvas">
 
-      <button onClick={fetchDashboardOverview}>Refresh Dashboard</button>
-      {dashboardFinanceError && <p role="alert">{dashboardFinanceError} <button onClick={fetchDashboardOverview}>Retry financial metrics</button></p>}
-      {dashboardFinance && <p>All-time · INR · Asia/Kolkata · Snapshot observed {new Date(dashboardFinance.asOf).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}. Collections are not bank settlement.</p>}
-      {/* Financial and operational KPIs */}
-      <div className="sa-kpi-grid">
+      <div className="sa-overview-toolbar">
+        <div>
+          <h2 className="sa-section-title">Platform at a glance</h2>
+          <p className="sa-overview-meta">All-time overview · INR
+            {dashboardFinance && <> · Updated {new Date(dashboardFinance.asOf).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})} IST</>}
+          </p>
+        </div>
+        <button className="sa-refresh-button" onClick={fetchDashboardOverview}>
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-2L20 8M4 16l2.3 3A7 7 0 0 0 17.9 17"/></svg>
+          Refresh Dashboard
+        </button>
+      </div>
+      {dashboardFinanceError && <div className="sa-finance-notice" role="alert">{dashboardFinanceError} <button className="sa-refresh-button" onClick={fetchDashboardOverview}>Retry financial metrics</button></div>}
+      <section className="sa-overview-section" aria-labelledby="sa-financial-heading">
+      <div className="sa-section-heading"><h3 id="sa-financial-heading">Financial overview</h3><p>Collections are not bank settlement.</p></div>
+      <div className="sa-kpi-grid sa-financial-grid">
 
         {metricCards.map(([title,key]) => {
           const metric=dashboardFinance?.[key];
-          return <div className="sa-kpi-card" key={key}>
+          return <div className="sa-kpi-card sa-financial-card" key={key}>
             <span className="sa-kpi-title">{title}</span>
-            <span className="sa-kpi-value">{metric?.status==='complete' ? dashboardMoney(metric.amountPaise/100) : 'Unavailable'}</span>
-            <span className="sa-kpi-trend" style={{color:'var(--sa-text-muted)',whiteSpace:'normal'}}>{key==='orderValue' ? 'Gross completed orders, before subsequent refunds' : key==='collections' ? 'Net verified external order collections; wallets excluded' : 'Recognized platform-wide revenue is not configured'}</span>
-            {metric && metric.status!=='complete' && <small>{key==='platformRevenue' ? 'Posted merchandise commission' : 'Verified records subtotal'}: {dashboardMoney(metric.verifiedSubtotalPaise/100)}. Total unavailable.</small>}
-            {metric?.incompleteRecords>0 && <small>{metric.incompleteRecords} records need reconciliation.</small>}
-            {metric?.excludedRecords>0 && <small>{metric.excludedRecords} unverified or out-of-scope records excluded.</small>}
-            {metric?.blocker && <small>{metric.blocker}</small>}
+            <span className={`sa-kpi-value${metric?.status==='complete' ? '' : ' sa-value-unavailable'}`}>{metric?.status==='complete' ? dashboardMoney(metric.amountPaise/100) : 'Unavailable'}</span>
+            <span className="sa-kpi-description">{key==='orderValue' ? 'Completed order value' : key==='collections' ? 'Verified external collections' : 'Recognized platform revenue'}</span>
+            <details className="sa-metric-details">
+              <summary>{metric?.incompleteRecords>0 ? `${metric.incompleteRecords} records need reconciliation` : metric?.status==='complete' ? 'About this figure' : 'Why unavailable?'}</summary>
+              <div className="sa-metric-explanation">
+                <p>{key==='orderValue' ? 'Gross completed orders, before subsequent refunds' : key==='collections' ? 'Net verified external order collections; wallets excluded' : 'Recognized platform-wide revenue is not configured'}</p>
+                {metric && metric.status!=='complete' && <p>{key==='platformRevenue' ? 'Posted merchandise commission' : 'Verified records subtotal'}: {dashboardMoney(metric.verifiedSubtotalPaise/100)}. Total unavailable.</p>}
+                {metric?.excludedRecords>0 && <p>{metric.excludedRecords} unverified or out-of-scope records excluded.</p>}
+                {metric?.blocker && <p>{metric.blocker}</p>}
+              </div>
+            </details>
           </div>;
         })}
-
+      </div>
+      </section>
+      <section className="sa-overview-section" aria-labelledby="sa-activity-heading">
+      <div className="sa-section-heading"><h3 id="sa-activity-heading">Platform activity</h3><p>Orders, customers and sellers</p></div>
+      <div className="sa-kpi-grid sa-activity-grid">
         <div className="sa-kpi-card">
           <span className="sa-kpi-title">Total Orders</span>
           <span className="sa-kpi-value">{ov?.totalOrders || 0}</span>
@@ -80,19 +100,20 @@ export const SuperAdminDashboard = () => {
           <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Orders' : 'Loading…'}</span>
         </div>
 
-        <div className="sa-kpi-card" onClick={() => setActiveTab('users')} style={{ cursor: 'pointer' }}>
+        <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('users')}>
           <span className="sa-kpi-title">Total Users</span>
           <span className="sa-kpi-value">{ov?.totalUsers || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Buyers' : 'Loading…'}</span>
-        </div>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>View customers →</span>
+        </button>
 
-        <div className="sa-kpi-card" onClick={() => setActiveTab('sellers')} style={{ cursor: 'pointer' }}>
+        <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('sellers')}>
           <span className="sa-kpi-title">Total Sellers</span>
           <span className="sa-kpi-value">{totalSellersCount}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov.pendingSellers} pending · approved sellers above</span>
-        </div>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>Approved · {ov.pendingSellers} pending →</span>
+        </button>
 
       </div>
+      </section>
 
       {/* All-time comparisons/distributions; no invented temporal series. */}
       <div className="sa-charts-row">

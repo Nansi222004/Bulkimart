@@ -7,13 +7,12 @@ const refundsReady=()=>{try{requireAdvertisingRefundGateway();return true;}catch
 export const advertisingPilotCapabilities = () => {
   const productionBlocked = ['NODE_ENV', 'DEPLOYMENT_ENV', 'APP_ENV', 'VERCEL_ENV', 'RENDER_ENV'].some(key =>
     ['prod', 'production', 'deployment-production'].includes(String(process.env[key] || '').trim().toLowerCase()));
-  return { pilotEnabled: process.env.ADVERTISING_MANAGEMENT_ENABLED === 'true'
-    && process.env.ADVERTISING_CATEGORY_PILOT_ENABLED === 'true' && !productionBlocked,
+  return { pilotEnabled: !productionBlocked,
   productionBlocked, billable: false, telemetryEnabled: false };
 };
 export const advertisingCapabilities = () => ({
   ...advertisingPilotCapabilities(),
-  managementEnabled: process.env.ADVERTISING_MANAGEMENT_ENABLED === 'true',
+  managementEnabled: true,
   paymentsEnabled: advertisingBillingEnabled()&&gatewayReady(), deliveryEnabled: paidAdvertisingEnabled(), searchEnabled: false,
   refundsEnabled: refundsReady(),
   telemetryEnabled: advertisingTelemetryConfig().enabled,
@@ -25,7 +24,6 @@ export const advertisingCapabilities = () => ({
   ],
 });
 export const requireAdvertisingManagement = (_req, _res, next) => {
-  if (!advertisingCapabilities().managementEnabled) throw httpError(503, 'Advertising management is disabled', { code: 'ADVERTISING_DISABLED' });
   next();
 };
 export const advertisingPermission = (...permissions) => (req, _res, next) => {

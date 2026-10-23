@@ -357,13 +357,12 @@ productSchema.pre("validate", async function () {
 
 productSchema.pre('save', function () { this.$locals.imageSearchDirty = this.isNew || this.isModified('images') || this.isModified('isDeleted'); });
 productSchema.post('save', async function (doc) {
-  if (process.env.IMAGE_SEARCH_ENABLED !== 'true' || !this.$locals.imageSearchDirty) return;
+  if (!this.$locals.imageSearchDirty) return;
   try { const { enqueueImageSearchIndex } = await import('../services/imageSearchIndexer.service.js'); await enqueueImageSearchIndex(doc._id); }
   catch { console.warn('[IMAGE SEARCH] Index enqueue failed; run catalogue reconciliation.'); }
 });
 for (const operation of ['updateOne', 'findOneAndUpdate']) {
   productSchema.post(operation, async function (result) {
-    if (process.env.IMAGE_SEARCH_ENABLED !== 'true') return;
     const update = this.getUpdate() || {}, fields = { ...update, ...update.$set, ...update.$unset };
     if (!Object.hasOwn(fields, 'images') && !Object.hasOwn(fields, 'isDeleted')) return;
     const productId = result?._id || this.getFilter()._id;

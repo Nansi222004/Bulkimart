@@ -46,7 +46,7 @@ beforeEach(async () => {
   for (const c of Object.values(mongoose.connection.collections)) await c.deleteMany({});
   orders.clear(); captures.clear(); refunds.clear(); createError = refundError = false; refundState = 'processed'; jest.clearAllMocks();
   process.env.SERVICE_STORAGE_DIR = storage; process.env.PAYMENT_GATEWAY = 'razorpay'; process.env.RAZORPAY_MODE = 'test'; process.env.RAZORPAY_KEY_ID = 'rzp_test_isolated'; process.env.RAZORPAY_KEY_SECRET = 'isolated-secret'; process.env.RAZORPAY_WEBHOOK_SECRET = 'isolated-webhook-secret';
-  for (const k of ['catalogue', 'submissions', 'fulfilment', 'payments', 'refunds']) process.env[`LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`] = 'true';
+  for (const k of ['catalogue', 'submissions', 'fulfilment', 'payments', 'refunds']) delete process.env[`LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`];
   delete process.env.LEGAL_SERVICES_PAYOUTS_ENABLED;
   [customer, other, professional] = await User.create([{ phone: '9876500011', roles: ['buyer'], name: 'Customer' }, { phone: '9876500012', roles: ['buyer'] }, { phone: '9876500013', roles: ['buyer'], name: 'Professional' }]);
   const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
@@ -69,9 +69,15 @@ function captured(checkout, id = 'pay_fixture', amount = checkout.amountPaise) {
 async function paid() { const a = await quoted(), checkout = await initiate(a); captured(checkout); const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${checkout.razorpayOrderId}|pay_fixture`).digest('hex'); await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: checkout.razorpayOrderId, razorpay_payment_id: 'pay_fixture', razorpay_signature: signature }).expect(200); return getAdmin(a._id); }
 async function webhook(body, valid = true) { const raw = JSON.stringify(body), signature = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex'); return request(app).post('/webhook').set('x-razorpay-signature', valid ? signature : 'invalid').set('Content-Type', 'application/json').send(raw); }
 
-test('flags default off, production actions and live gateway keys fail closed', () => {
-  delete process.env.LEGAL_SERVICES_PAYMENTS_ENABLED; expect(() => policy.requireLegalGateway()).toThrow(/not enabled/);
-  process.env.LEGAL_SERVICES_PAYMENTS_ENABLED = 'true'; process.env.RAZORPAY_KEY_ID = 'rzp_live_forbidden'; expect(() => policy.requireLegalGateway()).toThrow(/test mode/);
+test.each([undefined, 'false'])('legal capabilities stay enabled with legacy switches %s; production and live keys remain blocked', value => {
+  for (const k of ['submissions', 'fulfilment', 'payments', 'refunds']) {
+    const name = `LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`;
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    expect(() => policy.requireLegalFlag(k)).not.toThrow();
+  }
+  expect(() => policy.requireLegalGateway()).not.toThrow();
+  expect(policy.legalFlags().payouts).toBe(false);
+  process.env.RAZORPAY_KEY_ID = 'rzp_live_forbidden'; expect(() => policy.requireLegalGateway()).toThrow(/test mode/);
   process.env.DEPLOYMENT_ENV = 'production'; expect(() => policy.requireLegalFlag('submissions')).toThrow(/release-blocked/); delete process.env.DEPLOYMENT_ENV;
 });
 test('legacy defaults and drafts are excluded; customer DTO contains no administrative metadata', async () => {
@@ -234,10 +240,11 @@ test('provider completion requires full payment, admin verification and bank rec
   expect((await act(a._id, 'release')).success).toBe(true); expect((await act(a._id, 'release')).success).toBe(false);
   await asAdmin(request(app).post(`/a/requests/${a._id}/payout`)).send({}).expect(503);
 });
-test('refund obligation creation does not execute a refund and blocks settlement', async () => {
+test('refund approval does not transfer money; execution works without an environment flag', async () => {
   const a = await paid(); delete process.env.LEGAL_SERVICES_REFUNDS_ENABLED;
   const r = await act(a._id, 'approve_refund', { amount: 1000 }); expect(r.success).toBe(true);
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key: r.data.legal.refunds[0].key }).expect(503); expect(sdk.payments.refund).not.toHaveBeenCalled();
+  expect(sdk.payments.refund).not.toHaveBeenCalled();
+  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key: r.data.legal.refunds[0].key }).expect(200); expect(sdk.payments.refund).toHaveBeenCalledTimes(1);
 });
 test('full/partial refunds use shared recovery, compensate ledger once and cannot exceed capture', async () => {
   const a = await paid(); let r = await act(a._id, 'approve_refund', { amount: 1000 }), key = r.data.legal.refunds[0].key;

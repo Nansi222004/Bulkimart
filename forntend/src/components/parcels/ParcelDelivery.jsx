@@ -7,6 +7,7 @@ import { openRazorpayCheckout } from '../../utils/razorpayCheckout';
 import './parcels.css';
 import CustomerServiceHeading from '../services/CustomerServiceHeading';
 import { parcelBookingEnabled, parcelBookingReady } from './parcelAvailability';
+import ParcelLocationPicker from './ParcelLocationPicker';
 export function ParcelCustomerEntry() {
   const session=useContext(CustomerSessionContext);
   return session?.verified?<ParcelDelivery/>:<section className="parcel-workspace customer-service-page"><CustomerServiceHeading parcel><p>Book a pickup and delivery for your parcel.</p></CustomerServiceHeading><section className="parcel-card customer-service-state"><h2>Sign in to send a parcel</h2><p>Sign in to book a parcel or view your private delivery history.</p><a className="customer-service-action" href="/account">Sign in to Bulkimart</a></section></section>;
@@ -17,14 +18,23 @@ export function ParcelDiscovery({driver=false}) {
   return enabled?<a className="parcel-discovery" href={driver?'/delivery/parcels':'/parcel-delivery'}>{driver?'Parcel Deliveries':'Send a Parcel'}<span>{driver?'Offers and assigned parcel tasks':'Book a pickup and delivery for your own parcel'}</span></a>:null;
 }
 export function ParcelTimeline({events=[]}) {return <ol className="parcel-timeline">{events.map((e,i)=><li key={i}><strong>{label(e.status)}</strong><small>{new Date(e.at).toLocaleString()}</small></li>)}</ol>;}
-function Address({prefix,title,addresses}) {
-  const [value,setValue]=useState({address:'',name:'',phone:'',pincode:'',lat:'',lng:''});
-  return <fieldset><legend>{title}</legend>{addresses.length>0&&<label>Saved address<select defaultValue="" onChange={e=>{const a=addresses.find(x=>x._id===e.target.value);if(a)setValue({address:[a.line1,a.line2,a.city,a.state].filter(Boolean).join(', '),name:a.name||'',phone:a.phone||'',pincode:a.pincode||'',lat:a.lat??'',lng:a.lng??''});}}><option value="">Enter an address</option>{addresses.map(a=><option key={a._id} value={a._id}>{a.label}: {a.line1}</option>)}</select></label>}
-    {['address','name','phone','pincode','lat','lng'].map(k=><label key={k}>{({address:'Street address, city and state',name:'Contact name',phone:'Contact phone',pincode:'Pincode',lat:'Latitude',lng:'Longitude'})[k]}<input required name={`${prefix}.${k}`} value={value[k]} type={['lat','lng'].includes(k)?'number':'text'} step={['lat','lng'].includes(k)?'any':undefined} maxLength={k==='address'?500:k==='name'?100:20} min={k==='lat'?-90:k==='lng'?-180:undefined} max={k==='lat'?90:k==='lng'?180:undefined} onChange={e=>setValue({...value,[k]:e.target.value})}/></label>)}<small>Use your saved map coordinates or enter a map pin manually. Location permission is optional.</small></fieldset>;
+export function ParcelAddress({prefix,title,addresses,onLocationChange}) {
+  const [value,setValue]=useState({address:'',name:'',phone:'',pincode:'',lat:'',lng:''}),[savedId,setSavedId]=useState('');
+  const update=next=>{setValue(next);onLocationChange?.();};
+  return <fieldset><legend>{title}</legend>{addresses.length>0&&<label>Saved address<select value={savedId} onChange={e=>{
+    setSavedId(e.target.value);const a=addresses.find(x=>x._id===e.target.value);
+    update(a?{address:[a.line1,a.line2,a.city,a.state].filter(Boolean).join(', '),name:a.name||'',phone:a.phone||'',pincode:a.pincode||'',lat:a.lat??'',lng:a.lng??''}:{address:'',name:'',phone:'',pincode:'',lat:'',lng:''});
+  }}><option value="">Enter a new address</option>{addresses.map(a=><option key={a._id} value={a._id}>{a.label||a.name}: {a.line1}</option>)}</select></label>}
+    <ParcelLocationPicker key={savedId} value={value} onChange={update} initialQuery={value.address}/>
+    {['address','name','phone','pincode'].map(k=><label key={k}>{({address:'Street address, city and state',name:'Contact name',phone:'Contact phone',pincode:'Pincode'})[k]}<input required name={prefix+'.'+k} value={value[k]} type={k==='phone'?'tel':'text'} inputMode={k==='pincode'?'numeric':undefined} pattern={k==='pincode'?'[0-9]{6}':undefined} maxLength={k==='address'?500:k==='name'?100:k==='pincode'?6:20} onChange={e=>update({...value,[k]:e.target.value})}/></label>)}
+    <input type="hidden" name={prefix+'.lat'} value={value.lat}/><input type="hidden" name={prefix+'.lng'} value={value.lng}/>
+    <small>Search the location or use your current location, then add the house number and contact details.</small>
+  </fieldset>;
 }
 export default function ParcelDelivery() {
   const [path,setPath]=useState(window.location.pathname),[flags,setFlags]=useState({}),[policy,setPolicy]=useState(null),[addresses,setAddresses]=useState([]),[quote,setQuote]=useState(null),[booking,setBooking]=useState(null),[rows,setRows]=useState([]),[page,setPage]=useState(1),[meta,setMeta]=useState({}),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[revision,refresh]=useState(0);
-  const lock=useRef(false),bookKey=useRef(crypto.randomUUID()),paymentKey=useRef(crypto.randomUUID());
+  const quoteGeneration=useRef(0),lock=useRef(false),bookKey=useRef(crypto.randomUUID()),paymentKey=useRef(crypto.randomUUID());
+  const invalidateQuote=()=>{quoteGeneration.current++;setQuote(null);};
   const routePath=path.replace(/\/$/,'');
   const track=/^\/parcel-delivery\/track\/([a-f\d]{24})$/i.exec(routePath)?.[1],history=routePath==='/parcel-delivery/history';
   const invalid=!track&&!history&&!['/parcel-delivery','/parcel-delivery/book'].includes(routePath);
@@ -33,7 +43,7 @@ export default function ParcelDelivery() {
   const nav=p=>{window.history.pushState(null,'',p);setPath(p);};
   useEffect(()=>{const f=()=>setPath(window.location.pathname);window.addEventListener('popstate',f);window.addEventListener('app:locationchange',f);return()=>{window.removeEventListener('popstate',f);window.removeEventListener('app:locationchange',f);};},[]);
   useEffect(()=>{
-    const c=new AbortController();setLoading(true);setReadError('');setError('');setQuote(null);
+    const c=new AbortController();setLoading(true);setReadError('');setError('');invalidateQuote();
     if(invalid){setLoading(false);return()=>c.abort();}
     async function load(){
       if(track||history){
@@ -79,8 +89,8 @@ export default function ParcelDelivery() {
       {!['cancelled','delivered','cancellation_review'].includes(booking.status)&&<form className="parcel-card" onSubmit={e=>{e.preventDefault();action('cancellation',{version:booking.version,reason:new FormData(e.currentTarget).get('reason')});}}><label>Cancellation reason<input name="reason" required maxLength={500}/></label><p>Cancellation and any refund are reviewed under the accepted terms.</p><button disabled={busy}>Request cancellation review</button></form>}<ParcelTimeline events={booking.history}/>
     </>:history?<section className="parcel-card"><h2>Your parcel deliveries</h2>{!rows.length&&<p>No parcel bookings yet.</p>}{rows.map(b=><button className="parcel-row" key={b._id} onClick={()=>nav(`/parcel-delivery/track/${b._id}`)}>{b.reference} · {label(b.status)} · {money(b.feePaise)}</button>)}<button disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span> Page {page} </span><button disabled={page>=meta.pages} onClick={()=>setPage(x=>x+1)}>Next</button></section>:<>
       <section className="parcel-card"><h2>Pickup to doorstep</h2><p>Available in {policy.areas.map(a=>a.name).join(', ')}.</p><p>Maximum weight: {policy.maxWeightKg} kg. Maximum side: {policy.maxDimensionCm} cm.</p><p>Restricted items: {policy.prohibitedItems.join(', ')}.</p></section>
-      <form className="parcel-card" onChange={()=>{if(quote)setQuote(null);}} onSubmit={e=>{e.preventDefault();const input=parcelFormDetails(new FormData(e.currentTarget));run(async()=>{const b=await request('customer','/quotes',{method:'POST',body:JSON.stringify(input)});setQuote(b.data);bookKey.current=crypto.randomUUID();});}}>
-        <div className="parcel-grid"><Address prefix="pickup" title="Pickup" addresses={addresses}/><Address prefix="dropoff" title="Drop-off" addresses={addresses}/></div>
+      <form className="parcel-card" onChange={invalidateQuote} onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget),generation=++quoteGeneration.current;run(async()=>{const input=parcelFormDetails(form);const b=await request('customer','/quotes',{method:'POST',body:JSON.stringify(input)});if(generation!==quoteGeneration.current)return;setQuote(b.data);bookKey.current=crypto.randomUUID();});}}>
+        <div className="parcel-grid"><ParcelAddress prefix="pickup" title="Pickup" addresses={addresses} onLocationChange={invalidateQuote}/><ParcelAddress prefix="dropoff" title="Drop-off" addresses={addresses} onLocationChange={invalidateQuote}/></div>
         <label>Parcel category<select name="category" required>{policy.categories.map(c=><option key={c}>{c}</option>)}</select></label><label>Parcel description<textarea required name="description" maxLength={500}/></label><label>Weight (kg)<input type="number" step="0.01" min="0.01" max={policy.maxWeightKg} required name="weightKg"/></label><div className="parcel-grid">{['length','width','height'].map(k=><label key={k}>{label(k)} (cm)<input type="number" step="0.1" min="0.1" max={policy.maxDimensionCm} required name={k}/></label>)}</div><label>Pickup instructions<textarea name="instructions" maxLength={500}/></label><label><input type="checkbox" required name="restrictions"/>My parcel meets the listed restrictions and limits.</label><button disabled={busy||!policy.ready}>Calculate delivery fee</button>
       </form>
       {quote&&<form className="parcel-card" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);run(async()=>{const b=await request('customer','/bookings',{method:'POST',headers:{'Idempotency-Key':bookKey.current},body:JSON.stringify({quoteId:quote._id,policyVersion:quote.pricing.policyVersion,paymentMethod:f.get('paymentMethod'),acceptTerms:f.get('terms')==='on'})});nav(`/parcel-delivery/track/${b.data._id}`);});}}><h2>Delivery fee {money(quote.pricing.totalPaise)}</h2><dl><dt>Base fee</dt><dd>{money(quote.pricing.basePaise)}</dd><dt>Distance fee</dt><dd>{money(quote.pricing.distancePaise)}</dd>{quote.pricing.minimumAdjustmentPaise>0&&<><dt>Minimum fare adjustment</dt><dd>{money(quote.pricing.minimumAdjustmentPaise)}</dd></>}<dt>Included tax</dt><dd>{money(quote.pricing.taxPaise)}</dd></dl><p>{(quote.pricing.distanceMetres/1000).toFixed(2)} km · Valid until {new Date(quote.expiresAt).toLocaleTimeString()}</p><p>{quote.terms}</p><label>Payment method<select name="paymentMethod" required>{flags.online_payment&&<option value="online">Pay online with Razorpay</option>}{flags.pay_driver&&policy.payDriverEnabled&&policy.payDriverCategories.includes(quote.details.category)&&<option value="pay_driver">Pay driver at delivery — {money(quote.pricing.totalPaise)}</option>}</select></label><p>Pay-driver bookings require the exact fee at delivery. A driver’s collection remains pending reconciliation.</p><label><input type="checkbox" required name="terms"/>I accept these payment, cancellation and delivery terms.</label><button disabled={busy||new Date(quote.expiresAt)<=new Date()}>Confirm parcel booking</button></form>}

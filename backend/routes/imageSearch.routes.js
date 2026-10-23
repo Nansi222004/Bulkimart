@@ -15,7 +15,6 @@ export function imageSearchRouter() {
   router.get('/config', (_req, res) => ok(res, { enabled: imageSearchEnabled(), maxBytes, mode: 'visual-fingerprint-v1' }));
   // Search remains public, just like text search. Supplied sessions must be valid.
   router.post('/', (req, res, next) => req.headers.authorization ? protect(req, res, next) : next(), uploads.limiter,
-    (_req, _res, next) => { if (!imageSearchEnabled()) throw httpError(503, 'Image search is not enabled. Ask the administrator to enable IMAGE_SEARCH_ENABLED and build the catalogue index.'); next(); },
     uploads.handle(async (req, res) => {
       if (req.files.length !== 1 || req.files[0].fieldname !== 'image') throw httpError(400, 'Choose one image to search.');
       const type = req.query.type || 'grocery', page = Number(req.query.page || 1), limit = Number(req.query.limit || 20);

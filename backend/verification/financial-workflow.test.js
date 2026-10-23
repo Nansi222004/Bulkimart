@@ -45,7 +45,7 @@ const id = () => new mongoose.Types.ObjectId();
 const ruleInput = () => ({ vendorType: 'general', channel: 'quick', method: 'percentage', value: 10,
   minimum: null, maximum: null, base: 'eligible_item_subtotal', fixedScope: 'order_item',
   taxTreatment: 'exempt', taxRate: 0, effectiveDate: '2020-01-01T00:00:00Z', isActive: true, reason: 'Synthetic fixture policy only' });
-const enable = () => { process.env.FINANCE_OPERATIONS_ENABLED = 'true'; process.env.FINANCE_PAYOUTS_ENABLED = 'true'; process.env.FINANCE_POLICY_APPROVAL_REFERENCE = 'TEST-POLICY'; process.env.FINANCE_E2E_APPROVAL_REFERENCE = 'TEST-E2E'; };
+const enable = () => { process.env.FINANCE_POLICY_APPROVAL_REFERENCE = 'TEST-POLICY'; process.env.FINANCE_E2E_APPROVAL_REFERENCE = 'TEST-E2E'; };
 let db, user, rider, admin, seller, product, partner, order, payment, delivery;
 const bearer = (who, type = 'user', role = 'delivery') => `Bearer ${jwt.sign({ id: String(who._id), type, ...(type === 'user' ? { role } : {}) }, JWT_SECRET)}`;
 const cod = (action, amount = 100, extra = {}) => recordCodEvent({ orderId: order._id, partnerId: partner._id, actorId: action === 'verify' ? admin._id : rider._id, action,
@@ -71,7 +71,6 @@ beforeEach(async () => {
   partner = await Partner.create({ userId: rider._id, status: 'approved', bankDetails: { upiId: 'fixture@test' } });
   await saveCommissionVersion(ruleInput(), admin._id);
   payment = await Payment.create({ userId: user._id, amount: 100, method: 'cod', status: 'pending' });
-  process.env.FINANCE_SNAPSHOTS_ENABLED = 'true';
   order = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId, sellerId, type: 'grocery', name: 'Fixture', qty: 2, price: 50, deliveredAt: new Date('2020-01-01') }],
     paymentMethod: 'cod', paymentId: payment._id, status: 'delivered', pricing: { subtotal: 100, totalAmount: 100 } });
   delete process.env.FINANCE_SNAPSHOTS_ENABLED;
@@ -80,7 +79,7 @@ beforeEach(async () => {
   await Order.updateOne({ _id: order._id }, { $set: { deliveryId: delivery._id, deliveryPartnerId: partner._id } }); order = await queryOrder();
 });
 
-test('all new money operations default disabled even when snapshots exist', async () => {
+test('money operations still require approval even when snapshots exist', async () => {
   expect(() => requireFinanceOperation()).toThrow(/disabled/);
   await expect(cod('collect')).rejects.toMatchObject({ status: 503 });
   expect((await Payment.findById(payment._id)).status).toBe('pending'); expect(await Ledger.countDocuments()).toBe(0);
@@ -136,8 +135,8 @@ test('legacy coupon alias is normalized without a write; platform funds the disc
   expect(await Ledger.countDocuments()).toBe(0);
 });
 
-test('feature flag alone cannot bypass policy and end-to-end approval', () => {
-  process.env.FINANCE_OPERATIONS_ENABLED = 'true'; expect(() => requireFinanceOperation()).toThrow(/disabled/);
+test('policy and end-to-end approvals remain mandatory', () => {
+  expect(() => requireFinanceOperation()).toThrow(/disabled/);
   process.env.FINANCE_POLICY_APPROVAL_REFERENCE = 'TEST'; expect(() => requireFinanceOperation()).toThrow(/disabled/);
 });
 test.each([
@@ -718,7 +717,6 @@ const setPolicy = async changes => saveFinancePolicy({ ...policyInput(changes), 
 const discountedCodOrder = async () => {
   await Payment.updateOne({ _id: payment._id }, { $set: { amount: 90 } });
   await Order.collection.deleteOne({ _id: order._id });
-  process.env.FINANCE_SNAPSHOTS_ENABLED = 'true';
   order = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId: product._id, sellerId: seller._id, type: 'grocery', name: 'Fixture', qty: 2, price: 50, deliveredAt: new Date('2020-01-01') }],
     paymentMethod: 'cod', paymentId: payment._id, status: 'delivered', deliveryId: delivery._id, deliveryPartnerId: partner._id,
     pricing: { discountRepresentation: 'components-v1', subtotal: 100, couponDiscount: 10, totalAmount: 90 } });

@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import path from 'node:path';
 import { httpError } from '../utils/response.js';
 export const IMAGE_INDEX_VERSION = 1;
-export const imageSearchEnabled = () => process.env.IMAGE_SEARCH_ENABLED === 'true';
+export const imageSearchEnabled = () => true;
 export function imageSearchMaxBytes() {
   const value = Number(process.env.IMAGE_SEARCH_MAX_BYTES || 5 * 1024 * 1024);
   if (!Number.isSafeInteger(value) || value < 1024 || value > 10 * 1024 * 1024) throw httpError(503, 'Image search upload configuration is invalid.');

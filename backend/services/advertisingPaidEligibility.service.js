@@ -1,7 +1,7 @@
 import Payment from '../models/Payment.js';
 import Package from '../models/PromotionPackage.js';
 import { advertisingBillingEnabled, advertisingProduction, adCharge } from './advertisingBillingPolicy.service.js';
-export const paidAdvertisingEnabled = () => advertisingBillingEnabled()&&process.env.ADVERTISING_PAID_DELIVERY_ENABLED==='true'
+export const paidAdvertisingEnabled = () => advertisingBillingEnabled()
   &&process.env.RAZORPAY_MODE===(advertisingProduction()?'live':'test');
 export async function paidAdvertisingEligible(c) {
   const a=c.advertising,now=new Date();

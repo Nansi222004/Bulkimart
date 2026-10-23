@@ -5,9 +5,8 @@ import { advertisingPilotCapabilities } from './advertisingPolicy.service.js';
 import { validateAdvertisingSelection } from './advertisingEligibility.service.js';
 import { httpError } from '../utils/response.js';
 export function advertisingTelemetryConfig() {
-  const retentionDays=Number(process.env.ADVERTISING_EVENT_RETENTION_DAYS);
-  return {enabled:process.env.ADVERTISING_MANAGEMENT_ENABLED==='true'&&process.env.ADVERTISING_TELEMETRY_ENABLED==='true'
-    &&typeof process.env.ADVERTISING_TOKEN_SECRET==='string'&&process.env.ADVERTISING_TOKEN_SECRET.length>=32
+  const retentionDays=Number(process.env.ADVERTISING_EVENT_RETENTION_DAYS || 30);
+  return {enabled:typeof process.env.ADVERTISING_TOKEN_SECRET==='string'&&process.env.ADVERTISING_TOKEN_SECRET.length>=32
     &&Number.isSafeInteger(retentionDays)&&retentionDays>=1&&retentionDays<=365,
   retentionDays,viewabilityRatio:0.5,viewabilityMs:1000};
 }

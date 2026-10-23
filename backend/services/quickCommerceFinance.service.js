@@ -27,7 +27,6 @@ export const getQuickCommerceConfig = async () => {
   const blockers = pendingPolicies(config);
   if (getPaymentGateway() !== 'razorpay') blockers.push('Existing Razorpay payment gateway must be configured');
   try { validateRazorpayConfig(); } catch { blockers.push('Razorpay configuration and verified webhook setup'); }
-  if (process.env.QUICK_SHIPROCKET_SELLER_COLLECTION_ENABLED !== 'true') blockers.push('Seller collection feature flag and provider/reconciliation approval');
   try { validateServiceFeeConfiguration(config); } catch (error) { blockers.push(error.message); }
   if (!config?.effectiveAt || new Date(config.effectiveAt) > new Date()) blockers.push('Effective date has not been reached');
   if (config?.paymentRequired !== true) blockers.push('Approved postpaid seller collection is not implemented');
@@ -76,7 +75,7 @@ export const saveQuickCommerceDraft = async ({ fee, adminId, enabled, currency, 
   if (next.enabled) {
     const state = await getQuickCommerceConfig();
     // Policy approval is deliberately separate from this fee editor.
-    if (process.env.QUICK_SHIPROCKET_SELLER_COLLECTION_ENABLED !== 'true' || pendingPolicies({ ...current, fee }).length || !state.provider.configured || !state.provider.quickCommerce || paymentRequired !== true || new Date(effectiveAt) > new Date()) throw httpError(409, 'Live activation requires approved policies, provider/reconciliation checks, the feature flag and an effective prepaid fee rule');
+    if (pendingPolicies({ ...current, fee }).length || !state.provider.configured || !state.provider.quickCommerce || paymentRequired !== true || new Date(effectiveAt) > new Date()) throw httpError(409, 'Live activation requires approved policies, provider/reconciliation checks and an effective prepaid fee rule');
   }
   const updated = await QuickCommerceDeliveryConfig.findOneAndUpdate(
     current ? { _id: current._id, revision: current.revision == null ? { $exists: false } : current.revision } : { key: 'quick_third_party', revision: { $exists: false } },

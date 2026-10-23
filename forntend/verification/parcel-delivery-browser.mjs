@@ -24,6 +24,7 @@ const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""',
     if(p==='/api/customer-services/capabilities')return reply(res,{catalogue:true});
     if(p==='/api/customer-services')return reply(res,[{_id:id}]);
     if(p==='/api/users/addresses')return reply(res,[]);
+    if(p==='/api/geo/forward')return reply(res,{lat:12.97,lng:77.59,matched:'Synthetic test street, Bengaluru 560001',precision:'ROOFTOP'});
     if(p==='/api/admin/parcel-delivery/policy')return reply(res,null);
     if(p==='/api/parcel-delivery/quotes'){lastQuote=input;return reply(res,{_id:qid,expiresAt:new Date(Date.now()+300000),details:input,pricing:{policyVersion:1,totalPaise:2040,distanceMetres:5200},terms:policy.terms},201);}
     if(p==='/api/parcel-delivery/bookings'&&write){b={...fresh(),paymentMethod:input.paymentMethod,paymentStatus:input.paymentMethod==='online'?'pending':'cash_due',status:input.paymentMethod==='online'?'payment_pending':'searching_for_driver'};return reply(res,b,201);}
@@ -78,13 +79,20 @@ try{
   for(const width of [320,375,430,768,1440]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<768});
     b=fresh();for(const [path,text] of [['/parcel-delivery/book','Calculate delivery fee'],['/parcel-delivery/history','PD-BROWSER-FIXTURE'],[`/parcel-delivery/track/${id}`,'needs admin assignment'],['/delivery/parcels','PD-BROWSER-FIXTURE'],['/admin/parcel-delivery','PD-BROWSER-FIXTURE']]){await navigate(path);await waitText(text);assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true,`Overflow ${width} ${path}`);views.push({width,path});
-      if(path==='/admin/parcel-delivery'){await click('PD-BROWSER-FIXTURE');await waitText('Manual assignment');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/detail'});await click('Fare and assignment policy');await waitText('Save approved policy version');assert.equal(await evaluate(`document.querySelector('[name=basePaise]').value`),'');await click('Add service area');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/policy'});}
+      if(path==='/admin/parcel-delivery'){await click('PD-BROWSER-FIXTURE');await waitText('Manual assignment');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/detail'});await click('Fare and driver settings');await waitText('Save parcel settings');assert.equal(await evaluate(`document.querySelector('[name=basePaise]').value`),'');await click('Add service area');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/policy'});}
     }
   }
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
   for(const method of ['online','pay_driver']){
     await navigate('/parcel-delivery/book');await waitText('Calculate delivery fee');
-    for(const prefix of ['pickup','dropoff'])for(const [key,value]of Object.entries(address))await field(`${prefix}.${key}`,String(value));
+    assert.equal(await evaluate(`[...document.querySelectorAll('input')].some(el=>el.type!=='hidden'&&/\\.(lat|lng)$/.test(el.name))`),false,'Coordinates are never entered by the customer');
+    for(const prefix of ['pickup','dropoff']){
+      await evaluate(`(()=>{const fieldset=document.querySelector('[name="${prefix}.address"]').closest('fieldset');const input=fieldset.querySelector('.parcel-location-picker input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Test street Bengaluru');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await evaluate(`[...document.querySelector('[name="${prefix}.address"]').closest('fieldset').querySelectorAll('button')].find(b=>b.textContent==='Find address').click()`);
+      await waitText('Use this location');
+      await evaluate(`[...document.querySelector('[name="${prefix}.address"]').closest('fieldset').querySelectorAll('button')].find(b=>b.textContent==='Use this location').click()`);
+      for(const [key,value]of Object.entries(address).filter(([key])=>!['lat','lng'].includes(key)))await field(`${prefix}.${key}`,String(value));
+    }
     for(const [key,value]of Object.entries({description:'Synthetic parcel',weightKg:'1',length:'10',width:'10',height:'10'}))await field(key,value);
     await evaluate(`document.querySelector('[name=restrictions]').click()`);await click('Calculate delivery fee');await waitText('Delivery fee ₹20.40');assert.equal(lastQuote.weightKg,1);assert.equal(lastQuote.pickup.lat,12.97);await field('paymentMethod',method);await evaluate(`document.querySelector('[name=terms]').click()`);await click('Confirm parcel booking');await waitText('PD-BROWSER-FIXTURE');
     if(method==='online'){await waitText('payment pending');await click('Pay ₹20.40 online');await waitText('searching for driver');assert.equal(verifications,1);assert.equal(b.paymentStatus,'paid');}

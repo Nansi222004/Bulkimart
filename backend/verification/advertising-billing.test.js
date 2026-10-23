@@ -31,7 +31,7 @@ async function paid(){const order=await checkout();capture(order.checkout.razorp
 const webhook=(p,event='payment.captured',id='evt_synthetic1')=>{const body={event,payload:{payment:{entity:p}}},raw=JSON.stringify(body);return request(app).post('/webhook').set('x-razorpay-event-id',id).set('x-razorpay-signature',crypto.createHmac('sha256',process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex')).set('Content-Type','application/json').send(raw);};
 beforeAll(async()=>{db=await MongoMemoryReplSet.create({binary:{version:'7.0.14'},replSet:{count:1}});await mongoose.connect(db.getUri('advertising-billing-isolated'));for(const model of [User,Seller,Admin,Category,Product,Promotion,Package,Payment,Ledger,Receipt,Event])await model.init();});
 beforeEach(async()=>{
-  Object.assign(process.env,{ADVERTISING_MANAGEMENT_ENABLED:'true',ADVERTISING_BILLING_ENABLED:'true',ADVERTISING_PAID_DELIVERY_ENABLED:'true',ADVERTISING_REFUNDS_ENABLED:'true',ADVERTISING_CHECKOUT_TTL_SECONDS:'600',PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_TELEMETRY_ENABLED:'true',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
+  Object.assign(process.env,{ADVERTISING_CHECKOUT_TTL_SECONDS:'600',PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
   delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;delete process.env.ADVERTISING_PRODUCTION_ENABLED;
   for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});orders.clear();payments.clear();refunds.clear();orderCalls=0;refundCalls=0;creationUnknown=false;refundUnknown=false;
   app=express();app.use(express.json({verify:(req,_res,buffer)=>{req.rawBody=buffer;}}));app.use('/seller',advertisingRouter());app.use('/admin',advertisingRouter(true));app.use('/public',advertisingPublicRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
@@ -211,30 +211,32 @@ test('refund after completed revenue recognition reverses revenue rather than ov
   expect(liability.reduce((sum,e)=>sum+(e.direction==='credit'?1:-1)*Math.round(e.amount*100),0)).toBe(0);
 });
 
-test('signed event expiry, placement/product/revision bindings and disabled flags reject fabricated events',async()=>{
+test('signed event bindings reject fabrication; legacy telemetry flags cannot disable valid events',async()=>{
   await paid();await Promotion.updateOne({_id:campaign.id},{$set:{'advertising.paid.startAt':new Date(Date.now()-1000)}});
   const c=await Promotion.findById(campaign.id).lean(),token=telemetry.advertisingServeToken(c,c.advertising.items[0],'PAID_CATEGORY',c.advertising.paid.endAt);
   const base=JSON.parse(Buffer.from(token.split('.')[0],'base64url').toString());
   const signed=extra=>{const payload=Buffer.from(JSON.stringify({...base,...extra})).toString('base64url');return `${payload}.${crypto.createHmac('sha256',process.env.ADVERTISING_TOKEN_SECRET).update(payload).digest('base64url')}`;};
   for(const [changes,status]of [[{exp:0},400],[{placement:'SEARCH'},400],[{p:String(new mongoose.Types.ObjectId())},409],[{r:999},409],[{m:'CPC'},400]])await request(app).post('/public/events').send({token:signed(changes),type:'CLICK'}).expect(status);
-  process.env.ADVERTISING_TELEMETRY_ENABLED='false';await request(app).post('/public/events').send({token,type:'CLICK'}).expect(503);
   expect(await Event.countDocuments()).toBe(0);
+  process.env.ADVERTISING_TELEMETRY_ENABLED='false';await request(app).post('/public/events').send({token,type:'CLICK'}).expect(200);
+  expect(await Event.countDocuments()).toBe(1);
 });
 
 test('pilot events remain non-billable and never authorize paid funding',async()=>{
-  process.env.ADVERTISING_CATEGORY_PILOT_ENABLED='true';
   await Promotion.updateOne({_id:campaign.id},{$set:{'advertising.pilot':{enabled:true,revision:1,authorizedBy:admin._id,authorizedAt:new Date(),startAt:new Date(Date.now()-1000),endAt:new Date(Date.now()+60000)}}});
   const c=await Promotion.findById(campaign.id).lean(),token=telemetry.advertisingServeToken(c,c.advertising.items[0],'NON_BILLABLE_PILOT',c.advertising.pilot.endAt);
   await request(app).post('/public/events').send({token,type:'IMPRESSION'}).expect(200);await init().expect(409);
   expect((await Event.findOne()).mode).toBe('NON_BILLABLE_PILOT');expect(await Payment.countDocuments()).toBe(0);expect(await Ledger.countDocuments()).toBe(0);
 });
 
-test('finance evidence remains accessible after shutdown while new billing and delivery stay disabled',async()=>{
+test('legacy management flags cannot disable finance access; refunds still stop delivery',async()=>{
   await paid();process.env.ADVERTISING_MANAGEMENT_ENABLED='false';
   await auth(request(app).get('/admin/finance'),admin,'admin').expect(200);
   await adminPost(`/campaigns/${campaign.id}/reconcile`,{}).expect(200);
-  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'shutdown-refund-key-0001',amountPaise:10500,reason:'Approved interruption refund after shutdown'}).expect(200);
-  await init().expect(503);expect((await request(app).get('/public/placements').query({type:'ecommerce',category:String(category._id)})).body.data).toEqual([]);
+  const row=await Promotion.findById(campaign.id);
+  await adminPost(`/campaigns/${campaign.id}/cancel`,{version:row.__v,reason:'Approved cancellation'}).expect(200);
+  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'cancelled-refund-key-0001',amountPaise:10500,reason:'Approved refund after cancellation'}).expect(200);
+  await init().expect(409);expect((await request(app).get('/public/placements').query({type:'ecommerce',category:String(category._id)})).body.data).toEqual([]);
 });
 
 test('capture already refunded at the provider cannot activate service even before its refund webhook arrives',async()=>{

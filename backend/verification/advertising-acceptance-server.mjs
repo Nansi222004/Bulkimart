@@ -3,9 +3,8 @@
 import crypto from 'node:crypto';
 if(process.env.NODE_ENV!=='test'||process.env.MONGO_URI||process.env.MONGODB_URI||process.env.RAZORPAY_KEY_SECRET)throw Error('Acceptance fixture requires a sanitized test environment');
 Object.assign(process.env,{JWT_SECRET:crypto.randomBytes(32).toString('hex'),
-  ADVERTISING_MANAGEMENT_ENABLED:'true',ADVERTISING_CATEGORY_PILOT_ENABLED:'true',
-  ADVERTISING_BILLING_ENABLED:'false',ADVERTISING_PAID_DELIVERY_ENABLED:'false',ADVERTISING_REFUNDS_ENABLED:'false',ADVERTISING_PRODUCTION_ENABLED:'false',
-  ADVERTISING_TELEMETRY_ENABLED:'true',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:crypto.randomBytes(32).toString('hex'),
+  ADVERTISING_PRODUCTION_ENABLED:'false',
+  ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:crypto.randomBytes(32).toString('hex'),
   PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test'});
 const [{default:mongoose},{MongoMemoryReplSet},{default:express},{signSessionToken},
   {advertisingRouter},{advertisingPublicRouter},{errorHandler},

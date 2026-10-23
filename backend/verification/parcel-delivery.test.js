@@ -32,7 +32,7 @@ beforeEach(async()=>{
   for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});
   orders.clear();payments.clear();refunds.clear();uncertain=false;routeAvailable=true;refundUnknown=false;jest.clearAllMocks();
   process.env.PAYMENT_GATEWAY='razorpay';process.env.RAZORPAY_MODE='test';process.env.RAZORPAY_KEY_ID='rzp_test_parcel_isolated';process.env.RAZORPAY_KEY_SECRET='isolated-secret';process.env.RAZORPAY_WEBHOOK_SECRET='isolated-webhook';delete process.env.DEPLOYMENT_ENV;process.env.NODE_ENV='test';
-  for(const k of policy.flagNames)process.env[`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`]='true';
+  for(const k of policy.flagNames)delete process.env[`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`];
   [customer,other,driver,driver2]=await User.create([{phone:'9876500011',roles:['buyer']},{phone:'9876500012',roles:['buyer']},{phone:'9876500013',roles:['delivery']},{phone:'9876500014',roles:['delivery']}]);
   [partner,partner2]=await Partner.create([driver,driver2].map((u,i)=>({userId:u._id,status:'approved',isAvailable:true,zones:['560001'],currentLocation:{lat:12.97+i*.001,lng:77.59,updatedAt:new Date()}})));
   const ids=[0,1,2].map(()=>new mongoose.Types.ObjectId());await Admin.collection.insertMany(ids.map((id,i)=>({_id:id,email:`parcel-${i}@example.test`,name:'Synthetic admin',password:'synthetic',role:i===0?'superAdmin':'admin',permissions:i===2?['manage_orders']:[],isActive:true})));
@@ -53,9 +53,12 @@ async function webhook(body,valid=true){const raw=JSON.stringify(body),signature
 async function paid(){const b=await booking('online'),c=await checkout(b);capture(c);expect((await verify(b,c)).status).toBe(200);await assignment.assignParcel(b._id);return adminDetail(b._id);}
 async function toDrop(b){await accept(b);await dact(b,'driver_arriving');await dact(b,'arrived_at_pickup');await dact(b,'pickup_code');const customerView=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;await dact(b,'verify_pickup',{code:customerView.pickupCode});await dact(b,'in_transit');await dact(b,'arrived_at_dropoff');}
 
-test('all parcel flags default off and production blocks even with enabled flags and valid test keys',()=>{
-  for(const k of policy.flagNames)delete process.env[`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`];expect(Object.values(policy.parcelFlags()).every(x=>x===false)).toBe(true);expect(()=>policy.requireParcel('booking')).toThrow(/not enabled/);
-  process.env.PARCEL_DELIVERY_BOOKING_ENABLED='true';process.env.DEPLOYMENT_ENV='production';expect(()=>policy.requireParcel('booking')).toThrow(/release-blocked/);
+test.each([undefined,'false'])('parcel capabilities stay enabled with legacy switches %s; production remains blocked',value=>{
+  for(const k of policy.flagNames){const name=`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`;if(value===undefined)delete process.env[name];else process.env[name]=value;}
+  expect(Object.values(policy.parcelFlags()).every(x=>x===true)).toBe(true);
+  for(const k of policy.flagNames)expect(()=>policy.requireParcel(k)).not.toThrow();
+  expect(()=>policy.requireParcelGateway()).not.toThrow();
+  process.env.DEPLOYMENT_ENV='production';expect(()=>policy.requireParcel('booking')).toThrow(/release-blocked/);
 });
 test('live gateway keys cannot execute parcel payments',()=>{process.env.RAZORPAY_KEY_ID='rzp_live_forbidden';expect(()=>policy.requireParcelGateway()).toThrow(/test mode/);});
 test('policy requires explicit approved values and rejects unsupported tax, surcharge and cash combinations',()=>{
@@ -233,7 +236,7 @@ app.post('/shopping/:id/accept',protect,requireApprovedPartner,acceptOrder);
 app.post('/shopping/:id/manual',protect,requireAdmin,assignDeliveryPartner);app.use(errorHandler);
 async function shoppingFixture(){
   const sellerId=new mongoose.Types.ObjectId();await Seller.collection.insertOne({_id:sellerId,userId:new mongoose.Types.ObjectId(),businessName:'Synthetic shop',storeDetails:{name:'Fixture store',address:'Synthetic pickup',city:'Fixture',pincode:'560001',lat:12.97,lng:77.59}});
-  return Order.create({userId:customer._id,type:'grocery',paymentMethod:'cod',deliveryType:'internal',status:'dispatched',items:[{sellerId,productId:new mongoose.Types.ObjectId(),name:'Fixture product',qty:1,price:10}],shippingAddress:{name:'Fixture recipient',phone:'9876500011',line1:'Synthetic dropoff',city:'Fixture',pincode:'560001',lat:12.98,lng:77.60},pricing:{totalAmount:10}});
+  return Order.create({userId:customer._id,type:'grocery',paymentMethod:'cod',deliveryType:'internal',status:'dispatched',items:[{sellerId,productId:new mongoose.Types.ObjectId(),name:'Fixture product',qty:1,price:10}],shippingAddress:{name:'Fixture recipient',phone:'9876500011',line1:'Synthetic dropoff',city:'Fixture',pincode:'560001',lat:12.98,lng:77.60},pricing:{subtotal:10,totalAmount:10}});
 }
 async function pendingPaidParcel(){const b=await booking('online'),c=await checkout(b);capture(c);await verify(b,c);return b;}
 async function assertSingleProduct(partnerId){

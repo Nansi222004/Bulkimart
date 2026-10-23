@@ -3,7 +3,7 @@ import { httpError } from '../utils/response.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
 export const failParcel = (message, status = 400) => { throw httpError(status, message); };
 export const flagNames = ['catalogue', 'booking', 'online_payment', 'pay_driver', 'auto_assignment', 'admin_fallback', 'fulfilment', 'refunds'];
-export const parcelFlags = () => Object.fromEntries(flagNames.map(k => [k, process.env[`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`] === 'true']));
+export const parcelFlags = () => Object.fromEntries(flagNames.map(k => [k, true]));
 export const productionParcel = () => ['production','prod','deployment-production'].includes(String(process.env.NODE_ENV).trim().toLowerCase()) || ['production','prod','deployment-production'].includes(String(process.env.DEPLOYMENT_ENV).trim().toLowerCase());
 export function requireParcel(kind) {
   if (!parcelFlags()[kind]) failParcel('Parcel capability is not enabled', 503);
@@ -31,7 +31,7 @@ const strings = (v, label) => {
 export function validateParcelPolicy(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) failParcel('An explicit policy object is required');
   const c = {};
-  c.approvalReference = boundedText(input.approvalReference, 'Approval reference');
+  c.approvalReference = boundedText(input.approvalReference, 'Policy note');
   c.terms = boundedText(input.terms, 'Customer cancellation, prohibited parcel and failure terms', 10000);
   c.effectiveAt = new Date(input.effectiveAt);
   if (!Number.isFinite(c.effectiveAt.getTime())) failParcel('Effective date required');
