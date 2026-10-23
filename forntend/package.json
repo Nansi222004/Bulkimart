@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:storefront": "node --test verification/storefront-ui.test.mjs",
+    "test:storefront-browser": "npm run build && node verification/storefront-browser.mjs",
     "test:financial-workflow": "node --test verification/financial-workflow-ui.test.mjs",
     "test:financial-browser": "node verification/financial-workflow-browser.mjs",
     "test:payment-overlays": "node --test verification/razorpay-overlay.test.mjs verification/payment-ui.test.mjs",

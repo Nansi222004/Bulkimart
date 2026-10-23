@@ -13,19 +13,17 @@ const ObjectId = Schema.Types.ObjectId;
  *
  * `type` + `category` are the existing, working slot-scoping mechanism —
  * which storefront (Quick/Shop All/SHG) and which sub-nav tab a banner
- * shows under. Unchanged; still what HeroBanner.jsx queries by.
+ * shows under. The storefront resolver preserves these legacy scopes.
  *
- * `placement` is new, purely for the vocabulary the admin screen now
- * uses. Only 'HOME_HERO' is real today — that's the only slot any
- * frontend component actually renders. Kept as an enum (not a free
- * string) so a genuinely new placement can't be saved without a
- * frontend consumer already built for it.
+ * HOME_HERO participates in the normal carousel. STUDIO artwork appears
+ * only when referenced by a published StorefrontExperience campaign or
+ * section (hero, splash, announcement, or collection artwork).
  *
  * `actionType` + targets replace ad-hoc `targetRoute` string-parsing for
  * every banner created from here on. `targetRoute` is kept, unvalidated,
  * purely so the four seeded banners (seed/data/banners.js) and anything
- * else predating this still resolve exactly as before — HeroBanner falls
- * back to it only when actionType is absent or 'NONE' with no route.
+ * else predating this retain supported navigation through the resolver's
+ * closed route map when there is no explicit action target.
  *
  * CAMPAIGN is now real: a Banner may point at a Campaign id, but the
  * discount/eligibility/pricing logic all still lives on Campaign and
@@ -42,12 +40,16 @@ const bannerSchema = new Schema(
     title:    String,
     subtitle: String,
     image:    { type: String, required: true }, // Cloudinary URL
+    mobileImage: String,
+    video: String,
+    cta: { type: String, maxlength: 60 },
+    isArchived: { type: Boolean, default: false },
 
     // Existing slot-scoping — unchanged.
     type:     { type: String, enum: BANNER_TYPES, required: true },
     category: { type: String, default: 'home' },
 
-    placement: { type: String, enum: ['HOME_HERO'], default: 'HOME_HERO' },
+    placement: { type: String, enum: ['HOME_HERO', 'STUDIO'], default: 'HOME_HERO' },
 
     actionType: { type: String, enum: ACTION_TYPES, default: 'NONE' },
     targetCategory: { type: ObjectId, ref: 'Category' },

@@ -1,5 +1,25 @@
 import { useEffect, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { boundedFetch } from '../../../utils/portalRequests';
+
+const catalogRequests = new Map();
+// Share identical public catalog requests across merchandising sections.
+export async function readCatalog(url, fresh = false) {
+  const existing = catalogRequests.get(url);
+  if (existing && (!fresh || !existing.done) && (!existing.done || existing.until > Date.now())) return existing.promise;
+  const entry = { done: false, until: 0 };
+  entry.promise = boundedFetch(url).then(async res => {
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message || `Products unavailable (${res.status})`);
+    const rows = body.products || body.data;
+    if (!Array.isArray(rows)) throw new Error('Products returned an invalid response');
+    entry.done = true; entry.until = Date.now() + 15000;
+    return rows.map(normalizeProduct);
+  }).catch(error => { if (catalogRequests.get(url) === entry) catalogRequests.delete(url); throw error; });
+  catalogRequests.set(url, entry);
+  if (catalogRequests.size > 50) catalogRequests.delete(catalogRequests.keys().next().value);
+  return entry.promise;
+}
 
 /**
  * Real product data for the customer app.
@@ -63,7 +83,7 @@ export const normalizeProduct = (p) => ({
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products
  */
-export const useProducts = ({ type, category, limit = 12, featured, lat, lng, enabled = true } = {}) => {
+export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, enabled = true } = {}) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,18 +101,14 @@ export const useProducts = ({ type, category, limit = 12, featured, lat, lng, en
         if (type) qs.set('type', type);
         if (category) qs.set('category', category);
         if (featured) qs.set('isFeatured', 'true');
+        if (maxPrice !== undefined) qs.set('maxPrice', String(maxPrice));
         if (lat !== undefined && lat !== null) qs.set('lat', String(lat));
         if (lng !== undefined && lng !== null) qs.set('lng', String(lng));
         qs.set('limit', String(limit));
 
-        const res = await fetch(apiUrl(`/api/products?${qs.toString()}`));
-        const body = await res.json().catch(() => ({}));
+        const rows = await readCatalog(apiUrl(`/api/products?${qs.toString()}`), retryToken > 0);
         if (cancelled) return;
-        if (!res.ok) throw new Error(body.message || `Products unavailable (${res.status})`);
-
-        // /api/products answers { success, total, page, limit, products }
-        const rows = body.products || body.data || [];
-        setProducts(rows.map(normalizeProduct));
+        setProducts(rows);
       } catch (err) {
         if (!cancelled) { setError(err.message); setProducts([]); }
       } finally {
@@ -101,7 +117,7 @@ export const useProducts = ({ type, category, limit = 12, featured, lat, lng, en
     })();
 
     return () => { cancelled = true; };
-  }, [type, category, limit, featured, lat, lng, retryToken, enabled]);
+  }, [type, category, limit, featured, maxPrice, lat, lng, retryToken, enabled]);
 
   const retry = () => setRetryToken((value) => value + 1);
 

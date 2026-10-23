@@ -81,17 +81,10 @@ export const ElectronicsSection = () => {
     return productSolarCharger;
   };
 
-  const getCategoryPriceInfo = (cat) => {
-    const name = String(cat.name || '').toLowerCase();
-    if (name.includes('smartphone') || name.includes('phone')) return 'From ₹552/month*';
-    if (name.includes('accessory')) return 'Upto 80% Off';
-    if (name.includes('juicer') || name.includes('blender') || name.includes('appliance')) return 'From ₹499';
-    return 'From ₹299';
-  };
+  const getCategoryPriceInfo = () => 'Explore collection';
 
   const handleCategoryClick = (cat) => {
     setSelectedCategoryFilter(cat);
-    setActiveNav('categories');
   };
 
   return (

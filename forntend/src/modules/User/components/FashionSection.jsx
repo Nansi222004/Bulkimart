@@ -113,16 +113,10 @@ export const FashionSection = () => {
     return fashionKids;
   };
 
-  const getStoryOffer = (item) => {
-    const name = String(item.name || '').toLowerCase();
-    if (name.includes('men') || name.includes('him')) return 'Upto 70% off';
-    if (name.includes('women') || name.includes('her')) return 'From ₹149';
-    return 'From ₹199';
-  };
+  const getStoryOffer = () => 'Explore collection';
 
   const handleCategoryClick = (cat) => {
     setSelectedCategoryFilter(cat);
-    setActiveNav('categories');
   };
 
   return (

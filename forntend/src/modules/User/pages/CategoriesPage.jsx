@@ -45,7 +45,7 @@ const CategoryArtwork = ({ category }) => {
 };
 
 const CategoriesPage = () => {
-  const { activeMode, setActiveMode, addToCart, setSelectedProduct } = useUser();
+  const { activeMode, setActiveMode, addToCart, setSelectedProduct, selectedCategoryFilter, setSelectedCategoryFilter } = useUser();
   const channel = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const { tree, loading, error, retry } = useCategoryTree(channel);
   const [query, setQuery] = useState('');
@@ -67,6 +67,14 @@ const CategoriesPage = () => {
     setProducts([]);
     setProductsError('');
   }, [channel]);
+
+  useEffect(() => {
+    const slug = selectedCategoryFilter?.slug;
+    const find = nodes => { for (const category of nodes || []) { if (category.slug === slug || String(category._id) === slug) return category; const child = find(category.children); if (child) return child; } return null; };
+    const category = slug ? find(tree) : null;
+    setSelected(category);
+    if (category?.children?.length) setExpandedId(category._id);
+  }, [tree, selectedCategoryFilter?.slug, channel]);
 
   useEffect(() => {
     if (!selected) return undefined;
@@ -95,6 +103,7 @@ const CategoriesPage = () => {
   }, [selected, channel, productsAttempt]);
 
   const chooseCategory = (category) => {
+    setSelectedCategoryFilter(category);
     setSelected(category);
     if (category.children?.length) setExpandedId((value) => value === category._id ? null : category._id);
     const path = `/categories/${category.slug || category._id}`;

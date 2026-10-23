@@ -9,9 +9,6 @@ import productRice from '../../../assets/product_rice.png';
 import productHoney from '../../../assets/product_honey.png';
 import productMilkBottle from '../../../assets/product_milk_bottle.png';
 import categoryPackaged from '../../../assets/category_packaged.png';
-import bannerIndependence from '../../../assets/banner_independence_groceries.png';
-import bannerRakhi from '../../../assets/banner_rakhi_giftguide.png';
-import bannerAashirvaad from '../../../assets/banner_aashirvaad_offer.png';
 
 // Paper Grocery Bag Header Graphic (Matching Image 2)
 const GroceryBagGraphic = () => (
@@ -179,30 +176,6 @@ export const GroceriesSection = () => {
             </div>
           ))
         )}
-      </div>
-
-      {/* LIVE & TRENDING SECTION (EXACT 1:1 MATCH WITH IMAGE 2) */}
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 14px 0', fontSize: 18, fontWeight: 900, color: '#0f172a', textAlign: 'left', fontFamily: "'Outfit', sans-serif" }}>
-          Live & Trending
-        </h3>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          {/* CARD 1: GRAND INDEPENDENCE SALE */}
-          <div className="trending-banner-card" style={{ padding: 0, border: 'none', background: 'transparent' }}>
-            <img src={bannerIndependence} alt="Grand Independence Sale" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-
-          {/* CARD 2: RAKSHA BANDHAN GIFT GUIDE */}
-          <div className="trending-banner-card" style={{ padding: 0, border: 'none', background: 'transparent' }}>
-            <img src={bannerRakhi} alt="Raksha Bandhan Gift Guide" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-
-          {/* CARD 3: AASHIRVAAD BRAND SALE */}
-          <div className="trending-banner-card" style={{ padding: 0, border: 'none', background: 'transparent' }}>
-            <img src={bannerAashirvaad} alt="Aashirvaad Offer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        </div>
       </div>
 
       {/* CATALOG SECTIONS ("Fresh") */}

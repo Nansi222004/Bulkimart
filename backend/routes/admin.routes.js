@@ -4,6 +4,7 @@ import { requireFinancePermission } from '../middlewares/financePermission.middl
 import { getDashboardFinancialMetrics, getDashboardOrderAnalytics } from '../controllers/adminDashboardMetrics.controller.js';
 import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFinance.controller.js';
 import express from 'express';
+import { marketingPermission } from '../services/storefrontPolicy.service.js';
 import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
   verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod,
   writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
@@ -73,6 +74,7 @@ const router = express.Router();
 
 // Every admin route is behind auth + admin check — applied once here.
 router.use(protect, requireAdmin);
+router.use('/campaigns', marketingPermission);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
   if (/^\/(finance(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);

@@ -1,4 +1,12 @@
 import { retailAllowed } from '../utils/productChannels.js';
+import { mediaUrl } from '../services/storefrontPolicy.service.js';
+import sharp from 'sharp';
+const uploadArtwork = async file => {
+  let buffer;
+  try { buffer = await sharp(file.buffer, { limitInputPixels: 25000000 }).rotate().webp().toBuffer(); }
+  catch { throw httpError(400, 'Invalid or oversized banner image'); }
+  return uploadToCloudinary(buffer, 'banners', { resource_type: 'image' });
+};
 import Banner from '../models/Banner.js';
 import Category from '../models/Category.js';
 import Product from '../models/Product.js';
@@ -22,7 +30,7 @@ const isEligibleCategory = (c) => !!c && c.isActive;
 const isSafeExternalUrl = (url) => {
   try {
     const u = new URL(url);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    return u.protocol === 'https:' && !u.username && !u.password;
   } catch {
     return false;
   }
@@ -51,7 +59,7 @@ const validateAction = async ({ actionType, targetCategory, targetProduct, targe
     if (!campaign.isEnabled) throw httpError(400, 'That campaign is disabled');
   } else if (actionType === 'EXTERNAL_URL') {
     if (!externalUrl || !isSafeExternalUrl(externalUrl)) {
-      throw httpError(400, 'Enter a valid http:// or https:// URL');
+      throw httpError(400, 'Enter an approved HTTPS URL without credentials');
     }
   }
   // NONE — nothing to validate.
@@ -73,6 +81,7 @@ export const getBanners = asyncHandler(async (req, res) => {
   if (all !== 'true') {
     const now = new Date();
     filter.isActive = true;
+    filter.isArchived = { $ne: true };
     filter.isDraft = { $ne: true };
     filter.$and = [
       // `placement` was added after the original Banner records had already
@@ -132,7 +141,8 @@ export const getBanners = asyncHandler(async (req, res) => {
     });
   }
 
-  res.status(200).json(banners);
+  res.set('Cache-Control', 'no-store');
+  res.status(200).json(all === 'true' ? banners : banners.map(({ createdBy, updatedBy, clickCount, __v, ...banner }) => banner));
 });
 
 /**
@@ -176,11 +186,10 @@ export const createBanner = asyncHandler(async (req, res) => {
   }
 
   let imageUrl = req.body.image;
-  if (req.file) {
-    imageUrl = await uploadToCloudinary(req.file.buffer, 'banners');
-  }
+  if (req.file) imageUrl = await uploadArtwork(req.file);
 
   const banner = await Banner.create({
+    ...bannerPresentation(req.body),
     title,
     subtitle,
     image: imageUrl,
@@ -212,6 +221,7 @@ export const createBanner = asyncHandler(async (req, res) => {
 export const updateBanner = asyncHandler(async (req, res) => {
   const banner = await Banner.findById(req.params.id);
   if (!banner) throw httpError(404, 'Banner not found');
+  Object.assign(banner, bannerPresentation(req.body));
   if (banner.actionType === 'SELLER_PROMOTION' || banner.targetPromotion || req.body.actionType === 'SELLER_PROMOTION' || req.body.targetPromotion) throw httpError(410, 'Seller promotions have been removed.');
 
   const {
@@ -220,7 +230,7 @@ export const updateBanner = asyncHandler(async (req, res) => {
   } = req.body;
 
   if (req.file) {
-    banner.image = await uploadToCloudinary(req.file.buffer, 'banners');
+    banner.image = await uploadArtwork(req.file);
   } else if (req.body.image) {
     banner.image = req.body.image;
   }
@@ -284,6 +294,33 @@ export const deleteBanner = asyncHandler(async (req, res) => {
   const banner = await Banner.findById(req.params.id);
   if (!banner) throw httpError(404, 'Banner not found');
 
-  await banner.deleteOne();
-  res.status(200).json({ message: 'Banner deleted successfully' });
+  banner.isArchived = true;
+  banner.isActive = false;
+  await banner.save();
+  res.status(200).json({ message: 'Banner archived successfully' });
 });
+
+function bannerPresentation(body) {
+  const fields = {};
+  if (body.isArchived !== undefined) {
+    if (![true, false, 'true', 'false'].includes(body.isArchived)) throw httpError(400, 'Invalid archive flag');
+    fields.isArchived = body.isArchived === true || body.isArchived === 'true';
+  }
+  for (const [key, max] of [['title', 150], ['subtitle', 300]]) if (body[key] !== undefined && (typeof body[key] !== 'string' || body[key].length > max)) throw httpError(400, `${key} must be under ${max} characters`);
+  for (const key of ['mobileImage', 'video']) if (body[key] !== undefined) fields[key] = mediaUrl(body[key]);
+  if (body.image !== undefined) mediaUrl(body.image);
+  if (body.cta !== undefined) {
+    if (typeof body.cta !== 'string' || body.cta.length > 60) throw httpError(400, 'CTA must be under 60 characters');
+    fields.cta = body.cta;
+  }
+  if (body.placement !== undefined) {
+    if (!['HOME_HERO', 'STUDIO'].includes(body.placement)) throw httpError(400, 'Invalid banner placement');
+    fields.placement = body.placement;
+  }
+  for (const key of ['startDate', 'endDate']) if (body[key] && !Number.isFinite(new Date(body[key]).getTime())) throw httpError(400, 'Invalid banner schedule');
+  if (body.priority !== undefined && (!Number.isInteger(Number(body.priority)) || Math.abs(Number(body.priority)) > 1000)) throw httpError(400, 'Priority must be an integer between -1000 and 1000');
+  if (body.actionType && !['NONE', 'CATEGORY', 'PRODUCT', 'CAMPAIGN', 'EXTERNAL_URL'].includes(body.actionType)) throw httpError(400, 'Invalid banner destination');
+  if (body.externalUrl && !isSafeExternalUrl(body.externalUrl)) throw httpError(400, 'External destinations require HTTPS');
+  if (body.targetRoute && !/^\/(cart|categories|account|orders|grocery|electronics|fashion|garments|smart-buy|hot-deals)$/.test(body.targetRoute)) throw httpError(400, 'Choose a supported internal destination');
+  return fields;
+}

@@ -33,6 +33,10 @@ const upload = multer({
 });
 
 export const uploadSingle = (fieldName) => upload.single(fieldName);
+export const uploadBannerImage = multer({ storage, limits, fileFilter: (_req, file, cb) => {
+  const allowed = { 'image/jpeg': /\.jpe?g$/i, 'image/png': /\.png$/i, 'image/webp': /\.webp$/i };
+  cb(allowed[file.mimetype]?.test(file.originalname) ? null : Object.assign(new Error('Banner artwork must be JPEG, PNG or WebP'), { status: 400 }), true);
+} }).single('image');
 export const uploadMultiple = (fieldName, maxCount = 5) => upload.array(fieldName, maxCount);
 export const uploadFields = (fieldsArray) => upload.fields(fieldsArray);
 // Product visual assets must never accept PDF files; actual e-book bytes use

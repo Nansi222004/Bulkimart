@@ -70,6 +70,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
     {
       title: 'Marketing & CMS',
       links: [
+        { id: 'storefront-studio', label: 'Storefront Studio', icon: <span aria-hidden="true">✦</span> },
         { id: 'banners', label: 'Banners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/></svg> },
         { id: 'campaigns', label: 'Campaigns / Deals', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12a2 2 0 0 1 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2z"/><path d="M9 9h.01M15 15h.01M15 9l-6 6"/></svg> },
         { id: 'tip-settings', label: 'Rider Tip Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },

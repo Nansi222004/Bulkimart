@@ -13,7 +13,13 @@ export async function advertisingApi(admin, path, options = {}) {
   return body;
 }
 export const advertisingMoney = paise => Number.isSafeInteger(paise) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(paise / 100) : 'Not configured';
-export const campaignLabel = row => row.delivery !== 'NOT_SCHEDULED' ? row.delivery.replaceAll('_', ' ') : row.review === 'APPROVED' ? 'APPROVED AWAITING PAYMENT' : row.review.replaceAll('_', ' ');
+export const campaignLabel = row => {
+  if (!row) return 'UNKNOWN';
+  if (row.delivery && row.delivery !== 'NOT_SCHEDULED') return String(row.delivery).replaceAll('_', ' ');
+  if (row.review === 'APPROVED') return 'APPROVED AWAITING PAYMENT';
+  if (row.review) return String(row.review).replaceAll('_', ' ');
+  return 'DRAFT';
+};
 export function packagePayload(form) {
   const { attribution: previousAttribution, ...policies } = form.policies;
   const attribution = form.windowHours ? { windowHours: Number(form.windowHours), conversionEvent: form.conversionEvent, model: form.model } : undefined;

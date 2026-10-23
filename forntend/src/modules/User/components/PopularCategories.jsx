@@ -12,7 +12,7 @@ const PopularCategories = () => {
     const visible = flatten(tree).filter((category) => !category.isSystem);
     const promoted = visible.filter((category) => category.isPopular || category.showOnHome);
     const roots = (tree || []).filter((category) => !category.isSystem);
-    return (promoted.length ? promoted : (roots.length ? roots : visible)).slice(0, 5);
+    return [...(promoted.length ? promoted : (roots.length ? roots : visible))].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)).slice(0, 12);
   }, [tree]);
 
   // Render specific SVG graphics for each circular category matching the design
@@ -100,7 +100,6 @@ const PopularCategories = () => {
 
   const handleCategoryClick = (category) => {
     setSelectedCategoryFilter(category);
-    setActiveNav('categories');
   };
 
   return (
@@ -122,7 +121,7 @@ const PopularCategories = () => {
           <div className="inline-section-state">No customer categories are published yet.</div>
         ) : (
           categories.map((category) => (
-            <div 
+            <button type="button"
               key={category._id || category.id} 
               className="category-scroll-item"
               onClick={() => handleCategoryClick(category)}
@@ -131,7 +130,7 @@ const PopularCategories = () => {
                 {renderCategoryImage(category)}
               </div>
               <span className="category-name">{category.name}</span>
-            </div>
+            </button>
           ))
         )}
 

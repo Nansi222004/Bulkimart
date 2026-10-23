@@ -13,6 +13,7 @@ export const errorHandler = (err, req, res, next) => {
   // Mongoose-specific errors mapped to sensible HTTP codes
   if (err.name === 'ValidationError') statusCode = 400;
   if (err.name === 'CastError') statusCode = 400;
+  if (err.name === 'VersionError') { statusCode = 409; publicMessage = 'This record changed. Reload before saving.'; }
   if (err.code === 11000) {
     statusCode = 409;
     const duplicateFields = Object.keys(err.keyPattern || {});

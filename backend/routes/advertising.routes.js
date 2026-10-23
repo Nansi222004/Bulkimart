@@ -18,7 +18,7 @@ export function advertisingRouter(admin = false) {
   router.use(protect);
   if (admin) router.use(requireAdmin, advertisingPermission('advertising_review', 'advertising_configure', 'advertising_finance', 'advertising_reconcile','advertising_refund'));
   else router.use((req, _res, next) => {
-    if (req.userType !== 'user' || req.tokenRole !== 'seller' || !req.user.roles?.includes('seller')) throw httpError(403, 'An authenticated seller portal session is required');
+    if (req.userType !== 'user' || !req.user.roles?.includes('seller') || (req.tokenRole !== undefined && req.tokenRole !== 'seller')) throw httpError(403, 'An authenticated seller portal session is required');
     next();
   }, requireApprovedSeller);
   router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });

@@ -2,7 +2,7 @@ import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { authGet, authPost, authPut, authDelete, adminGet } from '../../../utils/adminApi';
+import { authGet, authPost, authPut, authDelete, adminGet, adminPost } from '../../../utils/adminApi';
 import { apiUrl } from '../../../utils/api';
 
 /**
@@ -40,6 +40,7 @@ const emptyForm = {
   actionType: 'NONE', targetCategoryId: '', targetProductId: '', targetProductLabel: '',
   targetCampaignId: '', externalUrl: '',
   priority: 0, startDate: '', endDate: '', isActive: true,
+  mobileImage: '', video: '', cta: '', placement: 'HOME_HERO',
 };
 
 const toDatetimeLocal = (iso) => {
@@ -52,6 +53,7 @@ const toDatetimeLocal = (iso) => {
 /** DRAFT / SCHEDULED / ACTIVE / EXPIRED / DISABLED — computed, never stored
  *  as its own drifting field (other than the genuinely separate isDraft). */
 const lifecycleOf = (b) => {
+  if (b.isArchived) return 'Archived';
   if (b.isDraft) return 'Draft';
   if (!b.isActive) return 'Disabled';
   const now = Date.now();
@@ -60,6 +62,7 @@ const lifecycleOf = (b) => {
   return 'Active';
 };
 const LIFECYCLE_CLASS = {
+  Archived: 'rejected',
   Draft: 'pending', Disabled: 'rejected', Scheduled: 'processing', Expired: 'rejected', Active: 'approved',
 };
 
@@ -77,6 +80,14 @@ export const BannersTab = () => {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const uploadMedia = async (file, field) => {
+    if (!file) return;
+    setUploading(true);
+    try { const data = new FormData(); data.append('media', file); const result = await adminPost('/storefront/media', data); setForm(f => ({ ...f, [field]: result.data.url, ...(field === 'imageUrl' ? { imageFile: null } : {}) })); triggerToast('Media uploaded. Save the banner to use it.'); }
+    catch (err) { triggerToast(err.message, { type: 'error' }); }
+    finally { setUploading(false); }
+  };
 
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [productQuery, setProductQuery] = useState('');
@@ -166,6 +177,7 @@ export const BannersTab = () => {
       priority: b.priority || 0,
       startDate: toDatetimeLocal(b.startDate), endDate: toDatetimeLocal(b.endDate),
       isActive: b.isActive !== false,
+      mobileImage: b.mobileImage || '', video: b.video || '', cta: b.cta || '', placement: b.placement || 'HOME_HERO',
     });
     setProductResults([]);
     setProductQuery('');
@@ -176,6 +188,7 @@ export const BannersTab = () => {
     const fd = new FormData();
     fd.append('title', form.title);
     fd.append('subtitle', form.subtitle);
+    for (const key of ['mobileImage', 'video', 'cta', 'placement']) fd.append(key, form[key] || '');
     fd.append('type', form.type);
     fd.append('category', form.category);
     fd.append('actionType', form.actionType);
@@ -184,8 +197,8 @@ export const BannersTab = () => {
     if (form.actionType === 'CAMPAIGN') fd.append('targetCampaign', form.targetCampaignId);
     if (form.actionType === 'EXTERNAL_URL') fd.append('externalUrl', form.externalUrl);
     fd.append('priority', String(form.priority || 0));
-    if (form.startDate) fd.append('startDate', new Date(form.startDate).toISOString());
-    if (form.endDate) fd.append('endDate', new Date(form.endDate).toISOString());
+    fd.append('startDate', form.startDate ? new Date(form.startDate).toISOString() : '');
+    fd.append('endDate', form.endDate ? new Date(form.endDate).toISOString() : '');
     fd.append('isActive', String(form.isActive));
     fd.append('isDraft', String(isDraft));
     if (form.imageFile) fd.append('image', form.imageFile);
@@ -194,6 +207,7 @@ export const BannersTab = () => {
   };
 
   const save = async (isDraft) => {
+    if (saving || uploading) return;
     if (!form.title.trim()) { triggerToast('Give the banner a title.'); return; }
     if (!form.imageFile && !form.imageUrl) { triggerToast('Upload a banner image.'); return; }
 
@@ -222,11 +236,16 @@ export const BannersTab = () => {
     }
   };
 
+  const restore = async b => {
+    try { await authPut(`/api/banners/${b._id}`, { isArchived: false, isDraft: true, isActive: false }); triggerToast('Restored as a disabled draft. Review it before publishing.'); fetchBanners(); }
+    catch (err) { triggerToast(err.message, { type: 'error' }); }
+  };
+
   const remove = async (b) => {
-    return ui.perform(`Delete "${b.title}"? This cannot be undone.`, async () => {
+    return ui.perform(`Archive "${b.title}"? Its media and history will be preserved.`, async () => {
     try {
       await authDelete(`/api/banners/${b._id}`);
-      triggerToast('Banner deleted.');
+      triggerToast('Banner archived.');
       fetchBanners();
     } catch (err) {
       triggerToast(err.message || 'Could not delete the banner', {type:'error'});
@@ -310,10 +329,11 @@ export const BannersTab = () => {
                   <td style={{ padding: '12px 16px', color: 'var(--sa-text-secondary)' }}>{b.priority}</td>
                   <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10, marginRight: 6 }} onClick={() => openEdit(b)}>Edit</button>
-                    <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10, marginRight: 6 }} onClick={() => toggleActive(b)}>
+                    <button disabled={b.isArchived} className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10, marginRight: 6 }} onClick={() => toggleActive(b)}>
                       {b.isActive ? 'Disable' : 'Enable'}
                     </button>
-                    <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10, color: 'var(--sa-error)' }} onClick={() => remove(b)}>Delete</button>
+                    <button disabled={b.isArchived} className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10, color: 'var(--sa-error)' }} onClick={() => remove(b)}>Archive</button>
+                    {b.isArchived && <button className="sa-action-btn" style={{ width: 'auto', padding: '4px 10px' }} onClick={() => restore(b)}>Restore draft</button>}
                   </td>
                 </tr>
               );
@@ -341,7 +361,7 @@ export const BannersTab = () => {
 
                 <div>
                   <label style={fieldLabel}>Banner Image</label>
-                  <input type="file" accept="image/*" onChange={(e) => setForm((f) => ({ ...f, imageFile: e.target.files?.[0] || null }))} style={{ fontSize: 12 }} />
+                  <input aria-label="Upload desktop artwork or video poster" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={(e) => uploadMedia(e.target.files?.[0], 'imageUrl')} style={{ fontSize: 12 }} />
                   <span style={{ fontSize: 10, color: 'var(--sa-text-muted)', display: 'block', marginTop: 3 }}>
                     Recommended size: 1200 x 450 px or 1000 x 400 px (Aspect Ratio ~2.6 : 1)
                   </span>
@@ -353,6 +373,14 @@ export const BannersTab = () => {
                   )}
                 </div>
 
+                <label style={fieldLabel}>Reuse image / poster URL<input style={fieldInput} value={form.imageUrl} onChange={e => setForm(f => ({ ...f, imageUrl: e.target.value }))} placeholder="https://… or /uploads/…" /></label>
+                <label style={fieldLabel}>Mobile artwork<input aria-label="Upload mobile artwork" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={e => uploadMedia(e.target.files?.[0], 'mobileImage')} /><input style={fieldInput} value={form.mobileImage} onChange={e => setForm(f => ({ ...f, mobileImage: e.target.value }))} placeholder="Optional mobile image URL" /></label>
+                <label style={fieldLabel}>Short video (optional, 15 MB maximum)<input aria-label="Upload promotional video" type="file" disabled={uploading} accept="video/mp4,video/webm" onChange={e => uploadMedia(e.target.files?.[0], 'video')} /><input style={fieldInput} value={form.video} onChange={e => setForm(f => ({ ...f, video: e.target.value }))} placeholder="Optional HTTPS video URL" /></label>
+                {form.video && <video src={form.video} poster={form.imageUrl} controls muted playsInline preload="none" style={{ width: '100%', maxHeight: 180 }} />}
+                {uploading && <p role="status">Uploading media…</p>}
+                <label style={fieldLabel}>Subtitle<input style={fieldInput} value={form.subtitle} maxLength={300} onChange={e => setForm(f => ({ ...f, subtitle: e.target.value }))} /></label>
+                <label style={fieldLabel}>Button text<input style={fieldInput} value={form.cta} maxLength={60} onChange={e => setForm(f => ({ ...f, cta: e.target.value }))} /></label>
+                <label style={fieldLabel}>Placement<select className="sa-select" value={form.placement} onChange={e => setForm(f => ({ ...f, placement: e.target.value }))}><option value="HOME_HERO">Homepage hero (legacy compatible)</option><option value="STUDIO">Studio only (splash, announcement, section or scheduled hero)</option></select></label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label style={fieldLabel}>Storefront</label>

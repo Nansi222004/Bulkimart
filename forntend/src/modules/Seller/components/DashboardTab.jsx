@@ -171,6 +171,28 @@ export const DashboardTab = () => {
           </div>
           <span style={{ fontSize: 18, fontWeight: '700', color: '#64748b' }}>↗</span>
         </div>
+
+        {/* Card 4: Advertising & Promotions */}
+        <div 
+          onClick={() => setActiveTab('advertising')}
+          style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.01)', transition: 'transform 0.2s' }}
+          onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+          onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ backgroundColor: '#fef3c7', color: '#d97706', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m3 11 18-5v12L3 13v-2z" />
+                <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+              </svg>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+              <span style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Advertising & Ads</span>
+              <span style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>Promote in category spotlight</span>
+            </div>
+          </div>
+          <span style={{ fontSize: 18, fontWeight: '700', color: '#64748b' }}>↗</span>
+        </div>
       </div>
 
       {/* Analytics & Top Products side-by-side */}

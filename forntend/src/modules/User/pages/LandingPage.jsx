@@ -1,4 +1,9 @@
 import React, { useEffect } from 'react';
+import { StorefrontProvider, useStorefront } from '../context/StorefrontContext';
+import { themeStyle } from '../../../utils/storefront';
+import PromotionalSplash from '../components/PromotionalSplash';
+import StorefrontSections, { StorefrontAnnouncement } from '../components/StorefrontSections';
+import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
 import LegalServices from '../../../components/services/LegalServices';
 import { ParcelCustomerEntry } from '../../../components/parcels/ParcelDelivery';
@@ -62,6 +67,7 @@ const resolvePopupNav = (route) => {
 const isSlug = (subNav) => /^(grocery|ecommerce|shg)--/.test(subNav || '');
 
 export const LandingPageContent = () => {
+  const experience = useStorefront();
   const {
     activeNav,
     activeMode,
@@ -123,6 +129,7 @@ export const LandingPageContent = () => {
 
             {/* Scrollable contents below the header */}
             <div className="home-feed-scrollable">
+              <StorefrontAnnouncement />
               {/* Hero Promo Carousel Banner (shown on all pages if banners exist) */}
               <HeroBanner />
 
@@ -137,7 +144,7 @@ export const LandingPageContent = () => {
                   <PopularCategories />
 
                   {/* Top Products section (unified) */}
-                  <TopProducts />
+                  {experience.sections.length ? <StorefrontSections /> : <TopProducts />}
                 </>
               )}
 
@@ -155,6 +162,8 @@ export const LandingPageContent = () => {
                 and now honours its own sub-nav instead of ignoring it.
               */}
               {(() => {
+                const homeTab = ['home', 'grocery--home', 'smart-buy', 'ecommerce--smart-buy'].includes(activeSubNav);
+                if (homeTab && experience.sections.length) return null;
                 const isGroceriesTab = activeSubNav === 'groceries' || String(activeSubNav || '').endsWith('--groceries');
                 const isElectronicsTab = activeSubNav === 'electronics' || String(activeSubNav || '').endsWith('--electronics');
                 const isCouponsTab = activeSubNav === 'coupons' || String(activeSubNav || '').endsWith('--coupons') || activeSubNav === 'hot-deals' || String(activeSubNav || '').endsWith('--hot-deals');
@@ -246,7 +255,7 @@ export const LandingPageContent = () => {
   };
 
   return (
-    <div className={`user-landing-page-container mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode}>
+    <div className={`user-landing-page-container sf-storefront mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode} style={themeStyle(experience.theme.tokens)} data-decoration={experience.theme.tokens.decoration} data-motion={experience.theme.tokens.motion}>
       {currentUser && <RealtimeNotice />}
       {/* Scrollable Main Area */}
       <main className={`user-main-content page-${activeNav}`}>
@@ -337,7 +346,7 @@ export const LandingPageContent = () => {
 const LandingPage = () => {
   return (
     <UserProvider>
-      <LandingPageContent />
+      <StorefrontProvider><PromotionalSplash /><LandingPageContent /></StorefrontProvider>
     </UserProvider>
   );
 };

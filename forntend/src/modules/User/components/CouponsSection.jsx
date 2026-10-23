@@ -1,141 +1,32 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
-
-const CouponsSection = () => {
-  const { activeMode } = useUser();
-  const coupons = [
-    {
-      id: 'c1',
-      title: '20% OFF on Groceries',
-      subtitle: 'Min order ₹500',
-      code: 'GROCERY20',
-      expiry: 'Valid till 31 Aug 2026',
-      color: '#10b981',
-      bgColor: '#ecfdf5'
-    },
-    {
-      id: 'c2',
-      title: 'Flat ₹100 OFF',
-      subtitle: 'On Electronics above ₹999',
-      code: 'TECH100',
-      expiry: 'Valid till 15 Sep 2026',
-      color: '#3b82f6',
-      bgColor: '#eff6ff'
-    },
-    {
-      id: 'c3',
-      title: 'Buy 2 Get 1 Free',
-      subtitle: 'On all SHG Products',
-      code: 'SHG3FOR2',
-      expiry: 'Valid till 30 Sep 2026',
-      color: '#f59e0b',
-      bgColor: '#fffbeb'
-    },
-    {
-      id: 'c4',
-      title: '30% OFF on Garments',
-      subtitle: 'First purchase only',
-      code: 'FASHION30',
-      expiry: 'Valid till 20 Sep 2026',
-      color: '#8b5cf6',
-      bgColor: '#f5f3ff'
-    },
-    {
-      id: 'c5',
-      title: 'Free Delivery',
-      subtitle: 'On orders above ₹299',
-      code: 'FREEDEL',
-      expiry: 'Valid till 31 Dec 2026',
-      color: '#ef4444',
-      bgColor: '#fef2f2'
-    },
-    {
-      id: 'c6',
-      title: '₹50 Cashback',
-      subtitle: 'On Milk & Dairy products',
-      code: 'DAIRY50',
-      expiry: 'Valid till 15 Aug 2026',
-      color: '#06b6d4',
-      bgColor: '#ecfeff'
-    }
-  ];
-
-  return (
-    <div className="landing-section-container">
-      <div className="section-header">
-        <h3 className="section-title">Active Coupons & Offers</h3>
-        <button className="view-all-link">View All</button>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {coupons.map((coupon) => {
-          const color = activeMode === 'shop-all'
-            ? (coupon.id === 'c3' ? 'var(--brand-orange)' : 'var(--primary)')
-            : coupon.color;
-          const background = activeMode === 'shop-all'
-            ? (coupon.id === 'c3' ? 'var(--brand-orange-light)' : 'var(--primary-light)')
-            : coupon.bgColor;
-          return (
-          <div
-            key={coupon.id}
-            style={{
-              background,
-              border: `2px dashed ${color}`,
-              borderRadius: 12,
-              padding: 16,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            <div style={{ flex: 1 }}>
-              <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
-                {coupon.title}
-              </h4>
-              <p style={{ margin: '4px 0 0 0', fontSize: 11, color: '#64748b' }}>
-                {coupon.subtitle}
-              </p>
-              <p style={{ margin: '6px 0 0 0', fontSize: 10, color: '#94a3b8' }}>
-                {coupon.expiry}
-              </p>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div
-                style={{
-                  background: color,
-                  color: '#fff',
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  fontFamily: 'monospace',
-                  marginBottom: 4
-                }}
-              >
-                {coupon.code}
-              </div>
-              <button
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  padding: 0
-                }}
-              >
-                Copy Code
-              </button>
-            </div>
-          </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-export default CouponsSection;
+import { useStorefront } from '../context/StorefrontContext';
+import { apiUrl } from '../../../utils/api';
+import { boundedFetch } from '../../../utils/portalRequests';
+import { captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
+export default function CouponsSection() {
+  const { activeMode, currentUser, setActiveNav } = useUser(), { now } = useStorefront();
+  const [coupons, setCoupons] = useState([]), [loading, setLoading] = useState(false), [error, setError] = useState(''), [attempt, setAttempt] = useState(0), [message, setMessage] = useState('');
+  useEffect(() => {
+    let cancelled = false; const controller = new AbortController(), session = captureUserSession();
+    setCoupons([]); setError('');
+    if (!currentUser || !session.token) return;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const response = await boundedFetch(apiUrl(`/api/coupons/available?channel=${activeMode === 'quick' ? 'grocery' : 'ecommerce'}`), { signal: controller.signal, headers: { Authorization: `Bearer ${session.token}` } });
+        const body = await response.json();
+        if (!response.ok || !Array.isArray(body.data)) throw new Error('Offers could not be loaded. Please retry.');
+        if (!cancelled && isCurrentUserSession(session)) { setCoupons(body.data); setError(''); }
+      } catch (err) { if (!cancelled) { setCoupons([]); setError(err.message); } }
+      finally { if (!cancelled) setLoading(false); }
+    };
+    load(); const timer = setInterval(load, 30000);
+    return () => { cancelled = true; controller.abort(); clearInterval(timer); };
+  }, [activeMode, currentUser?._id, attempt]);
+  const visible = coupons.filter(c => !c.expiresAt || Date.parse(c.expiresAt) > now);
+  return <section className="sf-section"><div className="sf-section-heading"><div><span className="sf-eyebrow">OFFERS FOR YOUR BASKET</span><h2>Coupons & savings</h2></div></div>
+    {!currentUser ? <p>Sign in to see available coupons. <button className="sf-cta" onClick={() => setActiveNav('account')}>Sign in</button></p> : error ? <p role="alert">{error} <button onClick={() => setAttempt(v => v + 1)}>Retry</button></p> : loading && !visible.length ? <p role="status">Checking available offers…</p> : !visible.length ? <p>No published coupons are available for this storefront right now.</p> : visible.map(c => <article className="sf-coupon" key={c.code}><div><h3>{c.title || c.code}</h3><p>{c.description}</p><p>{c.applicable ? c.freeShipping ? 'Delivery offer is eligible for your current basket.' : `Current basket saving: ₹${c.savingNow}` : c.reason}</p>{c.expiresAt && <small>Valid until {new Date(c.expiresAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</small>}</div><div><strong>{c.code}</strong><button className="sf-add" onClick={async () => { try { await navigator.clipboard.writeText(c.code); setMessage(`${c.code} copied`); } catch { setMessage(`Use code ${c.code} at checkout`); } }}>Copy code</button></div></article>)}
+    {message && <p role="status">{message}</p>}{!!visible.length && <p>Eligibility and savings are checked again at checkout. <button className="sf-text-button" onClick={() => setActiveNav('cart')}>Open cart →</button></p>}
+  </section>;
+}

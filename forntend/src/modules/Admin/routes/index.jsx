@@ -36,6 +36,7 @@ import DeliveryTrackingTab from '../components/DeliveryTrackingTab';
 import RiderPayoutsTab from '../components/RiderPayoutsTab';
 import TipSettingsTab from '../components/TipSettingsTab';
 import BannersTab from '../components/BannersTab';
+import StorefrontStudio from '../components/StorefrontStudio';
 import CampaignsTab from '../components/CampaignsTab';
 import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import ReturnsTab from '../components/ReturnsTab';
@@ -95,6 +96,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'delivery-rates': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tip-settings':       return <TipSettingsTab />;
       case 'banners':            return <BannersTab />;
+      case 'storefront-studio':  return <StorefrontStudio />;
       case 'campaigns':          return <CampaignsTab />;
       case 'returns':            return <ReturnsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;

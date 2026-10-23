@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 import { formatCurrency } from '../utils/helpers';
+import { boundedFetch } from '../../../utils/portalRequests';
+import { useStorefront } from '../context/StorefrontContext';
+import { countdown } from '../../../utils/storefront';
+import { MerchandisingCard } from '../components/StorefrontSections';
 
 /**
  * Where a Campaign banner lands. Reads only the public, already-filtered
@@ -9,6 +13,7 @@ import { formatCurrency } from '../utils/helpers';
  * isn't shown at all, the same rule the backend enforces at checkout.
  */
 const CampaignLandingPage = () => {
+  const { now } = useStorefront();
   const { selectedCampaignId, setSelectedCampaignId, addToCart, setSelectedProduct } = useUser();
 
   const [campaign, setCampaign] = useState(null);
@@ -24,10 +29,11 @@ const CampaignLandingPage = () => {
       setError('');
       try {
         const [campaignRes, productsRes] = await Promise.all([
-          fetch(apiUrl(`/api/campaigns/${selectedCampaignId}`)),
-          fetch(apiUrl(`/api/campaigns/${selectedCampaignId}/products`)),
+          boundedFetch(apiUrl(`/api/campaigns/${selectedCampaignId}`)),
+          boundedFetch(apiUrl(`/api/campaigns/${selectedCampaignId}/products`)),
         ]);
         if (!campaignRes.ok) throw new Error('This deal has ended or is not available right now.');
+        if (!productsRes.ok) throw new Error('Deal products could not be loaded. Reopen this deal to retry.');
         const campaignBody = await campaignRes.json();
         const productsBody = await productsRes.json().catch(() => ({}));
         if (!cancelled) {
@@ -59,13 +65,14 @@ const CampaignLandingPage = () => {
 
       {loading ? (
         <p style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8', fontSize: 13 }}>Loading deal…</p>
-      ) : error ? (
+      ) : error || (campaign?.endAt && Date.parse(campaign.endAt) <= now) ? (
         <div style={{ textAlign: 'center', padding: '60px 24px' }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>⏳</div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{error}</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{error || 'This deal has ended.'}</p>
         </div>
       ) : (
         <>
+          <p style={{ padding: '12px 16px' }}>Ends in <time className="sf-countdown">{countdown(campaign.endAt, now)}</time></p>
           {campaign.bannerImage ? (
             <div style={{ margin: '16px 16px 12px', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
               <img src={campaign.bannerImage} alt={campaign.name} style={{ width: '100%', height: 'auto', aspectRatio: '2.6 / 1', objectFit: 'cover', display: 'block' }} />
@@ -92,32 +99,7 @@ const CampaignLandingPage = () => {
             </p>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, padding: '4px 16px 24px' }}>
-              {products.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => setSelectedProduct({ id: p.id, _id: p.id, name: p.name, image: p.image, images: p.images, price: p.price, type: p.type })}
-                  style={{ background: '#fff', borderRadius: 14, border: '1px solid #f1f5f9', overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
-                >
-                  <div style={{ aspectRatio: '1 / 1', background: '#f8fafc' }}>
-                    {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : null}
-                  </div>
-                  <div style={{ padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <p style={{ margin: 0, fontSize: 12.5, fontWeight: 700, color: '#0f172a', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {p.name}
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 900, color: '#b91c1c' }}>{formatCurrency(p.campaignPrice)}</span>
-                      <s style={{ fontSize: 11, color: '#94a3b8' }}>{formatCurrency(p.price)}</s>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); addToCart(p); }}
-                      style={{ marginTop: 'auto', padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
-                    >
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {products.map(p => <MerchandisingCard key={p.id} product={p} deal />)}
             </div>
           )}
         </>

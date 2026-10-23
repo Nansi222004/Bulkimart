@@ -1,4 +1,5 @@
 import express from "express";
+import { storefrontRouter, storefrontAdminRouter } from './storefront.routes.js';
 import { advertisingRouter } from './advertising.routes.js';
 import { advertisingPublicRouter } from './advertisingPublic.routes.js';
 import { gstAssistanceRouter } from './gstAssistance.routes.js';
@@ -33,6 +34,8 @@ import shiprocketRoutes from "./shiprocket.routes.js";
 import digitalCommerceRoutes from './digitalCommerce.routes.js';
 
 const router = express.Router();
+router.use('/storefront', storefrontRouter);
+router.use('/admin/storefront', storefrontAdminRouter);
 router.use('/advertising', advertisingPublicRouter);
 router.use('/sellers/advertising', advertisingRouter());
 router.use('/admin/advertising', advertisingRouter(true));
