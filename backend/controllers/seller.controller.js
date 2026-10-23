@@ -340,8 +340,8 @@ export const submitApplication = asyncHandler(async (req, res) => {
 export const getMySellerProfile = asyncHandler(async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user._id }).populate('userId', 'name phone email avatar');
   if (!seller) {
-    res.status(404);
-    throw new Error('Seller profile not found');
+    // Registration checks for an optional profile before creating the store.
+    return res.status(200).json({ success: true, seller: null });
   }
 
   res.status(200).json({

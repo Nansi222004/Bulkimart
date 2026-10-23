@@ -544,6 +544,10 @@ export const SellerProvider = ({ children }) => {
       if (!res.ok) throw new Error(body.message || 'Could not load seller profile');
       if (generation !== profileEpoch.current || token !== localStorage.getItem('sellerToken')) return;
       const seller = body.seller || null;
+      if (body.success && body.seller === null) {
+        setSellerProfile(null);
+        return { ok: true, seller: null };
+      }
       if (!seller?._id && !seller?.id) throw new Error('Seller profile response is unavailable. Retry loading your profile.');
       if (seller?.userId?._id) {
         setUserProfile(seller.userId);
@@ -663,11 +667,15 @@ export const SellerProvider = ({ children }) => {
 
   useEffect(() => {
     if (localStorage.getItem('sellerToken')) {
-      fetchMyProducts();
-      fetchSellerKpis();
       fetchSellerProfile();
     }
-  }, [fetchMyProducts, fetchSellerKpis, fetchSellerProfile]);
+  }, [fetchSellerProfile]);
+
+  useEffect(() => {
+    if (sellerProfile?.status !== 'approved' || profileLoading || profileError) return;
+    fetchMyProducts();
+    fetchSellerKpis();
+  }, [sellerProfile?._id, sellerProfile?.status, profileLoading, profileError, fetchMyProducts, fetchSellerKpis]);
 
   /**
    * Orders — live from GET /api/sellers/orders.
@@ -863,8 +871,8 @@ export const SellerProvider = ({ children }) => {
   // declared before this callback exists — naming it there would read the
   // binding before initialisation.
   useEffect(() => {
-    if (localStorage.getItem('sellerToken')) fetchSellerOrders();
-  }, [fetchSellerOrders]);
+    if (sellerProfile?.status === 'approved' && !profileLoading && !profileError) fetchSellerOrders();
+  }, [sellerProfile?._id, sellerProfile?.status, profileLoading, profileError, fetchSellerOrders]);
 
   const [payouts, setPayouts] = useState([]);
   const [financeSummary, setFinanceSummary] = useState(null);
@@ -911,8 +919,8 @@ export const SellerProvider = ({ children }) => {
   useEffect(() => {
     financeEpoch.current++;
     setFinanceSummary(null); setPayouts([]); setLedgerEntries([]); setFinanceError(''); setFinanceLoading(false);
-    if (['earnings', 'paymenthistory', 'moneyrequest'].includes(activeTab) && localStorage.getItem('sellerToken')) fetchSellerFinances();
-  }, [activeTab, userProfile, fetchSellerFinances]);
+    if (sellerProfile?.status === 'approved' && !profileLoading && !profileError && ['earnings', 'paymenthistory', 'moneyrequest'].includes(activeTab)) fetchSellerFinances();
+  }, [activeTab, userProfile, sellerProfile?.status, profileLoading, profileError, fetchSellerFinances]);
 
 
 

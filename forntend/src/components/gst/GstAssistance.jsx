@@ -2,10 +2,12 @@ import React, { useEffect, useState, useRef } from 'react';
 import { gstApi, gstLabels, gstTransitions } from './gstApi';
 import GstFeeEditor from './GstFeeEditor';
 import GstPaymentPanel from './GstPaymentPanel';
+import GstIntakeStatus from './GstIntakeStatus';
 import './gstPayments.css';
 export default function GstAssistance({ admin = false }) {
   const [row, setRow] = useState(null), [rows, setRows] = useState([]), [filter, setFilter] = useState('');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(''), [note, setNote] = useState(''), [status, setStatus] = useState('');
   const [files, setFiles] = useState([]), [verifiedGstin, setVerifiedGstin] = useState(''), [reference, setReference] = useState(''), [attested, setAttested] = useState(false);
   const generation = useRef(0);
@@ -13,16 +15,19 @@ export default function GstAssistance({ admin = false }) {
   const base = id => admin ? `/${id}` : '/me';
   async function load() {
     const current = ++generation.current;
-    setError('');
+    setError(''); setLoading(true);
     try { const d = await gstApi(admin, admin ? `?page=${page}&status=${filter}` : '/me'); if (current !== generation.current) return;
       if (admin) { setRows(d.requests); setRow(null); } else setRow(d); resetForm();
     } catch (e) { if (current !== generation.current) return; setError(e.message); }
+    finally { if (current === generation.current) setLoading(false); }
   }
   useEffect(() => { let active = true; const current = ++generation.current;
+    setLoading(true); setError('');
     async function initial() {
       try { const data = await gstApi(admin, admin ? `?page=${page}&status=${filter}` : '/me');
         if (active && current === generation.current) { if (admin) { setRows(data.requests); setRow(null); } else setRow(data); resetForm(); setError(''); }
       } catch (e) { if (active && current === generation.current) setError(e.message); }
+      finally { if (active && current === generation.current) setLoading(false); }
     } void initial(); return () => { active = false; generation.current++; };
   }, [admin, filter, page]);
   async function action(actionName) {
@@ -42,16 +47,22 @@ export default function GstAssistance({ admin = false }) {
     } catch (e) { setError(e.message); }
   }
   if (!admin && !row && !error) return null;
-  return <section className="gst-registration-assistance" aria-label="GST registration assistance">
-    <h2>GST Registration Assistance</h2>
-    {admin && <GstFeeEditor/>}
+  return <section className={`gst-registration-assistance${admin ? ' gst-admin-workspace' : ''}`} aria-label="GST registration assistance">
+    <header className="gst-workspace-heading"><h2>GST Registration Assistance</h2>
+      {admin && <p>Review seller requests, track service payments and manage registration assistance.</p>}
+    </header>
+    {admin && <><GstIntakeStatus/><GstFeeEditor/></>}
     {error && <p role="alert">{error}</p>}
-    <button type="button" disabled={busy} onClick={load}>Refresh assistance status</button>
-    {admin && <><label>Filter by status<select value={filter} disabled={busy} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All</option>{Object.entries(gstLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-      <ul>{rows.map(r => <li key={r._id}><button type="button" disabled={busy} onClick={async () => { const current = ++generation.current; setRow(null); resetForm(); try { const d = await gstApi(true, `/${r._id}`); if (current === generation.current) { setRow(d); setError(''); } } catch (e) { if (current === generation.current) setError(e.message); } }}>{r.details.businessName} — {gstLabels[r.status]}</button></li>)}</ul>
-      <button disabled={busy || page === 1} onClick={() => setPage(page - 1)}>Previous</button><span> Page {page} </span><button disabled={busy || rows.length < 30} onClick={() => setPage(page + 1)}>Next</button>
+    <div className="gst-toolbar"><button type="button" disabled={busy || loading} onClick={load}>Refresh assistance status</button>
+    {admin && <label>Filter by status<select value={filter} disabled={busy || loading} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All</option>{Object.entries(gstLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
+    </div>
+    {loading && <p role="status" className="gst-empty-state">Loading GST assistance…</p>}
+    {admin && <>
+      {!loading && !error && rows.length === 0 && <div className="gst-empty-state"><h3>No GST assistance requests</h3><p>{filter || page > 1 ? 'No requests on this page. Change the filter or go to the previous page.' : 'Requests appear here when a seller submits registration with “Apply through Bulkimart” selected.'}</p></div>}
+      <ul className="gst-request-list">{rows.map(r => <li key={r._id}><button type="button" aria-pressed={row?._id === r._id} disabled={busy || loading} onClick={async () => { const current = ++generation.current; setRow(null); resetForm(); try { const d = await gstApi(true, `/${r._id}`); if (current === generation.current) { setRow(d); setError(''); } } catch (e) { if (current === generation.current) setError(e.message); } }}><strong>{r.details.businessName}</strong><span>{gstLabels[r.status]}</span><small>{r.details.contactName} · {r.billing ? `Payment: ${r.billing.status}` : 'No fee recorded'}</small></button></li>)}</ul>
+      <nav className="gst-pagination" aria-label="GST request pages"><button disabled={busy || loading || page === 1} onClick={() => setPage(page - 1)}>Previous</button><span> Page {page} </span><button disabled={busy || loading || rows.length < 30} onClick={() => setPage(page + 1)}>Next</button></nav>
     </>}
-    {row && <><h3>{gstLabels[row.status]}</h3><p>{row.details.businessName} · {row.details.contactName} {row.details.contactPhone} · Submitted {new Date(row.submittedAt).toLocaleDateString()}</p>
+    {row && <div className="gst-request-detail"><h3>{gstLabels[row.status]}</h3><p>{row.details.businessName} · {row.details.contactName} {row.details.contactPhone} · Submitted {new Date(row.submittedAt).toLocaleDateString()}</p>
       <p>{row.details.state} {row.details.pincode}</p><p>{row.details.message}</p>
       <p>Assistance does not grant permission to sell or represent government approval. Vendor onboarding is reviewed separately.</p>
       <GstPaymentPanel key={`${row._id}:${row.billing?.version || 0}`} row={row} admin={admin} onUpdated={load}/>
@@ -75,6 +86,6 @@ export default function GstAssistance({ admin = false }) {
       </>}
       {!admin && row.status === 'pending' && <button disabled={busy || ['pending','paid','failed','refunded','partial_refund'].includes(row.billing?.status)} onClick={() => action('cancel')}>Cancel pending assistance request</button>}
       <h4>Status history</h4><ol>{row.events.map((event, i) => <li key={i}>{new Date(event.at).toLocaleString()} — {event.action}: {gstLabels[event.to]}{event.vendorMessage && <p>{event.vendorMessage}</p>}{admin && event.internalNote && <p>Internal: {event.internalNote}</p>}</li>)}</ol>
-    </>}
+    </div>}
   </section>;
 }

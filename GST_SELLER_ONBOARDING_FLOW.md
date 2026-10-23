@@ -1,5 +1,26 @@
 # Seller GST assistance during registration
 
+## Registration startup and deployed intake checks
+
+The seller provider now waits for a server-confirmed approved profile before automatically loading products, orders, dashboard KPIs or finance panels. A seller token alone does not imply approval. New registrations receive HTTP 200 with `seller: null` from `/api/sellers/me`; the route gate and provider treat it as onboarding. Backend protection remains in place on all panel routes.
+
+The live public capability endpoint at `https://api.bulkimart.in/api/sellers/gst-assistance/capabilities` was checked on 23 October 2026 and returned `enabled: false`, with the fee configured at ₹100. This explains the disabled “Apply through Bulkimart” option on the live site. Local environment changes do not update the deployed service. Enable both deployment flags documented below and restart the deployed backend, then deploy the frontend/backend fixes. No production settings or deployments were changed by this verification.
+
+The admin GST screen now has an intake-status indicator with recheck, request cards showing payment status, explicit loading/error/empty states, responsive review controls and pagination. Fee fields cannot save until their current version loads successfully.
+
+## Manual test checklist
+
+1. In Admin → GST Registration Assistance, confirm **Accepting GST assistance requests**. Use **Recheck intake** after backend environment changes.
+2. Set the total service fee and terms using **GST service fee settings**.
+3. Register a test seller, complete KYC and choose **No GSTIN → Apply through Bulkimart**. Enter contact details and consent, then review and submit.
+4. Confirm the seller application is pending and a separate pending GST assistance request appears in the admin queue.
+5. From the seller status page, accept the displayed fee terms and pay using the configured test gateway. Confirm the request shows verified paid status. No automatic payment is taken during registration.
+6. In admin, open the request, assign a reviewer, move to under review, and request additional information if needed. The seller can respond with the requested private documents.
+7. After verified payment, accept the assistance work. Completion requires the independently checked GSTIN, actual evidence file, verification reference and attestation. Seller approval remains a separate action; completion does not automatically overwrite the seller GSTIN field.
+8. Test the other registration choices: existing GSTIN and continue without GST should create no assistance request or service payment.
+
+Latest verification: 40 GST backend checks, 45 seller profile/wholesale API checks and 74 frontend checks passed, alongside frontend/backend builds. Coverage includes one combined registration → admin queue → verified payment → evidenced completion test. Mobile/desktop browser checks covered 10 views with simulated payment; no government filing or real payment was performed.
+
 When a seller selects **No** for GSTIN and **Yes, Apply through Bulkimart**:
 
 1. The assistance form opens within onboarding. Selecting the option does not submit a request or navigate away.

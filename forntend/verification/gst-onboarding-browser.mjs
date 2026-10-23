@@ -12,16 +12,16 @@ const temp=await mkdtemp(join(tmpdir(),'bulkimart-gst-browser-')),profile=join(t
 const id='507f1f77bcf86cd799439022';
 let fee={amountPaise:10000,currency:'INR',terms:'Synthetic payment and cancellation terms',version:1};
 const row=()=>({_id:id,version:1,status:'pending',details:{businessName:'GST browser fixture',contactName:'Test contact'},submittedAt:'2026-01-01',files:[],events:[],billing:{...fee,status:paid?'paid':'unpaid'}});
-let paid=false;
+let paid=false, intakeEnabled=true, emptyQueue=false;
 const reply=(res,data)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:true,data}));};
 const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""','import.meta.env.VITE_API_URL':'""'},cacheDir:join(temp,'vite-cache'),server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'gst-fixtures',configureServer(server){server.middlewares.use(async(req,res,next)=>{
 if(req.url.startsWith('/api/')){const p=new URL(req.url,'http://fixture').pathname;let input={};if(req.method!=='GET'){let raw='';for await(const chunk of req)raw+=chunk;input=raw?JSON.parse(raw):{};}
-if(p.endsWith('/capabilities'))return reply(res,{enabled:true,productionBlocked:false,fee});
+if(p.endsWith('/capabilities'))return reply(res,{enabled:intakeEnabled,productionBlocked:false,fee});
 if(p.endsWith('/fee-policy')){if(req.method==='PUT')fee={...input,version:fee.version+1,currency:'INR'};return reply(res,fee);}
 if(p.endsWith('/me/payment'))return reply(res,{orderId:id,razorpayOrderId:'order_gst_browser',keyId:'rzp_test_fixture',amountPaise:fee.amountPaise,currency:'INR',verificationPath:'/api/sellers/gst-assistance/payments/verify'});
 if(p.endsWith('/payments/verify')){paid=true;return reply(res,{status:'paid'});}
 if(p.endsWith('/me')||p.endsWith('/'+id))return reply(res,row());
-if(p==='/api/admin/gst-assistance')return reply(res,{requests:[row()]});
+if(p==='/api/admin/gst-assistance')return reply(res,{requests:emptyQueue?[]:[row()]});
 return reply(res,{});}
 if(/^\/(seller|gst-vendor|gst-admin)/.test(req.url)){res.setHeader('Content-Type','text/html');return res.end(await server.transformIndexHtml(req.url,'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><div id="root"></div><script type="module" src="/verification/gst-browser-entry.jsx"></script></body></html>'));}next();});}}]});
 await vite.listen();const origin='http://127.0.0.1:'+vite.httpServer.address().port;
@@ -44,7 +44,13 @@ try{
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<768});
     await navigate('/seller');await waitText('Continue to Review');await click('Continue to Review');await waitText('Complete these items before submitting');
     assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,view:'review-missing-kyc'});
-    await navigate('/gst-admin');await waitText('GST service fee settings');await click('GST service fee settings');await waitText('Save service fee');
+    emptyQueue=true;intakeEnabled=false;await navigate('/gst-admin');await waitText('No GST assistance requests');await waitText('GST assistance intake is disabled');
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,view:'admin-empty-disabled'});
+    intakeEnabled=true;emptyQueue=false;await click('Recheck intake');await waitText('Accepting GST assistance requests');await click('Refresh assistance status');await waitText('GST browser fixture');
+    await click('GST browser fixture');await waitText('Status history');
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);
+    assert.equal(await evaluate(`parseFloat(getComputedStyle(document.querySelector('.gst-request-detail textarea')).borderRadius)>=8`),true);views.push({width,view:'admin-request-details'});
+    await click('GST service fee settings');await waitText('Save service fee');
     await evaluate(`(()=>{const e=document.querySelector('.gst-fee-editor input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'249.50');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);await click('Save service fee');await waitText('Service fee saved');assert.equal(fee.amountPaise,24950);views.push({width,view:'admin-fee'});
     paid=false;await navigate('/gst-vendor');await waitText('Pay ₹249.50 to Bulkimart');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);
     await evaluate(`document.querySelector('.gst-payment-panel input[type=checkbox]').click()`);await click('Pay ₹249.50 to Bulkimart');await waitText('Payment status: paid');views.push({width,view:'vendor-payment'});

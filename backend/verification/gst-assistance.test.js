@@ -181,6 +181,14 @@ test('seller can submit registration while GST assistance remains pending', asyn
   expect((await detail()).status).toBe('pending');
 });
 
+test('new seller profile lookup is empty until registration starts and panel routes remain protected', async () => {
+  const result = await auth(request(app).get('/sellers/me'), other).expect(200);
+  expect(result.body).toMatchObject({ success: true, seller: null });
+  await auth(request(app).get('/sellers/dashboard'), other).expect(403);
+  await auth(request(app).get('/sellers/orders'), other).expect(403);
+  await request(app).get('/sellers/me').expect(401);
+});
+
 const fee=async amount=>Fee.create({_id:'gst-assistance',amountPaise:amount||10000,currency:'INR',terms:'Synthetic total service fee and cancellation review terms',version:1});
 const checkout=(input={})=>auth(request(app).post('/sellers/gst-assistance/me/payment')).set('Idempotency-Key','gst-manual-checkout-0001').send({amountPaise:10000,feeVersion:1,acceptTerms:true,...input});
 function capture(c,id='pay_gst_fixture',amount=c.amountPaise){const p={id,order_id:c.razorpayOrderId,amount,currency:'INR',status:'captured',captured:true,amount_refunded:0};gatewayPayments.set(id,p);return p;}
@@ -204,6 +212,24 @@ test('GST payment is server verified and replay posts one held receipt outside s
   await verify(c).expect(200);await verify(c).expect(200);expect((await detail()).billing.status).toBe('paid');
   expect(await Ledger.countDocuments({account:'gst_assistance_collections'})).toBe(1);expect(await Ledger.countDocuments({account:'seller_payable'})).toBe(0);
   await checkout().expect(409);
+});
+
+test('registration, admin queue, verified payment and evidenced GST completion work as one flow', async () => {
+  await fee(); await submit().expect(200);
+  await auth(request(app).post('/sellers/submit')).expect(200);
+  const queue = await auth(request(app).get('/admin/gst-assistance?status=pending'), admin, 'admin').expect(200);
+  expect(queue.body.data.requests).toHaveLength(1);
+  expect(queue.body.data.requests[0].billing).toMatchObject({ amountPaise: 10000, status: 'unpaid' });
+  const payment = (await checkout().expect(200)).body.data; capture(payment);
+  await verify(payment).expect(200);
+  expect((await adminAction('assign', { reviewerId: 'self' })).status).toBe(200);
+  expect((await adminAction('transition', { status: 'under_review', message: 'Review documents' })).status).toBe(200);
+  expect((await adminAction('transition', { status: 'approved', message: 'Paid assistance work accepted' })).status).toBe(200);
+  expect((await adminAction('transition', { status: 'completed', message: 'GSTIN independently reviewed', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true, verificationReference: 'SYNTHETIC TEST EVIDENCE' }, [pdf])).status).toBe(200);
+  expect(await detail()).toMatchObject({ status: 'completed', billing: { status: 'paid' }, verification: { gstin: '29ABCDE1234F1Z5' }, files: [] });
+  expect((await Seller.findById(seller._id)).status).toBe('pending');
+  expect((await Seller.findById(seller._id)).gstin).toBe('');
+  expect(await Ledger.countDocuments({ account: 'gst_assistance_collections' })).toBe(1);
 });
 test('mismatched provider amount or browser signature cannot mark GST fee paid',async()=>{
   await fee();await submit().expect(200);const c=(await checkout().expect(200)).body.data;capture(c,'pay_gst_fixture',1);

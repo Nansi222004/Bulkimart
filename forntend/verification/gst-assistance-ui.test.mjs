@@ -2,11 +2,12 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
-let vite, Decision, Panel, Onboarding, FeeEditor, PaymentPanel, valid, requests;
+let vite, Decision, Panel, Onboarding, FeeEditor, PaymentPanel, Intake, valid, requests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   Decision = (await vite.ssrLoadModule('/src/components/gst/GstDecision.jsx')).default;
   Panel = (await vite.ssrLoadModule('/src/components/gst/GstAssistance.jsx')).default;
+  Intake = (await vite.ssrLoadModule('/src/components/gst/GstIntakeStatus.jsx')).default;
   Onboarding = (await vite.ssrLoadModule('/src/modules/Seller/pages/OnboardingPage.jsx')).default;
   FeeEditor = (await vite.ssrLoadModule('/src/components/gst/GstFeeEditor.jsx')).default;
   PaymentPanel = (await vite.ssrLoadModule('/src/components/gst/GstPaymentPanel.jsx')).default;
@@ -182,13 +183,50 @@ test('denied admin access renders an error and no private request details', asyn
     assert.match(text(h.tree), /Vendor management permission required/); assert.equal(h.find(n => n.type === 'textarea'), undefined);
   } finally { h.close(); requests.clearPortalRequests(); }
 });
+
+test('admin queue distinguishes loading, empty results and request load errors', async () => {
+  requests.clearPortalRequests(); const h = hookHarness(Panel, { admin: true });
+  try {
+    assert.match(text(h.tree), /Loading GST assistance/);
+    assert.doesNotMatch(text(h.tree), /No GST assistance requests/);
+    h.requests[0].resolve({ data: { requests: [] } }); await h.settle();
+    assert.match(text(h.tree), /No GST assistance requests/);
+    assert.match(text(h.tree), /Apply through Bulkimart/);
+    const refresh = h.click('Refresh assistance status');
+    h.requests[1].resolve({ message: 'Cannot load requests' }, 503); await refresh; await h.settle();
+    assert.match(text(h.tree), /Cannot load requests/);
+    assert.doesNotMatch(text(h.tree), /No GST assistance requests/);
+  } finally { h.close(); requests.clearPortalRequests(); }
+});
+
+test('admin intake indicator reports disabled backend configuration and can recheck', async () => {
+  const h = hookHarness(Intake);
+  try {
+    h.requests[0].resolve({ data: { enabled: false } }); await h.settle();
+    assert.match(text(h.tree), /intake is disabled/);
+    assert.match(text(h.tree), /deployed backend environment/);
+    h.click('Recheck intake'); h.requests[1].resolve({ data: { enabled: true } }); await h.settle();
+    assert.match(text(h.tree), /Accepting GST assistance requests/);
+  } finally { h.close(); }
+});
+
+test('fee settings cannot save when the current fee failed to load', async () => {
+  const h = hookHarness(FeeEditor);
+  try {
+    const loading = h.click('GST service fee settings');
+    h.requests[0].resolve({ message: 'Fee unavailable' }, 503); await loading; await h.settle();
+    assert.equal(h.find(n => n.type === 'fieldset').props.disabled, true);
+    await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
+    assert.equal(h.requests.length, 1);
+  } finally { h.close(); }
+});
 test('older admin detail responses cannot replace the currently selected vendor', async () => {
   requests.clearPortalRequests(); const a = row(), b = { ...row(), _id: 'second', details: { businessName: 'Second vendor', contactName: 'Second' } };
   const h = hookHarness(Panel, { admin: true });
   try {
     h.requests[0].resolve({ success: true, data: { requests: [a, b] } }); await h.settle();
-    const first = h.find(n => n.type === 'button' && String(n.props.children).includes('Fixture'));
-    const second = h.find(n => n.type === 'button' && String(n.props.children).includes('Second vendor'));
+    const first = h.find(n => n.type === 'button' && text(n).includes('Fixture'));
+    const second = h.find(n => n.type === 'button' && text(n).includes('Second vendor'));
     const pendingA = first.props.onClick(), pendingB = second.props.onClick();
     h.requests[2].resolve({ success: true, data: b }); await pendingB; await h.settle();
     h.requests[1].resolve({ success: true, data: a }); await pendingA; await h.settle();
@@ -201,13 +239,13 @@ test('switching admin request clears completion GSTIN, evidence reference and ve
   const h = hookHarness(Panel, { admin: true });
   try {
     h.requests[0].resolve({ success: true, data: { requests: [a, b] } }); await h.settle();
-    const first = h.find(n => n.type === 'button' && String(n.props.children).includes('Fixture'));
+    const first = h.find(n => n.type === 'button' && text(n).includes('Fixture'));
     const pendingA = first.props.onClick(); h.requests[1].resolve({ success: true, data: a }); await pendingA; await h.settle();
     h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'completed' } }); h.flush();
     h.find(n => n.type === 'input' && n.props.maxLength === 15).props.onChange({ target: { value: '29ABCDE1234F1Z5' } });
     h.find(n => n.type === 'input' && n.props.maxLength === 500).props.onChange({ target: { value: 'Private evidence reference' } });
     h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.flush();
-    const second = h.find(n => n.type === 'button' && String(n.props.children).includes('Second vendor'));
+    const second = h.find(n => n.type === 'button' && text(n).includes('Second vendor'));
     const pendingB = second.props.onClick(); h.requests[2].resolve({ success: true, data: b }); await pendingB; await h.settle();
     h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'completed' } }); h.flush();
     assert.equal(h.find(n => n.type === 'input' && n.props.maxLength === 15).props.value, '');
