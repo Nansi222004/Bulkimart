@@ -13,6 +13,7 @@ import {
   DELIVERY_MODE,
 } from '../constants/enums.js';
 import { buildReturnPolicySnapshotsFor } from './returnPolicy.service.js';
+import { applyProductReturnSettings } from './productReturns.service.js';
 import { debitWallet } from './wallet.service.js';
 
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
@@ -169,29 +170,27 @@ export const createOrdersFromGroups = async ({
    * happen to share.
    */
   const allProductIds = groups.flatMap((g) => linesOf(g).map((l) => l.productId));
-  const productsForPolicy = await Product.find({ _id: { $in: allProductIds } }).select('category type returnable').lean();
+  const productsForPolicy = await Product.find({ _id: { $in: allProductIds } }).select('category type fulfillmentType returnable returnSettings').lean();
   const categoryByProduct = new Map(productsForPolicy.map((p) => [String(p._id), p.category]));
   const productMetaById = new Map(productsForPolicy.map((p) => [String(p._id), p]));
   const returnPolicyByCategory = await buildReturnPolicySnapshotsFor([...categoryByProduct.values()]);
   const nonReturnable = { headerCategoryId: null, headerCategoryName: null, returnEligible: false, returnWindowDays: null };
   /**
-   * QUICK COMMERCE ONLY: fold the seller's `Product.returnable` opt-out
-   * into the frozen `returnEligible` here, at the one place this snapshot
-   * is built — the seller can never widen the category's own window, only
-   * narrow (or zero out) their own product's eligibility within it.
-   * E-commerce lines are untouched: same `catPolicy` object as before
-   * this field existed, no `sellerReturnable` key at all.
+   * Freeze the seller-selected physical retail policy at purchase time.
+   * Historical Shop All products retain their category default. Wholesale
+   * retains its existing category/legacy Quick Commerce behavior.
    */
-  const withReturnPolicy = (lines) => lines.map((l) => {
+  const withReturnPolicy = (lines, retail = true) => lines.map((l) => {
     const catPolicy = returnPolicyByCategory.get(String(categoryByProduct.get(String(l.productId)))) || nonReturnable;
-    const meta = productMetaById.get(String(l.productId));
-    if (meta?.type !== CHANNEL.GROCERY) {
+    const stored = productMetaById.get(String(l.productId));
+    const meta = retail ? stored : stored ? { ...stored, returnSettings: undefined } : stored;
+    if (!retail && catPolicy.source === 'global') return { ...l, returnPolicy: { ...nonReturnable, headerCategoryId: catPolicy.headerCategoryId, headerCategoryName: catPolicy.headerCategoryName } };
+    if (meta?.type !== CHANNEL.GROCERY && !meta?.returnSettings && meta?.fulfillmentType !== 'digital' && catPolicy.source !== 'global') {
       return { ...l, returnPolicy: catPolicy };
     }
-    const sellerReturnable = Boolean(meta?.returnable);
     return {
       ...l,
-      returnPolicy: { ...catPolicy, sellerReturnable, returnEligible: catPolicy.returnEligible && sellerReturnable },
+      returnPolicy: applyProductReturnSettings(meta, catPolicy),
     };
   });
 
@@ -255,7 +254,7 @@ export const createOrdersFromGroups = async ({
       userId: user._id,
       type: g.channel,
       salesChannel: g.salesChannel || purchaseMode,
-      items: withReturnPolicy(linesOf(g)),
+      items: withReturnPolicy(linesOf(g), (g.salesChannel || purchaseMode) !== 'wholesale'),
       shippingAddress: address,
       /**
        * This group's money only.

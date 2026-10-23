@@ -1,12 +1,37 @@
 import mongoose from 'mongoose';
 import Category from '../models/Category.js';
 import CategoryReturnPolicy from '../models/CategoryReturnPolicy.js';
+import GlobalReturnPolicy from '../models/GlobalReturnPolicy.js';
 import { httpError } from '../utils/response.js';
 import { RETURN_POLICY_MAX_WINDOW_DAYS } from '../constants/enums.js';
 
+export const getGlobalReturnPolicy = () => GlobalReturnPolicy.findById('global').lean();
+function validDays(value) {
+  if (!['string','number'].includes(typeof value) || (typeof value === 'string' && !value.trim()) || !Number.isSafeInteger(Number(value)) || Number(value) < 0 || Number(value) > RETURN_POLICY_MAX_WINDOW_DAYS) throw httpError(400, `Enter a whole return window from 0 to ${RETURN_POLICY_MAX_WINDOW_DAYS} days`);
+  return Number(value);
+}
+export async function saveGlobalReturnPolicy({ returnWindowDays, isActive, version, adminId }) {
+  const days = validDays(returnWindowDays);
+  if (typeof isActive !== 'boolean' || !Number.isSafeInteger(version) || version < 0) throw httpError(400, 'Specify global status and the current settings version');
+  const entry = { returnWindowDays: days, isActive, version: version + 1, updatedBy: adminId, at: new Date() };
+  try {
+    if (!version) return await GlobalReturnPolicy.create({ _id: 'global', ...entry, history: [entry] });
+    const row = await GlobalReturnPolicy.findOneAndUpdate({ _id: 'global', version }, { $set: { returnWindowDays: days, isActive, updatedBy: adminId }, $inc: { version: 1 }, $push: { history: entry } }, { returnDocument: 'after', runValidators: true });
+    if (!row) throw httpError(409, 'Global return settings changed. Reload before saving');
+    return row;
+  } catch (error) { if (error.code === 11000) throw httpError(409, 'Global return settings changed. Reload before saving'); throw error; }
+}
+async function configuredWindow(header) {
+  // An explicit category restriction always wins, including inactive and zero-day policies.
+  const category = await CategoryReturnPolicy.findOne({ categoryId: header._id }).lean();
+  if (category) return { days: category.isActive ? category.returnWindowDays : null, source: 'category' };
+  const global = await getGlobalReturnPolicy();
+  return global?.isActive ? { days: global.returnWindowDays, source: 'global' } : { days: null, source: 'none' };
+}
+
 /**
- * Category Return Policy — Phase 2 foundation only. Nothing in this file
- * writes to an Order/OrderItem; that snapshot step is Phase 3.
+ * Return-policy resolution and configuration. Callers persist the returned
+ * snapshots on new order items; this service never updates existing orders.
  */
 
 /**
@@ -51,15 +76,13 @@ export const resolveHeaderCategory = async (categoryId, { maxDepth = 20 } = {}) 
 
 /**
  * The authoritative return policy for a product's header category, resolved
- * fresh from CategoryReturnPolicy — never cached, since Admin edits must be
+ * fresh from category/global settings — never cached, since Admin edits must be
  * visible to the very next order (only ALREADY-PLACED orders are frozen,
  * via their own snapshot, not this lookup).
  *
- * A header with no policy document, or one with `isActive: false`, is
- * NON-RETURNABLE — never an inherited/permissive default (Phase 1 decision
- * #4). This is the single function both the future order-creation snapshot
- * (Phase 3) and the admin policy screen (Phase 7) must call, so "missing
- * policy" is decided in exactly one place.
+ * A header with no category policy inherits the active global window.
+ * Explicit inactive or zero-day category policies block returns. Product
+ * settings subsequently enforce seller opt-in for global-sourced windows.
  *
  * @returns {Promise<{ eligible: boolean, returnWindowDays: number, headerCategoryId: string|null, headerCategoryName: string|null }>}
  */
@@ -69,14 +92,12 @@ export const resolveReturnPolicyForCategory = async (categoryId) => {
     return { eligible: false, returnWindowDays: 0, headerCategoryId: null, headerCategoryName: null };
   }
 
-  const policy = await CategoryReturnPolicy.findOne({ categoryId: header._id, isActive: true }).lean();
-  if (!policy) {
-    return { eligible: false, returnWindowDays: 0, headerCategoryId: String(header._id), headerCategoryName: header.name };
-  }
+  const policy = await configuredWindow(header);
 
   return {
-    eligible: policy.returnWindowDays > 0,
-    returnWindowDays: policy.returnWindowDays,
+    eligible: policy.days > 0,
+    returnWindowDays: policy.days ?? 0,
+    source: policy.source,
     headerCategoryId: String(header._id),
     headerCategoryName: header.name,
   };
@@ -95,7 +116,7 @@ export const resolveReturnPolicyForCategory = async (categoryId) => {
  * policy" and "explicit 0 days" into the same `returnWindowDays: 0` since
  * both simply mean "not eligible right now" — the snapshot must tell the
  * two apart: `returnWindowDays: null` means nothing was ever configured for
- * this header, while `0` means an admin explicitly chose "no returns" for
+ * this header or no active fallback exists, while `0` means an admin explicitly chose "no returns" for
  * it. Both snapshot as `returnEligible: false`; only the `returnWindowDays`
  * value differs.
  */
@@ -105,16 +126,14 @@ export const buildReturnPolicySnapshot = async (categoryId) => {
     return { headerCategoryId: null, headerCategoryName: null, returnEligible: false, returnWindowDays: null };
   }
 
-  const policy = await CategoryReturnPolicy.findOne({ categoryId: header._id, isActive: true }).lean();
-  if (!policy) {
-    return { headerCategoryId: header._id, headerCategoryName: header.name, returnEligible: false, returnWindowDays: null };
-  }
+  const policy = await configuredWindow(header);
 
   return {
     headerCategoryId: header._id,
     headerCategoryName: header.name,
-    returnEligible: policy.returnWindowDays > 0,
-    returnWindowDays: policy.returnWindowDays,
+    returnEligible: policy.days > 0,
+    returnWindowDays: policy.days,
+    ...(policy.source === 'global' ? { source: 'global' } : {}),
   };
 };
 
@@ -166,13 +185,7 @@ export const upsertReturnPolicy = async ({ categoryId, returnWindowDays, isActiv
   if (!category) throw httpError(404, 'Category not found');
   if (category.parent) throw httpError(400, 'A return policy can only be set on a header category (one with no parent)');
 
-  const days = Number(returnWindowDays);
-  if (!Number.isInteger(days) || days < 0) {
-    throw httpError(400, 'returnWindowDays must be a whole number of 0 or more');
-  }
-  if (days > RETURN_POLICY_MAX_WINDOW_DAYS) {
-    throw httpError(400, `returnWindowDays cannot exceed ${RETURN_POLICY_MAX_WINDOW_DAYS}`);
-  }
+  const days = validDays(returnWindowDays);
 
   const policy = await CategoryReturnPolicy.findOneAndUpdate(
     { categoryId },

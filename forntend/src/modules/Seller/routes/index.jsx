@@ -70,7 +70,7 @@ const SellerRoutesContent = () => {
       }
 
       // Signed in, but no seller profile yet
-      if (res.status === 404) {
+      if (res.status === 404 || (res.ok && body.success && body.seller === null)) {
         const effectiveIntent = activeIntent || intent;
         if (effectiveIntent === 'register') {
           // User just completed phone OTP for registering a new store, continue to onboarding

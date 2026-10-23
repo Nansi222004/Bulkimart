@@ -4,7 +4,7 @@ export async function gstApi(admin, path = '', options = {}) {
   const portal = admin ? 'admin' : 'seller', key = `${portal}Token`, token = localStorage.getItem(key);
   if (!token) throw Error('Sign in to continue');
   const url = `/api/${admin ? 'admin' : 'sellers'}/gst-assistance${path}`;
-  const response = options.body ? await fetch(apiUrl(url), { ...options, headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000) })
+  const response = options.body || options.json ? await fetch(apiUrl(url), { ...options, ...(options.json ? {body:JSON.stringify(options.json)} : {}), headers: { Authorization: `Bearer ${token}`, ...(options.json ? {'Content-Type':'application/json'} : {}), ...options.headers }, signal: AbortSignal.timeout(30000) })
     : await portalRequest(portal, token, url, { cacheMs: 0 });
   if (token !== localStorage.getItem(key)) throw Error('Session changed. Reopen GST assistance.');
   if (options.download && response.ok) return response.blob();

@@ -16,6 +16,11 @@ const schema = new mongoose.Schema({
   requestedCorrections: String,
   files: { type: [mongoose.Schema.Types.Mixed], default: [] },
   verification: mongoose.Schema.Types.Mixed,
+  billing: { type: new mongoose.Schema({
+    amountPaise: Number, currency: { type: String, default: 'INR' }, terms: String, version: Number,
+    paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    status: { type: String, default: 'unpaid' }, mode: String, acceptedAt: Date, refundedPaise: { type: Number, default: 0 }, reviewRequired: { type: Boolean, default: false },
+  }, { _id: false }), default: undefined },
   events: { type: [mongoose.Schema.Types.Mixed], default: [] },
 }, { timestamps: true, optimisticConcurrency: true, autoCreate: false, autoIndex: false });
 export default mongoose.model('GstAssistanceRequest', schema);

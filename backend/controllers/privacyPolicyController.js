@@ -76,7 +76,7 @@ export const getPolicyByRole = async (req, res) => {
 // @access  Public
 export const getPolicyBySlug = async (req, res) => {
   try {
-    const { slug } = req.params;
+    const slug = String(req.params.slug || req.params.identifier || '').trim().toLowerCase();
 
     // Check if parameter is a role or slug
     let role = SLUG_ROLE_MAP[slug] || slug;
@@ -111,6 +111,7 @@ export const getPolicyBySlug = async (req, res) => {
 export const updatePolicy = async (req, res) => {
   try {
     const { identifier } = req.params;
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ success: false, message: 'A privacy policy object is required' });
     const { roleTitle, summary, sections, version, effectiveDate, isPublished } = req.body;
 
     const normalizedId = (identifier || "").toLowerCase();
@@ -124,19 +125,34 @@ export const updatePolicy = async (req, res) => {
     }
 
     const targetSlug = ROLE_SLUG_MAP[targetRole];
+    const invalid = message => res.status(400).json({ success: false, message });
+    if (roleTitle !== undefined && (typeof roleTitle !== 'string' || !roleTitle.trim())) return invalid('Policy title is required');
+    if (summary !== undefined && typeof summary !== 'string') return invalid('Policy summary must be text');
+    if (version !== undefined && (typeof version !== 'string' || !version.trim())) return invalid('Policy version is required');
+    if (isPublished !== undefined && typeof isPublished !== 'boolean') return invalid('Published status must be true or false');
+    if (effectiveDate !== undefined && (!effectiveDate || Number.isNaN(new Date(effectiveDate).getTime()) || (typeof effectiveDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) && new Date(effectiveDate).toISOString().slice(0,10) !== effectiveDate))) return invalid('Enter a valid effective date');
+    if (sections !== undefined) {
+      if (!Array.isArray(sections)) return invalid('Policy sections must be a list');
+      for (let index = 0; index < sections.length; index++) {
+        const section = sections[index];
+        if (!section || typeof section.title !== 'string' || !section.title.trim()) return invalid(`Section ${index + 1}: title is required`);
+        if (typeof section.content !== 'string' || !section.content.trim()) return invalid(`Section ${index + 1}: content is required`);
+        if (section.points !== undefined && (!Array.isArray(section.points) || section.points.some(point => typeof point !== 'string'))) return invalid(`Section ${index + 1}: bullet points must be text`);
+      }
+    }
 
     let policy = await PrivacyPolicy.findOne({ role: targetRole });
 
     const updatedData = {
       role: targetRole,
-      roleTitle: roleTitle || `${targetRole.toUpperCase()} Privacy Policy`,
+      roleTitle: roleTitle?.trim() || policy?.roleTitle || `${targetRole.toUpperCase()} Privacy Policy`,
       slug: targetSlug,
       summary: summary !== undefined ? summary : policy?.summary || "",
-      sections: Array.isArray(sections) ? sections : policy?.sections || [],
+      sections: Array.isArray(sections) ? sections.map((section, index) => ({ ...section, title: section.title.trim(), content: section.content.trim(), order: index + 1 })) : policy?.sections || [],
       version: version || policy?.version || "1.0.0",
-      effectiveDate: effectiveDate || Date.now(),
+      effectiveDate: effectiveDate !== undefined ? effectiveDate : policy?.effectiveDate || Date.now(),
       lastUpdatedBy: req.admin?._id || req.user?._id || null,
-      isPublished: isPublished !== undefined ? isPublished : true,
+      isPublished: isPublished !== undefined ? isPublished : policy?.isPublished ?? true,
     };
 
     if (policy) {
@@ -155,10 +171,10 @@ export const updatePolicy = async (req, res) => {
       data: policy,
     });
   } catch (error) {
-    res.status(500).json({
+    const status = error.code === 11000 ? 409 : ['ValidationError', 'CastError'].includes(error.name) ? 400 : 500;
+    res.status(status).json({
       success: false,
-      message: "Failed to update privacy policy",
-      error: error.message,
+      message: status === 409 ? 'Policy changed or its route is already in use. Reload before saving.' : status === 400 ? `Invalid privacy policy: ${error.message}` : 'Failed to update privacy policy. Please try again.',
     });
   }
 };

@@ -19,10 +19,8 @@ const ObjectId = Schema.Types.ObjectId;
  *
  * `returnWindowDays: 0` means the category is explicitly non-returnable —
  * a deliberate value, not an unconfigured one. A header with NO document
- * here at all is a separate case (unconfigured) and is also non-returnable
- * by policy (see resolveReturnPolicyForCategory) — "missing" and "zero"
- * reach the same outcome but are not the same thing, which is why this is
- * not modelled as returnWindowDays defaulting to 0.
+ * here at all inherits the active global window, subject to seller opt-in.
+ * Explicit zero-day or inactive category policies block that fallback.
  */
 const categoryReturnPolicySchema = new Schema(
   {

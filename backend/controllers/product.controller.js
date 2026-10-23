@@ -17,6 +17,7 @@ import { applyApprovedRatings, approvedReviewsOf, ratingBreakdownOf } from '../s
 import { resolveCampaignPriceForProduct } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service.js';
+import { applyProductReturnSettings, parseProductReturnSettings } from '../services/productReturns.service.js';
 import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
 import { persistLegacyVariantIds, resolveInventoryItem } from '../services/inventory.service.js';
 import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesaleCatalog.service.js';
@@ -298,7 +299,7 @@ export const getCategoryReturnPolicyForSeller = asyncHandler(async (req, res) =>
   const { categoryId } = req.query;
   if (!categoryId) throw httpError(400, 'categoryId is required');
   const policy = await resolveReturnPolicyForCategory(categoryId);
-  return ok(res, { eligible: policy.eligible, returnWindowDays: policy.returnWindowDays }, 'Category return policy');
+  return ok(res, { eligible: policy.eligible, returnWindowDays: policy.returnWindowDays, source: policy.source || 'none' }, 'Category return policy');
 });
 
 // @desc    Get single product details
@@ -335,23 +336,21 @@ export const getProductById = asyncHandler(async (req, res) => {
   }
 
   /**
-   * QUICK COMMERCE ONLY — what the customer sees on the product page.
-   * Resolved LIVE (unlike an order's own frozen snapshot): a browsing
-   * customer must see today's real Admin category policy, not a stale
-   * order-time freeze that doesn't exist yet for this product. Absent for
-   * every other channel — an E-commerce/SHG product's response shape is
-   * completely unchanged by this feature.
+   * Resolve the live policy shown to physical retail customers. Seller settings
+   * can narrow the category window; order-time terms are frozen separately.
    */
-  if (product.type === CHANNEL.GROCERY) {
+  if ([CHANNEL.GROCERY, CHANNEL.ECOM].includes(product.type) && product.fulfillmentType !== 'digital') {
     // `product.category` is populated above (for the `{name}` display field),
     // so the raw id has to be pulled back out — resolveReturnPolicyForCategory
     // walks the category TREE and needs the id, not the populated doc.
     const policy = await resolveReturnPolicyForCategory(product.category?._id || product.category);
-    const eligible = Boolean(product.returnable) && policy.eligible;
-    data.returnable = Boolean(product.returnable);
+    const resolved = applyProductReturnSettings(product, policy);
+    const eligible = resolved.returnEligible;
+    data.returnable = resolved.sellerReturnable;
     data.returnPolicy = {
       eligible,
-      returnWindowDays: eligible ? policy.returnWindowDays : 0,
+      returnWindowDays: eligible ? resolved.returnWindowDays : 0,
+      ...(policy.source === 'global' ? { source: 'global' } : {}),
     };
   }
 
@@ -707,7 +706,9 @@ export const createProduct = asyncHandler(async (req, res) => {
     throw httpError(400, 'Please upload at least one product image');
   }
 
+  const returnSettings = !b2bOnly ? await parseProductReturnSettings(req.body, { type, category, fulfillmentType }) : undefined;
   const productData = {
+    ...(returnSettings ? { returnSettings } : {}),
     type,
     ...(sellingChannels !== undefined ? { sellingChannels } : {}),
     fulfillmentType,
@@ -992,6 +993,10 @@ export const updateProduct = asyncHandler(async (req, res) => {
    */
   if (product.type === CHANNEL.GROCERY && returnable !== undefined) {
     product.returnable = returnable === true || returnable === 'true';
+  }
+  if (!b2bOnly) {
+    const returns = await parseProductReturnSettings(req.body, product);
+    if (returns) product.returnSettings = returns;
   }
   if (parsedVariants !== undefined) {
     product.variants = parsedVariants;

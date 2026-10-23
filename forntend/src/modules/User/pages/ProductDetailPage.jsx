@@ -251,14 +251,11 @@ const ProductDetailPage = () => {
   const campaignPriceForVariant = campaignDeal?.discountValue != null && selectedPrice != null
     ? Math.round(Number(selectedPrice) * (1 - Number(campaignDeal.discountValue) / 100) * 100) / 100
     : campaignDeal?.price;
-  // QUICK COMMERCE ONLY — `returnPolicy` is only ever present on a
-  // `type: "grocery"` product's own GET /api/products/:id response (see
-  // product.controller.js::getProductById); an E-commerce product's
-  // response never carries it, so this stays null there and the block
-  // below never renders.
+  // Live, server-resolved return terms for the selected physical retail product.
   const [returnInfo, setReturnInfo] = useState(null);
   useEffect(() => {
     if (!product?.id || wholesaleDetail) return;
+    setReturnInfo(null);
     let cancelled = false;
     (async () => {
       try {
@@ -593,7 +590,7 @@ const ProductDetailPage = () => {
         it's whatever the server already resolved from Admin's Category
         Return Policy (product.controller.js::getProductById).
       */}
-      {wholesale.mode === 'retail' && !isEcom && returnInfo && (
+      {wholesale.mode === 'retail' && returnInfo && (
         <div className="pd-section-card">
           <h3 className="pd-section-title">Return Policy</h3>
           <div style={{

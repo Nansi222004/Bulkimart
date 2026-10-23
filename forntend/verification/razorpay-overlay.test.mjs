@@ -47,3 +47,13 @@ test('unverified frontend success is rejected and duplicate handler callbacks ar
     assert.equal((await pending).ok, false); assert.equal(calls, 1); assert.equal(f.closes, 1);
   } finally { f.restore(); }
 });
+
+test('GST assistance checkout verifies through its dedicated vendor payment endpoint',async()=>{
+  const f=fixture();let target;
+  try{
+    globalThis.fetch=async url=>{target=String(url);return {ok:true,json:async()=>({data:{status:'paid'}})};};
+    const pending=open({...checkout,verificationPath:'/api/sellers/gst-assistance/payments/verify'},{Authorization:'Bearer fixture-seller'});await Promise.resolve();
+    await f.options.handler({razorpay_payment_id:'pay_gst_fixture'});
+    assert.equal((await pending).verified,true);assert.ok(target.endsWith('/api/sellers/gst-assistance/payments/verify'));
+  }finally{f.restore();}
+});

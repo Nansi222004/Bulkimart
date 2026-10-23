@@ -7,7 +7,7 @@ const verifyReplay = (entry, payload) => {
   if ((entry.currency || 'INR') !== (payload.currency || 'INR')) throw httpError(409, 'Ledger currency mismatch');
   if (entry.advertisingCampaignId && (String(entry.advertisingCampaignId)!==String(payload.advertisingCampaignId) || String(entry.advertiserSellerId)!==String(payload.advertiserSellerId) || entry.advertisingRevision!==payload.advertisingRevision || entry.currency!==payload.currency)) throw httpError(409,'Advertising ledger replay mismatch');
   if (entry.parcelDeliveryId && (entry.currency || 'INR') !== (payload.currency || 'INR')) throw httpError(409, 'Parcel ledger currency mismatch');
-  for (const key of ['sellerId', 'partnerId', 'orderId', 'payoutId', 'deliveryPayoutId', 'paymentId', 'deliveryId', 'snapshotId', 'serviceApplicationId', 'parcelDeliveryId', 'providerId', 'type', 'direction', 'bucket', 'amount']) {
+  for (const key of ['sellerId', 'partnerId', 'orderId', 'payoutId', 'deliveryPayoutId', 'paymentId', 'deliveryId', 'snapshotId', 'serviceApplicationId', 'gstAssistanceRequestId', 'parcelDeliveryId', 'providerId', 'type', 'direction', 'bucket', 'amount']) {
     if (String(entry[key] ?? '') !== String(payload[key] ?? '')) throw httpError(409, 'Ledger event key reused with different financial data');
   }
   if ((entry.account || 'seller_payable') !== (payload.account || 'seller_payable')) throw httpError(409, 'Ledger account mismatch');
@@ -16,7 +16,7 @@ const verifyReplay = (entry, payload) => {
 
 export const postLedgerEntry = async (payload, { session = null } = {}) => {
   moneyPaise(payload.amount);
-  if ((payload.currency || 'INR') !== 'INR') throw httpError(400, 'Only INR ledger postings are supported');
+  if ((payload.currency || 'INR') !== 'INR') throw httpError(400, 'Only INR ledger postings are supported; currency mismatch');
   const existing = session
     ? await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey }).session(session)
     : await SellerLedgerEntry.findOne({ idempotencyKey: payload.idempotencyKey });

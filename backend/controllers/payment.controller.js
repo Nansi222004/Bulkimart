@@ -50,6 +50,7 @@ const publishSellerPaymentResult = async payment => {
 
 /** Move an order to paid/failed exactly once, whichever signal arrives first. */
 export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, errorCode, gatewayPaymentId, amountPaise, currency }) => {
+  if (payment.gstAssistanceRequestId) { const { settleGstPayment } = await import('../services/gstPayment.service.js'); return { status: await settleGstPayment(payment._id, { state, orderId: gatewayOrderId, paymentId: gatewayPaymentId, amountPaise, currency }) }; }
   if(payment.advertising)throw httpError(409,'Advertising requires its dedicated settlement handler');
   if (payment.quickFeeSnapshotId) return settleQuickShiprocketCollection({ payment, state, gatewayOrderId, gatewayPaymentId, amountPaise, currency });
   // Exact Razorpay capture replay is a no-op; distinct successes still need
@@ -393,6 +394,8 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   if (await handleParcelWebhook(req.body, evt)) return res.status(200).json({ success: true });
   const { handleLegalWebhook } = await import('../services/legalPayment.service.js');
   if (await handleLegalWebhook(req.body, evt)) return res.status(200).json({ success: true });
+  const { handleGstWebhook } = await import('../services/gstPayment.service.js');
+  if (await handleGstWebhook(req.body, evt)) return res.status(200).json({ success: true });
   if (['refund_completed', 'refund_failed'].includes(evt.kind)) {
     const recovery = await reconcileRefundEvent(evt);
     if (recovery.handled) {
@@ -421,6 +424,7 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
     await handleLegalWebhook(req.body, evt);
     return res.status(200).json({ success: true });
   }
+  if (payment.gstAssistanceRequestId) { await handleGstWebhook(req.body, evt); return res.status(200).json({ success: true }); }
 
   const attempt = razorpayAttempt(payment, evt.gatewayOrderId);
   if (!Number.isSafeInteger(evt.amountPaise) || evt.amountPaise !== attempt.amountPaise || evt.amountPaise !== rupeesToPaise(payment.amount) || !evt.paymentId) {

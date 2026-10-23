@@ -136,18 +136,12 @@ const orderItemSchema = new Schema({
     headerCategoryName: String,
     returnEligible:     { type: Boolean, default: false },
     returnWindowDays:   { type: Number, default: null },
+    source: { type: String, enum: ['global'] },
 
     /**
-     * QUICK COMMERCE ONLY — the seller's `Product.returnable` flag, frozen
-     * at the moment this order was created (services/fulfilmentOrders
-     * .service.js). Absent for E-commerce/SHG items, which have no
-     * seller-level opt-out — `returnEligible` there is (and was, before
-     * this field existed) governed purely by the category policy above.
-     * For a Quick item, `returnEligible` is already
-     * `categoryEligible && sellerReturnable` by the time it's stored here;
-     * this field is kept alongside it only so the frozen reason is legible
-     * later, never re-derived from the live Product document.
-     */
+   * Seller return preference at purchase time. The resolved eligibility and
+     * window above are immutable order terms, independent of later product edits.
+   */
     sellerReturnable: { type: Boolean },
   },
 

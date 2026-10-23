@@ -195,19 +195,12 @@ const productSchema = new Schema(
     sameDay: { type: productSameDaySchema, default: undefined },
 
     /**
-     * QUICK COMMERCE ONLY — whether this seller accepts returns on this
-     * product. Ignored for `type: "ecommerce"`/`"shg"` listings; those are
-     * governed purely by Admin's CategoryReturnPolicy, exactly as before
-     * this field existed.
-     *
-     * This is an opt-OUT switch, never a window: the seller can turn
-     * returns off for this product, but can never set or widen how many
-     * days the window is — that number always comes from
-     * services/returnPolicy.service.js's resolution of the product's
-     * header category, both here (for display) and frozen onto the order
-     * item at purchase time (services/fulfilmentOrders.service.js).
-     */
+   * Legacy Quick Commerce opt-in. Shop All overrides and custom product windows
+     * are stored in returnSettings; absent Shop All overrides retain category defaults.
+   */
     returnable: { type: Boolean, default: false },
+    // Physical retail override. Absent on historical products: keep their category policy.
+    returnSettings: { type: new mongoose.Schema({ enabled: Boolean, windowDays: { type: Number, min: 1, validate: Number.isInteger } }, { _id: false }), default: undefined },
 
     // Cross-listing into other storefronts. Absent = only the primary `type`
     // channel, same shape as every product created before this existed.
