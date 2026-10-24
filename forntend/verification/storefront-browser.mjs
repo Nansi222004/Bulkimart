@@ -6,11 +6,30 @@ import { DEFAULT_TOKENS, PRESETS } from '../../backend/shared/storefront.mjs';
 // external resources are blocked and only an ephemeral browser profile is used.
 const generated = new URL(`../tests/.storefront-${process.pid}.mjs`, import.meta.url);
 const splashPreviewOnly = process.argv.includes('--splash-preview');
+const splashScreenOnly = process.argv.includes('--splash-screen');
+// Embedded in the fixture runner so these assertions exercise real layout/CSS.
+async function checkSplashGeometry(selector, frameSelector) {
+  const result = await evaluate(`(() => {
+    const root = document.querySelector(${JSON.stringify(selector)}), card = root.querySelector('.sf-splash-card');
+    const media = card.querySelector('img,video,.sf-media-fallback'), skip = root.querySelector('.sf-skip');
+    const rect = element => { const r = element.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
+    const frame = ${frameSelector ? `rect(document.querySelector(${JSON.stringify(frameSelector)}))` : '{x:visualViewport.offsetLeft,y:visualViewport.offsetTop,width:visualViewport.width,height:visualViewport.height}'};
+    return { frame, root:rect(root), card:rect(card), media:rect(media), skip:rect(skip),
+      radius:getComputedStyle(card).borderRadius, fit:getComputedStyle(media).objectFit,
+      background:getComputedStyle(root).backgroundColor, copy:!!root.querySelector('.sf-splash-copy,h2') };
+  })()`);
+  for (const name of ['root', 'card', 'media']) for (const key of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(result[name][key] - result.frame[key]) < 1, `${selector}: ${name}.${key} fills the launch screen`);
+  }
+  assert.equal(result.radius, '0px'); assert.equal(result.fit, 'cover'); assert.equal(result.copy, false);
+  assert.match(result.background, /^rgb\(/, 'Launch background is opaque');
+  assert.ok(result.skip.x >= result.frame.x && result.skip.y >= result.frame.y && result.skip.x + result.skip.width <= result.frame.x + result.frame.width && result.skip.y + result.skip.height <= result.frame.y + result.frame.height, 'Skip stays inside the launch screen');
+}
 let source = await readFile(new URL('../tests/mobile-layout.test.mjs', import.meta.url), 'utf8');
 const replace = (marker, value) => { assert.ok(source.includes(marker), `Missing browser runner marker: ${marker.slice(0, 60)}`); source = source.replace(marker, value); };
 replace("'--headless=new', '--remote-debugging-port=0'", "'--headless=new', '--disable-gpu', '--remote-debugging-port=0'");
 replace("const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();", "const target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page');");
-replace("let layoutScenario = '';", `let layoutScenario = ''; let studioSaved = null; let themePhase = 0; const studioTokens = ${JSON.stringify(DEFAULT_TOKENS)};`);
+replace("let layoutScenario = '';", `let layoutScenario = ''; let studioSaved = null; let themePhase = 0; const studioTokens = ${JSON.stringify(DEFAULT_TOKENS)};\n${checkSplashGeometry.toString()}`);
 replace("if(path!=='/seller/logout')await evaluate(\"try{sessionStorage.removeItem('audit-seller-logout')}catch{}\");", "if(path!=='/seller/logout')await evaluate(\"try{sessionStorage.removeItem('audit-seller-logout');for(let i=sessionStorage.length-1;i>=0;i--){const k=sessionStorage.key(i);if(k&&k.startsWith('bulkimart:experience:'))sessionStorage.removeItem(k);}}catch{}\");");
 replace("  const selectedPaths=process.argv.find", "  await command('Page.addScriptToEvaluateOnNewDocument', { source: `for(let i=sessionStorage.length-1;i>=0;i--){const k=sessionStorage.key(i);if(k&&k.startsWith('bulkimart:experience:'))sessionStorage.removeItem(k);}` });\n  const selectedPaths=process.argv.find");
 replace('  const path = new URL(raw).pathname;', `  const path = new URL(raw).pathname;
@@ -78,6 +97,7 @@ replace('      if (startupOnly) {', `
         await waitFor("[...document.querySelectorAll('.studio-banner-section select option')].some(o=>o.value==='507f1f77bcf86cd799439050')");
         await evaluate("const artwork=document.querySelector('.studio-banner-section select');artwork.value='507f1f77bcf86cd799439050';artwork.dispatchEvent(new Event('change',{bubbles:true}))");
         await waitFor("!!document.querySelector('.studio-splash-stage .sf-splash-card')");
+        await checkSplashGeometry('.studio-splash-stage .sf-splash', '.studio-splash-stage');
         assert.equal(await evaluate("!!document.querySelector('.studio-preview-collection')"),false,'Splash preview omits homepage collections');
         assert.equal(await evaluate("getComputedStyle(document.querySelector('.studio-editor footer .sa-btn-primary')).backgroundColor"),'rgb(8, 126, 164)','Publish label has a contrasting background');
         await evaluate("document.querySelector('.studio-splash-stage .sf-skip').click()");
@@ -108,6 +128,8 @@ replace('      if (startupOnly) {', `
         }else{
           if(layoutScenario.includes('splash')){
             await waitFor("!!document.querySelector('.sf-splash')");
+            await checkSplashGeometry('.sf-splash');
+            if(width===390){const directory=resolve('../test-artifacts/storefront');await mkdir(directory,{recursive:true});await writeFile(join(directory,layoutScenario+'-fullscreen.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}
             assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Splash owns focus');
             await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
             assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Tab remains in splash');
@@ -138,8 +160,8 @@ source = source.replaceAll('../test-artifacts/mobile-native', '../test-artifacts
 try {
   await writeFile(generated, source);
   const code = await new Promise((resolve, reject) => {
-    const paths = splashPreviewOnly ? '/admin/storefront-studio' : '/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio';
-    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths='+paths, splashPreviewOnly ? '--widths=390,1440' : '--widths=320,360,390,430,768,1440', '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
+    const paths = splashPreviewOnly ? '/admin/storefront-studio' : splashScreenOnly ? '/?layout=storefront-splash,/?layout=storefront-splash-video,/admin/storefront-studio' : '/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio';
+    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths='+paths, splashPreviewOnly ? '--widths=390,1440' : splashScreenOnly ? '--widths=320,390,430,1440' : '--widths=320,360,390,430,768,1440', '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
     child.on('error', reject); child.on('exit', resolve);
   });
   assert.equal(code, 0, 'Storefront browser assertions failed');

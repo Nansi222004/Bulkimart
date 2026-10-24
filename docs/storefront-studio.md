@@ -61,6 +61,8 @@ Placement is the first campaign field. Choose **Splash screen · app launch** to
 
 In **Upload New Banner**, choosing a JPEG/PNG/WebP image (up to 5 MB) immediately previews the local artwork. **Save draft** and **Publish** upload and attach that image before saving the campaign; the separate **Upload & Link to Campaign** button is optional. Upload failures leave the image available for retry and show the actual error without publishing. A future start date keeps a published splash scheduled until that time; preview remains available before its start.
 
+Splash artwork fills the available app viewport with an opaque background, square edges and no separate title/subtitle panel. The admin preview uses the same layout. Skip, configured countdown and destination buttons overlay the artwork; auto-close remains enabled. Use portrait artwork for phone launches and keep important content away from the edges: artwork uses proportional cover scaling and can crop to fit different screen sizes. The splash appears once an eligible published campaign is fetched after startup; this is an in-app launch screen, not the native operating system's pre-load screen.
+
 | Policy | Storage and meaning |
 | --- | --- |
 | Every eligible launch | Once during the mounted customer app launch; refresh starts another launch |

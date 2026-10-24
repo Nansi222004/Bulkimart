@@ -8,9 +8,9 @@ export default function SplashCard({ banner, device, now, endAt, showCountdown, 
   return <div className="sf-splash-card">
     <button type="button" className="sf-skip" onClick={onDismiss} aria-label="Close promotion">Skip ✕</button>
     <StorefrontMedia banner={banner} device={device} eager />
-    <div className="sf-splash-copy"><span className="sf-eyebrow">BULKIMART PICKS</span><h2>{banner.title}</h2><p>{banner.subtitle}</p>
+    {(showCountdown && endAt || banner.destination?.type && banner.destination.type !== 'NONE') && <div className="sf-splash-actions">
       {showCountdown && endAt && <p>Ends in <time>{countdown(endAt, now)}</time></p>}
       {banner.destination?.type && banner.destination.type !== 'NONE' && <button type="button" className="sf-cta" onClick={() => onNavigate?.(banner.destination)}>{banner.cta || 'Explore now'} →</button>}
-    </div>
+    </div>}
   </div>;
 }

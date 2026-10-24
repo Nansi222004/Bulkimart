@@ -292,6 +292,31 @@ test('an empty splash preview asks for artwork and cannot replay', () => {
     assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Replay splash').props.disabled, true);
   } finally { h.close(); }
 });
+test('launch artwork has no title panel; an informational splash shows only artwork and Skip', () => {
+  let dismissed = 0;
+  const card = SplashCard({ banner: { ...banner, subtitle: 'Private preview subtitle', destination: { type: 'NONE' } }, device: 'mobile', onDismiss() { dismissed++; } });
+  const h = browserHarness(() => card, {}, {});
+  try {
+    assert.ok(h.find(n => n.type === Media && n.props.banner.image === banner.image && n.props.eager));
+    assert.equal(h.find(n => n.type === 'h2'), undefined);
+    assert.equal(h.find(n => n.props?.className === 'sf-splash-actions'), undefined);
+    assert.doesNotMatch(text(card), /BULKIMART PICKS|Published banner|Private preview subtitle/);
+    h.find(n => n.props?.['aria-label'] === 'Close promotion').props.onClick(); assert.equal(dismissed, 1);
+  } finally { h.close(); }
+});
+
+test('optional splash countdown and destination remain accessible over the artwork without a copy panel', () => {
+  const now = Date.now(); let target;
+  const card = SplashCard({ banner, now, endAt: new Date(now + 61000).toISOString(), showCountdown: true, onNavigate(value) { target = value; } });
+  const h = browserHarness(() => card, {}, {});
+  try {
+    assert.match(text(card), /Ends in.*00:01:01/);
+    assert.equal(h.find(n => n.props?.className === 'sf-splash-copy'), undefined);
+    const actions = h.find(n => n.props?.className === 'sf-splash-actions');
+    h.find(n => n.props?.className === 'sf-cta', actions).props.onClick(); assert.deepEqual(target, banner.destination);
+  } finally { h.close(); }
+});
+
 test('splash closes with skip and does not reopen after subsequent rerenders', () => {
   const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, device: 'mobile', activeNav: 'home' };
   const h = browserHarness(Splash, {}, context);
