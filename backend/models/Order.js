@@ -333,6 +333,8 @@ const orderSchema = new Schema(
     // Last attempt by the finance automation job; an error explains why the
     // order still needs admin attention. Never holds money values.
     financeAutomation: { type: Schema.Types.Mixed },
+    // Why the breakdown could not be frozen at checkout (order still placed).
+    financialSnapshotError: { type: Schema.Types.Mixed },
 
     // Vendor acceptance is deliberately separate from payment state. Online
     // payment may complete before the shop responds; it must never count as
@@ -504,7 +506,18 @@ for (const operation of ['replaceOne', 'findOneAndReplace']) orderSchema.pre(ope
 orderSchema.pre("validate", async function () {
   if (this.isNew && !this.financialSnapshot) {
     const { buildOrderFinancialSnapshot } = await import('../services/vendorCommission.service.js');
-    this.financialSnapshot = await buildOrderFinancialSnapshot(this, this.$session());
+    try {
+      this.financialSnapshot = await buildOrderFinancialSnapshot(this, this.$session());
+    } catch (error) {
+      // Finance bookkeeping must never block a customer's checkout. An order
+      // whose breakdown cannot be frozen (unusual quantity, price precision,
+      // a rule larger than the item) is settled through the reviewed
+      // old-order process instead; the reason is kept for the admin.
+      // Database errors are not swallowed.
+      if (!error?.status) throw error;
+      this.financialSnapshotError = { message: error.message, at: new Date() };
+      console.error(`[FINANCE] Order breakdown not recorded: ${error.message}`);
+    }
   }
   if (!this.orderNo) {
     const d = new Date();

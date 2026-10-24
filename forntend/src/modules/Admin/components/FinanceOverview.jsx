@@ -3,6 +3,7 @@ import { adminGet } from '../../../utils/adminApi';
 import { rupeesFromPaise as money, WEEKDAYS } from './financeText';
 
 const todoRows = [
+  ['snapshotFailed', 'Orders placed without a money breakdown', 'Checkout went through, but the commission breakdown could not be recorded (for example a decimal quantity). Settle them under Reports → Old orders.', 'historical'],
   ['cashOverdue', 'Riders holding COD cash over 24 hours', 'Collected but not handed over within a day. Contact the rider.', 'cod'],
   ['cashToVerify', 'COD handovers to check', 'Riders say they handed over cash. Confirm the amount you received.', 'cod'],
   ['cashMismatch', 'COD amount mismatches', 'Received cash differs from the order amount. Recheck, or write off a shortage.', 'cod'],
