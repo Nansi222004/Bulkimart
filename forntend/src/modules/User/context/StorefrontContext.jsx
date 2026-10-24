@@ -4,7 +4,7 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { DEFAULT_TOKENS, freshExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
-const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], sections: [], splash: null, announcement: null };
+const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
 const Context = createContext({ ...fallback, now: Date.now(), loading: false });
 export const useStorefront = () => useContext(Context);
 export function StorefrontProvider({ children }) {

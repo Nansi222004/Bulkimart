@@ -2,13 +2,15 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
-let vite, policy, Splash, Media, Hero, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
+let vite, policy, Splash, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   policy = await vite.ssrLoadModule('/src/utils/storefront.js');
   Splash = (await vite.ssrLoadModule('/src/modules/User/components/PromotionalSplash.jsx')).default;
   Media = (await vite.ssrLoadModule('/src/modules/User/components/StorefrontMedia.jsx')).default;
   Hero = (await vite.ssrLoadModule('/src/modules/User/components/HeroBanner.jsx')).default;
+  HeaderCategories = (await vite.ssrLoadModule('/src/modules/User/components/HeaderCategories.jsx')).default;
+  BottomNav = (await vite.ssrLoadModule('/src/modules/User/components/BottomNav.jsx')).default;
   Card = (await vite.ssrLoadModule('/src/modules/User/components/StorefrontSections.jsx')).MerchandisingCard;
   Section = (await vite.ssrLoadModule('/src/modules/User/components/StorefrontSections.jsx')).StorefrontSection;
   navigateHook = (await vite.ssrLoadModule('/src/modules/User/hooks/usePromotionNavigation.js')).default;
@@ -133,10 +135,54 @@ test('video fallback restores focus before removing focused native controls', ()
     h.tree.props.onError(); h.flush(); assert.equal(focused, true); assert.equal(h.tree.type, 'img');
   } finally { h.close(); }
 });
-test('hero renders no hardcoded sale when configuration is empty and has keyboard buttons', () => {
-  const context = { banners: [], device: 'mobile', loading: false }, h = browserHarness(Hero, {}, context);
-  try { assert.equal(h.tree, null); context.banners = [banner, { ...banner, id: 'second' }]; h.rerender(); assert.ok(h.find(n => n.props?.['aria-label'] === 'Next promotion')); h.find(n => n.props?.['aria-label'] === 'Next promotion').props.onClick(); h.flush(); assert.match(text(h.tree), /2\s+\/\s+2/); } finally { h.close(); }
+test('the default banner is replaced by admin banners and restored when none remain', () => {
+  let destination;
+  const context = { banners: [], device: 'mobile', loading: false, setActiveNav: value => { destination = value; } }, h = browserHarness(Hero, {}, context);
+  try {
+    assert.equal(h.tree.props['aria-label'], 'Welcome to Bulkimart');
+    assert.match(h.find(n => n.type === 'img').props.src, /banner1\.png/);
+    h.find(n => n.props?.['aria-label'] === 'Explore products').props.onClick();
+    assert.equal(destination, 'categories');
+    assert.doesNotMatch(text(h.tree), /\d+%|sale|ends in/i);
+    context.banners = [banner, { ...banner, id: 'second' }]; h.rerender();
+    assert.equal(h.tree.props['aria-label'], 'Featured promotions');
+    assert.doesNotMatch(text(h.tree), /Everyday finds/);
+    h.find(n => n.props?.['aria-label'] === 'Next promotion').props.onClick(); h.flush(); assert.match(text(h.tree), /2\s+\/\s+2/);
+    context.banners = []; h.rerender(); assert.equal(h.tree.props['aria-label'], 'Welcome to Bulkimart');
+  } finally { h.close(); }
 });
+
+test('header categories have no fabricated fallback, show every selected category and navigate to the real record', () => {
+  let selected;
+  const context = { headerCategories: [], activeSubNav: 'grocery--home', setActiveSubNav: slug => { selected = slug; } };
+  const h = browserHarness(HeaderCategories, {}, context);
+  try {
+    assert.equal(h.tree, null);
+    context.headerCategories = Array.from({ length: 8 }, (_, i) => ({ _id: `category-${i}`, name: `Admin category ${i}`, slug: `grocery--category-${i}` }));
+    h.rerender();
+    const buttons = h.tree;
+    assert.equal(buttons.length, 8);
+    assert.match(buttons[0].props.className, /sub-nav-item-btn header-category-tab/);
+    assert.equal(buttons[0].props['data-category-id'], context.headerCategories[0]._id);
+    buttons[7].props.onClick(); assert.equal(selected, context.headerCategories[7].slug);
+    context.activeSubNav = selected; h.rerender();
+    assert.equal(h.tree[7].props['aria-current'], 'page');
+    context.headerCategories = []; h.rerender(); assert.equal(h.tree, null);
+  } finally { h.close(); }
+});
+test('bottom navigation replaces Cart with Profile and opens the existing account page', () => {
+  let target;
+  const context = { activeNav: 'home', setActiveNav: value => { target = value; } };
+  const h = browserHarness(BottomNav, {}, context);
+  try {
+    const buttons = h.tree.props.children;
+    assert.deepEqual(buttons.map(button => button.props.children[1].props.children), ['Home', 'Categories', 'Orders', 'Profile']);
+    buttons[3].props.onClick(); assert.equal(target, 'account');
+    context.activeNav = 'account'; h.rerender();
+    assert.equal(h.tree.props.children[3].props['aria-current'], 'page');
+  } finally { h.close(); }
+});
+
 test('product cards omit invented ratings and discounts; stock and variants govern add action', async () => {
   let added = 0, opened = 0;
   const context = { addToCart: async () => { added++; return { ok: true }; }, setSelectedProduct: () => opened++ };

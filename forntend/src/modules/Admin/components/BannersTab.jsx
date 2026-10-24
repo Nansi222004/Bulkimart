@@ -271,6 +271,10 @@ export const BannersTab = () => {
         <button className="sa-btn-primary" onClick={openCreate}>+ Create Banner</button>
       </div>
 
+      <p style={{ padding: 12, border: '1px solid var(--sa-border)', borderRadius: 10, fontSize: 12, color: 'var(--sa-text-secondary)' }}>
+        The default Bulkimart banner appears when no homepage banner is active. Upload artwork, choose Homepage hero and the storefront, then save it as published and enabled to replace the default. Studio-only artwork appears after its promotional campaign is published in Storefront Studio.
+      </p>
+
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, backgroundColor: '#ffffff', padding: 12, borderRadius: 10, border: '1px solid var(--sa-border)' }}>
         <div className="sa-search-wrapper" style={{ flex: 1, width: 'auto' }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">

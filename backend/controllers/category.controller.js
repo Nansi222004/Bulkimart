@@ -264,6 +264,9 @@ export const createCategory = asyncHandler(async (req, res) => {
     name,
     type: channel,
     parent: parent || null,
+    ...(req.body.isActive !== undefined
+      ? { isActive: req.body.isActive === true || req.body.isActive === 'true' }
+      : {}),
     sortOrder: sortOrder || 0,
     description,
     slug: await buildUniqueSlug(name, parent, null, channel),

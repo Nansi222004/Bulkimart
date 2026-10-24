@@ -120,6 +120,8 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const sections = active.filter(r => r.kind === 'section');
   const refs = [...new Set([...campaigns, ...sections].map(r => r.config.bannerId).concat(themes.flatMap(t => t.config.categoryTiles.map(tile => tile.bannerId))).filter(Boolean))];
   const type = scope === 'quick' ? 'grocery' : 'ecommerce';
+  const headerCategories = await Category.find({ type, parent: null, isActive: true, showInNav: true, isSystem: { $ne: true } })
+    .select('name slug image icon type sortOrder').sort({ sortOrder: 1, name: 1, _id: 1 }).lean();
   const bannerRows = await populatedBanners({ type: { $in: ['general', type] }, $or: [{ _id: { $in: refs } }, { placement: 'HOME_HERO' }, { placement: null }] });
   const bannerMap = new Map(bannerRows.map(b => [String(b._id), publicBanner(b, now, type)]));
   const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: r.config });
@@ -152,7 +154,7 @@ export async function resolveExperience(scope, device, category = '', now = Date
   });
   const data = { theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
     splash: resolvedCampaigns.find(c => c.config.placement === 'splash') || null,
-    announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, sections: resolvedSections };
+    announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };
   const version = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 20);
   return { ...data, version, serverTime: new Date(now).toISOString(), validUntil, refreshMs: 30000 };
 }

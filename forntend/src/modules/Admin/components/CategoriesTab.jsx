@@ -291,6 +291,7 @@ export const CategoriesTab = ({ subTab }) => {
       isPopular: n.isPopular || false,
       showOnHome: n.showOnHome || false,
       showInNav: n.showInNav || false,
+      sortOrder: n.sortOrder || 0,
       isSystem: n.isSystem || false,
       backgroundColor: n.backgroundColor || '',
       textColor: n.textColor || '',
@@ -369,9 +370,10 @@ export const CategoriesTab = ({ subTab }) => {
     iconColor: '#111111',
     status: 'Active',
     type: 'ecommerce',
+    sortOrder: '',
     isPopular: false,
     showOnHome: false,
-    showInNav: false,
+    showInNav: true,
   });
 
   // New Category form values (Level 2)
@@ -452,7 +454,8 @@ export const CategoriesTab = ({ subTab }) => {
         name: newHeader.name.trim(),
         type: channel,   // stamped from the active section — Shop All or Quick
         parent: '',                      // empty => Level 1 (header)
-        sortOrder: headerCategories.length + 1,
+        sortOrder: newHeader.sortOrder === '' ? headerCategories.length + 1 : Number(newHeader.sortOrder),
+        isActive: newHeader.status === 'Active',
         backgroundColor: newHeader.bg,
         textColor: newHeader.textColor,
         activeTabColor: newHeader.iconColor,
@@ -466,7 +469,7 @@ export const CategoriesTab = ({ subTab }) => {
       // before this feature existed.
       if (headerIconFile || headerImageFile) {
         const fd = new FormData();
-        Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+        Object.entries(fields).forEach(([k, v]) => { if (v !== undefined) fd.append(k, v); });
         if (headerIconFile) fd.append('icon', headerIconFile);
         if (headerImageFile) fd.append('image', headerImageFile);
         await authPost('/api/categories', fd);
@@ -478,8 +481,8 @@ export const CategoriesTab = ({ subTab }) => {
       await loadTree();
       setNewHeader({
         name: '', slug: '', bg: '#FF1E1E', textColor: '#111111', iconColor: '#111111',
-        status: 'Active', type: channel,
-        isPopular: false, showOnHome: false, showInNav: false,
+        status: 'Active', type: channel, sortOrder: '',
+        isPopular: false, showOnHome: false, showInNav: true,
       });
       setHeaderIconFile(null);
       setHeaderImageFile(null);
@@ -557,6 +560,7 @@ export const CategoriesTab = ({ subTab }) => {
       isPopular: category.isPopular || false,
       showOnHome: category.showOnHome || false,
       showInNav: category.showInNav || false,
+      sortOrder: category.sortOrder || 0,
       isSystem: category.isSystem || false,
     });
     setEditIconFile(null);
@@ -580,6 +584,7 @@ export const CategoriesTab = ({ subTab }) => {
       };
 
       if (editingCategory.level === 1) {
+        payload.sortOrder = Number(editForm.sortOrder);
         payload.backgroundColor = editForm.bg;
         payload.textColor = editForm.textColor;
         payload.activeTabColor = editForm.iconColor;
@@ -1686,6 +1691,13 @@ export const CategoriesTab = ({ subTab }) => {
                 </div>
 
                 {/* Show in the customer's header */}
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, fontWeight: 700 }}>
+                  Header display order
+                  <input type="number" min="0" step="1" value={newHeader.sortOrder} placeholder={String(headerCategories.length + 1)}
+                    onChange={e => setNewHeader(prev => ({ ...prev, sortOrder: e.target.value }))}
+                    style={{ border: '1.5px solid #cbd5e1', borderRadius: 8, padding: 10 }} />
+                  <small style={{ color: '#64748b', fontWeight: 400 }}>Lower numbers appear first among the header category tabs.</small>
+                </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
                     Customer Navigation
@@ -1701,7 +1713,7 @@ export const CategoriesTab = ({ subTab }) => {
                       style={{ width: 16, height: 16, cursor: 'pointer' }}
                     />
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>
-                      Show as a tab in the app header
+                      Show in header navigation (beside Smart Buy / My Home)
                     </span>
                   </label>
                   <span style={{ fontSize: 10.5, color: '#64748b' }}>
@@ -1728,15 +1740,6 @@ export const CategoriesTab = ({ subTab }) => {
                         style={{ accentColor: '#10b981', width: 16, height: 16 }}
                       />
                       Show on Homepage Section Grid
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
-                      <input 
-                        type="checkbox" 
-                        checked={newHeader.showInNav}
-                        onChange={(e) => setNewHeader(prev => ({ ...prev, showInNav: e.target.checked }))}
-                        style={{ accentColor: '#10b981', width: 16, height: 16 }}
-                      />
-                      Show in Sub-Navigation Bar
                     </label>
                   </div>
 
@@ -2282,6 +2285,13 @@ export const CategoriesTab = ({ subTab }) => {
                 {/* Color pickers (only for Level 1 Headers) */}
                 {editingCategory.level === 1 && (
                   <>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, fontWeight: 700 }}>
+                      Header display order
+                      <input type="number" min="0" step="1" required value={editForm.sortOrder}
+                        onChange={e => setEditForm(prev => ({ ...prev, sortOrder: e.target.value }))}
+                        style={{ border: '1.5px solid #cbd5e1', borderRadius: 8, padding: 10 }} />
+                      <small style={{ color: '#64748b', fontWeight: 400 }}>Lower numbers appear first among the header category tabs.</small>
+                    </label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Header Background</label>
@@ -2384,7 +2394,7 @@ export const CategoriesTab = ({ subTab }) => {
                         onChange={(e) => setEditForm(prev => ({ ...prev, showInNav: e.target.checked }))}
                         style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#10b981' }}
                       />
-                      Show in Sub-Navigation Bar
+                      Show in header navigation (beside Smart Buy / My Home)
                     </label>
                   )}
                 </div>

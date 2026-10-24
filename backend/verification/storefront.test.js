@@ -6,6 +6,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { storefrontRouter, storefrontAdminRouter } from '../routes/storefront.routes.js';
 import bannerRoutes from '../routes/banner.routes.js';
 import campaignRoutes from '../routes/campaign.routes.js';
+import categoryRoutes from '../routes/category.routes.js';
 import { errorHandler } from '../middlewares/error.middleware.js';
 import Experience from '../models/StorefrontExperience.js';
 import Banner from '../models/Banner.js';
@@ -20,7 +21,7 @@ import { DEFAULT_TOKENS, PRESETS, lifecycle } from '../shared/storefront.mjs';
 import { validateTokens, validateExperience } from '../services/storefrontPolicy.service.js';
 import { resolveExperience } from '../services/storefront.service.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
-const app = express(); app.use(express.json()); app.use('/api/storefront', storefrontRouter); app.use('/api/admin/storefront', storefrontAdminRouter); app.use('/api/banners', bannerRoutes); app.use('/api/campaigns', campaignRoutes); app.use(errorHandler);
+const app = express(); app.use(express.json()); app.use('/api/storefront', storefrontRouter); app.use('/api/admin/storefront', storefrontAdminRouter); app.use('/api/banners', bannerRoutes); app.use('/api/campaigns', campaignRoutes); app.use('/api/categories', categoryRoutes); app.use(errorHandler);
 let db, admin, marketer, viewer, buyer, banner;
 const id = () => new mongoose.Types.ObjectId();
 const token = (value, type = 'admin') => signSessionToken({ id: String(value), type });
@@ -43,6 +44,37 @@ beforeEach(async () => {
   banner = await Banner.create({ title: 'Real campaign', image: 'https://cdn.example.test/banner.webp', type: 'general', placement: 'STUDIO', isActive: true });
 });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); });
+test('header categories are explicitly selected, scoped, active roots in admin order, without a fallback', async () => {
+  expect((await publicRead()).headerCategories).toEqual([]);
+  const first = await Category.create({ name: 'First', type: 'grocery', slug: 'grocery--first', showInNav: true, sortOrder: 1, image: '/uploads/category.webp' });
+  await Category.create([
+    { name: 'Third', type: 'grocery', slug: 'grocery--third', showInNav: true, sortOrder: 3 },
+    { name: 'Second', type: 'grocery', slug: 'grocery--second', showInNav: true, sortOrder: 2 },
+    { name: 'Unselected', type: 'grocery', slug: 'grocery--unselected' },
+    { name: 'Inactive', type: 'grocery', slug: 'grocery--inactive', showInNav: true, isActive: false },
+    { name: 'System', type: 'grocery', slug: 'grocery--system', showInNav: true, isSystem: true },
+    { name: 'Child', type: 'grocery', slug: 'grocery--child', showInNav: true, parent: first._id },
+    { name: 'ShopAll', type: 'ecommerce', slug: 'ecommerce--shopall', showInNav: true },
+  ]);
+  const shown = await publicRead();
+  expect(shown.headerCategories.map(c => c.name)).toEqual(['First', 'Second', 'Third']);
+  expect(shown.headerCategories[0].image).toBe('/uploads/category.webp');
+  expect(shown.headerCategories[0].showInNav).toBeUndefined();
+  expect((await resolveExperience('shop-all', 'mobile')).headerCategories.map(c => c.name)).toEqual(['ShopAll']);
+  await Category.updateOne({ _id: first._id }, { showInNav: false });
+  const changed = await publicRead();
+  expect(changed.version).not.toBe(shown.version);
+  expect(changed.headerCategories.map(c => c.name)).toEqual(['Second', 'Third']);
+});
+test('admin category creation and editing control header visibility, status and order', async () => {
+  const created = (await send('post', '/api/categories', { name: 'Hidden header', type: 'grocery', showInNav: true, isActive: false, sortOrder: 4 }).expect(201)).body.category;
+  expect(created.isActive).toBe(false);
+  expect((await publicRead()).headerCategories).toEqual([]);
+  await send('put', `/api/categories/${created._id}`, { isActive: true, sortOrder: 1 }).expect(200);
+  expect((await publicRead()).headerCategories[0]).toMatchObject({ _id: created._id, sortOrder: 1 });
+  await send('put', `/api/categories/${created._id}`, { showInNav: false }).expect(200);
+  expect((await publicRead()).headerCategories).toEqual([]);
+});
 test('unauthenticated access is denied across list, drafts, actions and media', async () => {
   for (const [method, path, body] of [['get', '/api/admin/storefront'], ['post', '/api/admin/storefront', theme()], ['post', `/api/admin/storefront/${id()}/actions/publish`, { revision: 1 }], ['post', '/api/admin/storefront/media']]) await send(method, path, body, null).expect(401);
 });

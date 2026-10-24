@@ -65,10 +65,10 @@
 .sf-coupon{display:flex;gap:20px;align-items:center;justify-content:space-between;padding:18px;margin-bottom:14px;background:var(--sf-surface);border:1px dashed var(--sf-primary);border-radius:var(--sf-radius)}.sf-coupon h3{margin:0;font-size:16px}.sf-coupon p,.sf-coupon small{font-size:12px;color:var(--sf-muted)}.sf-coupon>div:last-child{min-width:90px}.sf-coupon strong{display:block;margin-bottom:8px;font-size:13px;overflow-wrap:anywhere}
 
 /* Customer chrome. These selectors cover both modes without category palette overrides. */
-.sf-storefront .unified-header-container{flex:none;flex-shrink:0;background:var(--sf-header);color:var(--sf-header-text);border-radius:0 0 20px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18)}
+.sf-storefront .unified-header-container{flex:none;flex-shrink:0;background:var(--sf-header);color:var(--sf-header-text);border-radius:0;box-shadow:none}
 .sf-storefront .unified-header-container .header-primary-row{background:var(--sf-header);color:var(--sf-header-text);border-bottom:none!important;box-shadow:none!important}
 .sf-storefront .header-switcher-bar{background:var(--sf-header);color:var(--sf-header-text);border-bottom:none!important;border-top:none!important;box-shadow:none!important;padding-block:8px}
-.sf-storefront .header-body-content{background:var(--sf-header);color:var(--sf-header-text);border-radius:0 0 20px 20px;border-bottom:none!important;border-top:none!important;box-shadow:none!important}
+.sf-storefront .header-body-content{background:var(--sf-header);color:var(--sf-header-text);border-radius:0;border-bottom:none!important;border-top:none!important;box-shadow:none!important}
 .sf-storefront .unified-header-container .header-brand-name span,
 .sf-storefront .unified-header-container .header-brand-tagline,
 .sf-storefront .unified-header-container .header-primary-row :is(.header-address-block,.address-bold-title,.address-label-text){color:var(--sf-header-text)}
@@ -155,6 +155,25 @@
 .sf-storefront .unified-header-container .switcher-tab-btn:not(.active){background:transparent;color:var(--sf-header-text);border-color:color-mix(in srgb,var(--sf-header-text) 35%,transparent)}
 .sf-storefront .header-body-content .sub-nav-active-line{background:var(--sf-accent)}
 .sf-hero-art>.sf-media-fallback{height:100%;min-height:100%}
+.sf-hero-default{display:block;min-height:0;padding:0;border:0;background:transparent;box-shadow:none}
+.sf-default-banner-link{display:block;width:100%;padding:0;border:0;border-radius:inherit;background:transparent;cursor:pointer}
+.sf-default-banner-link img{display:block;width:100%;height:auto;object-fit:contain}
+.sf-default-banner-link:focus-visible{outline-offset:-4px}
+.sf-storefront .header-sub-nav-scroll{width:max-content;min-width:100%;gap:4px}
+.sf-storefront .header-body-content .sub-nav-item-btn{flex:1 0 68px;min-width:68px;max-width:96px}
+.sf-storefront .header-body-content .sub-nav-icon{width:24px;height:24px}
+.sf-storefront .header-body-content .sub-nav-icon--category{background:transparent;color:inherit;border-radius:0}
+.sf-storefront .header-body-content .sub-nav-icon--category img{width:18px;height:18px;object-fit:contain}
+/* One mobile page gutter; hero margins must not add another. */
+@media(max-width:768px){
+  .sf-storefront .header-primary-row .header-account-action{display:none}
+  .sf-storefront .user-main-content.page-home{padding-inline:8px;gap:0}
+  .sf-storefront .page-home>.unified-header-container{margin-inline:-8px}
+  .sf-storefront .unified-header-container .header-primary-row{min-height:76px;padding-top:max(4px,var(--customer-header-safe-area-top));padding-bottom:4px}
+  .sf-storefront .page-home .home-feed-scrollable{padding-top:8px}
+  .sf-storefront .page-home .home-feed-scrollable>:is(.sf-hero,.sf-hero-skeleton){margin-top:0}
+  .sf-storefront .page-home .home-feed-scrollable>:is(.sf-hero,.sf-hero-skeleton){margin-inline:0}
+}
 .sf-storefront .header-cart-action{display:flex!important}
 @media(max-width:374px){.sf-storefront .unified-header-container .header-brand-icon{width:36px;height:36px}.sf-storefront .unified-header-container .header-brand-identity{gap:4px}.sf-storefront .unified-header-container .header-brand-tagline{font-size:7px}}
 .sf-storefront .customer-service-card{border-color:var(--sf-border);background:var(--sf-surface);color:var(--sf-text)}

@@ -28,6 +28,14 @@ The implementation reuses ModalPortal (focus trapping/restoration), FeedbackProv
 
 Open **Admin → Marketing & CMS → Storefront Studio** (`/admin/storefront-studio`). Tabs cover Themes, Promotional campaigns, and Homepage sections. Banner library and Deal pricing open the existing managers. Lists support search, status filtering, pagination, schedule display, edit, duplicate, publish, pause, archive, and rollback.
 
+### Header categories and the default banner
+
+Open **Admin → Categories → Header Categories**, select Quick or ShopAll, and add or edit a header category. Upload its category image or icon, enable **Show in header navigation (beside Smart Buy / My Home)**, keep it active, and choose its display order (lower numbers first). New header categories have this visibility option selected initially. Every selected category appears as a compact tab in the header below search, alongside Smart Buy/Hot Deals in ShopAll or My Home/Coupons in Quick. This row scrolls horizontally when necessary. Clicking a category opens its existing category product feed. There is no duplicate category tile strip below the header and no built-in category records or automatic substitutes when none are selected. Categories belong to the selected storefront: an E-Book category created in ShopAll does not appear in Quick.
+
+The supplied `forntend/src/assets/banner1.png` is the default banner when the selected storefront has no active admin hero banner, including when configuration is unavailable. The complete image is shown without cropping; tapping it opens the category browser. In **Banner library**, upload artwork, choose **Homepage hero** and the correct storefront, then publish and enable it. An eligible admin hero replaces the default completely. Studio-only artwork requires a published hero campaign in Storefront Studio. Draft, disabled, expired, or future banners do not replace the default. Header categories and banners use the existing public experience refresh, so changes appear within approximately 30 seconds plus request latency without a rebuild.
+
+Verification for this header/banner update on 24 October 2026: backend storefront tests 56 passed; frontend storefront tests 31 passed; both builds passed. The updated browser runner could not reach application checks because both Chrome and Edge timed out on DevTools `Page.enable`; responsive browser verification remains pending. No real category/banner records were seeded or published by this update.
+
 ### Create a seasonal theme
 
 1. Choose Themes → Create theme, enter a name and private description.

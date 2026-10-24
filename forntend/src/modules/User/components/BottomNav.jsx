@@ -1,4 +1,3 @@
-import { CartIcon } from './CartUI';
 import React from 'react';
 import { useUser } from '../context/UserContext';
 
@@ -24,29 +23,32 @@ const ICONS = {
       <path d="M12 12v10" />
     </svg>
   ),
-  cart: (color) => <CartIcon color={color} />,
+  account: (color) => (
+    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
 };
 
 const BottomNav = () => {
-  const { activeNav, setActiveNav, getCartCount } = useUser();
-  const cartCount = getCartCount?.() || 0;
+  const { activeNav, setActiveNav } = useUser();
   const items = [
     { id: 'home', label: 'Home' },
     { id: 'categories', label: 'Categories' },
     { id: 'orders', label: 'Orders' },
-    { id: 'cart', label: 'Cart', badge: cartCount },
+    { id: 'account', label: 'Profile' },
   ];
 
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
-        const active = activeNav === item.id || (item.id === 'cart' && window.location.pathname === '/wholesale/cart');
+        const active = activeNav === item.id;
         const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
           <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>
             <span className="nav-icon-container">
               {ICONS[item.id](color, active)}
-              {item.badge > 0 && <span className="nav-cart-badge">{item.badge > 99 ? '99+' : item.badge}</span>}
             </span>
             <span className="nav-label">{item.label}</span>
           </button>

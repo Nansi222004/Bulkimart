@@ -1,49 +1,11 @@
 import React, { useState } from 'react';
+import { House, MessageCircle, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react';
 import { useUser } from '../context/UserContext';
-import { useCategoryTree } from '../hooks/useCategoryTree';
 import { useNotifications } from '../../../utils/useNotifications';
 import NotificationDrawer from './NotificationDrawer';
 import { ImageSearchButton } from './ImageSearchSheet';
+import HeaderCategories from './HeaderCategories';
 import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
-
-/**
- * A tab icon for a category the admin created after this file was written.
- *
- * Keyword matching, deliberately loose, and never the thing that decides where a
- * tap goes — that is always the category's own id. A wrong guess here costs a
- * slightly odd picture; the fallback is a plain grid, which is honest about
- * being a category rather than pretending to be something specific.
- */
-const CATEGORY_ICON = (name = '') => {
-  const n = name.toLowerCase();
-  const svg = (children) => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
-  );
-
-  if (/fruit|vegetab|fresh|grocer/.test(n)) {
-    return svg(<><path d="M12 2a9 9 0 0 0-9 9c0 5 4 11 9 11s9-6 9-11a9 9 0 0 0-9-9z" /><path d="M12 2v6" /></>);
-  }
-  if (/dairy|milk|bakery/.test(n)) {
-    return svg(<><path d="M8 2h8l1 5v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7z" /><path d="M8 7h8" /></>);
-  }
-  if (/cloth|wear|fashion|garment|footwear/.test(n)) {
-    return svg(<path d="M20.38 3.46L16 2.14a2 2 0 0 0-1.16 0L10.46 3.46A2 2 0 0 0 9 5.38V19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-1.25M17 19.5h4v-12h-4v12z" />);
-  }
-  if (/electronic|appliance|solar|light/.test(n)) {
-    return svg(<><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></>);
-  }
-  if (/beauty|personal|care|baby/.test(n)) {
-    return svg(<><circle cx="12" cy="8" r="5" /><path d="M20 21a8 8 0 0 0-16 0" /></>);
-  }
-  if (/kitchen|dining|home|household|clean/.test(n)) {
-    return svg(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></>);
-  }
-  if (/book|station|automotive|toy/.test(n)) {
-    return svg(<><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></>);
-  }
-  return svg(<><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>);
-};
 
 const UnifiedHeader = () => {
   const {
@@ -64,204 +26,13 @@ const UnifiedHeader = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
 
-  // Sub-navigation tabs configuration for Quick mode (4 items)
-  const subNavItems = [
-    {
-      id: 'grocery--home',
-      label: 'My Home',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-          <polyline points="9 22 9 12 15 12 15 22"></polyline>
-        </svg>
-      )
-    },
-    {
-      id: 'groceries',
-      label: 'Groceries',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="11" width="18" height="10" rx="2" ry="2"></rect>
-          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-          <path d="M6 21V11M18 21V11"></path>
-        </svg>
-      )
-    },
-    {
-      id: 'electronics',
-      label: 'Electronics',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8" y1="21" x2="16" y2="21"></line>
-          <line x1="12" y1="17" x2="12" y2="21"></line>
-        </svg>
-      )
-    },
-    {
-      id: 'coupons',
-      label: 'Coupons',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-        </svg>
-      )
-    },
-    {
-      id: 'garments',
-      label: 'Fashion',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.38 3.46L16 2.14a2 2 0 0 0-1.16 0L10.46 3.46A2 2 0 0 0 9 5.38V19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-1.25M17 19.5h4v-12h-4v12z"></path>
-        </svg>
-      )
-    }
+  // Admin-selected category tabs share this row with application shortcuts.
+  const currentSubNavItems = [
+    ...(activeMode === 'shop-all'
+      ? [{ id: 'ecommerce--smart-buy', label: 'Smart Buy', Icon: CircleArrowRight }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
+      : [{ id: 'grocery--home', label: 'My Home', Icon: House }, { id: 'coupons', label: 'Coupons', Icon: MessageCircle }]),
+    { id: 'explore-more', label: 'All categories', Icon: LayoutGrid },
   ];
-
-  // Sub-navigation tabs configuration for Shop All (E-commerce) mode (5 items)
-  const shopAllSubNavItems = [
-    {
-      id: 'ecommerce--smart-buy',
-      label: 'Smart Buy',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <path d="M12 8l4 4-4 4M8 12h8"></path>
-        </svg>
-      )
-    },
-    {
-      id: 'ecommerce--hot-deals',
-      label: 'Hot Deals',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
-        </svg>
-      )
-    },
-    {
-      id: 'electronics',
-      label: 'Electronics',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8" y1="21" x2="16" y2="21"></line>
-          <line x1="12" y1="17" x2="12" y2="21"></line>
-        </svg>
-      )
-    },
-    {
-      id: 'explore-all',
-      label: 'Explore All',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-          <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-          <rect x="14" y="14" width="7" height="7" rx="1"></rect>
-          <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-        </svg>
-      )
-    },
-    {
-      id: 'fashion',
-      label: 'Fashion',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.38 3.46L16 2.14a2 2 0 0 0-1.16 0L10.46 3.46A2 2 0 0 0 9 5.38V19a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-1.25M17 19.5h4v-12h-4v12z"></path>
-        </svg>
-      )
-    }
-  ];
-
-  const staticSubNavItems = activeMode === 'shop-all' ? shopAllSubNavItems : subNavItems;
-
-  /**
-   * The header, half fixed and half whatever the shop decided.
-   *
-   * "My Home", "Smart Buy", "Hot Deals" and "Explore All" are application
-   * sections — a saved-address feed, a promotions page, the full category
-   * browser. They are not categories and never were, so they stay written down
-   * here. Everything between them comes from the admin panel: any header
-   * category with "show as a tab" ticked, in the order the admin sorted them.
-   *
-   * Nothing was reparented to make this work. The tabs read a flag; the
-   * catalogue keeps the shape it already had.
-   */
-  const { tree: headerCategories } = useCategoryTree(activeMode === 'shop-all' ? 'ecommerce' : 'grocery');
-
-  /**
-   * Every header category the shop has configured for this storefront.
-   *
-   * Showing them all is the default on purpose. Requiring a tick meant a shop
-   * that had carefully built eight Quick categories saw none of them until
-   * somebody went back and ticked eight boxes — the app ignored the very
-   * configuration it was supposed to be driven by.
-   *
-   * `showInNav` survives as an opt-in NARROWING: tick nothing and you get the
-   * whole catalogue, tick some and you get exactly those. So the flag is a
-   * curation tool for a shop with thirty-nine categories, not a switch that has
-   * to be found before anything works at all.
-   */
-  const chosen = headerCategories.filter((c) => c.showInNav && !c.isSystem);
-  const categoriesList = (chosen.length ? chosen : headerCategories).filter((c) => !c.isSystem);
-  
-  // Total of 4 icons + plus icon: since both modes contain 2 static items,
-  // we display the first 2 dynamic categories to achieve exactly 4 icons.
-  const slicedCategories = categoriesList.slice(0, 2);
-
-  const navCategories = slicedCategories.map((c) => ({
-    id: c.slug,
-    label: c.name,
-    categoryId: c._id,
-    icon: c.icon
-      ? <img src={c.icon} alt="" width="18" height="18" style={{ objectFit: 'contain' }} />
-      : CATEGORY_ICON(c.name),
-  }));
-
-  const moreTabItem = {
-    id: 'explore-more',
-    label: '',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-    )
-  };
-
-  const currentSubNavItems = (() => {
-    if (activeMode === 'shop-all') {
-      const smartBuy = staticSubNavItems.find(i => i.id === 'ecommerce--smart-buy');
-      const hotDeals = staticSubNavItems.find(i => i.id === 'ecommerce--hot-deals');
-      
-      const head = [];
-      if (smartBuy) head.push(smartBuy);
-      if (hotDeals) head.push(hotDeals);
-
-      return [...head, ...navCategories, moreTabItem];
-    } else {
-      const home = staticSubNavItems.find(i => i.id === 'grocery--home');
-      const coupons = staticSubNavItems.find(i => i.id === 'coupons');
-
-      const head = home ? [home] : [];
-      const tail = coupons ? [coupons] : [];
-
-      return [...head, ...navCategories, ...tail, moreTabItem];
-    }
-  })();
-
-  /**
-   * The shop's own colours for this storefront's header, when it has chosen any.
-   *
-   * The first header that has actually been styled wins; the rest carry no
-   * colours and are skipped. Everything falls back to `undefined`, which leaves
-   * the existing stylesheet in charge.
-   */
-  // Category records can contain colours saved under the legacy theme. The
-  // customer header is brand-owned, so catalogue metadata must not override
-  // the published Storefront Studio design tokens.
-  const styledHeader = null;
-  const headerStyle = undefined;
 
   const handleSubNavClick = (item) => {
     if (item.id === 'explore-all' || item.id === 'explore-more') {
@@ -365,7 +136,7 @@ const UnifiedHeader = () => {
               {unreadCount > 0 && <span className="header-action-dot" />}
             </button>
             <button
-              className="header-profile-silhouette-btn"
+              className="header-profile-silhouette-btn header-account-action"
               onClick={() => setActiveNav('account')}
               aria-label="Account"
             >
@@ -402,30 +173,27 @@ const UnifiedHeader = () => {
         </div>
       </div>
 
-      <div className="header-body-content" style={headerStyle}>
+      <div className="header-body-content">
         {renderSearch('header-search-row--mobile')}
         <div className="header-sub-nav-wrapper">
           <div className="header-sub-nav-scroll">
-            {currentSubNavItems.map((item) => {
+            {currentSubNavItems.map((item, index) => {
               const isActive = activeSubNav === item.id;
               const isMore = item.id === 'explore-more';
               return (
-                <button
-                  key={item.id}
+                <React.Fragment key={item.id}><button
                   className={`sub-nav-item-btn ${isActive ? 'active' : ''}`}
                   onClick={() => handleSubNavClick(item)}
                   style={{
-                    ...(isMore ? { flex: '0 0 auto', width: '48px' } : {}),
+                    ...(isMore ? { flex: '0 1 110px' } : {}),
                   }}
                 >
-                  <span className="sub-nav-icon" style={isMore ? { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.22)', color: '#ffffff', transition: 'background-color 0.2s', marginTop: 2 } : undefined}>
-                    {item.icon}
-                  </span>
-                  {!isMore && <span className="sub-nav-label">{item.label}</span>}
+                  <span className="sub-nav-icon"><item.Icon size={18} strokeWidth={2} aria-hidden="true" /></span>
+                  <span className="sub-nav-label">{item.label}</span>
                   {isActive && (
                     <span className="sub-nav-active-line" />
                   )}
-                </button>
+                </button>{index === 0 && <HeaderCategories />}</React.Fragment>
               );
             })}
           </div>
