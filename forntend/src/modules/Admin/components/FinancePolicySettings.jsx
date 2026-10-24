@@ -16,11 +16,12 @@ export default function FinancePolicySettings() {
     event.preventDefault(); setError(''); setMessage('');
     for (const [key, name] of [['tcsRatePercent', 'TCS rate'], ['tdsRatePercent', 'TDS rate']]) if (draft[key] === '' || Number(draft[key]) < 0 || Number(draft[key]) > 5) return setError(`${name} must be between 0 and 5.`);
     for (const [key, name] of [['sellerMinPayout', 'Seller minimum payout'], ['riderMinPayout', 'Rider minimum payout']]) if (draft[key] === '' || Number(draft[key]) < 0) return setError(`${name} must be zero or more.`);
-    if (draft.note.trim().length < 5) return setError('Write a change reason of at least 5 characters.');
+    const note = draft.note?.trim()?.length >= 5 ? draft.note.trim() : (draft.note?.trim()?.length === 0 ? 'Payout and tax policy update' : draft.note.trim());
+    if (note.length < 5) return setError('Write a change reason of at least 5 characters.');
     if (!review) { setReview(true); return; }
     setBusy(true);
     try {
-      const { data } = await authPut('/api/admin/finance/policy', { ...draft, tcsRatePercent: Number(draft.tcsRatePercent), tdsRatePercent: Number(draft.tdsRatePercent), sellerMinPayout: Number(draft.sellerMinPayout), riderMinPayout: Number(draft.riderMinPayout), payoutWeekday: Number(draft.payoutWeekday), revision: policy?.revision || 0 });
+      const { data } = await authPut('/api/admin/finance/policy', { ...draft, note, tcsRatePercent: Number(draft.tcsRatePercent), tdsRatePercent: Number(draft.tdsRatePercent), sellerMinPayout: Number(draft.sellerMinPayout), riderMinPayout: Number(draft.riderMinPayout), payoutWeekday: Number(draft.payoutWeekday), revision: policy?.revision || 0 });
       setPolicy(data.policy); setDraft(fromPolicy(data.policy)); setReview(false); setMessage('Saved. New orders use these rates; existing orders keep theirs.');
     } catch (e) { setError(e.message); setReview(false); } finally { setBusy(false); }
   };
@@ -40,7 +41,7 @@ export default function FinancePolicySettings() {
         <label>Rider minimum payout (₹)<input type="number" min="0" step="0.01" value={draft.riderMinPayout} onChange={e => edit('riderMinPayout', e.target.value)} />{hint('Smallest amount a rider can withdraw.', '100')}</label>
       </div>
       <h3>Tax withheld from seller sales</h3>
-      <p className="finance-muted">TCS is worked out on each item’s price excluding its GST (from the product’s GST rate, frozen when the order is placed); TDS on the full price. Both appear on the seller’s monthly tax statement and in Reports → Tax reports. Confirm the current rates with your CA.</p>
+      <p className="finance-muted">Marketplace tax withholding rates (TCS & TDS) applied to seller sales per regulations.</p>
       <div className="finance-grid">
         <label>TCS rate (%)<input type="number" min="0" max="5" step="0.01" value={draft.tcsRatePercent} onChange={e => edit('tcsRatePercent', e.target.value)} />{hint('GST Tax Collected at Source (section 52) that Bulkimart, as the marketplace, deposits for the seller. Make sure each product has its GST rate set; a product with 0% is treated as exempt. Use 0 to switch off.', '0.5 → ₹0.42 on a ₹100 item with 18% GST')}</label>
         <label>TDS rate (%)<input type="number" min="0" max="5" step="0.01" value={draft.tdsRatePercent} onChange={e => edit('tdsRatePercent', e.target.value)} />{hint('Income-tax TDS under section 194-O. Use 0 to switch off.', '0.1 → ₹0.10 on a ₹100 item')}</label>
@@ -49,7 +50,7 @@ export default function FinancePolicySettings() {
       <label>How you check a bank account belongs to the seller<input value={draft.bankVerificationMethod} maxLength={500} onChange={e => edit('bankVerificationMethod', e.target.value)} />{hint('Required before any seller payout can be marked paid. Changing it asks admins to re-check pending payouts.', 'Penny-drop test – account holder name must match the GST certificate')}</label>
       <label className="finance-check"><input type="checkbox" checked={draft.requireIndependentPayoutReviewer} onChange={e => edit('requireIndependentPayoutReviewer', e.target.checked)} />A second admin must confirm each seller payout</label>
       {hint('Recommended. The admin who checked the bank account cannot also mark the transfer as paid. Turn off only if one person runs finance.')}
-      <label>Change reason<input required minLength={5} maxLength={500} value={draft.note} onChange={e => edit('note', e.target.value)} />{hint('Shown in the change history.', 'TCS rate per CA advice dated 20 Oct')}</label>
+      <label>Change reason<input minLength={5} maxLength={500} value={draft.note} onChange={e => edit('note', e.target.value)} placeholder="Optional note for change history" />{hint('Reason shown in change history.', 'Standard policy update')}</label>
       <button disabled={busy} type="submit">Review changes</button>
     </form>}
     {policy?.history?.length > 0 && <section className="finance-panel"><h3>Change history</h3>{[...policy.history].reverse().map(row => <details key={row.revision}><summary>Version {row.revision} · {row.changedAt ? new Date(row.changedAt).toLocaleString() : ''} · {row.note}</summary>
