@@ -24,8 +24,8 @@ export default function FinanceOverview({ onNavigate }) {
   const payouts = flags.payouts && flags.policyApproved && flags.testsApproved;
   const setup = [
     [flags.snapshots, 'Order breakdowns are being recorded', 'New orders always record a financial breakdown. Historical orders require a reviewed backfill.'],
-    [live, 'Earnings move automatically', 'Earnings move automatically once policy and end-to-end approvals are recorded.'],
-    [payouts, 'Payouts are switched on', 'Payouts require policy and end-to-end approvals.'],
+    [live, 'Earnings move automatically', 'Earnings move automatically after the order return window ends.'],
+    [payouts, 'Payouts are switched on', 'Payout requests and settlements are active.'],
     [data.commissionRulesConfigured, 'At least one commission rule is active', 'Settings → Commission.', 'commissions'],
     [policy.configured, 'Payout and tax policy saved', 'Settings → Payouts & tax.', 'policies'],
     [policy.bankVerificationConfigured, 'Bank account check method saved', 'Needed before any seller payout can be marked paid. Settings → Payouts & tax.', 'policies'],
