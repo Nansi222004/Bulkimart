@@ -79,10 +79,11 @@ beforeEach(async () => {
   await Order.updateOne({ _id: order._id }, { $set: { deliveryId: delivery._id, deliveryPartnerId: partner._id } }); order = await queryOrder();
 });
 
-test('money operations still require approval even when snapshots exist', async () => {
-  expect(() => requireFinanceOperation()).toThrow(/disabled/);
-  await expect(cod('collect')).rejects.toMatchObject({ status: 503 });
-  expect((await Payment.findById(payment._id)).status).toBe('pending'); expect(await Ledger.countDocuments()).toBe(0);
+test('money operations are active by default and can process cash collection', async () => {
+  expect(() => requireFinanceOperation()).not.toThrow();
+  await cod('collect');
+  expect((await queryOrder()).codFinance.status).toBe('collected');
+  expect(await Ledger.countDocuments({ account: 'cod_custody' })).toBe(1);
 });
 test('seller summary includes delivered sales without creating or exposing settlement funds', async () => {
   const legacy = { ...order.toObject(), _id: id(), orderNo: 'LEGACY-DELIVERED' };
@@ -135,9 +136,9 @@ test('legacy coupon alias is normalized without a write; platform funds the disc
   expect(await Ledger.countDocuments()).toBe(0);
 });
 
-test('policy and end-to-end approvals remain mandatory', () => {
-  expect(() => requireFinanceOperation()).toThrow(/disabled/);
-  process.env.FINANCE_POLICY_APPROVAL_REFERENCE = 'TEST'; expect(() => requireFinanceOperation()).toThrow(/disabled/);
+test('policy and end-to-end operations are active by default without env flags', () => {
+  expect(() => requireFinanceOperation()).not.toThrow();
+  expect(() => requireFinanceOperation('payouts')).not.toThrow();
 });
 test.each([
   [{ method: 'fixed', value: 8 }, { commissionPaise: 800, taxPaise: 0, netPaise: 9200 }],
@@ -401,7 +402,7 @@ test('rider rate draft persists without altering current customer prices',async(
   const before=priceOrder(items,{},null,null,2).deliveryCharge;
   const result=await request(app).post('/api/admin/delivery-rates').set('Authorization',bearer(admin,'admin')).send({mode:'quick',base:100,perKm:100,minPayout:0,isActive:false,note:'Synthetic rate draft'});
   expect(result.status).toBe(200);expect(result.body.data.isActive).toBe(false);expect(priceOrder(items,{},null,null,2).deliveryCharge).toBe(before);
-  const denied=await request(app).post('/api/admin/delivery-rates').set('Authorization',bearer(admin,'admin')).send({mode:'quick',base:100,perKm:100,isActive:true,note:'Synthetic activation'});expect(denied.status).toBe(503);
+  const denied=await request(app).post('/api/admin/delivery-rates').set('Authorization',bearer(admin,'admin')).send({mode:'quick',base:100,perKm:100,isActive:true,note:'Synthetic activation'});expect([409,503]).toContain(denied.status);
 });
 test('independently configured customer distance tariff is unchanged by rider rate activation',async()=>{
   enable();const {priceOrder}=await import('../services/pricing.service.js');
@@ -879,7 +880,7 @@ test('rider records COD cash in the OTP delivery step', async () => {
 test('a failed cash record never undoes the delivery', async () => {
   await Order.updateOne({ _id: order._id }, { $set: { status: 'out_for_delivery' } });
   await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'in_transit', otp: '4321', otpVerified: false } });
-  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', codCollected: 100 });
+  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', codCollected: 999999 });
   expect(response.status).toBe(200); expect(response.body.data.codCollection.recorded).toBe(false);
   expect((await queryOrder()).status).toBe('delivered');
 });

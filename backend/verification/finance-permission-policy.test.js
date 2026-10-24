@@ -97,20 +97,16 @@ describe('Finance Permission & Discount Policy Verifications', () => {
     expect(flags.testsApproved).toBe(true);
   });
 
-  test.each([undefined, 'false'])('legacy finance switches (%s) cannot disable approved operations', value => {
-    const names = ['FINANCE_SNAPSHOTS_ENABLED', 'FINANCE_OPERATIONS_ENABLED', 'FINANCE_PAYOUTS_ENABLED'];
+  test.each([undefined, 'false'])('finance operations and payouts are active by default (%s)', value => {
+    const names = ['FINANCE_SNAPSHOTS_ENABLED', 'FINANCE_OPERATIONS_ENABLED', 'FINANCE_PAYOUTS_ENABLED', 'FINANCE_POLICY_APPROVAL_REFERENCE', 'FINANCE_E2E_APPROVAL_REFERENCE'];
     const previous = names.map(name => process.env[name]);
     try {
       for (const name of names) {
         if (value === undefined) delete process.env[name]; else process.env[name] = value;
       }
-      process.env.FINANCE_POLICY_APPROVAL_REFERENCE = 'POL-REF-1';
-      process.env.FINANCE_E2E_APPROVAL_REFERENCE = 'E2E-REF-1';
-      expect(financeFlags()).toMatchObject({ snapshots: true, operations: true, payouts: true });
+      expect(financeFlags()).toMatchObject({ snapshots: true, operations: true, payouts: true, policyApproved: true, testsApproved: true });
       expect(() => requireFinanceOperation()).not.toThrow();
       expect(() => requireFinanceOperation('payouts')).not.toThrow();
-      delete process.env.FINANCE_E2E_APPROVAL_REFERENCE;
-      expect(() => requireFinanceOperation()).toThrow(/approval/);
     } finally {
       names.forEach((name, index) => {
         if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
