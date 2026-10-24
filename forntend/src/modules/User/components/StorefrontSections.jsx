@@ -7,6 +7,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import { countdown } from '../../../utils/storefront';
 import WishlistHeartButton from './WishlistHeartButton';
 import StorefrontMedia from './StorefrontMedia';
+import Celebration from './Celebration';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { openWholesaleProduct } from '../utils/productRoute';
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
@@ -67,7 +68,7 @@ export function StorefrontSection({ section }) {
   const result = remoteCollection ? deal : regular;
   if (!result.loading && !result.error && !result.products.length) return null;
   return <section className={`sf-section sf-section--${c.variant}`} data-source={c.source} data-layout={c.layout || 'rail'} style={{ '--section-background': c.appearance?.background, '--section-text': c.appearance?.text, '--section-accent': c.appearance?.accent }}>
-    {section.banner && <div className="sf-section-banner"><StorefrontMedia banner={section.banner} device={device} active={false} />{section.banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={() => navigate(section.banner.destination)}>{section.banner.cta || 'Explore collection'} →</button>}</div>}
+    {section.banner && <div className="sf-section-banner"><StorefrontMedia banner={section.banner} device={device} /><Celebration effect={section.banner.animation} now={now} contained />{section.banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={() => navigate(section.banner.destination)}>{section.banner.cta || 'Explore collection'} →</button>}</div>}
     <div className="sf-section-heading"><div><span className="sf-eyebrow">{c.source === 'campaign' ? 'LIMITED-TIME DEALS' : c.source === 'wholesale' ? 'FOR YOUR BUSINESS' : 'CURATED FOR YOU'}</span><h2>{c.title}</h2></div>{c.source === 'campaign' && section.endAt && <time className="sf-countdown" aria-label="Time remaining">{countdown(section.endAt, now)}</time>}{c.source === 'wholesale' && <button className="sf-text-button" onClick={() => setActiveNav('wholesale')}>View all →</button>}</div>
     {result.loading ? <div className="sf-product-skeleton" role="status">Loading products…</div> : result.error ? <p role="alert">{result.error} <button onClick={() => remoteCollection ? setRetry(r => r + 1) : regular.retry()}>Retry</button></p> : <div className="sf-product-rail">{result.products.map(p => <MerchandisingCard key={p.id || p._id} product={p} deal={c.source === 'campaign'} wholesale={c.source === 'wholesale'} />)}</div>}
   </section>;

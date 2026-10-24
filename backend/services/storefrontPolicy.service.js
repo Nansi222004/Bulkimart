@@ -1,10 +1,35 @@
 import { httpError } from '../utils/response.js';
+import { DEFAULT_EFFECT, EFFECT_PRESETS } from '../shared/celebration.mjs';
 import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
 const integer = (value, min, max, label) => Number.isInteger(value) && value >= min && value <= max ? value : fail(`${label} must be ${min}–${max}`);
 export const objectId = value => /^[a-f\d]{24}$/i.test(String(value || ''));
+export function validateEffect(value, scopes = ['storefront', 'homepage', 'campaign', 'banner']) {
+  if (value == null) return { ...DEFAULT_EFFECT };
+  if (typeof value !== 'object' || Array.isArray(value)) fail('Animation must be an object');
+  for (const key of Object.keys(value)) if (!Object.hasOwn(DEFAULT_EFFECT, key)) fail(`Unsupported animation setting: ${key}`);
+  const e = { ...DEFAULT_EFFECT, ...value };
+  if (typeof e.enabled !== 'boolean') fail('Animation enabled must be boolean');
+  one(e.preset, EFFECT_PRESETS, 'animation preset'); one(e.scope, scopes, 'animation scope');
+  if (!Array.isArray(e.colors) || !e.colors.length || e.colors.length > 6 || e.colors.some(c => typeof c !== 'string' || !/^#[a-f\d]{6}$/i.test(c))) fail('Use 1–6 hex animation colors');
+  for (const [key, min, max] of [['speed', 0.2, 3], ['opacity', 0.05, 0.8]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
+  integer(e.density, 1, 100, 'Particle density'); integer(e.duration, 1, 120, 'Animation duration');
+  if (e.campaignId && !objectId(e.campaignId)) fail('Invalid animation campaign');
+  if (e.scope === 'campaign' && !e.campaignId) fail('Select an animation campaign page');
+  for (const key of ['startAt', 'endAt']) {
+    if (e[key] && (typeof e[key] !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(e[key]) || !Number.isFinite(Date.parse(e[key])))) fail('Animation dates require a timezone');
+    e[key] = e[key] || null;
+  }
+  if (e.startAt && e.endAt && Date.parse(e.endAt) <= Date.parse(e.startAt)) fail('Animation end must follow start');
+  return e;
+}
+export function videoUrl(value) {
+  const url = mediaUrl(value);
+  if (url && !/\.(mp4|webm)$/i.test(new URL(url, 'https://local.test').pathname)) fail('Video URL must identify an MP4 or WebM file');
+  return url;
+}
 export function mediaUrl(value) {
   if (!value) return '';
   if (typeof value !== 'string' || value.length > 2048) fail('Invalid media URL');
@@ -73,6 +98,8 @@ export function validateExperience(input, kind) {
     maxPrice: integer(c.maxPrice ?? 99, 1, 1000000, 'Maximum price'), limit: integer(c.limit ?? 8, 1, 24, 'Product limit'),
     variant: one(c.variant || 'plain', ['plain', 'accent', 'soft'], 'section appearance'),
     layout: one(c.layout || 'rail', ['rail', 'grid'], 'section layout'), appearance: validateSectionAppearance(c.appearance) };
+  if (kind === 'theme' || kind === 'campaign') row.config.animation = validateEffect(c.animation, kind === 'theme' ? ['storefront', 'homepage', 'campaign'] : ['storefront', 'homepage', 'campaign', 'banner']);
+  if (kind === 'campaign' && row.config.placement === 'announcement' && row.config.animation.enabled && row.config.animation.scope === 'banner') fail('Announcement text has no banner canvas; choose homepage or storefront animation scope');
   return row;
 }
 export function marketingPermission(req, _res, next) {

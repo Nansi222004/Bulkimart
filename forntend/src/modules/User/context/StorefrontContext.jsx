@@ -4,11 +4,14 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { DEFAULT_TOKENS, freshExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
+import Celebration, { DecorationToggle } from '../components/Celebration';
+import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
 const Context = createContext({ ...fallback, now: Date.now(), loading: false });
 export const useStorefront = () => useContext(Context);
 export function StorefrontProvider({ children }) {
-  const { activeMode, activeSubNav } = useUser();
+  const user = useUser();
+  const { activeMode, activeSubNav } = user;
   const [data, setData] = useState(null), [loading, setLoading] = useState(true), [clock, setClock] = useState(Date.now());
   const offset = useRef(0);
   const [device, setDevice] = useState(() => window.matchMedia('(max-width: 600px)').matches ? 'mobile' : 'desktop');
@@ -61,5 +64,7 @@ export function StorefrontProvider({ children }) {
     document.body.style.background = current.theme.tokens.background || DEFAULT_TOKENS.background;
     return () => { document.body.style.background = previous; };
   }, [current.theme.tokens]);
-  return <Context.Provider value={{ ...current, now, loading, device }}><CustomerThemeContext.Provider value={themeStyle(current.theme.tokens)}>{children}</CustomerThemeContext.Provider></Context.Provider>;
+  const effect = current.animations?.find(e => effectActive(e, now) && effectApplies(e, user));
+  const hasEffects = effect || current.banners.some(b => b.animation?.enabled) || current.sections.some(s => s.banner?.animation?.enabled) || current.splash?.banner?.animation?.enabled;
+  return <Context.Provider value={{ ...current, now, loading, device }}><CustomerThemeContext.Provider value={themeStyle(current.theme.tokens)}>{children}<Celebration effect={effect} now={now} />{hasEffects && <DecorationToggle />}</CustomerThemeContext.Provider></Context.Provider>;
 }

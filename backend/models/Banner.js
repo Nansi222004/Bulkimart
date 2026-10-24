@@ -42,6 +42,13 @@ const bannerSchema = new Schema(
     image:    { type: String, required: true }, // Cloudinary URL
     mobileImage: String,
     video: String,
+    mediaType: { type: String, enum: ['image', 'video'] }, // Absent on legacy records: infer from video.
+    mobileVideo: String,
+    autoplay: { type: Boolean, default: true },
+    muted: { type: Boolean, default: true },
+    loop: { type: Boolean, default: true },
+    playsInline: { type: Boolean, default: true },
+    animation: Schema.Types.Mixed,
     cta: { type: String, maxlength: 60 },
     isArchived: { type: Boolean, default: false },
 

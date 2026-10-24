@@ -5,7 +5,8 @@ import Category from '../models/Category.js';
 import Product from '../models/Product.js';
 import Campaign from '../models/Campaign.js';
 import { DEFAULT_TOKENS, lifecycle, ranked } from '../shared/storefront.mjs';
-import { validateExperience, objectId } from './storefrontPolicy.service.js';
+import { effectActive } from '../shared/celebration.mjs';
+import { validateExperience, validateEffect, objectId } from './storefrontPolicy.service.js';
 import { retailAllowed, channelAllowed } from '../utils/productChannels.js';
 import { httpError } from '../utils/response.js';
 
@@ -13,6 +14,7 @@ export const snapshot = row => Object.fromEntries(['name', 'description', 'scope
 const overlap = (a, b) => (!a.endAt || !b.startAt || new Date(a.endAt) > new Date(b.startAt)) && (!b.endAt || !a.startAt || new Date(b.endAt) > new Date(a.startAt));
 export async function validateReferences(row) {
   const c = row.config;
+  if (c.animation?.scope === 'campaign' && !await Campaign.exists({ _id: c.animation.campaignId, isEnabled: true, isDraft: { $ne: true }, endAt: { $gt: new Date() } })) throw httpError(400, 'Select an enabled, published campaign page for the animation');
   for (const tile of c.categoryTiles || []) {
     if (!await Category.exists({ _id: tile.categoryId, isActive: true, ...(row.scope === 'global' ? { type: { $in: ['grocery', 'ecommerce'] } } : { type: row.scope === 'quick' ? 'grocery' : 'ecommerce' }) })) throw httpError(400, 'Select an active category matching the theme storefront');
     await validateReferences({ scope: row.scope, startAt: row.startAt, endAt: row.endAt, kind: 'artwork', config: { bannerId: tile.bannerId } });
@@ -102,10 +104,12 @@ export function publicBanner(b, now = Date.now(), type) {
     const routes = { '/grocery': 'groceries', '/electronics': 'electronics', '/fashion': 'fashion', '/garments': 'fashion', '/smart-buy': 'smart-buy', '/hot-deals': 'hot-deals', '/products?type=ecommerce&cat=garments': 'fashion' };
     if (routes[b.targetRoute]) destination = { type: 'SUBNAV', id: routes[b.targetRoute] };
   }
-  return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', cta: b.cta || '', destination,
+  let animation = null;
+  try { if (b.animation && effectActive(b.animation, now)) animation = validateEffect(b.animation, ['banner']); } catch { /* Invalid manual effects stay off. */ }
+  return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', mobileVideo: b.mobileVideo || '', mediaType: b.mediaType || (b.video ? 'video' : 'image'), autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, animation, cta: b.cta || '', destination,
     endAt: [b.endDate, b.targetCampaign?.endAt].filter(Boolean).sort((a, c) => new Date(a) - new Date(c))[0] || null };
 }
-const populatedBanners = query => Banner.find(query).select('title subtitle image mobileImage video cta type category placement actionType targetCategory targetProduct targetCampaign targetPromotion targetRoute externalUrl isActive isDraft isArchived priority startDate endDate').populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();
+const populatedBanners = query => Banner.find(query).select('title subtitle image mobileImage video mobileVideo mediaType autoplay muted loop playsInline animation cta type category placement actionType targetCategory targetProduct targetCampaign targetPromotion targetRoute externalUrl isActive isDraft isArchived priority startDate endDate').populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();
 export async function resolveExperience(scope, device, category = '', now = Date.now()) {
   const type = scope === 'quick' ? 'grocery' : 'ecommerce';
   const [rows, headerCategories] = await Promise.all([
@@ -134,11 +138,11 @@ export async function resolveExperience(scope, device, category = '', now = Date
     categoryIds.length ? Category.find({ _id: { $in: categoryIds }, isActive: true, type }).select('_id').lean() : [],
   ]);
   const bannerMap = new Map(bannerRows.map(b => [String(b._id), publicBanner(b, now, type)]));
-  const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: r.config });
+  const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: { ...r.config, animation: effectActive(r.config.animation, now) ? r.config.animation : null } });
   const resolvedCampaigns = campaigns.flatMap(r => {
     const banner = bannerMap.get(r.config.bannerId); if (!banner) return [];
     const endAt = [r.endAt, banner.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null;
-    return [{ ...dto(r), endAt, banner }];
+    return [{ ...dto(r), endAt, banner: r.config.animation?.scope === 'banner' && effectActive(r.config.animation, now) ? { ...banner, animation: r.config.animation } : banner }];
   });
   const override = resolvedCampaigns.map(c => themes.find(t => String(t._id) === c.config.themeId)).find(Boolean);
   const standaloneThemes = themes.filter(t => t.config.application !== 'campaign');
@@ -152,13 +156,21 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const managedHeroes = resolvedCampaigns.filter(c => c.config.placement === 'hero');
   const legacyHeroes = bannerRows.filter(b => (!b.placement || b.placement === 'HOME_HERO') && (!category || b.category === category || b.category === category.replace(/^(grocery|ecommerce)--/, ''))).sort(ranked).map(b => bannerMap.get(String(b._id))).filter(Boolean);
   const banners = [...managedHeroes.map(c => ({ ...c.banner, endAt: c.endAt })), ...legacyHeroes].filter((b, i, all) => all.findIndex(other => other.id === b.id) === i);
-  const boundary = rows.flatMap(r => [r.startAt, r.endAt]).concat(bannerRows.flatMap(b => [b.startDate, b.endDate, b.targetCampaign?.startAt, b.targetCampaign?.endAt]), deals.map(d => d.endAt)).filter(Boolean).map(d => new Date(d).getTime()).filter(t => t > now);
+  const boundary = rows.flatMap(r => [r.startAt, r.endAt, r.config.animation?.startAt, r.config.animation?.endAt]).concat(bannerRows.flatMap(b => [b.startDate, b.endDate, b.animation?.startAt, b.animation?.endAt, b.targetCampaign?.startAt, b.targetCampaign?.endAt]), deals.map(d => d.endAt)).filter(Boolean).map(d => new Date(d).getTime()).filter(t => t > now);
   const validUntil = new Date(Math.min(now + 30000, ...boundary)).toISOString();
   const categoryTiles = (theme?.config.categoryTiles || []).flatMap(tile => {
     const banner = bannerMap.get(tile.bannerId);
     return banner && categories.some(c => String(c._id) === tile.categoryId) ? [{ categoryId: tile.categoryId, badge: tile.badge, banner }] : [];
   });
-  const data = { theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
+  const effectRows = [...resolvedCampaigns, ...(theme ? [dto(theme)] : [])].filter(r => effectActive(r.config.animation, now) && r.config.animation.scope !== 'banner').sort(ranked);
+  const effectDeals = effectRows.filter(r => r.config.animation.scope === 'campaign').map(r => r.config.animation.campaignId);
+  const eligibleEffectDeals = effectDeals.length ? await Campaign.find({ _id: { $in: effectDeals }, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } }).select('_id endAt').lean() : [];
+  const animations = effectRows.flatMap(r => {
+    const e = r.config.animation, deal = eligibleEffectDeals.find(d => String(d._id) === e.campaignId);
+    if (e.scope === 'campaign' && !deal) return [];
+    return [{ id: r.id, revision: r.revision, ...e, endAt: [r.endAt, e.endAt, deal?.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null }];
+  });
+  const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
     splash: resolvedCampaigns.find(c => c.config.placement === 'splash') || null,
     announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };
   const version = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 20);

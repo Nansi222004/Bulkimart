@@ -1,8 +1,14 @@
+import StorefrontMediaFields from './StorefrontMediaFields';
+import StorefrontEffectFields from './StorefrontEffectFields';
+import StorefrontMedia from '../../User/components/StorefrontMedia';
+import Celebration from '../../User/components/Celebration';
+import '../../User/Storefront.css';
+import './StorefrontStudio.css';
 import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
-import { authGet, authPost, authPut, authDelete, adminGet, adminPost } from '../../../utils/adminApi';
+import { authGet, authPost, authPut, authDelete, adminGet } from '../../../utils/adminApi';
 import { apiUrl } from '../../../utils/api';
 
 /**
@@ -40,7 +46,7 @@ const emptyForm = {
   actionType: 'NONE', targetCategoryId: '', targetProductId: '', targetProductLabel: '',
   targetCampaignId: '', externalUrl: '',
   priority: 0, startDate: '', endDate: '', isActive: true,
-  mobileImage: '', video: '', cta: '', placement: 'HOME_HERO',
+  mediaType: 'image', mobileVideo: '', autoplay: true, muted: true, loop: true, playsInline: true, animation: undefined, mobileImage: '', video: '', cta: '', placement: 'HOME_HERO',
 };
 
 const toDatetimeLocal = (iso) => {
@@ -79,16 +85,12 @@ export const BannersTab = () => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [initialForm, setInitialForm] = useState(emptyForm), [preview, setPreview] = useState('mobile');
+  const dirty = showModal && JSON.stringify(form) !== JSON.stringify(initialForm);
+  useEffect(() => { if (!dirty) return; const warn = e => { e.preventDefault(); e.returnValue = ''; }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
+  const closeEditor = async () => { if (!saving && !uploading && (!dirty || await ui.ask('Discard unsaved banner changes?'))) setShowModal(false); };
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const uploadMedia = async (file, field) => {
-    if (!file) return;
-    setUploading(true);
-    try { const data = new FormData(); data.append('media', file); const result = await adminPost('/storefront/media', data); setForm(f => ({ ...f, [field]: result.data.url, ...(field === 'imageUrl' ? { imageFile: null } : {}) })); triggerToast('Media uploaded. Save the banner to use it.'); }
-    catch (err) { triggerToast(err.message, { type: 'error' }); }
-    finally { setUploading(false); }
-  };
-
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [productQuery, setProductQuery] = useState('');
   const [productResults, setProductResults] = useState([]);
@@ -161,11 +163,11 @@ export const BannersTab = () => {
     });
   }, [banners, search, typeFilter, statusFilter]);
 
-  const openCreate = () => { setEditing(null); setForm(emptyForm); setProductResults([]); setProductQuery(''); setShowModal(true); };
+  const openCreate = () => { setEditing(null); setForm(emptyForm); setInitialForm(emptyForm); setProductResults([]); setProductQuery(''); setShowModal(true); };
 
   const openEdit = (b) => {
     setEditing(b);
-    setForm({
+    const next = {
       title: b.title || '', subtitle: b.subtitle || '', imageFile: null, imageUrl: b.image || '',
       type: b.type === 'general' ? 'general' : b.type, category: b.category || 'home',
       actionType: b.actionType || 'NONE',
@@ -177,8 +179,9 @@ export const BannersTab = () => {
       priority: b.priority || 0,
       startDate: toDatetimeLocal(b.startDate), endDate: toDatetimeLocal(b.endDate),
       isActive: b.isActive !== false,
+      mediaType: b.mediaType || (b.video ? 'video' : 'image'), mobileVideo: b.mobileVideo || '', autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, animation: b.animation,
       mobileImage: b.mobileImage || '', video: b.video || '', cta: b.cta || '', placement: b.placement || 'HOME_HERO',
-    });
+    }; setForm(next); setInitialForm(next);
     setProductResults([]);
     setProductQuery('');
     setShowModal(true);
@@ -189,6 +192,8 @@ export const BannersTab = () => {
     fd.append('title', form.title);
     fd.append('subtitle', form.subtitle);
     for (const key of ['mobileImage', 'video', 'cta', 'placement']) fd.append(key, form[key] || '');
+    for (const key of ['mediaType', 'mobileVideo', 'autoplay', 'muted', 'loop', 'playsInline']) fd.append(key, String(form[key]));
+    if (form.animation) fd.append('animation', JSON.stringify(form.animation));
     fd.append('type', form.type);
     fd.append('category', form.category);
     fd.append('actionType', form.actionType);
@@ -209,7 +214,8 @@ export const BannersTab = () => {
   const save = async (isDraft) => {
     if (saving || uploading) return;
     if (!form.title.trim()) { triggerToast('Give the banner a title.'); return; }
-    if (!form.imageFile && !form.imageUrl) { triggerToast('Upload a banner image.'); return; }
+    if (!form.imageFile && !form.imageUrl) { triggerToast('Upload a banner image or video poster.'); return; }
+    if (form.mediaType === 'video' && !form.video) { triggerToast('Upload or link a desktop video.'); return; }
 
     setSaving(true);
     try {
@@ -348,11 +354,11 @@ export const BannersTab = () => {
 
       {/* ---- Create/Edit modal ---- */}
       {showModal && (
-        <ModalPortal className="admin-modal-overlay">
+        <ModalPortal className="admin-modal-overlay" onKeyDown={e => { if (e.key === 'Escape') closeEditor(); }}>
           <div className="admin-modal-sheet" style={{ maxWidth: 640 }}>
             <div className="admin-modal-header">
               <h3 className="admin-modal-title">{editing ? 'Edit Banner' : 'Create Banner'}</h3>
-              <button className="admin-modal-close" onClick={() => setShowModal(false)}>✕</button>
+              <button className="admin-modal-close" onClick={closeEditor}>✕</button>
             </div>
 
             <div style={{ maxWidth: 520, margin: '0 auto' }}>
@@ -363,25 +369,14 @@ export const BannersTab = () => {
                   <input style={fieldInput} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Summer Special" />
                 </div>
 
-                <div>
-                  <label style={fieldLabel}>Banner Image</label>
-                  <input aria-label="Upload desktop artwork or video poster" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={(e) => uploadMedia(e.target.files?.[0], 'imageUrl')} style={{ fontSize: 12 }} />
-                  <span style={{ fontSize: 10, color: 'var(--sa-text-muted)', display: 'block', marginTop: 3 }}>
-                    Recommended size: 1200 x 450 px or 1000 x 400 px (Aspect Ratio ~2.6 : 1)
-                  </span>
-                  {(form.imageFile || form.imageUrl) && (
-                    <img
-                      src={form.imageFile ? URL.createObjectURL(form.imageFile) : form.imageUrl}
-                      alt="" style={{ marginTop: 8, width: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--sa-border)', backgroundColor: '#f8fafc' }}
-                    />
-                  )}
+                <StorefrontMediaFields value={{ ...form, image: form.imageUrl }} onBusy={setUploading} onChange={patch => setForm(f => ({ ...f, ...patch, ...(patch.image !== undefined ? { imageUrl: patch.image } : {}) }))} />
+                <StorefrontEffectFields value={form.animation} onChange={animation => setForm(f => ({ ...f, animation }))} bannerOnly />
+                <div><button type="button" onClick={() => setPreview('mobile')}>Mobile preview</button><button type="button" onClick={() => setPreview('desktop')}>Desktop preview</button></div>
+                <div style={{ position: 'relative', width: preview === 'mobile' ? 'min(300px, 100%)' : '100%', overflow: 'hidden' }} className="studio-preview">
+                  <StorefrontMedia banner={{ ...form, image: form.imageUrl }} device={preview} eager />
+                  <Celebration effect={form.animation ? { ...form.animation, startAt: null, endAt: null } : undefined} contained preview />
+                  <h3>{form.title}</h3><p>{form.subtitle}</p><span>{form.cta}</span>
                 </div>
-
-                <label style={fieldLabel}>Reuse image / poster URL<input style={fieldInput} value={form.imageUrl} onChange={e => setForm(f => ({ ...f, imageUrl: e.target.value }))} placeholder="https://… or /uploads/…" /></label>
-                <label style={fieldLabel}>Mobile artwork<input aria-label="Upload mobile artwork" type="file" disabled={uploading} accept="image/jpeg,image/png,image/webp" onChange={e => uploadMedia(e.target.files?.[0], 'mobileImage')} /><input style={fieldInput} value={form.mobileImage} onChange={e => setForm(f => ({ ...f, mobileImage: e.target.value }))} placeholder="Optional mobile image URL" /></label>
-                <label style={fieldLabel}>Short video (optional, 15 MB maximum)<input aria-label="Upload promotional video" type="file" disabled={uploading} accept="video/mp4,video/webm" onChange={e => uploadMedia(e.target.files?.[0], 'video')} /><input style={fieldInput} value={form.video} onChange={e => setForm(f => ({ ...f, video: e.target.value }))} placeholder="Optional HTTPS video URL" /></label>
-                {form.video && <video src={form.video} poster={form.imageUrl} controls muted playsInline preload="none" style={{ width: '100%', maxHeight: 180 }} />}
-                {uploading && <p role="status">Uploading media…</p>}
                 <label style={fieldLabel}>Subtitle<input style={fieldInput} value={form.subtitle} maxLength={300} onChange={e => setForm(f => ({ ...f, subtitle: e.target.value }))} /></label>
                 <label style={fieldLabel}>Button text<input style={fieldInput} value={form.cta} maxLength={60} onChange={e => setForm(f => ({ ...f, cta: e.target.value }))} /></label>
                 <label style={fieldLabel}>Placement<select className="sa-select" value={form.placement} onChange={e => setForm(f => ({ ...f, placement: e.target.value }))}><option value="HOME_HERO">Homepage hero (legacy compatible)</option><option value="STUDIO">Studio only (splash, announcement, section or scheduled hero)</option></select></label>

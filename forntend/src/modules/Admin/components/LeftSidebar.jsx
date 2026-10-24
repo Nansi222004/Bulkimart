@@ -5,7 +5,7 @@ import { useAdvertisingNavigation } from '../../../components/advertising/useAdv
 
 export const LeftSidebar = ({ collapsed, setCollapsed }) => {
   const advertisingEnabled = useAdvertisingNavigation(true);
-  const { activeTab, setActiveTab, triggerToast } = useAdmin();
+  const { activeTab, setActiveTab } = useAdmin();
   const [categoriesExpanded, setCategoriesExpanded] = useState(true);
 
   // Helper to trigger navigation
@@ -94,8 +94,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
     }
   ];
 
-  // Dynamic Context-Aware Sidebar Filtering
-  const isOverview = activeTab === 'overview' || activeTab === 'dashboard' || activeTab === 'reports';
+  // Section navigation expands beneath its parent inside the shared admin tree.
   const isVendorSection = [
     'sellers', 'seller-kyc', 'payouts',
     'vendor-dashboard', 'vendors-all', 'vendors-pending', 'vendors-approved', 'vendors-rejected', 'vendors-suspended',
@@ -244,10 +243,12 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
     ];
   }
 
-  // Finance stays reachable across every contextual sidebar. Legacy links are served by the center.
+  // Finance stays a single entry; legacy links are served by the center.
   const financeTabs = ['finance-center','finance-operations','app-settings','quick-third-party-settings','delivery-rates','vendor-earnings','vendor-payouts','payouts','delivery-earnings','rider-payouts'];
-  filteredNavGroups = filteredNavGroups.map(group=>({...group,links:group.links.filter(link=>!financeTabs.includes(link.id))})).filter(group=>group.links.length);
-  filteredNavGroups.push({title:'FINANCE',links:[{id:'finance-center',label:'Finance Center',icon:<span aria-hidden="true">₹</span>}]});
+  const sectionParent = isUserSection ? 'users' : isVendorSection ? 'sellers' : isDeliverySection ? 'delivery-partners' : null;
+  const sectionLinks = sectionParent ? filteredNavGroups.flatMap(group => group.links).filter(link => !financeTabs.includes(link.id) && !['user-dashboard', 'vendor-dashboard', 'delivery-dashboard', 'delivery-zones'].includes(link.id)) : [];
+  const sharedNavGroups = navGroups.map(group => ({ ...group, links: group.links.filter(link => !financeTabs.includes(link.id)) })).filter(group => group.links.length);
+  sharedNavGroups.push({title:'FINANCE',links:[{id:'finance-center',label:'Finance Center',icon:<span aria-hidden="true">₹</span>}]});
 
   return (
     <div className={`sa-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -277,32 +278,9 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
         </button>
       </div>
 
-      {!isOverview && !collapsed && (
-        <button
-          onClick={() => setActiveTab('overview')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            margin: '12px 16px 4px 16px',
-            backgroundColor: '#1e293b',
-            color: '#34d399',
-            border: '1px solid #334155',
-            borderRadius: 8,
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-            width: 'calc(100% - 32px)'
-          }}
-        >
-          ← Show All Sidebar Groups
-        </button>
-      )}
-
       {/* Nav Link Tree */}
       <div className="sa-sidebar-nav">
-        {filteredNavGroups.map(group => (
+        {sharedNavGroups.map(group => (
           <div key={group.title} className="sa-nav-group">
             <span className="sa-nav-group-title">{group.title}</span>
             {group.links.map(link => {
@@ -365,17 +343,22 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
                 );
               }
 
-              const isActive = (link.id === 'dashboard' && activeTab === 'overview') || (activeTab === link.id || (link.id === 'finance-center' && financeTabs.includes(activeTab)));
+              const isActive = (link.id === 'dashboard' && activeTab === 'overview') || link.id === sectionParent || (activeTab === link.id || (link.id === 'finance-center' && financeTabs.includes(activeTab)));
               return (
+                <React.Fragment key={link.id}>
                 <button
-                  key={link.id}
                   className={`sa-nav-link ${isActive ? 'active' : ''}`}
+                  aria-current={isActive && (link.id !== sectionParent || ['user-dashboard', 'vendor-dashboard', 'delivery-dashboard'].includes(activeTab)) ? 'page' : undefined}
                   onClick={() => handleNavClick(link.id, link.label)}
                   title={link.label}
                 >
                   {link.icon}
                   <span>{link.label}</span>
                 </button>
+                {link.id === sectionParent && !collapsed && <div className="sa-nav-sub-links-container" role="group" aria-label={`${link.label} pages`} style={{ paddingLeft: 12 }}>
+                  {sectionLinks.map(sub => <button key={sub.id} className={`sa-nav-link sa-nav-sub-link ${activeTab === sub.id ? 'active' : ''}`} aria-current={activeTab === sub.id ? 'page' : undefined} title={sub.label} onClick={() => handleNavClick(sub.id, sub.label)}>{sub.icon}<span>{sub.label}</span></button>)}
+                </div>}
+                </React.Fragment>
               );
             })}
           </div>

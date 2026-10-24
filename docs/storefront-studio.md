@@ -1,5 +1,11 @@
 # Bulkimart Storefront Studio
 
+## Video banners and celebrations — 25 October 2026
+
+Storefront Studio now supports explicit image/video media selection, desktop/mobile video variants, configurable playback, shared video previews, and scheduled snowfall, confetti, flower petals and golden sparkles. These extend the existing Banner and StorefrontExperience records, permissions, Cloudinary upload route, theme resolver and public refresh mechanism. Existing images and publications require no migration.
+
+See [Video banners and celebrations: implementation, admin workflows and verification](storefront-video-celebrations.md) for the current controls, changed files, API additions and exact test results. Studio's direct uploads now always create Studio-only artwork; saving a draft campaign cannot independently activate a homepage hero. Nothing was deployed or activated in production.
+
 Implementation and verification report — 23 October 2026.
 
 ## Status  
