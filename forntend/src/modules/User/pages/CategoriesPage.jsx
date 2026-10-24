@@ -1,3 +1,4 @@
+import CategoryArtwork from '../components/CategoryArtwork';
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { useUser } from '../context/UserContext';
@@ -15,33 +16,6 @@ const branchMatches = (category, query) => {
   if (!query) return true;
   if (String(category.name || '').toLowerCase().includes(query)) return true;
   return (category.children || []).some((child) => branchMatches(child, query));
-};
-
-const CategoryArtwork = ({ category }) => {
-  const [failed, setFailed] = useState(false);
-  const image = category.image || category.icon;
-  const isSvg = Boolean(image && (image.toLowerCase().endsWith('.svg') || image.includes('data:image/svg') || image.includes('icon')));
-  if (image && !failed) {
-    return (
-      <img
-        src={image}
-        alt={category.name || ''}
-        loading="lazy"
-        className={isSvg ? 'is-icon' : 'is-photo'}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return (
-    <span className="all-category-fallback" aria-hidden="true">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <rect x="3" y="3" width="7" height="7" rx="2" />
-        <rect x="14" y="3" width="7" height="7" rx="2" />
-        <rect x="3" y="14" width="7" height="7" rx="2" />
-        <rect x="14" y="14" width="7" height="7" rx="2" />
-      </svg>
-    </span>
-  );
 };
 
 const CategoriesPage = () => {

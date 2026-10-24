@@ -259,7 +259,7 @@ const UnifiedHeader = () => {
    */
   // Category records can contain colours saved under the legacy theme. The
   // customer header is brand-owned, so catalogue metadata must not override
-  // the centralized Bulkimart aqua/orange design tokens.
+  // the published Storefront Studio design tokens.
   const styledHeader = null;
   const headerStyle = undefined;
 
@@ -418,7 +418,7 @@ const UnifiedHeader = () => {
                     ...(isMore ? { flex: '0 0 auto', width: '48px' } : {}),
                   }}
                 >
-                  <span className="sub-nav-icon" style={isMore ? { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.18)', transition: 'background-color 0.2s', marginTop: 2 } : undefined}>
+                  <span className="sub-nav-icon" style={isMore ? { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.22)', color: '#ffffff', transition: 'background-color 0.2s', marginTop: 2 } : undefined}>
                     {item.icon}
                   </span>
                   {!isMore && <span className="sub-nav-label">{item.label}</span>}

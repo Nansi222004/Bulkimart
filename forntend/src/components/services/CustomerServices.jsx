@@ -56,14 +56,14 @@ export function ParcelServiceCard() {
       if (!f || typeof f.catalogue !== 'boolean') throw new Error('Invalid capabilities');
       const enabled = parcelBookingEnabled(f);
       const policy = enabled ? await get('catalogue') : null;
-      if (!c.signal.aborted) setState(parcelBookingReady(f, policy) ? 'enabled' : 'disabled');
+      if (!c.signal.aborted) setState((enabled && (policy?.ready === true || parcelBookingReady(f, policy))) ? 'enabled' : !f.catalogue ? 'unavailable' : 'disabled');
     }
     load().catch(() => { if (!c.signal.aborted) setState('error'); });
     return () => c.abort();
   }, [attempt]);
   return <article className="customer-service-card"><Package aria-hidden="true"/><h2>Parcel Delivery</h2><p>Have a parcel picked up and delivered to your recipient.</p>
     {state === 'loading' ? <p role="status">Checking parcel availability…</p> : state === 'enabled' ? <p role="status">Ready to send? Get a delivery fee before confirming.</p> : state === 'error' ? <p role="alert">Parcel availability could not be checked. <button onClick={() => retry(n => n + 1)}>Retry parcel availability</button></p> : <p role="status">New deliveries are currently unavailable. You can still view your delivery history.</p>}
-    <div className="customer-service-actions"><a className="service-book" href="/parcel-delivery/book">Send a Parcel</a><a href="/parcel-delivery/history">Delivery history</a></div>
+    <div className="customer-service-actions">{state === 'enabled' || state === 'unavailable' ? <a className="service-book" href="/parcel-delivery/book">Send a Parcel</a> : state === 'disabled' ? <button type="button" disabled>Send a Parcel</button> : null}<a href="/parcel-delivery/history">Delivery history</a></div>
   </article>;
 }
 

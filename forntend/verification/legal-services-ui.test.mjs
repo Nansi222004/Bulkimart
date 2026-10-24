@@ -61,3 +61,43 @@ test('provider completion remains unavailable before admin-authorized work', asy
 test('private follow-up upload enforces file count and size before a network request', () => {
   const d = new FormData(); for (let i = 0; i < 11; i++) d.append('files', new Blob(['x']), `file-${i}.pdf`); assert.throws(() => ui.validateFollowUp(d), /up to 10/);
 });
+test('logged out visitor sees Sign in, and clicking View service or My requests redirects to /account', async () => {
+  const guestStorage = { localStorage: { getItem: () => null } };
+  const h = hookHarness(ui.default, {}, '/legal-services', { verified: false }, guestStorage);
+  try {
+    h.requests[0].resolve({ data: [{ _id: id, name: 'Business Advisory', description: 'Legal help' }], meta: { total: 1 } });
+    await h.settle();
+    const authLink = h.find(n => n.type === 'a' && n.props.className === 'legal-nav-auth');
+    assert.ok(authLink);
+    assert.equal(authLink.props.children, 'Sign in');
+    assert.equal(authLink.props.href, '/account');
+
+    // Clicking My requests redirects to /account
+    h.click('My requests');
+    assert.equal(globalThis.window.location.href, '/account');
+
+    // Reset location href
+    globalThis.window.location.href = '';
+
+    // Clicking View service redirects to /account
+    h.click('View service');
+    assert.equal(globalThis.window.location.href, '/account');
+  } finally { h.close(); }
+});
+test('logged in user sees Account, and clicking View service navigates to service detail', async () => {
+  const userStorage = { localStorage: { getItem: key => key === 'userToken' ? 'valid-jwt-token' : null } };
+  const h = hookHarness(ui.default, {}, '/legal-services', { verified: true }, userStorage);
+  try {
+    h.requests[0].resolve({ data: [{ _id: id, name: 'Business Advisory', description: 'Legal help' }], meta: { total: 1 } });
+    await h.settle();
+    const authLink = h.find(n => n.type === 'a' && n.props.className === 'legal-nav-auth');
+    assert.ok(authLink);
+    assert.equal(authLink.props.children, 'Account');
+    assert.equal(authLink.props.href, '/account');
+
+    // Clicking View service navigates to /legal-services/:id
+    h.click('View service');
+    assert.equal(globalThis.window.location.pathname, `/legal-services/${id}`);
+  } finally { h.close(); }
+});
+

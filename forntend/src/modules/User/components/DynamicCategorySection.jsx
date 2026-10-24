@@ -142,7 +142,7 @@ const DynamicCategorySection = ({ channel, slug }) => {
                   {hasMore && (
                     <button
                       onClick={() => setExpandedSections((prev) => ({ ...prev, [catId]: !prev[catId] }))}
-                      style={{ background: 'none', border: 'none', color: 'var(--primary, #08b9e8)', fontWeight: 700, fontSize: 12, cursor: 'pointer', padding: 0 }}
+                      style={{ background: 'none', border: 'none', color: 'var(--primary, var(--sf-action, #D91430))', fontWeight: 700, fontSize: 12, cursor: 'pointer', padding: 0 }}
                     >
                       {isExpanded ? 'Show Less' : `View All (${section.products.length})`}
                     </button>

@@ -494,8 +494,8 @@ const ProfilePage = () => {
       ),
       badge: (
         <span className="menu-badge wallet-badge" style={{
-          backgroundColor: 'rgba(8, 185, 232, 0.15)',
-          color: '#078CCB',
+          backgroundColor: 'color-mix(in srgb, var(--sf-primary, #B50918) 15%, transparent)',
+          color: 'var(--sf-action-hover, #B50918)',
           fontSize: '11px',
           fontWeight: '800',
           padding: '2px 8px',
@@ -578,7 +578,7 @@ const ProfilePage = () => {
       ),
       badge: isSeller 
         ? null 
-        : <span className="menu-badge active-badge" style={{ background: '#08B9E8', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>New</span>,
+        : <span className="menu-badge active-badge" style={{ background: 'var(--sf-action, #D91430)', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>New</span>,
       action: () => window.history.pushState({}, '', '/seller') // Handled natively, bypasses Day 2
     },
     {
@@ -613,7 +613,7 @@ const ProfilePage = () => {
       display: 'flex',
       alignItems: 'center',
       padding: '16px 20px',
-      background: 'linear-gradient(135deg, #078CCB 0%, #08B9E8 100%)',
+      background: 'linear-gradient(135deg, var(--sf-action-hover, #B50918) 0%, var(--sf-action, #D91430) 100%)',
       color: '#fff',
       position: 'sticky',
       top: 0,
@@ -663,13 +663,13 @@ const ProfilePage = () => {
                 <img
                   src={userAvatar || DEFAULT_NEUTRAL_AVATAR}
                   alt={currentUser?.name || 'User Profile'}
-                  style={{ width: '88px', height: '88px', borderRadius: '50%', border: '3px solid var(--primary, #08B9E8)', objectFit: 'cover' }}
+                  style={{ width: '88px', height: '88px', borderRadius: '50%', border: '3px solid var(--primary, var(--sf-action, #D91430))', objectFit: 'cover' }}
                 />
                 <div style={{
                   position: 'absolute',
                   bottom: 4,
                   right: 4,
-                  background: 'var(--primary, #08B9E8)',
+                  background: 'var(--primary, var(--sf-action, #D91430))',
                   color: '#fff',
                   borderRadius: '50%',
                   width: 26,
@@ -689,7 +689,7 @@ const ProfilePage = () => {
                 {false && <button
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
-                  style={{ background: 'none', border: 'none', color: '#078CCB', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: 'var(--sf-action-hover, #B50918)', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                 >
                   Upload Custom Photo
                 </button>}
@@ -705,7 +705,7 @@ const ProfilePage = () => {
                     onClick={() => selectPresetAvatar(p.url)}
                     title={p.name}
                     style={{
-                      width: '28px', height: '28px', borderRadius: '50%', border: userAvatar === p.url ? '2px solid #08B9E8' : '1px solid #cbd5e1',
+                      width: '28px', height: '28px', borderRadius: '50%', border: userAvatar === p.url ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
                       padding: 0, overflow: 'hidden', cursor: 'pointer', background: 'none', transition: 'transform 0.15s'
                     }}
                   >
@@ -791,12 +791,12 @@ const ProfilePage = () => {
             )}
 
             <div style={{
-              background: 'linear-gradient(135deg, #078CCB 0%, #08B9E8 100%)',
+              background: 'linear-gradient(135deg, var(--sf-action-hover, #B50918) 0%, var(--sf-action, #D91430) 100%)',
               borderRadius: '16px',
               padding: '24px',
               textAlign: 'center',
               color: '#ffffff',
-              boxShadow: '0 4px 14px rgba(8, 185, 232, 0.28)',
+              boxShadow: '0 4px 14px color-mix(in srgb, var(--sf-primary, #B50918) 28%, transparent)',
               position: 'relative'
             }}>
               <span style={{ fontSize: '12px', color: '#d7f4fc', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>Bulkimart Wallet Balance</span>
@@ -816,7 +816,7 @@ const ProfilePage = () => {
                   }}
                   style={{
                     backgroundColor: '#ffffff',
-                    color: '#078CCB',
+                    color: 'var(--sf-action-hover, #B50918)',
                     border: 'none',
                     borderRadius: '20px',
                     padding: '6px 16px',
@@ -900,9 +900,9 @@ const ProfilePage = () => {
                         style={{
                           padding: '10px 4px',
                           borderRadius: '10px',
-                          border: Number(addMoneyAmount) === amt ? '2px solid #08B9E8' : '1px solid #cbd5e1',
+                          border: Number(addMoneyAmount) === amt ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
                           backgroundColor: Number(addMoneyAmount) === amt ? '#f0fdf4' : '#ffffff',
-                          color: Number(addMoneyAmount) === amt ? '#078CCB' : '#0f172a',
+                          color: Number(addMoneyAmount) === amt ? 'var(--sf-action-hover, #B50918)' : '#0f172a',
                           fontWeight: '800',
                           fontSize: '13px',
                           cursor: 'pointer'
@@ -951,7 +951,7 @@ const ProfilePage = () => {
                           padding: '14px',
                           borderRadius: '12px',
                           border: 'none',
-                          backgroundColor: '#08B9E8',
+                          backgroundColor: 'var(--sf-action, #D91430)',
                           color: '#ffffff',
                           fontWeight: '800',
                           fontSize: '14.5px',
@@ -974,8 +974,8 @@ const ProfilePage = () => {
                           padding: '12px',
                           borderRadius: '12px',
                           border: '1.5px solid #BAEAF8',
-                          backgroundColor: '#EAF9FE',
-                          color: '#078CCB',
+                          backgroundColor: 'var(--sf-highlight, #FFF0B3)',
+                          color: 'var(--sf-action-hover, #B50918)',
                           fontWeight: '800',
                           fontSize: '13.5px',
                           cursor: isInitiatingTopup ? 'wait' : 'pointer',
@@ -1111,10 +1111,10 @@ const ProfilePage = () => {
                   onClick={() => setIsAddingAddress(true)}
                   style={{
                     padding: '14px',
-                    border: '1.5px dashed var(--primary, #08B9E8)',
+                    border: '1.5px dashed var(--primary, var(--sf-action, #D91430))',
                     borderRadius: '14px',
                     backgroundColor: '#f0fdf4',
-                    color: 'var(--primary, #078CCB)',
+                    color: 'var(--primary, var(--sf-action-hover, #B50918))',
                     fontWeight: '800',
                     fontSize: '14px',
                     cursor: 'pointer',
@@ -1141,7 +1141,7 @@ const ProfilePage = () => {
                         style={{
                           padding: '16px',
                           backgroundColor: '#ffffff',
-                          border: isSelected ? '2px solid var(--primary, #08B9E8)' : '1px solid #e2e8f0',
+                          border: isSelected ? '2px solid var(--primary, var(--sf-action, #D91430))' : '1px solid #e2e8f0',
                           borderRadius: '14px',
                           position: 'relative',
                           boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
@@ -1149,8 +1149,8 @@ const ProfilePage = () => {
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                           <span style={{
-                            backgroundColor: '#EAF9FE',
-                            color: '#078CCB',
+                            backgroundColor: 'var(--sf-highlight, #FFF0B3)',
+                            color: 'var(--sf-action-hover, #B50918)',
                             fontSize: '11px',
                             fontWeight: '800',
                             padding: '3px 10px',
@@ -1161,7 +1161,7 @@ const ProfilePage = () => {
                           </span>
                           
                           {addr.isDefault && (
-                            <span style={{ fontSize: '11px', color: '#078CCB', fontWeight: '800' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--sf-action-hover, #B50918)', fontWeight: '800' }}>
                               Default Address
                             </span>
                           )}
@@ -1178,7 +1178,7 @@ const ProfilePage = () => {
                           {!isSelected && (
                             <button 
                               onClick={() => setSelectedAddressId(addrId)}
-                              style={{ background: 'none', border: 'none', color: 'var(--primary, #078CCB)', fontSize: '12px', fontWeight: '800', cursor: 'pointer', padding: 0 }}
+                              style={{ background: 'none', border: 'none', color: 'var(--primary, var(--sf-action-hover, #B50918))', fontSize: '12px', fontWeight: '800', cursor: 'pointer', padding: 0 }}
                             >
                               Set Active
                             </button>
@@ -1214,8 +1214,8 @@ const ProfilePage = () => {
                         flex: 1,
                         padding: '10px',
                         borderRadius: '10px',
-                        border: newAddrLabel === lbl ? '1.5px solid var(--primary, #08B9E8)' : '1.5px solid #cbd5e1',
-                        backgroundColor: newAddrLabel === lbl ? 'var(--primary, #08B9E8)' : '#ffffff',
+                        border: newAddrLabel === lbl ? '1.5px solid var(--primary, var(--sf-action, #D91430))' : '1.5px solid #cbd5e1',
+                        backgroundColor: newAddrLabel === lbl ? 'var(--primary, var(--sf-action, #D91430))' : '#ffffff',
                         color: newAddrLabel === lbl ? '#fff' : '#0f172a',
                         fontWeight: '700',
                         cursor: 'pointer'
@@ -1238,9 +1238,9 @@ const ProfilePage = () => {
                     width: '100%',
                     padding: '12px 16px',
                     backgroundColor: '#f0fdf4',
-                    border: '1.5px dashed var(--primary, #08B9E8)',
+                    border: '1.5px dashed var(--primary, var(--sf-action, #D91430))',
                     borderRadius: '10px',
-                    color: 'var(--primary, #078CCB)',
+                    color: 'var(--primary, var(--sf-action-hover, #B50918))',
                     fontWeight: '800',
                     fontSize: '13px',
                     cursor: 'pointer',
@@ -1464,7 +1464,7 @@ const ProfilePage = () => {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b' }}>#{t.ticketNumber}</span>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#e0f2fe', color: '#0369a1' }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: 'var(--sf-highlight)', color: 'var(--sf-highlight-text)' }}>
                           {(t.status || '').replace(/_/g, ' ')}
                         </span>
                       </div>
@@ -1511,9 +1511,9 @@ const ProfilePage = () => {
                     style={{
                       padding: '10px 6px',
                       borderRadius: '12px',
-                      border: isActive ? '2px solid #08B9E8' : '1px solid #cbd5e1',
-                      backgroundColor: isActive ? '#EAF9FE' : '#ffffff',
-                      color: isActive ? '#078CCB' : '#475569',
+                      border: isActive ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
+                      backgroundColor: isActive ? 'var(--sf-highlight, #FFF0B3)' : '#ffffff',
+                      color: isActive ? 'var(--sf-action-hover, #B50918)' : '#475569',
                       fontSize: '12px',
                       fontWeight: isActive ? '800' : '600',
                       cursor: 'pointer',
@@ -1521,7 +1521,7 @@ const ProfilePage = () => {
                       flexDirection: 'column',
                       alignItems: 'center',
                       gap: '4px',
-                      boxShadow: isActive ? '0 2px 8px rgba(8, 185, 232, 0.14)' : 'none',
+                      boxShadow: isActive ? '0 2px 8px color-mix(in srgb, var(--sf-primary, #B50918) 14%, transparent)' : 'none',
                     }}
                   >
                     <span style={{ fontSize: '16px' }}>{t.icon}</span>
@@ -1543,7 +1543,7 @@ const ProfilePage = () => {
               <>
                 <div style={{ backgroundColor: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#EAF9FE', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#078CCB', flexShrink: 0 }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'var(--sf-highlight, #FFF0B3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sf-action-hover, #B50918)', flexShrink: 0 }}>
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                       </svg>

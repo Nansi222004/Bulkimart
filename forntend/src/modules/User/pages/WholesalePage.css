@@ -1,17 +1,17 @@
 .wholesale-page {
-  --wholesale-blue: #08b9e8;
-  --wholesale-blue-dark: #078ccb;
-  --wholesale-navy: #073b78;
-  --wholesale-orange: #ff8500;
-  --wholesale-orange-dark: #c2410c;
-  --wholesale-orange-light: #fff7ed;
-  --wholesale-text: #172b4d;
-  --wholesale-muted: #64748b;
-  --wholesale-border: #e2e8f0;
-  --wholesale-bg-surface: #ffffff;
-  --wholesale-bg-subtle: #f8fafc;
+  --wholesale-blue: var(--sf-action, #D91430);
+  --wholesale-blue-dark: var(--sf-action-hover, #B50918);
+  --wholesale-navy: var(--sf-text, #252525);
+  --wholesale-orange: var(--sf-action);
+  --wholesale-orange-dark: var(--sf-action-hover);
+  --wholesale-orange-light: var(--sf-highlight);
+  --wholesale-text: var(--sf-text);
+  --wholesale-muted: var(--sf-muted);
+  --wholesale-border: var(--sf-border);
+  --wholesale-bg-surface: var(--sf-surface);
+  --wholesale-bg-subtle: var(--sf-background);
   --wholesale-shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
-  --wholesale-shadow-md: 0 8px 20px rgba(8, 185, 232, 0.12);
+  --wholesale-shadow-md: 0 8px 20px color-mix(in srgb, var(--sf-primary, #B50918) 12%, transparent);
   width: 100%;
   max-width: 1180px;
   min-height: 100%;
@@ -32,7 +32,7 @@
   border-radius: 14px;
   padding: 16px 20px;
   margin-bottom: 12px;
-  box-shadow: 0 2px 8px rgba(8, 185, 232, 0.05);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--sf-primary, #B50918) 5%, transparent);
 }
 
 .wholesale-header-content {
@@ -62,7 +62,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--wholesale-blue);
-  box-shadow: 0 0 0 3px rgba(8, 185, 232, 0.22);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sf-primary, #B50918) 22%, transparent);
 }
 
 .wholesale-header h1 {
@@ -103,13 +103,13 @@
   font-size: 13.5px;
   font-weight: 750;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(8, 185, 232, 0.28);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--sf-primary, #B50918) 28%, transparent);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .wholesale-cart-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(8, 185, 232, 0.38);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--sf-primary, #B50918) 38%, transparent);
 }
 
 .wholesale-cart-btn:active {
@@ -134,7 +134,7 @@
 }
 
 .wholesale-account-btn:hover {
-  background: #eaf9fe;
+  background: var(--sf-highlight, #FFF0B3);
   border-color: var(--wholesale-blue);
   transform: translateY(-1px);
 }
@@ -167,7 +167,7 @@
   border: 1px solid #b8e9f7;
   border-radius: 11px;
   color: var(--wholesale-blue-dark);
-  background: #eaf9fe;
+  background: var(--sf-highlight, #FFF0B3);
   font-family: inherit;
   font-size: 13px;
   font-weight: 750;
@@ -224,7 +224,7 @@
 .wholesale-search-wrapper input:focus {
   outline: none;
   border-color: var(--wholesale-blue);
-  box-shadow: 0 0 0 3px rgba(8, 185, 232, 0.16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sf-primary, #B50918) 16%, transparent);
 }
 
 .wholesale-search-icon {
@@ -280,7 +280,7 @@
 .wholesale-category-wrapper select:focus {
   outline: none;
   border-color: var(--wholesale-blue);
-  box-shadow: 0 0 0 3px rgba(8, 185, 232, 0.16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sf-primary, #B50918) 16%, transparent);
 }
 
 .wholesale-select-chevron {
@@ -348,7 +348,7 @@
 
 .wholesale-page-btn:hover:not(:disabled) {
   border-color: var(--wholesale-blue);
-  background: #eaf9fe;
+  background: var(--sf-highlight, #FFF0B3);
   color: var(--wholesale-blue-dark);
 }
 
@@ -549,7 +549,7 @@
   font-size: 12px;
   font-weight: 750;
   color: var(--wholesale-blue-dark);
-  background: #eaf9fe;
+  background: var(--sf-highlight, #FFF0B3);
   padding: 7px 12px;
   border-radius: 8px;
   transition: background 0.15s, color 0.15s;
@@ -571,7 +571,7 @@
   background: #ffffff;
   font-weight: 850;
   font-size: 16px;
-  box-shadow: 0 2px 8px rgba(8, 185, 232, 0.1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--sf-primary, #B50918) 10%, transparent);
 }
 
 /* LOADING, EMPTY, ERROR STATES */
@@ -592,7 +592,7 @@
 .wholesale-spinner {
   width: 38px;
   height: 38px;
-  border: 3px solid #eaf9fe;
+  border: 3px solid var(--sf-highlight, #FFF0B3);
   border-top-color: var(--wholesale-blue-dark);
   border-radius: 50%;
   animation: wholesale-spin 0.8s linear infinite;
@@ -667,7 +667,7 @@
 }
 
 .wholesale-primary-btn:hover {
-  background: #0672a8;
+  background: var(--sf-action-hover, #B50918);
 }
 
 .wholesale-secondary-btn {

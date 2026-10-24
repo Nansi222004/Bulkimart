@@ -1,11 +1,15 @@
 import React, { useMemo } from 'react';
 import { useUser } from '../context/UserContext';
 import { useCategoryTree } from '../hooks/useCategoryTree';
+import { useStorefront } from '../context/StorefrontContext';
+import StorefrontMedia from './StorefrontMedia';
 
 const PopularCategories = () => {
   const { setActiveNav, activeMode, setSelectedCategoryFilter } = useUser();
   const type = activeMode === 'quick' ? 'grocery' : 'ecommerce';
   const { tree, loading, error, retry } = useCategoryTree(type);
+  const { theme, device } = useStorefront();
+  const tileFor = category => theme?.categoryTiles?.find(tile => tile.categoryId === String(category._id || category.id));
 
   const categories = useMemo(() => {
     const flatten = (nodes) => (nodes || []).flatMap((category) => [category, ...flatten(category.children)]);
@@ -127,9 +131,10 @@ const PopularCategories = () => {
               onClick={() => handleCategoryClick(category)}
             >
               <div className="category-circle-wrapper">
-                {renderCategoryImage(category)}
+                {tileFor(category) ? <StorefrontMedia banner={tileFor(category).banner} device={device} active={false} /> : renderCategoryImage(category)}
               </div>
               <span className="category-name">{category.name}</span>
+              {tileFor(category)?.badge && <span className="sf-category-badge">{tileFor(category).badge}</span>}
             </button>
           ))
         )}

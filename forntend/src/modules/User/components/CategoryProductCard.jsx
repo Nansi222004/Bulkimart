@@ -7,8 +7,8 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
     className="grid-product-card"
     onClick={() => onOpen(product)}
     style={{
-      backgroundColor: '#ffffff',
-      border: '1px solid #e2e8f0',
+      backgroundColor: 'var(--sf-surface)',
+      border: '1px solid var(--sf-product-border)',
       borderRadius: 12,
       padding: 6,
       cursor: 'pointer',
@@ -28,7 +28,7 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
         justifyContent: 'center',
         overflow: 'hidden',
         borderRadius: 8,
-        backgroundColor: '#f8fafc',
+        backgroundColor: 'var(--sf-surface)',
       }}
     >
       <img
@@ -46,7 +46,7 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
           margin: 0,
           fontSize: 11,
           fontWeight: 700,
-          color: '#1e293b',
+          color: 'var(--sf-text)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           display: '-webkit-box',
@@ -59,16 +59,16 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
         {product.name}
       </h4>
       {product.fulfillmentType === 'digital' && (
-        <span style={{ alignSelf: 'flex-start', marginTop: 3, padding: '2px 6px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontSize: 8.5, fontWeight: 900 }}>
+        <span style={{ alignSelf: 'flex-start', marginTop: 3, padding: '2px 6px', borderRadius: 999, background: 'var(--sf-highlight)', color: 'var(--sf-highlight-text)', fontSize: 8.5, fontWeight: 900 }}>
           DIGITAL E-BOOK
         </span>
       )}
-      <span className="grid-product-shg" style={{ fontSize: 9.5, color: '#64748b', fontWeight: 600, marginTop: 2 }}>
+      <span className="grid-product-shg" style={{ fontSize: 9.5, color: 'var(--sf-muted)', fontWeight: 600, marginTop: 2 }}>
         {product.shg || product.brandName || ''}
       </span>
 
       <div className="grid-product-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 6 }}>
-        <span className="grid-product-price" style={{ fontSize: 11.5, fontWeight: 800, color: '#0f172a' }}>
+        <span className="grid-product-price" style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--sf-text)' }}>
           {formatCurrency(product.price)}
         </span>
         <button
@@ -78,8 +78,8 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
             onAdd(product);
           }}
           style={{
-            backgroundColor: 'var(--primary, #08b9e8)',
-            color: '#ffffff',
+            backgroundColor: 'var(--primary, var(--sf-action, #D91430))',
+            color: 'var(--sf-action-text)',
             border: 'none',
             borderRadius: 6,
             padding: '3px 8px',

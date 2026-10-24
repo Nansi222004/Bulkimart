@@ -70,7 +70,7 @@ const DigitalLibraryPage = () => {
             <article key={entry.id} className="profile-menu-card" style={{ padding: 14, display: 'flex', gap: 14 }}>
               <img src={entry.product?.images?.[0]} alt="" style={{ width: 76, height: 104, objectFit: 'cover', borderRadius: 9, background: '#e2e8f0' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 900, color: '#0284c7', textTransform: 'uppercase' }}>Digital E-book</span>
+                <span style={{ fontSize: 10, fontWeight: 900, color: 'var(--sf-primary)', textTransform: 'uppercase' }}>Digital E-book</span>
                 <h3 style={{ margin: '4px 0', fontSize: 15 }}>{entry.product?.name || 'E-book'}</h3>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{entry.product?.digital?.author || 'Unknown author'}</div>
                 <div style={{ marginTop: 6, fontSize: 11, color: '#64748b' }}>Purchased {new Date(entry.activatedAt).toLocaleDateString('en-IN')} · {entry.order?.orderNo}</div>

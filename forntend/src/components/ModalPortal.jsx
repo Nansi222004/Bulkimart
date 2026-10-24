@@ -1,10 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useRef } from 'react';
+import { CustomerThemeContext } from './CustomerThemeContext';
 import { createPortal } from 'react-dom';
 import useVisualViewport from '../hooks/useVisualViewport';
 import { lockModal, isTopModal } from '../utils/modalLayer';
 import './ModalPortal.css';
 
 export default function ModalPortal({children, className = '', style, ...props}) {
+  const customerTheme = useContext(CustomerThemeContext);
   const ref = useRef(null);
   const bounds = useVisualViewport();
   useEffect(() => {
@@ -30,5 +32,5 @@ export default function ModalPortal({children, className = '', style, ...props})
     };
   }, []);
   return createPortal(<div ref={ref} tabIndex={-1} {...props}
-    className={`${className} modal-viewport`} style={{...style,position:'fixed',inset:0,...(bounds ? {...bounds,right:'auto',bottom:'auto'} : {}),zIndex:12000 + Math.min(6000, Number(style?.zIndex || 0))}}>{children}</div>, document.body);
+    className={`${className} modal-viewport`} style={{...customerTheme,...style,position:'fixed',inset:0,...(bounds ? {...bounds,right:'auto',bottom:'auto'} : {}),zIndex:12000 + Math.min(6000, Number(style?.zIndex || 0))}}>{children}</div>, document.body);
 }

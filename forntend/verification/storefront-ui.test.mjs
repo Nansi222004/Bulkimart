@@ -58,8 +58,42 @@ test('configuration cache expires strictly and countdown cannot run negative', (
   assert.equal(policy.countdown(new Date(now - 1), now), ''); assert.equal(policy.countdown(new Date(now + 61000), now), '00:01:01');
 });
 test('default and refreshed themes map only to customer CSS tokens', () => {
-  const defaults = policy.themeStyle(); assert.equal(defaults['--sf-primary'], '#087ea4');
-  const next = policy.themeStyle(policy.PRESETS['Eid Celebration']); assert.equal(next['--primary'], '#116b52'); assert.equal(next['--sa-primary'], undefined); assert.equal(defaults['--sf-primary'], '#087ea4');
+  const defaults = policy.themeStyle(); assert.equal(defaults['--sf-primary'], '#B50918');
+  const next = policy.themeStyle(policy.PRESETS['Eid Celebration']); assert.equal(next['--primary'], '#116b52'); assert.equal(next['--sa-primary'], undefined); assert.equal(defaults['--sf-primary'], '#B50918');
+});
+test('old cached anonymous defaults migrate while published aqua themes remain intentional', () => {
+  const cached = { version: 'old', banners: [], sections: [], theme: { tokens: policy.PRESETS['Classic Aqua'] }, validUntil: new Date(Date.now() + 30000).toISOString() };
+  assert.equal(policy.freshExperience(cached), true);
+  assert.equal(policy.normalizeExperience(cached).theme.tokens.header, '#79000B');
+  assert.equal(policy.normalizeExperience({ ...cached, theme: { ...cached.theme, id: 'published' } }).theme.tokens.primary, '#087ea4');
+});
+test('legacy published tokens supply component roles without restoring mode-specific overrides', () => {
+  const style = policy.themeStyle({ primary: '#116b52', secondary: '#073b78', accent: '#e0bc62' });
+  assert.equal(style['--sf-action'], '#116b52'); assert.equal(style['--sf-header'], '#073b78');
+  assert.equal(style['--sf-category-frame'], '#e0bc62'); assert.equal(style['--sf-nav-active'], '#116b52');
+  assert.equal(style['--brand-aqua-light'], policy.DEFAULT_TOKENS.highlight);
+});
+test('provider revalidates publication changes on online and retains valid fallback during an outage', async () => {
+  const h = browserHarness(Provider, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' });
+  const data = { version: 'active', theme: { id: 'published', tokens: policy.PRESETS['Eid Celebration'] }, banners: [], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() };
+  try {
+    h.requests[0].resolve({ data }); await h.settle(); assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52');
+    window.dispatchEvent(new Event('online')); await h.settle();
+    h.requests.at(-1).resolve({ data: { ...data, version: 'paused', theme: { tokens: policy.DEFAULT_TOKENS } } }); await h.settle();
+    assert.equal(h.tree.props.value.theme.tokens.primary, '#B50918');
+    window.dispatchEvent(new Event('online')); await h.settle(); h.requests.at(-1).reject(new Error('Offline')); await h.settle();
+    assert.equal(h.tree.props.value.theme.tokens.header, '#79000B');
+  } finally { h.close(); }
+});
+test('an active cached campaign expires to red when subsequent configuration requests fail', async () => {
+  const h = browserHarness(Provider, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' });
+  try {
+    h.requests[0].resolve({ data: { version: 'short-campaign', theme: { id: 'published', tokens: policy.PRESETS['Eid Celebration'] }, banners: [banner], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 200).toISOString() } });
+    await h.settle(); assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52');
+    await new Promise(resolve => setTimeout(resolve, 1150)); h.flush();
+    h.requests.at(-1).reject(new Error('Offline')); await h.settle();
+    assert.equal(h.tree.props.value.theme.tokens.primary, '#B50918'); assert.deepEqual(h.tree.props.value.banners, []);
+  } finally { h.close(); }
 });
 test('IST scheduling does not depend on the browser workstation timezone', () => {
   assert.equal(Studio.scheduleISO('2030-01-01T05:30'), '2030-01-01T00:00:00.000Z'); assert.equal(Studio.scheduleInput('2030-01-01T00:00:00Z'), '2030-01-01T05:30');
@@ -89,6 +123,15 @@ test('reduced motion prevents video creation; image failure produces text fallba
 test('video load failure falls back to its static poster', () => {
   const h = browserHarness(Media, { banner: { ...banner, video: 'https://fixture.test/clip.mp4' } }, {});
   try { assert.equal(h.tree.type, 'video'); assert.equal(h.tree.props.muted, true); h.tree.props.onError(); h.flush(); assert.equal(h.tree.type, 'img'); assert.equal(h.tree.props.src, banner.image); } finally { h.close(); }
+});
+test('video fallback restores focus before removing focused native controls', () => {
+  const h = browserHarness(Media, { banner: { ...banner, video: 'https://fixture.test/clip.mp4' } }, {});
+  let focused = false;
+  try {
+    const element = { closest: () => ({ querySelector: () => ({ focus: () => { focused = true; } }) }), play: () => Promise.resolve(), pause() {}, removeAttribute() {}, load() {} };
+    h.tree.props.ref.current = element; document.activeElement = element;
+    h.tree.props.onError(); h.flush(); assert.equal(focused, true); assert.equal(h.tree.type, 'img');
+  } finally { h.close(); }
 });
 test('hero renders no hardcoded sale when configuration is empty and has keyboard buttons', () => {
   const context = { banners: [], device: 'mobile', loading: false }, h = browserHarness(Hero, {}, context);

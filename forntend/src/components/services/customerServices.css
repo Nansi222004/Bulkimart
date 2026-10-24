@@ -1,4 +1,4 @@
-.services-discovery{display:flex;align-items:center;gap:12px;margin:12px 0;padding:14px 16px;border:1px solid var(--primary,#078ccb);border-radius:14px;background:var(--primary-light,#eaf9fe);color:var(--text-primary,#172b4d);text-decoration:none}.services-discovery span:first-of-type{flex:1}.services-discovery small{display:block;margin-top:4px}.customer-services{padding:16px 12px calc(90px + env(safe-area-inset-bottom));max-width:1200px;margin:auto;box-sizing:border-box;overflow-wrap:anywhere}.customer-service-card{padding:16px;border:1px solid #cce8ef;border-radius:14px;background:#fff;margin:12px 0;color:#172b4d}.customer-service-card>svg{color:#ed8719}.customer-service-card a,.customer-service-card button{display:inline-block;padding:10px;margin:4px;border-radius:8px}.service-book{background:var(--primary,#078ccb);color:white}.customer-service-card button:disabled{opacity:.6}.customer-services :focus-visible,.services-discovery:focus-visible{outline:3px solid #ed8719;outline-offset:3px}@media(min-width:768px){.customer-services{padding:24px 24px 100px}.customer-service-card{max-width:640px}}
+.services-discovery{display:flex;align-items:center;gap:12px;margin:12px 0;padding:14px 16px;border:1px solid var(--primary,var(--sf-action, #D91430));border-radius:14px;background:var(--primary-light,var(--sf-highlight, #FFF0B3));color:var(--text-primary,#172b4d);text-decoration:none}.services-discovery span:first-of-type{flex:1}.services-discovery small{display:block;margin-top:4px}.customer-services{padding:16px 12px calc(90px + env(safe-area-inset-bottom));max-width:1200px;margin:auto;box-sizing:border-box;overflow-wrap:anywhere}.customer-service-card{padding:16px;border:1px solid var(--sf-border, #E9E1DC);border-radius:14px;background:#fff;margin:12px 0;color:#172b4d}.customer-service-card>svg{color:#ed8719}.customer-service-card a,.customer-service-card button{display:inline-block;padding:10px;margin:4px;border-radius:8px}.service-book{background:var(--primary,var(--sf-action, #D91430));color:white}.customer-service-card button:disabled{opacity:.6}.customer-services :focus-visible,.services-discovery:focus-visible{outline:3px solid #ed8719;outline-offset:3px}@media(min-width:768px){.customer-services{padding:24px 24px 100px}.customer-service-card{max-width:640px}}
 
 .home-service-entries{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}.home-service-entries .customer-service-card{margin:0;max-width:none;min-width:0;padding:14px;overflow-wrap:anywhere}.home-service-entries h2{font-size:18px;margin:8px 0}.home-service-entries p{font-size:14px;line-height:1.4}.home-service-entries a,.home-service-entries button{max-width:100%;box-sizing:border-box;white-space:normal}.home-service-entries :focus-visible{outline:3px solid #ed8719;outline-offset:3px}@media(max-width:480px){.home-service-entries{grid-template-columns:1fr;gap:10px}}
 
@@ -14,10 +14,10 @@
   max-width: 100%;
   padding: 10px 14px;
   margin: 0;
-  border: 1px solid #b8deed;
+  border: 1px solid var(--sf-border, #E9E1DC);
   border-radius: 9px;
-  background: #eaf9fe;
-  color: #076a99;
+  background: var(--sf-highlight, #FFF0B3);
+  color: var(--sf-highlight-text, #79000B);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -26,10 +26,10 @@
   text-decoration: none;
   cursor: pointer;
 }
-.customer-service-card a:visited { color: #076a99; }
+.customer-service-card a:visited { color: var(--sf-highlight-text, #79000B); }
 .customer-service-card .service-book,
-.customer-service-card .service-book:visited { background: #078ccb; border-color: #078ccb; color: #fff; margin-top: auto; }
+.customer-service-card .service-book:visited { background: var(--sf-action, #D91430); border-color: var(--sf-action, #D91430); color: #fff; margin-top: auto; }
 .customer-service-card a:hover,
-.customer-service-card button:hover { background: #d8f2fc; text-decoration: none; }
-.customer-service-card .service-book:hover { background: #0677ad; border-color: #0677ad; color: #fff; }
+.customer-service-card button:hover { background: var(--sf-highlight, #FFF0B3); text-decoration: none; }
+.customer-service-card .service-book:hover { background: var(--sf-action-hover, #B50918); border-color: var(--sf-action-hover, #B50918); color: #fff; }
 .customer-service-card button:disabled { cursor: default; opacity: .5; }

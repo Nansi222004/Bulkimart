@@ -32,12 +32,12 @@ export function MerchandisingCard({ product, deal = false, wholesale = false }) 
     catch { setMessage('Could not add item. Try again.'); } finally { setBusy(false); }
   };
   return <article className="sf-product">
-    <div className="sf-product-image"><button onClick={open} aria-label={`View ${product.name}`}>{artwork && !failed ? <img src={artwork.startsWith('/uploads/') ? apiUrl(artwork) : artwork} alt={product.name} loading="lazy" onError={() => setFailed(true)} /> : <span className="sf-no-image">Image unavailable</span>}</button>{!wholesale && <WishlistHeartButton productId={id} size={18} />}</div>
-    <div className="sf-product-body"><button className="sf-product-title" onClick={open}>{product.name}</button>
+    <div className="sf-product-image"><button type="button" onClick={open} aria-label={`View ${product.name}`}>{artwork && !failed ? <img src={artwork.startsWith('/uploads/') ? apiUrl(artwork) : artwork} alt={product.name} loading="lazy" onError={() => setFailed(true)} /> : <span className="sf-no-image">Image unavailable</span>}</button>{!wholesale && <WishlistHeartButton productId={id} size={18} />}</div>
+    <div className="sf-product-body"><button type="button" className="sf-product-title" onClick={open}>{product.name}</button>
       {product.rating > 0 && <span className="sf-rating" aria-label={`${product.rating} out of 5 stars`}>★ {Number(product.rating).toFixed(1)}</span>}
       <div className="sf-price"><strong>{price == null ? 'Price unavailable' : `${wholesale ? 'From ' : ''}${money(price)}`}</strong>{Number(original) > Number(price) && <><del>{money(original)}</del><span>{Math.floor((original - price) / original * 100)}% off</span></>}</div>
       {wholesale && available && <small>Per unit · Minimum {Math.min(...wholesaleVariants.map(v => v.minimumQuantity || 1))} units. Price depends on quantity.</small>}
-      <button className="sf-add" disabled={!available || busy} onClick={add}>{!available ? 'Out of stock' : busy ? 'Adding…' : wholesale ? 'View bulk options' : deal || product.variants?.length ? 'Choose options' : 'Add to cart +'}</button>
+      <button type="button" className="sf-add" disabled={!available || busy} onClick={add}>{!available ? 'Out of stock' : busy ? 'Adding…' : wholesale ? 'View bulk options' : deal || product.variants?.length ? 'Choose options' : 'Add to cart +'}</button>
       {message && <small role="status">{message}</small>}
     </div>
   </article>;
@@ -66,7 +66,7 @@ export function StorefrontSection({ section }) {
   const remoteCollection = ['campaign', 'wholesale'].includes(c.source);
   const result = remoteCollection ? deal : regular;
   if (!result.loading && !result.error && !result.products.length) return null;
-  return <section className={`sf-section sf-section--${c.variant}`}>
+  return <section className={`sf-section sf-section--${c.variant}`} data-source={c.source} data-layout={c.layout || 'rail'} style={{ '--section-background': c.appearance?.background, '--section-text': c.appearance?.text, '--section-accent': c.appearance?.accent }}>
     {section.banner && <div className="sf-section-banner"><StorefrontMedia banner={section.banner} device={device} active={false} />{section.banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={() => navigate(section.banner.destination)}>{section.banner.cta || 'Explore collection'} →</button>}</div>}
     <div className="sf-section-heading"><div><span className="sf-eyebrow">{c.source === 'campaign' ? 'LIMITED-TIME DEALS' : c.source === 'wholesale' ? 'FOR YOUR BUSINESS' : 'CURATED FOR YOU'}</span><h2>{c.title}</h2></div>{c.source === 'campaign' && section.endAt && <time className="sf-countdown" aria-label="Time remaining">{countdown(section.endAt, now)}</time>}{c.source === 'wholesale' && <button className="sf-text-button" onClick={() => setActiveNav('wholesale')}>View all →</button>}</div>
     {result.loading ? <div className="sf-product-skeleton" role="status">Loading products…</div> : result.error ? <p role="alert">{result.error} <button onClick={() => remoteCollection ? setRetry(r => r + 1) : regular.retry()}>Retry</button></p> : <div className="sf-product-rail">{result.products.map(p => <MerchandisingCard key={p.id || p._id} product={p} deal={c.source === 'campaign'} wholesale={c.source === 'wholesale'} />)}</div>}

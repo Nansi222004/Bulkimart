@@ -1,4 +1,10 @@
-export { DEFAULT_TOKENS, PRESETS, themeStyle, lifecycle } from '../../../backend/shared/storefront.mjs';
+export { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, themeStyle, lifecycle } from '../../../backend/shared/storefront.mjs';
+// An anonymous response from a pre-migration server/cache is a brand fallback,
+// not an administrator's published theme. Explicit theme IDs remain authoritative.
+export function normalizeExperience(data) {
+  return data?.theme?.id ? data : { ...data, theme: { tokens: DEFAULT_TOKENS } };
+}
+import { DEFAULT_TOKENS } from '../../../backend/shared/storefront.mjs';
 export function freshExperience(data, now = Date.now()) {
   return !!data?.version && Array.isArray(data.banners) && Array.isArray(data.sections) && Number.isFinite(Date.parse(data.validUntil)) && Date.parse(data.validUntil) > now;
 }

@@ -582,7 +582,7 @@ const styles = {
   actionTitlePurple: {
     fontSize: '14.5px',
     fontWeight: 700,
-    color: '#073b78',
+    color: 'var(--sf-text, #252525)',
   },
   actionSubtext: {
     fontSize: '11.5px',

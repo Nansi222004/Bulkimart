@@ -1,42 +1,8 @@
+import CategoryArtwork from './CategoryArtwork';
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 
-import fashionTshirts from '../../../assets/fashion_tshirts.jpg';
-import fashionKurtis from '../../../assets/fashion_kurtis.jpg';
-import fashionBottomwear from '../../../assets/fashion_bottomwear.jpg';
-import fashionInnerwear from '../../../assets/fashion_innerwear.jpg';
-import fashionSlippers from '../../../assets/fashion_slippers.jpg';
-import fashionAccessories from '../../../assets/fashion_accessories.jpg';
-import fashionMen from '../../../assets/fashion_men.jpg';
-import fashionWomen from '../../../assets/fashion_women.jpg';
-import fashionKids from '../../../assets/fashion_kids.jpg';
-
-const IndependenceSaleBadge = ({ dates }) => (
-  <div style={{
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 86,
-    height: 86,
-    backgroundImage: 'radial-gradient(circle, #fff 40%, #f0fdf4 100%)',
-    border: '2px dashed #166534',
-    borderRadius: '50%',
-    boxShadow: '0 4px 8px rgba(0,0,0,0.05)',
-    transform: 'rotate(-4deg)',
-    fontFamily: "'Outfit', sans-serif",
-    flexShrink: 0
-  }}>
-    <span style={{ fontSize: 7, fontWeight: 900, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.2px', lineHeight: 1.1 }}>Grand</span>
-    <span style={{ fontSize: 8, fontWeight: 950, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.2px', lineHeight: 1.1 }}>Independence</span>
-    <div style={{ backgroundColor: '#dc2626', color: '#fff', fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 4, transform: 'scale(1.05)', margin: '2px 0', boxShadow: '0 2px 4px rgba(220,38,38,0.15)' }}>
-      SALE
-    </div>
-    <span style={{ fontSize: 7, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>{dates}</span>
-  </div>
-);
 
 export const FashionSection = () => {
   const { setActiveNav, setSelectedCategoryFilter } = useUser();
@@ -90,28 +56,9 @@ export const FashionSection = () => {
     };
   }, []);
 
-  const getBasicsGraphic = (item) => {
-    if (item.image) return item.image;
-    if (item.icon) return item.icon;
-    const name = String(item.name || '').toLowerCase();
-    const slug = String(item.slug || '').toLowerCase();
-    if (name.includes('tshirt') || name.includes('t-shirt') || slug.includes('t-shirt') || slug.includes('tshirt')) return fashionTshirts;
-    if (name.includes('kurti') || name.includes('kurta') || name.includes('saree') || slug.includes('kurti') || slug.includes('saree')) return fashionKurtis;
-    if (name.includes('bottom') || name.includes('trouser') || name.includes('pants') || name.includes('jeans') || slug.includes('bottom')) return fashionBottomwear;
-    if (name.includes('inner') || slug.includes('inner')) return fashionInnerwear;
-    if (name.includes('slipper') || name.includes('footwear') || name.includes('shoe') || slug.includes('slipper')) return fashionSlippers;
-    return fashionAccessories;
-  };
 
-  const getStoryGraphic = (item) => {
-    if (item.image) return item.image;
-    if (item.icon) return item.icon;
-    const name = String(item.name || '').toLowerCase();
-    const slug = String(item.slug || '').toLowerCase();
-    if (name.includes('men') || slug.includes('men')) return fashionMen;
-    if (name.includes('women') || slug.includes('women') || name.includes('saree') || slug.includes('saree')) return fashionWomen;
-    return fashionKids;
-  };
+
+
 
   const getStoryOffer = () => 'Explore collection';
 
@@ -120,7 +67,7 @@ export const FashionSection = () => {
   };
 
   return (
-    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: '#fffbeb', borderRadius: 16 }}>
+    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: 'var(--sf-highlight)', borderRadius: 16 }}>
       {/* Styles for hover transitions and layouts */}
       <style dangerouslySetInnerHTML={{__html: `
         .fashion-card-basic {
@@ -142,7 +89,7 @@ export const FashionSection = () => {
         }
         .fashion-card-story {
           background-color: #ffffff;
-          border: 1.5px solid #fed7aa;
+          border: 1.5px solid var(--sf-category-frame);
           border-radius: 20px;
           overflow: hidden;
           display: flex;
@@ -167,14 +114,14 @@ export const FashionSection = () => {
         padding: '24px 0 16px 0'
       }}>
         <div style={{ textAlign: 'left' }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: '#dc2626', fontFamily: "'Outfit', sans-serif" }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: 'var(--sf-primary)', fontFamily: 'inherit' }}>
             Everyday Basics
           </h2>
-          <p style={{ margin: '2px 0 0 0', fontSize: 13, color: '#b45309', fontWeight: 600 }}>
+          <p style={{ margin: '2px 0 0 0', fontSize: 13, color: 'var(--sf-muted)', fontWeight: 600 }}>
             Comfort you can count on!
           </p>
         </div>
-        <IndependenceSaleBadge dates="12th-16th Aug" />
+
       </div>
 
       {/* 6-Card Grid */}
@@ -196,7 +143,7 @@ export const FashionSection = () => {
                 textAlign: 'center', 
                 borderBottom: '1px solid var(--primary-light)'
               }}>
-                <span style={{ fontSize: 11, fontWeight: '800', color: 'var(--primary)', fontFamily: "'Outfit', sans-serif" }}>
+                <span style={{ fontSize: 11, fontWeight: '800', color: 'var(--primary)', fontFamily: 'inherit' }}>
                   {item.name}
                 </span>
               </div>
@@ -208,11 +155,7 @@ export const FashionSection = () => {
                 justifyContent: 'center',
                 backgroundColor: '#fff'
               }}>
-                <img 
-                  src={getBasicsGraphic(item)} 
-                  alt={item.name} 
-                  style={{ width: '90%', height: '90%', objectFit: 'contain' }} 
-                />
+                <CategoryArtwork category={item} />
               </div>
             </div>
           ))
@@ -227,17 +170,17 @@ export const FashionSection = () => {
         justifyContent: 'space-between', 
         alignItems: 'center', 
         padding: '16px 0 16px 0',
-        borderTop: '1.5px dashed #fed7aa'
+        borderTop: '1.5px dashed var(--sf-category-frame)'
       }}>
         <div style={{ textAlign: 'left' }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: '#1e3a8a', fontFamily: "'Outfit', sans-serif" }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: 'var(--sf-text)', fontFamily: 'inherit' }}>
             Style for Every Story
           </h2>
           <p style={{ margin: '2px 0 0 0', fontSize: 13, color: '#475569', fontWeight: 600 }}>
             Fresh looks for him, her & the little ones
           </p>
         </div>
-        <IndependenceSaleBadge dates="4th-10th Aug" />
+
       </div>
 
       {/* 3-Card Grid */}
@@ -256,9 +199,9 @@ export const FashionSection = () => {
                 backgroundColor: '#fff', 
                 padding: '8px 4px', 
                 textAlign: 'center', 
-                borderBottom: '1.5px solid #fed7aa'
+                borderBottom: '1.5px solid var(--sf-category-frame)'
               }}>
-                <span style={{ fontSize: 11, fontWeight: '800', color: '#1e3a8a', fontFamily: "'Outfit', sans-serif" }}>
+                <span style={{ fontSize: 11, fontWeight: '800', color: 'var(--sf-text)', fontFamily: 'inherit' }}>
                   {item.name}
                 </span>
               </div>
@@ -271,21 +214,17 @@ export const FashionSection = () => {
                 justifyContent: 'center',
                 backgroundColor: '#fff'
               }}>
-                <img 
-                  src={getStoryGraphic(item)} 
-                  alt={item.name} 
-                  style={{ width: '90%', height: '90%', objectFit: 'contain' }} 
-                />
+                <CategoryArtwork category={item} />
               </div>
 
               {/* Offer Footer Bar */}
               <div style={{
                 width: '100%',
-                backgroundColor: '#f97316',
+                backgroundColor: 'var(--sf-action)',
                 padding: '6px 4px',
                 textAlign: 'center'
               }}>
-                <span style={{ fontSize: 10, fontWeight: '800', color: '#ffffff', fontFamily: "'Outfit', sans-serif", textTransform: 'uppercase' }}>
+                <span style={{ fontSize: 10, fontWeight: '800', color: 'var(--sf-action-text)', fontFamily: 'inherit', textTransform: 'uppercase' }}>
                   {getStoryOffer(item)}
                 </span>
               </div>

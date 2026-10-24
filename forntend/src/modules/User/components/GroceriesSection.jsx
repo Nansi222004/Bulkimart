@@ -1,14 +1,10 @@
+import CategoryArtwork from './CategoryArtwork';
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 import VegetablesSection from './VegetablesSection';
 import MilkSection from './MilkSection';
 
-import groceriesEssentials from '../../../assets/groceries_essentials.jpg';
-import productRice from '../../../assets/product_rice.png';
-import productHoney from '../../../assets/product_honey.png';
-import productMilkBottle from '../../../assets/product_milk_bottle.png';
-import categoryPackaged from '../../../assets/category_packaged.png';
 
 // Paper Grocery Bag Header Graphic (Matching Image 2)
 const GroceryBagGraphic = () => (
@@ -30,7 +26,7 @@ const GroceryBagGraphic = () => (
     </div>
     {/* Bag Base */}
     <div style={{ width: 75, height: 52, backgroundColor: '#f59e0b', borderRadius: '6px 6px 12px 12px', zIndex: 3, boxShadow: '0 4px 10px rgba(0,0,0,0.12)', borderTop: '4px solid #d97706', position: 'relative' }}>
-      <div style={{ width: '100%', height: 4, backgroundColor: '#b45309', position: 'absolute', top: 6 }}></div>
+      <div style={{ width: '100%', height: 4, backgroundColor: 'var(--sf-muted)', position: 'absolute', top: 6 }}></div>
     </div>
   </div>
 );
@@ -76,17 +72,7 @@ export const GroceriesSection = () => {
     };
   }, []);
 
-  const getCategoryGraphic = (cat) => {
-    if (cat.image) return cat.image;
-    if (cat.icon) return cat.icon;
-    const name = String(cat.name || '').toLowerCase();
-    const slug = String(cat.slug || '').toLowerCase();
-    if (name.includes('essential') || slug.includes('essential')) return groceriesEssentials;
-    if (name.includes('rice') || name.includes('cereal') || name.includes('millet') || name.includes('staple') || slug.includes('rice') || slug.includes('staple')) return productRice;
-    if (name.includes('honey') || name.includes('dry fruit') || name.includes('nut') || slug.includes('honey') || slug.includes('dry-fruit')) return productHoney;
-    if (name.includes('milk') || name.includes('beverage') || name.includes('juice') || name.includes('dairy') || slug.includes('milk') || slug.includes('dairy')) return productMilkBottle;
-    return categoryPackaged;
-  };
+
 
   const handleCategoryClick = (cat) => {
     setSelectedCategoryFilter(cat);
@@ -94,11 +80,11 @@ export const GroceriesSection = () => {
   };
 
   return (
-    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: '#f0fdf4', borderRadius: 16 }}>
+    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: 'var(--sf-promotion)', borderRadius: 16 }}>
       <style dangerouslySetInnerHTML={{__html: `
         .groceries-card-category {
           background-color: #ffffff;
-          border: 1.5px solid #a7f3d0;
+          border: 1.5px solid var(--sf-category-frame);
           border-radius: 18px;
           overflow: hidden;
           display: flex;
@@ -145,10 +131,10 @@ export const GroceriesSection = () => {
         padding: '20px 0 16px 0'
       }}>
         <div style={{ textAlign: 'left' }}>
-          <h2 style={{ margin: 0, fontSize: 21, fontWeight: 900, color: '#073B78', fontFamily: "'Outfit', sans-serif", letterSpacing: '0.3px' }}>
+          <h2 style={{ margin: 0, fontSize: 21, fontWeight: 900, color: 'var(--sf-text, #252525)', fontFamily: 'inherit', letterSpacing: '0.3px' }}>
             GROCERIES AT DOORSTEP
           </h2>
-          <p style={{ margin: '2px 0 0 0', fontSize: 13, color: '#166534', fontWeight: 600 }}>
+          <p style={{ margin: '2px 0 0 0', fontSize: 13, color: 'var(--sf-promotion-text)', fontWeight: 600 }}>
             Shop now and save more!
           </p>
         </div>
@@ -167,11 +153,11 @@ export const GroceriesSection = () => {
         ) : (
           categories.map((item) => (
             <div key={item._id || item.id} className="groceries-card-category" onClick={() => handleCategoryClick(item)}>
-              <span style={{ fontSize: 10, fontWeight: '800', color: '#073B78', textAlign: 'center', minHeight: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Outfit', sans-serif", lineHeight: 1.2 }}>
+              <span style={{ fontSize: 10, fontWeight: '800', color: 'var(--sf-text, #252525)', textAlign: 'center', minHeight: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', lineHeight: 1.2 }}>
                 {item.name}
               </span>
               <div style={{ width: '100%', height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
-                <img src={getCategoryGraphic(item)} alt={item.name} style={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain' }} />
+                <CategoryArtwork category={item} />
               </div>
             </div>
           ))

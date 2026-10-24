@@ -72,24 +72,24 @@ export const QUICK_ACTIONS = [
     title: 'Categories',
     subtitle: 'Explore all',
     icon: 'grid',
-    color: '#eaf9fe',
-    iconColor: '#078ccb'
+    color: 'var(--sf-highlight, #FFF0B3)',
+    iconColor: 'var(--sf-action-hover, #B50918)'
   },
   {
     id: 'offers',
     title: 'Offers',
     subtitle: 'Best deals',
     icon: 'ticket',
-    color: '#fff3e5',
-    iconColor: '#ff8500'
+    color: 'var(--sf-highlight)',
+    iconColor: 'var(--sf-highlight-text)'
   },
   {
     id: 'wholesale',
     title: 'Wholesale',
     subtitle: 'Bulk quantities',
     icon: 'bulk',
-    color: '#eaf9fe',
-    iconColor: '#078ccb'
+    color: 'var(--sf-highlight, #FFF0B3)',
+    iconColor: 'var(--sf-action-hover, #B50918)'
   }
 ];
 

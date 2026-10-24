@@ -1,3 +1,4 @@
+import CategoryArtwork from './CategoryArtwork';
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { useProducts } from '../hooks/useProducts';
@@ -7,11 +8,6 @@ import { SameDayBadge } from './SameDayBadge';
 import { apiUrl } from '../../../utils/api';
 import WishlistHeartButton from './WishlistHeartButton';
 
-import productSolarCharger from '../../../assets/product_solar_charger.png';
-import productEmergencyBulb from '../../../assets/product_emergency_bulb.png';
-import productRechargeableTorch from '../../../assets/product_rechargeable_torch.png';
-import productSolarDeskFan from '../../../assets/product_solar_desk_fan.png';
-import productSolarLantern from '../../../assets/product_solar_lantern.png';
 
 export const ElectronicsSection = () => {
   const { addToCart, setSelectedProduct, setActiveNav, getDeliveryPoint, setSelectedCategoryFilter } = useUser();
@@ -68,18 +64,7 @@ export const ElectronicsSection = () => {
     };
   }, []);
 
-  const getCategoryGraphic = (cat) => {
-    if (cat.image) return cat.image;
-    if (cat.icon) return cat.icon;
-    const name = String(cat.name || '').toLowerCase();
-    const slug = String(cat.slug || '').toLowerCase();
-    if (name.includes('charger') || slug.includes('charger')) return productSolarCharger;
-    if (name.includes('bulb') || name.includes('light') || slug.includes('bulb') || slug.includes('light')) return productEmergencyBulb;
-    if (name.includes('torch') || slug.includes('torch')) return productRechargeableTorch;
-    if (name.includes('fan') || slug.includes('fan')) return productSolarDeskFan;
-    if (name.includes('lantern') || slug.includes('lantern')) return productSolarLantern;
-    return productSolarCharger;
-  };
+
 
   const getCategoryPriceInfo = () => 'Explore collection';
 
@@ -88,7 +73,7 @@ export const ElectronicsSection = () => {
   };
 
   return (
-    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: '#f5f3ff', borderRadius: 16 }}>
+    <div style={{ padding: '16px 16px 20px 16px', backgroundColor: 'var(--sf-highlight)', borderRadius: 16 }}>
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes electronicsFloatyBob {
           0% { transform: translateY(0px); }
@@ -97,7 +82,7 @@ export const ElectronicsSection = () => {
         }
         .electronics-card-category {
           background-color: #ffffff;
-          border: 1.5px solid #e9d5ff;
+          border: 1.5px solid var(--sf-category-frame);
           border-radius: 22px;
           overflow: hidden;
           display: flex;
@@ -143,17 +128,17 @@ export const ElectronicsSection = () => {
         <div style={{ position: 'absolute', left: 8, bottom: 6, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
           {/* Mouse Pedestal */}
           <div className="floaty-icon-1" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 14, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid #e9d5ff' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5"><rect x="6" y="3" width="12" height="18" rx="6"/><line x1="12" y1="7" x2="12" y2="11"/></svg>
+            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 14, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid var(--sf-category-frame)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sf-action)" strokeWidth="2.5"><rect x="6" y="3" width="12" height="18" rx="6"/><line x1="12" y1="7" x2="12" y2="11"/></svg>
             </div>
-            <div style={{ width: 28, height: 12, backgroundColor: '#edd8ff', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
+            <div style={{ width: 28, height: 12, backgroundColor: 'var(--sf-category-surface)', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
           </div>
           {/* Keyboard Pedestal */}
           <div className="floaty-icon-2" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 12, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid #e9d5ff' }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="10"/><line x1="10" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="14" y2="10"/><line x1="18" y1="10" x2="18" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
+            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 12, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid var(--sf-category-frame)' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--sf-action)" strokeWidth="2.5"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="10"/><line x1="10" y1="10" x2="10" y2="10"/><line x1="14" y1="10" x2="14" y2="10"/><line x1="18" y1="10" x2="18" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
             </div>
-            <div style={{ width: 34, height: 14, backgroundColor: '#e9d5ff', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
+            <div style={{ width: 34, height: 14, backgroundColor: 'var(--sf-category-frame)', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
           </div>
         </div>
 
@@ -164,7 +149,7 @@ export const ElectronicsSection = () => {
             fontSize: 19, 
             fontWeight: 950, 
             color: '#4c1d95', 
-            fontFamily: "'Outfit', sans-serif", 
+            fontFamily: 'inherit',
             letterSpacing: '0.5px',
             textShadow: '0 2px 4px rgba(255,255,255,0.8)' 
           }}>
@@ -176,17 +161,17 @@ export const ElectronicsSection = () => {
         <div style={{ position: 'absolute', right: 8, bottom: 6, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
           {/* Gamepad Pedestal */}
           <div className="floaty-icon-3" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 14, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid #e9d5ff' }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5"><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><circle cx="15" cy="13" r="1"/><circle cx="18" cy="11" r="1"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
+            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 14, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid var(--sf-category-frame)' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--sf-action)" strokeWidth="2.5"><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><circle cx="15" cy="13" r="1"/><circle cx="18" cy="11" r="1"/><rect x="2" y="6" width="20" height="12" rx="6"/></svg>
             </div>
-            <div style={{ width: 32, height: 13, backgroundColor: '#edd8ff', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
+            <div style={{ width: 32, height: 13, backgroundColor: 'var(--sf-category-surface)', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
           </div>
           {/* Phone Pedestal */}
           <div className="floaty-icon-4" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 12, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid #e9d5ff' }}>
-              <svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <div style={{ backgroundColor: '#fff', padding: '6px 8px', borderRadius: 12, boxShadow: '0 4px 10px rgba(0,0,0,0.06)', border: '1px solid var(--sf-category-frame)' }}>
+              <svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sf-action)" strokeWidth="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
             </div>
-            <div style={{ width: 28, height: 12, backgroundColor: '#e9d5ff', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
+            <div style={{ width: 28, height: 12, backgroundColor: 'var(--sf-category-frame)', borderRadius: '50%', marginTop: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}></div>
           </div>
         </div>
       </div>
@@ -203,13 +188,13 @@ export const ElectronicsSection = () => {
         ) : (
           categories.map((item) => (
             <div key={item._id || item.id} className="electronics-card-category" onClick={() => handleCategoryClick(item)}>
-              <span style={{ fontSize: 11, fontWeight: '900', color: '#4c1d95', textAlign: 'center', minHeight: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Outfit', sans-serif", lineHeight: 1.1 }}>
+              <span style={{ fontSize: 11, fontWeight: '900', color: '#4c1d95', textAlign: 'center', minHeight: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', lineHeight: 1.1 }}>
                 {item.name}
               </span>
               <div style={{ width: '100%', height: 75, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '4px 0' }}>
-                <img src={getCategoryGraphic(item)} alt={item.name} style={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain', mixBlendMode: 'multiply' }} />
+                <CategoryArtwork category={item} />
               </div>
-              <span style={{ fontSize: 9, fontWeight: '800', color: '#581c87', backgroundColor: '#f3e8ff', padding: '3px 8px', borderRadius: 10, border: '1px solid #e9d5ff' }}>
+              <span style={{ fontSize: 9, fontWeight: '800', color: 'var(--sf-text)', backgroundColor: 'var(--sf-category-surface)', padding: '3px 8px', borderRadius: 10, border: '1px solid var(--sf-category-frame)' }}>
                 {getCategoryPriceInfo(item)}
               </span>
             </div>
@@ -219,7 +204,7 @@ export const ElectronicsSection = () => {
 
       {/* BEST OF GADGETS PRODUCT CATALOG */}
       <div>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 900, color: '#3b0764', textAlign: 'left', fontFamily: "'Outfit', sans-serif" }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 900, color: '#3b0764', textAlign: 'left', fontFamily: 'inherit' }}>
           Best of Gadgets
         </h3>
 
@@ -228,7 +213,7 @@ export const ElectronicsSection = () => {
             <div
               key={product.id}
               className="grid-product-card"
-              style={{ backgroundColor: '#ffffff', borderRadius: 18, padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer', border: '1px solid #f3e8ff' }}
+              style={{ backgroundColor: '#ffffff', borderRadius: 18, padding: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer', border: '1px solid var(--sf-category-surface)' }}
               onClick={() => setSelectedProduct(product)}
             >
               <div className="grid-product-img-wrapper" style={{ height: 110, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
@@ -246,12 +231,12 @@ export const ElectronicsSection = () => {
                 <SameDayBadge verdict={options[product.id]?.sameDay} compact />
 
                 <div className="grid-product-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="grid-product-price" style={{ fontSize: 13, fontWeight: 900, color: '#7e22ce' }}>
+                  <span className="grid-product-price" style={{ fontSize: 13, fontWeight: 900, color: 'var(--sf-action)' }}>
                     {formatCurrency(product.price)}
                   </span>
                   <button
                     className="grid-product-add-btn"
-                    style={{ backgroundColor: '#7e22ce', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+                    style={{ backgroundColor: 'var(--sf-action)', color: 'var(--sf-action-text)', border: 'none', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       addToCart(product);

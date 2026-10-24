@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StorefrontProvider, useStorefront } from '../context/StorefrontContext';
-import { themeStyle } from '../../../utils/storefront';
+import { themeStyle, resolveTokens } from '../../../utils/storefront';
 import PromotionalSplash from '../components/PromotionalSplash';
 import StorefrontSections, { StorefrontAnnouncement } from '../components/StorefrontSections';
 import '../Storefront.css';
@@ -96,9 +96,9 @@ export const LandingPageContent = () => {
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
-      meta.setAttribute('content', activeMode === 'quick' ? '#078ccb' : '#4f46e5');
+      meta.setAttribute('content', resolveTokens(experience.theme.tokens).header);
     }
-  }, [activeMode]);
+  }, [experience.theme.tokens]);
   useEffect(()=>{
     if(!currentUser && productRoute.present && productRoute.mode==='wholesale')rememberWholesaleReturn(productRoute.id,productRoute.variant);
   },[currentUser,productRoute.id,productRoute.variant,productRoute.mode]);
@@ -116,7 +116,7 @@ export const LandingPageContent = () => {
   ]);
 
   if (!currentUser && protectedNavItems.has(activeNav)) {
-    return <AuthPage />;
+    return <div className="sf-storefront" style={themeStyle(experience.theme.tokens)}><AuthPage /></div>;
   }
 
   const renderContent = () => {
@@ -255,7 +255,7 @@ export const LandingPageContent = () => {
   };
 
   return (
-    <div className={`user-landing-page-container sf-storefront mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode} style={themeStyle(experience.theme.tokens)} data-decoration={experience.theme.tokens.decoration} data-motion={experience.theme.tokens.motion}>
+    <div className={`user-landing-page-container sf-storefront mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode} style={themeStyle(experience.theme.tokens)} data-decoration={experience.theme.tokens.decoration} data-motion={experience.theme.tokens.motion} data-category={experience.theme.tokens.category} data-product={experience.theme.tokens.product}>
       {currentUser && <RealtimeNotice />}
       {/* Scrollable Main Area */}
       <main className={`user-main-content page-${activeNav}`}>

@@ -86,6 +86,59 @@ test.each([
   await send('post', '/api/admin/storefront', theme(patch)).expect(400); expect(await Experience.countDocuments()).toBe(0);
 });
 test('all shipped presets pass color and vocabulary validation', () => { for (const tokens of Object.values(PRESETS)) expect(() => validateTokens(tokens)).not.toThrow(); });
+test('default is premium red and classic aqua is explicitly selectable', async () => {
+  expect((await publicRead()).theme.tokens.primary).toBe('#B50918');
+  expect(DEFAULT_TOKENS.header).toBe('#79000B');
+  const row = await create(theme({ config: { preset: 'Classic Aqua', tokens: PRESETS['Classic Aqua'] } }));
+  await transition(row); expect((await publicRead()).theme.tokens.primary).toBe('#087ea4');
+});
+test('component colors persist, refresh versions and survive publication rollback', async () => {
+  let row = await create(theme({ config: { tokens: { ...DEFAULT_TOKENS, header: '#512020', action: '#991B1B', categoryFrame: '#B5811C', product: 'flat' } } }));
+  row = (await transition(row)).data;
+  const first = await publicRead(); expect(first.theme.tokens.header).toBe('#512020'); expect(first.theme.tokens.product).toBe('flat');
+  row = (await send('patch', `/api/admin/storefront/${row._id}`, { ...row, config: { ...row.config, tokens: { ...row.config.tokens, header: '#252525' } } }).expect(200)).body.data;
+  row = (await transition(row)).data; const second = await publicRead();
+  expect(second.version).not.toBe(first.version); expect(second.theme.tokens.header).toBe('#252525');
+  await transition(row, 'rollback'); expect((await publicRead()).theme.tokens.header).toBe('#512020');
+});
+test('paused and expired themes restore the red default', async () => {
+  const end = Date.now() + 10000;
+  let row = await create(theme({ endAt: new Date(end).toISOString(), config: { tokens: PRESETS['Eid Celebration'] } }));
+  row = (await transition(row)).data;
+  expect((await resolveExperience('quick', 'mobile', '', end - 1)).theme.tokens.primary).toBe('#116b52');
+  expect((await resolveExperience('quick', 'mobile', '', end)).theme.tokens.primary).toBe('#B50918');
+  await transition(row, 'pause'); expect((await publicRead()).theme.tokens.header).toBe('#79000B');
+});
+test('campaign-only theme ends with its campaign even if the theme has no end date', async () => {
+  await transition(await create(theme()));
+  const row = await create(theme({ config: { tokens: PRESETS['Eid Celebration'], application: 'campaign' } })); await transition(row);
+  expect((await publicRead()).theme.tokens.primary).toBe('#B50918');
+  const end = Date.now() + 10000;
+  let campaign = await create(promo({ endAt: new Date(end).toISOString(), config: { ...promo().config, themeId: row._id } })); campaign = (await transition(campaign)).data;
+  expect((await resolveExperience('quick', 'mobile', '', end - 1)).theme.tokens.primary).toBe('#116b52');
+  expect((await resolveExperience('quick', 'mobile', '', end)).theme.tokens.primary).toBe('#B50918');
+  await transition(campaign, 'pause'); expect((await publicRead()).theme.tokens.primary).toBe('#B50918');
+});
+test.each(['header', 'searchText', 'actionText', 'badgeText', 'navActive'])('rejects unreadable or executable %s component colors', async key => {
+  await send('post', '/api/admin/storefront', theme({ config: { tokens: { ...DEFAULT_TOKENS, [key]: ['actionText', 'badgeText'].includes(key) ? '#D91430' : '#FFFFFF' } } })).expect(400);
+  await send('post', '/api/admin/storefront', theme({ config: { tokens: { ...DEFAULT_TOKENS, [key]: 'url(https://bad.test)' } } })).expect(400);
+});
+test('section colors and layout persist through the existing API, unsafe CSS fails', async () => {
+  const config = { source: 'price', title: 'Under ₹99', maxPrice: 99, layout: 'grid', variant: 'accent', appearance: { background: '#FFF0B3', text: '#252525', accent: '#B50918' } };
+  const row = await create({ kind: 'section', name: 'Budget finds', config }); await transition(row);
+  expect((await publicRead()).sections[0].config).toMatchObject(config);
+  await send('post', '/api/admin/storefront', { kind: 'section', name: 'Unsafe', config: { ...config, appearance: { ...config.appearance, background: 'url(x)' } } }).expect(400);
+  await send('post', '/api/admin/storefront', { kind: 'section', name: 'Unreadable', config: { ...config, appearance: { background: '#FFFFFF', text: '#FFFFFF' } } }).expect(400);
+});
+test('category artwork uses live category and banner references and disappears when retired', async () => {
+  const category = await Category.create({ name: 'Fresh', slug: 'grocery--fresh', type: 'grocery', isActive: true });
+  const row = await create(theme({ config: { tokens: DEFAULT_TOKENS, categoryTiles: [{ categoryId: String(category._id), bannerId: String(banner._id), badge: 'Fresh picks' }] } }));
+  await transition(row); const first = await publicRead();
+  expect(first.theme.categoryTiles[0].banner.image).toBe(banner.image);
+  expect(first.theme.categoryTiles[0].badge).toBe('Fresh picks');
+  expect((await resolveExperience('shop-all', 'mobile')).theme.categoryTiles).toEqual([]);
+  await Banner.updateOne({ _id: banner._id }, { isArchived: true }); expect((await publicRead()).theme.categoryTiles).toEqual([]);
+});
 test('input cannot set publication, audit metadata or unvalidated CSS', async () => {
   const row = await create(theme({ status: 'published', revision: 999, createdBy: String(id()), config: { tokens: DEFAULT_TOKENS, css: 'body{display:none}' } }));
   expect(row.status).toBe('draft'); expect(row.revision).toBe(1); expect(row.config.css).toBeUndefined();

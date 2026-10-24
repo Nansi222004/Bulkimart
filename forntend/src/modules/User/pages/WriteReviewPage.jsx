@@ -236,7 +236,7 @@ export const WriteReviewPage = ({ productId, onBack }) => {
           disabled={submitting}
           style={{
             width: '100%', maxWidth: 460, padding: 14, borderRadius: 30,
-            background: submitting ? '#94a3b8' : 'var(--primary, #08B9E8)', color: '#fff',
+            background: submitting ? '#94a3b8' : 'var(--primary, var(--sf-action, #D91430))', color: '#fff',
             border: 'none', fontSize: 15, fontWeight: 800, cursor: submitting ? 'not-allowed' : 'pointer',
             boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
           }}
