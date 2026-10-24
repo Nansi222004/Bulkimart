@@ -118,9 +118,9 @@ export const useCategoryTree = (type) => {
 /**
  * The category ids a section should ask for, by slug.
  *
- * Returns `undefined` while the tree is loading or when the slug is not in it —
- * and `undefined` means "no filter", so a section falls back to its previous
- * behaviour rather than rendering an empty grid because a category was renamed.
+ * Returns null categoryParam and exists: false when the slug is not in the tree,
+ * preventing sections from accidentally querying all store products when a category
+ * is deleted or unpublished.
  */
 export const useCategoryBranch = (type, slug) => {
   const { tree, loading, error, retry } = useCategoryTree(type);
@@ -132,8 +132,9 @@ export const useCategoryBranch = (type, slug) => {
     loading,
     error,
     retry,
+    exists: Boolean(node),
     /** Ready for useProducts({ category }) — a comma list the API reads as a branch. */
-    categoryParam: ids && ids.length ? ids.join(',') : undefined,
+    categoryParam: ids && ids.length ? ids.join(',') : null,
   };
 };
 

@@ -80,6 +80,7 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
       qty: 1,
       price: Number(variant.price),
       sellerId: product.sellerId,
+      categoryId: product.category,
       type: product.type,
       fulfillmentType: 'digital',
       digitalSnapshot: {

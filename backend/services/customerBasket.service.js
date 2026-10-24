@@ -6,10 +6,12 @@ import { sumMoney } from '../utils/money.js';
 import { httpError } from '../utils/response.js';
 
 // Aggregate the existing documents. No fourth cart, migration or client prices.
-export const buildCustomerBasket = async ({ userId, user, destination, session, preview = false }) => {
+export const buildCustomerBasket = async ({ userId, user, destination, session, preview = false, couponCode }) => {
   let query = Cart.find({ userId, channel: { $in: ['grocery', 'ecommerce', 'wholesale'] } });
   if (session) query = query.session(session);
   const carts = await query.lean();
+  const couponCart = carts.filter(cart => cart.items?.length);
+  const canQuoteCoupon = couponCart.length === 1 && couponCart[0].channel !== 'wholesale';
   const groups = [], warnings = [];
   let wholesaleHash = null;
   for (const mode of ['retail', 'wholesale']) {
@@ -29,6 +31,12 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
           name: item.name, variantName: item.variantName, qty: item.qty, available: false,
           additionalMessage: item.additionalMessage })), total: null });
     }
+  }
+  // Only a single delivery can redeem a coupon at checkout. Quote it under
+  // exactly that condition, so the basket never advertises an unusable saving.
+  if (preview && couponCode && canQuoteCoupon && groups.length === 1 && groups[0].valid !== false) {
+    const quoted = await buildFulfilmentGroups({ userId, user, destination, purchaseMode: 'retail', session, includeDigital: true, couponCode });
+    if (quoted.groups.length === 1) groups[0] = { ...quoted.groups[0], key: `retail:${quoted.groups[0].key}`, salesChannel: 'retail' };
   }
   if (!preview && groups.some(group => group.items.some(item => item.fulfillmentType === 'digital'))) throw httpError(400, 'Digital products require their existing digital checkout');
   if (!preview && groups.some(group => group.requestedMode === 'same_day' && group.deliveryMode !== 'same_day')) throw httpError(409, 'Same-day delivery is no longer available. Review your basket.');
@@ -51,7 +59,7 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
   const totals = valid ? groups.reduce((total, group) => ({
     subtotal: sumMoney(total.subtotal, group.subtotal), deliveryCharge: sumMoney(total.deliveryCharge, group.deliveryCharge),
     sameDayPremium: sumMoney(total.sameDayPremium, group.sameDayFee || 0, group.sellerIncentive || 0),
-    couponDiscount: 0, totalAmount: sumMoney(total.totalAmount, group.total),
+    couponDiscount: sumMoney(total.couponDiscount, group.couponDiscount || 0), totalAmount: sumMoney(total.totalAmount, group.total),
     itemCount: total.itemCount + group.items.reduce((n, item) => n + item.qty, 0),
   }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 }) : null;
   const basketHash = valid ? createHash('sha256').update(JSON.stringify(groups.map(group => ({

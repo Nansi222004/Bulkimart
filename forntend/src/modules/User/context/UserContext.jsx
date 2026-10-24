@@ -10,6 +10,7 @@ import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { saveUserSession, clearUserSession, openSessionDashboard, captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 import { CustomerSessionContext } from '../../../utils/customerSession';
 import { normalizeProduct } from '../hooks/useProducts';
+import CouponSuccessCelebration from '../components/CouponSuccessCelebration';
 
 const UserContext = createContext();
 
@@ -217,14 +218,18 @@ export const UserProvider = ({ children }) => {
 
   const setSelectedCategoryFilter = (category) => {
     setSelectedCategoryFilterState(category);
-    if (category) {
+    if (category?.slug) {
       const slug = category.slug;
       const newPath = `/categories/${slug}`;
       if (window.location.pathname !== newPath) {
         window.history.pushState(null, '', newPath);
       }
-      setActiveNavState('categories');
+    } else {
+      if (window.location.pathname !== '/categories') {
+        window.history.pushState(null, '', '/categories');
+      }
     }
+    setActiveNavState('categories');
   };
 
   useEffect(() => {
@@ -382,8 +387,16 @@ export const UserProvider = ({ children }) => {
 
   // --- Coupon ---
   const [couponCode, setCouponCode] = useState('');
+  const activeCouponCode = useRef(couponCode);
+  activeCouponCode.current = couponCode;
   const [availableCoupons, setAvailableCoupons] = useState([]);
   const [appliedCoupon, setAppliedCoupon] = useState(null); // { code, discount }
+  const [couponCelebration, setCouponCelebration] = useState(null);
+  const [couponNotice, setCouponNotice] = useState('');
+  const couponEventId = useRef(0);
+  const couponApplying = useRef(false);
+  const suppressedAuto = useRef(null);
+  const offersRequest = useRef(0);
 
   // --- Addresses ---
   const [savedAddresses, setSavedAddresses] = useState([]);
@@ -688,6 +701,8 @@ export const UserProvider = ({ children }) => {
   const [serverCart, setServerCart] = useState(EMPTY_CART);
   const [cartLoading, setCartLoading] = useState(false);
   const [cartSummary, setCartSummary] = useState({});
+  const [cartSummaryReady, setCartSummaryReady] = useState(false);
+  const cartRequest = useRef(0);
 
   /**
    * "Use Coins" is intent only — the server decides everything else
@@ -701,7 +716,7 @@ export const UserProvider = ({ children }) => {
   const isSignedIn = () => (!restoredSession || restoredSession.verified) && Boolean(localStorage.getItem('userToken'));
 
   const refreshCartSummary = useCallback(async () => {
-    if (!isSignedIn()) { setCartSummary({}); return; }
+    if (!isSignedIn()) { setCartSummary({}); setCartSummaryReady(false); return; }
     const session = captureUserSession();
     try {
       const res = await fetch(apiUrl('/api/cart/summary'), { headers: authHeaders(false) });
@@ -709,6 +724,7 @@ export const UserProvider = ({ children }) => {
       const body = await res.json();
       if (isCurrentUserSession(session)) setCartSummary(body.data || {});
     } catch { /* badges are non-critical */ }
+    finally { setCartSummaryReady(true); }
   }, [currentUser?._id, restoredSession?.verified]);
 
   useEffect(() => {
@@ -724,12 +740,13 @@ export const UserProvider = ({ children }) => {
   useEffect(() => { refreshCartSummaryRef.current = refreshCartSummary; }, [refreshCartSummary]);
 
   const refreshCart = useCallback(async (channel, coupon, mode) => {
+    const request = ++cartRequest.current;
     const ch = channel || cartChannel;
     const cp = coupon !== undefined ? coupon : couponCode;
     // An explicit mode wins, so a freshly picked one is priced immediately
     // rather than a render later.
     const wantMode = mode !== undefined ? mode : deliveryMode;
-    if (!isSignedIn()) { setServerCart({ ...EMPTY_CART, channel: ch }); return; }
+    if (!isSignedIn()) { setServerCart({ ...EMPTY_CART, channel: ch }); return null; }
 
     setCartLoading(true);
     try {
@@ -760,7 +777,16 @@ export const UserProvider = ({ children }) => {
       }
       const body = await res.json();
       const cartData = body.data || { ...EMPTY_CART, channel: ch };
+      if (request !== cartRequest.current) return null;
       setServerCart(cartData);
+      if (cp && (cartData.couponError || cartData.appliedCoupon?.code !== cp)) {
+        setCouponNotice(cartData.couponError || 'Your coupon is no longer available for this cart.');
+        setCouponCode('');
+        setAppliedCoupon(null);
+        suppressedAuto.current = `${ch}:${(cartData.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
+      } else if (cartData.appliedCoupon) {
+        setAppliedCoupon(cartData.appliedCoupon);
+      }
       if (ch === 'ecommerce' && cartData.items?.length > 0) {
         const itemMode = cartData.items[0].deliveryMode;
         // Only update when the server reports a mode that differs from what we
@@ -771,11 +797,15 @@ export const UserProvider = ({ children }) => {
           setDeliveryModeState(itemMode);
         }
       }
+      return cartData;
     } catch {
-      setServerCart({ ...EMPTY_CART, channel: ch });
+      if (request === cartRequest.current) setServerCart({ ...EMPTY_CART, channel: ch });
+      return null;
     } finally {
-      setCartLoading(false);
-      refreshCartSummaryRef.current();
+      if (request === cartRequest.current) {
+        setCartLoading(false);
+        refreshCartSummaryRef.current();
+      }
     }
     // getDeliveryPoint reads the saved-address list, which changes rarely and
     // never during a re-price; leaving it out keeps this from re-running on
@@ -808,6 +838,7 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     const channel = activeMode === 'quick' ? 'grocery' : 'ecommerce';
     setCartChannel(channel);
+    setAvailableCoupons([]);
     setDeliveryModeState(null);
     // Follow storefront changes only. Checkout can select another basket
     // without changing the storefront; reacting to cartChannel undoes that
@@ -898,6 +929,7 @@ export const UserProvider = ({ children }) => {
   const switchCartChannel = useCallback((channel) => {
     if (!['grocery', 'ecommerce'].includes(channel) || channel === cartChannel) return;
     setDeliveryModeState(null);
+    setAvailableCoupons([]);
     setCartChannel(channel);
     // The refreshCart effect fetches once with the new channel and mode.
   }, [cartChannel]);
@@ -936,6 +968,8 @@ export const UserProvider = ({ children }) => {
     if (!isSignedIn()) return { success: false, message: 'Please sign in to use a coupon.' };
     const clean = String(code || '').trim().toUpperCase();
     if (!clean) return { success: false, message: 'Please enter a coupon code.' };
+    if (couponApplying.current || couponCode === clean && appliedCoupon?.code === clean) return { success: false, message: 'Coupon already applied.' };
+    couponApplying.current = true;
 
     try {
       const res = await fetch(apiUrl('/api/coupons/validate'), {
@@ -951,19 +985,28 @@ export const UserProvider = ({ children }) => {
         return { success: false, message: body.data?.reason || 'That coupon is not valid.' };
       }
 
+      const priced = await refreshCart(cartChannel, clean);
+      if (!priced?.appliedCoupon || priced.appliedCoupon.code !== clean || priced.couponError) {
+        return { success: false, message: priced?.couponError || 'The coupon could not be applied to the current cart.' };
+      }
       setCouponCode(clean);
-      setAppliedCoupon(body.data.coupon);
-      await refreshCart(cartChannel, clean);   // re-price the cart with the coupon applied
+      setAppliedCoupon(priced.appliedCoupon);
+      setCouponNotice('');
+      suppressedAuto.current = null;
+      const savings = Number(priced.couponSavings) || 0;
+      setCouponCelebration({ id: ++couponEventId.current, code: clean, savings });
       return {
         success: true,
-        message: `"${clean}" applied — you save ₹${body.data.pricing.totalSavings}`,
+        message: `"${clean}" applied — you save ₹${savings.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
       };
     } catch (err) {
       return { success: false, message: err.message };
-    }
+    } finally { couponApplying.current = false; }
   };
 
   const removeCoupon = async () => {
+    setCouponNotice('');
+    suppressedAuto.current = `${cartChannel}:${(serverCart.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
     setCouponCode('');
     setAppliedCoupon(null);
     await refreshCart(cartChannel, '');
@@ -972,18 +1015,48 @@ export const UserProvider = ({ children }) => {
 
   /** Offers this shopper can use right now, each with a reason if they cannot. */
   const fetchAvailableCoupons = useCallback(async () => {
-    if (!isSignedIn()) { setAvailableCoupons([]); return; }
+    const request = ++offersRequest.current;
+    if (!isSignedIn()) { setAvailableCoupons([]); return []; }
     try {
       const res = await fetch(apiUrl(`/api/coupons/available?channel=${cartChannel}`), {
         headers: authHeaders(false),
       });
-      if (!res.ok) { setAvailableCoupons([]); return; }
+      if (!res.ok) { if (request === offersRequest.current) setAvailableCoupons([]); return []; }
       const body = await res.json();
-      setAvailableCoupons(body.data || []);
+      const offers = body.data || [];
+      if (request === offersRequest.current) setAvailableCoupons(offers);
+      return request === offersRequest.current ? offers : [];
     } catch {
-      setAvailableCoupons([]);
+      if (request === offersRequest.current) setAvailableCoupons([]);
+      return [];
     }
   }, [cartChannel]);
+
+  const offerCartSignature = `${cartChannel}:${(serverCart.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
+  const lastOffersSignature = useRef(null);
+  useEffect(() => {
+    if (!serverCart.items?.length || !isSignedIn()) { lastOffersSignature.current = null; setAvailableCoupons([]); return; }
+    if (!cartSummaryReady) return;
+    const summarySignature = Object.entries(cartSummary).map(([channel, summary]) => `${channel}:${summary.lines}`).join('|');
+    const signature = `${currentUser?._id || currentUser?.id}:${offerCartSignature}:${summarySignature}`;
+    if (lastOffersSignature.current === signature) return;
+    lastOffersSignature.current = signature;
+    let cancelled = false;
+    fetchAvailableCoupons().then(offers => {
+      if (cancelled || activeCouponCode.current || couponApplying.current || suppressedAuto.current === offerCartSignature) return;
+      // A coupon is one order's benefit. Grouped and wholesale baskets cannot
+      // redeem it, so do not offer an automatic discount they cannot check out.
+      const nonempty = Object.entries(cartSummary).filter(([, summary]) => summary.lines > 0);
+      if (nonempty.length !== 1 || nonempty[0][0] !== cartChannel) return;
+      const items = serverCart.items || [];
+      if (new Set(items.map(item => String(item.sellerId))).size !== 1 ||
+          new Set(items.map(item => item.deliveryMode || '')).size !== 1 ||
+          new Set(items.map(item => item.fulfillmentType || 'physical')).size !== 1) return;
+      const selected = offers.find(offer => offer.autoApply && offer.applicable);
+      if (selected) applyCoupon(selected.code);
+    });
+    return () => { cancelled = true; };
+  }, [offerCartSignature, cartSummary, cartSummaryReady, currentUser?._id, currentUser?.id, fetchAvailableCoupons]);
 
 
 
@@ -1701,7 +1774,7 @@ export const UserProvider = ({ children }) => {
         getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
 
         // Coupon
-        appliedCoupon, applyCoupon, removeCoupon,
+        appliedCoupon, applyCoupon, removeCoupon, couponNotice,
         couponCode, availableCoupons, fetchAvailableCoupons, getTotalSavings,
         tipSetting, fetchTipSetting,
 
@@ -1745,6 +1818,7 @@ export const UserProvider = ({ children }) => {
       }}
     >
       {children}
+      <CouponSuccessCelebration event={couponCelebration} />
     </UserContext.Provider>
   );
 };

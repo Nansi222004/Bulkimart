@@ -19,8 +19,12 @@ const MilkSection = () => {
    * If the category is missing, `categoryParam` is undefined and the section
    * falls back to the channel's newest products — the behaviour it had before.
    */
-  const { node, categoryParam, loading: categoryLoading, error: categoryError, retry: retryCategories } = useCategoryBranch('grocery', 'grocery--dairy-and-bakery--dairy--milk');
-  const { products, loading, error, retry } = useProducts({ type: 'grocery', category: categoryParam, limit: 6 });
+  const { node, categoryParam, loading: categoryLoading, error: categoryError, retry: retryCategories, exists } = useCategoryBranch('grocery', 'grocery--dairy-and-bakery--dairy--milk');
+  const { products, loading, error, retry } = useProducts({ type: 'grocery', category: categoryParam, limit: 6, enabled: exists });
+
+  if (!categoryLoading && !categoryError && (!node || (!loading && products.length === 0))) {
+    return null;
+  }
 
   return (
     <div className="landing-section-container">
@@ -33,12 +37,6 @@ const MilkSection = () => {
         <div className="inline-section-state" role="alert">
           <span>{categoryError ? 'Category information is unavailable.' : 'Products could not be loaded.'}</span>
           <button type="button" onClick={categoryError ? retryCategories : retry}>Retry</button>
-        </div>
-      )}
-
-      {!categoryLoading && !loading && !categoryError && !error && products.length === 0 && (
-        <div className="product-empty-state">
-          No products listed here yet.
         </div>
       )}
 

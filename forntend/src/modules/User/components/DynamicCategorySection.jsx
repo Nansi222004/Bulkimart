@@ -46,12 +46,14 @@ const DynamicCategorySection = ({ channel, slug }) => {
     loading: categoryLoading,
     error: categoryError,
     retry: retryCategories,
+    exists,
   } = useCategoryBranch(channel, slug);
 
   const { products, loading } = useProducts({
     type: channel,
     category: categoryParam,
     limit: BRANCH_FETCH_LIMIT,
+    enabled: exists,
   });
 
   // Which sections the shopper has expanded, keyed by category id.

@@ -1,6 +1,7 @@
 import Coupon, { DISCOUNT_TYPE } from '../models/Coupon.js';
 import CouponRedemption from '../models/CouponRedemption.js';
 import Order from '../models/Order.js';
+import { httpError } from '../utils/response.js';
 
 /**
  * Coupon validation and discount calculation.
@@ -167,6 +168,22 @@ export const applyCouponCode = async (code, context) => {
  * counted against an order that failed to be created.
  */
 export const redeemCoupon = async ({ coupon, userId, orderId, discountAmount, orderTotal }, session) => {
+  // Both the total cap and this customer's cap can change after the cart quote.
+  // The coupon document is written in the same transaction as the order, so
+  // concurrent redemptions contend on one document instead of overspending it.
+  const live = await Coupon.findById(coupon._id).session(session);
+  if (!live?.isLive()) throw httpError(409, 'This coupon is no longer available. Review your cart and try again.');
+  if (live.perUserLimit > 0) {
+    const used = await CouponRedemption.countDocuments({ couponId: live._id, userId }).session(session);
+    if (used >= live.perUserLimit) throw httpError(409, 'You have already used this coupon the maximum number of times.');
+  }
+  if (live.firstOrderOnly) {
+    const previous = await Order.countDocuments({ userId, _id: { $ne: orderId }, status: { $nin: ['cancelled'] } }).session(session);
+    if (previous > 0) throw httpError(409, 'This coupon is only valid on your first order.');
+  }
+  const reserved = await Coupon.updateOne({ _id: live._id, usedCount: live.usedCount, isActive: true },
+    { $inc: { usedCount: 1 } }, { session });
+  if (reserved.modifiedCount !== 1) throw httpError(409, 'This coupon is no longer available. Review your cart and try again.');
   await CouponRedemption.create([{
     couponId: coupon._id,
     code: coupon.code,
@@ -176,7 +193,6 @@ export const redeemCoupon = async ({ coupon, userId, orderId, discountAmount, or
     orderTotal,
   }], { session });
 
-  await Coupon.updateOne({ _id: coupon._id }, { $inc: { usedCount: 1 } }, { session });
 };
 
 /** Give the count back if the order is cancelled before it was ever fulfilled. */

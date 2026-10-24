@@ -403,6 +403,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       campaignId: deal ? deal.campaignId : undefined,
       type: p.type,
       sellerId: p.sellerId,
+      categoryId: p.category,
       shgStoreId: p.shgStoreId,
       additionalMessage: line.additionalMessage || '',
       _returnCategoryId: p.category, // resolved into `returnPolicy` below, never persisted itself

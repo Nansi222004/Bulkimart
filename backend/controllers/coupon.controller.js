@@ -1,9 +1,7 @@
 import mongoose from 'mongoose';
-import { channelVisibility } from '../utils/productChannels.js';
 import Coupon, { DISCOUNT_TYPE } from '../models/Coupon.js';
 import CouponRedemption from '../models/CouponRedemption.js';
-import Cart from '../models/Cart.js';
-import Product from '../models/Product.js';
+import { loadReconciledCart } from './cart.controller.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
 import { evaluateCoupon, applyCouponCode, buildEvaluationContext } from '../services/coupon.service.js';
@@ -16,33 +14,19 @@ import { CHANNEL, CHANNELS } from '../constants/enums.js';
 
 /** Build the same priced cart the cart screen shows, so quotes always match. */
 const loadCartContext = async (user, channel) => {
-  const cart = await Cart.findOne({ userId: user._id, channel });
-  if (!cart || cart.items.length === 0) return { items: [], subtotal: 0, deliveryCharge: 0 };
+  const { items } = await loadReconciledCart(user._id, channel, { persist: false });
 
-  const products = await Product.find(
-    { _id: { $in: cart.items.map((i) => i.productId) }, $and: [channelVisibility(channel)] },
-    'name price stock type sellerId category isActive isDeleted status'
-  ).lean();
-  const byId = new Map(products.map((p) => [String(p._id), p]));
+  const base = quotePricing(items, user);
+  return { items, subtotal: base.subtotal, deliveryCharge: items.every(item => item.fulfillmentType === 'digital') ? 0 : base.deliveryCharge };
+};
 
-  const items = cart.items
-    .map((line) => {
-      const p = byId.get(String(line.productId));
-      if (!p || p.isDeleted || !p.isActive || p.status !== 'approved') return null;
-      return {
-        productId: p._id,
-        name: p.name,
-        price: p.price,                 // live price, never the cart snapshot
-        qty: Math.min(line.qty, p.stock),
-        type: p.type,
-        sellerId: p.sellerId,
-        categoryId: p.category,
-      };
-    })
-    .filter(Boolean);
-
-  const base = priceOrder(items, user);
-  return { items, subtotal: base.subtotal, deliveryCharge: base.deliveryCharge };
+const quotePricing = (items, user, applied = null) => {
+  const priced = priceOrder(items, user, applied);
+  if (items.length && items.every(item => item.fulfillmentType === 'digital')) {
+    return { ...priced, deliveryCharge: 0, standardFee: 0,
+      totalAmount: Math.round(Math.max(0, priced.subtotal - priced.discount - priced.couponDiscount) * 100) / 100 };
+  }
+  return priced;
 };
 
 // @desc    Check a code against the current cart and quote the saving
@@ -63,7 +47,8 @@ export const validateCoupon = asyncHandler(async (req, res) => {
     return ok(res, { valid: false, reason: result.reason }, result.reason);
   }
 
-  const pricing = priceOrder(ctx.items, req.user, result);
+  const pricing = quotePricing(ctx.items, req.user, result);
+  const base = quotePricing(ctx.items, req.user);
 
   return ok(res, {
     valid: true,
@@ -72,7 +57,8 @@ export const validateCoupon = asyncHandler(async (req, res) => {
     freeShipping: result.freeShipping,
     eligibleItems: result.eligibleCount,
     pricing,
-  }, `"${result.coupon.code}" applied — you save ₹${pricing.totalSavings}`);
+    savings: Math.round(Math.max(0, base.totalAmount - pricing.totalAmount) * 100) / 100,
+  }, `"${result.coupon.code}" is available`);
 });
 
 // @desc    Offers this shopper can actually use right now
@@ -85,26 +71,39 @@ export const getAvailableCoupons = asyncHandler(async (req, res) => {
   const now = new Date();
   const coupons = await Coupon.find({
     isActive: true,
-    isPublic: true,
+    $or: [{ isPublic: true }, { autoApply: true }],
     channel: { $in: [channel, 'all'] },
     $and: [
       { $or: [{ startsAt: { $lte: now } }, { startsAt: null }] },
       { $or: [{ expiresAt: { $gte: now } }, { expiresAt: null }] },
     ],
-  }).sort({ minOrderValue: 1, createdAt: -1 }).limit(30);
+  }).sort({ minOrderValue: 1, createdAt: -1, _id: 1 }).limit(30);
 
   const ctx = await loadCartContext(req.user, channel);
 
   // Batch the per-coupon lookups once instead of twice per coupon.
   const batch = await buildEvaluationContext(req.user._id, coupons.map((c) => c._id));
+  const base = quotePricing(ctx.items, req.user);
 
   // Each one is evaluated against the real cart, so the list can say exactly
   // why a code is not usable yet instead of hiding it.
   const results = [];
   for (const c of coupons) {
     const r = await evaluateCoupon(c, { ...ctx, ...batch, user: req.user });
+    // The engine checks its global subtotal minimum before item scope. Probe
+    // only that gate to see whether every other rule would permit this offer.
+    const thresholdReady = Number(c.minOrderValue) > 0 && ctx.items.length > 0 && ctx.subtotal < c.minOrderValue
+      ? await evaluateCoupon(c, { ...ctx, ...batch, user: req.user, subtotal: c.minOrderValue })
+      : null;
+    const threshold = !c.cdsMembersOnly && Number(c.minOrderValue) > 0 && (r.ok || thresholdReady?.ok) ? {
+      minimumOrderValue: c.minOrderValue,
+      eligibleOrderValue: ctx.subtotal,
+      remainingAmount: Math.round(Math.max(0, c.minOrderValue - ctx.subtotal) * 100) / 100,
+      progressPercentage: Math.min(100, Math.round(ctx.subtotal / c.minOrderValue * 100)),
+    } : null;
     results.push({
       code: c.code,
+      autoApply: c.autoApply === true && !c.cdsMembersOnly,
       title: c.title,
       description: c.description,
       discountType: c.discountType,
@@ -114,13 +113,17 @@ export const getAvailableCoupons = asyncHandler(async (req, res) => {
       expiresAt: c.expiresAt,
       applicable: r.ok,
       reason: r.ok ? null : r.reason,
-      savingNow: r.ok ? r.discount : 0,
+      savingNow: r.ok ? Math.round(Math.max(0, base.totalAmount - quotePricing(ctx.items, req.user, r).totalAmount) * 100) / 100 : 0,
       freeShipping: r.ok ? r.freeShipping : false,
+      threshold,
+      shopMore: c.products?.length === 1 ? { type: 'product', id: String(c.products[0]) }
+        : c.categories?.length === 1 ? { type: 'category', id: String(c.categories[0]) } : null,
     });
   }
 
   // Usable offers first, then the biggest saving.
-  results.sort((a, b) => (b.applicable - a.applicable) || (b.savingNow - a.savingNow));
+  results.sort((a, b) => (b.applicable - a.applicable) || (b.savingNow - a.savingNow) ||
+    ((a.minOrderValue || 0) - (b.minOrderValue || 0)) || a.code.localeCompare(b.code));
 
   return ok(res, results, '', { cartSubtotal: ctx.subtotal });
 });
@@ -134,7 +137,7 @@ const parseCouponBody = (body) => {
     code, title, description, discountType, value, maxDiscount, minOrderValue,
     channel, categories, products, sellers,
     totalUsageLimit, perUserLimit,
-    firstOrderOnly, isPublic,
+    firstOrderOnly, isPublic, autoApply,
     startsAt, expiresAt, isActive,
   } = body;
 
@@ -154,6 +157,10 @@ const parseCouponBody = (body) => {
   if (perUserLimit !== undefined) doc.perUserLimit = Number(perUserLimit) || 0;
   if (firstOrderOnly !== undefined) doc.firstOrderOnly = !!firstOrderOnly;
   if (isPublic !== undefined) doc.isPublic = !!isPublic;
+  if (autoApply !== undefined) {
+    if (typeof autoApply !== 'boolean') throw httpError(400, 'Automatic application must be true or false');
+    doc.autoApply = autoApply;
+  }
   if (startsAt !== undefined) doc.startsAt = startsAt ? new Date(startsAt) : undefined;
   if (expiresAt !== undefined) doc.expiresAt = expiresAt ? new Date(expiresAt) : undefined;
   if (isActive !== undefined) doc.isActive = !!isActive;

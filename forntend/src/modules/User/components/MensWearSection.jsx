@@ -21,8 +21,8 @@ const MensWearSection = () => {
    * If the category is missing, `categoryParam` is undefined and the section
    * falls back to the channel's newest products — the behaviour it had before.
    */
-  const { node, categoryParam } = useCategoryBranch('ecommerce', 'ecommerce--clothing-and-handlooms--mens-wear');
-  const { products, loading } = useProducts({ type: 'ecommerce', category: categoryParam, limit: 6 });
+  const { node, categoryParam, loading: categoryLoading, error: categoryError, exists } = useCategoryBranch('ecommerce', 'ecommerce--clothing-and-handlooms--mens-wear');
+  const { products, loading } = useProducts({ type: 'ecommerce', category: categoryParam, limit: 6, enabled: exists });
 
   /**
    * Whether each card can be had today — asked of the server, never inferred.
@@ -33,18 +33,16 @@ const MensWearSection = () => {
    */
   const { options } = useDeliveryOptions(products.map((p) => p.id), getDeliveryPoint());
 
+  if (!categoryLoading && !categoryError && (!node || (!loading && products.length === 0))) {
+    return null;
+  }
+
   return (
     <div className="landing-section-container">
       <div className="section-header">
         <h3 className="section-title">Men's Wear</h3>
         <button className="view-all-link" onClick={() => setSelectedCategoryFilter(node)}>View All</button>
       </div>
-
-      {!loading && products.length === 0 && (
-        <div style={{ padding: '28px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-          No products listed here yet.
-        </div>
-      )}
 
       <div className="section-products-grid">
         {products.map((product) => (

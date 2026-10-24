@@ -1,0 +1,12 @@
+.coupon-threshold{padding:14px 16px;border:1px solid var(--sf-border,#e9e1dc);border-radius:14px;background:var(--sf-surface,#fff);color:var(--sf-text,#252525);font-size:13px}
+.coupon-threshold strong{display:block;line-height:1.4}
+.coupon-threshold-track{height:8px;margin:11px 0 8px;overflow:hidden;border-radius:999px;background:var(--sf-border,#e9e1dc)}
+.coupon-threshold-track span{display:block;height:100%;border-radius:inherit;background:var(--sf-primary,#b50918);transition:width .25s ease}
+.coupon-threshold-foot{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.coupon-threshold-foot small{color:var(--sf-muted,#706b68)}
+.coupon-threshold-foot button{border:0;background:transparent;color:var(--sf-primary,#b50918);font:inherit;font-weight:750;cursor:pointer;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){.coupon-threshold-track span{transition:none}}
+.coupon-cart-applied{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px;border:1px solid var(--sf-border,#e9e1dc);border-radius:12px;background:var(--sf-surface,#fff);font-size:12px}
+.coupon-cart-applied span{flex:1;min-width:90px}
+.coupon-cart-applied button{border:0;background:transparent;color:var(--sf-primary,#b50918);font:inherit;font-weight:700;cursor:pointer}
+.coupon-cart-notice{margin:8px 0;color:var(--sf-primary,#b50918);font-size:12px;font-weight:650}

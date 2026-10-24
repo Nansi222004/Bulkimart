@@ -229,7 +229,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     if (couponCode) {
       const base = priceOrder(groupLines, user, null, null, groupDistanceKm);
       const applied = await applyCouponCode(couponCode, {
-        items: groupLines.map(l => ({ ...l, type: l.channel })),
+        items: groupLines.map(l => ({ ...l, type: l.channel, categoryId: l.product?.category })),
         subtotal: base.subtotal,
         user,
         deliveryCharge: base.deliveryCharge

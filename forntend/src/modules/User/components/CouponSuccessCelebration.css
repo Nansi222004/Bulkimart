@@ -1,0 +1,8 @@
+.coupon-celebration{position:fixed;z-index:1100;top:16px;left:50%;transform:translateX(-50%);width:min(90vw,350px);pointer-events:none;text-align:center}
+.coupon-celebration p{position:relative;margin:0;padding:12px 18px;border-radius:14px;background:var(--sf-secondary,#79000b);color:#fff;box-shadow:0 8px 24px #0003;font-size:13px;font-weight:700}
+.coupon-celebration-confetti{position:absolute;inset:0;overflow:visible}
+.coupon-celebration-confetti span{position:absolute;left:var(--left);top:10px;width:7px;height:12px;border-radius:2px;background:var(--sf-accent,#ffd45a);animation:coupon-confetti 1.4s ease-out forwards;animation-delay:var(--delay)}
+.coupon-celebration-confetti span:nth-child(3n){background:#e54862}
+.coupon-celebration-confetti span:nth-child(3n + 1){background:#fff0b3}
+@keyframes coupon-confetti{to{transform:translate(var(--drift),95px) rotate(420deg);opacity:0}}
+@media(prefers-reduced-motion:reduce){.coupon-celebration-confetti{display:none}}

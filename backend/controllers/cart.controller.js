@@ -39,7 +39,7 @@ const readChannel = (req) => {
 };
 
 /** Load one channel's cart, reconcile it against live products, persist fixes. */
-const loadReconciledCart = async (userId, channel, { persist = true } = {}) => {
+export const loadReconciledCart = async (userId, channel, { persist = true } = {}) => {
   const cart = await Cart.findOne({ userId, channel });
   if (!cart || cart.items.length === 0) return { items: [], warnings: [] };
 
@@ -131,6 +131,7 @@ const loadReconciledCart = async (userId, channel, { persist = true } = {}) => {
       sellerId: product.sellerId,
       shgStoreId: product.shgStoreId,
       category: product.category?.name || '',
+      categoryId: product.category?._id || product.category,
       stock: product.fulfillmentType === 'digital' ? 1 : inventory.stock,
       deliveryMode: line.deliveryMode,
       additionalMessage: line.additionalMessage || '',
@@ -291,6 +292,10 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
       finalPayable: round2(pricing.totalAmount - coinDiscount),
     },
     appliedCoupon: applied?.ok ? applied.coupon : null,
+    couponSavings: applied?.ok ? round2(Math.max(0,
+      (allDigital
+        ? round2(Math.max(0, pricing.subtotal - pricing.discount))
+        : priceOrder(items, user, null, sameDayChosen, cartDistanceKm).totalAmount) - pricing.totalAmount)) : 0,
     couponError,
     deliveryType: resolveDeliveryType(items, sameDayChosen ? DELIVERY_MODE.SAME_DAY : null),
     /**
@@ -346,7 +351,7 @@ export const getUnifiedCart = asyncHandler(async (req, res) => {
 
   if (destination && (!Number.isFinite(destination.lat) || !Number.isFinite(destination.lng) || Math.abs(destination.lat) > 90 || Math.abs(destination.lng) > 180)) throw httpError(400, 'Invalid delivery coordinates');
   if (req.query.purchaseMode === 'basket') {
-    const basket = await buildCustomerBasket({ userId: req.user._id, user: req.user, destination, preview: true });
+    const basket = await buildCustomerBasket({ userId: req.user._id, user: req.user, destination, preview: true, couponCode: req.query.coupon });
     return ok(res, basket, 'Customer basket');
   }
   const couponCode = req.query.coupon;

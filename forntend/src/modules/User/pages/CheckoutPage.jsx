@@ -9,6 +9,8 @@ import { apiUrl } from '../../../utils/api';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import { DELIVERY_LABEL } from '../utils/deliveryLabel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
+import CouponThresholdProgress from '../components/CouponThresholdProgress';
+import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import '../components/CartCheckout.css';
 
 const CheckoutPage = () => {
@@ -39,6 +41,7 @@ const CheckoutPage = () => {
     fetchAvailableCoupons,
     removeCoupon,
     couponCode,
+    couponNotice,
     tipSetting,
     useCoinsSelected,
     toggleUseCoins,
@@ -47,6 +50,7 @@ const CheckoutPage = () => {
     currentUser,
     switchCartChannel,
   } = useUser();
+  const navigate = usePromotionNavigation();
 
   useEffect(() => {
     fetchWalletBalance();
@@ -154,9 +158,11 @@ const CheckoutPage = () => {
     if (res.success) setCouponInput('');
   };
 
-  useEffect(() => {
-    fetchAvailableCoupons();
-  }, [fetchAvailableCoupons]);
+  const shopMoreForCoupon = offer => {
+    if (offer.shopMore?.type === 'product') navigate({ type: 'PRODUCT', id: offer.shopMore.id });
+    else if (offer.shopMore?.type === 'category') navigate({ type: 'CATEGORY', id: offer.shopMore.id, slug: offer.shopMore.id });
+    else setActiveNav('categories');
+  };
 
   // Address form states
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -1150,6 +1156,8 @@ const CheckoutPage = () => {
         {/* Promo Coupons section */}
         {!isUnified && <div className="profile-menu-card" style={{ padding: 16 }}>
           <h2 className="checkout-section-title">Coupons & offers</h2>
+          <CouponThresholdProgress offers={availableCoupons} appliedCode={appliedCoupon?.code} onShopMore={shopMoreForCoupon} />
+          {couponNotice && <p role="status" className="coupon-cart-notice">{couponNotice}</p>}
 
           {!appliedCoupon && (
             <form className="checkout-coupon-form" onSubmit={handleApplyCoupon} style={{ display: 'flex', gap: 10 }}>
@@ -1253,7 +1261,7 @@ const CheckoutPage = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--primary-light)', border: '1px dashed var(--primary)', borderRadius: 8 }}>
               <div>
                 <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 13 }}>{appliedCoupon.code}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>({appliedCoupon.label} Applied)</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>({appliedCoupon.title || appliedCoupon.code} Applied)</span>
               </div>
               <button
                 onClick={removeCoupon}
@@ -1292,7 +1300,7 @@ const CheckoutPage = () => {
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {coupon.code} ({coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `₹${coupon.value} Off`})
+                  {coupon.code} ({coupon.discountType === 'free_shipping' ? 'Free delivery' : coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `₹${coupon.value} Off`})
                 </button>
               ))}
             </div>

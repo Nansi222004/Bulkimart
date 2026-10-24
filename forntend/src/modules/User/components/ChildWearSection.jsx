@@ -21,12 +21,16 @@ const ChildWearSection = () => {
    * If the category is missing, `categoryParam` is undefined and the section
    * falls back to the channel's newest products — the behaviour it had before.
    */
-  const { node, categoryParam } = useCategoryBranch('ecommerce', 'ecommerce--clothing-and-handlooms--kids-wear');
-  const { products, loading } = useProducts({ type: 'ecommerce', category: categoryParam, limit: 6 });
+  const { node, categoryParam, loading: categoryLoading, error: categoryError, exists } = useCategoryBranch('ecommerce', 'ecommerce--clothing-and-handlooms--kids-wear');
+  const { products, loading } = useProducts({ type: 'ecommerce', category: categoryParam, limit: 6, enabled: exists });
 
   // One batched verdict for the whole strip — see SameDayBadge for why the
   // badge is hidden until the server has actually said yes.
   const { options } = useDeliveryOptions(products.map((p) => p.id), getDeliveryPoint());
+
+  if (!categoryLoading && !categoryError && (!node || (!loading && products.length === 0))) {
+    return null;
+  }
 
   return (
     <div className="landing-section-container">
@@ -34,12 +38,6 @@ const ChildWearSection = () => {
         <h3 className="section-title">Kids Wear</h3>
         <button className="view-all-link" onClick={() => setSelectedCategoryFilter(node)}>View All</button>
       </div>
-
-      {!loading && products.length === 0 && (
-        <div style={{ padding: '28px 12px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-          No products listed here yet.
-        </div>
-      )}
 
       <div className="section-products-grid">
         {products.map((product) => (

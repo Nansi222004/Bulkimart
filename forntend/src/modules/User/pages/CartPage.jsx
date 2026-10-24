@@ -6,11 +6,15 @@ import { BasketGroups, BasketSummary } from '../components/BasketGroups';
 import { apiUrl } from '../../../utils/api';
 import { captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 import BrandLogo from '../../../components/BrandLogo';
+import CouponThresholdProgress from '../components/CouponThresholdProgress';
+import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import '../components/CartCheckout.css';
 
 export default function CartPage() {
-  const { getDeliveryPoint, setActiveNav, refreshCart, addToWishlist } = useUser();
-  const basket = useUnifiedCart(getDeliveryPoint?.(), undefined, 'basket');
+  const { getDeliveryPoint, setActiveNav, refreshCart, addToWishlist,
+    couponCode, appliedCoupon, availableCoupons, removeCoupon, couponNotice, serverCart, cartChannel, switchCartChannel } = useUser();
+  const navigate = usePromotionNavigation();
+  const basket = useUnifiedCart(getDeliveryPoint?.(), couponCode, 'basket');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const lock = useRef(false);
   const focusedWholesale = useRef(false);
@@ -19,6 +23,15 @@ export default function CartPage() {
   const items = groups.flatMap(group => group.items);
   const digital = items.filter(item => item.fulfillmentType === 'digital');
   const mixedDigital = digital.length > 0 && digital.length !== items.length;
+  const singleRetail = groups.length === 1 && groups[0].salesChannel !== 'wholesale';
+  useEffect(() => {
+    if (singleRetail && groups[0].channel !== cartChannel) switchCartChannel(groups[0].channel);
+  }, [singleRetail, groups[0]?.channel, cartChannel, switchCartChannel]);
+  const shopMore = offer => {
+    if (offer.shopMore?.type === 'product') navigate({ type: 'PRODUCT', id: offer.shopMore.id });
+    else if (offer.shopMore?.type === 'category') navigate({ type: 'CATEGORY', id: offer.shopMore.id, slug: offer.shopMore.id });
+    else setActiveNav('categories');
+  };
   useEffect(() => {
     if (focusedWholesale.current || typeof document === 'undefined' || !data) return;
     if (window.location.pathname === '/wholesale/cart' || new URLSearchParams(window.location.search).get('channel') === 'wholesale') {
@@ -65,7 +78,11 @@ export default function CartPage() {
           onWishlist={async (item, section) => { const result = await addToWishlist(item.productId); if (result.ok) await remove(item, section); else setError(result.message); }}
           onMode={async (section, mode) => { const result = await basket.setGroupMode(section, mode); if (!result.ok) setError(result.message); }}
         /></div>)}</div>
-        <aside className="basket-summary-column"><BasketSummary data={data} /><button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || data.valid === false || mixedDigital || !data.totals} onClick={() => setActiveNav('checkout')}>Proceed to Checkout</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
+        <aside className="basket-summary-column"><BasketSummary data={data} />{singleRetail && groups[0].channel === cartChannel && <>
+          <CouponThresholdProgress offers={availableCoupons} appliedCode={appliedCoupon?.code} onShopMore={shopMore} />
+          {couponNotice && <p role="status" className="coupon-cart-notice">{couponNotice}</p>}
+          {appliedCoupon && <div className="coupon-cart-applied"><strong>{appliedCoupon.code} applied</strong><span>{serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`}</span><button type="button" onClick={removeCoupon}>Remove</button></div>}
+        </>}<button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || data.valid === false || mixedDigital || !data.totals} onClick={() => setActiveNav('checkout')}>Proceed to Checkout</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
       </>}
     </div>
   </section>;
