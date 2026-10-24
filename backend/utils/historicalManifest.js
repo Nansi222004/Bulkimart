@@ -11,6 +11,7 @@ export const historicalManifestRow = ({ order, item, payment, deliveries = [], r
   reasons.push('missing_historical_commission_policy');
   if (!item.deliveredAt || order.status !== 'delivered') reasons.push('incomplete_delivery_evidence');
   if (returns.length) reasons.push('returns_require_individual_reconciliation');
+  if (order.financialSnapshotError?.message) reasons.push('breakdown_not_recorded_at_checkout');
   if (ownEntries.length) reasons.push('existing_postings_require_review');
   const sellerPayouts = payouts.filter(row => String(row.sellerId) === String(item.sellerId));
   const unattributed = unscopedEntries.filter(row => String(row.sellerId) === String(item.sellerId));

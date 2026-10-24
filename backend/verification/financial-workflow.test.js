@@ -948,3 +948,12 @@ test('old-order batch needs a second admin, then applies and releases exactly on
   const list = await request(app).get('/api/admin/finance/historical-batches').set('Authorization', bearer(admin, 'admin'));
   expect(list.body.data.batches[0].status).toBe('released');
 });
+
+test('an order whose breakdown cannot be frozen is still placed and flagged for review', async () => {
+  const placed = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId: product._id, sellerId: seller._id, type: 'grocery', name: 'Odd price', qty: 1, price: 33.333 }],
+    paymentMethod: 'cod', paymentId: payment._id, status: 'placed', pricing: { subtotal: 33.333, totalAmount: 33.333 } });
+  expect(placed.financialSnapshot).toBeUndefined();
+  expect(placed.financialSnapshotError.message).toMatch(/two decimal places/);
+  const overview = await request(app).get('/api/admin/finance/overview').set('Authorization', bearer(admin, 'admin'));
+  expect(overview.body.data.todo.snapshotFailed).toBe(1);
+});

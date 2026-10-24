@@ -55,6 +55,23 @@ test('payout read failure provides retry without claiming an empty history', () 
   } finally { h.close(); }
 });
 
+// Seller finances load only for an approved seller on a finance tab, so the
+// provider's profile request is answered first.
+const approveSeller = async h => {
+  const profile = h.requests.find(row => row.url.endsWith('/sellers/me'));
+  assert.ok(profile, 'Seller profile request missing');
+  profile.resolve({ success: true, seller: { _id: 'fixture-seller', status: 'approved' } }); await h.settle();
+};
+test('seller finances are not requested until the seller is approved', async () => {
+  portalRequests.clearPortalRequests('seller');
+  const h = hookHarness(SellerProvider, {}, '/seller/earnings', undefined, { localStorage: { getItem: key => key === 'sellerToken' ? 'finance-gate-fixture' : null } });
+  try {
+    assert.equal(h.requests.filter(row => row.url.includes('/finances/')).length, 0);
+    h.requests.find(row => row.url.endsWith('/sellers/me')).resolve({ success: true, seller: { _id: 'fixture-seller', status: 'pending' } }); await h.settle();
+    assert.equal(h.requests.filter(row => row.url.includes('/finances/')).length, 0);
+  } finally { portalRequests.clearPortalRequests('seller'); h.close(); }
+});
+
 test('seller finance requests time out, clear loading, and can be retried', async () => {
   portalRequests.clearPortalRequests('seller');
   const originalTimeout = globalThis.setTimeout;
@@ -62,6 +79,7 @@ test('seller finance requests time out, clear loading, and can be retried', asyn
   const h = hookHarness(SellerProvider, {}, '/seller/paymenthistory', undefined,
     { localStorage: { getItem: key => key === 'sellerToken' ? 'finance-timeout-fixture' : null } });
   try {
+    await approveSeller(h);
     assert.equal(h.tree.props.value.financeLoading, true);
     await new Promise(resolve => originalTimeout(resolve, 50)); await h.settle();
     assert.equal(h.tree.props.value.financeLoading, false);
@@ -84,6 +102,7 @@ test('late seller finance responses cannot restore balances after a session chan
   const h = hookHarness(SellerProvider, {}, '/seller/paymenthistory', undefined,
     { localStorage: { getItem: key => key === 'sellerToken' ? token : null } });
   try {
+    await approveSeller(h);
     const old = h.requests.filter(row => row.url.includes('/finances/'));
     token = null;
     window.dispatchEvent(new Event('bulkimart:seller-session-changed')); h.flush();
@@ -157,7 +176,7 @@ test('actual payout handler suppresses double clicks and reuses the request key 
   const h = hookHarness(SellerProvider, {}, '/seller/moneyrequest', undefined, { sessionStorage: storage, localStorage: { getItem:key=>key==='sellerToken'?'payout-intent-token':null } });
   try {
     const profile = h.requests.find(row=>row.url.endsWith('/sellers/me'));
-    profile.resolve({seller:{_id:'fixture-seller',status:'pending'}});
+    profile.resolve({seller:{_id:'fixture-seller',status:'approved'}}); await h.settle();
     const summary = finance(); summary.payoutActionsEnabled=true; summary.balances.eligible=50;
     const reads = h.requests.filter(row=>row.url.includes('/finances/'));
     reads[0].resolve({success:true,data:summary}); reads[1].resolve({success:true,data:[]}); await h.settle();
@@ -269,7 +288,7 @@ test('actual SellerProvider preserves API rupee amounts and real ledger/payout r
     const summary = finance(); Object.assign(summary.balances, { earnedEarnings: 115.01, held: -2.03, eligible: 97.98 });
     summary.payouts = [{ _id: 'p1', payoutNo: 'PAY-REAL-FIXTURE', amount: 15, status: 'PENDING' }];
     const ledger = [{ _id: 'l1', amount: 115.01, direction: 'credit', bucket: 'held' }];
-    const reads = h.requests.filter(r => r.url.includes('/finances/'));
+    await approveSeller(h); const reads = h.requests.filter(r => r.url.includes('/finances/'));
     reads[0].resolve({ success: true, data: summary }); reads[1].resolve({ success: true, data: ledger }); await h.settle();
     assert.equal(h.tree.props.value.financeError, '');
     assert.deepEqual(h.tree.props.value.financeSummary, summary);
@@ -294,7 +313,7 @@ for (const [name, summary, ledger = { data: [] }] of invalidReads) {
     portalRequests.clearPortalRequests('seller');
     const h = hookHarness(SellerProvider, {}, '/seller/earnings', undefined, { localStorage: { getItem: k => k === 'sellerToken' ? 'audit-invalid-' + name : null } });
     try {
-      const reads = h.requests.filter(r => r.url.includes('/finances/'));
+      await approveSeller(h); const reads = h.requests.filter(r => r.url.includes('/finances/'));
       reads[0].resolve(summary()); reads[1].resolve(ledger); await h.settle();
       assert.match(h.tree.props.value.financeError, /incomplete/);
       assert.equal(h.tree.props.value.financeSummary, null);
@@ -308,7 +327,7 @@ for (const status of [401, 403, 500]) test('finance HTTP ' + status + ' remains 
   portalRequests.clearPortalRequests('seller');
   const h = hookHarness(SellerProvider, {}, '/seller/earnings', undefined, { localStorage: { getItem: k => k === 'sellerToken' ? 'audit-http-' + status : null } });
   try {
-    const reads = h.requests.filter(r => r.url.includes('/finances/'));
+    await approveSeller(h); const reads = h.requests.filter(r => r.url.includes('/finances/'));
     reads[0].resolve({ message: 'Audit read failed' }, status); reads[1].resolve({ data: [] }); await h.settle();
     assert.equal(h.tree.props.value.financeError, 'Audit read failed'); assert.equal(h.tree.props.value.financeSummary, null);
   } finally { portalRequests.clearPortalRequests('seller'); h.close(); }

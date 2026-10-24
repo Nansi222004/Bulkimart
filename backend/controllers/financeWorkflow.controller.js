@@ -192,6 +192,7 @@ export const saveFinancePolicySettings = asyncHandler(async (req, res) => ok(res
 export const getFinanceOverview = asyncHandler(async (req, res) => {
   const v2 = { 'financialSnapshot.version': 2 };
   const count = filter => Order.countDocuments({ ...v2, ...filter });
+  const snapshotFailed = await Order.countDocuments({ 'financialSnapshotError.message': { $exists: true } });
   const [cashToVerify, cashMismatch, cashWithRiders, cashOverdue, missingRule, waitingPayment, needsReview, onHold, sellerPayouts, riderPayouts, accounts, policy] = await Promise.all([
     count({ paymentMethod: 'cod', 'codFinance.status': 'remittance_reported' }),
     count({ paymentMethod: 'cod', 'codFinance.status': { $in: ['discrepancy', 'disputed'] } }),
@@ -214,7 +215,7 @@ export const getFinanceOverview = asyncHandler(async (req, res) => {
     policy: { payoutSchedule: policy.payoutSchedule, payoutWeekday: policy.payoutWeekday, tcsRatePercent: policy.tcsRatePercent, tdsRatePercent: policy.tdsRatePercent,
       sellerMinPayout: policy.sellerMinPayout, riderMinPayout: policy.riderMinPayout, configured: policy.configured, bankVerificationConfigured: Boolean(policy.bankVerificationMethod) },
     commissionRulesConfigured: await Commission.exists({ financeVersion: 2, isActive: true, channel: { $ne: 'legal' } }).then(Boolean),
-    todo: { cashToVerify, cashMismatch, cashWithRiders, cashOverdue, missingRule, waitingPayment, needsReview, onHold, sellerPayouts, riderPayouts },
+    todo: { snapshotFailed, cashToVerify, cashMismatch, cashWithRiders, cashOverdue, missingRule, waitingPayment, needsReview, onHold, sellerPayouts, riderPayouts },
     totalsPaise: {
       sellersOnHold: total('seller_payable', ['held']), sellersAvailable: total('seller_payable', ['eligible']), sellersRequested: total('seller_payable', ['reserved']), sellersPaid: total('seller_payable', ['settled']),
       ridersOnHold: total('rider_payable', ['held']), ridersAvailable: total('rider_payable', ['eligible']), ridersRequested: total('rider_payable', ['reserved']), ridersPaid: total('rider_payable', ['settled']),
