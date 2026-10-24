@@ -1,5 +1,6 @@
 import { retailAllowed } from '../utils/productChannels.js';
-import { mediaUrl } from '../services/storefrontPolicy.service.js';
+import { mediaUrl, videoUrl, validateEffect } from '../services/storefrontPolicy.service.js';
+import { effectActive } from '../shared/celebration.mjs';
 import sharp from 'sharp';
 const uploadArtwork = async file => {
   let buffer;
@@ -109,7 +110,7 @@ export const getBanners = asyncHandler(async (req, res) => {
   }
 
   let banners = await Banner.find(filter)
-    .sort({ priority: -1, createdAt: -1 })
+    .sort({ priority: -1, createdAt: -1, _id: 1 })
     .populate('targetCategory', 'name slug type isActive')
     .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
     .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
@@ -122,7 +123,7 @@ export const getBanners = asyncHandler(async (req, res) => {
     const fallbackFilter = { ...filter };
     delete fallbackFilter.category;
     banners = await Banner.find(fallbackFilter)
-      .sort({ priority: -1, createdAt: -1 })
+      .sort({ priority: -1, createdAt: -1, _id: 1 })
       .populate('targetCategory', 'name slug type isActive')
       .populate('targetProduct', 'name images price mrp discountPercent stock type isActive isDeleted status sellingChannels')
       .populate('targetCampaign', 'name discountValue startAt endAt isEnabled isDraft')
@@ -142,7 +143,11 @@ export const getBanners = asyncHandler(async (req, res) => {
   }
 
   res.set('Cache-Control', 'no-store');
-  res.status(200).json(all === 'true' ? banners : banners.map(({ createdBy, updatedBy, clickCount, __v, ...banner }) => banner));
+  res.status(200).json(all === 'true' ? banners : banners.map(banner => {
+    const dto = Object.fromEntries(['_id', 'title', 'subtitle', 'image', 'mobileImage', 'video', 'mobileVideo', 'mediaType', 'autoplay', 'muted', 'loop', 'playsInline', 'cta', 'type', 'category', 'placement', 'actionType', 'targetCategory', 'targetProduct', 'targetCampaign', 'targetRoute', 'externalUrl', 'priority', 'startDate', 'endDate', 'isActive', 'isDraft'].map(key => [key, banner[key]]));
+    try { dto.animation = effectActive(banner.animation) ? validateEffect(banner.animation, ['banner']) : null; } catch { dto.animation = null; }
+    return dto;
+  }));
 });
 
 /**
@@ -188,6 +193,8 @@ export const createBanner = asyncHandler(async (req, res) => {
   let imageUrl = req.body.image;
   if (req.file) imageUrl = await uploadArtwork(req.file);
 
+  const presentation = bannerPresentation(req.body);
+  validateVideo({ ...req.body, ...presentation });
   const banner = await Banner.create({
     ...bannerPresentation(req.body),
     title,
@@ -276,6 +283,7 @@ export const updateBanner = asyncHandler(async (req, res) => {
 
   banner.updatedBy = req.user?._id;
 
+  validateVideo(banner);
   const updatedBanner = await banner.save();
   res.status(200).json(updatedBanner);
 });
@@ -302,12 +310,26 @@ export const deleteBanner = asyncHandler(async (req, res) => {
 
 function bannerPresentation(body) {
   const fields = {};
+  if (body.mediaType !== undefined) {
+    if (!['image', 'video'].includes(body.mediaType)) throw httpError(400, 'Invalid media type');
+    fields.mediaType = body.mediaType;
+  }
+  for (const key of ['autoplay', 'muted', 'loop', 'playsInline']) if (body[key] !== undefined) {
+    if (![true, false, 'true', 'false'].includes(body[key])) throw httpError(400, `Invalid ${key}`);
+    fields[key] = body[key] === true || body[key] === 'true';
+  }
+  if (body.animation !== undefined) {
+    let value = body.animation;
+    if (typeof value === 'string') { try { value = JSON.parse(value); } catch { throw httpError(400, 'Invalid animation JSON'); } }
+    fields.animation = validateEffect(value == null ? { scope: 'banner' } : value, ['banner']);
+  }
   if (body.isArchived !== undefined) {
     if (![true, false, 'true', 'false'].includes(body.isArchived)) throw httpError(400, 'Invalid archive flag');
     fields.isArchived = body.isArchived === true || body.isArchived === 'true';
   }
   for (const [key, max] of [['title', 150], ['subtitle', 300]]) if (body[key] !== undefined && (typeof body[key] !== 'string' || body[key].length > max)) throw httpError(400, `${key} must be under ${max} characters`);
-  for (const key of ['mobileImage', 'video']) if (body[key] !== undefined) fields[key] = mediaUrl(body[key]);
+  if (body.mobileImage !== undefined) fields.mobileImage = mediaUrl(body.mobileImage);
+  for (const key of ['video', 'mobileVideo']) if (body[key] !== undefined) fields[key] = videoUrl(body[key]);
   if (body.image !== undefined) mediaUrl(body.image);
   if (body.cta !== undefined) {
     if (typeof body.cta !== 'string' || body.cta.length > 60) throw httpError(400, 'CTA must be under 60 characters');
@@ -323,4 +345,9 @@ function bannerPresentation(body) {
   if (body.externalUrl && !isSafeExternalUrl(body.externalUrl)) throw httpError(400, 'External destinations require HTTPS');
   if (body.targetRoute && !/^\/(cart|categories|account|orders|grocery|electronics|fashion|garments|smart-buy|hot-deals)$/.test(body.targetRoute)) throw httpError(400, 'Choose a supported internal destination');
   return fields;
+}
+function validateVideo(banner) {
+  if ((banner.mediaType || (banner.video ? 'video' : 'image')) !== 'video') return;
+  if (banner.mediaType === 'video' && !banner.video) throw httpError(400, 'Video banners require a desktop video and an image poster');
+  if (banner.autoplay !== false && banner.muted === false) throw httpError(400, 'Autoplay videos must be muted');
 }

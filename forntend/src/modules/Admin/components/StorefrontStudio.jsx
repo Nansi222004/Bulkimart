@@ -5,6 +5,9 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import ModalPortal from '../../../components/ModalPortal';
 import { PRESETS, DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, themeStyle } from '../../../utils/storefront';
 import StorefrontMedia from '../../User/components/StorefrontMedia';
+import StorefrontMediaFields from './StorefrontMediaFields';
+import StorefrontEffectFields from './StorefrontEffectFields';
+import Celebration from '../../User/components/Celebration';
 import StorefrontSplashPreview from './StorefrontSplashPreview';
 import '../../User/Storefront.css';
 import './StorefrontStudio.css';
@@ -73,7 +76,7 @@ export default function StorefrontStudio() {
     });
   };
 
-  const close = async () => { if (operationBusy.current) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); setDirty(false); setBannerFile(null); setBannerPreviewUrl(''); } };
+  const close = async () => { if (operationBusy.current || uploadingBanner) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); setDirty(false); setBannerFile(null); setBannerPreviewUrl(''); } };
   
   const bannerStorefrontLabel = (type) => {
     if (type === 'general') return 'All Storefronts (General)';
@@ -86,18 +89,19 @@ export default function StorefrontStudio() {
   const requiredType = form?.scope === 'quick' ? 'grocery' : form?.scope === 'shop-all' ? 'ecommerce' : 'general';
   const isBannerMismatched = Boolean(selectedBanner && selectedBanner.type !== 'general' && selectedBanner.type !== requiredType);
   // A local file is previewable before upload, but only the returned server ID is saved.
-  const previewBanner = bannerFile && bannerPreviewUrl ? { ...newBannerForm, _id: bannerPreviewUrl, image: bannerPreviewUrl, title: newBannerForm.title || form?.name || 'Campaign Banner' } : selectedBanner;
+  const artworkPreview = showUploadBanner && (bannerFile || newBannerForm.image) ? { ...newBannerForm, _id: bannerPreviewUrl, image: bannerPreviewUrl || newBannerForm.image, title: newBannerForm.title || form?.name || 'Campaign Banner' } : selectedBanner;
+  const previewBanner = artworkPreview && form?.config.animation?.scope === 'banner' ? { ...artworkPreview, animation: { ...form.config.animation, startAt: null, endAt: null } } : artworkPreview;
 
   const save = async publish => {
-    if (operationBusy.current) return; operationBusy.current = true; setBusy(true); setFormError('');
+    if (operationBusy.current || uploadingBanner) return; operationBusy.current = true; setBusy(true); setFormError('');
     try {
-      const attachedBanner = bannerFile ? await uploadBanner() : selectedBanner;
+      const attachedBanner = showUploadBanner && (bannerFile || newBannerForm.image) ? await uploadBanner() : selectedBanner;
       const bannerId = attachedBanner?._id || form.config.bannerId;
       if (publish && form.kind === 'campaign') {
         if (!bannerId) {
           throw new Error('Please select or upload a banner before publishing.');
         }
-        if (!bannerFile && isBannerMismatched) {
+        if (attachedBanner === selectedBanner && isBannerMismatched) {
           throw new Error(`Banner storefront mismatch: Selected banner is set for "${bannerStorefrontLabel(selectedBanner?.type)}", but this campaign is set for "${form.scope === 'global' ? 'All Storefronts (global)' : form.scope}". Switch the campaign storefront or upload a matching banner.`);
         }
       }
@@ -111,7 +115,7 @@ export default function StorefrontStudio() {
   };
 
   const uploadBanner = async () => {
-    if (!bannerFile) throw new Error('Please select a banner image file.');
+    if (!bannerFile && !newBannerForm.image) throw new Error('Please select an image or poster.');
     const title = (newBannerForm.title || form.name || 'Campaign Banner').trim();
     if (!title) {
       throw new Error('Please enter a banner title.');
@@ -134,13 +138,14 @@ export default function StorefrontStudio() {
       if (newBannerForm.actionType === 'EXTERNAL_URL' && newBannerForm.externalUrl) {
         fd.append('externalUrl', newBannerForm.externalUrl);
       }
-      fd.append('placement', form.config?.placement === 'hero' ? 'HOME_HERO' : 'STUDIO');
+      fd.append('placement', 'STUDIO');
       fd.append('priority', String(form.priority || 0));
       if (form.startAt) fd.append('startDate', scheduleISO(form.startAt));
       if (form.endAt) fd.append('endDate', scheduleISO(form.endAt));
       fd.append('isActive', 'true');
       fd.append('isDraft', 'false');
-      fd.append('image', bannerFile);
+      fd.append('image', bannerFile || newBannerForm.image);
+      for (const key of ['mediaType', 'mobileImage', 'video', 'mobileVideo', 'autoplay', 'muted', 'loop', 'playsInline']) if (newBannerForm[key] !== undefined) fd.append(key, String(newBannerForm[key]));
 
       const result = await authPost('/api/banners', fd);
       const createdBanner = result.data || result;
@@ -344,11 +349,13 @@ export default function StorefrontStudio() {
                 </Field>
                 {bannerFile && <p className="studio-help" role="status">Image selected. Save draft or Publish will upload and attach it automatically.</p>}
 
+                <StorefrontMediaFields value={newBannerForm} onBusy={setUploadingBanner} onChange={patch => { setNewBannerForm(f => ({ ...f, ...patch })); setDirty(true); }} />
+                <button type="button" onClick={() => { setBannerFile(null); setBannerPreviewUrl(''); setDirty(true); }}>Remove selected local image</button>
                 <Field label="Banner Title *">
                   <input
                     placeholder="e.g. Diwali Mega Sale"
                     value={newBannerForm.title}
-                    onChange={e => setNewBannerForm(f => ({ ...f, title: e.target.value }))}
+                    onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, title: e.target.value })); }}
                   />
                 </Field>
 
@@ -356,7 +363,7 @@ export default function StorefrontStudio() {
                   <input
                     placeholder="e.g. Festive discounts up to 50% off"
                     value={newBannerForm.subtitle}
-                    onChange={e => setNewBannerForm(f => ({ ...f, subtitle: e.target.value }))}
+                    onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, subtitle: e.target.value })); }}
                   />
                 </Field>
 
@@ -365,13 +372,13 @@ export default function StorefrontStudio() {
                     <input
                       placeholder="e.g. Explore now"
                       value={newBannerForm.cta}
-                      onChange={e => setNewBannerForm(f => ({ ...f, cta: e.target.value }))}
+                      onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, cta: e.target.value })); }}
                     />
                   </Field>
                   <Field label="Action / Destination">
                     <select
                       value={newBannerForm.actionType}
-                      onChange={e => setNewBannerForm(f => ({ ...f, actionType: e.target.value }))}
+                      onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, actionType: e.target.value })); }}
                     >
                       <option value="NONE">No link (informational)</option>
                       <option value="CATEGORY">Open a category</option>
@@ -384,7 +391,7 @@ export default function StorefrontStudio() {
                   <Field label="Target Category">
                     <select
                       value={newBannerForm.targetCategoryId}
-                      onChange={e => setNewBannerForm(f => ({ ...f, targetCategoryId: e.target.value }))}
+                      onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, targetCategoryId: e.target.value })); }}
                     >
                       <option value="">Select a category</option>
                       {categories.map(c => (
@@ -399,7 +406,7 @@ export default function StorefrontStudio() {
                     <input
                       placeholder="https://..."
                       value={newBannerForm.externalUrl}
-                      onChange={e => setNewBannerForm(f => ({ ...f, externalUrl: e.target.value }))}
+                      onChange={e => { setDirty(true); setNewBannerForm(f => ({ ...f, externalUrl: e.target.value })); }}
                     />
                   </Field>
                 )}
@@ -412,7 +419,7 @@ export default function StorefrontStudio() {
                   <button
                     type="button"
                     className="sa-btn-primary"
-                    disabled={uploadingBanner || !bannerFile}
+                    disabled={uploadingBanner || (!bannerFile && !newBannerForm.image)}
                     onClick={handleUploadBanner}
                   >
                     {uploadingBanner ? 'Uploading…' : '✓ Upload & Link to Campaign'}
@@ -441,11 +448,13 @@ export default function StorefrontStudio() {
 <label className="studio-check"><input type="checkbox" checked={!!form.config.appearance?.background} onChange={e => config({ appearance: e.target.checked ? { background: DEFAULT_TOKENS.highlight, text: DEFAULT_TOKENS.text, accent: DEFAULT_TOKENS.primary } : {} })} />Custom section colors</label>
 {form.config.appearance?.background && <div className="studio-colors">{['background', 'text', 'accent'].map(key => <Field key={key} label={'Section ' + key}><input type="color" value={form.config.appearance[key]} onChange={e => config({ appearance: { ...form.config.appearance, [key]: e.target.value } })} /></Field>)}</div>}
         </>}
+        {form.kind !== 'section' && <StorefrontEffectFields value={form.config.animation} onChange={animation => config({ animation })} allowBanner={form.kind === 'campaign'} deals={deals} />}
         </fieldset>
       </form><aside className="studio-preview-pane"><div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
         <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>
+        {form.config.animation?.scope !== 'banner' && <Celebration effect={form.config.animation ? { ...form.config.animation, startAt: null, endAt: null } : undefined} contained preview />}
         {form.kind === 'campaign' && form.config.placement === 'splash' ? <StorefrontSplashPreview banner={previewBanner} config={form.config} device={preview} endAt={form.endAt ? `${form.endAt}:00+05:30` : null} /> : <><div className="studio-preview-header">BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
-          {previewBanner ? <><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} active={false} /><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
+          {previewBanner ? <><div className="studio-preview-art"><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} eager /><Celebration effect={previewBanner.animation} contained preview /></div><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
         <div className="studio-preview-collection" style={form.kind === 'section' ? { background: form.config.appearance?.background, color: form.config.appearance?.text, borderColor: form.config.appearance?.accent } : undefined}>
 <strong>{form.kind === 'section' ? form.config.title || 'Collection preview' : 'Shop by category'}</strong><div className="studio-preview-category"><span>Category artwork</span></div><small>{form.kind === 'section' ? (form.config.layout || 'rail') + ' layout · live catalog after publication' : 'Published category artwork appears here'}</small></div>
 <div className="studio-preview-nav"><strong>⌂ Home</strong><span>▦ Categories</span><span>♧ Cart</span></div>

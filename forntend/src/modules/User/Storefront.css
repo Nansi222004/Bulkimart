@@ -182,3 +182,8 @@
 .sf-storefront .customer-service-card>svg{color:var(--sf-primary)}
 
 .sf-storefront :is(.cart-secondary-btn,.popular-categories-view-all){background:var(--sf-surface);color:var(--sf-primary);border:1px solid var(--sf-primary);border-radius:var(--sf-button-radius)}
+.sf-hero-art,.studio-preview{position:relative}
+.sf-decoration-toggle{position:fixed;right:12px;bottom:80px;z-index:300;padding:6px 10px;border:1px solid #706b68;border-radius:8px;background:#fff;color:#252525;font-size:11px}
+.sf-section-banner video{width:100%;max-height:220px;object-fit:contain;border-radius:var(--sf-radius)}
+.studio-preview video{width:100%;max-height:240px;object-fit:contain}
+.studio-preview-art{position:relative}.studio-preview-art>img,.studio-preview-art>video{display:block;width:100%;max-height:240px;object-fit:contain}

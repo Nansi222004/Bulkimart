@@ -21,6 +21,9 @@ import { DEFAULT_TOKENS, PRESETS, lifecycle } from '../shared/storefront.mjs';
 import { validateTokens, validateExperience } from '../services/storefrontPolicy.service.js';
 import { resolveExperience } from '../services/storefront.service.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
+import { DEFAULT_EFFECT, EFFECT_PRESETS } from '../shared/celebration.mjs';
+import { v2 as cloudinary } from 'cloudinary';
+import { cloudinaryConfig } from '../services/cloudinary.service.js';
 const app = express(); app.use(express.json()); app.use('/api/storefront', storefrontRouter); app.use('/api/admin/storefront', storefrontAdminRouter); app.use('/api/banners', bannerRoutes); app.use('/api/campaigns', campaignRoutes); app.use('/api/categories', categoryRoutes); app.use(errorHandler);
 let db, admin, marketer, viewer, buyer, banner;
 const id = () => new mongoose.Types.ObjectId();
@@ -44,6 +47,91 @@ beforeEach(async () => {
   banner = await Banner.create({ title: 'Real campaign', image: 'https://cdn.example.test/banner.webp', type: 'general', placement: 'STUDIO', isActive: true });
 });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); });
+test('legacy image and video records preserve inferred media types and safe playback defaults', async () => {
+  await Banner.updateOne({ _id: banner._id }, { placement: 'HOME_HERO' });
+  expect((await publicRead()).banners[0]).toMatchObject({ mediaType: 'image', image: banner.image });
+  await Banner.collection.updateOne({ _id: banner._id }, { $set: { video: 'https://cdn.test/old.mp4' } });
+  expect((await publicRead()).banners[0]).toMatchObject({ mediaType: 'video', autoplay: true, muted: true, loop: true, playsInline: true });
+});
+test('video drafts, responsive variants, publication, pause and archive use the existing Banner APIs', async () => {
+  const payload = { title: 'Video promotion', image: banner.image, video: 'https://cdn.test/wide.mp4', mobileVideo: 'https://cdn.test/portrait.webm', mediaType: 'video', type: 'general', isDraft: true, autoplay: false, muted: false, loop: false, playsInline: false, animation: { ...DEFAULT_EFFECT, enabled: true, scope: 'banner' } };
+  const row = (await send('post', '/api/banners', payload).expect(201)).body;
+  expect((await publicRead()).banners).toEqual([]);
+  await send('put', `/api/banners/${row._id}`, { isDraft: false }).expect(200);
+  expect((await publicRead()).banners[0]).toMatchObject({ mediaType: 'video', mobileVideo: payload.mobileVideo, autoplay: false, loop: false, animation: { enabled: true } });
+  await send('put', `/api/banners/${row._id}`, { isActive: false }).expect(200);
+  expect((await publicRead()).banners).toEqual([]);
+  await send('delete', `/api/banners/${row._id}`).expect(200);
+  expect(await Banner.exists({ _id: row._id })).toBeTruthy();
+});
+test.each([
+  { mediaType: 'video' }, { mediaType: 'script' }, { video: 'javascript:alert(1)' }, { video: 'https://cdn.test/page.html' },
+  { mobileVideo: 'https://user:secret@cdn.test/a.mp4' }, { video: 'https://cdn.test/a.mp4', autoplay: true, muted: false }, { loop: 'yes' },
+  { animation: { scope: 'storefront' } }, { animation: { enabled: 'yes', scope: 'banner' } },
+])('banner media validation rejects %j without persistence', async patch => {
+  const before = await Banner.countDocuments();
+  await send('post', '/api/banners', { image: banner.image, type: 'general', ...patch }).expect(400);
+  expect(await Banner.countDocuments()).toBe(before);
+});
+test.each([{ density: 101 }, { speed: 0 }, { opacity: 1 }, { duration: 121 }, { colors: ['red'] }, { preset: 'script' }, { scope: 'campaign' }, { startAt: '2030-01-01' }, { startAt: '2030-01-02T00:00:00Z', endAt: '2030-01-01T00:00:00Z' }, { javascript: 'alert(1)' }])('animation config rejects %j', async patch => {
+  await send('post', '/api/admin/storefront', theme({ config: { animation: { ...DEFAULT_EFFECT, ...patch } } })).expect(400);
+});
+test.each(EFFECT_PRESETS)('%s effect follows draft, schedule, device, pause, expiry and public minimization', async preset => {
+  const start = Date.now() + 10000, end = start + 10000;
+  let row = await create(theme({ device: 'mobile', config: { animation: { ...DEFAULT_EFFECT, enabled: true, preset, startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() } } }));
+  expect((await resolveExperience('quick', 'mobile', '', start)).animations).toEqual([]);
+  row = (await transition(row)).data;
+  expect((await resolveExperience('quick', 'mobile', '', start - 1)).animations).toEqual([]);
+  const shown = await resolveExperience('quick', 'mobile', '', start);
+  expect(shown.animations[0]).toMatchObject({ preset, id: row._id });
+  expect(Date.parse(shown.validUntil)).toBe(end);
+  expect(JSON.stringify(shown.animations)).not.toMatch(/createdBy|history|description/);
+  expect((await resolveExperience('quick', 'desktop', '', start)).animations).toEqual([]);
+  expect((await resolveExperience('quick', 'mobile', '', end)).animations).toEqual([]);
+  await transition(row, 'pause');
+  expect((await resolveExperience('quick', 'mobile', '', start)).animations).toEqual([]);
+});
+test('campaign effects rank deterministically and disappear with their banner or disabled configuration', async () => {
+  const low = await create(promo({ priority: 1, config: { placement: 'hero', bannerId: String(banner._id), animation: { ...DEFAULT_EFFECT, enabled: true } } }));
+  const high = await create(promo({ priority: 2, config: { placement: 'hero', bannerId: String(banner._id), animation: { ...DEFAULT_EFFECT, enabled: true, preset: 'snowfall' } } }));
+  await transition(low); const published = (await transition(high)).data;
+  const live = await publicRead(); expect(live.animations.map(e => e.id)).toEqual([high._id, low._id]);
+  await send('patch', `/api/admin/storefront/${high._id}`, { ...published, config: { ...published.config, animation: { ...published.config.animation, enabled: false } } }).expect(200);
+  expect((await publicRead()).animations.map(e => e.id)).toEqual([low._id]);
+  await Banner.updateOne({ _id: banner._id }, { isActive: false });
+  expect((await publicRead()).animations).toEqual([]);
+});
+test('banner effects are removed when expired in both public APIs', async () => {
+  await Banner.updateOne({ _id: banner._id }, { placement: 'HOME_HERO', animation: { ...DEFAULT_EFFECT, scope: 'banner', enabled: true, endAt: new Date(Date.now() - 1).toISOString() } });
+  expect((await publicRead()).banners[0].animation).toBeNull();
+  const response = await request(app).get('/api/banners').expect(200);
+  expect(response.body[0].animation).toBeNull(); expect(response.body[0].createdBy).toBeUndefined();
+});
+test('campaign-page effects require a live target and follow its expiry and pause', async () => {
+  const dealId = id(), now = Date.now(), end = now + 60000;
+  await Campaign.collection.insertOne({ _id: dealId, name: 'Deal page', isEnabled: true, isDraft: false, startAt: new Date(now - 1000), endAt: new Date(end) });
+  const row = await create(theme({ config: { animation: { ...DEFAULT_EFFECT, enabled: true, scope: 'campaign', campaignId: String(dealId) } } }));
+  await transition(row);
+  expect((await publicRead()).animations[0]).toMatchObject({ scope: 'campaign', campaignId: String(dealId), endAt: new Date(end).toISOString() });
+  expect((await resolveExperience('quick', 'mobile', '', end)).animations).toEqual([]);
+  await Campaign.updateOne({ _id: dealId }, { isEnabled: false });
+  expect((await publicRead()).animations).toEqual([]);
+});
+test('video uploads enforce size, marketing permission and Cloudinary processing before returning real storage URLs', async () => {
+  await send('post', '/api/admin/storefront/media', null, viewer).attach('media', Buffer.from('file'), { filename: 'a.mp4', contentType: 'video/mp4' }).expect(403);
+  await send('post', '/api/admin/storefront/media').attach('media', Buffer.alloc(15 * 1024 * 1024 + 1), { filename: 'a.mp4', contentType: 'video/mp4' }).expect(413);
+  const old = { ...cloudinaryConfig }; Object.assign(cloudinaryConfig, { cloud_name: 'fixture', api_key: 'fixture', api_secret: 'fixture' });
+  const upload = jest.spyOn(cloudinary.uploader, 'upload_stream').mockImplementation((_options, callback) => ({ end() { callback(null, { secure_url: 'https://res.cloudinary.com/fixture/video/upload/clip.mp4', duration: 12 }); } }));
+  try {
+    const data = Buffer.from('000000186674797069736f6d00000000', 'hex');
+    const result = await send('post', '/api/admin/storefront/media').attach('media', data, { filename: 'a.mp4', contentType: 'video/mp4' }).expect(201);
+    expect(result.body.data).toMatchObject({ type: 'video', duration: 12, url: 'https://res.cloudinary.com/fixture/video/upload/clip.mp4' });
+    expect(upload.mock.calls[0][0]).toMatchObject({ resource_type: 'video', format: 'mp4', video_codec: 'h264', transformation: [{ duration: '15', width: 1280, crop: 'limit' }] });
+    upload.mockImplementation((_options, callback) => ({ end() { callback({ http_code: 400, message: 'Invalid container private-provider-detail' }); } }));
+    const rejected = await send('post', '/api/admin/storefront/media').attach('media', data, { filename: 'a.mp4', contentType: 'video/mp4' }).expect(502);
+    expect(rejected.body.message).not.toContain('private-provider-detail');
+  } finally { upload.mockRestore(); for (const key of Object.keys(cloudinaryConfig)) delete cloudinaryConfig[key]; Object.assign(cloudinaryConfig, old); }
+});
 test('the default experience skips empty deal and category-reference queries', async () => {
   const deals = jest.spyOn(Campaign, 'find'), categories = jest.spyOn(Category, 'find');
   try {

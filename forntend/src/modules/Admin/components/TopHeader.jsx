@@ -3,6 +3,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { createAdminNotificationOpener } from '../utils/serviceNotifications';
 
+const pageTitles = {
+  overview: 'Dashboard', dashboard: 'Dashboard', reports: 'Reports',
+  'user-dashboard': 'Consumer Users', 'vendor-dashboard': 'Sellers / Vendors',
+  'delivery-dashboard': 'Delivery Partners', 'storefront-studio': 'Storefront Studio',
+  'ecom-orders': 'E-Commerce Orders', 'qcom-orders': 'Quick Commerce Orders',
+  'user-wallets': 'Real Money Wallets', 'seller-kyc': 'Seller KYC',
+  'gst-assistance': 'GST Registration Assistance', 'finance-center': 'Finance Center',
+  'categories-all': 'All Categories', 'categories-header': 'Header Categories',
+  'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories',
+};
+
 const timeAgo = (iso) => {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
   if (mins < 1) return 'Just now';
@@ -20,6 +31,7 @@ export const TopHeader = ({ onLogout }) => {
     fetchAdminNotifications, markAdminNotificationRead,
     openTicketDetail,
   } = useAdmin();
+  const pageTitle = pageTitles[activeTab] || String(activeTab || 'Dashboard').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const panelRef = useRef(null);
@@ -53,8 +65,8 @@ export const TopHeader = ({ onLogout }) => {
         
         {/* Left segment titles */}
         <div className="sa-header-left">
-          <h2 className="sa-header-title">Dashboard</h2>
-          <span className="sa-header-subtitle">Overview of Bulkimart platform performance</span>
+          <h2 className="sa-header-title">{pageTitle}</h2>
+          <span className="sa-header-subtitle">{activeTab === 'overview' ? 'Overview of Bulkimart platform performance' : `Manage ${pageTitle.toLowerCase()} in Bulkimart`}</span>
         </div>
 
         {/* Center global search bar */}

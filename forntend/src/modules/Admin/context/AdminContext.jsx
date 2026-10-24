@@ -13,8 +13,8 @@ const AdminContext = createContext();
  *
  * Several nav entries are section landing pages rather than tabs of their own
  * — tapping "Sellers" opens the vendor dashboard. Resolving here means the id
- * that goes in the URL is the one the panel is really showing, so a refresh
- * lands back on the same screen instead of bouncing to the section root.
+ * that goes in state identifies the panel being shown. Friendly path names
+ * below keep section links stable across clicks, refresh and browser history.
  */
 const TAB_ALIASES = {
   sellers: 'vendor-dashboard',
@@ -29,7 +29,9 @@ const TAB_ALIASES = {
 const PATH_ALIASES = {
   reviews: 'user-reviews',
   orders: 'ecom-orders',
+  deliverypartner: 'delivery-dashboard',
 };
+const TAB_PATHS = { 'delivery-dashboard': 'deliverypartner' };
 
 const DEFAULT_TAB = 'overview';
 
@@ -52,10 +54,10 @@ export const AdminProvider = ({ children }) => {
   const setActiveTab = (tabId) => {
     if (isRetiredAdminTab(tabId)) tabId = DEFAULT_TAB;
     if (tabId === 'shg' || tabId.startsWith('shg-') || tabId === 'subscriptions' || tabId.startsWith('sub-') || tabId === 'donation-settings') tabId = DEFAULT_TAB;
-    const resolved = TAB_ALIASES[tabId] || tabId;
+    const resolved = TAB_ALIASES[tabId] || PATH_ALIASES[tabId] || tabId;
     setActiveTabInternal(resolved);
 
-    const path = resolved === DEFAULT_TAB ? '/admin' : `/admin/${resolved}`;
+    const path = resolved === DEFAULT_TAB ? '/admin' : `/admin/${TAB_PATHS[resolved] || resolved}`;
     if (window.location.pathname !== path) {
       window.history.pushState(null, '', path);
     }
@@ -66,6 +68,10 @@ export const AdminProvider = ({ children }) => {
     const redirectRetiredPath = () => {
       const segment = decodeURIComponent(window.location.pathname.replace(/^\/admin\/?/, '').split('/')[0]);
       if (isRetiredAdminTab(segment)) window.history.replaceState(null, '', '/admin');
+      else if (['delivery-dashboard', 'delivery-partners'].includes(segment)) {
+        const path = window.location.pathname.replace(/^\/admin\/[^/]+/, '/admin/deliverypartner');
+        window.history.replaceState(null, '', path + window.location.search + (window.location.hash || ''));
+      }
     };
     redirectRetiredPath();
     const onPopState = () => { redirectRetiredPath(); setActiveTabInternal(tabFromPath()); setProductRoute(window.location.pathname.split('/')[3] || ''); };

@@ -7,6 +7,16 @@ import { DEFAULT_TOKENS, PRESETS } from '../../backend/shared/storefront.mjs';
 const generated = new URL(`../tests/.storefront-${process.pid}.mjs`, import.meta.url);
 const splashPreviewOnly = process.argv.includes('--splash-preview');
 const splashScreenOnly = process.argv.includes('--splash-screen');
+// A session/configuration transition can replace the header between CDP calls.
+// Read only a currently mounted element, then retain the original exact colors.
+async function renderedStyle(selector, property) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const value = await evaluate(`(()=>{const element=document.querySelector(${JSON.stringify(selector)});return element?getComputedStyle(element)[${JSON.stringify(property)}]:null})()`);
+    if (value !== null) return value;
+    await pause(100);
+  }
+  throw new Error(`Style target did not mount: ${selector}`);
+}
 // Embedded in the fixture runner so these assertions exercise real layout/CSS.
 async function checkSplashGeometry(selector, frameSelector) {
   const result = await evaluate(`(() => {
@@ -19,7 +29,7 @@ async function checkSplashGeometry(selector, frameSelector) {
       background:getComputedStyle(root).backgroundColor, copy:!!root.querySelector('.sf-splash-copy,h2') };
   })()`);
   for (const name of ['root', 'card', 'media']) for (const key of ['x', 'y', 'width', 'height']) {
-    assert.ok(Math.abs(result[name][key] - result.frame[key]) < 1, `${selector}: ${name}.${key} fills the launch screen`);
+    assert.ok(Math.abs(result[name][key] - result.frame[key]) < 1, `${selector}: ${name}.${key} fills the launch screen: ${JSON.stringify(result)}`);
   }
   assert.equal(result.radius, '0px'); assert.equal(result.fit, 'cover'); assert.equal(result.copy, false);
   assert.match(result.background, /^rgb\(/, 'Launch background is opaque');
@@ -28,8 +38,11 @@ async function checkSplashGeometry(selector, frameSelector) {
 let source = await readFile(new URL('../tests/mobile-layout.test.mjs', import.meta.url), 'utf8');
 const replace = (marker, value) => { assert.ok(source.includes(marker), `Missing browser runner marker: ${marker.slice(0, 60)}`); source = source.replace(marker, value); };
 replace("'--headless=new', '--remote-debugging-port=0'", "'--headless=new', '--disable-gpu', '--remote-debugging-port=0'");
+replace("  socket.onmessage = async event => {", "  socket.onclose = () => { for (const task of pending.values()) task.reject(new Error('Browser debugging connection closed before command completion')); pending.clear(); };\n  socket.onmessage = async event => {");
+replace("if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);", "if (result.exceptionDetails) throw new Error((result.exceptionDetails.exception?.description || result.exceptionDetails.text) + '\\nExpression: ' + expression);");
+replace(".user-landing-page-container,.auth-page-container", ".sf-splash-card,.sf-launch-loading,.user-landing-page-container,.auth-page-container");
 replace("const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();", "const target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page');");
-replace("let layoutScenario = '';", `let layoutScenario = ''; let studioSaved = null; let themePhase = 0; const studioTokens = ${JSON.stringify(DEFAULT_TOKENS)};\n${checkSplashGeometry.toString()}`);
+replace("let layoutScenario = '';", `let layoutScenario = ''; let studioSaved = null; let themePhase = 0; const studioTokens = ${JSON.stringify(DEFAULT_TOKENS)};\n${checkSplashGeometry.toString()}\n${renderedStyle.toString()}`);
 replace("if(path!=='/seller/logout')await evaluate(\"try{sessionStorage.removeItem('audit-seller-logout')}catch{}\");", "if(path!=='/seller/logout')await evaluate(\"try{sessionStorage.removeItem('audit-seller-logout');for(let i=sessionStorage.length-1;i>=0;i--){const k=sessionStorage.key(i);if(k&&k.startsWith('bulkimart:experience:'))sessionStorage.removeItem(k);}}catch{}\");");
 replace("  const selectedPaths=process.argv.find", "  await command('Page.addScriptToEvaluateOnNewDocument', { source: `for(let i=sessionStorage.length-1;i>=0;i--){const k=sessionStorage.key(i);if(k&&k.startsWith('bulkimart:experience:'))sessionStorage.removeItem(k);}` });\n  const selectedPaths=process.argv.find");
 replace('  const path = new URL(raw).pathname;', `  const path = new URL(raw).pathname;
@@ -66,16 +79,17 @@ replace('      if (startupOnly) {', `
           assert.equal(await evaluate("document.activeElement.closest('[inert]')!==null"),false,'Focus is restored outside inert content');
         }
         await waitFor("!!document.querySelector('.unified-header-container')");
-        assert.equal(await evaluate("getComputedStyle(document.querySelector('.header-primary-row')).backgroundColor"),'rgb(121, 0, 11)','Deep-red header in default mode');
-        assert.equal(await evaluate("getComputedStyle(document.querySelector('.header-brand-name span')).color"),'rgb(255, 255, 255)','Readable brand');
+        await waitFor("!!document.querySelector('.sub-nav-item-btn.active') && !!document.querySelector('.bottom-nav-bar')");
+        assert.equal(await renderedStyle('.header-primary-row','backgroundColor'),'rgb(121, 0, 11)','Deep-red header in default mode');
+        assert.equal(await renderedStyle('.header-brand-name span','color'),'rgb(255, 255, 255)','Readable brand');
         assert.equal(await evaluate("getComputedStyle(document.body).backgroundColor"),'rgb(255, 249, 244)','Theme reaches desktop gutters');
-        assert.equal(await evaluate("getComputedStyle(document.querySelector('.sub-nav-item-btn.active')).color"),'rgb(255, 255, 255)','Readable active category');
-        assert.equal(await evaluate("getComputedStyle(document.querySelector('.search-bar-pill')).backgroundColor"),'rgb(255, 255, 255)','White search');
-        assert.equal(await evaluate("getComputedStyle(document.querySelector('.bottom-nav-bar')).backgroundColor"),'rgb(255, 255, 255)','Light navigation');
+        assert.equal(await renderedStyle('.sub-nav-item-btn.active','color'),'rgb(255, 255, 255)','Readable active category');
+        assert.equal(await renderedStyle('.search-bar-pill','backgroundColor'),'rgb(255, 255, 255)','White search');
+        assert.equal(await renderedStyle('.bottom-nav-bar','backgroundColor'),'rgb(255, 255, 255)','Light navigation');
         if(layoutScenario==='storefront-refresh'){
           await evaluate("document.querySelector('.switcher-tab-btn.shop-all').click()");
           await waitFor("!!document.querySelector('.sf-storefront.mode-shop-all')");
-          assert.equal(await evaluate("getComputedStyle(document.querySelector('.header-primary-row')).backgroundColor"),'rgb(121, 0, 11)','ShopAll shares the published header');
+          assert.equal(await renderedStyle('.header-primary-row','backgroundColor'),'rgb(121, 0, 11)','ShopAll shares the published header');
           await waitFor("getComputedStyle(document.querySelector('.switcher-tab-btn.active')).backgroundColor==='rgb(255, 240, 179)'");
           await evaluate("document.querySelector('.switcher-tab-btn.quick').click()");
           await waitFor("!!document.querySelector('.sf-storefront.mode-quick')");
@@ -158,13 +172,22 @@ replace('      if (startupOnly) {', `
         }
       }
       if(width===390||width===1440){const directory=resolve('../test-artifacts/storefront');await mkdir(directory,{recursive:true});await writeFile(join(directory,(layoutScenario||'studio')+'-'+width+'.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));}
+      if(path.startsWith('/admin/storefront-studio')){
+        // Exercise the real unsaved-change dialog before the next navigation.
+        // Leaving this draft open triggers beforeunload and keeps the old page.
+        await evaluate("[...document.querySelectorAll('.studio-editor footer button')].find(b=>b.textContent==='Cancel').click()");
+        await waitFor("[...document.querySelectorAll('.feedback-actions button')].some(b=>b.textContent==='Discard changes')");
+        await evaluate("[...document.querySelectorAll('.feedback-actions button')].find(b=>b.textContent==='Discard changes').click()");
+        await waitFor("!document.querySelector('.studio-editor')");
+        assert.equal(studioSaved.kind,'theme','Discarding campaign preview never publishes it');
+      }
       if (startupOnly) {`);
 source = source.replaceAll('../test-artifacts/mobile-native', '../test-artifacts/storefront/geometry').replaceAll('../test-artifacts/mobile-layout', '../test-artifacts/storefront/layout');
 try {
   await writeFile(generated, source);
   const code = await new Promise((resolve, reject) => {
-    const paths = splashPreviewOnly ? '/admin/storefront-studio' : splashScreenOnly ? '/?layout=storefront-splash,/?layout=storefront-splash-video,/admin/storefront-studio' : '/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio';
-    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths='+paths, splashPreviewOnly ? '--widths=390,1440' : splashScreenOnly ? '--widths=320,390,430,1440' : '--widths=320,360,390,430,768,1440', '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
+    const paths = process.argv.find(arg=>arg.startsWith('--paths='))?.slice('--paths='.length) || (splashPreviewOnly ? '/admin/storefront-studio' : splashScreenOnly ? '/?layout=storefront-splash,/?layout=storefront-splash-video,/admin/storefront-studio' : '/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio');
+    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths='+paths, process.argv.find(arg=>arg.startsWith('--widths=')) || (splashPreviewOnly ? '--widths=390,1440' : splashScreenOnly ? '--widths=320,390,430,1440' : '--widths=320,360,390,430,768,1440'), '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
     child.on('error', reject); child.on('exit', resolve);
   });
   assert.equal(code, 0, 'Storefront browser assertions failed');

@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
+import { DEFAULT_EFFECT } from '../../backend/shared/celebration.mjs';
+let Celebration, DecorationToggle, EffectFields, MediaFields;
 let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   policy = await vite.ssrLoadModule('/src/utils/storefront.js');
+  ({ default: Celebration, DecorationToggle } = await vite.ssrLoadModule('/src/modules/User/components/Celebration.jsx'));
+  EffectFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontEffectFields.jsx')).default;
+  MediaFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontMediaFields.jsx')).default;
   Splash = (await vite.ssrLoadModule('/src/modules/User/components/PromotionalSplash.jsx')).default;
   SplashCard = (await vite.ssrLoadModule('/src/modules/User/components/SplashCard.jsx')).default;
   SplashPreview = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontSplashPreview.jsx')).default;
@@ -143,6 +148,103 @@ async function uploadCampaign(loadSelections = true) {
   return h;
 }
 const postRequests = h => h.requests.filter(r => r.options.method === 'POST');
+test('hero video and effect preview stay local; draft upload is always Studio-only artwork', async () => {
+  const h = await uploadCampaign();
+  try {
+    h.find(n => n.props?.label === 'Placement').props.children.props.onChange({ target: { value: 'hero' } }); h.flush();
+    h.find(n => n.type === MediaFields).props.onChange({ mediaType: 'video', video: 'https://fixture.test/wide.mp4', mobileVideo: 'https://fixture.test/mobile.webm', loop: false });
+    h.find(n => n.type === EffectFields).props.onChange({ ...DEFAULT_EFFECT, enabled: true, preset: 'petals', scope: 'banner' }); h.flush();
+    assert.equal(postRequests(h).length, 0);
+    assert.equal(h.find(n => n.type === Media).props.banner.mobileVideo, 'https://fixture.test/mobile.webm');
+    assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'petals');
+    const pending = h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
+    const upload = postRequests(h)[0]; assert.equal(upload.options.body.get('placement'), 'STUDIO'); assert.equal(upload.options.body.get('mediaType'), 'video'); assert.equal(upload.options.body.get('loop'), 'false');
+    upload.resolve({ ...banner, _id: banner.id }); await h.settle();
+    const save = postRequests(h)[1]; const payload = JSON.parse(save.options.body);
+    assert.equal(payload.config.animation.preset, 'petals');
+    save.resolve({ data: { ...payload, _id: 'saved', revision: 1 } }); await pending;
+    assert.equal(postRequests(h).length, 2);
+  } finally { h.close(); }
+});
+test('decoration preference disables every overlay without publishing; reduced motion and expiry suppress canvas', () => {
+  for (const [effect, reduced] of [[{ ...DEFAULT_EFFECT, enabled: true }, true], [{ ...DEFAULT_EFFECT, enabled: false }, false], [{ ...DEFAULT_EFFECT, enabled: true, endAt: new Date(Date.now() - 1).toISOString() }, false]]) {
+    const h = browserHarness(Celebration, { effect }, {}, reduced); try { assert.equal(h.tree, null); } finally { h.close(); }
+  }
+  const h = browserHarness(Celebration, { effect: { ...DEFAULT_EFFECT, enabled: true } }, {});
+  try {
+    assert.equal(h.tree.type, 'canvas'); assert.equal(h.tree.props.style.pointerEvents, 'none');
+    window.dispatchEvent(new CustomEvent('bulkimart:decorations', { detail: true })); h.flush(); assert.equal(h.tree, null);
+    window.dispatchEvent(new CustomEvent('bulkimart:decorations', { detail: false })); h.flush(); assert.equal(h.tree.type, 'canvas');
+    assert.equal(h.requests.length, 0);
+  } finally { h.close(); }
+  const toggle = browserHarness(DecorationToggle, {}, {});
+  try { toggle.click('Turn off celebrations'); assert.equal(localStorage.getItem('bulkimart:decorations-disabled'), '1'); assert.equal(toggle.tree.props['aria-pressed'], true); } finally { toggle.close(); }
+});
+test('responsive video selects the mobile source, honors playback settings, and retains image compatibility', () => {
+  const props = { banner: { ...banner, mediaType: 'video', video: 'https://fixture.test/wide.mp4', mobileVideo: 'https://fixture.test/mobile.webm', mobileImage: 'https://fixture.test/mobile.webp', loop: false, autoplay: false }, device: 'mobile' };
+  const h = browserHarness(Media, props, {});
+  try {
+    assert.equal(h.tree.props.src, props.banner.mobileVideo); assert.equal(h.tree.props.poster, props.banner.mobileImage); assert.equal(h.tree.props.loop, false); assert.equal(h.tree.props.autoPlay, false);
+    props.device = 'desktop'; h.rerender(); assert.equal(h.tree.props.src, props.banner.video);
+    props.banner.mediaType = 'image'; h.rerender(); assert.equal(h.tree.type, 'img'); assert.equal(h.tree.props.src, banner.image);
+  } finally { h.close(); }
+});
+test('autoplay rejection falls back to poster and releases native playback/listeners', async () => {
+  const props = { banner: { ...banner, video: 'https://fixture.test/clip.mp4', autoplay: false }, eager: true };
+  const h = browserHarness(Media, props, {}); let pauses = 0, releases = 0;
+  try {
+    const element = new EventTarget(); Object.assign(element, { play: () => Promise.reject(new Error('autoplay blocked')), pause() { pauses++; }, removeAttribute() {}, load() { releases++; }, readyState: 0 });
+    h.tree.props.ref.current = element;
+    props.banner.autoplay = true; h.rerender(); await h.settle();
+    assert.equal(h.tree.type, 'img'); assert.equal(h.tree.props.src, banner.image); assert.equal(pauses, 1); assert.equal(releases, 1);
+    document.dispatchEvent(new Event('visibilitychange')); assert.equal(pauses, 1);
+  } finally { h.close(); }
+});
+test('video sources remain unloaded until intersection and release when scrolled away', () => {
+  const old = globalThis.IntersectionObserver; let notify, disconnected = 0;
+  globalThis.IntersectionObserver = class { constructor(callback) { notify = callback; } observe() {} disconnect() { disconnected++; } };
+  const props = { banner: { ...banner, video: 'https://fixture.test/clip.mp4', autoplay: false } };
+  const h = browserHarness(Media, props, {}); let pauses = 0;
+  try {
+    assert.equal(h.tree.props.src, undefined); assert.equal(h.tree.props.preload, 'none');
+    const element = new EventTarget(); Object.assign(element, { play: () => Promise.resolve(), pause() { pauses++; }, removeAttribute() {}, load() {}, readyState: 2 });
+    h.tree.props.ref.current = element; props.banner.video = 'https://fixture.test/new.mp4'; h.rerender();
+    notify([{ isIntersecting: true }]); h.flush(); assert.equal(h.tree.props.src, props.banner.video);
+    notify([{ isIntersecting: false }]); h.flush(); assert.equal(h.tree.props.src, undefined); assert.equal(pauses, 1);
+    h.unmount(); assert.equal(disconnected, 1);
+  } finally { h.close(); if (old) globalThis.IntersectionObserver = old; else delete globalThis.IntersectionObserver; }
+});
+test('unchanged configuration refresh does not duplicate loops; updates and disable clean up the previous renderer', () => {
+  const props = { effect: { ...DEFAULT_EFFECT, enabled: true } }, h = browserHarness(Celebration, props, {});
+  const frames = new Map(); let sequence = 0, clears = 0;
+  try {
+    window.requestAnimationFrame = callback => { frames.set(++sequence, callback); return sequence; };
+    window.cancelAnimationFrame = id => frames.delete(id);
+    const context = new Proxy({}, { get: (_target, key) => () => { if (key === 'clearRect') clears++; } });
+    h.tree.props.ref.current = { ownerDocument: document, getContext: () => context, getBoundingClientRect: () => ({ width: 390, height: 500 }) };
+    props.effect = { ...props.effect, speed: 2 }; h.rerender(); assert.equal(frames.size, 1);
+    props.effect = { ...props.effect }; h.rerender(); assert.equal(sequence, 1); assert.equal(frames.size, 1);
+    props.effect = { ...props.effect, density: 20 }; h.rerender(); assert.equal(sequence, 2); assert.equal(frames.size, 1); assert.equal(clears, 1);
+    props.effect = { ...props.effect, enabled: false }; h.rerender(); assert.equal(h.tree, null); assert.equal(frames.size, 0); assert.equal(clears, 2);
+    h.unmount(); document.dispatchEvent(new Event('visibilitychange')); assert.equal(frames.size, 0);
+  } finally { h.close(); }
+});
+test('media controls reject executable and oversized uploads, report server errors, and persist only returned URLs', async () => {
+  const changes = [], busy = [], h = browserHarness(MediaFields, { value: { mediaType: 'video' }, onChange: patch => changes.push(patch), onBusy: value => busy.push(value) }, {});
+  try {
+    const input = () => h.find(n => n.type === 'input' && n.props['aria-label'] === 'Upload Desktop video (required)');
+    input().props.onChange({ target: { files: [new File(['<script/>'], 'bad.svg', { type: 'image/svg+xml' })] } }); h.flush();
+    assert.match(text(h.tree), /MP4 or WebM up to 15 MB/); assert.equal(h.requests.length, 0);
+    input().props.onChange({ target: { files: [{ type: 'video/mp4', size: 16 * 1024 * 1024 }] } }); h.flush(); assert.equal(h.requests.length, 0);
+    const file = new File(['fixture video'], 'clip.mp4', { type: 'video/mp4' });
+    input().props.onChange({ target: { files: [file] } }); h.flush();
+    assert.match(h.requests[0].url, /\/api\/admin\/storefront\/media$/); assert.equal(h.requests[0].options.body.get('media').name, 'clip.mp4');
+    h.requests[0].resolve({ message: 'Video upload unavailable' }, 503); await h.settle(); assert.match(text(h.tree), /Video upload unavailable/); assert.equal(changes.length, 0);
+    input().props.onChange({ target: { files: [file] } }); h.flush();
+    h.requests[1].resolve({ data: { type: 'video', url: 'https://cdn.test/clip.mp4' } }); await h.settle();
+    assert.deepEqual(changes, [{ video: 'https://cdn.test/clip.mp4' }]); assert.deepEqual(busy, [true, false, true, false]);
+  } finally { h.close(); }
+});
 
 for (const publish of [false, true]) test(`${publish ? 'Publish schedule' : 'Save draft'} uploads a selected image, attaches the returned ID and never saves a blob URL`, async () => {
   const h = await uploadCampaign();
