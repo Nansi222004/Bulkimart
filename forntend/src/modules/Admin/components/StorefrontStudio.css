@@ -21,8 +21,16 @@
 .studio-mismatch-actions{display:flex;flex-wrap:wrap;gap:8px}
 .studio-btn-sm{background:#fff;border:1px solid #dce7ef;color:#172b4d;padding:6px 12px;font-size:11px;font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s ease}
 .studio-btn-sm:hover{background:#f0f5f9;border-color:#b8cddc}
-.studio-btn-primary{background:#087ea4;border-color:#087ea4;color:#fff}
-.studio-btn-primary:hover{background:#066a8a;border-color:#066a8a;color:#fff}
+.studio-btn-primary,.studio-actions .sa-btn-primary{background:#087ea4;border-color:#087ea4;color:#fff}
+.studio-btn-primary:hover,.studio-actions .sa-btn-primary:hover{background:#066a8a;border-color:#066a8a;color:#fff}
+.studio-splash-controls{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px;background:var(--sf-surface);color:var(--sf-text);border-bottom:1px solid var(--sf-border)}
+.studio-splash-controls strong,.studio-splash-controls small{display:block}.studio-splash-controls strong{font-size:13px}.studio-splash-controls small{font-size:11px;color:var(--sf-muted);margin-top:4px}
+.studio-splash-controls button{border:1px solid #c9d8e5;border-radius:8px;background:#fff;color:#172b4d;padding:8px;font-size:11px;min-height:40px;cursor:pointer}
+.studio-splash-stage{position:relative;isolation:isolate;container-type:size;height:520px;overflow:hidden;background:var(--sf-background)}
+.studio-preview--desktop .studio-splash-stage{height:420px}.studio-launch-underlay>p{padding:24px;font-size:13px;line-height:1.6;color:var(--sf-muted)}
+.studio-splash-stage .sf-splash{position:absolute;inset:0;box-sizing:border-box;--sf-splash-safe-top:0px}
+.studio-splash-preview>.studio-help{margin:0;padding:12px 14px;background:var(--sf-surface);color:var(--sf-muted)}
+@media(min-width:761px){.studio-editor-body{flex:1;grid-template-rows:minmax(0,1fr);overflow:hidden}.studio-editor-body>form,.studio-editor-body>.studio-preview-pane{min-height:0;overflow:auto}}
 .studio-banner-upload-card{background:#fff;border:1px dashed #087ea466;border-radius:10px;padding:16px;margin-top:6px}
 .studio-upload-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #edf2f7}
 .studio-upload-header h4{font-size:13px;font-weight:700;margin:0;color:#172b4d}

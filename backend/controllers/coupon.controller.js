@@ -71,13 +71,12 @@ export const getAvailableCoupons = asyncHandler(async (req, res) => {
   const now = new Date();
   const coupons = await Coupon.find({
     isActive: true,
-    $or: [{ isPublic: true }, { autoApply: true }],
     channel: { $in: [channel, 'all'] },
     $and: [
       { $or: [{ startsAt: { $lte: now } }, { startsAt: null }] },
       { $or: [{ expiresAt: { $gte: now } }, { expiresAt: null }] },
     ],
-  }).sort({ minOrderValue: 1, createdAt: -1, _id: 1 }).limit(30);
+  }).sort({ minOrderValue: 1, createdAt: -1, _id: 1 });
 
   const ctx = await loadCartContext(req.user, channel);
 
@@ -103,7 +102,8 @@ export const getAvailableCoupons = asyncHandler(async (req, res) => {
     } : null;
     results.push({
       code: c.code,
-      autoApply: c.autoApply === true && !c.cdsMembersOnly,
+      isPublic: c.isPublic !== false,
+      cdsMembersOnly: c.cdsMembersOnly === true,
       title: c.title,
       description: c.description,
       discountType: c.discountType,
@@ -137,7 +137,7 @@ const parseCouponBody = (body) => {
     code, title, description, discountType, value, maxDiscount, minOrderValue,
     channel, categories, products, sellers,
     totalUsageLimit, perUserLimit,
-    firstOrderOnly, isPublic, autoApply,
+    firstOrderOnly, isPublic,
     startsAt, expiresAt, isActive,
   } = body;
 
@@ -157,14 +157,18 @@ const parseCouponBody = (body) => {
   if (perUserLimit !== undefined) doc.perUserLimit = Number(perUserLimit) || 0;
   if (firstOrderOnly !== undefined) doc.firstOrderOnly = !!firstOrderOnly;
   if (isPublic !== undefined) doc.isPublic = !!isPublic;
-  if (autoApply !== undefined) {
-    if (typeof autoApply !== 'boolean') throw httpError(400, 'Automatic application must be true or false');
-    doc.autoApply = autoApply;
-  }
   if (startsAt !== undefined) doc.startsAt = startsAt ? new Date(startsAt) : undefined;
   if (expiresAt !== undefined) doc.expiresAt = expiresAt ? new Date(expiresAt) : undefined;
   if (isActive !== undefined) doc.isActive = !!isActive;
   return doc;
+};
+
+// Older documents may retain the retired field. Omit it from admin DTOs
+// without rewriting stored coupons or requiring a database migration.
+const couponDto = (coupon) => {
+  const dto = coupon.toObject ? coupon.toObject() : { ...coupon };
+  delete dto.autoApply;
+  return dto;
 };
 
 const validateCouponDoc = (doc) => {
@@ -213,7 +217,7 @@ export const listCoupons = asyncHandler(async (req, res) => {
   ]);
 
   const data = rows.map((c) => ({
-    ...c,
+    ...couponDto(c),
     remainingUses: c.totalUsageLimit > 0 ? Math.max(c.totalUsageLimit - c.usedCount, 0) : null,
     expired: Boolean(c.expiresAt && c.expiresAt < now),
   }));
@@ -234,7 +238,7 @@ export const createCoupon = asyncHandler(async (req, res) => {
 
   doc.createdBy = req.user._id;
   const coupon = await Coupon.create(doc);
-  return created(res, coupon, `Coupon "${coupon.code}" created`);
+  return created(res, couponDto(coupon), `Coupon "${coupon.code}" created`);
 });
 
 // @desc    Update a coupon
@@ -255,7 +259,7 @@ export const updateCoupon = asyncHandler(async (req, res) => {
   validateCouponDoc(coupon);
   await coupon.save();
 
-  return ok(res, coupon, 'Coupon updated');
+  return ok(res, couponDto(coupon), 'Coupon updated');
 });
 
 // @desc    Activate / deactivate

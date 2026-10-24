@@ -57,6 +57,12 @@ Destinations use the existing category/product/deal selectors or HTTPS external 
 
 Choose Promotional campaigns → Create campaign. Select published banner artwork, optional published theme, hero/splash/announcement placement, scope/device, priority, and dates. Splash additionally offers an auto-close duration of 2–15 seconds, optional end countdown, and frequency:
 
+Placement is the first campaign field. Choose **Splash screen · app launch** to replace the homepage mockup with a mobile/desktop launch preview using the same splash card as the customer app. Select or upload artwork, test Skip or auto-close, and use **Replay splash** to run it again. Preview actions do not publish content, navigate away from the editor, or consume customer frequency limits; publish separately to enable it on eligible customer app launches.
+
+In **Upload New Banner**, choosing a JPEG/PNG/WebP image (up to 5 MB) immediately previews the local artwork. **Save draft** and **Publish** upload and attach that image before saving the campaign; the separate **Upload & Link to Campaign** button is optional. Upload failures leave the image available for retry and show the actual error without publishing. A future start date keeps a published splash scheduled until that time; preview remains available before its start.
+
+Splash artwork fills the available app viewport with an opaque background, square edges and no separate title/subtitle panel. The admin preview uses the same layout. Skip, configured countdown and destination buttons overlay the artwork; auto-close remains enabled. Use portrait artwork for phone launches and keep important content away from the edges: artwork uses proportional cover scaling and can crop to fit different screen sizes. The splash appears once an eligible published campaign is fetched after startup; this is an in-app launch screen, not the native operating system's pre-load screen.
+
 | Policy | Storage and meaning |
 | --- | --- |
 | Every eligible launch | Once during the mounted customer app launch; refresh starts another launch |

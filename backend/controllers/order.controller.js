@@ -719,13 +719,15 @@ export const createOrder = asyncHandler(async (req, res) => {
   try {
     const { emitToSeller, emitToUser } = await import('../socket/rooms.js');
     emitToUser(req.user._id, 'order_created', { orderId: order._id, orderNo: order.orderNo });
-    notifyUser(req.user._id, {
-      event: NOTIFICATION_EVENT.ORDER_CREATED,
-      title: paymentMethod === 'online' ? 'Order saved · Payment pending' : 'Order Placed Successfully!',
-      message: paymentMethod === 'online' ? `Order #${order.orderNo} is saved. Complete payment to send it to the store.` : `Order #${order.orderNo} has been placed.`,
-      metadata: { orderId: order._id },
-      route: '/orders',
-    }).catch((e) => console.error('[NOTIFICATION] notifyUser (new order) failed:', e.message));
+    if (paymentMethod !== 'online') {
+      notifyUser(req.user._id, {
+        event: NOTIFICATION_EVENT.ORDER_CREATED,
+        title: 'Order Placed Successfully!',
+        message: `Order #${order.orderNo} has been placed.`,
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifyUser (new order) failed:', e.message));
+    }
 
     await publishEligibleSellerOrder(order._id);
   } catch {
@@ -1300,7 +1302,7 @@ export const requestReturn = asyncHandler(async (req, res) => {
  *
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
-export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision }) => {
+export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision, suppressNotification = false }) => {
   const order = await Order.findById(orderId);
   if (!order) return { ok: false, reason: 'Order not found' };
 
@@ -1388,13 +1390,15 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
       reason,
       timeline: order.timeline,
     });
-    notifyUser(order.userId, {
-      event: NOTIFICATION_EVENT.ORDER_CANCELLED,
-      title: 'Order cancelled',
-      message: `Order ${order.orderNo} was cancelled. ${reason || ''}`.trim(),
-      metadata: { orderId: order._id },
-      route: '/orders',
-    }).catch((e) => console.error('[NOTIFICATION] notifyUser (order cancelled) failed:', e.message));
+    if (!suppressNotification && !reason?.includes('Payment cancelled')) {
+      notifyUser(order.userId, {
+        event: NOTIFICATION_EVENT.ORDER_CANCELLED,
+        title: 'Order cancelled',
+        message: `Order ${order.orderNo} was cancelled. ${reason || ''}`.trim(),
+        metadata: { orderId: order._id },
+        route: '/orders',
+      }).catch((e) => console.error('[NOTIFICATION] notifyUser (order cancelled) failed:', e.message));
+    }
 
     // The shop stops packing something that is no longer coming.
     if (cancelledBy !== 'seller') {

@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import ModalPortal from '../../../components/ModalPortal';
 import { useStorefront } from '../context/StorefrontContext';
 import { useUser } from '../context/UserContext';
-import { eligibleSplash, markSplash, themeStyle, countdown } from '../../../utils/storefront';
-import StorefrontMedia from './StorefrontMedia';
+import { eligibleSplash, markSplash, themeStyle } from '../../../utils/storefront';
+import SplashCard from './SplashCard';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 export default function PromotionalSplash() {
   const { splash, now, device, theme } = useStorefront();
@@ -26,13 +26,7 @@ export default function PromotionalSplash() {
   }, [open]);
   if (!open || open.id !== splash?.id || open.revision !== splash?.revision || (open.endAt && Date.parse(open.endAt) <= now) || activeNav !== 'home' || selectedProduct || selectedCampaignId) return null;
   return <ModalPortal className="sf-splash" style={themeStyle(theme.tokens)} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
-    <div className="sf-splash-card">
-      <button className="sf-skip" onClick={() => setOpen(null)} aria-label="Close promotion">Skip ✕</button>
-      <StorefrontMedia banner={open.banner} device={device} eager />
-      <div className="sf-splash-copy"><span className="sf-eyebrow">BULKIMART PICKS</span><h2>{open.banner.title}</h2><p>{open.banner.subtitle}</p>
-        {open.config.countdown && open.endAt && <p>Ends in <time>{countdown(open.endAt, now)}</time></p>}
-        {open.banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={() => { setOpen(null); navigate(open.banner.destination); }}>{open.banner.cta || 'Explore now'} →</button>}
-      </div>
-    </div>
+    <SplashCard banner={open.banner} device={device} now={now} endAt={open.endAt} showCountdown={open.config.countdown}
+      onDismiss={() => setOpen(null)} onNavigate={destination => { setOpen(null); navigate(destination); }} />
   </ModalPortal>;
 }

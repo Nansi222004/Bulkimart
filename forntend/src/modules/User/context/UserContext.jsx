@@ -17,6 +17,10 @@ const UserContext = createContext();
 // Default saved addresses
 // Generate a unique order ID
 const genOrderId = () => 'NHC' + Date.now().toString().slice(-6);
+const couponCartSignature = (channel, items = []) => `${channel}:${JSON.stringify(items.map(item => [
+  item.productId, item.variantId, item.qty, item.price, item.sellerId,
+  item.categoryId || item.category, item.type, item.fulfillmentType, item.deliveryMode,
+]))}`;
 
 export const UserProvider = ({ children }) => {
   const restoredSession = useContext(CustomerSessionContext);
@@ -783,7 +787,7 @@ export const UserProvider = ({ children }) => {
         setCouponNotice(cartData.couponError || 'Your coupon is no longer available for this cart.');
         setCouponCode('');
         setAppliedCoupon(null);
-        suppressedAuto.current = `${ch}:${(cartData.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
+        suppressedAuto.current = couponCartSignature(ch, cartData.items);
       } else if (cartData.appliedCoupon) {
         setAppliedCoupon(cartData.appliedCoupon);
       }
@@ -1006,7 +1010,7 @@ export const UserProvider = ({ children }) => {
 
   const removeCoupon = async () => {
     setCouponNotice('');
-    suppressedAuto.current = `${cartChannel}:${(serverCart.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
+    suppressedAuto.current = couponCartSignature(cartChannel, serverCart.items);
     setCouponCode('');
     setAppliedCoupon(null);
     await refreshCart(cartChannel, '');
@@ -1032,31 +1036,30 @@ export const UserProvider = ({ children }) => {
     }
   }, [cartChannel]);
 
-  const offerCartSignature = `${cartChannel}:${(serverCart.items || []).map(item => `${item.productId}:${item.variantId || ''}:${item.qty}:${item.price}`).join('|')}`;
-  const lastOffersSignature = useRef(null);
+  const offerCartSignature = couponCartSignature(cartChannel, serverCart.items);
+  const offerSummarySignature = Object.entries(cartSummary).map(([channel, summary]) => `${channel}:${summary.lines}`).sort().join('|');
+  const couponView = ['cart', 'checkout'].includes(activeNav) ? activeNav : '';
   useEffect(() => {
-    if (!serverCart.items?.length || !isSignedIn()) { lastOffersSignature.current = null; setAvailableCoupons([]); return; }
+    if (!serverCart.items?.length || !isSignedIn()) { setAvailableCoupons([]); return; }
     if (!cartSummaryReady) return;
-    const summarySignature = Object.entries(cartSummary).map(([channel, summary]) => `${channel}:${summary.lines}`).join('|');
-    const signature = `${currentUser?._id || currentUser?.id}:${offerCartSignature}:${summarySignature}`;
-    if (lastOffersSignature.current === signature) return;
-    lastOffersSignature.current = signature;
-    let cancelled = false;
-    fetchAvailableCoupons().then(offers => {
-      if (cancelled || activeCouponCode.current || couponApplying.current || suppressedAuto.current === offerCartSignature) return;
-      // A coupon is one order's benefit. Grouped and wholesale baskets cannot
-      // redeem it, so do not offer an automatic discount they cannot check out.
-      const nonempty = Object.entries(cartSummary).filter(([, summary]) => summary.lines > 0);
-      if (nonempty.length !== 1 || nonempty[0][0] !== cartChannel) return;
-      const items = serverCart.items || [];
-      if (new Set(items.map(item => String(item.sellerId))).size !== 1 ||
-          new Set(items.map(item => item.deliveryMode || '')).size !== 1 ||
-          new Set(items.map(item => item.fulfillmentType || 'physical')).size !== 1) return;
-      const selected = offers.find(offer => offer.autoApply && offer.applicable);
-      if (selected) applyCoupon(selected.code);
-    });
-    return () => { cancelled = true; };
-  }, [offerCartSignature, cartSummary, cartSummaryReady, currentUser?._id, currentUser?.id, fetchAvailableCoupons]);
+    void fetchAvailableCoupons();
+  }, [offerCartSignature, offerSummarySignature, cartSummaryReady, couponView, currentUser?._id, currentUser?.id, fetchAvailableCoupons]);
+
+  useEffect(() => {
+    if (!cartSummaryReady || !serverCart.items?.length || !isSignedIn() || activeCouponCode.current || couponApplying.current || suppressedAuto.current === offerCartSignature) return;
+    // A coupon is one order's benefit. Grouped and wholesale baskets cannot
+    // redeem it, so do not offer an automatic discount they cannot check out.
+    const nonempty = Object.entries(cartSummary).filter(([, summary]) => summary.lines > 0);
+    if (nonempty.length !== 1 || nonempty[0][0] !== cartChannel) return;
+    const items = serverCart.items || [];
+    if (new Set(items.map(item => String(item.sellerId))).size !== 1 ||
+        new Set(items.map(item => item.deliveryMode || '')).size !== 1 ||
+        new Set(items.map(item => item.fulfillmentType || 'physical')).size !== 1) return;
+    // Preserve the backend's quoted-saving/minimum/code ordering. Membership
+    // cannot yet be verified by the existing evaluator, so fail closed for it.
+    const selected = availableCoupons.find(offer => offer.applicable && !offer.cdsMembersOnly);
+    if (selected) applyCoupon(selected.code);
+  }, [availableCoupons, offerCartSignature, offerSummarySignature, cartSummaryReady, couponView, currentUser?._id, currentUser?.id]);
 
 
 
@@ -1452,6 +1455,7 @@ export const UserProvider = ({ children }) => {
         return { ok: false, message: 'E-books can only be purchased using Razorpay.' };
       }
       try {
+        const checkoutSession = captureUserSession();
         const checkoutPayload = { paymentMethod: 'online', coupon: couponCode || undefined };
         const requestHeaders = checkoutHeaders('digital', checkoutPayload);
         const res = await fetch(apiUrl('/api/digital/checkout'), {
@@ -1459,11 +1463,14 @@ export const UserProvider = ({ children }) => {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) return { ok: false, message: body.message || 'Could not create the e-book order' };
+        if (!body.data?.order?._id || !body.data?.payment?.id) throw new Error('Unconfirmed checkout response');
+        if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
+        rememberCommittedCheckout(currentUser?._id || currentUser?.id, 'digital', requestHeaders['Idempotency-Key']);
         clearCheckoutKey('digital');
         setCouponCode('');
         setAppliedCoupon(null);
         await Promise.all([refreshCart(cartChannel, ''), fetchOrders()]);
-        return { ok: true, order: body.data.order, message: body.message };
+        return { ok: true, checkoutKey: requestHeaders['Idempotency-Key'], order: body.data.order, payment: body.data.payment, message: body.message };
       } catch (err) {
         return { ok: false, message: err.message };
       }
@@ -1626,6 +1633,19 @@ export const UserProvider = ({ children }) => {
     }
   };
 
+  const abandonCheckoutPayment = async (orderId) => {
+    try {
+      const res = await fetch(apiUrl(`/api/orders/${orderId}/abandon-payment`), { method: 'POST', headers: authHeaders() });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: body.message || 'Could not confirm payment cancellation. Check its status before retrying.' };
+      if (body.data?.cancelled) {
+        window.dispatchEvent(new Event('cart:changed'));
+        await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
+      }
+      return { ok: true, ...body.data };
+    } catch { return { ok: false, message: 'Could not confirm payment cancellation. Check its status before retrying.' }; }
+  };
+
   const cancelOrder = async (orderId, reason) => {
     try {
       const res = await fetch(apiUrl(`/api/orders/${orderId}/cancel`), {
@@ -1775,7 +1795,9 @@ export const UserProvider = ({ children }) => {
 
         // Coupon
         appliedCoupon, applyCoupon, removeCoupon, couponNotice,
-        couponCode, availableCoupons, fetchAvailableCoupons, getTotalSavings,
+        // Visibility controls the manual offers/progress UI, never automatic
+        // eligibility. The internal selection pool includes all active offers.
+        couponCode, availableCoupons: availableCoupons.filter(offer => offer.isPublic !== false), fetchAvailableCoupons, getTotalSavings,
         tipSetting, fetchTipSetting,
 
         // Addresses
@@ -1796,7 +1818,7 @@ export const UserProvider = ({ children }) => {
         placeUnifiedOrder,
         checkCheckoutStatus,
         initiateOnlinePayment,
-        cancelOrder,
+        cancelOrder, abandonCheckoutPayment,
         fetchOrders,
         ordersLoading,
         cartChannel,
@@ -1818,7 +1840,7 @@ export const UserProvider = ({ children }) => {
       }}
     >
       {children}
-      <CouponSuccessCelebration event={couponCelebration} />
+      <CouponSuccessCelebration event={couponCelebration} active={Boolean(couponView && appliedCoupon?.code === couponCelebration?.code)} />
     </UserContext.Provider>
   );
 };

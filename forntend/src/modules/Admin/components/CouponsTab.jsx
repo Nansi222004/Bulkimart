@@ -30,7 +30,7 @@ const BLANK = {
   discountType: 'percentage', value: '', maxDiscount: '',
   minOrderValue: '', channel: 'all',
   totalUsageLimit: '', perUserLimit: 1,
-  firstOrderOnly: false, isPublic: true, autoApply: false,
+  firstOrderOnly: false, isPublic: true,
   startsAt: '', expiresAt: '',
 };
 
@@ -113,7 +113,6 @@ export const CouponsTab = () => {
       perUserLimit: c.perUserLimit ?? 1,
       firstOrderOnly: !!c.firstOrderOnly,
       isPublic: c.isPublic !== false,
-      autoApply: c.autoApply === true,
       startsAt: c.startsAt ? String(c.startsAt).slice(0, 10) : '',
       expiresAt: c.expiresAt ? String(c.expiresAt).slice(0, 10) : '',
     });
@@ -376,7 +375,6 @@ export const CouponsTab = () => {
                 {[
                   ['firstOrderOnly', 'Only on a customer’s first order'],
                   ['isPublic', 'Show in the offers list on the cart screen'],
-                  ['autoApply', 'Apply automatically when the shopper qualifies'],
                 ].map(([k, label]) => (
                   <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
                     <input type="checkbox" checked={form[k]} onChange={set(k)} />
