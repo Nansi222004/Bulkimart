@@ -69,9 +69,11 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
 
   const session = await mongoose.startSession();
   let result = { changed: false, status: payment.status };
+  let notifyBuyer = false;
 
   try {
     await session.withTransaction(async () => {
+      notifyBuyer = false;
       const fresh = await Payment.findById(payment._id).session(session);
       if (!fresh) return;
       if (capturedRazorpay) {
@@ -89,7 +91,7 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
           fresh.captures = [{ gatewayOrderId, gatewayPaymentId: captureId, amountPaise: attempt.amountPaise, currency: 'INR', disposition: 'settled', receivedAt: fresh.paidAt || new Date() }];
           await fresh.save({ session }); result = { changed: false, status: fresh.status }; return;
         }
-        const extra = ['paid', 'partial_refund', 'refunded'].includes(fresh.status) || attempt.status === 'failed' || (fresh.status === 'failed' && fresh.coinsUsed > 0);
+        const extra = Boolean(fresh.checkoutAbandonedAt) || ['paid', 'partial_refund', 'refunded'].includes(fresh.status) || attempt.status === 'failed' || (fresh.status === 'failed' && fresh.coinsUsed > 0);
         fresh.captures ||= [];
         fresh.captures.push({ gatewayOrderId, gatewayPaymentId: captureId, amountPaise: attempt.amountPaise, currency: 'INR', disposition: extra ? 'refund_required' : 'settled', receivedAt: new Date() });
         const recorded = fresh.gatewayAttempts?.find(row => row.gatewayOrderId === gatewayOrderId);
@@ -162,6 +164,7 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
         await activateDigitalEntitlements({ payment: fresh, session });
 
         result = { changed: true, status: 'paid' };
+        notifyBuyer = true;
       } else if (state === 'FAILED') {
         const attempt = fresh.gatewayAttempts?.find(row => row.gatewayOrderId === gatewayOrderId);
         if (attempt) attempt.status = 'failed';
@@ -190,7 +193,26 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
     await session.endSession();
   }
 
-  if (result.status === PAYMENT_STATUS.PAID) await publishSellerPaymentResult(payment);
+  if (result.status === PAYMENT_STATUS.PAID) {
+    await publishSellerPaymentResult(payment);
+    if (notifyBuyer) {
+      try {
+        const { notifyUser, NOTIFICATION_EVENT } = await import('../services/notification.service.js');
+        const targetOrder = payment.groupRef
+          ? await Order.findOne({ groupRef: payment.groupRef }).sort({ createdAt: 1 })
+          : (payment.orderId ? await Order.findById(payment.orderId) : null);
+        if (targetOrder && targetOrder.status !== ORDER_STATUS.CANCELLED) {
+          notifyUser(payment.userId, {
+            event: NOTIFICATION_EVENT.ORDER_CREATED,
+            title: 'Order Placed Successfully!',
+            message: `Order #${targetOrder.orderNo} has been placed.`,
+            metadata: { orderId: targetOrder._id },
+            route: '/orders',
+          }).catch((e) => console.error('[NOTIFICATION] notifyUser (paid order) failed:', e.message));
+        }
+      } catch { /* buyer notification failure is non-fatal */ }
+    }
+  }
   return result;
 };
 
@@ -255,7 +277,7 @@ export const initiatePayment = asyncHandler(async (req, res) => {
       amountPaise: Math.round(payment.amount * 100), currency: 'INR', status: payment.status === 'failed' ? 'failed' : 'issued', createdAt: payment.gateway.initiatedAt,
     } } });
   }
-  const reserved = await Payment.findOneAndUpdate({ _id: payment._id, status: { $in: ['pending', 'failed'] }, 'gatewayAttempts.19': { $exists: false }, gatewayAttempts: { $not: { $elemMatch: { status: { $in: ['initializing', 'creation_unknown'] } } } } }, {
+  const reserved = await Payment.findOneAndUpdate({ _id: payment._id, checkoutAbandonedAt: { $exists: false }, status: { $in: ['pending', 'failed'] }, 'gatewayAttempts.19': { $exists: false }, gatewayAttempts: { $not: { $elemMatch: { status: { $in: ['initializing', 'creation_unknown'] } } } } }, {
     $inc: { attempts: 1 }, $push: { gatewayAttempts: { attemptId, provider, orderId: order._id, amountPaise, currency: 'INR', status: 'initializing', createdAt: new Date() } },
   }, { returnDocument: 'after' });
   if (!reserved) throw httpError(409, 'Payment changed, an attempt requires reconciliation, or its attempt limit was reached. Review payment status before retrying.', { code: 'PAYMENT_RECONCILIATION_REQUIRED' });

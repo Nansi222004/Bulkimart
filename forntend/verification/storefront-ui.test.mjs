@@ -2,11 +2,13 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
-let vite, policy, Splash, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
+let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   policy = await vite.ssrLoadModule('/src/utils/storefront.js');
   Splash = (await vite.ssrLoadModule('/src/modules/User/components/PromotionalSplash.jsx')).default;
+  SplashCard = (await vite.ssrLoadModule('/src/modules/User/components/SplashCard.jsx')).default;
+  SplashPreview = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontSplashPreview.jsx')).default;
   Media = (await vite.ssrLoadModule('/src/modules/User/components/StorefrontMedia.jsx')).default;
   Hero = (await vite.ssrLoadModule('/src/modules/User/components/HeroBanner.jsx')).default;
   HeaderCategories = (await vite.ssrLoadModule('/src/modules/User/components/HeaderCategories.jsx')).default;
@@ -100,10 +102,200 @@ test('an active cached campaign expires to red when subsequent configuration req
 test('IST scheduling does not depend on the browser workstation timezone', () => {
   assert.equal(Studio.scheduleISO('2030-01-01T05:30'), '2030-01-01T00:00:00.000Z'); assert.equal(Studio.scheduleInput('2030-01-01T00:00:00Z'), '2030-01-01T05:30');
 });
+
+test('campaign placement comes first and selecting Splash swaps the homepage mockup for a launch preview', async () => {
+  const h = browserHarness(Studio.default, {}, { triggerToast() {}, setActiveTab() {} });
+  try {
+    h.click('Promotional campaigns');
+    h.find(n => n.type === 'button' && n.props.className === 'sa-btn-primary').props.onClick(); h.flush();
+    const fields = h.find(n => n.type === 'fieldset').props.children.flat(Infinity).filter(Boolean);
+    assert.equal(fields[0].props.label, 'Placement');
+    const placement = () => h.find(n => n.props?.label === 'Placement').props.children;
+    assert.equal(placement().props.value, 'hero');
+    for (const request of h.requests) request.resolve({ data: request.url.includes('/api/banners?') ? [{ ...banner, _id: banner.id, type: 'general', actionType: 'NONE' }] : [] });
+    await h.settle();
+    placement().props.onChange({ target: { value: 'splash' } }); h.flush();
+    assert.ok(h.find(n => n.type === SplashPreview));
+    assert.doesNotMatch(text(h.tree), /Shop by category|Published category artwork appears here/);
+    const artwork = h.find(n => n.type === 'select' && [n.props.children].flat().some(option => option?.props?.value === banner.id));
+    artwork.props.onChange({ target: { value: banner.id } }); h.flush();
+    assert.equal(h.find(n => n.type === SplashPreview).props.banner._id, banner.id);
+    h.click('Desktop'); assert.equal(h.find(n => n.type === SplashPreview).props.device, 'desktop');
+    placement().props.onChange({ target: { value: 'hero' } }); h.flush();
+    assert.equal(h.find(n => n.type === SplashPreview), undefined); assert.match(text(h.tree), /Shop by category/);
+    assert.equal(h.requests.some(row => row.options.method && row.options.method !== 'GET'), false);
+  } finally { h.close(); }
+});
+
+async function uploadCampaign(loadSelections = true) {
+  const h = browserHarness(Studio.default, {}, { triggerToast() {}, setActiveTab() {} });
+  h.click('Promotional campaigns');
+  h.find(n => n.type === 'button' && n.props.className === 'sa-btn-primary').props.onClick(); h.flush();
+  h.find(n => n.props?.label === 'Name').props.children.props.onChange({ target: { value: 'Diwali' } });
+  h.find(n => n.props?.label === 'Placement').props.children.props.onChange({ target: { value: 'splash' } }); h.flush();
+  if (loadSelections) {
+    for (const request of h.requests) request.resolve({ data: [] });
+    await h.settle();
+  }
+  h.click('+ Upload New Banner');
+  h.find(n => n.type === 'input' && n.props.type === 'file').props.onChange({ target: { files: [new File(['fixture image'], 'diwali.webp', { type: 'image/webp' })] } }); h.flush();
+  return h;
+}
+const postRequests = h => h.requests.filter(r => r.options.method === 'POST');
+
+for (const publish of [false, true]) test(`${publish ? 'Publish schedule' : 'Save draft'} uploads a selected image, attaches the returned ID and never saves a blob URL`, async () => {
+  const h = await uploadCampaign();
+  try {
+    const local = h.find(n => n.type === SplashPreview).props.banner;
+    assert.match(local.image, /^blob:/); assert.equal(local.title, 'Diwali');
+    assert.match(text(h.tree), /upload and attach it automatically/);
+    h.find(n => n.props?.label === 'Start · IST').props.children.props.onChange({ target: { value: '2030-01-01T05:30' } }); h.flush();
+    const submit = publish ? h.find(n => n.type === 'button' && n.props.children === 'Publish schedule').props.onClick : () => h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
+    const pending = submit(); submit(); h.flush();
+    assert.equal(postRequests(h).length, 1);
+    const upload = postRequests(h)[0];
+    assert.match(upload.url, /\/api\/banners$/); assert.ok(upload.options.body instanceof FormData);
+    assert.equal(upload.options.body.get('image').name, 'diwali.webp');
+    assert.equal(upload.options.body.get('placement'), 'STUDIO');
+    assert.equal(upload.options.body.get('startDate'), '2030-01-01T00:00:00.000Z');
+    assert.equal(new Headers(upload.options.headers).has('Content-Type'), false);
+    assert.equal(h.find(n => n.type === 'fieldset').props.disabled, true);
+    upload.resolve({ _id: banner.id, image: banner.image, title: 'Diwali', type: 'general' }, 201); await h.settle();
+    const save = postRequests(h)[1], payload = JSON.parse(save.options.body);
+    assert.match(save.url, /\/admin\/storefront$/);
+    assert.equal(payload.config.bannerId, banner.id); assert.equal(payload.config.placement, 'splash');
+    assert.equal(payload.startAt, '2030-01-01T00:00:00.000Z'); assert.doesNotMatch(save.options.body, /blob:/);
+    save.resolve({ data: { _id: 'saved-campaign', revision: 1 } }, 201); await h.settle();
+    if (publish) {
+      const publication = postRequests(h)[2];
+      assert.match(publication.url, /saved-campaign\/actions\/publish$/);
+      publication.resolve({ data: { _id: 'saved-campaign', revision: 2 } });
+    }
+    await pending; await h.settle();
+    assert.equal(postRequests(h).length, publish ? 3 : 2);
+    assert.equal(h.find(n => n.type === SplashPreview), undefined);
+  } finally { h.close(); }
+});
+
+test('an upload failure keeps the selected image for retry and blocks campaign creation/publication', async () => {
+  const h = await uploadCampaign();
+  try {
+    const pending = h.click('Publish now');
+    postRequests(h)[0].resolve({ message: 'Image upload service unavailable. Please try again.' }, 503);
+    await pending; await h.settle();
+    assert.match(text(h.find(n => n.type === 'footer')), /Image upload service unavailable/);
+    assert.equal(postRequests(h).length, 1);
+    assert.match(h.find(n => n.type === SplashPreview).props.banner.image, /^blob:/);
+    const retry = h.click('Publish now');
+    assert.equal(postRequests(h).length, 2);
+    postRequests(h)[1].resolve({ message: 'Image upload service unavailable. Please try again.' }, 503);
+    await retry; await h.settle();
+    assert.equal(postRequests(h).every(r => /\/api\/banners$/.test(r.url)), true);
+  } finally { h.close(); }
+});
+
+test('Upload & Link remains supported, survives a late banner-list response, and publishing reuses its saved banner', async () => {
+  const h = await uploadCampaign(false);
+  try {
+    const button = h.find(n => n.type === 'button' && text(n) === '✓ Upload & Link to Campaign');
+    const pending = button.props.onClick(); h.flush();
+    // Clicking Publish during this upload must not create another upload or campaign.
+    h.find(n => n.type === 'button' && n.props.children === 'Uploading…' && n.props.className === 'sa-btn-primary').props.onClick();
+    assert.equal(postRequests(h).length, 1);
+    postRequests(h)[0].resolve({ _id: banner.id, image: banner.image, type: 'general', title: 'Diwali' }); await pending; await h.settle();
+    for (const request of h.requests.filter(r => !r.options.method || r.options.method === 'GET')) request.resolve({ data: [] });
+    await h.settle();
+    assert.equal(h.find(n => n.type === SplashPreview).props.banner._id, banner.id);
+    const publication = h.click('Publish now');
+    assert.match(postRequests(h)[1].url, /\/admin\/storefront$/);
+    assert.equal(JSON.parse(postRequests(h)[1].options.body).config.bannerId, banner.id);
+    postRequests(h)[1].resolve({ data: { _id: 'saved-campaign', revision: 1 } }); await h.settle();
+    postRequests(h)[2].resolve({ data: { _id: 'saved-campaign', revision: 2 } }); await publication; await h.settle();
+    assert.equal(postRequests(h).filter(r => /\/api\/banners$/.test(r.url)).length, 1);
+  } finally { h.close(); }
+});
+
+test('a malformed upload response cannot be attached or published', async () => {
+  const h = await uploadCampaign();
+  try {
+    const pending = h.click('Publish now'); postRequests(h)[0].resolve({ message: 'Unexpected response' });
+    await pending; await h.settle();
+    assert.match(text(h.tree), /upload did not return a saved banner/);
+    assert.equal(postRequests(h).length, 1);
+    assert.match(h.find(n => n.type === SplashPreview).props.banner.image, /^blob:/);
+  } finally { h.close(); }
+});
+
+test('leaving upload mode discards and releases the local preview; unsupported images cannot be uploaded', async () => {
+  const originalRevoke = URL.revokeObjectURL, revoked = [];
+  URL.revokeObjectURL = url => { revoked.push(url); originalRevoke(url); };
+  let h;
+  try {
+    h = await uploadCampaign();
+    const local = h.find(n => n.type === SplashPreview).props.banner.image;
+    h.click('Select Existing');
+    assert.equal(h.find(n => n.type === SplashPreview).props.banner, undefined); assert.deepEqual(revoked, [local]);
+    h.click('+ Upload New Banner');
+    h.find(n => n.type === 'input' && n.props.type === 'file').props.onChange({ target: { files: [new File(['svg'], 'wrong.svg', { type: 'image/svg+xml' })] } }); h.flush();
+    assert.match(text(h.tree), /JPEG, PNG or WebP image up to 5 MB/);
+    assert.equal(h.find(n => n.type === SplashPreview).props.banner, undefined);
+    assert.equal(postRequests(h).length, 0);
+  } finally { h?.close(); URL.revokeObjectURL = originalRevoke; }
+});
+
+test('splash preview auto-closes, replays and skips without consuming customer frequency or publishing', () => {
+  const originalTimer = globalThis.setTimeout, callbacks = [];
+  globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
+  let h;
+  try {
+    const props = { banner, config: { frequency: 'session', duration: 2 }, device: 'mobile' };
+    h = browserHarness(SplashPreview, props, {});
+    assert.equal(h.find(n => n.type === SplashCard).props.device, 'mobile');
+    assert.equal(callbacks[0].delay, 2000);
+    props.device = 'desktop'; h.rerender(); assert.equal(callbacks.length, 2);
+    callbacks[1].callback(); h.flush(); assert.equal(h.find(n => n.type === SplashCard), undefined);
+    h.click('Replay splash'); assert.ok(h.find(n => n.type === SplashCard)); assert.equal(callbacks.length, 3);
+    h.rerender(); assert.equal(callbacks.length, 3);
+    const card = SplashCard(h.find(n => n.type === SplashCard).props);
+    h.find(n => n.props?.['aria-label'] === 'Close promotion', card).props.onClick(); h.flush();
+    assert.equal(h.find(n => n.type === SplashCard), undefined);
+    assert.equal(window.sessionStorage.getItem(policy.frequencyKey(splash('session'))), null);
+    assert.equal(window.localStorage.getItem(policy.frequencyKey(splash('daily'))), null);
+    assert.equal(h.requests.length, 0);
+  } finally { h?.close(); globalThis.setTimeout = originalTimer; }
+});
+
+test('splash preview updates artwork, device and duration and keeps Escape inside the editor', () => {
+  const props = { banner, config: { duration: 2 }, device: 'mobile' };
+  const h = browserHarness(SplashPreview, props, {});
+  try {
+    h.find(n => n.type === SplashCard).props.onDismiss(); h.flush();
+    props.banner = { ...banner, id: 'replacement', mobileImage: 'https://fixture.test/mobile.webp' };
+    props.device = 'desktop'; props.config = { duration: 15, countdown: true }; props.endAt = new Date(Date.now() + 60000).toISOString(); h.rerender();
+    const card = h.find(n => n.type === SplashCard);
+    assert.equal(card.props.banner.id, 'replacement'); assert.equal(card.props.device, 'desktop'); assert.equal(card.props.showCountdown, true);
+    assert.match(text(h.tree), /15\s+seconds/);
+    let stopped = false;
+    h.find(n => n.props?.className === 'studio-splash-stage').props.onKeyDown({ key: 'Escape', stopPropagation() { stopped = true; } }); h.flush();
+    assert.equal(stopped, true); assert.equal(h.find(n => n.type === SplashCard), undefined);
+    h.click('Replay splash'); const next = SplashCard(h.find(n => n.type === SplashCard).props);
+    h.find(n => n.props?.className === 'sf-cta', next).props.onClick(); h.flush();
+    assert.equal(h.find(n => n.type === SplashCard), undefined); assert.equal(h.requests.length, 0);
+  } finally { h.close(); }
+});
+
+test('an empty splash preview asks for artwork and cannot replay', () => {
+  const h = browserHarness(SplashPreview, { config: { duration: 5 }, device: 'mobile' }, {});
+  try {
+    assert.equal(h.find(n => n.type === SplashCard), undefined);
+    assert.match(text(h.tree), /Select or upload a banner/);
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Replay splash').props.disabled, true);
+  } finally { h.close(); }
+});
 test('splash closes with skip and does not reopen after subsequent rerenders', () => {
   const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, device: 'mobile', activeNav: 'home' };
   const h = browserHarness(Splash, {}, context);
-  try { assert.ok(h.find(n => n.props?.['aria-label'] === 'Close promotion')); h.find(n => n.props?.['aria-label'] === 'Close promotion').props.onClick(); h.flush(); assert.equal(h.tree, null); context.now++; h.rerender(); assert.equal(h.tree, null); } finally { h.close(); }
+  try { const card = SplashCard(h.find(n => n.type === SplashCard).props); assert.ok(h.find(n => n.props?.['aria-label'] === 'Close promotion', card)); h.find(n => n.props?.['aria-label'] === 'Close promotion', card).props.onClick(); h.flush(); assert.equal(h.tree, null); context.now++; h.rerender(); assert.equal(h.tree, null); } finally { h.close(); }
 });
 test('Escape and expiry dismiss the actual splash', () => {
   const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' }, h = browserHarness(Splash, {}, context);
@@ -116,7 +308,7 @@ test('no splash on product detail or checkout and a pause dismisses the overlay'
 });
 test('splash CTA closes and invokes the supported existing destination', () => {
   let target; const h = browserHarness(Splash, {}, { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', setActiveNav: value => { target = value; } });
-  try { h.find(n => n.props?.className === 'sf-cta').props.onClick(); h.flush(); assert.equal(target, 'categories'); assert.equal(h.tree, null); } finally { h.close(); }
+  try { const card = SplashCard(h.find(n => n.type === SplashCard).props); h.find(n => n.props?.className === 'sf-cta', card).props.onClick(); h.flush(); assert.equal(target, 'categories'); assert.equal(h.tree, null); } finally { h.close(); }
 });
 test('reduced motion prevents video creation; image failure produces text fallback', () => {
   const h = browserHarness(Media, { banner: { ...banner, video: 'https://fixture.test/clip.mp4' }, device: 'mobile' }, {}, true);
@@ -215,7 +407,9 @@ test('coupon UI uses signed-in server eligibility and removes expired codes', as
   try {
     localStorage.setItem('userToken', 'fixture'); context.currentUser._id = 'customer-2'; h.rerender();
     assert.match(h.requests[0].url, /coupons\/available\?channel=grocery/);
-    h.requests[0].resolve({ data: [{ code: 'REAL', title: 'Published coupon', applicable: false, reason: 'Minimum basket not reached', expiresAt: new Date(context.now + 1000).toISOString() }] }); await h.settle();
+    h.requests[0].resolve({ data: [{ code: 'REAL', title: 'Published coupon', applicable: false, reason: 'Minimum basket not reached', expiresAt: new Date(context.now + 1000).toISOString() },
+      { code: 'UNLISTED', title: 'Unlisted coupon', isPublic: false, applicable: true, savingNow: 100 }] }); await h.settle();
+    assert.doesNotMatch(text(h.tree), /UNLISTED|Unlisted coupon/);
     assert.match(text(h.tree), /Minimum basket not reached/); assert.match(text(h.tree), /REAL/); context.now += 2000; h.rerender(); assert.doesNotMatch(text(h.tree), /REAL/);
   } finally { h.close(); }
 });

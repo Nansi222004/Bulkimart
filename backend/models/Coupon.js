@@ -75,8 +75,6 @@ const couponSchema = new Schema(
 
     // Shown in the "available offers" list on the cart screen.
     isPublic: { type: Boolean, default: true },
-    // Existing coupons remain manual unless an admin opts in.
-    autoApply: { type: Boolean, default: false },
 
     createdBy: { type: ObjectId, ref: 'Admin' },
   },

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { adminGet, adminPost, adminPatch, authGet, authPost } from '../../../utils/adminApi';
 import { useAdmin } from '../context/AdminContext';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import ModalPortal from '../../../components/ModalPortal';
 import { PRESETS, DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, themeStyle } from '../../../utils/storefront';
 import StorefrontMedia from '../../User/components/StorefrontMedia';
+import StorefrontSplashPreview from './StorefrontSplashPreview';
 import '../../User/Storefront.css';
 import './StorefrontStudio.css';
 const names = { theme: 'Themes', campaign: 'Promotional campaigns', section: 'Homepage sections' };
@@ -28,6 +29,7 @@ export default function StorefrontStudio() {
   const [bannerPreviewUrl, setBannerPreviewUrl] = useState('');
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [bannerUploadError, setBannerUploadError] = useState('');
+  const operationBusy = useRef(false), uploadedBanner = useRef(null);
   const [newBannerForm, setNewBannerForm] = useState({
     title: '', subtitle: '', cta: 'Explore now', actionType: 'NONE', targetCategoryId: '', externalUrl: '',
   });
@@ -42,13 +44,15 @@ export default function StorefrontStudio() {
     if (!form) return;
     let cancelled = false;
     Promise.all([authGet('/api/banners?all=true'), adminGet('/storefront?kind=theme&limit=100'), adminGet('/campaigns?limit=100'), form.scope === 'global' ? Promise.all(['grocery', 'ecommerce'].map(type => authGet(`/api/categories?type=${type}`))).then(results => ({ data: results.flatMap(r => r.data || []) })) : authGet(`/api/categories?type=${form.scope === 'quick' ? 'grocery' : 'ecommerce'}`)])
-      .then(([b, t, d, c]) => { if (!cancelled) { setBanners(b.data || []); setThemes(t.data || []); setDeals(d.data || []); setCategories(Array.isArray(c.data) ? c.data : []); } }).catch(err => { if (!cancelled) setFormError(`Could not load selections: ${err.message}`); });
+      .then(([b, t, d, c]) => { if (!cancelled) { const list = b.data || []; const linked = uploadedBanner.current; setBanners(linked && !list.some(row => row._id === linked._id) ? [linked, ...list] : list); setThemes(t.data || []); setDeals(d.data || []); setCategories(Array.isArray(c.data) ? c.data : []); } }).catch(err => { if (!cancelled) setFormError(`Could not load selections: ${err.message}`); });
     return () => { cancelled = true; };
   }, [!!form, form?.scope, reload]);
 
   useEffect(() => { if (!dirty) return; const warn = e => { e.preventDefault(); e.returnValue = ''; }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
+  useEffect(() => () => { if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl); }, [bannerPreviewUrl]);
   const change = patch => { setDirty(true); setForm(f => ({ ...f, ...patch })); };
-  const config = patch => change({ config: { ...form.config, ...patch } });
+  const config = patch => { setDirty(true); setForm(f => ({ ...f, config: { ...f.config, ...patch } })); };
+  const cancelBannerUpload = () => { setShowUploadBanner(false); setBannerFile(null); setBannerPreviewUrl(''); setBannerUploadError(''); };
   
   const open = row => {
     setForm(row ? { ...row, config: structuredClone(row.config), startAt: scheduleInput(row.startAt), endAt: scheduleInput(row.endAt) } : blank(kind));
@@ -58,6 +62,7 @@ export default function StorefrontStudio() {
     setBannerFile(null);
     setBannerPreviewUrl('');
     setBannerUploadError('');
+    uploadedBanner.current = null;
     setNewBannerForm({
       title: row?.name || '',
       subtitle: '',
@@ -68,7 +73,7 @@ export default function StorefrontStudio() {
     });
   };
 
-  const close = async () => { if (busy) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); setDirty(false); } };
+  const close = async () => { if (operationBusy.current) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); setDirty(false); setBannerFile(null); setBannerPreviewUrl(''); } };
   
   const bannerStorefrontLabel = (type) => {
     if (type === 'general') return 'All Storefronts (General)';
@@ -80,36 +85,36 @@ export default function StorefrontStudio() {
   const selectedBanner = banners.find(b => b._id === form?.config.bannerId);
   const requiredType = form?.scope === 'quick' ? 'grocery' : form?.scope === 'shop-all' ? 'ecommerce' : 'general';
   const isBannerMismatched = Boolean(selectedBanner && selectedBanner.type !== 'general' && selectedBanner.type !== requiredType);
+  // A local file is previewable before upload, but only the returned server ID is saved.
+  const previewBanner = bannerFile && bannerPreviewUrl ? { ...newBannerForm, _id: bannerPreviewUrl, image: bannerPreviewUrl, title: newBannerForm.title || form?.name || 'Campaign Banner' } : selectedBanner;
 
   const save = async publish => {
-    if (busy) return; setBusy(true); setFormError('');
+    if (operationBusy.current) return; operationBusy.current = true; setBusy(true); setFormError('');
     try {
+      const attachedBanner = bannerFile ? await uploadBanner() : selectedBanner;
+      const bannerId = attachedBanner?._id || form.config.bannerId;
       if (publish && form.kind === 'campaign') {
-        if (!form.config.bannerId) {
+        if (!bannerId) {
           throw new Error('Please select or upload a banner before publishing.');
         }
-        if (isBannerMismatched) {
+        if (!bannerFile && isBannerMismatched) {
           throw new Error(`Banner storefront mismatch: Selected banner is set for "${bannerStorefrontLabel(selectedBanner?.type)}", but this campaign is set for "${form.scope === 'global' ? 'All Storefronts (global)' : form.scope}". Switch the campaign storefront or upload a matching banner.`);
         }
       }
-      const payload = { ...form, startAt: scheduleISO(form.startAt), endAt: scheduleISO(form.endAt) };
+      const payload = { ...form, config: { ...form.config, ...(bannerId ? { bannerId } : {}) }, startAt: scheduleISO(form.startAt), endAt: scheduleISO(form.endAt) };
       let result = form._id ? await adminPatch(`/storefront/${form._id}`, payload) : await adminPost('/storefront', payload);
       // Retain saved identity even when subsequent publication fails validation.
       setForm(f => ({ ...f, _id: result.data._id, revision: result.data.revision, status: 'draft' })); setDirty(false);
       if (publish) result = await adminPost(`/storefront/${result.data._id}/actions/publish`, { revision: result.data.revision });
       triggerToast(publish ? 'Published. Customers refresh within 30 seconds.' : 'Draft saved. Publish when ready.'); setForm(null); setReload(r => r + 1);
-    } catch (err) { setFormError(err.message); setReload(r => r + 1); } finally { setBusy(false); }
+    } catch (err) { setFormError(err.message); setReload(r => r + 1); } finally { operationBusy.current = false; setBusy(false); }
   };
 
-  const handleUploadBanner = async () => {
-    if (!bannerFile) {
-      setBannerUploadError('Please select a banner image file.');
-      return;
-    }
+  const uploadBanner = async () => {
+    if (!bannerFile) throw new Error('Please select a banner image file.');
     const title = (newBannerForm.title || form.name || 'Campaign Banner').trim();
     if (!title) {
-      setBannerUploadError('Please enter a banner title.');
-      return;
+      throw new Error('Please enter a banner title.');
     }
 
     setUploadingBanner(true);
@@ -139,17 +144,28 @@ export default function StorefrontStudio() {
 
       const result = await authPost('/api/banners', fd);
       const createdBanner = result.data || result;
+      if (!createdBanner?._id || !createdBanner.image) throw new Error('The upload did not return a saved banner. Please try again.');
+      uploadedBanner.current = createdBanner;
       triggerToast('Banner uploaded and selected successfully!');
       setBanners(prev => [createdBanner, ...prev]);
       config({ bannerId: createdBanner._id });
       setShowUploadBanner(false);
       setBannerFile(null);
       setBannerPreviewUrl('');
+      return createdBanner;
     } catch (err) {
       setBannerUploadError(err.message || 'Failed to upload banner');
+      throw err;
     } finally {
       setUploadingBanner(false);
     }
+  };
+
+  const handleUploadBanner = async () => {
+    if (operationBusy.current) return;
+    operationBusy.current = true; setFormError('');
+    try { await uploadBanner(); } catch (err) { setFormError(err.message || 'Failed to upload banner'); }
+    finally { operationBusy.current = false; }
   };
 
   const action = async (row, name) => {
@@ -186,9 +202,11 @@ export default function StorefrontStudio() {
     </article>)}</div>}
     <div className="studio-pagination"><button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} of {Math.max(1, pages)}</span><button disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next</button></div>
     {form && <ModalPortal className="studio-overlay" role="dialog" aria-modal="true" aria-label={`${form._id ? 'Edit' : 'Create'} ${form.kind}`} onKeyDown={e => { if (e.key === 'Escape') close(); }}>
-      <div className="studio-editor"><header><div><span className="studio-kicker">{form.kind.toUpperCase()} EDITOR</span><h2>{form.name || 'Untitled draft'}</h2></div><button disabled={busy} onClick={close} aria-label="Close editor">✕</button></header>
+      <div className="studio-editor"><header><div><span className="studio-kicker">{form.kind.toUpperCase()} EDITOR</span><h2>{form.name || 'Untitled draft'}</h2></div><button disabled={busy || uploadingBanner} onClick={close} aria-label="Close editor">✕</button></header>
       <div className="studio-editor-body"><form id="studio-form" onSubmit={e => { e.preventDefault(); save(false); }}>
-        <fieldset disabled={busy}><Field label="Name"><input required maxLength={100} value={form.name} onChange={e => change({ name: e.target.value })} /></Field><Field label="Internal description"><textarea maxLength={2000} value={form.description} onChange={e => change({ description: e.target.value })} /></Field>
+        <fieldset disabled={busy || uploadingBanner}>
+        {form.kind === 'campaign' && select('Placement', form.config.placement, [{ value: 'hero', label: 'Homepage banner' }, { value: 'splash', label: 'Splash screen · app launch' }, { value: 'announcement', label: 'Announcement' }], placement => config({ placement }))}
+        <Field label="Name"><input required maxLength={100} value={form.name} onChange={e => change({ name: e.target.value })} /></Field><Field label="Internal description"><textarea maxLength={2000} value={form.description} onChange={e => change({ description: e.target.value })} /></Field>
         <div className="studio-pair">{select('Storefront', form.scope, ['global', 'quick', 'shop-all'], scope => change({ scope }))}{select('Device', form.device, ['all', 'mobile', 'desktop'], device => change({ device }))}</div>
         <div className="studio-pair"><Field label="Start · IST"><input type="datetime-local" value={form.startAt} onChange={e => change({ startAt: e.target.value })} /></Field><Field label="End · IST"><input type="datetime-local" value={form.endAt} onChange={e => change({ endAt: e.target.value })} /></Field></div>
         <Field label="Priority (higher wins)"><input type="number" min="0" max="1000" value={form.priority} onChange={e => change({ priority: Number(e.target.value) })} /></Field>
@@ -209,7 +227,7 @@ export default function StorefrontStudio() {
                 <button
                   type="button"
                   className={`studio-tab-pill ${!showUploadBanner ? 'active' : ''}`}
-                  onClick={() => setShowUploadBanner(false)}
+                  onClick={cancelBannerUpload}
                 >
                   Select Existing
                 </button>
@@ -307,8 +325,14 @@ export default function StorefrontStudio() {
                     onChange={e => {
                       const file = e.target.files?.[0];
                       if (file) {
+                        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+                          setBannerFile(null); setBannerPreviewUrl(''); e.target.value = '';
+                          setBannerUploadError('Choose a JPEG, PNG or WebP image up to 5 MB.');
+                          return;
+                        }
                         setBannerFile(file);
                         setBannerPreviewUrl(URL.createObjectURL(file));
+                        setBannerUploadError(''); setFormError(''); setDirty(true);
                       }
                     }}
                   />
@@ -318,6 +342,7 @@ export default function StorefrontStudio() {
                     </div>
                   )}
                 </Field>
+                {bannerFile && <p className="studio-help" role="status">Image selected. Save draft or Publish will upload and attach it automatically.</p>}
 
                 <Field label="Banner Title *">
                   <input
@@ -395,7 +420,7 @@ export default function StorefrontStudio() {
                   <button
                     type="button"
                     disabled={uploadingBanner}
-                    onClick={() => setShowUploadBanner(false)}
+                    onClick={cancelBannerUpload}
                   >
                     Cancel
                   </button>
@@ -405,7 +430,7 @@ export default function StorefrontStudio() {
           </div>
         )}
 
-        {form.kind === 'campaign' && <>{select('Placement', form.config.placement, ['hero', 'splash', 'announcement'], placement => config({ placement }))}{select('Theme override', form.config.themeId, refs(themes), themeId => config({ themeId }))}
+        {form.kind === 'campaign' && <>{select('Theme override', form.config.themeId, refs(themes), themeId => config({ themeId }))}
           {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<Field label="Auto-close after seconds (2–15)"><input type="number" min="2" max="15" value={form.config.duration} onChange={e => config({ duration: Number(e.target.value) })} /></Field><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">A visible Skip control is always available. One splash maximum per app launch. Audience: all visitors to the selected storefront.</p></>}
         </>}
         {form.kind === 'section' && <><Field label="Customer-facing title"><input maxLength={100} value={form.config.title} onChange={e => config({ title: e.target.value })} /></Field>{select('Product collection', form.config.source, [{ value: 'recent', label: 'Recently added' }, { value: 'featured', label: 'Featured / curated picks' }, { value: 'category', label: 'Category collection' }, { value: 'price', label: 'Under a price' }, { value: 'campaign', label: 'Flash sale / accepted deal products' }, { value: 'wholesale', label: 'Wholesale discovery' }], source => config({ source }))}
@@ -418,13 +443,14 @@ export default function StorefrontStudio() {
         </>}
         </fieldset>
       </form><aside className="studio-preview-pane"><div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
-        <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}><div className="studio-preview-header">BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
-          {selectedBanner ? <><StorefrontMedia banner={{ ...selectedBanner, id: selectedBanner._id }} device={preview} active={false} /><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{selectedBanner.title}</h2><p>{selectedBanner.subtitle}</p><span className="sf-cta">{selectedBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
+        <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>
+        {form.kind === 'campaign' && form.config.placement === 'splash' ? <StorefrontSplashPreview banner={previewBanner} config={form.config} device={preview} endAt={form.endAt ? `${form.endAt}:00+05:30` : null} /> : <><div className="studio-preview-header">BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
+          {previewBanner ? <><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} active={false} /><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
         <div className="studio-preview-collection" style={form.kind === 'section' ? { background: form.config.appearance?.background, color: form.config.appearance?.text, borderColor: form.config.appearance?.accent } : undefined}>
 <strong>{form.kind === 'section' ? form.config.title || 'Collection preview' : 'Shop by category'}</strong><div className="studio-preview-category"><span>Category artwork</span></div><small>{form.kind === 'section' ? (form.config.layout || 'rail') + ' layout · live catalog after publication' : 'Published category artwork appears here'}</small></div>
 <div className="studio-preview-nav"><strong>⌂ Home</strong><span>▦ Categories</span><span>♧ Cart</span></div>
-</div><p className="studio-help">Appearance preview only. Published content uses live, eligible catalog data.</p></aside></div>
-      <footer>{form.status === 'published' && <p>Saving a draft removes this configuration from the live storefront until republished.</p>}{formError && <p className="studio-error" role="alert">{formError}</p>}<div className="studio-actions"><button disabled={busy} onClick={close}>Cancel</button><button disabled={busy} type="submit" form="studio-form">{busy ? 'Saving…' : 'Save draft'}</button><button disabled={busy || !form.name.trim()} className="sa-btn-primary" onClick={() => save(true)}>{form.startAt ? 'Publish schedule' : 'Publish now'}</button></div></footer>
+</>}</div>{!(form.kind === 'campaign' && form.config.placement === 'splash') && <p className="studio-help">Appearance preview only. Published content uses live, eligible catalog data.</p>}</aside></div>
+      <footer>{form.status === 'published' && <p>Saving a draft removes this configuration from the live storefront until republished.</p>}{formError && <p className="studio-error" role="alert">{formError}</p>}<div className="studio-actions"><button disabled={busy || uploadingBanner} onClick={close}>Cancel</button><button disabled={busy || uploadingBanner} type="submit" form="studio-form">{uploadingBanner ? 'Uploading…' : busy ? 'Saving…' : 'Save draft'}</button><button disabled={busy || uploadingBanner || !form.name.trim()} className="sa-btn-primary" onClick={() => save(true)}>{uploadingBanner ? 'Uploading…' : form.startAt ? 'Publish schedule' : 'Publish now'}</button></div></footer>
       </div>
     </ModalPortal>}
   </div>;

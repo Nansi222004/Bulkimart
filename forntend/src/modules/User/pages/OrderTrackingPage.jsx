@@ -1,6 +1,5 @@
 import { orderDiscountRows } from '../../../utils/orderDiscounts';
 import ModalPortal from '../../../components/ModalPortal';
-import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
@@ -1018,9 +1017,6 @@ export const OrderTrackingPage = () => {
       </div>
       
       {/* Footer spacer */}
-      {selectedOrder.paymentMethod === 'online' && selectedOrder.status === 'placed' && (
-        <CommittedCheckoutReview key={orderId} orderId={orderId} onPay={initiateOnlinePayment} />
-      )}
       <div style={{ height: 40 }} />
 
       {/* Rate & Review modal */}

@@ -10,6 +10,7 @@ import {
   requestReturn,
 } from '../controllers/order.controller.js';
 import { getOrderItemReturnEligibility } from '../controllers/return.controller.js';
+import { abandonCheckoutPayment } from '../controllers/checkoutCancellation.controller.js';
 import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -28,6 +29,7 @@ router.post('/checkout-status', getCheckoutStatus);
 router.get('/:id', getOrderById);
 router.get('/:id/track', trackOrder);
 router.patch('/:id/cancel', cancelOrder);
+router.post('/:id/abandon-payment', abandonCheckoutPayment);
 router.post('/:id/return', requestReturn); // legacy whole-order endpoint — untouched, see Return V1's own item-level system at /api/returns
 
 // Return & Refund V1 (item-level) — the eligibility check nests under the

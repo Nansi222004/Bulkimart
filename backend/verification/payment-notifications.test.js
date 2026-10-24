@@ -141,3 +141,109 @@ test('packaging and returns notifications retain their portal-specific destinati
 test('suspended sellers do not receive actionable paid-order alerts',async()=>{
  const order=await placed();await Seller.updateOne({_id:seller._id},{$set:{status:'suspended'}});await gateway(order);await verify(order).expect(200);expect(await sellerRows()).toHaveLength(0);
 });
+
+const abandon = order => auth(request(app).post(`/api/orders/${order._id}/abandon-payment`));
+test.each(['/api/orders', '/api/orders/unified'])('payment dismissal restores %s exactly once without order alerts', async path => {
+ const order = await placed('online', path);
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
+ const responses = await Promise.all([abandon(order), abandon(order)]);
+ for (const res of responses) { expect(res.status).toBe(200); expect(res.body.data.cancelled).toBe(true); }
+ expect((await Order.findById(order._id)).status).toBe('cancelled');
+ const payment = await Payment.findById(order.paymentId);
+ expect(payment.status).toBe('failed'); expect(payment.checkoutAbandonedAt).toBeTruthy();
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+ const restored = await Cart.findOne({userId:buyer._id, channel:'ecommerce'});
+ expect(restored.items).toHaveLength(1); expect(restored.items[0].qty).toBe(1);
+ await flushPush(); expect(await Notification.countDocuments({event:'ORDER_CREATED'})).toBe(0);
+ await auth(request(app).post('/api/payments/initiate')).send({orderId:String(order._id)}).expect(400);
+});
+
+test('dismissal does not cancel a verified capture or put paid items back in the cart', async () => {
+ const order = await placed(); await gateway(order); await verify(order).expect(200);
+ const res = await abandon(order).expect(200); expect(res.body.data).toMatchObject({cancelled:false,status:'paid'});
+ expect((await Order.findById(order._id)).status).toBe('placed');
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
+ expect((await Cart.findOne({userId:buyer._id,channel:'ecommerce'})).items).toHaveLength(0);
+});
+
+test('late and repeated captures after dismissal create one refund obligation without reviving the order', async () => {
+ const order = await placed(); const payment = await gateway(order);
+ await abandon(order).expect(200); await webhook(payment).then(res=>expect(res.status).toBe(200));
+ await webhook(payment).then(res=>expect(res.status).toBe(200));
+ const stored = await Payment.findById(payment._id);
+ expect(stored.status).toBe('failed'); expect(stored.captures).toHaveLength(1);
+ expect(stored.captures[0].disposition).toBe('refund_required');
+ expect(stored.refundObligations).toHaveLength(1);
+ expect(stored.refundObligations[0].amountPaise).toBe(Math.round(payment.amount*100));
+ expect((await Order.findById(order._id)).status).toBe('cancelled');
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+ expect(await Notification.countDocuments({event:'ORDER_CREATED'})).toBe(0);
+});
+
+test('dismissal requires the checkout owner and rejects cash-on-delivery orders', async () => {
+ const order = await placed('cod');
+ await request(app).post(`/api/orders/${order._id}/abandon-payment`).expect(401);
+ await auth(request(app).post(`/api/orders/${order._id}/abandon-payment`),sellerUser,'seller').expect(403);
+ await auth(request(app).post(`/api/orders/${order._id}/abandon-payment`),sellerUser,'buyer').expect(404);
+ await abandon(order).expect(409);
+ expect((await Order.findById(order._id)).status).toBe('placed');
+});
+
+test('dismissal releases reserved Coins and coupon use once, merging newer basket items', async () => {
+ const order = await placed();
+ const {default:CoinWallet} = await import('../models/CoinWallet.js');
+ const {default:Coupon} = await import('../models/Coupon.js');
+ const {default:Redemption} = await import('../models/CouponRedemption.js');
+ const coupon = await Coupon.create({code:'FIXTURE',title:'Fixture',discountType:'fixed',value:10,usedCount:1});
+ await Redemption.create({couponId:coupon._id,code:coupon.code,userId:buyer._id,orderId:order._id,discountAmount:10});
+ await Order.updateOne({_id:order._id},{$set:{coupon:coupon._id}});
+ await Payment.updateOne({_id:order.paymentId},{$set:{coinsUsed:10}});
+ await CoinWallet.updateOne({userId:buyer._id},{$set:{availableCoins:90,reservedCoins:10}},{upsert:true});
+ await Cart.updateOne({userId:buyer._id,channel:'ecommerce'},{$push:{items:{productId:product._id,variantId:product.variants[0]._id,qty:2,deliveryMode:order.delivery?.mode}}});
+ await abandon(order).expect(200); await abandon(order).expect(200);
+ expect((await Cart.findOne({userId:buyer._id,channel:'ecommerce'})).items[0].qty).toBe(3);
+ expect((await CoinWallet.findOne({userId:buyer._id})).availableCoins).toBe(100);
+ expect((await CoinWallet.findOne({userId:buyer._id})).reservedCoins).toBe(0);
+ expect((await Coupon.findById(coupon._id)).usedCount).toBe(0);
+ expect(await Redemption.countDocuments({orderId:order._id})).toBe(0);
+});
+
+test('digital checkout dismissal restores its cart without inventing physical inventory', async () => {
+ const order = await placed();
+ // Digital checkout does not reserve physical stock.
+ await Product.updateOne({_id:product._id},{$set:{stock:10,'variants.0.stock':10}});
+ await Order.updateOne({_id:order._id},{$set:{'items.0.fulfillmentType':'digital'}});
+ await Cart.updateOne({userId:buyer._id,channel:'ecommerce'},{$push:{items:{productId:product._id,variantId:product.variants[0]._id,qty:1,fulfillmentType:'digital'}}});
+ await abandon(order).expect(200);
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+ expect((await Cart.findOne({userId:buyer._id,channel:'ecommerce'})).items[0].fulfillmentType).toBe('digital');
+ expect((await Cart.findOne({userId:buyer._id,channel:'ecommerce'})).items[0].qty).toBe(1);
+});
+
+test('one dismissal cancels all fulfilment groups and restores every line atomically', async () => {
+ const secondSeller = id();
+ const secondUser = await User.create({name:'Second fixture seller',phone:'9876500002',roles:['buyer','seller'],isActive:true});
+ await Seller.collection.insertOne({...seller.toObject(),_id:secondSeller,userId:secondUser._id});
+ const secondProduct = {...product,_id:id(),sellerId:secondSeller,variants:[{...product.variants[0],_id:id(),sku:'FIXTURE-2'}]};
+ await Product.collection.insertOne(secondProduct);
+ await Cart.updateOne({userId:buyer._id,channel:'ecommerce'},{$push:{items:{productId:secondProduct._id,variantId:secondProduct.variants[0]._id,sellerId:secondSeller,name:'Second fixture',price:100,qty:1}}});
+ const order = await placed('online','/api/orders/unified');
+ const orders = await Order.find({paymentId:order.paymentId}); expect(orders).toHaveLength(2);
+ await abandon(order).expect(200);
+ expect(await Order.countDocuments({paymentId:order.paymentId,status:'cancelled'})).toBe(2);
+ expect((await Cart.findOne({userId:buyer._id,channel:'ecommerce'})).items).toHaveLength(2);
+ expect((await Product.findById(secondProduct._id)).variants[0].stock).toBe(10);
+ expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
+});
+
+test('capture racing dismissal either keeps a paid order or records a refund for the cancelled order', async () => {
+ const order = await placed(); const payment = await gateway(order);
+ const [cancelled,captured] = await Promise.all([abandon(order),webhook(payment)]);
+ expect(cancelled.status).toBe(200); expect(captured.status).toBe(200);
+ const stored = await Payment.findById(payment._id); const finalOrder = await Order.findById(order._id);
+ const stock = (await Product.findById(product._id)).variants[0].stock;
+ if (stored.checkoutAbandonedAt) {
+   expect(finalOrder.status).toBe('cancelled'); expect(stock).toBe(10);
+   expect(stored.captures[0].disposition).toBe('refund_required'); expect(stored.refundObligations).toHaveLength(1);
+ } else { expect(stored.status).toBe('paid'); expect(finalOrder.status).toBe('placed'); expect(stock).toBe(9); }
+});

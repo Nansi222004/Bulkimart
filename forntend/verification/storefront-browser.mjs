@@ -5,6 +5,7 @@ import { DEFAULT_TOKENS, PRESETS } from '../../backend/shared/storefront.mjs';
 // Reuse the existing isolated CDP runner. Every API request is intercepted;
 // external resources are blocked and only an ephemeral browser profile is used.
 const generated = new URL(`../tests/.storefront-${process.pid}.mjs`, import.meta.url);
+const splashPreviewOnly = process.argv.includes('--splash-preview');
 let source = await readFile(new URL('../tests/mobile-layout.test.mjs', import.meta.url), 'utf8');
 const replace = (marker, value) => { assert.ok(source.includes(marker), `Missing browser runner marker: ${marker.slice(0, 60)}`); source = source.replace(marker, value); };
 replace("'--headless=new', '--remote-debugging-port=0'", "'--headless=new', '--disable-gpu', '--remote-debugging-port=0'");
@@ -68,6 +69,31 @@ replace('      if (startupOnly) {', `
         await evaluate("document.querySelector('.studio-editor footer .sa-btn-primary').click()");
         await waitFor("!document.querySelector('.studio-editor')");
         assert.equal(studioSaved.name,'Browser seasonal theme');assert.equal(studioSaved.kind,'theme');
+        await evaluate("[...document.querySelectorAll('.studio-tabs button')].find(b=>b.textContent==='Promotional campaigns').click()");
+        await evaluate("document.querySelector('.studio-header button').click()");
+        await waitFor("!!document.querySelector('.studio-editor')");
+        assert.equal(await evaluate("document.querySelector('.studio-editor fieldset > label').querySelector('span').textContent"),'Placement');
+        await evaluate("const placement=document.querySelector('.studio-editor fieldset > label select');placement.value='splash';placement.dispatchEvent(new Event('change',{bubbles:true}))");
+        await waitFor("!!document.querySelector('.studio-splash-preview')");
+        await waitFor("[...document.querySelectorAll('.studio-banner-section select option')].some(o=>o.value==='507f1f77bcf86cd799439050')");
+        await evaluate("const artwork=document.querySelector('.studio-banner-section select');artwork.value='507f1f77bcf86cd799439050';artwork.dispatchEvent(new Event('change',{bubbles:true}))");
+        await waitFor("!!document.querySelector('.studio-splash-stage .sf-splash-card')");
+        assert.equal(await evaluate("!!document.querySelector('.studio-preview-collection')"),false,'Splash preview omits homepage collections');
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('.studio-editor footer .sa-btn-primary')).backgroundColor"),'rgb(8, 126, 164)','Publish label has a contrasting background');
+        await evaluate("document.querySelector('.studio-splash-stage .sf-skip').click()");
+        await waitFor("!document.querySelector('.studio-splash-stage .sf-splash')");
+        await evaluate("[...document.querySelectorAll('.studio-splash-controls button')].find(b=>b.textContent==='Replay splash').click()");
+        await waitFor("!!document.querySelector('.studio-splash-stage .sf-splash')");
+        await evaluate("[...document.querySelectorAll('.studio-field')].find(l=>l.textContent.includes('Auto-close after')).querySelector('input').focus()");
+        await evaluate("document.activeElement.select()");await command('Input.insertText',{text:'2'});
+        await waitFor("!document.querySelector('.studio-splash-stage .sf-splash')");
+        await evaluate("document.querySelector('.studio-splash-controls button').click();document.querySelector('.studio-splash-stage').focus()");
+        await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await waitFor("!document.querySelector('.studio-splash-stage .sf-splash')");
+        assert.ok(await evaluate("!!document.querySelector('.studio-editor')"),'Preview Escape keeps campaign editor open');
+        assert.equal(studioSaved.kind,'theme','Preview does not save or publish the campaign');
+        await evaluate("document.querySelector('.studio-splash-controls button').click();document.querySelector('.studio-preview-pane').scrollIntoView({block:'start'})");
       } else if(layoutScenario.startsWith('storefront')){
         if(layoutScenario==='storefront-error'){
           await waitFor("!!document.querySelector('.sf-product')");
@@ -112,7 +138,8 @@ source = source.replaceAll('../test-artifacts/mobile-native', '../test-artifacts
 try {
   await writeFile(generated, source);
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths=/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio', '--widths=320,360,390,430,768,1440', '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
+    const paths = splashPreviewOnly ? '/admin/storefront-studio' : '/?layout=storefront,/?layout=storefront-default,/?layout=storefront-splash,/?layout=storefront-splash-video,/?layout=storefront-error,/?layout=storefront-category,/?layout=storefront-refresh,/search,/cart,/checkout,/wholesale,/admin/storefront-studio';
+    const child = spawn(process.execPath, [generated.pathname.replace(/^\/([A-Za-z]:)/, '$1'), '--full', '--paths='+paths, splashPreviewOnly ? '--widths=390,1440' : '--widths=320,360,390,430,768,1440', '--label=storefront', '--cart-checkout'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
     child.on('error', reject); child.on('exit', resolve);
   });
   assert.equal(code, 0, 'Storefront browser assertions failed');

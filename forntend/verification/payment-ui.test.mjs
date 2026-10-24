@@ -38,9 +38,9 @@ const placeButton = h => h.find(n => n.type === 'button' && n.props.className ==
 async function load(h, groups) { h.requests.find(req => req.url.includes('/api/cart/unified')).resolve(basket(groups)); await h.settle(); }
 function text(node) { if (node == null || typeof node === 'boolean') return ''; if (typeof node !== 'object') return String(node); return [node.props?.children].flat(Infinity).map(text).join(' '); }
 
-for (const outcome of ['verified', 'cancelled']) {
+for (const outcome of ['verified', 'cancelled', 'cancellation-unconfirmed', 'paid-before-dismissal', 'failed']) {
   test('active Razorpay shows a neutral background until ' + outcome + ', preserving recovery', async () => {
-    let finishPayment, writes = 0;
+    let finishPayment, writes = 0, cancellations = 0;
     const payment = new Promise(resolve => { finishPayment = resolve; });
     const local = storage({ userToken: 'fixture-token' });
     const reference = { version: 1, customerId: 'buyer', operation: 'single', key: 'checkout-payment-background-fixture' };
@@ -51,6 +51,14 @@ for (const outcome of ['verified', 'cancelled']) {
         return { ok: true, order: { _id: 'fixture-order', status: 'placed', pricing: { totalAmount: 140 } } };
       },
       initiateOnlinePayment: async () => payment,
+      abandonCheckoutPayment: async orderId => {
+        assert.equal(orderId, 'fixture-order');
+        cancellations++;
+        assert.equal(JSON.parse(local.getItem('bulkimart:committed-checkout:buyer')).length, 1);
+        if (outcome === 'cancellation-unconfirmed') return { ok: false };
+        if (outcome === 'paid-before-dismissal') return { ok: true, cancelled: false, status: 'paid' };
+        return { ok: true, cancelled: true };
+      },
     });
     const h = hookHarness(Checkout, {}, '/checkout', fixture.context, { localStorage: local, sessionStorage: storage() });
     try {
@@ -63,13 +71,22 @@ for (const outcome of ['verified', 'cancelled']) {
       assert.doesNotMatch(text(h.tree), /Review payment status|Check Status|Order Placed Successfully/);
       assert.equal(JSON.parse(local.getItem('bulkimart:committed-checkout:buyer')).length, 1);
       assert.equal(writes, 1);
-      finishPayment(outcome === 'verified' ? { ok: true, verified: true } : { ok: false, cancelled: true });
+      finishPayment(outcome === 'verified' ? { ok: true, verified: true } : outcome === 'failed' ? { ok: false, message: 'Provider unavailable' } : { ok: false, cancelled: true });
       await submitting; h.flush();
       assert.doesNotMatch(text(h.tree), /Complete your payment/);
-      if (outcome === 'verified') {
+      if (outcome === 'verified' || outcome === 'paid-before-dismissal') {
         assert.match(text(h.tree), /Order Placed Successfully/);
         assert.equal(local.getItem('bulkimart:committed-checkout:buyer'), null);
-      } else assert.deepEqual(h.tree.props.reference, reference);
+      } else if (outcome === 'cancelled') {
+        assert.match(text(h.tree), /Payment was cancelled/);
+        assert.doesNotMatch(text(h.tree), /Order Placed Successfully|Track Active Orders/);
+        assert.equal(local.getItem('bulkimart:committed-checkout:buyer'), null);
+      } else {
+        assert.equal(h.tree.props.reference.key, reference.key);
+        assert.doesNotMatch(text(h.tree), /Order Placed Successfully|Track Active Orders/);
+        assert.equal(JSON.parse(local.getItem('bulkimart:committed-checkout:buyer')).length, 1);
+      }
+      assert.equal(cancellations, ['verified', 'failed'].includes(outcome) ? 0 : 1);
       assert.equal(writes, 1);
     } finally { h.close(); }
   });
@@ -85,4 +102,20 @@ test('unpaid online order hints do not show a popup; later paid state does', asy
  assert.equal(h.find(n=>n.type==='aside').props['aria-modal'],'true');
  const target={};h.tree.props.onClick({target,currentTarget:target});h.flush();assert.equal(h.tree,null);
  }finally{h.close();}
+});
+
+test('an uncertain payment also blocks duplicate checkout when browser recovery storage is unavailable', async () => {
+ let writes = 0;
+ const {h} = harness({placeOrder:async()=>{writes++;return {ok:true,order:{_id:'fixture-order',pricing:{totalAmount:140}}};},
+   initiateOnlinePayment:async()=>({ok:false,message:'Payment result is unconfirmed'})});
+ try {
+   await load(h);
+   const option=h.find(n=>n.type==='label'&&String(n.props.className).includes('checkout-payment')&&text(n).includes('Razorpay Online Payment'));
+   h.find(n=>n.type==='input'&&n.props.type==='radio',option).props.onChange();h.flush();
+   await placeButton(h).props.onClick();h.flush();
+   assert.match(text(h.tree),/Payment result is unconfirmed/);
+   assert.doesNotMatch(text(h.tree),/Order Placed Successfully/);
+   assert.equal(placeButton(h).props.disabled,true);
+   await placeButton(h).props.onClick();assert.equal(writes,1);
+ } finally {h.close();}
 });

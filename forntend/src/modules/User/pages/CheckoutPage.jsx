@@ -24,6 +24,7 @@ const CheckoutPage = () => {
     getCartItems,
     placeOrder,
     placeUnifiedOrder,
+    abandonCheckoutPayment,
     checkCheckoutStatus,
     initiateOnlinePayment,
     setActiveNav,
@@ -476,9 +477,40 @@ const CheckoutPage = () => {
         setOrderSuccess(true);
         return;
       }
-      // Payment failed or cancelled — order exists but is unpaid.
-      setOrderError(pay.cancelled ? 'Payment was cancelled. Your order is saved — complete payment from My Orders.' : (pay.message || 'Orders created; payment is pending. Review payment status in My Orders.'));
-      setPlacedOrderDetails(firstOrder); setPlacedOrders(res.orders || [firstOrder]); setOrderSuccess(true);
+      if (pay.cancelled) {
+        const pendingKey = res.checkoutKey || committedCheckouts(recoveryCustomerId).find(reference => !previousReferences.has(reference.key))?.key;
+        orderingRef.current = true;
+        setIsOrdering(true);
+        const cancellation = await abandonCheckoutPayment(firstOrder._id);
+        orderingRef.current = false;
+        setIsOrdering(false);
+        if (!cancellation.ok || !cancellation.cancelled && cancellation.status !== 'paid') {
+          setOrderError(cancellation.message || 'Check payment status before trying again.');
+          setOrderConflict({ code: 'CHECKOUT_OUTCOME_UNCERTAIN', operation: checkoutOperation });
+          return;
+        }
+        // Keep the durable recovery locator until the backend confirms the
+        // cancellation (or a payment that won the race with dismissal).
+        if (pendingKey) forgetCommittedCheckout(recoveryCustomerId, pendingKey);
+        if (cancellation.status === 'paid') {
+          fetchWalletBalance();
+          setPlacedOrderDetails(firstOrder);
+          setPlacedOrders(res.orders || [firstOrder]);
+          setOrderSuccess(true);
+          return;
+        }
+        void unified.reload();
+        setOrderError('Payment was cancelled. You can retry payment or select another payment method.');
+        setOrderSuccess(false);
+        setPlacedOrderDetails(null);
+        setPlacedOrders([]);
+        return;
+      }
+
+      // System payment initiation failure — order exists but is unpaid
+      setOrderError(pay.message || 'Payment could not be confirmed. Check its status before trying again.');
+      setOrderConflict({ code: 'CHECKOUT_OUTCOME_UNCERTAIN', operation: checkoutOperation });
+      setOrderSuccess(false);
       return;
     }
 
