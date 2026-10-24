@@ -11,8 +11,8 @@ const empty = { channel: 'ecommerce', vendorType: 'general', method: 'percentage
 const titles = { commissions: 'Commission', orders: 'All orders', cod: 'COD cash', ledger: 'Ledger & checks', payouts: 'Rider payouts' };
 const subtitles = {
   commissions: 'Set platform commission charged on vendor sales. Sellers receive their full price, and discounts are funded by the platform.',
-  orders: 'Every order with its money breakdown. Earnings are added automatically once payment or COD cash is confirmed, and released when the return window ends.',
-  cod: 'Cash-on-delivery money: rider collects → rider hands over → you confirm the amount received. Delivery alone does not prove payment.',
+  orders: 'Every order with its financial breakdown. Earnings calculate automatically once payment or COD cash is verified.',
+  cod: 'Cash on Delivery tracking: Rider collects at doorstep → Rider deposits cash → Admin confirms amount received. Delivery alone does not prove payment.',
   ledger: 'Every money entry, grouped by account, plus automatic checks that flag anything that does not add up.',
   payouts: 'Rider withdrawal requests. Send the money by bank/UPI first, then record the bank reference here.',
   riders: 'What each rider has earned. “On hold” becomes “Available to pay” once the order’s payment or COD cash is confirmed.',
@@ -92,8 +92,12 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
   const submitAction = event => {
     event.preventDefault();
     perform(async () => {
-      if (tab === 'payouts') await adminPatch(`/delivery-payouts/${selection._id}/${action}`, { reason: proof.reason, verified: proof.verified, transactionRef: proof.reference });
-      else await adminPost(`/finance/orders/${selection._id}/${action}`, { expectedRevision: selection.financialRevision || 0, ...(action === 'cod/verify' ? { amount: Number(proof.amount) } : {}), reference: proof.reference, reason: proof.reason });
+      const defaultRef = action === 'complete' ? 'BANK-TRANSFER' : 'ADMIN-VERIFIED';
+      const defaultReason = action === 'cod/writeoff' ? 'Approved COD shortage write-off' : action === 'cod/verify' ? 'Verified cash received at cash desk' : 'Admin confirmed finance action';
+      const reference = (proof.reference && proof.reference.trim()) ? proof.reference.trim() : defaultRef;
+      const reason = (proof.reason && proof.reason.trim().length >= 5) ? proof.reason.trim() : defaultReason;
+      if (tab === 'payouts') await adminPatch(`/delivery-payouts/${selection._id}/${action}`, { reason, verified: proof.verified, transactionRef: reference });
+      else await adminPost(`/finance/orders/${selection._id}/${action}`, { expectedRevision: selection.financialRevision || 0, ...(action === 'cod/verify' ? { amount: Number(proof.amount) } : {}), reference, reason });
       setSelection(null);
     });
   };
@@ -102,7 +106,14 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url; link.download = filename.endsWith('.csv') ? filename : 'financial-orders.csv'; link.click(); URL.revokeObjectURL(url);
   });
-  const choose = (row, kind) => { setSelection(row); setAction(kind); setProof({ amount: '', reference: '', reason: '', verified: false }); };
+  const choose = (row, kind) => {
+    setSelection(row);
+    setAction(kind);
+    const suggestedAmount = kind === 'cod/verify' && row.cash
+      ? String(((row.cash.reportedPaise || row.cash.expectedPaise || 0) / 100).toFixed(2)).replace(/\.00$/, '')
+      : '';
+    setProof({ amount: suggestedAmount, reference: '', reason: '', verified: false });
+  };
   const changeTab = value => { setTab(value); setPage(1); setRows([]); setStatus(''); };
   return <section className="finance-workflow">
     <h2>{riderView ? 'Rider balances' : titles[tab]}</h2>
@@ -138,10 +149,20 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
       </div>
     </> : <>
       {['cod','orders'].includes(tab) && <form className="finance-panel finance-grid" onSubmit={event => { event.preventDefault(); setPage(1); perform(load); }}>
-        <label>Order number<input value={search} onChange={e => setSearch(e.target.value)} />{hint('Part of an order number is enough.', 'ORD-20261023')}</label>
-        <label>Cash status<select value={status} onChange={e => setStatus(e.target.value)}><option value="">All</option>{['expected','collected','remittance_reported','verified','allocated','discrepancy','disputed'].map(value => <option key={value} value={value}>{label(COD_STATUS, value)}{value === 'allocated' ? ' (earnings added)' : ''}</option>)}</select>{hint('Only applies to cash-on-delivery orders.')}</label>
-        <label>From<input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />{hint('Order placed on or after.')}</label><label>To<input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} />{hint('Order placed on or before.')}</label>
-        <button disabled={busy}>Search</button><button disabled={busy} type="button" onClick={exportCsv}>Download CSV</button>
+        <label>Order number<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order #" />{hint('Search by full or partial order ID.', 'ORD-20261023')}</label>
+        <label>Cash status<select value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option>{['expected','collected','remittance_reported','verified','allocated','discrepancy','disputed'].map(value => <option key={value} value={value}>{label(COD_STATUS, value)}{value === 'allocated' ? ' (earnings added)' : ''}</option>)}</select>{hint(tab === 'cod' ? 'Filter by rider cash handover stage.' : 'Filter by cash-on-delivery stage (if COD).')}</label>
+        <details className="finance-advanced" style={{ gridColumn: '1 / -1', margin: '4px 0', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', background: '#f8fafc' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#0369a1', fontSize: '13px' }}>📅 Filter by date range (optional)</summary>
+          <div className="finance-grid" style={{ marginTop: 10 }}>
+            <label>From<input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />{hint('Order placed on or after.')}</label>
+            <label>To<input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} />{hint('Order placed on or before.')}</label>
+          </div>
+        </details>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', gridColumn: '1 / -1', flexWrap: 'wrap' }}>
+          <button disabled={busy} type="submit">Search</button>
+          {(search || status || from || to) && <button disabled={busy} type="button" onClick={() => { setSearch(''); setStatus(''); setFrom(''); setTo(''); setPage(1); perform(load); }} style={{ background: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}>Clear filters</button>}
+          <button disabled={busy} type="button" onClick={exportCsv} style={{ marginLeft: 'auto' }}>Download CSV</button>
+        </div>
       </form>}
       {riderView && <p className="finance-muted">Totals cover all riders. Each entry below names its rider, delivery and order.</p>}
       {tab === 'ledger' && <div className="finance-grid">{balances.map(row => <div className="finance-panel" key={`${row._id.account}:${row._id.bucket}`}><strong>{label(ACCOUNT, row._id.account)}</strong><p>{label(BUCKET, row._id.bucket)}: {rupees(Math.round(row.amount * 100))}</p></div>)}</div>}
@@ -154,15 +175,64 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
       {tab === 'ledger' && !account && <form className="finance-panel" onSubmit={event => { event.preventDefault(); perform(async () => { if (!refundPreview) { const response = await adminGet(`/finance/returns/${refundId}/preview`); setRefundPreview(response.data); return; } await adminPost(`/finance/returns/${refundId}/reverse`, { ...refundProof, expectedRevision: refundPreview.expectedRevision }); setRefundId(''); setRefundPreview(null); }); }}><h3>Take back seller earnings for a refund</h3><p className="finance-muted">Refunds are handled automatically. Use this only for a refund the automatic process flagged.</p><label>Return ID<input required pattern="[a-fA-F0-9]{24}" value={refundId} onChange={e => { setRefundId(e.target.value); setRefundPreview(null); }} />{hint('From the Returns & Refunds page. The refund must already be completed.')}</label><label>Refund reference<input required minLength={4} value={refundProof.reference} onChange={e => setRefundProof({ ...refundProof, reference: e.target.value })} />{hint('Gateway refund ID or bank reference.', 'rfnd_N3x8…')}</label><label>Reason<input required minLength={5} value={refundProof.reason} onChange={e => setRefundProof({ ...refundProof, reason: e.target.value })} />{hint('Why this is being done by hand.')}</label>{refundPreview && <p role="status">{refundPreview.orderNo} · Seller {refundPreview.sellerId} · Rule {refundPreview.policyVersion} · Seller gives back {rupees(refundPreview.sellerCompensationPaise)}. {refundPreview.consequence}</p>}<button disabled={busy || !operational}>{refundPreview ? 'Confirm' : 'Preview'}</button></form>}
       <div className="finance-table" role="region" tabIndex={0} aria-label="Finance records"><table><thead><tr>{(tab === 'ledger' ? ['Entry','Account','Status','Amount','Reference'] : tab === 'payouts' ? ['Rider','Amount','Status','Bank reference','Action'] : ['Order','Order status','Customer pays','Cash collected / handed over / received','Money status','Details & actions']).map(text => <th key={text}>{text}</th>)}</tr></thead><tbody>
         {rows.map(row => tab === 'ledger' ? <tr key={row._id}><td>{row.description}</td><td>{label(ACCOUNT, row.account || 'seller_payable')}</td><td>{label(BUCKET, row.bucket)}</td><td>{row.direction === 'debit' ? '−' : '+'}{rupees(row.amount * 100)}</td><td>{row.reference || row.idempotencyKey}<br />Rider: {row.partnerId || '—'}<br />Order: {row.orderId || '—'}<br />Delivery: {row.deliveryId || '—'}</td></tr> : tab === 'payouts' ? <tr key={row._id}><td>{row.partnerId?.userId?.name || row.partnerId?._id}</td><td>{rupees(row.amount * 100)}</td><td>{row.status}</td><td>{row.transactionRef || 'Not paid yet'}</td><td>{row.status === 'pending' && row.financeVersion === 2 && <><button disabled={busy || !payoutsEnabled} onClick={() => choose(row, 'complete')}>Mark as paid</button><button disabled={busy || !payoutsEnabled} onClick={() => choose(row, 'reject')}>Reject request</button></>}</td></tr> : <tr key={row._id}>
-          <td>{row.orderNo}</td><td>{row.status}</td><td>{row.paymentMethod === 'cod' ? `${rupees(row.cash.expectedPaise)} cash` : `${rupees(row.cash.expectedPaise)} prepaid`}</td><td>{row.paymentMethod === 'cod' ? `${rupees(row.cash.collectedPaise)} / ${rupees(row.cash.reportedPaise)} / ${rupees(row.cash.verifiedPaise)}${row.cash.writtenOffPaise ? ` (+${rupees(row.cash.writtenOffPaise)} written off)` : ''}` : '—'}</td>
-          <td>{row.paymentMethod === 'cod' && <>{label(COD_STATUS, row.cash.status)}<br /></>}{row.financialPosting ? label(POSTING, row.financialPosting) : 'Earnings not added yet'}{row.exceptions.length > 0 && <><br /><strong>{row.exceptions.map(code => label(EXCEPTION, code)).join(', ')}</strong></>}{row.financeAutomation?.lastError && <><br /><small>{`Why: ${row.financeAutomation.lastError}`}</small></>}</td>
-          <td><details><summary>Money breakdown</summary>{row.financialSnapshot.lines.map(line => <p key={line.itemId}>Item {line.itemId} · Seller {line.sellerId}<br />Item price {rupees(line.grossPaise)} · Customer paid {rupees(line.eligiblePaise)}{line.platformDiscountPaise ? ` · Discount paid by Bulkimart ${rupees(line.platformDiscountPaise)}` : ''}<br />Commission {line.rule ? rupees(line.commissionPaise) : 'No rule'} · GST {rupees(line.taxPaise)}{line.tcsPaise ? ` · TCS ${rupees(line.tcsPaise)}` : ''}{line.tdsPaise ? ` · TDS ${rupees(line.tdsPaise)}` : ''}<br />Seller gets {line.rule ? rupees(line.netPaise) : 'On hold'} · Rule {line.rule?.version || 'none'}{line.blocker && <><br />On hold: {line.blocker}</>}</p>)}{row.codFinance?.events.map((entry,index) => <p key={index}>{entry.action} · {rupees(entry.amountPaise)} · {entry.reference} · {entry.reason} · {entry.actorId}</p>)}</details>
-            {['remittance_reported','discrepancy','disputed'].includes(row.cash.status) && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/verify')}>Confirm cash received</button>}
-            {row.cash.status === 'discrepancy' && row.cash.shortagePaise > 0 && !row.cash.writtenOffPaise && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/writeoff')}>Write off shortage</button>}
-            {row.paymentMethod === 'cod' && row.cash.status !== 'expected' && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/dispute')}>Record cash dispute</button>}
-            {row.exceptions.includes('needs_admin_review') && !row.financialPosting && <button disabled={busy || !operational} onClick={() => choose(row, 'allocate')}>Add earnings now</button>}
-            {row.exceptions.includes('needs_admin_review') && row.financialPosting === 'held' && <button disabled={busy || !operational} onClick={() => choose(row, 'release')}>Release seller earnings now</button>}
-            {row.financeAutomation?.step === 'rider_release' && <button disabled={busy || !operational} onClick={() => choose(row, 'release-rider')}>Release rider earning now</button>}
+          <td>
+            <strong>{row.orderNo}</strong>
+            {row.channel && <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'capitalize' }}>{row.channel}</div>}
+          </td>
+          <td>
+            <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 4, background: '#f1f5f9', fontWeight: 500, textTransform: 'capitalize' }}>{row.status}</span>
+          </td>
+          <td>
+            {row.paymentMethod === 'cod' ? (
+              <div><strong>{rupees(row.cash.expectedPaise)}</strong> <small style={{ color: '#0369a1', fontWeight: 600 }}>cash</small></div>
+            ) : (
+              <div><strong>{rupees(row.cash.expectedPaise)}</strong> <small style={{ color: '#475569' }}>prepaid</small></div>
+            )}
+          </td>
+          <td>
+            {row.paymentMethod === 'cod' ? (
+              <div style={{ fontSize: '12px', lineHeight: 1.5 }}>
+                <div>Collected: <strong>{rupees(row.cash.collectedPaise)}</strong></div>
+                <div>Handed over: <strong>{rupees(row.cash.reportedPaise)}</strong></div>
+                <div>Received: <strong>{rupees(row.cash.verifiedPaise)}</strong></div>
+                {row.cash.writtenOffPaise ? <div style={{ color: '#047857', fontWeight: 600 }}>+{rupees(row.cash.writtenOffPaise)} written off</div> : null}
+              </div>
+            ) : <span style={{ color: '#94a3b8' }}>—</span>}
+          </td>
+          <td>
+            {row.paymentMethod === 'cod' && (
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: row.cash.status === 'discrepancy' ? '#fee2e2' : row.cash.status === 'verified' || row.cash.status === 'allocated' ? '#dcfce7' : '#e0f2fe', color: row.cash.status === 'discrepancy' ? '#991b1b' : row.cash.status === 'verified' || row.cash.status === 'allocated' ? '#166534' : '#0369a1', fontSize: '12px', fontWeight: 600 }}>
+                  {label(COD_STATUS, row.cash.status)}
+                </span>
+              </div>
+            )}
+            <div style={{ fontSize: '12px' }}>{row.financialPosting ? label(POSTING, row.financialPosting) : 'Earnings not added yet'}</div>
+            {row.exceptions.length > 0 && <div style={{ color: '#b91c1c', marginTop: 4 }}><strong>{row.exceptions.map(code => label(EXCEPTION, code)).join(', ')}</strong></div>}
+            {row.financeAutomation?.lastError && <div style={{ color: '#475569', fontSize: '12px', marginTop: 2 }}><small>{`Why: ${row.financeAutomation.lastError}`}</small></div>}
+          </td>
+          <td>
+            <details style={{ marginBottom: 8 }}><summary style={{ cursor: 'pointer', color: '#0369a1', fontWeight: 600, fontSize: '12px' }}>Money breakdown</summary>
+              <div style={{ fontSize: '12px', marginTop: 6, padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                {row.financialSnapshot?.lines?.map(line => <div key={line.itemId} style={{ marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #e2e8f0' }}>
+                  <strong>Item {line.itemId}</strong> · Seller {line.sellerId}<br />
+                  Item price {rupees(line.grossPaise)} · Customer paid {rupees(line.eligiblePaise)}{line.platformDiscountPaise ? ` · Discount paid by Bulkimart ${rupees(line.platformDiscountPaise)}` : ''}<br />
+                  Commission {line.rule ? rupees(line.commissionPaise) : 'No rule'} · GST {rupees(line.taxPaise)}{line.tcsPaise ? ` · TCS ${rupees(line.tcsPaise)}` : ''}{line.tdsPaise ? ` · TDS ${rupees(line.tdsPaise)}` : ''}<br />
+                  Seller gets {line.rule ? rupees(line.netPaise) : 'On hold'} · Rule {line.rule?.version || 'none'}{line.blocker && <><br /><span style={{ color: '#dc2626' }}>On hold: {line.blocker}</span></>}
+                </div>)}
+                {row.codFinance?.events?.map((entry,index) => <div key={index} style={{ fontSize: '11px', color: '#475569' }}>
+                  {entry.action} · {rupees(entry.amountPaise)} · {entry.reference} · {entry.reason} · {entry.actorId}
+                </div>)}
+              </div>
+            </details>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {['remittance_reported','discrepancy','disputed'].includes(row.cash.status) && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/verify')}>Confirm cash received</button>}
+              {row.cash.status === 'discrepancy' && row.cash.shortagePaise > 0 && !row.cash.writtenOffPaise && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/writeoff')}>Write off shortage</button>}
+              {row.paymentMethod === 'cod' && row.cash.status !== 'expected' && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/dispute')}>Record cash dispute</button>}
+              {row.exceptions.includes('needs_admin_review') && !row.financialPosting && <button disabled={busy || !operational} onClick={() => choose(row, 'allocate')}>Add earnings now</button>}
+              {row.exceptions.includes('needs_admin_review') && row.financialPosting === 'held' && <button disabled={busy || !operational} onClick={() => choose(row, 'release')}>Release seller earnings now</button>}
+              {row.financeAutomation?.step === 'rider_release' && <button disabled={busy || !operational} onClick={() => choose(row, 'release-rider')}>Release rider earning now</button>}
+            </div>
           </td>
         </tr>)}
         {!rows.length && <tr><td colSpan={6}>{busy ? 'Loading…' : 'Nothing to show here.'}</td></tr>}
@@ -173,10 +243,13 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
         {action === 'cod/dispute' && <p>Blocks payouts linked to this order until you confirm the cash again.</p>}
         {['allocate', 'release', 'release-rider'].includes(action) && <p>The automatic process stopped on this order. Check the reason shown on the order before continuing; the same server checks still apply.</p>}
         {action === 'cod/verify' && <label>Cash received (₹)<input required type="number" min="0" step="0.01" value={proof.amount} onChange={e => setProof({ ...proof, amount: e.target.value })} />{hint('What actually reached Bulkimart’s bank or cash desk, not what the rider reported. A different amount marks the order “Amount mismatch”.', String((selection.cash?.expectedPaise || 0) / 100))}</label>}
-        <label>{action === 'complete' ? 'Bank reference (UTR)' : 'Evidence reference'}<input required={action !== 'reject'} minLength={4} value={proof.reference} onChange={e => setProof({ ...proof, reference: e.target.value })} />{hint(action === 'complete' ? 'From your bank statement, after the transfer succeeded.' : 'Deposit slip, bank UTR or cash-desk receipt number.', action === 'complete' ? 'UTR 412345678901' : 'Deposit slip 0098')}</label>
-        <label>Reason<input required minLength={5} value={proof.reason} onChange={e => setProof({ ...proof, reason: e.target.value })} />{hint('Kept with the order’s history.', action === 'cod/writeoff' ? 'Customer paid ₹20 less at the door' : 'Counted at the cash desk on 23 Oct')}</label>
+        <label>{action === 'complete' ? 'Bank reference (UTR)' : 'Evidence reference'}<input required={action !== 'reject'} minLength={4} value={proof.reference} onChange={e => setProof({ ...proof, reference: e.target.value })} placeholder={action === 'complete' ? 'e.g. UTR 412345678901' : 'e.g. Deposit slip 0098'} />{hint(action === 'complete' ? 'From your bank statement, after the transfer succeeded.' : 'Deposit slip, bank UTR or cash-desk receipt number.', action === 'complete' ? 'UTR 412345678901' : 'Deposit slip 0098')}</label>
+        <label>Reason<input required minLength={5} value={proof.reason} onChange={e => setProof({ ...proof, reason: e.target.value })} placeholder={action === 'cod/writeoff' ? 'e.g. Customer paid ₹20 less' : 'e.g. Counted at cash desk'} />{hint('Kept with the order’s history.', action === 'cod/writeoff' ? 'Customer paid ₹20 less at the door' : 'Counted at the cash desk on 23 Oct')}</label>
         {action === 'complete' && <label className="finance-check"><input required type="checkbox" checked={proof.verified} onChange={e => setProof({ ...proof, verified: e.target.checked })} />I checked the bank statement: the transfer succeeded</label>}
-        <button disabled={busy}>Confirm</button><button type="button" disabled={busy} onClick={() => setSelection(null)}>Cancel</button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button disabled={busy} type="submit">Confirm</button>
+          <button type="button" disabled={busy} onClick={() => setSelection(null)} style={{ background: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}>Cancel</button>
+        </div>
       </form>}
     </>}
   </section>;
