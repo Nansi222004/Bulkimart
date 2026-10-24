@@ -12,7 +12,7 @@ The new feature tests and relevant focused regressions pass. The existing comple
 
 The existing customer shell, header/search/location, Quick/ShopAll switch, bottom navigation, cart, wishlist, product detail, authentication, and portal separation remain in place. The repository uses UserContext/history navigation, not React Router. StorefrontProvider wraps the customer content and PromotionalSplash; ordinary navigation and authentication do not reset the splash launch guard.
 
-On startup the shell renders normally, then the provider fetches the public experience. Published configuration supplies a responsive hero carousel, announcement, theme, optional splash, and ordered product sections. Without configuration or on expiry/outage, brand defaults and existing browsing/product shelves remain available. Images have text fallbacks; product sections have bounded loading, retry, and empty states.
+On home startup a minimal branded opening screen waits for a fresh cached experience or the initial public response, bounded to three seconds. An eligible splash appears before the home shell, feed components and location dialog mount; home discovery requests begin after the splash closes. With no eligible splash or on configuration failure, normal shopping opens with brand defaults. Existing session/authentication and shared basket requests retain their normal behavior. Product, checkout and other deep links bypass the home launch wait. Published configuration supplies a responsive hero carousel, announcement, theme, optional splash, and ordered product sections. Images have text fallbacks; product sections have bounded loading, retry, and empty states.
 
 Existing models retain their responsibilities:
 
@@ -57,11 +57,11 @@ Destinations use the existing category/product/deal selectors or HTTPS external 
 
 Choose Promotional campaigns → Create campaign. Select published banner artwork, optional published theme, hero/splash/announcement placement, scope/device, priority, and dates. Splash additionally offers an auto-close duration of 2–15 seconds, optional end countdown, and frequency:
 
-Placement is the first campaign field. Choose **Splash screen · app launch** to replace the homepage mockup with a mobile/desktop launch preview using the same splash card as the customer app. Select or upload artwork, test Skip or auto-close, and use **Replay splash** to run it again. Preview actions do not publish content, navigate away from the editor, or consume customer frequency limits; publish separately to enable it on eligible customer app launches.
+Placement is the first campaign field. Choose **Splash screen · app launch** to replace the homepage mockup with a mobile/desktop launch preview using the same splash card as the customer app. Select or upload artwork, test auto-close, and use **Replay splash** to run it again. Preview actions do not publish content, navigate away from the editor, or consume customer frequency limits; publish separately to enable it on eligible customer app launches.
 
 In **Upload New Banner**, choosing a JPEG/PNG/WebP image (up to 5 MB) immediately previews the local artwork. **Save draft** and **Publish** upload and attach that image before saving the campaign; the separate **Upload & Link to Campaign** button is optional. Upload failures leave the image available for retry and show the actual error without publishing. A future start date keeps a published splash scheduled until that time; preview remains available before its start.
 
-Splash artwork fills the available app viewport with an opaque background, square edges and no separate title/subtitle panel. The admin preview uses the same layout. Skip, configured countdown and destination buttons overlay the artwork; auto-close remains enabled. Use portrait artwork for phone launches and keep important content away from the edges: artwork uses proportional cover scaling and can crop to fit different screen sizes. The splash appears once an eligible published campaign is fetched after startup; this is an in-app launch screen, not the native operating system's pre-load screen.
+Splash artwork fills the available app viewport with an opaque background, square edges and no separate title/subtitle panel. The admin preview uses the same layout. Configured countdown and destination buttons overlay the artwork; there is no Skip button, and auto-close remains enabled. Use portrait artwork for phone launches and keep important content away from the edges: artwork uses proportional cover scaling and can crop to fit different screen sizes. The splash appears once an eligible published campaign is fetched after startup; this is an in-app launch screen, not the native operating system's pre-load screen.
 
 | Policy | Storage and meaning |
 | --- | --- |
@@ -72,7 +72,7 @@ Splash artwork fills the available app viewport with an opaque background, squar
 
 All policies cap display at one splash per app launch. Publishing a new revision makes it eligible on a subsequent eligible launch. Ordinary renders and internal routes never reopen it. Clearing browser storage resets persistent frequency; storage denial still preserves the in-memory launch cap. No cross-device/account frequency promise is made.
 
-Skip and Escape always work; auto-close is bounded. The splash does not interrupt checkout, product detail, campaign detail, or an existing dialog. Its CTA dismisses then navigates. Muted video loads only when active, falls back to poster on playback rejection/error, respects reduced motion, and releases playback on unmount. Pausing, replacing, or expiring its configuration dismisses it after revalidation.
+Escape dismisses the splash; auto-close is bounded to the configured 2–15 seconds. The splash does not interrupt checkout, product detail, campaign detail, or an existing dialog. Its CTA dismisses then navigates. Muted video loads only when active, falls back to poster on playback rejection/error, respects reduced motion, and releases playback on unmount. Pausing, replacing, or expiring its configuration dismisses it after revalidation.
 
 ### Manage homepage collections and offers
 
@@ -104,6 +104,8 @@ Theme resolution: active eligible campaign-associated theme → active scoped th
 Publication conflict checks are query-based across documents, so simultaneous publication of different conflicting records is not a serializable transaction. Deterministic resolution still applies. Coordinate concurrent publishers for the same placement. Per-record revisions and Mongoose optimistic concurrency protect edits to the same record.
 
 The public API returns a content version/ETag, serverTime, validUntil and refresh interval, with `Cache-Control: no-store`. Clients refresh every 30 seconds or at the nearest known schedule boundary, and when visible/online. A healthy foreground client sees new publications within approximately 30 seconds plus request latency; browser throttling/network outages can extend that. Server clock offset drives current runtime deadlines. Per-scope/device/category session cache is usable only until validUntil (at most 30 seconds). Expired cache is discarded; defaults replace stale campaigns and countdowns. Catalog reads deduplicate concurrent requests with a bounded 15-second cache; checkout still revalidates.
+
+Startup configuration and splash artwork receive high fetch priority. A fresh session cache can display the splash during background revalidation. The initial configuration request has a three-second deadline; subsequent refreshes keep the existing ten-second request bound. The resolver batches independent database reads in parallel, selects only required document fields, deduplicates references and skips empty deal/category lookups (the default experience uses three base queries instead of five). There is no added shared stale cache or index migration; actual launch time still depends on the server, network and artwork size.
 
 ## API and permissions
 

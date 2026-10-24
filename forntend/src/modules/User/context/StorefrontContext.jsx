@@ -18,7 +18,7 @@ export function StorefrontProvider({ children }) {
   useEffect(() => { const media = window.matchMedia('(max-width: 600px)'); const change = () => setDevice(media.matches ? 'mobile' : 'desktop'); media.addEventListener('change', change); return () => media.removeEventListener('change', change); }, []);
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
-    let cancelled = false, timer, pending = false, queued = false;
+    let cancelled = false, timer, pending = false, queued = false, initial = true;
     const controller = new AbortController();
     setLoading(true); setData(null);
     try { const cached = JSON.parse(sessionStorage.getItem(`bulkimart:experience:${key}`)); if (freshExperience(cached)) setData({ ...cached, key }); } catch { /* optional cache */ }
@@ -28,7 +28,7 @@ export function StorefrontProvider({ children }) {
       pending = true; clearTimeout(timer);
       let delay = 30000;
       try {
-        const response = await boundedFetch(apiUrl(`/api/storefront/experience?${new URLSearchParams({ scope, device, category })}`), { signal: controller.signal });
+        const response = await boundedFetch(apiUrl(`/api/storefront/experience?${new URLSearchParams({ scope, device, category })}`), { signal: controller.signal, priority: 'high' }, initial ? 3000 : 10000);
         const body = await response.json();
         if (!response.ok || !freshExperience(body.data, Date.parse(body.data?.serverTime))) throw new Error('Invalid storefront configuration');
         if (cancelled) return;
@@ -38,6 +38,7 @@ export function StorefrontProvider({ children }) {
         try { sessionStorage.setItem(`bulkimart:experience:${key}`, JSON.stringify(body.data)); } catch { /* quota/private mode */ }
       } catch { /* valid cached content expires below; normal shopping always remains */ }
       finally {
+        initial = false;
         pending = false;
         if (!cancelled) {
           setLoading(false);

@@ -1,5 +1,6 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createElement } from 'react';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
 let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
@@ -243,7 +244,7 @@ test('leaving upload mode discards and releases the local preview; unsupported i
   } finally { h?.close(); URL.revokeObjectURL = originalRevoke; }
 });
 
-test('splash preview auto-closes, replays and skips without consuming customer frequency or publishing', () => {
+test('splash preview auto-closes and replays without consuming customer frequency or publishing', () => {
   const originalTimer = globalThis.setTimeout, callbacks = [];
   globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
   let h;
@@ -256,8 +257,7 @@ test('splash preview auto-closes, replays and skips without consuming customer f
     callbacks[1].callback(); h.flush(); assert.equal(h.find(n => n.type === SplashCard), undefined);
     h.click('Replay splash'); assert.ok(h.find(n => n.type === SplashCard)); assert.equal(callbacks.length, 3);
     h.rerender(); assert.equal(callbacks.length, 3);
-    const card = SplashCard(h.find(n => n.type === SplashCard).props);
-    h.find(n => n.props?.['aria-label'] === 'Close promotion', card).props.onClick(); h.flush();
+    callbacks[2].callback(); h.flush();
     assert.equal(h.find(n => n.type === SplashCard), undefined);
     assert.equal(window.sessionStorage.getItem(policy.frequencyKey(splash('session'))), null);
     assert.equal(window.localStorage.getItem(policy.frequencyKey(splash('daily'))), null);
@@ -269,7 +269,7 @@ test('splash preview updates artwork, device and duration and keeps Escape insid
   const props = { banner, config: { duration: 2 }, device: 'mobile' };
   const h = browserHarness(SplashPreview, props, {});
   try {
-    h.find(n => n.type === SplashCard).props.onDismiss(); h.flush();
+    h.find(n => n.props?.className === 'studio-splash-stage').props.onKeyDown({ key: 'Escape', stopPropagation() {} }); h.flush();
     props.banner = { ...banner, id: 'replacement', mobileImage: 'https://fixture.test/mobile.webp' };
     props.device = 'desktop'; props.config = { duration: 15, countdown: true }; props.endAt = new Date(Date.now() + 60000).toISOString(); h.rerender();
     const card = h.find(n => n.type === SplashCard);
@@ -292,16 +292,15 @@ test('an empty splash preview asks for artwork and cannot replay', () => {
     assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Replay splash').props.disabled, true);
   } finally { h.close(); }
 });
-test('launch artwork has no title panel; an informational splash shows only artwork and Skip', () => {
-  let dismissed = 0;
-  const card = SplashCard({ banner: { ...banner, subtitle: 'Private preview subtitle', destination: { type: 'NONE' } }, device: 'mobile', onDismiss() { dismissed++; } });
+test('launch artwork has no title panel or Skip button; an informational splash shows only artwork', () => {
+  const card = SplashCard({ banner: { ...banner, subtitle: 'Private preview subtitle', destination: { type: 'NONE' } }, device: 'mobile' });
   const h = browserHarness(() => card, {}, {});
   try {
     assert.ok(h.find(n => n.type === Media && n.props.banner.image === banner.image && n.props.eager));
     assert.equal(h.find(n => n.type === 'h2'), undefined);
     assert.equal(h.find(n => n.props?.className === 'sf-splash-actions'), undefined);
     assert.doesNotMatch(text(card), /BULKIMART PICKS|Published banner|Private preview subtitle/);
-    h.find(n => n.props?.['aria-label'] === 'Close promotion').props.onClick(); assert.equal(dismissed, 1);
+    assert.equal(h.find(n => n.type === 'button'), undefined);
   } finally { h.close(); }
 });
 
@@ -317,10 +316,95 @@ test('optional splash countdown and destination remain accessible over the artwo
   } finally { h.close(); }
 });
 
-test('splash closes with skip and does not reopen after subsequent rerenders', () => {
+test('home content stays unmounted through configuration loading and the splash, then mounts after auto-close', () => {
+  const originalTimer = globalThis.setTimeout, callbacks = [];
+  globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
+  const children = createElement('main', { id: 'deferred-home' });
+  const context = { loading: true, splash: null, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
+  let h;
+  try {
+    h = browserHarness(Splash, { children }, context);
+    assert.equal(h.tree.props.className, 'sf-launch-loading');
+    assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
+    context.loading = false; context.version = 'published'; context.splash = splash('launch'); h.rerender();
+    assert.ok(h.find(n => n.type === SplashCard));
+    assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
+    assert.equal(callbacks[0].delay, 15000); callbacks[0].callback(); h.flush();
+    assert.equal(h.tree, children);
+    context.now++; context.loading = true; h.rerender(); assert.equal(h.tree, children);
+  } finally { h?.close(); globalThis.setTimeout = originalTimer; }
+});
+
+test('a fresh cached splash opens before background revalidation finishes', () => {
+  const children = createElement('main');
+  const context = { loading: true, version: 'fresh-cache', splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const h = browserHarness(Splash, { children }, context);
+  try {
+    assert.ok(h.find(n => n.type === SplashCard)); assert.notEqual(h.tree, children);
+    const event = new Event('keydown'); Object.defineProperty(event, 'key', { value: 'Escape' }); document.dispatchEvent(event); h.flush();
+    assert.equal(h.tree, children);
+  } finally { h.close(); }
+});
+
+for (const reason of ['no campaign', 'already seen', 'future', 'expired']) test(`${reason} releases home without a splash`, () => {
+  const children = createElement('main');
+  const context = { loading: true, splash: null, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const h = browserHarness(Splash, { children }, context);
+  try {
+    if (reason !== 'no campaign') {
+      context.splash = splash('session');
+      if (reason === 'already seen') policy.markSplash(context.splash, { session: window.sessionStorage });
+      if (reason === 'future') context.splash.startAt = new Date(context.now + 60000).toISOString();
+      if (reason === 'expired') context.splash.endAt = new Date(context.now - 1).toISOString();
+    }
+    context.loading = false; h.rerender(); assert.equal(h.tree, children);
+  } finally { h.close(); }
+});
+
+for (const route of [{ activeNav: 'checkout' }, { activeNav: 'home', productDetailLoading: true }, { activeNav: 'home', selectedCampaignId: 'deal' }, { activeNav: 'home', selectedOrder: {} }]) test(`startup does not block an existing deep link: ${JSON.stringify(route)}`, () => {
+  const children = createElement('main');
+  const h = browserHarness(Splash, { children }, { loading: true, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, ...route });
+  try { assert.equal(h.tree, children); } finally { h.close(); }
+});
+
+test('startup configuration times out after three seconds and late responses cannot restore it', async () => {
+  const originalTimer = globalThis.setTimeout, callbacks = [];
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (delay === 3000) { callbacks.push(callback); return 999990 + callbacks.length; }
+    return originalTimer(callback, delay, ...args);
+  };
+  let h;
+  try {
+    h = browserHarness(Provider, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' });
+    assert.equal(h.tree.props.value.loading, true); assert.equal(callbacks.length, 1);
+    assert.equal(h.requests[0].options.priority, 'high');
+    callbacks[0](); await h.settle();
+    assert.equal(h.tree.props.value.loading, false); assert.equal(h.tree.props.value.splash, null);
+    h.requests[0].resolve({ data: { version: 'too-late', splash: splash('launch'), banners: [], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() } }); await h.settle();
+    assert.equal(h.tree.props.value.splash, null);
+  } finally { h?.close(); globalThis.setTimeout = originalTimer; }
+});
+
+test('splash artwork requests high image priority while ordinary media remains lazy', () => {
+  const h = browserHarness(Media, { banner, device: 'mobile', eager: true }, {});
+  try { assert.equal(h.tree.props.loading, 'eager'); assert.equal(h.tree.props.fetchPriority, 'high'); } finally { h.close(); }
+  const ordinary = browserHarness(Media, { banner, device: 'mobile' }, {});
+  try { assert.equal(ordinary.tree.props.loading, 'lazy'); assert.equal(ordinary.tree.props.fetchPriority, 'auto'); } finally { ordinary.close(); }
+});
+
+test('splash auto-closes without Skip and does not reopen after subsequent rerenders', () => {
+  const originalTimer = globalThis.setTimeout, callbacks = [];
+  globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
   const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, device: 'mobile', activeNav: 'home' };
-  const h = browserHarness(Splash, {}, context);
-  try { const card = SplashCard(h.find(n => n.type === SplashCard).props); assert.ok(h.find(n => n.props?.['aria-label'] === 'Close promotion', card)); h.find(n => n.props?.['aria-label'] === 'Close promotion', card).props.onClick(); h.flush(); assert.equal(h.tree, null); context.now++; h.rerender(); assert.equal(h.tree, null); } finally { h.close(); }
+  let h;
+  try {
+    h = browserHarness(Splash, {}, context);
+    const card = SplashCard(h.find(n => n.type === SplashCard).props);
+    assert.equal(h.find(n => n.props?.['aria-label'] === 'Close promotion', card), undefined);
+    assert.equal(callbacks[0].delay, 15000);
+    callbacks[0].callback(); h.flush(); assert.equal(h.tree, null);
+    context.now++; h.rerender(); assert.equal(h.tree, null);
+  } finally { h?.close(); globalThis.setTimeout = originalTimer; }
 });
 test('Escape and expiry dismiss the actual splash', () => {
   const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' }, h = browserHarness(Splash, {}, context);

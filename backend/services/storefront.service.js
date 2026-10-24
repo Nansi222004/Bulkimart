@@ -105,9 +105,15 @@ export function publicBanner(b, now = Date.now(), type) {
   return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', cta: b.cta || '', destination,
     endAt: [b.endDate, b.targetCampaign?.endAt].filter(Boolean).sort((a, c) => new Date(a) - new Date(c))[0] || null };
 }
-const populatedBanners = query => Banner.find(query).populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();
+const populatedBanners = query => Banner.find(query).select('title subtitle image mobileImage video cta type category placement actionType targetCategory targetProduct targetCampaign targetPromotion targetRoute externalUrl isActive isDraft isArchived priority startDate endDate').populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();
 export async function resolveExperience(scope, device, category = '', now = Date.now()) {
-  const rows = await Experience.find({ status: 'published', scope: { $in: ['global', scope] }, device: { $in: ['all', device] } }).lean();
+  const type = scope === 'quick' ? 'grocery' : 'ecommerce';
+  const [rows, headerCategories] = await Promise.all([
+    Experience.find({ status: 'published', scope: { $in: ['global', scope] }, device: { $in: ['all', device] } })
+      .select('kind name description status scope device priority order startAt endAt timezone config revision').lean(),
+    Category.find({ type, parent: null, isActive: true, showInNav: true, isSystem: { $ne: true } })
+      .select('name slug image icon type sortOrder').sort({ sortOrder: 1, name: 1, _id: 1 }).lean(),
+  ]);
   const active = rows.flatMap(row => {
     if (lifecycle(row, now) !== 'active') return [];
     try {
@@ -119,10 +125,14 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const campaigns = active.filter(r => r.kind === 'campaign');
   const sections = active.filter(r => r.kind === 'section');
   const refs = [...new Set([...campaigns, ...sections].map(r => r.config.bannerId).concat(themes.flatMap(t => t.config.categoryTiles.map(tile => tile.bannerId))).filter(Boolean))];
-  const type = scope === 'quick' ? 'grocery' : 'ecommerce';
-  const headerCategories = await Category.find({ type, parent: null, isActive: true, showInNav: true, isSystem: { $ne: true } })
-    .select('name slug image icon type sortOrder').sort({ sortOrder: 1, name: 1, _id: 1 }).lean();
-  const bannerRows = await populatedBanners({ type: { $in: ['general', type] }, $or: [{ _id: { $in: refs } }, { placement: 'HOME_HERO' }, { placement: null }] });
+  const dealIds = [...new Set(sections.filter(s => s.config.source === 'campaign').map(s => s.config.campaignId).filter(Boolean))];
+  // Fetch all candidate tile categories in one batch; theme priority resolves below.
+  const categoryIds = [...new Set(sections.filter(s => s.config.source === 'category').map(s => s.config.categoryId).concat(themes.flatMap(t => t.config.categoryTiles.map(tile => tile.categoryId))).filter(Boolean))];
+  const [bannerRows, deals, categories] = await Promise.all([
+    populatedBanners({ type: { $in: ['general', type] }, isActive: true, isDraft: { $ne: true }, isArchived: { $ne: true }, $or: [{ _id: { $in: refs } }, { placement: 'HOME_HERO' }, { placement: null }] }),
+    dealIds.length ? Campaign.find({ _id: { $in: dealIds }, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } }).select('endAt').lean() : [],
+    categoryIds.length ? Category.find({ _id: { $in: categoryIds }, isActive: true, type }).select('_id').lean() : [],
+  ]);
   const bannerMap = new Map(bannerRows.map(b => [String(b._id), publicBanner(b, now, type)]));
   const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: r.config });
   const resolvedCampaigns = campaigns.flatMap(r => {
@@ -133,10 +143,6 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const override = resolvedCampaigns.map(c => themes.find(t => String(t._id) === c.config.themeId)).find(Boolean);
   const standaloneThemes = themes.filter(t => t.config.application !== 'campaign');
   const theme = override || standaloneThemes.find(t => t.scope === scope) || standaloneThemes.find(t => t.scope === 'global');
-  const dealIds = sections.filter(s => s.config.source === 'campaign').map(s => s.config.campaignId);
-  const deals = await Campaign.find({ _id: { $in: dealIds }, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } }).select('endAt').lean();
-  const categoryIds = sections.filter(s => s.config.source === 'category').map(s => s.config.categoryId).concat((theme?.config.categoryTiles || []).map(tile => tile.categoryId));
-  const categories = await Category.find({ _id: { $in: categoryIds }, isActive: true, type }).select('_id').lean();
   const resolvedSections = sections.flatMap(r => {
     const deal = deals.find(d => String(d._id) === r.config.campaignId);
     if (r.config.source === 'campaign' && !deal) return [];

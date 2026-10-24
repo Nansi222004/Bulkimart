@@ -28,7 +28,7 @@
 .studio-splash-controls button{border:1px solid #c9d8e5;border-radius:8px;background:#fff;color:#172b4d;padding:8px;font-size:11px;min-height:40px;cursor:pointer}
 .studio-splash-stage{position:relative;isolation:isolate;container-type:size;height:520px;overflow:hidden;background:var(--sf-background)}
 .studio-preview--desktop .studio-splash-stage{height:420px}.studio-launch-underlay>p{padding:24px;font-size:13px;line-height:1.6;color:var(--sf-muted)}
-.studio-splash-stage .sf-splash{position:absolute;inset:0;box-sizing:border-box;--sf-splash-safe-top:0px}
+.studio-splash-stage .sf-splash{position:absolute;inset:0;box-sizing:border-box}
 .studio-splash-preview>.studio-help{margin:0;padding:12px 14px;background:var(--sf-surface);color:var(--sf-muted)}
 @media(min-width:761px){.studio-editor-body{flex:1;grid-template-rows:minmax(0,1fr);overflow:hidden}.studio-editor-body>form,.studio-editor-body>.studio-preview-pane{min-height:0;overflow:auto}}
 .studio-banner-upload-card{background:#fff;border:1px dashed #087ea466;border-radius:10px;padding:16px;margin-top:6px}

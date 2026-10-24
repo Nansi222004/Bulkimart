@@ -4,9 +4,8 @@ import { countdown } from '../../../utils/storefront';
 
 // Shared presentation for the real customer splash and the admin launch preview.
 // Frequency, publication and navigation remain the responsibility of the host.
-export default function SplashCard({ banner, device, now, endAt, showCountdown, onDismiss, onNavigate }) {
+export default function SplashCard({ banner, device, now, endAt, showCountdown, onNavigate }) {
   return <div className="sf-splash-card">
-    <button type="button" className="sf-skip" onClick={onDismiss} aria-label="Close promotion">Skip ✕</button>
     <StorefrontMedia banner={banner} device={device} eager />
     {(showCountdown && endAt || banner.destination?.type && banner.destination.type !== 'NONE') && <div className="sf-splash-actions">
       {showCountdown && endAt && <p>Ends in <time>{countdown(endAt, now)}</time></p>}

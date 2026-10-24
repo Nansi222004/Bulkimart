@@ -11,10 +11,10 @@ const splashScreenOnly = process.argv.includes('--splash-screen');
 async function checkSplashGeometry(selector, frameSelector) {
   const result = await evaluate(`(() => {
     const root = document.querySelector(${JSON.stringify(selector)}), card = root.querySelector('.sf-splash-card');
-    const media = card.querySelector('img,video,.sf-media-fallback'), skip = root.querySelector('.sf-skip');
+    const media = card.querySelector('img,video,.sf-media-fallback');
     const rect = element => { const r = element.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
     const frame = ${frameSelector ? `rect(document.querySelector(${JSON.stringify(frameSelector)}))` : '{x:visualViewport.offsetLeft,y:visualViewport.offsetTop,width:visualViewport.width,height:visualViewport.height}'};
-    return { frame, root:rect(root), card:rect(card), media:rect(media), skip:rect(skip),
+    return { frame, root:rect(root), card:rect(card), media:rect(media), skip:!!root.querySelector('.sf-skip'),
       radius:getComputedStyle(card).borderRadius, fit:getComputedStyle(media).objectFit,
       background:getComputedStyle(root).backgroundColor, copy:!!root.querySelector('.sf-splash-copy,h2') };
   })()`);
@@ -23,7 +23,7 @@ async function checkSplashGeometry(selector, frameSelector) {
   }
   assert.equal(result.radius, '0px'); assert.equal(result.fit, 'cover'); assert.equal(result.copy, false);
   assert.match(result.background, /^rgb\(/, 'Launch background is opaque');
-  assert.ok(result.skip.x >= result.frame.x && result.skip.y >= result.frame.y && result.skip.x + result.skip.width <= result.frame.x + result.frame.width && result.skip.y + result.skip.height <= result.frame.y + result.frame.height, 'Skip stays inside the launch screen');
+  assert.equal(result.skip, false, 'Splash has no Skip button');
 }
 let source = await readFile(new URL('../tests/mobile-layout.test.mjs', import.meta.url), 'utf8');
 const replace = (marker, value) => { assert.ok(source.includes(marker), `Missing browser runner marker: ${marker.slice(0, 60)}`); source = source.replace(marker, value); };
@@ -52,6 +52,19 @@ replace('  const path = new URL(raw).pathname;', `  const path = new URL(raw).pa
 `);
 replace('      if (startupOnly) {', `
       if(layoutScenario.startsWith('storefront')){
+        if(layoutScenario.includes('splash')){
+          await waitFor("!!document.querySelector('.sf-splash-card')");
+          assert.equal(await evaluate("!!document.querySelector('.unified-header-container,.home-feed-scrollable,.sf-product')"),false,'Home discovery remains unmounted during the launch splash');
+          await checkSplashGeometry('.sf-splash');
+          assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Splash owns focus');
+          await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+          assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Tab remains in splash');
+          if(layoutScenario.includes('video'))await waitFor("!!document.querySelector('.sf-splash .sf-media-fallback')");
+          if(width===390){const directory=resolve('../test-artifacts/storefront');await mkdir(directory,{recursive:true});await writeFile(join(directory,layoutScenario+'-fullscreen.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}
+          await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+          await waitFor("!document.querySelector('.sf-splash')");
+          assert.equal(await evaluate("document.activeElement.closest('[inert]')!==null"),false,'Focus is restored outside inert content');
+        }
         await waitFor("!!document.querySelector('.unified-header-container')");
         assert.equal(await evaluate("getComputedStyle(document.querySelector('.header-primary-row')).backgroundColor"),'rgb(121, 0, 11)','Deep-red header in default mode');
         assert.equal(await evaluate("getComputedStyle(document.querySelector('.header-brand-name span')).color"),'rgb(255, 255, 255)','Readable brand');
@@ -100,7 +113,9 @@ replace('      if (startupOnly) {', `
         await checkSplashGeometry('.studio-splash-stage .sf-splash', '.studio-splash-stage');
         assert.equal(await evaluate("!!document.querySelector('.studio-preview-collection')"),false,'Splash preview omits homepage collections');
         assert.equal(await evaluate("getComputedStyle(document.querySelector('.studio-editor footer .sa-btn-primary')).backgroundColor"),'rgb(8, 126, 164)','Publish label has a contrasting background');
-        await evaluate("document.querySelector('.studio-splash-stage .sf-skip').click()");
+        await evaluate("document.querySelector('.studio-splash-stage').focus()");
+        await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+        await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
         await waitFor("!document.querySelector('.studio-splash-stage .sf-splash')");
         await evaluate("[...document.querySelectorAll('.studio-splash-controls button')].find(b=>b.textContent==='Replay splash').click()");
         await waitFor("!!document.querySelector('.studio-splash-stage .sf-splash')");
@@ -126,18 +141,6 @@ replace('      if (startupOnly) {', `
           assert.equal(await evaluate("!!document.querySelector('.header-category-tab')"),false,'No default header categories');
           assert.equal(await evaluate("!!document.querySelector('.sf-carousel-controls')"),false,'Only the default banner');
         }else{
-          if(layoutScenario.includes('splash')){
-            await waitFor("!!document.querySelector('.sf-splash')");
-            await checkSplashGeometry('.sf-splash');
-            if(width===390){const directory=resolve('../test-artifacts/storefront');await mkdir(directory,{recursive:true});await writeFile(join(directory,layoutScenario+'-fullscreen.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));}
-            assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Splash owns focus');
-            await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
-            assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Tab remains in splash');
-            if(layoutScenario.includes('video'))await waitFor("!!document.querySelector('.sf-splash .sf-media-fallback')");
-            await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
-            await waitFor("!document.querySelector('.sf-splash')");
-            assert.equal(await evaluate("document.activeElement.closest('[inert]')!==null"),false,'Focus is restored outside inert content');
-          }
           await waitFor("!!document.querySelector('.sf-hero') && !!document.querySelector('.sf-product')");
           assert.equal(await evaluate("document.querySelectorAll('.header-sub-nav-scroll .header-category-tab').length"),8,'All configured categories are header tabs');
           assert.equal(await evaluate("!!document.querySelector('.sf-hero-default')"),false,'Admin banner replaces the default');

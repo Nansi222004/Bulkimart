@@ -346,7 +346,7 @@ export const LandingPageContent = () => {
 const LandingPage = () => {
   return (
     <UserProvider>
-      <StorefrontProvider><PromotionalSplash /><LandingPageContent /></StorefrontProvider>
+      <StorefrontProvider><PromotionalSplash><LandingPageContent /></PromotionalSplash></StorefrontProvider>
     </UserProvider>
   );
 };

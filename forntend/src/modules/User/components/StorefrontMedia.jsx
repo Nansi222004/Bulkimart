@@ -24,5 +24,5 @@ export default function StorefrontMedia({ banner, device, active = true, eager =
   }, [active, reduced, failedVideo, banner.video]);
   if (active && banner.video && !reduced && !failedVideo) return <video ref={video} src={mediaSrc(banner.video)} poster={mediaSrc(image)} muted playsInline controls preload="metadata" onError={fallBackVideo} aria-label={banner.title || 'Promotion'} />;
   if (failedImage || !image) return <div className="sf-media-fallback" role="img" aria-label="Promotional image unavailable">{banner.title || 'Discover Bulkimart'}</div>;
-  return <img src={mediaSrc(image)} alt={banner.title || 'Bulkimart promotion'} loading={eager ? 'eager' : 'lazy'} decoding="async" onError={() => setFailedImage(true)} />;
+  return <img src={mediaSrc(image)} alt={banner.title || 'Bulkimart promotion'} loading={eager ? 'eager' : 'lazy'} fetchPriority={eager ? 'high' : 'auto'} decoding="async" onError={() => setFailedImage(true)} />;
 }

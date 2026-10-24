@@ -44,6 +44,16 @@ beforeEach(async () => {
   banner = await Banner.create({ title: 'Real campaign', image: 'https://cdn.example.test/banner.webp', type: 'general', placement: 'STUDIO', isActive: true });
 });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); });
+test('the default experience skips empty deal and category-reference queries', async () => {
+  const deals = jest.spyOn(Campaign, 'find'), categories = jest.spyOn(Category, 'find');
+  try {
+    const data = await publicRead();
+    expect(data.splash).toBeNull(); expect(data.sections).toEqual([]);
+    expect(deals).not.toHaveBeenCalled(); expect(categories).toHaveBeenCalledTimes(1);
+    expect(categories.mock.calls[0][0]).toMatchObject({ parent: null, showInNav: true });
+  } finally { deals.mockRestore(); categories.mockRestore(); }
+});
+
 test('header categories are explicitly selected, scoped, active roots in admin order, without a fallback', async () => {
   expect((await publicRead()).headerCategories).toEqual([]);
   const first = await Category.create({ name: 'First', type: 'grocery', slug: 'grocery--first', showInNav: true, sortOrder: 1, image: '/uploads/category.webp' });

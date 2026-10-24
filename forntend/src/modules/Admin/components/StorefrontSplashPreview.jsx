@@ -33,7 +33,7 @@ export default function StorefrontSplashPreview({ banner, config, device, endAt 
         <p>{banner ? 'Your storefront continues after the splash closes.' : 'Select or upload a banner to preview your splash screen.'}</p>
       </div>
       {playing && artwork && <div className="sf-splash" aria-label="Splash appearance preview">
-        <SplashCard banner={artwork} device={device} now={now} endAt={endAt} showCountdown={config.countdown} onDismiss={dismiss} onNavigate={dismiss} />
+        <SplashCard banner={artwork} device={device} now={now} endAt={endAt} showCountdown={config.countdown} onNavigate={dismiss} />
       </div>}
     </div>
     <p className="studio-help">Preview only. Publish this campaign to show it on eligible customer app launches.</p>
