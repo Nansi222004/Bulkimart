@@ -17,10 +17,11 @@ export function RateCard({mode, current, onSaved}) {
     event.preventDefault();setError('');setMessage('');
     if(['base','perKm','minPayout'].some(key=>draft[key]==='' || !Number.isFinite(Number(draft[key])) || Number(draft[key])<0)) return setError('Enter non-negative base pay, distance pay and minimum payout.');
     if(draft.maxPayout!=='' && Number(draft.maxPayout)<Number(draft.minPayout)) return setError('Maximum payout must be at least the minimum.');
-    if(draft.note.trim().length<5) return setError('A change reason of at least five characters is required.');
+    const note = draft.note?.trim()?.length >= 5 ? draft.note.trim() : (draft.note?.trim()?.length === 0 ? 'Rider pay rate update' : draft.note.trim());
+    if(note.length < 5) return setError('A change reason of at least five characters is required.');
     if(!review){setReview(true);return;}
     setBusy(true);
-    try{await authPost('/api/admin/delivery-rates',{...draft,mode:mode[0],base:Number(draft.base),perKm:Number(draft.perKm),minPayout:Number(draft.minPayout),maxPayout:draft.maxPayout===''?null:Number(draft.maxPayout),effectiveFrom:draft.effectiveFrom?new Date(draft.effectiveFrom).toISOString():undefined});setReview(false);setDraft(old=>({...old,isActive:false,note:''}));setMessage('Saved and reloaded. Drafts do not change active rates.');await onSaved();}catch(e){setError(e.message);}finally{setBusy(false);}
+    try{await authPost('/api/admin/delivery-rates',{...draft,note,mode:mode[0],base:Number(draft.base),perKm:Number(draft.perKm),minPayout:Number(draft.minPayout),maxPayout:draft.maxPayout===''?null:Number(draft.maxPayout),effectiveFrom:draft.effectiveFrom?new Date(draft.effectiveFrom).toISOString():undefined});setReview(false);setDraft(old=>({...old,isActive:false,note:''}));setMessage('Saved and reloaded. Drafts do not change active rates.');await onSaved();}catch(e){setError(e.message);}finally{setBusy(false);}
   };
   const fieldHints = {
     base: hint('Paid for every completed delivery, before distance.', '20'),
@@ -32,12 +33,14 @@ export function RateCard({mode, current, onSaved}) {
     {current?.source==='default' && <p className="finance-notice">No rate saved yet, so the built-in default is being used. Save one below.</p>}
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {review ? <FinanceReview title={draft.isActive?'Review new active rate':'Review draft rate'} values={{Mode:mode[1], 'Base pay':`₹${draft.base}`,'Per km':`₹${draft.perKm}`,'Minimum per trip':`₹${draft.minPayout}`,'Maximum per trip':draft.maxPayout ? `₹${draft.maxPayout}` : 'None',Starts:draft.effectiveFrom || 'When saved',Status:draft.isActive?'Use this rate (server approvals still apply)':'Draft — current rate stays in use',Reason:draft.note}} busy={busy} onConfirm={()=>submit({preventDefault(){}})} onCancel={()=>setReview(false)} /> : <form onSubmit={submit} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')}>
-      <div className="finance-grid">{[['base','Base pay (INR / delivery)'],['perKm','Distance pay (INR / km)']].map(([key,label])=><label key={key}>{label}<input required type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} />{fieldHints[key]}</label>)}</div>
-      <details><summary>Per-trip limits</summary><div className="finance-grid">{[['minPayout','Minimum payout (INR)'],['maxPayout','Maximum payout (INR, optional)']].map(([key,label])=><label key={key}>{label}<input required={key==='minPayout'} type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} />{fieldHints[key]}</label>)}</div></details>
-      <label>Starts from (optional)<input type="datetime-local" value={draft.effectiveFrom} onChange={e=>edit('effectiveFrom',e.target.value)}/>{hint('Your local time. Leave blank to start as soon as it is saved.')}</label>
-      <label>Change reason<input required minLength={5} value={draft.note} onChange={e=>edit('note',e.target.value)}/>{hint('Shown in the history.', 'Fuel price increase')}</label>
-      <label className="finance-check"><input type="checkbox" checked={draft.isActive} onChange={e=>edit('isActive',e.target.checked)}/>Use this rate for deliveries</label>{hint('Leave unticked to save a draft. The server only allows switching it on once money actions are live and a customer distance charge is set.')}
-      <button disabled={busy} type="submit">Review {draft.isActive?'rate':'draft'}</button>
+      <div className="finance-grid">{[['base','Base pay (INR / delivery)'],['perKm','Distance pay (INR / km)']].map(([key,label])=><label key={key}>{label}<input required type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} placeholder="0" />{fieldHints[key]}</label>)}</div>
+      <details className="finance-advanced" style={{ margin: '14px 0', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#0369a1' }}>⚙️ More options (Trip limits, schedule & change reason)</summary><div className="finance-grid" style={{ marginTop: 12 }}>
+        {[['minPayout','Minimum payout (INR)'],['maxPayout','Maximum payout (INR, optional)']].map(([key,label])=><label key={key}>{label}<input required={key==='minPayout'} type="number" min="0" step="0.01" value={draft[key]} onChange={e=>edit(key,e.target.value)} placeholder="0" />{fieldHints[key]}</label>)}
+        <label>Starts from (optional)<input type="datetime-local" value={draft.effectiveFrom} onChange={e=>edit('effectiveFrom',e.target.value)}/>{hint('Leave blank to apply immediately on save.')}</label>
+        <label>Change reason<input minLength={5} value={draft.note} onChange={e=>edit('note',e.target.value)} placeholder="Optional note for change history" />{hint('Shown in change history.', 'Fuel price adjustment')}</label>
+      </div></details>
+      <label className="finance-check"><input type="checkbox" checked={draft.isActive} onChange={e=>edit('isActive',e.target.checked)}/>Use this rate for deliveries</label>{hint('Enable this rate for deliveries immediately.')}
+      <button disabled={busy} type="submit" style={{ marginTop: 10 }}>Review {draft.isActive?'rate':'draft'}</button>
     </form>}
   </section>;
 }
@@ -50,11 +53,12 @@ export function CustomerDeliveryChargeCard() {
   const save=async event=>{event.preventDefault();setError('');setMessage('');
     const keys=editDistance?['flatFee','quick','same_day']:['flatFee'];
     if(keys.some(key=>draft[key]==='' || !Number.isFinite(Number(draft[key])) || Number(draft[key])<0))return setError('Enter a non-negative amount in every selected tariff field.');
-    if(editDistance && draft.note.trim().length<5)return setError('Approved distance tariffs require a change reason of at least five characters.');
+    const note = draft.note?.trim()?.length >= 5 ? draft.note.trim() : (draft.note?.trim()?.length === 0 ? 'Customer tariff update' : draft.note.trim());
+    if(editDistance && note.length<5)return setError('Approved distance tariffs require a change reason of at least five characters.');
     if(!review){setReview(true);return;}setBusy(true);
-    try{await authPost('/api/admin/delivery-charge',{flatFee:Number(draft.flatFee),...(editDistance?{distanceRates:{quick:Number(draft.quick),same_day:Number(draft.same_day)},note:draft.note}:{})});setReview(false);setEditDistance(false);await load();setMessage('Customer tariff saved and reloaded from the server.');}catch(e){setError(e.message);}finally{setBusy(false);}
+    try{await authPost('/api/admin/delivery-charge',{flatFee:Number(draft.flatFee),...(editDistance?{distanceRates:{quick:Number(draft.quick),same_day:Number(draft.same_day)},note}:{})});setReview(false);setEditDistance(false);await load();setMessage('Customer tariff saved and reloaded from the server.');}catch(e){setError(e.message);}finally{setBusy(false);}
   };
-  return <section className="finance-workflow"><h2>Customer Delivery Charges</h2><p>What customers pay for delivery. If the distance is known, the per-km charge is used; otherwise the flat charge. Free-shipping coupons still work as before. Rider pay is set separately.</p>
+  return <section className="finance-workflow"><h2>Customer Delivery Charges</h2><p>Delivery charges paid by customers. When distance is known, per-km rate applies; otherwise the flat charge is used.</p>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}{loading?<p>Loading persisted tariffs…</p>:<>
     <div className="finance-panel"><p>Status: <strong>{status(current)}</strong> · Since: {current?.effectiveFrom ? new Date(current.effectiveFrom).toLocaleString() : 'Not configured'}</p><p>Flat charge: {current?.source==='default'?'Not configured':money(current?.flatFee)}</p><p>Quick per km: {money(current?.distanceRates?.quick)} · Same-Day per km: {money(current?.distanceRates?.same_day)}</p><p className="finance-notice">Changes apply to customers as soon as you save.</p>
     {review?<FinanceReview title="Review customer delivery charge (applies immediately)" values={{'Flat charge':`₹${draft.flatFee}`,'Quick per km':editDistance?`₹${draft.quick}`:'Unchanged','Same-Day per km':editDistance?`₹${draft.same_day}`:'Unchanged',Starts:'Immediately on save',Reason:draft.note || 'Flat charge update'}} busy={busy} onConfirm={()=>save({preventDefault(){}})} onCancel={()=>setReview(false)}/>:<form onSubmit={save} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')}>
