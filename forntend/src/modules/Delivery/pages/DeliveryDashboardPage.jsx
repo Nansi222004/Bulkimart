@@ -3,6 +3,7 @@ import { useDelivery } from '../context/DeliveryContext';
 import OrderPingModal from '../components/OrderPingModal';
 import DepositModal from '../components/DepositModal';
 import BrandLogo from '../../../components/BrandLogo';
+import ParcelRiderInbox from '../../../components/parcels/ParcelRiderInbox';
 
 export const DeliveryDashboardPage = () => {
   const { 
@@ -18,7 +19,10 @@ export const DeliveryDashboardPage = () => {
     earningsData,
     riderName,
     riderProfile,
-    riderPingOrder
+    riderPingOrder,
+    presenceError,
+    presenceUpdatedAt,
+    refreshPresence
   } = useDelivery();
 
   const [showDeposit, setShowDeposit] = useState(false);
@@ -94,15 +98,17 @@ export const DeliveryDashboardPage = () => {
       </div>
 
       {/* COD Debit Wallet Status Card */}
+      {isOnline&&<section className={presenceError?'parcel-presence-warning':'parcel-presence-status'} aria-label="Live location"><p role={presenceError?'alert':'status'}>{presenceError||<><strong>{presenceUpdatedAt?'Location ready':'Updating your location'}</strong>{presenceUpdatedAt&&<small>Updated {new Date(presenceUpdatedAt).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})}</small>}</>}</p><button type="button" onClick={refreshPresence}>Update location</button></section>}
+      <ParcelRiderInbox enabled={riderProfile?.status==='approved'}/>
       <div className="delivery-card delivery-debit-wallet-card">
         <div className="delivery-card-header">
-          <span className="delivery-card-title">💰 COD Debit Wallet</span>
+          <span className="delivery-card-title">Cash to deposit</span>
           <span className="delivery-wallet-status">{debitWallet >= codLimit ? 'BLOCKED' : 'ACTIVE'}</span>
         </div>
         <div className="delivery-wallet-balance-row">
           <div className="delivery-balance-col">
             <span className="delivery-balance-val">₹{debitWallet}</span>
-            <span className="delivery-balance-label">Cash collected (Liability to company)</span>
+            <span className="delivery-balance-label">Cash collected for Bulkimart</span>
           </div>
           <button 
             className="delivery-settle-btn"
@@ -128,12 +134,12 @@ export const DeliveryDashboardPage = () => {
         {/* COD warnings messages */}
         {isWalletBlocked && (
           <div className="delivery-alert-box blocked">
-            ⚠️ <strong>Blocked:</strong> Floating cash limit exceeded. Please deposit the cash collected to unlock orders.
+            ⚠️ <strong>Blocked:</strong> Your cash limit has been reached. Deposit the collected cash to receive more orders.
           </div>
         )}
         {!isWalletBlocked && isWalletWarning && (
           <div className="delivery-alert-box warning">
-            ⚠️ <strong>Nearing Limit:</strong> Settle your COD wallet soon to prevent account blocking.
+            ⚠️ <strong>Nearing Limit:</strong> Deposit the collected cash soon to keep receiving orders.
           </div>
         )}
       </div>
@@ -178,12 +184,12 @@ export const DeliveryDashboardPage = () => {
               <div className="radar-ring-2" />
               <div className="radar-center">📡</div>
             </div>
-            <h4>Listening for Orders...</h4>
-            <p>We are searching for quick commerce deliveries in your zone.</p>
+            <h4>Ready for shopping orders</h4>
+            <p>New shopping delivery requests will appear here.</p>
             
             {isWalletBlocked ? (
               <p className="delivery-error-text" style={{ color: 'var(--error)', fontWeight: 'bold' }}>
-                Clear COD Debit Wallet to receive orders.
+                Deposit collected cash to receive more shopping orders.
               </p>
             ) : (
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>

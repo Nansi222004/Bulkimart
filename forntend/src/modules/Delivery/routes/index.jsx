@@ -10,7 +10,6 @@ import ReturnPickupsPage from '../pages/ReturnPickupsPage';
 import DeliveryProfilePage from '../pages/DeliveryProfilePage';
 import DeliverySupportPage from '../pages/DeliverySupportPage';
 import ParcelOperations from '../../../components/parcels/ParcelOperations';
-import { ParcelDiscovery } from '../../../components/parcels/ParcelDelivery';
 import DeliveryNavbar from '../components/DeliveryNavbar';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
@@ -132,7 +131,6 @@ const DeliveryRoutesContent = () => {
 
       {/* Main content scroll container */}
       <div className="delivery-main-viewport">
-        {activeTab === 'dashboard' && !activeOrder && <ParcelDiscovery driver />}
         {renderActiveView()}
       </div>
 

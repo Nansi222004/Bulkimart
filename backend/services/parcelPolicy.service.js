@@ -42,8 +42,8 @@ export function validateParcelPolicy(input) {
   for (const [k, min, max] of [['basePaise',0,MAX_CHECKOUT_PAISE],['perKmPaise',0,MAX_CHECKOUT_PAISE],['minimumPaise',1,MAX_CHECKOUT_PAISE],['maximumPaise',1,MAX_CHECKOUT_PAISE],['driverBasePaise',0,MAX_CHECKOUT_PAISE],['driverPerKmPaise',0,MAX_CHECKOUT_PAISE],['quoteSeconds',30,3600],['acceptanceSeconds',15,600],['maxAttempts',1,20],['maxActiveTasks',1,10],['locationMaxAgeSeconds',30,3600]]) c[k] = integer(input[k], k, min, max);
   for (const [k, max] of [['maxWeightKg',100],['maxDimensionCm',500],['assignmentRadiusKm',100],['maxRouteKm',500]]) c[k] = positive(input[k], k, max);
   // Supported initial policy combinations are intentionally explicit.
-  if (input.taxTreatment !== 'inclusive' || input.surcharges !== 'none' || input.cancellationMode !== 'admin_review' || input.failureMode !== 'admin_review' || input.cashCollectionPoint !== 'delivery' || input.partialCash !== false || typeof input.payDriverEnabled !== 'boolean') failParcel('Unsupported policy: require inclusive approved taxes, no surcharges, admin review, exact cash at delivery');
-  Object.assign(c, { taxTreatment: 'inclusive', surcharges: 'none', cancellationMode: 'admin_review', failureMode: 'admin_review', cashCollectionPoint: 'delivery', partialCash: false, payDriverEnabled: input.payDriverEnabled });
+  if (input.taxTreatment !== 'inclusive' || input.surcharges !== 'none' || input.cancellationMode !== 'admin_review' || input.failureMode !== 'admin_review' || !['pickup','delivery','customer_choice'].includes(input.cashCollectionPoint) || input.partialCash !== false || typeof input.payDriverEnabled !== 'boolean') failParcel('Unsupported policy: require inclusive approved taxes, no surcharges, admin review, an approved cash collection point and exact cash');
+  Object.assign(c, { taxTreatment: 'inclusive', surcharges: 'none', cancellationMode: 'admin_review', failureMode: 'admin_review', cashCollectionPoint: input.cashCollectionPoint, partialCash: false, payDriverEnabled: input.payDriverEnabled });
   c.taxRateBps = integer(input.taxRateBps, 'explicit inclusive tax rate in basis points', 0, 10000);
   c.payDriverCategories = strings(input.payDriverCategories, 'pay-driver categories');
   if (c.payDriverCategories.some(x => !c.categories.includes(x)) || c.minimumPaise > c.maximumPaise || c.driverBasePaise > c.maximumPaise) failParcel('Inconsistent fare or category policy');
@@ -51,6 +51,7 @@ export function validateParcelPolicy(input) {
   return c;
 }
 export function coordinate(n, max) { if (typeof n !== 'number' || !Number.isFinite(n) || Math.abs(n) > max) failParcel('Valid map coordinates required'); return n; }
+export const parcelCashCollectionPoints = config => config?.cashCollectionPoint === 'customer_choice' ? ['pickup','delivery'] : [config?.cashCollectionPoint === 'pickup' ? 'pickup' : 'delivery'];
 function positive(n, label, max) { if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0 || n > max) failParcel(`Invalid ${label}`); return n; }
 export async function currentParcelPolicy(session) {
   const q = ParcelPolicy.findById('parcel');
@@ -59,17 +60,19 @@ export async function currentParcelPolicy(session) {
   return p;
 }
 export function validateParcelDetails(input, c, distance) {
-  const address = (a = {}) => {
+  const address = (a = {}, label) => {
     if (!a || typeof a !== 'object' || Array.isArray(a)) failParcel('Complete address required');
     const v = { address: boundedText(a.address, 'Address'), name: boundedText(a.name, 'Contact name', 100), phone: boundedText(a.phone, 'Phone', 20), pincode: boundedText(a.pincode, 'Pincode', 6), lat: coordinate(a.lat,90), lng: coordinate(a.lng,180) };
     if (!/^\d{6}$/.test(v.pincode) || !/^\+?[1-9]\d{9,14}$/.test(v.phone)) failParcel('Valid phone and pincode required');
-    if (!c.areas.some(x => x.pincodes.includes(v.pincode) && distance(x,v) <= x.radiusKm)) failParcel('Address is outside approved service areas');
+    const matchingAreas = c.areas.filter(x => x.pincodes.includes(v.pincode));
+    if (!matchingAreas.length) failParcel(`${label} address is outside approved service areas: pincode ${v.pincode} is not approved for parcel delivery. Choose another location.`);
+    if (!matchingAreas.some(x => distance(x,v) <= x.radiusKm)) failParcel(`${label} address is outside approved service areas: the selected pin is outside the coverage radius for pincode ${v.pincode}. Check the map pin.`);
     return v;
   };
   if (!c.categories.includes(input.category) || input.acceptRestrictions !== true) failParcel('Select an approved category and accept parcel restrictions');
   const dimensions = input.dimensions;
   if (!Array.isArray(dimensions) || dimensions.length !== 3) failParcel('Three dimensions required');
-  return { pickup: address(input.pickup), dropoff: address(input.dropoff), category: input.category, description: boundedText(input.description,'Parcel description'), weightKg: positive(input.weightKg,'weight',c.maxWeightKg), dimensions: dimensions.map(n => positive(n,'dimension',c.maxDimensionCm)), instructions: typeof input.instructions === 'string' ? input.instructions.trim().slice(0,500) : '', acceptRestrictions: true };
+  return { pickup: address(input.pickup, 'Pickup'), dropoff: address(input.dropoff, 'Drop'), category: input.category, description: boundedText(input.description,'Parcel description'), weightKg: positive(input.weightKg,'weight',c.maxWeightKg), dimensions: dimensions.map(n => positive(n,'dimension',c.maxDimensionCm)), instructions: typeof input.instructions === 'string' ? input.instructions.trim().slice(0,500) : '', acceptRestrictions: true };
 }
 export function parcelFare(distanceKm, p) {
   if (!Number.isFinite(distanceKm) || distanceKm <= 0 || distanceKm > p.config.maxRouteKm) failParcel('Route distance is unsupported', 409);

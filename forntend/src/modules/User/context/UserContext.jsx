@@ -563,6 +563,14 @@ export const UserProvider = ({ children }) => {
       openSessionDashboard(data.sessionRole);
       if (data.sessionRole === 'buyer') {
         try {
+          const parcelReturn = sessionStorage.getItem('bulkimart:parcel-return');
+          sessionStorage.removeItem('bulkimart:parcel-return');
+          if (/^\/parcel-delivery(?:\/(?:book|history|track\/[a-f0-9]{24}))?\/?$/i.test(parcelReturn || '')) {
+            window.history.replaceState(null, '', parcelReturn);
+            window.dispatchEvent(new Event('popstate'));
+          }
+        } catch { /* A missing return intent does not block sign-in. */ }
+        try {
           const destination = JSON.parse(sessionStorage.getItem('bulkimart:product-return') || 'null');
           sessionStorage.removeItem('bulkimart:product-return');
           if (destination && /^[a-f0-9]{24}$/i.test(destination.productId) && /^\/(?:grocery--[a-z0-9-]+|ecommerce--[a-z0-9-]+|smart-buy|search|categories|groceries|wholesale(?:\/[a-f0-9]{24})?|)$/.test(destination.path)) {

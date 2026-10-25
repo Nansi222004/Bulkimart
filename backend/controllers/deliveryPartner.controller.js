@@ -303,6 +303,47 @@ export const getMyProfile = asyncHandler(async (req, res) => {
   });
 });
 
+// Operational coverage can change after approval without replacing verified KYC.
+export const updateServiceArea = asyncHandler(async (req, res) => {
+  if (req.userType !== 'user') throw httpError(403, 'Rider account required');
+  const input = req.body;
+  if (!input || Array.isArray(input) || Object.keys(input).some(key => !['zones', 'version'].includes(key))) {
+    throw httpError(400, 'Only delivery pincodes and profile version can be updated here');
+  }
+  if (!Number.isSafeInteger(input.version) || input.version < 0) throw httpError(400, 'Refresh your profile before saving');
+  if (typeof input.zones !== 'string' && !Array.isArray(input.zones)) throw httpError(400, 'Add at least one delivery pincode');
+  const entries = typeof input.zones === 'string' ? input.zones.split(',') : input.zones;
+  if (entries.some(value => typeof value !== 'string')) throw httpError(400, 'Enter 6-digit pincodes separated by commas');
+  const zones = [...new Set(entries.map(value => value.trim()).filter(Boolean))];
+  if (!zones.length || zones.length > 50 || zones.some(value => !/^\d{6}$/.test(value))) {
+    throw httpError(400, 'Enter 1 to 50 valid 6-digit delivery pincodes');
+  }
+  const partner = await DeliveryPartner.findOneAndUpdate(
+    { userId: req.user._id, __v: input.version },
+    { $set: { zones }, $inc: { __v: 1 } },
+    { returnDocument: 'after', runValidators: true },
+  ).select('zones __v');
+  if (!partner) {
+    await requireProfile(req.user._id);
+    throw httpError(409, 'Your profile changed. Reload the saved service area before trying again.');
+  }
+  return ok(res, { zones: partner.zones, version: partner.__v }, 'Service area saved');
+});
+
+// Refresh live dispatch position without rewriting the rider's base address.
+export const updatePresence = asyncHandler(async (req, res) => {
+  if (req.userType !== 'user' || !req.user.roles?.includes('delivery')) throw httpError(403, 'Delivery account required');
+  const parsed = parseLocation(req.body, { requireCoords: true });
+  if (!parsed.ok) throw httpError(400, parsed.message);
+  const partner = await DeliveryPartner.findOneAndUpdate(
+    { userId: req.user._id, status: 'approved' },
+    { $set: { currentLocation: { lat: parsed.location.lat, lng: parsed.location.lng, updatedAt: new Date() } }, $inc: { __v: 1 } },
+    { returnDocument: 'after' },
+  ).select('_id');
+  if (!partner) throw httpError(403, 'Approved rider required');
+  return ok(res, { updated: true }, 'Live location updated');
+});
+
 // @desc    Save or update where the rider is based
 // @route   PUT /api/delivery/location
 // @access  Private

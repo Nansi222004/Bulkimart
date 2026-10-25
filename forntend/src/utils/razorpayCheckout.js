@@ -4,16 +4,23 @@ import { boundedFetch } from './portalRequests';
 let checkoutScriptPromise;
 
 const loadCheckoutScript = () => {
-  if (window.Razorpay) return Promise.resolve();
+  if (typeof window.Razorpay === 'function') return Promise.resolve();
   if (checkoutScriptPromise) return checkoutScriptPromise;
   checkoutScriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
     script.async = true;
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('Could not load Razorpay Checkout'));
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); script.onload = null; script.onerror = null;
+      if (error) { script.remove?.(); reject(error); } else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error('Razorpay Checkout took too long to load. Check your connection and retry.')),15000);
+    script.onload = () => finish(typeof window.Razorpay === 'function' ? null : new Error('Could not load Razorpay Checkout. Please retry.'));
+    script.onerror = () => finish(new Error('Could not load Razorpay Checkout. Check your connection and retry.'));
     document.head.appendChild(script);
-  });
+  }).finally(() => { checkoutScriptPromise = null; });
   return checkoutScriptPromise;
 };
 
@@ -55,7 +62,7 @@ export const openRazorpayCheckout = async (checkout, requestHeaders) => {
           if (!response.ok || body.data?.status !== 'paid') {
             return finish({ ok: false, message: body.message || 'Payment has not been confirmed' });
           }
-          finish({ ok: true, verified: true, status: body.data.status });
+          finish({ ok: true, verified: true, status: body.data.status, ...(body.data.bookingStatus?{bookingStatus:body.data.bookingStatus}:{}) });
         } catch (error) {
           finish({ ok: false, message: error.message });
         }

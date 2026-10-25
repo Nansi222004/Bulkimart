@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { loadGoogleMaps } from '../utils/googleMaps';
 
 /**
  * The live tracking map.
@@ -18,43 +19,6 @@ import React, { useEffect, useRef, useState } from 'react';
  * mount would re-inject the tag on every navigation, and Google warns about
  * exactly that in the console.
  */
-
-const SCRIPT_ID = 'google-maps-js';
-let loadPromise = null;
-
-const loadGoogleMaps = (apiKey) => {
-  if (window.google?.maps) return Promise.resolve(window.google.maps);
-  if (loadPromise) return loadPromise;
-
-  loadPromise = new Promise((resolve, reject) => {
-    if (!apiKey) {
-      reject(new Error('No Google Maps API key configured'));
-      return;
-    }
-
-    const existing = document.getElementById(SCRIPT_ID);
-    if (existing) {
-      existing.addEventListener('load', () => resolve(window.google.maps));
-      existing.addEventListener('error', () => reject(new Error('Google Maps failed to load')));
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.id = SCRIPT_ID;
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=geometry`;
-    script.onload = () => resolve(window.google.maps);
-    script.onerror = () => {
-      // Let a later mount try again rather than caching the failure for ever.
-      loadPromise = null;
-      reject(new Error('Google Maps failed to load'));
-    };
-    document.head.appendChild(script);
-  });
-
-  return loadPromise;
-};
 
 /** A coloured dot with a glyph, drawn inline so there is nothing extra to fetch. */
 const pin = (glyph, color) => ({

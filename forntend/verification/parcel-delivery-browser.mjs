@@ -14,7 +14,7 @@ const policy={version:1,terms:'Synthetic approved terms: cancellation and failur
 const fresh=()=>({_id:id,reference:'PD-BROWSER-FIXTURE',version:1,policyVersion:1,status:'needs_admin_assignment',paymentMethod:'pay_driver',paymentStatus:'cash_due',feePaise:2040,details:{pickup:address,dropoff:address,category:'test_documents',weightKg:1},cash:{status:'outstanding',amountPaise:0},finance:{held:true,earningPaise:1020},history:[],refund:{status:'none'},assignment:{reason:'no_eligible_driver',attempts:[]}});
 let b=fresh(),lastQuote=null,writes=0,verifications=0,failNext=false,parcelEnabled=true,catalogueReads=0;
 const reply=(res,data,status=200,meta={page:1,pages:1,total:1})=>{res.statusCode=status;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:status<400,data,meta,...(status>=400?{message:'Synthetic request error; retry safely'}:{})}));};
-const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""','import.meta.env.VITE_API_URL':'""'},cacheDir:join(temp,'vite-cache'),server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'isolated-parcel-browser-fixtures',configureServer(server){server.middlewares.use(async(req,res,next)=>{
+const vite=await createServer({envDir:false,define:{'import.meta.env.VITE_GOOGLE_MAPS_API_KEY':'""','import.meta.env.VITE_API_BASE_URL':'""','import.meta.env.VITE_API_URL':'""'},cacheDir:join(temp,'vite-cache'),server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'isolated-parcel-browser-fixtures',configureServer(server){server.middlewares.use(async(req,res,next)=>{
   if(req.url.startsWith('/api/')){
     const url=new URL(req.url,'http://fixture'),p=url.pathname,write=req.method!=='GET';let input={};
     if(write){writes++;let raw='';for await(const chunk of req)raw+=chunk;input=raw?JSON.parse(raw):{};}
@@ -25,13 +25,14 @@ const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""',
     if(p==='/api/customer-services')return reply(res,[{_id:id}]);
     if(p==='/api/users/addresses')return reply(res,[]);
     if(p==='/api/geo/forward')return reply(res,{lat:12.97,lng:77.59,matched:'Synthetic test street, Bengaluru 560001',precision:'ROOFTOP'});
+    if(p==='/api/geo/reverse')return reply(res,{formatted:'Synthetic test street, Bengaluru 560001',pincode:'560001'});
     if(p==='/api/admin/parcel-delivery/policy')return reply(res,null);
     if(p==='/api/parcel-delivery/quotes'){lastQuote=input;return reply(res,{_id:qid,expiresAt:new Date(Date.now()+300000),details:input,pricing:{policyVersion:1,totalPaise:2040,distanceMetres:5200},terms:policy.terms},201);}
     if(p==='/api/parcel-delivery/bookings'&&write){b={...fresh(),paymentMethod:input.paymentMethod,paymentStatus:input.paymentMethod==='online'?'pending':'cash_due',status:input.paymentMethod==='online'?'payment_pending':'searching_for_driver'};return reply(res,b,201);}
     if(p.endsWith('/payment')&&write)return reply(res,{orderId:id,razorpayOrderId:'order_browser_fixture',keyId:'rzp_test_fixture',amountPaise:2040,currency:'INR',verificationPath:'/api/parcel-delivery/payments/verify'});
     if(p.endsWith('/payments/verify')&&write){verifications++;b.paymentStatus='paid';b.status='searching_for_driver';return reply(res,{status:'paid'});}
     if(p.endsWith('/payment-status'))return reply(res,{status:b.paymentStatus});
-    if(p.endsWith('/candidates'))return reply(res,[{_id:pid,zones:['560001']}]);
+    if(p.endsWith('/candidates'))return reply(res,[{_id:pid,name:'Test delivery partner',vehicleType:'bike',pickupDistanceKm:1.2,zones:['560001']}]);
     if(p.endsWith('/assign')){b.status='searching_for_driver';b.offer={token:'fixture-offer',expiresAt:new Date(Date.now()+60000)};return reply(res,b);}
     if(p.endsWith('/offer')){b.status=input.action==='accept'?'driver_assigned':'needs_admin_assignment';delete b.offer;b.version++;return reply(res,b);}
     if(p.endsWith('/actions')){
@@ -51,7 +52,7 @@ const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""',
   next();
 });}}]});
 await vite.listen();const origin=`http://127.0.0.1:${vite.httpServer.address().port}`;
-const browser=spawn(exe,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--disable-background-networking','--disable-sync','--disable-component-update','about:blank'],{windowsHide:true,stdio:'ignore'});
+const browser=spawn(exe,['--headless=new','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--disable-background-networking','--disable-sync','--disable-component-update','about:blank'],{windowsHide:true,stdio:'ignore'});
 let socket,seq=0;const pending=new Map(),errors=[],views=[];const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function command(method,params={}){const id=++seq;return new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error(`CDP timeout ${method}`));},15000);pending.set(id,{resolve:r=>{clearTimeout(timeout);resolve(r);},reject});socket.send(JSON.stringify({id,method,params}));});}
 async function evaluate(expression){const r=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
@@ -78,33 +79,52 @@ try{
   assert.equal(catalogueReads,0);parcelEnabled=true;
   for(const width of [320,375,430,768,1440]){
     await command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<768});
-    b=fresh();for(const [path,text] of [['/parcel-delivery/book','Calculate delivery fee'],['/parcel-delivery/history','PD-BROWSER-FIXTURE'],[`/parcel-delivery/track/${id}`,'needs admin assignment'],['/delivery/parcels','PD-BROWSER-FIXTURE'],['/admin/parcel-delivery','PD-BROWSER-FIXTURE']]){await navigate(path);await waitText(text);assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true,`Overflow ${width} ${path}`);views.push({width,path});
-      if(path==='/admin/parcel-delivery'){await click('PD-BROWSER-FIXTURE');await waitText('Manual assignment');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/detail'});await click('Fare and driver settings');await waitText('Save parcel settings');assert.equal(await evaluate(`document.querySelector('[name=basePaise]').value`),'');await click('Add service area');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/policy'});}
+    b=fresh();for(const [path,text] of [['/parcel-delivery/book','Confirm locations'],['/parcel-delivery/history','PD-BROWSER-FIXTURE'],[`/parcel-delivery/track/${id}`,'We’re arranging your pickup'],['/delivery/parcels','Parcel #'],['/admin/parcel-delivery','PD-BROWSER-FIXTURE']]){await navigate(path);await waitText(text);if(path==='/admin/parcel-delivery'&&width===1440)await writeFile(resolve('../test-artifacts/parcel-admin-list-1440.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true,`Overflow ${width} ${path}`);views.push({width,path});
+      if(path==='/admin/parcel-delivery'){await click('PD-BROWSER-FIXTURE');await waitText('Choose a delivery partner');if([375,1440].includes(width))await writeFile(resolve('../test-artifacts/parcel-admin-detail-'+width+'.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/detail'});await click('Prices & service areas');await waitText('Save parcel settings');assert.equal(await evaluate(`document.querySelector('[name=basePaise]').value`),'');await click('Add service area');assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth+1'),true);views.push({width,path:path+'/policy'});}
     }
   }
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
   for(const method of ['online','pay_driver']){
-    await navigate('/parcel-delivery/book');await waitText('Calculate delivery fee');
+    await navigate('/parcel-delivery/book');await waitText('Confirm locations');
     assert.equal(await evaluate(`[...document.querySelectorAll('input')].some(el=>el.type!=='hidden'&&/\\.(lat|lng)$/.test(el.name))`),false,'Coordinates are never entered by the customer');
-    for(const prefix of ['pickup','dropoff']){
-      await evaluate(`(()=>{const fieldset=document.querySelector('[name="${prefix}.address"]').closest('fieldset');const input=fieldset.querySelector('.parcel-location-picker input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Test street Bengaluru');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-      await evaluate(`[...document.querySelector('[name="${prefix}.address"]').closest('fieldset').querySelectorAll('button')].find(b=>b.textContent==='Find address').click()`);
-      await waitText('Use this location');
-      await evaluate(`[...document.querySelector('[name="${prefix}.address"]').closest('fieldset').querySelectorAll('button')].find(b=>b.textContent==='Use this location').click()`);
-      for(const [key,value]of Object.entries(address).filter(([key])=>!['lat','lng'].includes(key)))await field(`${prefix}.${key}`,String(value));
+    for(const prefix of ['dropoff','pickup']){
+      if(prefix==='pickup')await click('Choose location');
+      await evaluate('(()=>{const e=document.querySelector(".parcel-location-picker input");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(e,"Test street Bengaluru");e.dispatchEvent(new Event("input",{bubbles:true}));})()');
+      await click('Find address');await waitText('Use this location');await click('Use this location');
     }
+    await click('Confirm locations');await waitText('Confirm drop details');
+    for(const prefix of ['pickup','dropoff'])for(const [key,value]of Object.entries(address).filter(([key])=>!['lat','lng'].includes(key)))await field(prefix+'.'+key,String(value));
     for(const [key,value]of Object.entries({description:'Synthetic parcel',weightKg:'1',length:'10',width:'10',height:'10'}))await field(key,value);
-    await evaluate(`document.querySelector('[name=restrictions]').click()`);await click('Calculate delivery fee');await waitText('Delivery fee ₹20.40');assert.equal(lastQuote.weightKg,1);assert.equal(lastQuote.pickup.lat,12.97);await field('paymentMethod',method);await evaluate(`document.querySelector('[name=terms]').click()`);await click('Confirm parcel booking');await waitText('PD-BROWSER-FIXTURE');
-    if(method==='online'){await waitText('payment pending');await click('Pay ₹20.40 online');await waitText('searching for driver');assert.equal(verifications,1);assert.equal(b.paymentStatus,'paid');}
-    else{await waitText('searching for driver');assert.equal(b.paymentStatus,'cash_due');}
+    await evaluate('document.querySelector(".parcel-check input[type=checkbox]").click()');await click('Confirm drop details');await waitText('Review fare');
+    assert.equal(lastQuote.weightKg,1);assert.equal(lastQuote.pickup.lat,12.97);await click('Review fare');await waitText('Review your booking');
+    await evaluate('document.querySelector("input[value='+method+']").click()');await evaluate('document.querySelector("input[type=checkbox]").click()');await click(method==='online'?'Book & Pay':'Book Parcel');await waitText('Booking received');
+    if(method==='online'){await waitText('Finding your delivery partner');assert.equal(verifications,1);assert.equal(b.paymentStatus,'paid');assert.equal(await evaluate('window.__parcelCheckoutOpens'),1);}
+    else{await waitText('Finding your delivery partner');assert.equal(b.paymentStatus,'cash_due');}
   }
-  b=fresh();await navigate('/admin/parcel-delivery');await waitText('PD-BROWSER-FIXTURE');await click('PD-BROWSER-FIXTURE');await waitText('Manual assignment');await click('Load eligible drivers');await sleep(200);await field('partnerId',pid);await field('reason','Synthetic fallback review');await click('Offer to selected driver');await waitText('searching for driver');assert.equal(b.status,'searching_for_driver');
-  await navigate('/delivery/parcels');await waitText('PD-BROWSER-FIXTURE');await click('PD-BROWSER-FIXTURE');await waitText('Accept offer');await click('Accept offer');await waitText('driver assigned');
-  for(const text of ['driver arriving','arrived at pickup']){await click(text);await waitText(labelFor(text));}
-  await click('Request pickup code');await field('code','123456');await click('Verify proof');await waitText('picked up');await click('in transit');await waitText('in transit');await click('arrived at dropoff');await waitText('arrived at dropoff');await click('Record exact cash received');await waitText('collected unreconciled');await click('Request delivery code');await field('code','654321');await click('Verify proof');await waitText('delivered');assert.equal(b.status,'delivered');
+  b={...fresh(),paymentMethod:'online',paymentStatus:'pending',status:'payment_pending'};
+  await navigate('/parcel-delivery/track/'+id);await waitText('Complete your payment securely with Razorpay.');
+  assert.equal(await evaluate('window.__parcelCheckoutOpens'),0);
+  await evaluate('window.__parcelCheckoutMode="cancel"');await click('Pay ₹20.40 online');await waitText('Payment was not completed');
+  assert.equal(b.paymentStatus,'pending');assert.equal(await evaluate('window.__parcelCheckoutOpens'),1);
+  failNext=true;await click('Pay ₹20.40 online');await waitText('Synthetic request error');
+  assert.equal(await evaluate('window.__parcelCheckoutOpens'),1);
+  await evaluate('window.__parcelCheckoutMode="success"');await click('Pay ₹20.40 online');await waitText('Finding your delivery partner');
+  assert.equal(await evaluate('window.__parcelCheckoutOpens'),2);assert.equal(verifications,2);
+  b=fresh();await navigate('/admin/parcel-delivery');await waitText('PD-BROWSER-FIXTURE');await click('PD-BROWSER-FIXTURE');await waitText('Choose a delivery partner');await click('Find available partners');await sleep(200);await field('partnerId',pid);await field('reason','Synthetic fallback review');await click('Send pickup request');await waitText('Finding a delivery partner');assert.equal(b.status,'searching_for_driver');
+  await command('Emulation.setDeviceMetricsOverride',{width:375,height:900,deviceScaleFactor:1,mobile:true});await navigate('/delivery/parcels');await waitText('Parcel #');await click('Parcel #');await waitText('Accept parcel');await writeFile(resolve('../test-artifacts/parcel-rider-offer-375.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));await click('Accept parcel');await waitText('Ready for pickup');await writeFile(resolve('../test-artifacts/parcel-rider-task-375.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  for(const [button,status] of [['Start pickup','On the way to pickup'],['I’m at pickup','At the pickup address']]){await click(button);await waitText(status);}
+  await click('Send pickup code');await field('code','123456');await click('Confirm pickup');await waitText('Parcel collected');await click('Start delivery');await waitText('On the way to delivery');await click('I’m at delivery address');await waitText('At the delivery address');await click('I received');await waitText('Cash received');await click('Send delivery code');await field('code','654321');await click('Complete delivery');await waitText('Delivery complete');assert.equal(b.status,'delivered');
+  b={...fresh(),status:'driver_assigned',cashCollectionPoint:'pickup'};
+  await navigate('/delivery/parcels');await waitText('Parcel #');await click('Parcel #');await waitText('Ready for pickup');await waitText('pickup from the sender');
+  for(const [button,status] of [['Start pickup','On the way to pickup'],['I’m at pickup','At the pickup address']]){await click(button);await waitText(status);}
+  await click('I received');await waitText('Cash received');
+  await click('Send pickup code');await field('code','123456');await click('Confirm pickup');await waitText('Parcel collected');
+  await click('Start delivery');await waitText('On the way to delivery');await click('I’m at delivery address');await waitText('At the delivery address');
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b=>b.textContent.includes("I received"))'),false);
+  await click('Send delivery code');await field('code','654321');await click('Complete delivery');await waitText('Delivery complete');
   // A failed response is visible and refresh can recover without a fabricated state.
   failNext=true;await navigate('/parcel-delivery/history');await waitText('Synthetic request error');await click('Retry');await waitText('PD-BROWSER-FIXTURE');
-  assert.deepEqual(errors,[]);const result={responsiveViews:views.length,customerPaymentPaths:2,manualFallback:1,driverLifecycle:1,errorRecovery:1,mockedMutationRequests:writes,mockedPaymentVerifications:verifications,realGatewayCalls:0,passed:true};await writeFile(resolve('../test-artifacts/parcel-browser-results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+  assert.deepEqual(errors,[]);const result={responsiveViews:views.length,customerPaymentPaths:2,automaticOnlineCheckout:true,existingBookingVisitDoesNotCharge:true,checkoutCancellationAndInitRetry:true,manualFallback:1,driverLifecycle:2,errorRecovery:1,mockedMutationRequests:writes,mockedPaymentVerifications:verifications,realGatewayCalls:0,passed:true};await writeFile(resolve('../test-artifacts/parcel-browser-results.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{
   socket?.close();browser.kill();await vite.close();assert.equal(dirname(resolve(temp)),resolve(tmpdir()));assert.ok(basename(temp).startsWith('bulkimart-parcel-browser-'));
   for(let i=0;i<15;i++){try{await rm(temp,{recursive:true,force:true});break;}catch{await sleep(200);}}

@@ -72,5 +72,6 @@ export const lookupPlace = asyncHandler(async (req, res) => {
     // caller may want to say so before a rider is sent there.
     precision: hit.precision,
     matched: hit.matched,
+    pincode: hit.pincode,
   }, 'Location found');
 });

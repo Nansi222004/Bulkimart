@@ -8,6 +8,8 @@ import {
   submitApplication,
   getMyProfile,
   updateLocation,
+  updateServiceArea,
+  updatePresence,
   acceptOrder,
   declineOrder,
   expireOrder,
@@ -55,6 +57,8 @@ router.put('/step/2', uploadFields([
 router.put('/step/3', uploadSingle('passbook'), submitStep3);
 
 router.put('/location', updateLocation);
+router.put('/service-area', updateServiceArea);
+router.put('/presence', updatePresence);
 router.post('/submit', submitApplication);
 
 // ---------------------------------------------------------------------------

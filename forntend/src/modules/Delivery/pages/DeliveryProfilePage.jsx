@@ -2,11 +2,12 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { enterCustomerSession } from '../../../utils/userSession';
+import ServiceAreaEditor from '../components/ServiceAreaEditor';
 
 export const DeliveryProfilePage = () => {
   const ui = useFeedback();
   const { onboardingForm, logoutDelivery, triggerToast, earningsData, riderName, riderProfile,
-          saveRiderLocation, refreshRiderStatus, lookupAddress } = useDelivery();
+          saveRiderLocation, saveRiderServiceArea, refreshRiderStatus, lookupAddress } = useDelivery();
 
   const [locating, setLocating] = useState(false);  // button loading state
   const [switching, setSwitching] = useState(false);
@@ -109,10 +110,11 @@ export const DeliveryProfilePage = () => {
             <strong>{riderProfile?.vehicleNo || onboardingForm.vehicleNumber || 'Non-Motorized'}</strong>
           </div>
           <div className="profile-data-row">
-            <span>Primary Zone</span>
+            <span>Delivery pincodes</span>
             <strong>{riderProfile?.zones?.join(', ') || onboardingForm.zones || 'All Zones'}</strong>
           </div>
         </div>
+        <ServiceAreaEditor profile={riderProfile} onSave={saveRiderServiceArea} onReload={refreshRiderStatus}/>
       </div>
 
       {/* Base Location Card */}

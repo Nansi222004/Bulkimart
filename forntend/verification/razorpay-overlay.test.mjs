@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 let vite, open;
 before(async () => {
-  vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
+  vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   open = (await vite.ssrLoadModule('/src/utils/razorpayCheckout.js')).openRazorpayCheckout;
 });
 after(async () => vite.close());
@@ -56,4 +56,29 @@ test('GST assistance checkout verifies through its dedicated vendor payment endp
     await f.options.handler({razorpay_payment_id:'pay_gst_fixture'});
     assert.equal((await pending).verified,true);assert.ok(target.endsWith('/api/sellers/gst-assistance/payments/verify'));
   }finally{f.restore();}
+});
+
+test('failed checkout SDK loading can be retried instead of permanently caching its rejection',async()=>{
+  const previous={window:globalThis.window,document:globalThis.document},scripts=[];
+  globalThis.window={};globalThis.document={createElement:()=>({}),head:{appendChild:s=>scripts.push(s)}};
+  try{
+    const first=open(checkout,{});scripts[0].onerror();await assert.rejects(first,/load Razorpay/);
+    const retry=open(checkout,{}),guarded=retry.catch(error=>({error}));await Promise.resolve();
+    assert.equal(scripts.length,2,'Retry must make a fresh SDK request');
+    window.Razorpay=class{constructor(options){this.options=options;}on(){}close(){}open(){this.options.modal.ondismiss();}};
+    scripts[1].onload();assert.equal((await guarded).cancelled,true);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test('a stalled checkout SDK load times out and a subsequent attempt remains available',async t=>{
+  const previous={window:globalThis.window,document:globalThis.document},scripts=[];
+  globalThis.window={};globalThis.document={createElement:()=>({remove(){this.removed=true;}}),head:{appendChild:s=>scripts.push(s)}};
+  t.mock.timers.enable({apis:['setTimeout']});
+  try{
+    const first=open(checkout,{}),rejected=assert.rejects(first,/too long to load/);t.mock.timers.tick(15000);await rejected;
+    assert.equal(scripts[0].removed,true);
+    const retry=open(checkout,{});assert.equal(scripts.length,2);
+    window.Razorpay=class{constructor(options){this.options=options;}on(){}close(){}open(){this.options.modal.ondismiss();}};
+    scripts[1].onload();assert.equal((await retry).cancelled,true);
+  }finally{t.mock.timers.reset();Object.assign(globalThis,previous);}
 });

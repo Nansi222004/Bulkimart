@@ -3,17 +3,26 @@ import Parcel from '../models/ParcelDelivery.js';
 import Quote from '../models/ParcelQuote.js';
 import Policy from '../models/ParcelPolicy.js';
 import Partner from '../models/DeliveryPartner.js';
+import User from '../models/User.js';
+import { distanceKm } from '../utils/geo.js';
 import Payment from '../models/Payment.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import { ok, created, paginated, getPagination } from '../utils/response.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
-import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold } from '../services/parcelPolicy.service.js';
+import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold, parcelCashCollectionPoints } from '../services/parcelPolicy.service.js';
 import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
-import { assignParcel, respondParcelOffer, notifyParcel, eligibleParcelRider } from '../services/parcelAssignment.service.js';
+import { assignParcel, respondParcelOffer, notifyParcel, parcelRiderIneligibility } from '../services/parcelAssignment.service.js';
+import { parcelOfferFilter } from '../services/parcelOffers.js';
 import { initiateParcelPayment, verifyParcelPayment, approveParcelRefund, executeParcelRefund } from '../services/parcelPayment.service.js';
 import { reconcileCreationAttempt } from '../services/paymentRecovery.service.js';
 export const capabilities = (_req,res) => ok(res,{...parcelFlags(),productionBlocked:productionParcel()});
 const canReadFinance = req => req.userType==='admin' && (req.user.role==='superAdmin' || req.user.permissions?.includes('manage_finance'));
+async function driverSummaries(ids) {
+  const partners=await Partner.find({_id:{$in:[...new Set(ids.filter(Boolean).map(String))]}}).select('userId zones vehicleType').lean();
+  const users=await User.find({_id:{$in:partners.map(p=>p.userId)}}).select('name').lean();
+  const names=new Map(users.map(u=>[String(u._id),u.name]));
+  return partners.map(p=>({_id:p._id,name:names.get(String(p.userId))||'Delivery partner '+String(p._id).slice(-4).toUpperCase(),zones:p.zones,vehicleType:p.vehicleType}));
+}
 const dtoFor = (req,b) => {
   const dto=parcelDTO(b,req.parcelMode,req.parcelPartner?._id);
   if(req.parcelMode==='admin' && !canReadFinance(req)) {
@@ -25,11 +34,11 @@ const dtoFor = (req,b) => {
 export async function catalogue(_req,res) {
   requireParcel('catalogue');
   const p=await Policy.findById('parcel');
-  return ok(res,p?{version:p.version,terms:p.config.terms,categories:p.config.categories,prohibitedItems:p.config.prohibitedItems,maxWeightKg:p.config.maxWeightKg,maxDimensionCm:p.config.maxDimensionCm,payDriverEnabled:p.config.payDriverEnabled,payDriverCategories:p.config.payDriverCategories,cashCollectionPoint:p.config.cashCollectionPoint,areas:p.config.areas.map(a=>({name:a.name,pincodes:a.pincodes})),ready:new Date(p.config.effectiveAt)<=new Date()}:null);
+  return ok(res,p?{version:p.version,terms:p.config.terms,categories:p.config.categories,prohibitedItems:p.config.prohibitedItems,maxWeightKg:p.config.maxWeightKg,maxDimensionCm:p.config.maxDimensionCm,payDriverEnabled:p.config.payDriverEnabled,payDriverCategories:p.config.payDriverCategories,cashCollectionPoint:p.config.cashCollectionPoint,cashCollectionPoints:parcelCashCollectionPoints(p.config),areas:p.config.areas.map(a=>({name:a.name,pincodes:a.pincodes})),ready:new Date(p.config.effectiveAt)<=new Date()}:null);
 }
 export async function quote(req,res) {
   const q=await quoteParcel(req.user._id,req.body);
-  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,pricing:{policyVersion:q.pricing.policyVersion,totalPaise:q.pricing.totalPaise,basePaise:q.pricing.basePaise,distancePaise:q.pricing.distancePaise,taxPaise:q.pricing.taxPaise,minimumAdjustmentPaise:q.pricing.totalPaise-q.pricing.basePaise-q.pricing.distancePaise,distanceMetres:q.pricing.distanceMetres,currency:'INR'},terms:q.pricing.policy.terms});
+  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(q.pricing.policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:q.pricing.policy.maxWeightKg,maxDimensionCm:q.pricing.policy.maxDimensionCm},pricing:{policyVersion:q.pricing.policyVersion,totalPaise:q.pricing.totalPaise,basePaise:q.pricing.basePaise,distancePaise:q.pricing.distancePaise,taxPaise:q.pricing.taxPaise,minimumAdjustmentPaise:q.pricing.totalPaise-q.pricing.basePaise-q.pricing.distancePaise,distanceMetres:q.pricing.distanceMetres,currency:'INR'},terms:q.pricing.policy.terms});
 }
 export async function book(req,res) {
   const b=await bookParcel(req.user._id,req.body,req.get('Idempotency-Key'));
@@ -39,7 +48,7 @@ export async function book(req,res) {
 }
 export async function list(req,res) {
   const {page,limit,skip}=getPagination(req.query);
-  const filter=req.parcelMode==='customer'?{customerId:req.user._id}:req.parcelMode==='driver'?{$or:[{partnerId:req.parcelPartner._id},{status:'searching_for_driver','assignment.offer.partnerId':String(req.parcelPartner._id),'assignment.offer.expiresAt':{$gt:new Date()}}]}:{};
+  const filter=req.parcelMode==='customer'?{customerId:req.user._id}:req.parcelMode==='driver'?{$or:[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)]}:{};
   if(req.query.status) filter.status=String(req.query.status);
   if(req.parcelMode==='admin' && req.query.reference) filter.reference=String(req.query.reference).slice(0,64);
   const rows=await Parcel.find(filter).sort({createdAt:-1}).skip(skip).limit(limit);
@@ -49,9 +58,10 @@ export async function list(req,res) {
 export async function detail(req,res) {
   const filter={_id:req.params.id};
   if(req.parcelMode==='customer') filter.customerId=req.user._id;
-  if(req.parcelMode==='driver') filter.$or=[{partnerId:req.parcelPartner._id},{status:'searching_for_driver','assignment.offer.partnerId':String(req.parcelPartner._id),'assignment.offer.expiresAt':{$gt:new Date()}}];
+  if(req.parcelMode==='driver') filter.$or=[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)];
   const b=await Parcel.findOne(filter); if(!b) failParcel('Booking not found',404);
   const dto=dtoFor(req,b);
+  if(req.parcelMode==='admin') dto.drivers=await driverSummaries([b.partnerId,...(b.assignment.attempts||[]).map(a=>a.partnerId)]);
   if(req.parcelMode==='admin' && canReadFinance(req)) {
     dto.ledger=await Ledger.find({parcelDeliveryId:b._id}).sort({createdAt:1}).lean();
     const p=b.paymentId && await Payment.findById(b.paymentId).select('gatewayAttempts captures refundObligations status');
@@ -83,10 +93,15 @@ export async function savePolicy(req,res) {
 }
 export async function candidates(req,res) {
   const b=await Parcel.findById(req.params.id); if(!b) failParcel('Booking not found',404);
-  const rows=await Partner.find({status:'approved',isAvailable:true}).limit(100);
-  const list=[];
-  for(const p of rows) if(await eligibleParcelRider(p,b,null)) list.push({_id:p._id,zones:p.zones});
-  return ok(res,list);
+  const rows=await Partner.find({status:'approved'});
+  const summaries=await driverSummaries(rows.map(p=>p._id)),available=[],unavailableDrivers=[];
+  for(const p of rows) {
+    const reason=await parcelRiderIneligibility(p,b,null);
+    const summary={...summaries.find(row=>String(row._id)===String(p._id)),pickupDistanceKm:distanceKm(p.currentLocation,b.details.pickup)};
+    if(!reason)available.push(summary);
+    else unavailableDrivers.push({...summary,reason,locationAgeSeconds:p.currentLocation?.updatedAt?Math.max(0,Math.round((Date.now()-new Date(p.currentLocation.updatedAt))/1000)):null,locationMaxAgeSeconds:b.pricing.policy.locationMaxAgeSeconds,assignmentRadiusKm:b.pricing.policy.assignmentRadiusKm});
+  }
+  return ok(res,available,'',{unavailableDrivers});
 }
 export async function assign(req,res) {
   if(!mongoose.isValidObjectId(req.body.partnerId)) failParcel('Valid partner ID required');

@@ -14,7 +14,13 @@ export async function parcelLocationLookup(mode, direction, values, signal) {
 export async function parcelRequest(mode,path,options={}) {
   const base=mode==='admin'?'/api/admin/parcel-delivery':mode==='driver'?'/api/delivery/parcels':'/api/parcel-delivery';
   const r=await boundedFetch(apiUrl(base+path),{...options,headers:{...parcelHeaders(mode),...options.headers}}), body=await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(body.message || 'Unable to load parcel delivery');
+  if(!r.ok || body.success === false) { const error = new Error(body.message || 'Unable to load parcel delivery'); error.status = r.status; throw error; }
+  return body;
+}
+export async function saveParcelPickup(address) {
+  const response = await boundedFetch(apiUrl('/api/users/addresses'), { method: 'POST', headers: parcelHeaders('customer'), body: JSON.stringify({ label: address.label || 'Other', line1: [address.building, address.address, address.landmark].filter(Boolean).join(', '), pincode: address.pincode, lat: Number(address.lat), lng: Number(address.lng), locationSource: 'manual' }) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) throw new Error(body.message || 'Your pickup address could not be saved. Please retry.');
   return body;
 }
 export function parcelFormDetails(form) {

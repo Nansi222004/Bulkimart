@@ -6,7 +6,7 @@ import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSig
 import { reconcileCreationAttempt, processRefundObligation, reconcileRefundEvent } from './paymentRecovery.service.js';
 import { requireParcelGateway, failParcel, integer, boundedText } from './parcelPolicy.service.js';
 import { ownedParcel, parcelKey, parcelEvent, postParcel, touchParcel } from './parcelWorkflow.service.js';
-import { notifyParcel } from './parcelAssignment.service.js';
+import { notifyParcel, assignParcel, dispatchReady } from './parcelAssignment.service.js';
 export async function initiateParcelPayment(id,customerId,input,key) {
   requireParcelGateway(); parcelKey(key);
   const prepared = await financialTransaction(async session => {
@@ -59,6 +59,9 @@ export async function captureParcel(paymentId,live) {
     } else return b;
     touchParcel(b); await p.save({session}); await b.save({session}); return b;
   });
+  if (b.status === 'searching_for_driver' && dispatchReady(b)) {
+    try { return await assignParcel(b._id); } catch { /* The durable sweep retries dispatch without undoing verified payment. */ }
+  }
   await notifyParcel(b); return b;
 }
 export async function verifyParcelPayment(id,customerId,input,poll=false) {

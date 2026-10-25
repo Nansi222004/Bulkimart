@@ -238,6 +238,9 @@ export const forwardGeocode = async (parts) => {
     // can be most of a kilometre from the actual door.
     precision: best.geometry?.location_type || 'UNKNOWN',
     matched: best.formatted_address,
+    // Keep the postal code from this exact result with its coordinates. A
+    // second reverse lookup can identify a neighbouring street or business.
+    pincode: toAddressFields(best).pincode,
   };
 
   cacheSet(`fwd:${query.toLowerCase()}`, result);

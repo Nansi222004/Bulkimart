@@ -1596,6 +1596,18 @@
   gap: 10px;
 }
 
+.rider-service-area-editor { margin-top: 16px; }
+.rider-service-area-editor form { display: grid; gap: 10px; }
+.rider-service-area-editor label { font-weight: 700; font-size: 14px; }
+.rider-service-area-editor textarea { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; resize: vertical; }
+.rider-service-area-editor p { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.rider-service-area-editor [role="alert"] { color: #b91c1c; }
+.rider-service-area-editor [role="status"] { color: #166534; }
+.rider-service-area-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.rider-service-area-actions button { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; }
+.rider-service-area-actions button[type="submit"] { background: #0891b2; color: white; border-color: #0891b2; }
+.rider-service-area-editor button:disabled { opacity: .6; cursor: wait; }
+
 .profile-data-row {
   display: flex;
   justify-content: space-between;

@@ -33,3 +33,5 @@
 .customer-service-card button:hover { background: var(--sf-highlight, #FFF0B3); text-decoration: none; }
 .customer-service-card .service-book:hover { background: var(--sf-action-hover, #B50918); border-color: var(--sf-action-hover, #B50918); color: #fff; }
 .customer-service-card button:disabled { cursor: default; opacity: .5; }
+
+.customer-parcel-card{background:linear-gradient(135deg,#eefbff,#fff);border-color:#b8dfe9}.customer-parcel-card>svg{color:#087c9f;background:#fff1dc;border-radius:12px;padding:6px;box-sizing:content-box}.customer-service-card.customer-parcel-card .service-book{background:#087c9f;border-color:#087c9f;color:#fff}.customer-service-card.customer-parcel-card .service-book:hover{background:#075c77;border-color:#075c77;color:#fff}

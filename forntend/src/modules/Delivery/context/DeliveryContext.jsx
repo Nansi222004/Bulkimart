@@ -1,13 +1,14 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
-import { portalRequest } from '../../../utils/portalRequests';
+import { portalRequest, boundedFetch } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { clearDeliverySession } from '../../../utils/deliverySession';
 import { completeDeliveryLogin } from '../utils/deliveryAuth';
 import { deliveryDraftOwner, readDeliveryRegistrationDraft, saveDeliveryRegistrationDraft, clearDeliveryRegistrationDraft } from '../../../utils/deliveryRegistrationDraft';
+import { startRiderPresence } from '../utils/riderPresence';
 
 const DeliveryContext = createContext();
 
@@ -112,6 +113,23 @@ export const DeliveryProvider = ({ children }) => {
    * wakeups on a phone that spends the day in a pocket.
    */
   const [riderLocation, setRiderLocation] = useState(null);
+  const [presenceError,setPresenceError]=useState('');
+  const [presenceUpdatedAt,setPresenceUpdatedAt]=useState(null);
+  const presenceUpdater=useRef(null);
+  useEffect(()=>{
+    if(!isOnline||riderProfile?.status!=='approved'){setPresenceError('');return;}
+    const token=localStorage.getItem('deliveryToken');
+    setPresenceError('Updating your live location. Allow location access to receive nearby parcel requests.');
+    const stop=startRiderPresence({geolocation:navigator.geolocation,onError:setPresenceError,send:async point=>{
+      const res=await boundedFetch(apiUrl('/api/delivery/presence'),{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(point)});
+      if(!res.ok)throw new Error('Location update failed');
+      if(token===localStorage.getItem('deliveryToken')){setPresenceError('');setPresenceUpdatedAt(Date.now());setRiderLocation({lat:point.lat,lng:point.lng});}
+    }});
+    presenceUpdater.current=stop;
+    const resume=()=>{if(!document.hidden)stop.refresh();};
+    window.addEventListener('focus',resume);document.addEventListener('visibilitychange',resume);
+    return()=>{stop();presenceUpdater.current=null;window.removeEventListener('focus',resume);document.removeEventListener('visibilitychange',resume);};
+  },[isOnline,riderProfile?.status]);
 
   /**
    * The urgent ring, driven by `riderPingOrder` (forward) or
@@ -1040,6 +1058,22 @@ export const DeliveryProvider = ({ children }) => {
 
   const triggerToast = (message, options) => ui.notify(message, options);
 
+  const saveRiderServiceArea = async (zones, version) => {
+    const token = localStorage.getItem('deliveryToken');
+    if (!token) return { ok: false, message: 'Please sign in before saving your service area.' };
+    try {
+      const res = await boundedFetch(apiUrl('/api/delivery/service-area'), {
+        method: 'PUT', headers: authHeaders(), body: JSON.stringify({ zones, version }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, status: res.status, message: body.message || 'Could not save your service area' };
+      if (token !== localStorage.getItem('deliveryToken')) return { ok: false, message: 'Your session changed. Sign in again.' };
+      setRiderProfile(previous => ({ ...previous, zones: body.data.zones, __v: body.data.version }));
+      setOnboardingForm(previous => ({ ...previous, zones: body.data.zones.join(', ') }));
+      return { ok: true, message: body.message || 'Service area saved' };
+    } catch (err) { return { ok: false, message: err.message || 'Could not save your service area. Please retry.' }; }
+  };
+
   const logoutDelivery = () => {
     setIsOnboarded(false);
     localStorage.removeItem('delivery_onboarded');
@@ -1447,9 +1481,13 @@ export const DeliveryProvider = ({ children }) => {
       activeOrder,
       setActiveOrder,
       riderLocation,
+      presenceError,
+      presenceUpdatedAt,
+      refreshPresence:()=>presenceUpdater.current?.refresh(),
       toastMessage,
       triggerToast,
       saveRiderLocation,
+      saveRiderServiceArea,
       riderAuthed,
       phoneVerified,
       bootstrapping,

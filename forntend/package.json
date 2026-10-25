@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:rider-service-area": "node --test verification/rider-service-area-ui.test.mjs",
+    "test:parcel-local": "node verification/parcel-manual-local.mjs",
+    "test:parcel": "node --test --test-concurrency=1 verification/parcel-admin-ui.test.mjs verification/parcel-rider-dashboard.test.mjs verification/parcel-offers-ui.test.mjs verification/parcel-rider-ui.test.mjs verification/parcel-journey-ui.test.mjs verification/parcel-location-ui.test.mjs verification/parcel-read-ui.test.mjs verification/customer-services-ui.test.mjs tests/service-ui.test.mjs",
+    "test:parcel-browser": "node verification/parcel-delivery-browser.mjs && node verification/parcel-journey-browser.mjs",
     "test:storefront": "node --test verification/storefront-ui.test.mjs verification/celebration-renderer.test.mjs",
     "test:storefront-browser": "npm run build && node verification/storefront-browser.mjs",
     "test:financial-workflow": "node --test verification/financial-workflow-ui.test.mjs",

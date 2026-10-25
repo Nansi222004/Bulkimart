@@ -2,13 +2,15 @@ import {before,after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 import {hookHarness} from '../tests/service-hookHarness.mjs';
-let v,Parcel,ui;
-before(async()=>{v=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});Parcel=(await v.ssrLoadModule('/src/components/parcels/ParcelDelivery.jsx')).default;ui=await v.ssrLoadModule('/src/components/services/CustomerServices.jsx');});
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+let v,Parcel,Flow,ui,Status;
+before(async()=>{v=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});Parcel=(await v.ssrLoadModule('/src/components/parcels/ParcelDelivery.jsx')).default;Flow=(await v.ssrLoadModule('/src/components/parcels/ParcelBookingFlow.jsx')).default;ui=await v.ssrLoadModule('/src/components/services/CustomerServices.jsx');Status=(await v.ssrLoadModule('/src/components/parcels/ParcelCustomerStatus.jsx')).default;});
 after(async()=>v?.close());
 const id='507f1f77bcf86cd799439022', track='/parcel-delivery/track/'+id;
 const booking={_id:id,reference:'PD-TEST',status:'delivered',feePaise:100,cash:{status:'not_applicable'},refund:{status:'none'},details:{pickup:{address:'Pickup'},dropoff:{address:'Dropoff'}},history:[]};
-const has=(h,text)=>h.find(n=>[n.props?.children].flat(Infinity).some(c=>typeof c==='string'&&c.includes(text)));
-const noForm=h=>assert.equal(h.find(n=>n.type==='form'),undefined);
+const has=(h,text)=>h.find(n=>[n.props?.children].flat(Infinity).some(c=>typeof c==='string'&&c.includes(text)) || n.type===Status&&renderToStaticMarkup(React.createElement(Status,n.props)).includes(text));
+const noForm=h=>{assert.equal(h.find(n=>n.type==='form'),undefined);assert.equal(h.find(n=>n.type===Flow),undefined);};
 const read=h=>h.requests.findLast(r=>r.url.includes('/bookings'));
 async function reply(h,data,status=200){read(h).resolve({data,meta:{pages:1},message:status>=400?'Synthetic read failure':undefined},status);await h.settle();}
 for(const code of [401,403,404,503])test('tracking read failure '+code+' never renders booking and retries successfully',async()=>{const h=hookHarness(Parcel,{},track);try{await reply(h,null,code);assert.ok(has(h,'Unable to load parcel tracking'));noForm(h);h.click('Retry');await reply(h,booking);assert.ok(has(h,'PD-TEST'));h.click('Refresh status');await reply(h,null,503);noForm(h);assert.ok(has(h,'Unable to load parcel tracking'));}finally{h.close();}});
@@ -24,8 +26,69 @@ import {readFile} from 'node:fs/promises';
 test('home keeps separate cards in existing Quick Home and Shop All discovery area',async()=>{const s=await readFile(new URL('../src/modules/User/pages/LandingPage.jsx',import.meta.url),'utf8');assert.match(s,/activeMode === 'shop-all' \|\| activeSubNav === 'grocery--home'/);assert.match(s,/<QuickActions \/>\s*<HomeServiceEntries \/>/);assert.match(s,/<BottomNav \/>/);for(const nav of ['categories','orders','cart','checkout','legal-services'])assert.ok(s.includes("case '"+nav+"':"));});
 test('booking without policy renders unavailable safely',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/book');try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();h.requests.find(r=>r.url.endsWith('/catalogue')).resolve({data:null});await h.settle();assert.ok(has(h,'Parcel booking is currently unavailable'));noForm(h);}finally{h.close();}});
 
+test('booking received notice belongs only to the newly confirmed reference',async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book'),otherId='507f1f77bcf86cd799439033';
+  try{
+    h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();
+    h.requests.find(r=>r.url.endsWith('/catalogue')).resolve({data:readyPolicy});await h.settle();
+    h.find(n=>n.type===Flow).props.onBooked({_id:id});h.rerender();await reply(h,booking);
+    assert.ok(has(h,'Booking received.'));
+    h.click('Delivery history');await reply(h,[{...booking,_id:otherId}]);
+    h.find(n=>n.props?.className==='parcel-row').props.onClick();h.rerender();await reply(h,{...booking,_id:otherId});
+    assert.equal(has(h,'Booking received.'),undefined);
+  }finally{h.close();}
+});
+
 const enabledFlags={catalogue:true,booking:true,auto_assignment:true,admin_fallback:true,fulfilment:true,online_payment:true,pay_driver:false,productionBlocked:false};
 const readyPolicy={ready:true,areas:[{name:'Test area'}],categories:['documents'],prohibitedItems:[]};
+
+const onlineBooking={...booking,status:'payment_pending',paymentStatus:'pending',paymentMethod:'online',policyVersion:1};
+async function newOnlineBooking(h){
+  h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();
+  h.requests.find(r=>r.url.endsWith('/catalogue')).resolve({data:readyPolicy});await h.settle();
+  h.find(n=>n.type===Flow).props.onBooked(onlineBooking);h.rerender();await reply(h,onlineBooking);
+}
+test('confirmed new online booking immediately initializes checkout once without a second Pay click',async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book');
+  let options,opens=0;
+  window.Razorpay=class{constructor(value){options=value;}on(){}open(){opens++;}close(){}};
+  try{
+    await newOnlineBooking(h);
+    assert.ok(has(h,'Opening secure Razorpay checkout'));
+    assert.equal(h.find(n=>n.type===Status),undefined,'Pending tracking must stay hidden while checkout is opening');
+    const payment=h.requests.find(r=>r.url.endsWith('/payment'));
+    assert.ok(payment,'Booking confirmation must immediately request the existing payment endpoint');
+    assert.equal(JSON.parse(payment.options.body).policyVersion,1);
+    payment.resolve({data:{orderId:id,razorpayOrderId:'order_synthetic',keyId:'rzp_test_synthetic',amountPaise:100,currency:'INR',verificationPath:'/api/parcel-delivery/payments/verify'}});await h.settle();
+    assert.equal(opens,1);h.rerender();await h.settle();assert.equal(opens,1);
+    options.modal.ondismiss();await h.settle();await reply(h,onlineBooking);assert.ok(has(h,'Payment was not completed'));
+    assert.equal(h.requests.filter(r=>r.url.endsWith('/payment')).length,1);
+  }finally{h.close();}
+});
+
+test('customer receipt uses clear progress, hides irrelevant finance fields and confirms only after payment',()=>{
+  const unpaid=renderToStaticMarkup(React.createElement(Status,{booking:onlineBooking,justBooked:true}));
+  assert.ok(unpaid.includes('Complete your payment'));assert.ok(!unpaid.includes('Booking received.'));assert.ok(!unpaid.includes('Cash:'));assert.ok(!unpaid.includes('Refund: none'));
+  const paid=renderToStaticMarkup(React.createElement(Status,{booking:{...onlineBooking,paymentStatus:'paid',status:'searching_for_driver'},justBooked:true}));
+  assert.ok(paid.includes('Finding your delivery partner'));assert.ok(paid.includes('Payment successful.'));assert.ok(paid.includes('Paid online'));assert.ok(paid.includes('<summary>Booking details</summary>'));
+});
+
+test('existing online tracking remains recoverable and never opens checkout merely from a page visit',async()=>{
+  const h=hookHarness(Parcel,{},track);
+  try{await reply(h,onlineBooking);assert.equal(h.requests.some(r=>r.url.endsWith('/payment')),false);assert.ok(has(h,'Pay '));}finally{h.close();}
+});
+
+test('new online checkout initialization error stays visible and manual retry uses the same attempt key',async()=>{
+  const h=hookHarness(Parcel,{},'/parcel-delivery/book');
+  try{
+    await newOnlineBooking(h);const first=h.requests.find(r=>r.url.endsWith('/payment'));assert.ok(first);
+    first.resolve({message:'Synthetic gateway unavailable'},503);await h.settle();assert.ok(has(h,'Synthetic gateway unavailable'));
+    const pay=h.find(n=>n.type==='button'&&[n.props?.children].flat().some(c=>typeof c==='string'&&c.startsWith('Pay ')));
+    pay.props.onClick();h.flush();
+    const retry=h.requests.findLast(r=>r.url.endsWith('/payment'));assert.notEqual(first,retry);assert.equal(first.options.headers['Idempotency-Key'],retry.options.headers['Idempotency-Key']);
+    retry.resolve({message:'Synthetic recoverable gateway error'},503);await h.settle();
+  }finally{h.close();}
+});
 test('disabled catalogue shows availability without requesting the disabled endpoint',async()=>{
   const h=hookHarness(Parcel,{},'/parcel-delivery/book');
   try{h.requests.find(r=>r.url.endsWith('/capabilities')).resolve({data:{catalogue:false}});await h.settle();
@@ -34,7 +97,7 @@ test('disabled catalogue shows availability without requesting the disabled endp
     assert.equal(has(h,'Unable to load parcel delivery'),undefined);
     h.click('Check availability');h.requests.findLast(r=>r.url.endsWith('/capabilities')).resolve({data:enabledFlags});await h.settle();
     h.requests.findLast(r=>r.url.endsWith('/catalogue')).resolve({data:readyPolicy});await h.settle();
-    assert.ok(h.find(n=>n.type==='form'));
+    assert.ok(h.find(n=>n.type===Flow));
   }finally{h.close();}
 });
 for(const override of [{fulfilment:false},{admin_fallback:false},{productionBlocked:true},{online_payment:false}])test('booking respects dispatch, production and payment prerequisites '+JSON.stringify(override),async()=>{

@@ -61,7 +61,7 @@ export function ParcelServiceCard() {
     load().catch(() => { if (!c.signal.aborted) setState('error'); });
     return () => c.abort();
   }, [attempt]);
-  return <article className="customer-service-card"><Package aria-hidden="true"/><h2>Parcel Delivery</h2><p>Have a parcel picked up and delivered to your recipient.</p>
+  return <article className="customer-service-card customer-parcel-card"><Package size={42} strokeWidth={1.5} aria-hidden="true"/><h2>Send a Parcel</h2><p>Doorstep pickup. A delivery fee before you book. Your parcel, delivered with care.</p>
     {state === 'loading' ? <p role="status">Checking parcel availability…</p> : state === 'enabled' ? <p role="status">Ready to send? Get a delivery fee before confirming.</p> : state === 'error' ? <p role="alert">Parcel availability could not be checked. <button onClick={() => retry(n => n + 1)}>Retry parcel availability</button></p> : <p role="status">New deliveries are currently unavailable. You can still view your delivery history.</p>}
     <div className="customer-service-actions">{state === 'enabled' || state === 'unavailable' ? <a className="service-book" href="/parcel-delivery/book">Send a Parcel</a> : state === 'disabled' ? <button type="button" disabled>Send a Parcel</button> : null}<a href="/parcel-delivery/history">Delivery history</a></div>
   </article>;

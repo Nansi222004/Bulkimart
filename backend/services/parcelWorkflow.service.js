@@ -8,7 +8,7 @@ import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
-import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold } from './parcelPolicy.service.js';
+import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const parcelKey = key => { if (typeof key !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(key)) failParcel('Valid idempotency key required'); return key; };
 export function parcelEvent(b, actor, action, status = b.status, reason = '') {
@@ -34,15 +34,24 @@ export async function quoteParcel(customerId, input) {
   let route;
   try { route = await getRoute(details.pickup,details.dropoff); } catch { failParcel('Verified route provider unavailable; booking quotation is disabled',503); }
   const pricing = parcelFare(route?.distanceKm,p);
-  return Quote.create({ customerId, details, pricing, expiresAt:new Date(Date.now()+p.config.quoteSeconds*1000) });
+  if (route?.provider) pricing.routeProvider = route.provider;
+  const quote = await Quote.create({ customerId, details, pricing, expiresAt:new Date(Date.now()+p.config.quoteSeconds*1000) });
+  // Geometry is for the current Google Map only, never a persistent route cache.
+  quote.$locals.route = { durationSeconds: Number.isFinite(route?.durationMin) && route.durationMin > 0 ? Math.ceil(route.durationMin * 60) : null, polyline: typeof route?.polyline === 'string' ? route.polyline : null, ...(route?.provider ? { provider: route.provider } : {}) };
+  return quote;
 }
 export async function bookParcel(customerId, input, key) {
   requireParcel('booking'); parcelKey(key);
   if (!['online','pay_driver'].includes(input.paymentMethod) || input.acceptTerms !== true) failParcel('Choose payment method and accept terms');
+  if (input.cashCollectionPoint !== undefined && (!['pickup','delivery'].includes(input.cashCollectionPoint) || input.paymentMethod !== 'pay_driver')) failParcel('Choose a valid cash collection point for cash payment');
+  const collectionPoint = input.cashCollectionPoint ?? 'delivery';
   requireParcel(input.paymentMethod === 'online' ? 'online_payment':'pay_driver');
   // Dispatch prerequisites are checked before accepting a financial obligation.
   requireParcel('auto_assignment'); requireParcel('admin_fallback'); requireParcel('fulfilment');
-  const id = digest([String(customerId),key]).slice(0,24), hash = digest([String(input.quoteId),input.paymentMethod,input.acceptTerms]);
+  // Preserve legacy idempotency hashes for existing drop-off/online retries.
+  const hashInputs = [String(input.quoteId),input.paymentMethod,input.acceptTerms];
+  if (input.paymentMethod === 'pay_driver' && collectionPoint !== 'delivery') hashInputs.push(collectionPoint);
+  const id = digest([String(customerId),key]).slice(0,24), hash = digest(hashInputs);
   return financialTransaction(async session => {
     const prior = await Parcel.findById(id).session(session);
     if (prior) { if (prior.requestHash !== hash) failParcel('Idempotency key reused with changed booking',409); return prior; }
@@ -54,18 +63,21 @@ export async function bookParcel(customerId, input, key) {
     // Serialize policy edits against confirmation without changing its business version.
     await Policy.updateOne({ _id:p._id, version:p.version },{ $inc:{ __v:1 } },{ session });
     if (input.paymentMethod === 'pay_driver' && (!p.config.payDriverEnabled || !p.config.payDriverCategories.includes(q.details.category))) failParcel('Pay-driver is not permitted for this parcel',409);
-    const [b] = await Parcel.create([{ _id:id, reference:`PD-${id.toUpperCase()}`, customerId, quoteId:q._id, requestHash:hash, details:q.details, pricing:q.pricing, paymentMethod:input.paymentMethod, paymentStatus:input.paymentMethod === 'online'?'pending':'cash_due', cash:{status:input.paymentMethod==='online'?'not_applicable':'outstanding',amountPaise:0}, status:input.paymentMethod === 'online'?'payment_pending':'searching_for_driver', history:[] }],{ session });
+    if (input.paymentMethod === 'pay_driver' && !parcelCashCollectionPoints(p.config).includes(collectionPoint)) failParcel('Cash collection point is not permitted by this policy',409);
+    const [b] = await Parcel.create([{ _id:id, reference:`PD-${id.toUpperCase()}`, customerId, quoteId:q._id, requestHash:hash, details:q.details, pricing:q.pricing, paymentMethod:input.paymentMethod, paymentStatus:input.paymentMethod === 'online'?'pending':'cash_due', cash:{status:input.paymentMethod==='online'?'not_applicable':'outstanding',amountPaise:0,...(input.paymentMethod==='pay_driver'?{collectionPoint}:{})}, status:input.paymentMethod === 'online'?'payment_pending':'searching_for_driver', history:[] }],{ session });
     parcelEvent(b,{ id:customerId,type:'customer' },'terms_accepted');
     q.bookingId = b._id; await q.save({ session }); await b.save({ session }); return b;
   });
 }
 export function parcelDTO(b, mode = 'customer', partnerId) {
   const v = b.toObject ? b.toObject() : b;
-  const summary = { _id:v._id, reference:v.reference, version:v.__v, status:v.status, paymentMethod:v.paymentMethod, paymentStatus:v.paymentStatus, policyVersion:v.pricing.policyVersion, feePaise:v.pricing.totalPaise, currency:'INR', createdAt:v.createdAt };
+  const summary = { _id:v._id, reference:v.reference, version:v.__v, status:v.status, paymentMethod:v.paymentMethod, paymentStatus:v.paymentStatus, policyVersion:v.pricing.policyVersion, feePaise:v.pricing.totalPaise, currency:'INR', createdAt:v.createdAt, ...(v.paymentMethod==='pay_driver'?{cashCollectionPoint:v.cash.collectionPoint || 'delivery'}:{}) };
   if (mode === 'driver' && String(v.partnerId || '') !== String(partnerId)) return { ...summary, offer:v.assignment.offer?{token:v.assignment.offer.token,expiresAt:v.assignment.offer.expiresAt}:undefined, pickupArea:v.details.pickup.pincode, dropoffArea:v.details.dropoff.pincode, weightKg:v.details.weightKg, category:v.details.category, earningPaise:v.pricing.driverPaise };
   const h = v.history.map(e => ({ status:e.status, action:e.action, at:e.at, ...(mode === 'admin'?{ actorId:e.actorId,actorType:e.actorType,reason:e.reason }:{}) }));
   const terminal = ['delivered','cancelled'].includes(v.status);
   return { ...summary, details:mode === 'driver' && terminal ? { category:v.details.category } : v.details, terms:v.pricing.policy.terms, pricing:mode === 'admin'?v.pricing:undefined,
+    route:mode === 'customer'?{ distanceMetres:v.pricing.distanceMetres, ...(v.pricing.routeProvider ? { provider:v.pricing.routeProvider } : {}) }:undefined,
+    service:mode === 'customer'?{ id:'parcel', name:'Doorstep delivery' }:undefined,
     assignment:mode === 'admin'?v.assignment:undefined, partnerId:v.partnerId, history:h, cash:{ status:v.cash.status, amountPaise:v.cash.amountPaise },
     finance:mode === 'admin'?{...v.finance,settlementBlockers:parcelSettlementBlockers(v)}: mode === 'driver'?{ earningPaise:v.pricing.driverPaise, held:v.finance.held, payoutStatus:'not_released' }:undefined,
     pickupCode:mode === 'customer' && v.status === 'arrived_at_pickup' && !parcelOperationalHold(v) && v.proof.pickup && new Date(v.proof.pickup.expiresAt)>new Date() && !v.proof.pickup.verifiedAt ? v.proof.pickup.code:undefined,
@@ -125,6 +137,7 @@ export async function parcelDriverAction(id,partnerId,input) {
         touchParcel(b); await b.save({ session }); return { invalidProof:true };
       }
       if (!pickup && b.paymentMethod === 'pay_driver' && b.cash.amountPaise !== b.pricing.totalPaise) failParcel('Exact fee collection or an exception is required before delivery',409);
+      if (pickup && b.paymentMethod === 'pay_driver' && b.cash.collectionPoint === 'pickup' && b.cash.amountPaise !== b.pricing.totalPaise) failParcel('Collect the exact pickup fee before confirming pickup',409);
       proof.verifiedAt = new Date(); delete proof.code;
       parcelEvent(b,actor,action,pickup?'picked_up':'delivered');
       if (!pickup) {
@@ -135,9 +148,10 @@ export async function parcelDriverAction(id,partnerId,input) {
       }
     } else if (action === 'collect_cash') {
       requireParcel('pay_driver');
-      if (b.paymentMethod !== 'pay_driver' || b.status !== 'arrived_at_dropoff' || input.amountPaise !== b.pricing.totalPaise || b.paymentId) failParcel('Exact authorized cash fee at delivery required',409);
+      const collectionPoint = b.cash.collectionPoint || 'delivery';
+      if (b.paymentMethod !== 'pay_driver' || b.status !== (collectionPoint === 'pickup' ? 'arrived_at_pickup' : 'arrived_at_dropoff') || input.amountPaise !== b.pricing.totalPaise || b.paymentId) failParcel('Exact authorized cash fee at the selected collection point required',409);
       if (!b.cash.collectedAt) {
-        b.cash = { status:'collected_unreconciled',amountPaise:b.pricing.totalPaise,collectedAt:new Date(),collectorId:partnerId };
+        b.cash = { collectionPoint, status:'collected_unreconciled',amountPaise:b.pricing.totalPaise,collectedAt:new Date(),collectorId:partnerId };
         b.paymentStatus = 'cash_collected';
         await postParcel(b,'cash-collected','parcel_cash_custody','credit',b.pricing.totalPaise,session);
         parcelEvent(b,actor,'cash_collected');

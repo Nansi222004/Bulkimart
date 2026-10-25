@@ -75,6 +75,33 @@ test('admin policy requires a selected area centre and exposes no coordinate inp
     assert.doesNotMatch(content(h), /Centre latitude|Centre longitude/);
   } finally { h.close(); }
 });
+
+test('admin coverage maps have independent search controls and save confirmed pins without changing fares', () => {
+  const saved = [], h = hookHarness(Editor, { value: { config: { basePaise: 1000, areas: [
+    { name: 'First', pincodes: ['452006'], lat: 22.72, lng: 75.85, radiusKm: 10 },
+    { name: 'Second', pincodes: ['452015'], lat: 22.73, lng: 75.86, radiusKm: 5 },
+  ] } }, onSave: c => saved.push(c) });
+  const pickers = () => {
+    const found = [];
+    const walk = n => { if (!n || typeof n !== 'object') return; if (n.type === Picker) found.push(n); [n.props?.children].flat(Infinity).forEach(walk); };
+    walk(h.tree); return found;
+  };
+  try {
+    const [first, second] = pickers();
+    assert.equal(first.props.showMap, true); assert.equal(first.props.confirmLocation, true); assert.equal(first.props.areaMode, true);
+    assert.equal(second.props.radiusKm, 5); assert.notEqual(first.props.idPrefix, second.props.idPrefix);
+    second.props.onChange({ lat: 22.74, lng: 75.87 }); h.flush();
+    h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
+    assert.equal(saved[0].areas[1].lat, 22.74); assert.equal(saved[0].areas[1].lng, 75.87);
+    assert.equal(saved[0].areas[1].radiusKm, 5); assert.equal(saved[0].basePaise, 1000);
+    assert.equal(saved[0].areas[1]._locationKey, undefined);
+    assert.match(content(h), /approved pincode/);
+    const status = h.find(n => n.props?.role === 'status');
+    assert.match(JSON.stringify(status), /Saved coverage/);
+    assert.match(JSON.stringify(status), /First: 452006; Second: 452015/);
+    assert.match(JSON.stringify(status), /inactive until/);
+  } finally { h.close(); }
+});
 test('missing hidden locations cannot silently become zero coordinates during quotation', () => {
   const form = new FormData(); form.set('pickup.lat', ''); form.set('pickup.lng', '');
   assert.throws(() => api.parcelFormDetails(form), /Select the pickup location/);
@@ -113,5 +140,16 @@ test('driver matching explains recent location updates and saves minutes as seco
     input('acceptanceSeconds').props.onChange({ target: { value: '1.5' } }); h.flush();
     h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
     assert.equal(saved[1].locationMaxAgeSeconds, 480); assert.equal(saved[1].acceptanceSeconds, 90);
+  } finally { h.close(); }
+});
+
+test('admin cash collection setting preserves legacy drop-only and explicitly enables customer choice', () => {
+  const saved = [], h = hookHarness(Editor, { value: { config: { cashCollectionPoint: 'delivery', areas: [] } }, onSave: c => saved.push(c) });
+  try {
+    const field=()=>h.find(n=>n.props?.name==='cashCollectionPoint');
+    assert.equal(field().props.value,'delivery');
+    field().props.onChange({target:{value:'customer_choice'}});h.flush();
+    h.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
+    assert.equal(saved[0].cashCollectionPoint,'customer_choice');assert.match(content(h),/Driver earning = starting driver earning/);
   } finally { h.close(); }
 });
