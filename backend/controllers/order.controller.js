@@ -1183,7 +1183,8 @@ export const cancelOrder = asyncHandler(async (req, res) => {
       order.cancelReason = cancelReason;
       // Put every unit back before marking it cancelled.
       for (const item of order.items) {
-        await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
+        // E-books only give a copy back if checkout reserved one.
+        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
       // The customer should not lose a one-per-person coupon to an order they
@@ -1306,7 +1307,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
       order.cancelReason = reason;
       // Put every unit back
       for (const item of order.items) {
-        await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
+        if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
       if (order.coupon) {

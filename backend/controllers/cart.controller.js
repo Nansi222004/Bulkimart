@@ -15,7 +15,7 @@ import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { getOrCreateWallet, calculateRedemptionEligibility } from '../services/coin.service.js';
-import { inventoryIdentityKey, resolveInventoryItem } from '../services/inventory.service.js';
+import { inventoryIdentityKey, resolveInventoryItem, isUnlimitedDigital } from '../services/inventory.service.js';
 
 /**
  * One cart per channel. Quick and Shop All are fulfilled differently and never
@@ -72,8 +72,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       mutated = true;
       continue;
     }
-    const isDigital = p.fulfillmentType === 'digital';
-    if (!isDigital && inventory.stock <= 0) {
+    if (!isUnlimitedDigital(p) && inventory.stock <= 0) {
       warnings.push(`"${p.name}" is out of stock and was removed.`);
       mutated = true;
       continue;
@@ -83,7 +82,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       line.price = inventory.price;
       mutated = true;
     }
-    if (!isDigital && inventory.stock < line.qty) {
+    if (!isUnlimitedDigital(p) && inventory.stock < line.qty) {
       warnings.push(`Only ${inventory.stock} left of "${p.name}" — quantity reduced.`);
       line.qty = inventory.stock;
       mutated = true;
@@ -132,7 +131,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       shgStoreId: product.shgStoreId,
       category: product.category?.name || '',
       categoryId: product.category?._id || product.category,
-      stock: product.fulfillmentType === 'digital' ? 1 : inventory.stock,
+      stock: isUnlimitedDigital(product) ? 1 : inventory.stock,
       deliveryMode: line.deliveryMode,
       additionalMessage: line.additionalMessage || '',
       lineTotal: Math.round(effectivePrice * line.qty * 100) / 100,
@@ -414,7 +413,7 @@ export const addToCart = asyncHandler(async (req, res) => {
   const inventory = resolveInventoryItem(product, variantId);
   const isDigital = product.fulfillmentType === 'digital';
   if (isDigital && quantity !== 1) throw httpError(400, 'An e-book can only appear once in your cart');
-  if (!isDigital && inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
+  if (!isUnlimitedDigital(product) && inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
   if (!isDigital && quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
   if (quantity > MAX_QTY_PER_LINE) {
     throw httpError(400, `You can order at most ${MAX_QTY_PER_LINE} of one item`);

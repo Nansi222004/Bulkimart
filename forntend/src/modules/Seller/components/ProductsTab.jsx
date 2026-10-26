@@ -79,9 +79,10 @@ export const ProductsTab = () => {
   // KPI Calculations
   const allItemsCount = products.length;
   const activeCount = products.filter(p => p.status === 'Active').length;
-  const physicalProducts = products.filter(p => p.raw?.fulfillmentType !== 'digital');
-  const lowStockCount = physicalProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
-  const outStockCount = physicalProducts.filter(p => p.stock === 0).length;
+  // Physical products and e-books with a seller copy limit both run out of stock.
+  const stockedProducts = products.filter(p => p.raw?.fulfillmentType !== 'digital' || p.raw?.digital?.stockTracked);
+  const lowStockCount = stockedProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
+  const outStockCount = stockedProducts.filter(p => p.stock === 0).length;
 
   // Filter products by searchable columns and local tab filters
   const filteredProducts = products.filter(p => {
@@ -97,9 +98,9 @@ export const ProductsTab = () => {
     if (activeProductTab === 'Active') {
       matchesTab = p.status === 'Active';
     } else if (activeProductTab === 'Low Stock') {
-      matchesTab = p.raw?.fulfillmentType !== 'digital' && p.stock > 0 && p.stock <= 10;
+      matchesTab = (p.raw?.fulfillmentType !== 'digital' || p.raw?.digital?.stockTracked) && p.stock > 0 && p.stock <= 10;
     } else if (activeProductTab === 'Out of Stock') {
-      matchesTab = p.raw?.fulfillmentType !== 'digital' && p.stock === 0;
+      matchesTab = (p.raw?.fulfillmentType !== 'digital' || p.raw?.digital?.stockTracked) && p.stock === 0;
     }
 
     return matchesSearch && matchesCategory && matchesTab;
@@ -682,7 +683,7 @@ export const ProductsTab = () => {
                       </div>
                       <div className="prod-card-mobile-info">
                         <span className="prod-card-mobile-name">{p.name}</span>
-                        <span className="prod-card-mobile-meta">{isEbook ? `E-book · ${p.raw?.digital?.format?.toUpperCase() || 'PDF'} · ${ebookFileStatus}` : `${categoryName} · ${subcategory}`}</span>
+                        <span className="prod-card-mobile-meta">{isEbook ? `E-book · ${p.raw?.digital?.format?.toUpperCase() || 'PDF'} · ${ebookFileStatus} · ${p.raw?.digital?.stockTracked ? `${p.stock} copies left` : 'unlimited copies'}` : `${categoryName} · ${subcategory}`}</span>
                         <span className="prod-card-mobile-code">{getProductCode(p)}</span>
                       </div>
                       <span className="prod-card-mobile-status" style={statusStyle}>{statusLabel}</span>
@@ -729,9 +730,10 @@ export const ProductsTab = () => {
               <tbody>
                 {sortedProducts.map((p) => {
                   const { header, categoryName, subcategory } = getProductDetails(p);
-                  const isEvenId = parseInt(p.id.replace(/\D/g, '') || '0') % 2 === 0;
+                  const variantCount = p.raw?.variants?.length || 1;
                   const isEbook = p.raw?.fulfillmentType === 'digital';
                   const ebookFileStatus = p.raw?.digital?.file?.status === 'uploaded' ? 'PDF uploaded' : 'PDF missing';
+                  const ebookCopies = p.raw?.digital?.stockTracked ? `${p.stock} copies left` : 'unlimited copies';
 
                   return (
                     <tr key={p.id} className="prod-table-row">
@@ -816,8 +818,8 @@ export const ProductsTab = () => {
                           color: '#1e293b',
                           letterSpacing: '0.3px',
                           cursor: 'pointer'
-                        }} onClick={() => isEbook ? triggerToast(`${p.name}: ${ebookFileStatus}`) : triggerToast(`${p.name} variant setup details: 1 Default Variant`)}>
-                          {isEbook ? `E-BOOK · ${ebookFileStatus.toUpperCase()}` : isEvenId ? '2 VARIANTS' : '1 VARIANTS'}
+                        }} onClick={() => isEbook ? triggerToast(`${p.name}: ${ebookFileStatus} · ${ebookCopies}`) : triggerToast(`${p.name}: ${variantCount} variant${variantCount === 1 ? '' : 's'}`)}>
+                          {isEbook ? `E-BOOK · ${ebookFileStatus.toUpperCase()} · ${ebookCopies.toUpperCase()}` : `${variantCount} VARIANT${variantCount === 1 ? '' : 'S'}`}
                         </span>
                       </td>
 

@@ -19,14 +19,10 @@ temp_interactive_push.bat
 # Local browser QA output (screenshots/profiles); never commit.
 /test-artifacts/
 
-# Test directories
-__tests__/
-**/__tests__/
+# Test directories (backend/__tests__ is tracked: it is the backend API test suite)
 test/
 tests/
 
 # Local-only QA sources and reports
 /forntend/tests/
-/backend/tests/
-/backend/__tests__/
-/tests/
+

@@ -47,13 +47,17 @@ const assertNotPublicStorage = async (root) => {
   }
 };
 
+// Declared types accepted for a .pdf upload. Mobile file pickers often send a
+// PDF as a generic binary; the content checks below decide whether it is one.
+export const PDF_UPLOAD_TYPES = ['application/pdf', 'application/x-pdf', 'application/octet-stream', ''];
+
 export const validateEbookPdf = (file, maxBytes = getMaxEbookBytes()) => {
   const invalid = (message) => Object.assign(new Error(message), { status: 400 });
   if (!file?.buffer || !Buffer.isBuffer(file.buffer)) throw invalid('A PDF file is required');
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('E-book upload limit is invalid');
   if (file.size > maxBytes || file.buffer.length > maxBytes) throw invalid('E-book file exceeds the upload limit');
   if (path.extname(file.originalname || '').toLowerCase() !== '.pdf') throw invalid('Only PDF e-books are supported');
-  if (file.mimetype !== 'application/pdf') throw invalid('The uploaded file must be declared as a PDF');
+  if (!PDF_UPLOAD_TYPES.includes(file.mimetype || '')) throw invalid('The uploaded file must be declared as a PDF');
   // PDF header must be near the start; permit a small prefix for valid files.
   if (!file.buffer.subarray(0, 1024).includes(Buffer.from('%PDF-'))) throw invalid('The uploaded file is not a valid PDF');
   if (!file.buffer.subarray(Math.max(0, file.buffer.length - 2048)).includes(Buffer.from('%%EOF'))) {

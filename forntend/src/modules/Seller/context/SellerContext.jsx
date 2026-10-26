@@ -27,6 +27,22 @@ const getUserId = (profile) => {
   const id = profile?._id || profile?.id || profile?.userId?._id || profile?.userId;
   return typeof id === 'string' || typeof id === 'number' ? String(id) : null;
 };
+/**
+ * The single variant an e-book is sold as. Stock is the seller's copy limit
+ * (sent with digital.stockTracked); MRP defaults to the selling price.
+ */
+const ebookVariant = (form, variantId) => ({
+  ...(variantId ? { _id: variantId } : {}),
+  name: 'E-book',
+  price: Number(form.ebookPrice),
+  mrp: form.ebookMrp !== '' && form.ebookMrp !== undefined ? Number(form.ebookMrp) : Number(form.ebookPrice),
+  stock: Number(form.ebookStock),
+  unit: 'piece',
+});
+
+// Phone file pickers often hand over a PDF with no type; label it before upload.
+const asPdfUpload = (file) => (file && !file.type ? new File([file], file.name, { type: 'application/pdf' }) : file);
+
 const getBrowserStorage = () => {
   try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; }
 };
@@ -218,7 +234,7 @@ export const SellerProvider = ({ children }) => {
     desc: '',
     brandName: '',
     gstRate: 0,
-    ebookPrice: '',
+    ebookPrice: '', ebookMrp: '', ebookStock: '',
     author: '',
     language: '',
     licenseTerms: '',
@@ -337,6 +353,9 @@ export const SellerProvider = ({ children }) => {
       brandName: raw.brandName || '',
       gstRate: raw.gstRate ?? 0,
       ebookPrice: raw.price ?? '',
+      ebookMrp: raw.variants?.[0]?.mrp ?? raw.mrp ?? '',
+      // Unlimited (older) e-books start with an empty copy limit for the seller to set.
+      ebookStock: raw.digital?.stockTracked ? (raw.variants?.[0]?.stock ?? raw.stock ?? '') : '',
       author: raw.digital?.author || '',
       language: raw.digital?.language || '',
       licenseTerms: raw.digital?.licenseTerms || '',
@@ -358,7 +377,7 @@ export const SellerProvider = ({ children }) => {
   const startNewProduct = () => {
     productDraftGeneration.current++;
     setEditingProduct(null); setProductError('');
-    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, ebookPrice: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
+    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
     setShowAddProductModal(true);
   };
 
@@ -420,7 +439,7 @@ export const SellerProvider = ({ children }) => {
       // Wholesale terms have their own narrow endpoint so normal retail
       // product saves cannot accidentally rewrite those fields.
       const editVariants = form.fulfillmentType === 'digital'
-        ? [{ ...(editingProduct?.variants?.[0]?._id ? { _id: editingProduct.variants[0]._id } : {}), name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
+        ? [ebookVariant(form, editingProduct?.variants?.[0]?._id)]
         : form.variants.map(({ wholesalePricing, ...variant }) => ({
             ...(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale' ? { wholesalePricing, sku: variant.sku, attributes: variant.attributes } : {}),
             ...(variant._id ? { _id: variant._id } : {}),
@@ -438,6 +457,7 @@ export const SellerProvider = ({ children }) => {
           language: String(form.language || '').trim(),
           format: 'pdf',
           licenseTerms: String(form.licenseTerms || '').trim(),
+          stockTracked: true,
         }));
       }
 
@@ -472,7 +492,7 @@ export const SellerProvider = ({ children }) => {
 
       if (actualEbookFile) {
         const fileData = new FormData();
-        fileData.append('file', actualEbookFile);
+        fileData.append('file', asPdfUpload(actualEbookFile));
         const fileRes = await fetch(apiUrl(`/api/products/${editingProductId}/digital-file`), {
           method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fileData,
         });
@@ -1332,7 +1352,7 @@ export const SellerProvider = ({ children }) => {
       // auto-generates it (see Product.js's pre-validate hook), so a
       // seller can never collide with, or guess, another listing's code.
       const createVariants = form.fulfillmentType === 'digital'
-        ? [{ name: 'E-book', price: Number(form.ebookPrice), mrp: Number(form.ebookPrice), stock: 0, unit: 'piece' }]
+        ? [ebookVariant(form)]
         : form.variants.map((v) => ({
             ...(form.sellingChannels?.includes('wholesale') ? { wholesalePricing: v.wholesalePricing, sku: v.sku, attributes: v.attributes } : {}),
             name: String(v.name || '').trim(),
@@ -1349,6 +1369,7 @@ export const SellerProvider = ({ children }) => {
           language: String(form.language || '').trim(),
           format: 'pdf',
           licenseTerms: String(form.licenseTerms || '').trim(),
+          stockTracked: true,
         }));
       }
 
@@ -1394,12 +1415,16 @@ export const SellerProvider = ({ children }) => {
         // same listing instead of accidentally creating duplicate drafts.
         setEditingProduct(body.product);
         const fileData = new FormData();
-        fileData.append('file', ebookFile);
+        fileData.append('file', asPdfUpload(ebookFile));
         const fileRes = await fetch(apiUrl(`/api/products/${body.product._id}/digital-file`), {
           method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fileData,
         });
         const fileBody = await fileRes.json().catch(() => ({}));
-        if (!fileRes.ok) throw new Error(fileBody.message || 'Draft created, but the private PDF upload failed. Retry to upload it.');
+        if (!fileRes.ok) {
+          // The listing exists now, so show it in the list and say plainly what is left to do.
+          fetchMyProducts().catch(() => {});
+          throw new Error(`Your e-book was saved as a draft, but the PDF did not upload${fileBody.message ? `: ${fileBody.message}` : '.'} Tap “Retry PDF Upload”, or close and upload it later from Edit.`);
+        }
       }
 
       if (!current()) return { ok: false, stale: true };
@@ -1407,11 +1432,13 @@ export const SellerProvider = ({ children }) => {
         ? 'E-book listing created and submitted for admin review.'
         : form.sellingChannels?.includes('wholesale') ? 'Wholesale product published.' : 'Product published — it is live for customers now.');
       setShowAddProductModal(false);
+      // An e-book create left its draft loaded for a PDF retry; the listing is done now.
+      setEditingProduct(null);
       setNewProductForm({
         fulfillmentType: 'physical',
         name: '', categoryId: '', desc: '',
         brandName: '', gstRate: 0,
-        ebookPrice: '', author: '', language: '', licenseTerms: '',
+        ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '',
         variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }],
         sameDayEnabled: false, processingMinutes: '', returnable: false,
       });

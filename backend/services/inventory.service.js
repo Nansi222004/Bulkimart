@@ -117,4 +117,7 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
   );
 };
 
-export const inventoryIdentityKey = ({ productId, variantId }) => `${String(productId)}:${variantId ? String(variantId) : 'root'}`;
+/** An e-book without a seller copy limit never runs out; one with a limit uses variant stock. */
+export const isUnlimitedDigital = (product) => product?.fulfillmentType === 'digital' && !product?.digital?.stockTracked;
+
+export const inventoryIdentityKey =({ productId, variantId }) => `${String(productId)}:${variantId ? String(variantId) : 'root'}`;

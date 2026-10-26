@@ -15,5 +15,4 @@ tests/
 private-data/maintenance/
 
 # Local-only automated tests and manual QA
-/__tests__/
 /tests/

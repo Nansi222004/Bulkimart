@@ -101,6 +101,9 @@ const orderItemSchema = new Schema({
   shgStoreId: { type: ObjectId, ref: "SHGStore" },
   type:       String,
   fulfillmentType: { type: String, enum: ['physical', 'digital'], default: 'physical' },
+  // An e-book line that took one of the seller's limited copies at checkout;
+  // only these give a copy back on cancellation.
+  stockReserved: { type: Boolean },
   digitalSnapshot: {
     author: String,
     language: String,

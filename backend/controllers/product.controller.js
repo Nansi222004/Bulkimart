@@ -36,6 +36,21 @@ const parseDigitalDetails = (input) => {
   return details;
 };
 
+const truthy = (value) => value === true || value === 'true';
+
+/**
+ * An e-book has exactly one priced variant. With a copy limit its stock is the
+ * copies left (a whole number); without one it is unlimited and stock stays 0.
+ */
+const validateEbookVariants = (variants, stockTracked) => {
+  if (variants.length !== 1 || !Number.isFinite(Number(variants[0].price)) || Number(variants[0].price) <= 0) {
+    throw httpError(400, 'An e-book requires exactly one variant with a selling price');
+  }
+  const stock = Number(variants[0].stock);
+  if (stockTracked && (!Number.isSafeInteger(stock) || stock < 0 || stock > 1000000)) throw httpError(400, 'Copies available must be a whole number from 0 to 1,000,000');
+  if (!stockTracked && stock !== 0) throw httpError(400, 'Set a copy limit to give an e-book stock');
+};
+
 /**
  * A product's `type`/`category` name its PRIMARY channel. `channels[]` names
  * every EXTRA one it was toggled into (see Product.js). A storefront asking
@@ -106,7 +121,7 @@ export const getProducts = asyncHandler(async (req, res) => {
 
   if (inStock === 'true') {
     if (resolvedType === CHANNEL.ECOM) {
-      filter.$and.push({ $or: [{ fulfillmentType: 'digital' }, { stock: { $gt: 0 } }] });
+      filter.$and.push({ $or: [{ fulfillmentType: 'digital', 'digital.stockTracked': { $ne: true } }, { stock: { $gt: 0 } }] });
     } else {
       filter.stock = { $gt: 0 };
     }
@@ -678,10 +693,7 @@ export const createProduct = asyncHandler(async (req, res) => {
   const digitalDetails = digital !== undefined ? parseDigitalDetails(digital) : {};
   if (fulfillmentType === 'digital') {
     if (type !== CHANNEL.ECOM) throw httpError(400, 'E-books can only be listed in E-Commerce');
-    if (parsedVariants.length !== 1 || Number(parsedVariants[0].stock) !== 0
-      || !Number.isFinite(Number(parsedVariants[0].price)) || Number(parsedVariants[0].price) <= 0) {
-      throw httpError(400, 'An e-book requires one priced variant and no physical stock');
-    }
+    validateEbookVariants(parsedVariants, truthy(digitalDetails.stockTracked));
     if (!String(digitalDetails.author || '').trim() || !String(digitalDetails.language || '').trim()) {
       throw httpError(400, 'Author and language are required for an e-book');
     }
@@ -717,6 +729,7 @@ export const createProduct = asyncHandler(async (req, res) => {
       language: String(digitalDetails.language).trim(),
       format: 'pdf',
       licenseTerms: digitalDetails.licenseTerms ? String(digitalDetails.licenseTerms).trim() : undefined,
+      stockTracked: truthy(digitalDetails.stockTracked),
     } } : {}),
     name,
     description,
@@ -903,6 +916,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     product.digital.language = String(details.language).trim();
     product.digital.format = 'pdf';
     product.digital.licenseTerms = details.licenseTerms ? String(details.licenseTerms).trim() : undefined;
+    if (details.stockTracked !== undefined) product.digital.stockTracked = truthy(details.stockTracked);
     product.status = APPROVAL.PENDING;
     product.isActive = false;
   }
@@ -949,10 +963,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
       if (v.stock === undefined || v.stock === '' || Number(v.stock) < 0) throw httpError(400, `"${label}" stock cannot be negative`);
       if (v.mrp !== undefined && v.mrp !== '' && Number(v.price) > Number(v.mrp)) throw httpError(400, `"${label}" price cannot be higher than its MRP`);
     });
-    if (product.fulfillmentType === 'digital'
-      && (parsedVariants.length !== 1 || Number(parsedVariants[0].stock) !== 0)) {
-      throw httpError(400, 'An e-book requires one priced variant and no physical stock');
-    }
+    if (product.fulfillmentType === 'digital') validateEbookVariants(parsedVariants, Boolean(product.digital?.stockTracked));
     if (req.userType === 'admin') {
       const owner = await Seller.findById(product.sellerId);
       parsedVariants = applyWholesalePricing(parsedVariants, owner, product.variants || []);

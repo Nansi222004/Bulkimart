@@ -11,6 +11,7 @@ import Seller from '../models/Seller.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { applyCouponCode, redeemCoupon } from '../services/coupon.service.js';
 import { openStoredEbook } from '../services/ebookStorage.service.js';
+import { mutateInventory, isUnlimitedDigital } from '../services/inventory.service.js';
 import { httpError, created, ok } from '../utils/response.js';
 
 const round2 = (value) => Math.round(Number(value) * 100) / 100;
@@ -40,7 +41,8 @@ const checkoutIdentity = async (req) => {
   return { key, requestHash, replay: { order, previous } };
 };
 
-// Digital-only checkout deliberately has no address, delivery, COD, stock or shipping mutations.
+// Digital-only checkout has no address, delivery, COD or shipping mutations; it
+// only takes stock for e-books whose seller set a copy limit.
 export const createDigitalOrder = asyncHandler(async (req, res) => {
   const identity = await checkoutIdentity(req);
   if (identity.replay) {
@@ -70,6 +72,7 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
     }
     const variant = product.variants?.find((entry) => !line.variantId || String(entry._id) === String(line.variantId));
     if (!variant || Number(variant.price) <= 0) throw httpError(409, `"${product.name}" has invalid pricing`);
+    if (!isUnlimitedDigital(product) && !(Number(variant.stock) >= 1)) throw httpError(409, `"${product.name}" is sold out`);
     return {
       productId: product._id,
       variantId: variant._id,
@@ -90,6 +93,7 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
         format: 'pdf',
       },
       digitalFile: { fileId: file.fileId, sha256: file.sha256, sizeBytes: file.sizeBytes, status: 'uploaded' },
+      ...(isUnlimitedDigital(product) ? {} : { stockReserved: true }),
     };
   });
 
@@ -108,6 +112,11 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
   try {
     await session.withTransaction(async () => {
       await CheckoutAttempt.create([{ userId: req.user._id, key: identity.key, requestHash: identity.requestHash, operation: 'digital', status: 'processing' }], { session });
+      // A limited e-book gives up one copy per sale; the conditional update
+      // refuses the last copy to a second concurrent buyer.
+      for (const line of lines) {
+        if (line.stockReserved) await mutateInventory({ productId: line.productId, variantId: line.variantId, quantity: 1, session });
+      }
       const [payment] = await Payment.create([{ userId: req.user._id, amount: totalAmount, method: 'online', status: 'pending' }], { session });
       [order] = await Order.create([{
         userId: req.user._id,

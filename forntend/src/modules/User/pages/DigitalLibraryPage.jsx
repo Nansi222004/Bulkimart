@@ -34,14 +34,17 @@ const DigitalLibraryPage = () => {
         throw new Error(body.message || 'Download is temporarily unavailable');
       }
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = `${entry.product?.name || 'ebook'}.pdf`;
+      anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      // Mobile browsers start saving a blob after the click returns; freeing it
+      // immediately makes the phone's download fail with "Network error".
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setError(err.message);
     } finally {

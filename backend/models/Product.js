@@ -69,6 +69,9 @@ const digitalProductSchema = new Schema({
   format: { type: String, enum: ["pdf"], default: "pdf" },
   licenseTerms: { type: String, trim: true, maxlength: 2000 },
   file: { type: ebookFileSchema, default: undefined },
+  // When true the seller has set a copy limit: variant stock is the copies left
+  // and checkout reserves one per sale. E-books listed before this stay unlimited.
+  stockTracked: { type: Boolean, default: false },
 }, { _id: false });
 
 /**

@@ -59,6 +59,9 @@ export const ProductModal = () => {
   const wholesaleDialog = useRef(null);
   useSellerDialog(wholesaleDialog, showAddProductModal && (wholesaleOnly || wholesaleProductEditor));
   const isEditing = Boolean(editingProductId);
+  // A new e-book whose listing was created but whose PDF upload failed: the
+  // editor stays on that draft so a retry cannot create a duplicate.
+  const ebookDraftAwaitingPdf = isEditing && editingProduct?.fulfillmentType === 'digital' && editingProduct?.digital?.file?.status !== 'uploaded';
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!showAddProductModal || !viewport) return;
@@ -356,6 +359,13 @@ export const ProductModal = () => {
     { id: 'photos', label: isDigital ? 'Cover & PDF' : 'Photos' },
   ], [isDigital]);
 
+  // E-book MRP is optional but never below the price; copies are a whole number.
+  const ebookMrpError = isDigital && newProductForm.ebookMrp !== '' && newProductForm.ebookMrp !== undefined
+    && (!(Number(newProductForm.ebookMrp) > 0) || Number(newProductForm.ebookMrp) < Number(newProductForm.ebookPrice))
+    ? 'MRP must be at least the selling price' : '';
+  const ebookStockError = isDigital && (newProductForm.ebookStock === '' || newProductForm.ebookStock === undefined
+    || !Number.isSafeInteger(Number(newProductForm.ebookStock)) || Number(newProductForm.ebookStock) < 0)
+    ? 'copies available must be a whole number (0 or more)' : '';
   const tabErrors = useMemo(() => {
     const errs = { general: [], groups: [], variants: [], photos: [] };
 
@@ -378,6 +388,8 @@ export const ProductModal = () => {
       if (newProductForm.ebookPrice === '' || newProductForm.ebookPrice === undefined || !Number.isFinite(ep) || ep <= 0) {
         errs.general.push('Valid e-book price (₹) is required');
       }
+      if (ebookMrpError) errs.general.push(`E-book ${ebookMrpError}`);
+      if (ebookStockError) errs.general.push(`E-book ${ebookStockError}`);
     }
 
     if (!isDigital && showReturnableBlock && newProductForm.returnable && newProductForm.returnWindowDays !== '' && newProductForm.returnWindowDays != null) {
@@ -433,7 +445,7 @@ export const ProductModal = () => {
     }
 
     return errs;
-  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile, showReturnableBlock, catReturnPolicy, returnPolicyState]);
+  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile, showReturnableBlock, catReturnPolicy, returnPolicyState, ebookMrpError, ebookStockError]);
 
   const allErrors = useMemo(() => Object.values(tabErrors).flat(), [tabErrors]);
   const creationTermsValid = !wholesaleProductEditor || (wholesaleAuthorized && (isEditing || variants.some(v=>v.wholesalePricing?.enabled)) && !variants.some(v=>Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length));
@@ -457,12 +469,24 @@ export const ProductModal = () => {
       return;
     }
     const save = () => isEditing ? submitProductEdit(newProductForm, collectedFiles, ebookFile) : submitNewProduct(newProductForm, collectedFiles, ebookFile);
-    if (!wholesaleProductEditor && wholesaleDirty) return ui.perform('Wholesale terms have unsaved changes. Save retail details and discard unsaved Wholesale edits?', save);
+    // Confirming saves the product, so the dialog must read as a save, not a discard.
+    if (!wholesaleProductEditor && wholesaleDirty) return ui.perform({
+      title: 'Save product without the Wholesale changes?',
+      message: 'You edited Wholesale terms but did not save them with “Save Wholesale Terms”. Saving now keeps your product details and leaves the Wholesale terms as they were.',
+      confirmLabel: 'Save product', cancelLabel: 'Go back', destructive: false,
+    }, save);
     return save();
   };
 
   const close = async () => {
     if (savingWholesale || savingProduct) return;
+    if (ebookDraftAwaitingPdf) {
+      // Nothing is discarded here: the listing already exists as a draft.
+      if (!await ui.ask('This e-book is already saved as a draft, but its PDF is not uploaded yet, so buyers cannot see it. Close anyway? You can upload the PDF later from Edit.')) return;
+      setShowAddProductModal(false); setEditingProductId(null);
+      sellerCtx.fetchMyProducts?.();
+      return;
+    }
     if ((wholesaleDirty || formSnapshot.current !== JSON.stringify(newProductForm) || collectedFiles.length || ebookFile) && !await ui.ask('Discard unsaved product changes?')) return;
     setShowAddProductModal(false); setEditingProductId(null);
   };
@@ -562,7 +586,7 @@ export const ProductModal = () => {
         <div className="pm-right-column" style={S.rightColumn}>
           <div className="pm-header" style={S.header}>
             <div style={{ minWidth: 0 }}>
-              <h3 style={S.title}>{wholesaleProductEditor ? (isEditing ? 'Edit Wholesale Product' : 'Add Wholesale Product') : isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
+              <h3 style={S.title}>{wholesaleProductEditor ? (isEditing ? 'Edit Wholesale Product' : 'Add Wholesale Product') : ebookDraftAwaitingPdf ? 'E-book Draft — PDF Needed' : isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
               <div style={S.breadcrumb}>
                 {wholesaleProductEditor ? 'WHOLESALE ONLY' : (activeChannel === 'quick' || activeChannel === 'grocery') ? 'QUICK COMMERCE' : 'SHOP ALL'}
                 {' > '}
@@ -579,26 +603,29 @@ export const ProductModal = () => {
               <div style={S.tabPanel} inert={wholesaleOnly || undefined}>
                 {!isEditing && !wholesaleProductEditor && (
                   <div className="onboarding-form-group">
-                    <label className="onboarding-label">Listing type *</label>
-                    <select
-                      className="onboarding-select"
-                      value={newProductForm.fulfillmentType || 'physical'}
-                      onChange={(event) => {
-                        const nextType = event.target.value;
-                        resetCategoryPicks();
-                        setNewProductForm((prev) => ({
-                          ...prev,
-                          fulfillmentType: nextType,
-                          categoryId: '',
-                        }));
-                        setActiveTab('general');
-                      }}
-                    >
-                      <option value="physical">Physical product (Standard retail / inventory)</option>
-                      <option value="digital" disabled={activeChannel === 'quick' || activeChannel === 'grocery'}>
-                        E-book (PDF digital file){activeChannel === 'quick' || activeChannel === 'grocery' ? ' — switch to Shop All' : ''}
-                      </option>
-                    </select>
+                    <span className="onboarding-label">What are you adding? *</span>
+                    <div role="group" aria-label="Listing type" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {[['physical', '📦 Add Physical Product'], ['digital', '📚 Add E-book']].map(([value, text]) => {
+                        const active = (newProductForm.fulfillmentType || 'physical') === value;
+                        const blocked = value === 'digital' && (activeChannel === 'quick' || activeChannel === 'grocery');
+                        return (
+                          <button key={value} type="button" aria-pressed={active} disabled={blocked}
+                            title={blocked ? 'E-books are listed in Shop All' : undefined}
+                            onClick={() => {
+                              if (active) return;
+                              resetCategoryPicks();
+                              setNewProductForm((prev) => ({ ...prev, fulfillmentType: value, categoryId: '' }));
+                              setActiveTab('general');
+                            }}
+                            style={{ ...S.gstBtn, ...(active ? S.gstBtnActive : {}), ...(blocked ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>
+                            {text}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {(activeChannel === 'quick' || activeChannel === 'grocery') && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>E-books are added from Shop All.</span>
+                    )}
                   </div>
                 )}
 
@@ -659,15 +686,27 @@ export const ProductModal = () => {
 
                 {!isDigital && <div className="onboarding-form-group">
                   <label className="onboarding-label">Brand Name</label>
+                  {/* Plain input with in-page chips: a <datalist> opens a native popup
+                      that mobile browsers draw over the on-screen keyboard. */}
                   <input
-                    list="brand-suggestions" type="text" className="onboarding-input"
+                    type="text" className="onboarding-input"
                     placeholder="e.g. Local Make"
+                    autoComplete="off"
                     value={newProductForm.brandName}
                     onChange={(e) => setNewProductForm({ ...newProductForm, brandName: e.target.value })}
                   />
-                  <datalist id="brand-suggestions">
-                    {BRAND_SUGGESTIONS.map((b) => <option key={b} value={b} />)}
-                  </datalist>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }} aria-label="Brand suggestions">
+                    {BRAND_SUGGESTIONS.map((b) => {
+                      const active = newProductForm.brandName === b;
+                      return (
+                        <button key={b} type="button" aria-pressed={active}
+                          onClick={() => setNewProductForm({ ...newProductForm, brandName: b })}
+                          style={{ ...S.gstBtn, ...(active ? S.gstBtnActive : {}) }}>
+                          {b}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>}
 
                 {isDigital && <>
@@ -702,6 +741,19 @@ export const ProductModal = () => {
                     )}
                   </div>
                   <div className="onboarding-form-group">
+                    <label className="onboarding-label">MRP (₹)</label>
+                    <input type="number" min="0.01" step="0.01" className="onboarding-input" placeholder="e.g. 299 (leave blank to use the price)" value={newProductForm.ebookMrp ?? ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, ebookMrp: event.target.value })} />
+                    {ebookMrpError && <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>* {ebookMrpError}</span>}
+                  </div>
+                  <div className="onboarding-form-group">
+                    <label className="onboarding-label">Copies available *</label>
+                    <input type="number" min="0" step="1" inputMode="numeric" className="onboarding-input" placeholder="e.g. 100" value={newProductForm.ebookStock ?? ''}
+                      onChange={(event) => setNewProductForm({ ...newProductForm, ebookStock: event.target.value })} />
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>One copy is used per sale; at 0 the e-book shows as sold out.</span>
+                    {ebookStockError && <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>* {ebookStockError}</span>}
+                  </div>
+                  <div className="onboarding-form-group">
                     <label className="onboarding-label">License / permitted use (optional)</label>
                     <textarea className="onboarding-input" rows={3} maxLength={2000} placeholder="e.g. Standard personal use license. Redistribution prohibited." value={newProductForm.licenseTerms || ''}
                       onChange={(event) => setNewProductForm({ ...newProductForm, licenseTerms: event.target.value })} />
@@ -710,7 +762,7 @@ export const ProductModal = () => {
                     <div style={{ fontWeight: 800, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span>📖</span> Digital E-book Listing Guide
                     </div>
-                    E-books are fulfilled digitally and require zero physical stock or shipping. Next, pick a category in the <strong>Category</strong> tab and upload the cover image plus your original PDF file in the <strong>Cover & PDF</strong> tab. Once submitted, your listing is sent for admin review. Approved listings can be purchased through Razorpay and delivered through the customer’s private Digital Library.
+                    E-books are fulfilled digitally with no shipping; set how many copies you want to sell above. Next, pick a category in the <strong>Category</strong> tab and upload the cover image plus your original PDF file in the <strong>Cover & PDF</strong> tab. Once submitted, your listing is sent for admin review. Approved listings can be purchased through Razorpay and delivered through the customer’s private Digital Library.
                   </div>
                 </>}
 
@@ -988,7 +1040,7 @@ export const ProductModal = () => {
                           <div style={{ textAlign: 'center', padding: 16 }}>
                             <span style={{ fontSize: 32, display: 'block', marginBottom: 6 }}>📚</span>
                             <span style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontWeight: 700, display: 'block' }}>
-                              Click to upload e-book cover photo *
+                              Add Cover Photo *
                             </span>
                             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>JPG, PNG or WEBP (Max 5 MB)</span>
                           </div>
@@ -1006,7 +1058,7 @@ export const ProductModal = () => {
                       <div style={{ border: '1.5px dashed var(--border-color)', borderRadius: 12, padding: 18, background: 'var(--bg-page)' }}>
                         <input
                           type="file"
-                          accept="application/pdf,.pdf"
+                          accept="application/pdf"
                           id="ebook-pdf-file-input"
                           style={{ display: 'none' }}
                           onChange={(event) => {
@@ -1050,7 +1102,7 @@ export const ProductModal = () => {
                               display: 'inline-block',
                             }}
                           >
-                            {ebookFile || editingProduct?.digital?.file?.status === 'uploaded' ? 'Change PDF File' : 'Select PDF File *'}
+                            {ebookFile || editingProduct?.digital?.file?.status === 'uploaded' ? 'Change PDF File' : 'Add PDF File *'}
                           </label>
                         </div>
                       </div>
@@ -1159,7 +1211,7 @@ export const ProductModal = () => {
               }}
               title={wholesaleOnly ? 'Save only the changed variant Wholesale terms' : canSubmit ? 'Submit listing' : 'Resolve required fields to submit'}
             >
-              {savingProduct || savingWholesale ? 'Saving…' : wholesaleOnly ? 'Save Wholesale Terms' : (wholesaleProductEditor ? 'Save Wholesale Product' : isEditing ? 'Save Changes' : 'Save & Submit Listing')}
+              {savingProduct || savingWholesale ? 'Saving…' : wholesaleOnly ? 'Save Wholesale Terms' : (wholesaleProductEditor ? 'Save Wholesale Product' : ebookDraftAwaitingPdf ? 'Retry PDF Upload' : isEditing ? 'Save Changes' : 'Save & Submit Listing')}
             </button>
           </div>
         </div>

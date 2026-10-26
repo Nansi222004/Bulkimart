@@ -2,7 +2,7 @@ import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { openWholesaleProduct, rememberWholesaleReturn } from '../utils/productRoute';
 import { useWholesaleRecommendations } from '../hooks/useWholesaleRecommendations';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import { useProducts } from '../hooks/useProducts';
 import { useProductDeliveryOptions } from '../hooks/useDeliveryOptions';
@@ -54,6 +54,26 @@ const CartIcon = () => (
   </svg>
 );
 
+// Variant weight is stored in grams.
+const formatWeight = (grams) => {
+  const value = Number(grams);
+  if (!(value > 0)) return '';
+  return value >= 1000 ? `${Number((value / 1000).toFixed(2))} kg` : `${value} g`;
+};
+
+/** What one unit of this variant is, from the seller's own variant data (e.g. "Family pack · 500 g · per pack"). */
+export const variantPackLabel = (variant) => [
+  variant?.name && variant.name !== 'Default' ? variant.name : '',
+  formatWeight(variant?.weight),
+  variant?.unit ? `per ${variant.unit}` : '',
+].filter(Boolean).join(' · ');
+
+/** Whole-percent saving of the price paid against the MRP; 0 when there is none. */
+export const discountPercent = (mrp, pricePaid) => {
+  const reference = Number(mrp), paid = Number(pricePaid);
+  return reference > 0 && paid >= 0 && paid < reference ? Math.round((reference - paid) / reference * 100) : 0;
+};
+
 const ProductDetailPage = () => {
   const ui = useFeedback();
   const {
@@ -77,7 +97,9 @@ const ProductDetailPage = () => {
   const selectedVariant = productVariants.find((variant) => String(variant.id || variant._id) === String(selectedVariantId)) || productVariants[0] || null;
   const selectedPrice = selectedVariant?.price ?? product?.price;
   const selectedMrp = selectedVariant?.mrp ?? product?.mrp;
-  const selectedStock = isDigital ? 1 : (selectedVariant?.stock ?? product?.stock);
+  // An e-book is unlimited unless its seller set a copy limit.
+  const limitedEbook = isDigital && Boolean(product?.digital?.stockTracked || product?.raw?.digital?.stockTracked);
+  const selectedStock = isDigital && !limitedEbook ? 1 : (selectedVariant?.stock ?? product?.stock);
   const [qty, setQty] = useState(() => getItemQty(product?.id, selectedVariantId));
   const [cartActionPending, setCartActionPending] = useState(false);
   const [cartActionError, setCartActionError] = useState('');
@@ -92,6 +114,9 @@ const ProductDetailPage = () => {
     onSignIn: signInForWholesale,
   });
   const [activeTab, setActiveTab] = useState('desc');
+  const productInfoRef = useRef(null);
+  // "View details" opens the Product Info tab and brings it into view.
+  const showProductInfo = () => { setActiveTab('details'); productInfoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   /**
@@ -251,6 +276,7 @@ const ProductDetailPage = () => {
   const campaignPriceForVariant = campaignDeal?.discountValue != null && selectedPrice != null
     ? Math.round(Number(selectedPrice) * (1 - Number(campaignDeal.discountValue) / 100) * 100) / 100
     : campaignDeal?.price;
+  const savingPercent = discountPercent(selectedMrp, campaignDeal ? campaignPriceForVariant : selectedPrice);
   // Live, server-resolved return terms for the selected physical retail product.
   const [returnInfo, setReturnInfo] = useState(null);
   useEffect(() => {
@@ -302,6 +328,33 @@ const ProductDetailPage = () => {
   }, [product?.id, loadedProductId]);
   useEffect(() => setQty(getItemQty(product?.id, selectedVariantId)), [product?.id, selectedVariantId]);
 
+  /**
+   * Coupons for this product's storefront, from the same endpoint the cart
+   * uses. It needs a session because each coupon is checked against the
+   * shopper's own cart, so a signed-out shopper is asked to sign in instead.
+   */
+  const couponChannel = product?.type === 'grocery' ? 'grocery' : 'ecommerce';
+  const [offers, setOffers] = useState({ state: 'idle', items: [] });
+  const [showOffers, setShowOffers] = useState(false);
+  useEffect(() => {
+    const token = currentUser ? localStorage.getItem('userToken') : null;
+    if (!product?.id || isDigital || !token) { setOffers({ state: token ? 'idle' : 'signed-out', items: [] }); return; }
+    let cancelled = false;
+    setOffers({ state: 'loading', items: [] });
+    (async () => {
+      try {
+        const res = await fetch(apiUrl(`/api/coupons/available?channel=${couponChannel}`), { headers: { Authorization: `Bearer ${token}` } });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) throw new Error(body.message || 'Offers could not be loaded.');
+        setOffers({ state: 'ready', items: (Array.isArray(body.data) ? body.data : []).filter((coupon) => coupon.isPublic !== false) });
+      } catch (error) {
+        if (!cancelled) setOffers({ state: 'error', items: [], message: error.message });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [product?.id, couponChannel, currentUser, isDigital]);
+
   // Related products (others)
   // Related items come from the same storefront as the product being viewed.
   const { products: catalogue } = useProducts({ type: selectedProduct?.type, limit: 12, enabled: wholesale.mode === 'retail' });
@@ -334,6 +387,36 @@ const ProductDetailPage = () => {
     setQty(result.data?.items?.find((item) => String(item.productId) === String(product.id)
       && String(item.variantId || '') === String(result.variantId || ''))?.qty || 1);
   };
+
+  /**
+   * Share this product. The address bar already identifies it (?product=…,
+   * plus the chosen variant and retail/wholesale mode), so the link opens the
+   * same page. Uses the phone's share sheet when there is one, otherwise
+   * copies the link.
+   */
+  const shareProduct = async () => {
+    const url = window.location.href;
+    const data = { title: product.name, text: `Check out ${product.name} on Bulkimart`, url };
+    try {
+      if (navigator.share && (!navigator.canShare || navigator.canShare(data))) { await navigator.share(data); return; }
+      await navigator.clipboard.writeText(url);
+      ui.notify('Product link copied.', { type: 'success' });
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // the shopper closed the share sheet
+      ui.notify('Could not share this product. Copy the link from the address bar instead.', { type: 'error' });
+    }
+  };
+
+  const describeCoupon = (coupon) => {
+    const saving = coupon.discountType === 'percentage' ? `${coupon.value}% off${coupon.maxDiscount ? ` (up to ${formatCurrency(coupon.maxDiscount)})` : ''}`
+      : coupon.discountType === 'free_shipping' ? 'Free delivery' : `${formatCurrency(coupon.value)} off`;
+    return `${saving}${coupon.minOrderValue ? ` on orders above ${formatCurrency(coupon.minOrderValue)}` : ''}`;
+  };
+  const offerSummary = offers.state === 'signed-out' ? 'Sign in to see coupons you can use.'
+    : offers.state === 'loading' ? 'Checking offers…'
+    : offers.state === 'error' ? 'Offers could not be loaded right now.'
+    : offers.items.length ? `${offers.items.length} coupon${offers.items.length === 1 ? '' : 's'} · ${offers.items[0].code}: ${describeCoupon(offers.items[0])}`
+    : 'No coupons are running right now.';
 
   /** Close the detail view and land on the basket. */
   const goToCart = () => {
@@ -375,7 +458,7 @@ const ProductDetailPage = () => {
           </svg>
         </button>
         <div className="pd-header-actions">
-          <button className="pd-icon-btn" aria-label="Share" onClick={() => {}}>
+          <button className="pd-icon-btn" aria-label="Share" onClick={shareProduct}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
               <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
@@ -406,7 +489,8 @@ const ProductDetailPage = () => {
       <div className="pd-image-hero">
         {activeImage ? <img src={activeImage} alt={product.name} className="pd-hero-img" /> : <span className="pd-image-unavailable" role="img" aria-label="Product image unavailable">Image unavailable</span>}
         {/* Offer badge */}
-        {wholesale.mode === 'retail' && <div className="pd-offer-badge">5% OFF</div>}
+        {/* Real saving against MRP for the selected variant, including a running deal. */}
+        {wholesale.mode === 'retail' && savingPercent > 0 && <div className="pd-offer-badge">{savingPercent}% OFF</div>}
       </div>
 
       {/* Horizontal thumbnail gallery carousel */}
@@ -430,9 +514,9 @@ const ProductDetailPage = () => {
         <div className="pd-info-top">
           <div>
             <h1 className="pd-product-name">{product.name}</h1>
-            <p className="pd-pack-info">{isDigital ? `Digital E-book · ${product.digital?.author || product.raw?.digital?.author || 'Author not listed'}` : wholesale.mode === 'wholesale' ? [product.category,selectedVariant?.name,selectedVariant?.unit].filter(Boolean).join(' · ') : '1 Pack • 250g'}</p>
+            <p className="pd-pack-info">{isDigital ? `Digital E-book · ${product.digital?.author || product.raw?.digital?.author || 'Author not listed'}` : wholesale.mode === 'wholesale' ? [product.category,selectedVariant?.name,selectedVariant?.unit].filter(Boolean).join(' · ') : variantPackLabel(selectedVariant || { unit: product.unit })}</p>
           </div>
-          <button className="pd-view-details-btn">View details</button>
+          <button type="button" className="pd-view-details-btn" onClick={showProductInfo}>View details</button>
         </div>
 
         {productVariants.length > 1 && (
@@ -482,7 +566,7 @@ const ProductDetailPage = () => {
         <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
 
         {unavailable && <UnavailableBadge style={{ marginTop: 10 }} />}
-        {wholesale.mode === 'retail' && <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? 'Digital download · available after verified payment' : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>}
+        {wholesale.mode === 'retail' && <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? (limitedEbook && !(selectedStock > 0) ? 'Sold out' : `Digital download · available after verified payment${limitedEbook ? ` · ${selectedStock} copies left` : ''}`) : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>}
       </div>
 
       {/* Offers section */}
@@ -494,10 +578,13 @@ const ProductDetailPage = () => {
           <div className="pd-offer-icon">🎁</div>
           <div>
             <p className="pd-offer-headline">Promotions &amp; Coupons</p>
-            <p className="pd-offer-subtext">Buy 2 get 1 free · Get ₹50 cashback (Min. ₹199)</p>
+            <p className="pd-offer-subtext">{offerSummary}</p>
           </div>
         </div>
-        <button className="pd-see-all-btn">See all offers →</button>
+        <button type="button" className="pd-see-all-btn" onClick={() => {
+          if (offers.state === 'signed-out') { ui.notify('Please sign in to see coupons.', { type: 'info' }); return; }
+          setShowOffers(true);
+        }}>See all offers →</button>
       </div> : (
         <div className="pd-section-card">
           <h3 className="pd-section-title">📘 E-book details</h3>
@@ -575,7 +662,7 @@ const ProductDetailPage = () => {
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 800, color: '#334155' }}>Scheduled delivery</div>
                   <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 1 }}>
-                    Sent by courier, usually 2–4 days
+                    Sent by courier · the delivery date is shown once the seller ships
                   </div>
                 </div>
               </div>
@@ -615,7 +702,7 @@ const ProductDetailPage = () => {
       )}
 
       {/* Tabs for description / details */}
-      <div className="pd-section-card" style={{ paddingBottom: 0 }}>
+      <div className="pd-section-card" style={{ paddingBottom: 0 }} ref={productInfoRef}>
         <div className="pd-tabs-row">
           {['desc', 'details'].map(t => (
             <button
@@ -631,18 +718,23 @@ const ProductDetailPage = () => {
         <div className="pd-tab-content">
           {activeTab === 'desc' && (
             <p className="pd-description-text">
-              {product.description || `Experience authentic products by ${product.shg || 'our sellers'}. 100% genuine quality sourced directly for you.`}
+              {product.description || 'The seller has not added a description for this product yet.'}
             </p>
           )}
           {activeTab === 'details' && (
             <div>
+              {/* Only facts the listing actually carries; rows without data are left out. */}
               {[
-                ['Seller', product.shg || 'Partner Seller'],
-                ['Category', product.category || 'General'],
-                ...(wholesale.mode === 'wholesale' ? [['Brand',product.brandName || 'Unavailable'],['Variant',selectedVariant?.name || 'Unavailable'],['SKU',selectedVariant?.sku || product.sku || 'Unavailable'],['Unit',selectedVariant?.unit || 'Unavailable'],...(selectedVariant?.attributes || []).map(a=>[a.name,a.value])] : []),
-                ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : product.type === 'grocery' ? '30-Min Express' : 'Standard Shipping'],
-                ...(wholesale.mode === 'wholesale' ? [] : [['Country of Origin', 'India']]),
-              ].map(([k, v]) => (
+                ['Seller', product.shg],
+                ['Category', product.category],
+                ['Brand', product.brandName],
+                ['Variant', selectedVariant?.name && selectedVariant.name !== 'Default' ? selectedVariant.name : ''],
+                ['Weight', formatWeight(selectedVariant?.weight)],
+                ['Sold per', selectedVariant?.unit || product.unit],
+                ['SKU', selectedVariant?.sku || product.sku],
+                ...(selectedVariant?.attributes || []).map(a => [a.name, a.value]),
+                ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : isDigital ? 'Digital download after payment' : 'See Delivery Details above for your address'],
+              ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '').map(([k, v]) => (
                 <div key={k} className="pd-info-row">
                   <span className="pd-info-key">{k}</span>
                   <span className="pd-info-val">{v}</span>
@@ -668,7 +760,7 @@ const ProductDetailPage = () => {
               </div>
               <div className="pd-related-info">
                 <p className="pd-related-name">{rp.name}</p>
-                <p className="pd-related-pack">{wholesale.mode === 'wholesale' ? rp.variants?.[0]?.unit : '250g'}</p>
+                <p className="pd-related-pack">{wholesale.mode === 'wholesale' ? rp.variants?.[0]?.unit : variantPackLabel(rp.variants?.[0] || { unit: rp.unit })}</p>
                 <div className="pd-related-footer">
                   <span className="pd-related-price">{wholesale.mode === 'wholesale' ? 'From '+formatCurrency(rp.startingPrice) : formatCurrency(rp.price)}</span>
                   <button
@@ -874,6 +966,38 @@ const ProductDetailPage = () => {
           </>
         )}
       </div>
+
+      {/* All offers sheet */}
+      {showOffers && (
+        <ModalPortal
+          onClick={() => setShowOffers(false)}
+          style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.65)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }}
+        >
+          <div role="dialog" aria-label="Offers and coupons" onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 440, maxHeight: '75%', overflowY: 'auto', background: '#fff', borderRadius: 20, padding: '18px 16px', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 16, color: '#172B4D' }}>Offers &amp; Coupons</h3>
+              <button type="button" aria-label="Close offers" onClick={() => setShowOffers(false)} style={{ border: 0, background: 'transparent', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            {offers.state === 'loading' && <p role="status">Checking offers…</p>}
+            {offers.state === 'error' && <p role="alert">{offers.message || 'Offers could not be loaded right now.'}</p>}
+            {offers.state === 'ready' && !offers.items.length && <p>No coupons are running right now.</p>}
+            {offers.items.map((coupon) => (
+              <div key={coupon.code} style={{ border: '1px dashed #FDBA74', borderRadius: 12, padding: 12, marginBottom: 10, background: '#FFF7ED' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                  <strong style={{ fontSize: 14, letterSpacing: 0.5, color: '#C2410C' }}>{coupon.code}</strong>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: coupon.applicable ? '#15803D' : '#64748B' }}>{coupon.applicable ? 'Applies to your cart' : 'Not usable yet'}</span>
+                </div>
+                {coupon.title && <p style={{ margin: '6px 0 0', fontSize: 13, fontWeight: 700, color: '#172B4D' }}>{coupon.title}</p>}
+                <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#475569' }}>{describeCoupon(coupon)}</p>
+                {!coupon.applicable && coupon.reason && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: '#64748B' }}>{coupon.reason}</p>}
+                {coupon.expiresAt && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94A3B8' }}>Valid till {new Date(coupon.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
+              </div>
+            ))}
+            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#64748B' }}>Apply a coupon at checkout. Whether it applies depends on what is in your cart.</p>
+          </div>
+        </ModalPortal>
+      )}
 
       {/* Ask a Question modal */}
       {showAskModal && (

@@ -48,7 +48,8 @@ export const normalizeProduct = (p) => ({
   mrp: p.mrp,
   discountPercent: p.discountPercent,
   unit: p.unit,
-  stock: p.fulfillmentType === 'digital' ? 1 : p.stock,
+  // E-books without a seller copy limit never run out.
+  stock: p.fulfillmentType === 'digital' && !p.digital?.stockTracked ? 1 : p.stock,
   variants: (p.variants || []).map((variant) => ({
     id: variant._id,
     name: variant.name,
@@ -71,6 +72,7 @@ export const normalizeProduct = (p) => ({
     language: p.digital.language,
     licenseTerms: p.digital.licenseTerms,
     format: p.digital.format,
+    stockTracked: Boolean(p.digital.stockTracked),
   } : null,
   rating: p.ratings?.average || 0,
   raw: p,

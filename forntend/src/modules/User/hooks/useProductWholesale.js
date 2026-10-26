@@ -15,6 +15,8 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
     return () => {window.removeEventListener('popstate',restore);window.removeEventListener('app:locationchange',restore);};
   }, [productId]);
   const [catalog, setCatalog] = useState(null), [catalogError, setCatalogError] = useState('');
+  const shownCatalogKey = useRef(null);
+  shownCatalogKey.current = catalog?.key ?? null;
   const [loading, setLoading] = useState(false), [revision, setRevision] = useState(0);
   const [quantityInput, setQuantityInput] = useState(null), [preview, setPreview] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(false), [error, setError] = useState('');
@@ -47,7 +49,11 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   useEffect(() => {
     let active = true;
     const controller = new AbortController(), session = captureUserSession();
-    setCatalog(null); setCatalogError(''); setLoading(Boolean(enabled && productId));
+    // A background refresh (every 30s, on focus) keeps the offer on screen;
+    // clearing it first made the whole panel and its quantity box blink away.
+    const hasCurrent = shownCatalogKey.current === key;
+    if (!hasCurrent) setCatalog(null);
+    setCatalogError(''); setLoading(Boolean(enabled && productId) && !hasCurrent);
     if (enabled && productId) {
       boundedFetch(apiUrl(`/api/products/wholesale/catalog?productId=${encodeURIComponent(productId)}`), {
         cache: 'no-store', signal: controller.signal,
@@ -64,6 +70,10 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   }, [key, enabled, revision, variantId]);
   const variants = catalog?.key === key ? catalog.variants : [];
   const offer = variants.find(item => String(item.variantId) === String(variantId));
+  // The quote depends on the offer's terms, not on its object identity, which
+  // changes on every background catalog refresh.
+  const offerTerms = offer ? JSON.stringify(['minimumQuantity', 'quantityIncrement', 'maxQuantity', 'availableStock', 'priceTiers'].map(field => offer[field])) : '';
+  const offerRef = useRef(offer); offerRef.current = offer;
   const quantityKey = `${key}:${variantId}:${offer?.minimumQuantity}:${offer?.quantityIncrement}`;
   const quantity = quantityInput?.key === quantityKey ? quantityInput.value : (offer?.minimumQuantity || 0);
   const setQuantity = value => { setQuantityInput({ key: quantityKey, value }); setMessage(''); };
@@ -75,8 +85,9 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   useEffect(() => {
     let active = true;
     const controller = new AbortController(), session = captureUserSession();
+    const offer = offerRef.current;
     setPreview(null); setQuoteLoading(false);
-    if (mode === 'wholesale' && validQuantity && token) {
+    if (mode === 'wholesale' && validQuantity && token && offer) {
       setError(''); setQuoteLoading(true);
       boundedFetch(apiUrl('/api/products/wholesale/quote'), {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -96,7 +107,7 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
       }).finally(() => { if (active) setQuoteLoading(false); });
     }
     return () => { active = false; controller.abort(); };
-  }, [quoteKey, mode, validQuantity, token, offer]);
+  }, [quoteKey, mode, validQuantity, token, offerTerms]);
   const quote = mode === 'wholesale' && preview?.key === quoteKey && offer ? preview.data : null;
   const canPurchase = Boolean(mode === 'wholesale' && validQuantity && (quote || !token) && !loading && !quoteLoading && !pending && !error);
   const add = async (buyNow = false) => {

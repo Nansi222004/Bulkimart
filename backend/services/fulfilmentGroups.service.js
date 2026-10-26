@@ -9,7 +9,7 @@ import { applyCouponCode } from './coupon.service.js';
 import { CHANNEL, CHANNELS, DELIVERY_MODE } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from './campaign.service.js';
-import { resolveInventoryItem } from './inventory.service.js';
+import { resolveInventoryItem, isUnlimitedDigital } from './inventory.service.js';
 import { isWithinRadius } from './radius.service.js';
 import { httpError } from '../utils/response.js';
 import { DELIVERY_MODES } from '../constants/enums.js';
@@ -168,7 +168,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       campaignId: deal ? deal.campaignId : undefined,
       available: Boolean(product && (purchaseMode === 'wholesale' || channelAllowed(product, line.channel)) && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
         && (includeDigital || product.fulfillmentType !== 'digital') && product.isActive && !product.isDeleted
-        && product.status === 'approved' && inventory && (includeDigital && product.fulfillmentType === 'digital' ? line.qty === 1 : inventory.stock >= line.qty)),
+        && product.status === 'approved' && inventory && (includeDigital && product.fulfillmentType === 'digital' ? line.qty === 1 && (isUnlimitedDigital(product) || inventory.stock >= 1) : inventory.stock >= line.qty)),
     };
 
     const key = groupKeyFor(enriched);
