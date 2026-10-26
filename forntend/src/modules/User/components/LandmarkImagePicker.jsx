@@ -68,25 +68,6 @@ const LandmarkImagePicker = ({
 
   return (
     <div className="landmark-picker-container">
-      {/* Hidden File Inputs */}
-      {/* Direct Native Camera Trigger */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style={{ display: 'none' }}
-        onChange={onCameraChange}
-      />
-      {/* File Manager / Gallery Selector Trigger */}
-      <input
-        ref={galleryInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={onGalleryChange}
-      />
-
       <div className="landmark-picker-head">
         <label className="landmark-picker-label">
           <span>📸</span>
@@ -134,6 +115,9 @@ const LandmarkImagePicker = ({
       {showOptionsModal && (
         <ModalPortal className="landmark-modal-overlay" onClick={() => setShowOptionsModal(false)}>
           <div className="landmark-modal-sheet" onClick={(e) => e.stopPropagation()}>
+            {/* Keep native pickers inside the modal: the app root is inert while it is open. */}
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onCameraChange} />
+            <input ref={galleryInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onGalleryChange} />
             <div className="landmark-sheet-header">
               <h4>Landmark Image Option</h4>
               <button type="button" className="landmark-close-btn" onClick={() => setShowOptionsModal(false)}>✕</button>

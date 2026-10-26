@@ -46,6 +46,7 @@ import { checkCartSameDayEligibility } from '../services/sameDay.service.js';
 import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { mutateInventory, resolveInventoryItem } from '../services/inventory.service.js';
+import { orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 import {
   createOrdersFromGroups,
   validateGroupsStock,
@@ -1001,10 +1002,10 @@ export const getMyOrders = asyncHandler(async (req, res) => {
   // it came from. The filter is here for a per-storefront view when one is wanted.
   if (CHANNELS.includes(req.query.type)) filter.type = req.query.type;
 
-  const [orders, total] = await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Order.countDocuments(filter),
-  ]);
+  const [history] = await Order.aggregate([{ $match: filter }, ...orderHistoryPaymentStages(),
+    { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
+  const orders = history?.rows || [];
+  const total = history?.count?.[0]?.total || 0;
 
   return paginated(res, orders, { page, limit, total });
 });

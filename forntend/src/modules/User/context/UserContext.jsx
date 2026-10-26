@@ -1,4 +1,4 @@
-import { rememberCommittedCheckout } from '../../../utils/committedCheckout';
+import { rememberCommittedCheckout, committedCheckouts, deferCommittedCheckout } from '../../../utils/committedCheckout';
 import { readProductRoute, wholesaleDetailProduct } from '../utils/productRoute';
 import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint, revokeBrowsingGps } from '../../../utils/locationState';
 import { boundedFetch, portalRequest } from '../../../utils/portalRequests';
@@ -177,6 +177,14 @@ export const UserProvider = ({ children }) => {
   };
 
   const setActiveNav = (navId) => {
+    // An explicit Buy Now / Proceed to Checkout action starts the current
+    // basket. Older committed payments remain recoverable from My Orders.
+    if (navId === 'checkout') {
+      const customerId = currentUser?._id || currentUser?.id;
+      for (const reference of committedCheckouts(customerId)) {
+        if (!reference.deferred) deferCommittedCheckout(customerId, reference.key);
+      }
+    }
     const newPath = navId === 'home' ? '/' : `/${navId}`;
     if (window.location.pathname !== newPath) {
       window.history.pushState(null, '', newPath);

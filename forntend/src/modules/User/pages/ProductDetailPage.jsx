@@ -79,7 +79,7 @@ const ProductDetailPage = () => {
   const {
     selectedProduct, setSelectedProduct, addToCart, getItemQty,
     getDeliveryPoint, getSelectedAddress, getLocationDisplayName, setActiveNav,
-    isWishlisted, toggleWishlist, currentUser, logoutUser,
+    isWishlisted, toggleWishlist, currentUser, logoutUser, serverCart,
   } = useUser();
   const product = selectedProduct;
   const wholesaleDetail = product?.detailSource === 'wholesale';
@@ -336,6 +336,7 @@ const ProductDetailPage = () => {
   const couponChannel = product?.type === 'grocery' ? 'grocery' : 'ecommerce';
   const [offers, setOffers] = useState({ state: 'idle', items: [] });
   const [showOffers, setShowOffers] = useState(false);
+  const offerCartRevision = JSON.stringify((serverCart?.items || []).map(item => [item.productId, item.variantId, item.qty, item.price]));
   useEffect(() => {
     const token = currentUser ? localStorage.getItem('userToken') : null;
     if (!product?.id || isDigital || !token) { setOffers({ state: token ? 'idle' : 'signed-out', items: [] }); return; }
@@ -347,13 +348,13 @@ const ProductDetailPage = () => {
         const body = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok) throw new Error(body.message || 'Offers could not be loaded.');
-        setOffers({ state: 'ready', items: (Array.isArray(body.data) ? body.data : []).filter((coupon) => coupon.isPublic !== false) });
+        setOffers({ state: 'ready', cartSubtotal: body.meta?.cartSubtotal, items: (Array.isArray(body.data) ? body.data : []).filter((coupon) => coupon.isPublic !== false) });
       } catch (error) {
         if (!cancelled) setOffers({ state: 'error', items: [], message: error.message });
       }
     })();
     return () => { cancelled = true; };
-  }, [product?.id, couponChannel, currentUser, isDigital]);
+  }, [product?.id, couponChannel, currentUser, isDigital, offerCartRevision, showOffers]);
 
   // Related products (others)
   // Related items come from the same storefront as the product being viewed.
@@ -986,15 +987,15 @@ const ProductDetailPage = () => {
               <div key={coupon.code} style={{ border: '1px dashed #FDBA74', borderRadius: 12, padding: 12, marginBottom: 10, background: '#FFF7ED' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                   <strong style={{ fontSize: 14, letterSpacing: 0.5, color: '#C2410C' }}>{coupon.code}</strong>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: coupon.applicable ? '#15803D' : '#64748B' }}>{coupon.applicable ? 'Applies to your cart' : 'Not usable yet'}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: coupon.applicable ? '#15803D' : '#64748B' }}>{coupon.applicable ? 'Applies to your cart' : offers.cartSubtotal === 0 ? 'Check in cart' : 'Not usable yet'}</span>
                 </div>
                 {coupon.title && <p style={{ margin: '6px 0 0', fontSize: 13, fontWeight: 700, color: '#172B4D' }}>{coupon.title}</p>}
                 <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#475569' }}>{describeCoupon(coupon)}</p>
-                {!coupon.applicable && coupon.reason && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: '#64748B' }}>{coupon.reason}</p>}
+                {!coupon.applicable && offers.cartSubtotal !== 0 && coupon.reason && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: '#64748B' }}>{coupon.reason}</p>}
                 {coupon.expiresAt && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94A3B8' }}>Valid till {new Date(coupon.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
               </div>
             ))}
-            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#64748B' }}>Apply a coupon at checkout. Whether it applies depends on what is in your cart.</p>
+            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#64748B' }}>{offers.cartSubtotal === 0 ? 'Add this product to your cart to check coupon eligibility. The best eligible offer is applied automatically.' : 'Offers are checked against your current cart. The best eligible offer is applied automatically; you can change or remove it at checkout.'}</p>
           </div>
         </ModalPortal>
       )}

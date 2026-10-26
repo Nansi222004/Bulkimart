@@ -93,6 +93,7 @@ export const DeliveryOnboardingPage = () => {
     refreshRiderStatus,
     lookupAddress,
     triggerToast,
+    logoutDelivery,
   } = useDelivery();
 
   const [busy, setBusy] = useState(false);
@@ -232,6 +233,7 @@ export const DeliveryOnboardingPage = () => {
     <div className="delivery-onboarding-wrapper">
       {/* Stays pinned while the form below scrolls, so the rider always sees which step they are on. */}
       <div className="delivery-onboarding-top">
+        <button type="button" className="delivery-secondary-action-btn" disabled={busy} onClick={() => onboardingStep > 1 && onboardingStep <= 4 ? setOnboardingStep(onboardingStep - 1) : logoutDelivery()} style={{ alignSelf: 'flex-start', margin: '8px 16px' }}>← Back</button>
         <div className="delivery-onboarding-header">
           <div className="delivery-onboarding-brand">
             <BrandLogo audience="delivery" variant="compact" portal="Delivery" />

@@ -3,10 +3,15 @@ import { clearDeliveryRegistrationDrafts } from './deliveryRegistrationDraft';
 import { bindSessionBackend, clearSessionBackend } from './sessionBackend';
 export const DELIVERY_SESSION_CHANGED = 'bulkimart:delivery-session-changed';
 let revision = 0;
+// Registration can continue within this app session, but a reload/reopen
+// returns an incomplete applicant to the beginning as requested.
+let registrationToken = null;
+export const hasActiveDeliveryRegistration = token => Boolean(token && token === registrationToken);
 export const captureDeliverySession = () => ({ token: localStorage.getItem('deliveryToken'), revision });
 export const isCurrentDeliverySession = snapshot => snapshot.token === localStorage.getItem('deliveryToken') && snapshot.revision === revision;
 export function clearDeliverySession(notify = true) {
   revision++;
+  registrationToken = null;
   clearPortalRequests('delivery');
   clearDeliveryRegistrationDrafts();
   clearSessionBackend('delivery');
@@ -24,6 +29,7 @@ export function saveDeliverySession(body) {
   clearDeliverySession(false);
   localStorage.setItem('deliveryToken', body.token);
   localStorage.setItem('deliveryUserProfile', JSON.stringify(body.user));
+  if (body.deliveryState?.status === 'incomplete') registrationToken = body.token;
   bindSessionBackend('delivery');
   window.dispatchEvent(new Event(DELIVERY_SESSION_CHANGED));
 }

@@ -78,7 +78,7 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   const quantity = quantityInput?.key === quantityKey ? quantityInput.value : (offer?.minimumQuantity || 0);
   const setQuantity = value => { setQuantityInput({ key: quantityKey, value }); setMessage(''); };
   const validQuantity = Boolean(offer && Number.isSafeInteger(quantity) && quantity >= offer.minimumQuantity && quantity <= offer.maxQuantity && (quantity - offer.minimumQuantity) % offer.quantityIncrement === 0);
-  const quoteKey = `${quantityKey}:${quantity}:${revision}:${mode}`;
+  const quoteKey = `${quantityKey}:${quantity}:${revision}:${mode}:${offerTerms}`;
   const purchaseIdentity = `${identity}:${quantity}`;
   const latestPurchase = useRef(purchaseIdentity);latestPurchase.current=purchaseIdentity;
   useEffect(()=>()=>{latestPurchase.current=null;},[]);
@@ -86,10 +86,15 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
     let active = true;
     const controller = new AbortController(), session = captureUserSession();
     const offer = offerRef.current;
-    setPreview(null); setQuoteLoading(false);
+    // The last quote stays on screen while the next one is checked (it is
+    // only purchasable once its key matches); clearing it made the panel jump
+    // on every quantity step and every background refresh.
+    setQuoteLoading(false);
+    let timer;
     if (mode === 'wholesale' && validQuantity && token && offer) {
       setError(''); setQuoteLoading(true);
-      boundedFetch(apiUrl('/api/products/wholesale/quote'), {
+      // Wait for the shopper to stop stepping/typing before asking for a price.
+      timer = setTimeout(() => boundedFetch(apiUrl('/api/products/wholesale/quote'), {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ productId, variantId, quantity }), signal: controller.signal, cache: 'no-store',
       }).then(async response => {
@@ -100,16 +105,20 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
           if(!fresh || (fresh.productId && String(fresh.productId)!==String(productId)) || (fresh.variantId && String(fresh.variantId)!==String(variantId)) || fresh.quantity!==quantity || !Number.isFinite(fresh.unitPrice) || fresh.unitPrice<=0 || !Number.isFinite(fresh.subtotal) || fresh.subtotal<=0) throw new Error('The Wholesale quote did not match this selection. Refresh the offer.');
           const changed = ['minimumQuantity', 'quantityIncrement', 'maxQuantity', 'availableStock', 'priceTiers'].some(field => JSON.stringify(fresh[field]) !== JSON.stringify(offer[field]));
           if (changed) setCatalog(current => current?.key === key ? { ...current, variants: current.variants.map(item => String(item.variantId) === String(variantId) ? { ...item, ...Object.fromEntries(['minimumQuantity', 'quantityIncrement', 'maxQuantity', 'availableStock', 'priceTiers'].map(field => [field, fresh[field]])) } : item) } : current);
-          else setPreview({ key: quoteKey, data: fresh });
+          else setPreview({ key: quoteKey, selectionKey: quantityKey, offerTerms, data: fresh });
         }
       }).catch(err => {
-        if (active && isCurrentUserSession(session) && err.name !== 'AbortError') { setCatalog(null); setError(err.message); }
-      }).finally(() => { if (active) setQuoteLoading(false); });
+        // Keep the offer on screen; the error carries its own Refresh action.
+        if (active && isCurrentUserSession(session) && err.name !== 'AbortError') setError(err.message);
+      }).finally(() => { if (active) setQuoteLoading(false); }), 350);
     }
-    return () => { active = false; controller.abort(); };
+    return () => { active = false; clearTimeout(timer); controller.abort(); };
   }, [quoteKey, mode, validQuantity, token, offerTerms]);
-  const quote = mode === 'wholesale' && preview?.key === quoteKey && offer ? preview.data : null;
-  const canPurchase = Boolean(mode === 'wholesale' && validQuantity && (quote || !token) && !loading && !quoteLoading && !pending && !error);
+  const quote = mode === 'wholesale' && preview?.key === quoteKey && offer && !error && !catalogError ? preview.data : null;
+  // Retain the previous layout during quantity checks. The component hides its
+  // amounts if the quantity changed; only a matching fresh quote can be bought.
+  const shownQuote = quote || (mode === 'wholesale' && offer && preview?.selectionKey === quantityKey && preview.offerTerms === offerTerms ? preview.data : null);
+  const canPurchase = Boolean(mode === 'wholesale' && validQuantity && (quote || !token) && !loading && !quoteLoading && !pending && !error && !catalogError);
   const add = async (buyNow = false) => {
     if (lock.current || !canPurchase) return;
     if (!token) { onSignIn?.(); return; }
@@ -132,5 +141,5 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
       if (isCurrentUserSession(session) && latestPurchase.current === purchaseIdentity) { refresh(); setError(err.message); setMessage(err.message); }
     } finally { lock.current = false; setPending(false); }
   };
-  return { mode, chooseMode, retailAvailable, available: variants.length > 0, offer, quantity, setQuantity, validQuantity, quote, loading, quoteLoading, catalogError, error, message, pending, canPurchase, add, refresh, openCart };
+  return { mode, chooseMode, retailAvailable, available: variants.length > 0, offer, quantity, setQuantity, validQuantity, quote, shownQuote, loading, quoteLoading, catalogError, error, message, pending, canPurchase, add, refresh, openCart };
 }

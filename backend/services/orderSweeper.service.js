@@ -35,14 +35,20 @@ const acceptWindowMs = () =>
 
 let timer = null;
 
-const sweepOnce = async () => {
+export const sweepUnacceptedOrdersOnce = async () => {
   const cutoff = new Date(Date.now() - acceptWindowMs());
 
-  const stale = await Order.find({
-    status: ORDER_STATUS.PLACED,
-    type: CHANNEL.GROCERY,
-    createdAt: { $lt: cutoff },
-  }).select('_id orderNo').limit(50);
+  // Sellers cannot accept an unpaid online order. Their acceptance window
+  // starts at verified payment, while COD keeps its creation-time window.
+  const stale = await Order.aggregate([
+    { $match: { status: ORDER_STATUS.PLACED, type: CHANNEL.GROCERY } },
+    { $lookup: { from: 'payments', localField: 'paymentId', foreignField: '_id',
+      pipeline: [{ $project: { status: 1, paidAt: 1 } }], as: '_acceptancePayment' } },
+    { $match: { $or: [{ paymentMethod: 'cod', createdAt: { $lt: cutoff } },
+      { paymentMethod: { $ne: 'cod' }, '_acceptancePayment.status': 'paid',
+        $expr: { $lt: [{ $ifNull: [{ $arrayElemAt: ['$_acceptancePayment.paidAt', 0] }, '$createdAt'] }, cutoff] } }] } },
+    { $limit: 50 }, { $project: { _id: 1, orderNo: 1 } },
+  ]);
 
   if (stale.length === 0) return;
 
@@ -79,7 +85,7 @@ export const startOrderSweeper = () => {
     sweepParcelsOnce().catch(() => console.warn('[PARCEL] Durable assignment sweep will retry.'));
     sweepEligibleSellerOrders().catch(() => console.warn('[NOTIFICATION] Eligible order reconciliation will retry.'));
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
-    sweepOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
+    sweepUnacceptedOrdersOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
     sweepCoinRewardsOnce().catch((err) => console.error('[COINS SWEEPER] failed:', err.message));
     // Admin Push Notifications Broadcaster — scheduled sends. Same sibling-
     // job pattern as the two above: its own try/catch, so a broadcast bug

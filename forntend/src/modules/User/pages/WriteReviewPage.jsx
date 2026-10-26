@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { apiUrl } from '../../../utils/api';
+import { prepareReviewPhoto } from '../../../utils/reviewPhoto';
+import useVisualViewport from '../../../hooks/useVisualViewport';
 
 const RATING_LABELS = {
   5: 'Loved It!',
@@ -19,8 +21,21 @@ export const WriteReviewPage = ({ productId, onBack }) => {
   const [photos, setPhotos] = useState([]);
   const photoUrls = useRef(new Set());
   const submissionLock = useRef(false);
+  const pageRef = useRef(null);
+  const reviewInputRef = useRef(null);
+  const viewportBounds = useVisualViewport();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    pageRef.current?.scrollTo({ top: 0 });
+  }, [productId, loading]);
+
+  useEffect(() => {
+    if (reviewInputRef.current && reviewInputRef.current === document.activeElement) {
+      reviewInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [viewportBounds?.height]);
 
   useEffect(() => () => {
     photoUrls.current.forEach(url => URL.revokeObjectURL(url));
@@ -86,7 +101,8 @@ export const WriteReviewPage = ({ productId, onBack }) => {
       const form = new FormData();
       form.append('rating', String(rating));
       form.append('comment', comment.trim());
-      photos.forEach(photo => form.append('images', photo.file));
+      // Process sequentially to avoid decoding four full camera photos at once.
+      for (const photo of photos) form.append('images', await prepareReviewPhoto(photo.file));
       const res = await fetch(apiUrl(`/api/products/${productId}/reviews`), {
         method: 'POST',
         headers: {
@@ -131,7 +147,7 @@ export const WriteReviewPage = ({ productId, onBack }) => {
   }
 
   return (
-    <div className="write-review-page" style={{ position: 'absolute', inset: 0, background: '#f8fafc', zIndex: 900, overflowY: 'auto', paddingBottom: 20, fontFamily: "'Outfit', sans-serif", scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+    <div ref={pageRef} className="write-review-page" style={{ position: 'absolute', inset: 0, maxHeight: viewportBounds?.height, background: '#f8fafc', zIndex: 900, overflowY: 'auto', paddingBottom: 20, fontFamily: "'Outfit', sans-serif", scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
       {/* Sticky Top Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', background: '#fff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
         <button onClick={onBack} aria-label="Go back" style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#0f172a', padding: 0, lineHeight: 1 }}>
@@ -224,7 +240,9 @@ export const WriteReviewPage = ({ productId, onBack }) => {
             Add description about the product
           </p>
           <textarea
+            ref={reviewInputRef}
             value={comment}
+            onFocus={event => event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Help other buyers by sharing your thoughts on fit, quality, material, colour or comfort..."
             rows={4}

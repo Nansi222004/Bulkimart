@@ -17,7 +17,7 @@ async function fixture() {
   return { h, get backs() { return backs; } };
 }
 const addPhotos = (h, files) => { h.find(n => n.type === 'input' && n.props.type === 'file').props.onChange({ target: { files, value: 'fixture' } }); h.flush(); };
-const photo = (name = 'photo.jpg', bytes = 256 * 1024, type = 'image/jpeg') => new File([new Uint8Array(bytes)], name, { type });
+const photo = (name = 'photo.jpg', bytes = 64 * 1024, type = 'image/jpeg') => new File([new Uint8Array(bytes)], name, { type });
 
 test('a short text-only review sends a compact multipart body and explains where it is visible', async () => {
   const f = await fixture(); const { h } = f;
@@ -34,8 +34,8 @@ test('a short text-only review sends a compact multipart body and explains where
 test('review photos are sent as original binary files rather than base64 JSON', async () => {
   const { h } = await fixture();
   try {
-    const files = [photo(), photo('second.webp', 200 * 1024, 'image/webp')]; addPhotos(h, files);
-    const pending = h.click('Submit →'); const req = h.requests[1], uploaded = req.options.body.getAll('images');
+    const files = [photo(), photo('second.webp', 100 * 1024, 'image/webp')]; addPhotos(h, files);
+    const pending = h.click('Submit →'); await h.settle(); const req = h.requests[1], uploaded = req.options.body.getAll('images');
     assert.equal(uploaded.length, 2); assert.equal(uploaded[0].name, files[0].name); assert.equal(uploaded[0].size, files[0].size);
     assert.ok(h.find(n => n.type === 'img' && n.props.alt === 'Review photo 1 preview').props.src.startsWith('blob:'));
     req.resolve({ success: true }, 201); await pending;
@@ -67,14 +67,14 @@ test('removing a photo and leaving the editor release image previews', async () 
 test('a size rejection retains the short comment and photos for retry and prevents duplicate sends', async () => {
   const f = await fixture(); const { h } = f;
   try {
-    addPhotos(h, [photo()]); const pending = h.click('Submit →');
+    addPhotos(h, [photo()]); const pending = h.click('Submit →'); await h.settle();
     await h.find(n => n.type === 'button' && n.props.children === 'Submitting...').props.onClick();
     assert.equal(h.requests.length, 2);
     h.requests[1].resolve({}, 413); await pending; h.flush();
     assert.equal(f.backs, 0); assert.match(h.find(n => n.props?.role === 'alert').props.children, /photos are too large/);
     assert.equal(h.find(n => n.type === 'textarea').props.value, 'food product');
     assert.ok(h.find(n => n.props?.alt === 'Review photo 1 preview'));
-    const retry = h.click('Submit →'); h.requests[2].resolve({ success: true }, 201); await retry;
+    const retry = h.click('Submit →'); await h.settle(); h.requests[2].resolve({ success: true }, 201); await retry;
     assert.equal(f.backs, 1);
   } finally { h.close(); }
 });

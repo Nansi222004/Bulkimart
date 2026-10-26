@@ -36,5 +36,5 @@ export function deferCommittedCheckout(customerId, key) {
 
 export function resolvedCommittedPayment(payment) {
   return payment && ['online', 'cod', 'wallet'].includes(payment.method) && payment.reconciliationRequired === false
-    && (payment.method !== 'online' || ['paid', 'failed', 'refunded', 'partial_refund'].includes(payment.status));
+    && (payment.orderStatus === 'cancelled' || payment.method !== 'online' || ['paid', 'failed', 'refunded', 'partial_refund'].includes(payment.status));
 }

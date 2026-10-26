@@ -6,7 +6,7 @@ import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
-import { eligiblePaymentStages, orderPaymentReady } from '../services/orderPaymentEligibility.service.js';
+import { eligiblePaymentStages, orderPaymentReady, orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 import Delivery from '../models/Delivery.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
@@ -626,19 +626,17 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
   const filter = { 'items.sellerId': seller._id };
   if (req.params.id) {
     if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid order reference');
-    filter._id = req.params.id;
+    filter._id = new mongoose.Types.ObjectId(req.params.id);
   }
   if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
   if (CHANNELS.includes(req.query.type)) filter.type = req.query.type;
 
   const actionableQueue = req.query.status === ORDER_STATUS.PLACED && !req.params.id;
-  const [orders, total] = actionableQueue ? await (async () => {
-    const [page] = await Order.aggregate([{ $match: filter }, ...eligiblePaymentStages(),
-      { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
-    return [page?.rows || [], page?.count?.[0]?.total || 0];
-  })() : await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Order.countDocuments(filter),
-  ]);
+  const [history] = await Order.aggregate([{ $match: filter },
+    ...(actionableQueue ? eligiblePaymentStages() : orderHistoryPaymentStages()),
+    { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
+  const orders = history?.rows || [];
+  const total = history?.count?.[0]?.total || 0;
   const paymentIds = [...new Set(orders.map((o) => String(o.paymentId || '')).filter(Boolean))];
   const payments = paymentIds.length
     ? new Map((await Payment.find({ _id: { $in: paymentIds } }).select('status method').lean()).map((p) => [String(p._id), p]))

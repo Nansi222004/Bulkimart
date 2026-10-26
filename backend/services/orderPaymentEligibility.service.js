@@ -13,3 +13,12 @@ export const eligiblePaymentStages = () => [
   { $match: { $or: [{ paymentMethod: 'cod' }, { '_eligibilityPayment.status': 'paid' }] } },
   { $unset: '_eligibilityPayment' },
 ];
+
+// Filter before counting/pagination, using the durable payment marker rather
+// than a cancellation reason that a customer could also enter on a real order.
+export const orderHistoryPaymentStages = () => [
+  { $lookup: { from: 'payments', localField: 'paymentId', foreignField: '_id',
+    pipeline: [{ $project: { checkoutAbandonedAt: 1 } }], as: '_historyPayment' } },
+  { $match: { '_historyPayment.checkoutAbandonedAt': null } },
+  { $unset: '_historyPayment' },
+];

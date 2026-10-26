@@ -21,6 +21,7 @@ const {getSellerOrders, getDashboard, updateOrderStatus}=await import('../contro
 const {getMyNotifications,getUnreadCount}=await import('../controllers/notification.controller.js');
 const {broadcastNewOrderToRiders}=await import('../controllers/deliveryPartner.controller.js');
 const {publishEligibleSellerOrder,sweepEligibleSellerOrders}=await import('../services/sellerOrderNotification.service.js');
+const {sweepUnacceptedOrdersOnce}=await import('../services/orderSweeper.service.js');
 const {protect}=await import('../middlewares/auth.middleware.js');
 const {errorHandler}=await import('../middlewares/error.middleware.js');
 const {requestContext}=await import('../middlewares/requestContext.middleware.js');
@@ -143,6 +144,26 @@ test('suspended sellers do not receive actionable paid-order alerts',async()=>{
 });
 
 const abandon = order => auth(request(app).post(`/api/orders/${order._id}/abandon-payment`));
+
+test('Quick seller acceptance does not time out an unpaid order or a newly verified payment', async () => {
+ const order = await placed();
+ await Order.collection.updateOne({ _id: order._id }, { $set: { type: 'grocery', createdAt: new Date(Date.now() - 20 * 60000) } });
+ await sweepUnacceptedOrdersOnce();
+ expect((await Order.findById(order._id)).status).toBe('placed');
+ await gateway(order); await verify(order).expect(200);
+ await sweepUnacceptedOrdersOnce();
+ expect((await Order.findById(order._id)).status).toBe('placed');
+ await Payment.updateOne({ _id: order.paymentId }, { $set: { paidAt: new Date(Date.now() - 6 * 60000) } });
+ await sweepUnacceptedOrdersOnce();
+ expect((await Order.findById(order._id)).status).toBe('cancelled');
+});
+
+test('Quick COD acceptance timeout continues to use the order creation time', async () => {
+ const order = await placed('cod');
+ await Order.collection.updateOne({ _id: order._id }, { $set: { type: 'grocery', createdAt: new Date(Date.now() - 6 * 60000) } });
+ await sweepUnacceptedOrdersOnce();
+ expect((await Order.findById(order._id)).status).toBe('cancelled');
+});
 test.each(['/api/orders', '/api/orders/unified'])('payment dismissal restores %s exactly once without order alerts', async path => {
  const order = await placed('online', path);
  expect((await Product.findById(product._id)).variants[0].stock).toBe(9);
@@ -151,11 +172,40 @@ test.each(['/api/orders', '/api/orders/unified'])('payment dismissal restores %s
  expect((await Order.findById(order._id)).status).toBe('cancelled');
  const payment = await Payment.findById(order.paymentId);
  expect(payment.status).toBe('failed'); expect(payment.checkoutAbandonedAt).toBeTruthy();
+ for (const query of ['', '?status=cancelled', '?limit=1']) {
+   const customerHistory = await auth(request(app).get('/api/orders' + query)).expect(200);
+   expect(customerHistory.body.data).toEqual([]); expect(customerHistory.body.meta.total).toBe(0);
+   const sellerHistory = await sellerAuth(request(app).get('/api/sellers/orders' + query)).expect(200);
+   expect(sellerHistory.body.data).toEqual([]); expect(sellerHistory.body.meta.total).toBe(0);
+ }
  expect((await Product.findById(product._id)).variants[0].stock).toBe(10);
  const restored = await Cart.findOne({userId:buyer._id, channel:'ecommerce'});
  expect(restored.items).toHaveLength(1); expect(restored.items[0].qty).toBe(1);
  await flushPush(); expect(await Notification.countDocuments({event:'ORDER_CREATED'})).toBe(0);
  await auth(request(app).post('/api/payments/initiate')).send({orderId:String(order._id)}).expect(400);
+});
+
+test.each(['cod', 'online'])('a real cancelled %s order stays visible in both histories', async method => {
+ const order = await placed(method);
+ if (method === 'online') { await gateway(order); await verify(order).expect(200); }
+ await auth(request(app).patch(`/api/orders/${order._id}/cancel`)).send({ reason: 'Payment cancelled by customer' }).expect(200);
+ const customerHistory = await auth(request(app).get('/api/orders?status=cancelled')).expect(200);
+ expect(customerHistory.body.data.map(row => row._id)).toEqual([String(order._id)]);
+ expect(customerHistory.body.meta.total).toBe(1);
+ const sellerHistory = await sellerAuth(request(app).get('/api/sellers/orders?status=cancelled')).expect(200);
+ expect(sellerHistory.body.data.map(row => row._id)).toEqual([String(order._id)]);
+ expect(sellerHistory.body.meta.total).toBe(1);
+});
+
+test('abandoned checkout does not consume a history page or hide a later genuine order', async () => {
+ const abandoned = await placed(); await abandon(abandoned).expect(200);
+ const genuine = await placed('cod');
+ await Order.collection.updateOne({ _id: abandoned._id }, { $set: { createdAt: new Date(Date.now() + 60000) } });
+ for (const [path, authenticate] of [['/api/orders', auth], ['/api/sellers/orders', sellerAuth]]) {
+   const history = await authenticate(request(app).get(path + '?limit=1')).expect(200);
+   expect(history.body.data.map(row => row._id)).toEqual([String(genuine._id)]);
+   expect(history.body.meta).toMatchObject({ total: 1, pages: 1 });
+ }
 });
 
 test('dismissal does not cancel a verified capture or put paid items back in the cart', async () => {

@@ -48,7 +48,7 @@ export default function CommittedCheckoutReview({ reference, orderId, onResolved
       // Auto-resolve when payment is already confirmed paid — this handles the case
       // where Razorpay succeeded but the page navigated away before we could clear
       // the committed-checkout safety key from localStorage.
-      if (reference && paymentData.status === 'paid' && paymentData.reconciliationRequired === false) {
+      if (reference && (paymentData.status === 'paid' || paymentData.orderStatus === 'cancelled') && paymentData.reconciliationRequired === false) {
         if (current()) onResolved(reference.key);
       }
       return { orders, payment: paymentData };
@@ -97,6 +97,7 @@ export default function CommittedCheckoutReview({ reference, orderId, onResolved
   const resolved = resolvedCommittedPayment(payment);
   const message = !payment ? 'Checking your order payment…'
     : payment.reconciliationRequired ? 'Online payment initialization or verification is pending. The outcome requires review.'
+      : payment.orderStatus === 'cancelled' ? 'This order was cancelled. You can check out your current basket.'
       : payment.status === 'paid' ? 'Payment confirmed — your order is placed!'
         : payment.status === 'failed' ? 'The server has confirmed that payment failed. You can retry payment from My Orders.'
           : ['refunded', 'partial_refund'].includes(payment.status) ? 'Payment reviewed. See My Orders for refund details.'

@@ -2,6 +2,9 @@ import React from 'react';
 const formatCurrency = value => `₹${Number(value).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
 
 export default function ProductWholesaleOffer({ wholesale: w }) {
+  const quote = w.shownQuote || w.quote;
+  const changingQuantity = Boolean(quote && quote.quantity !== w.quantity);
+  const nextTier = w.offer?.priceTiers.find(tier => tier.minimumQuantity > (quote?.quantity ?? w.quantity));
   return <div className="pd-wholesale">
     {w.mode === 'wholesale' && <p className="pd-wholesale-mode">Wholesale (B2B)</p>}
     {w.available && <>
@@ -20,19 +23,22 @@ export default function ProductWholesaleOffer({ wholesale: w }) {
         <p>Minimum order: <strong>{w.offer.minimumQuantity}</strong> · Increments of <strong>{w.offer.quantityIncrement}</strong></p>
         <p>{w.offer.availableStock} in stock · Maximum order: {w.offer.maxQuantity}</p>
         <table><caption>Seller’s quantity prices</caption><thead><tr><th scope="col">Quantity</th><th scope="col">Per unit</th></tr></thead>
-          <tbody>{w.offer.priceTiers.map((tier, index, tiers) => <tr key={tier.minimumQuantity} className={w.quote?.tierMinimumQuantity === tier.minimumQuantity ? 'is-active' : ''}>
-            <td>{tier.minimumQuantity}{index + 1 < tiers.length ? `–${tiers[index + 1].minimumQuantity - 1}` : '+'}{w.quote?.tierMinimumQuantity === tier.minimumQuantity ? ' · Applied' : ''}</td><td>{formatCurrency(tier.unitPrice)}</td>
+          <tbody>{w.offer.priceTiers.map((tier, index, tiers) => <tr key={tier.minimumQuantity} className={!changingQuantity && quote?.tierMinimumQuantity === tier.minimumQuantity ? 'is-active' : ''}>
+            <td>{tier.minimumQuantity}{index + 1 < tiers.length ? `–${tiers[index + 1].minimumQuantity - 1}` : '+'}{!changingQuantity && quote?.tierMinimumQuantity === tier.minimumQuantity ? ' · Applied' : ''}</td><td>{formatCurrency(tier.unitPrice)}</td>
           </tr>)}</tbody>
         </table>
         <label htmlFor="pd-wholesale-quantity">Wholesale quantity</label>
         <input id="pd-wholesale-quantity" type="number" inputMode="numeric" min={w.offer.minimumQuantity} max={w.offer.maxQuantity} step={w.offer.quantityIncrement} value={w.quantity || ''} disabled={w.pending} onChange={event => w.setQuantity(Number(event.target.value))} />
         {!w.validQuantity && <p role="alert">Order at least {w.offer.minimumQuantity}, in increments of {w.offer.quantityIncrement}, up to {w.offer.maxQuantity}.</p>}
-        {w.quoteLoading && <p role="status">Checking current price and stock…</p>}
-        {w.quote && <div className="pd-wholesale-total" aria-live="polite">
-          <strong>{w.quote.quantity} units × {formatCurrency(w.quote.unitPrice)} = {formatCurrency(w.quote.subtotal)}</strong>
+        <p role={w.quoteLoading ? 'status' : undefined} aria-hidden={!w.quoteLoading} style={{ visibility: w.quoteLoading ? 'visible' : 'hidden' }}>Checking current price and stock…</p>
+        {(quote || w.quoteLoading || w.error) && <div className="pd-wholesale-total" aria-live="polite" aria-busy={w.quoteLoading} style={{ position: 'relative' }}>
+          {quote ? <div aria-hidden={changingQuantity || undefined} style={changingQuantity ? { visibility: 'hidden' } : undefined}>
+          <strong>{quote.quantity} units × {formatCurrency(quote.unitPrice)} = {formatCurrency(quote.subtotal)}</strong>
           <p>Estimated item subtotal. Delivery and final totals are confirmed in the Wholesale cart.</p>
-          {w.quote.savings > 0 && <p>Save {formatCurrency(w.quote.savings)} compared with {formatCurrency(w.quote.retailUnitPrice)} per unit in Retail for this variant.</p>}
-          {w.offer.priceTiers.find(tier => tier.minimumQuantity > w.quantity) && <p>Next price tier starts at {w.offer.priceTiers.find(tier => tier.minimumQuantity > w.quantity).minimumQuantity} units.</p>}
+          {quote.savings > 0 && <p>Save {formatCurrency(quote.savings)} compared with {formatCurrency(quote.retailUnitPrice)} per unit in Retail for this variant.</p>}
+          {nextTier && <p>Next price tier starts at {nextTier.minimumQuantity} units.</p>}
+          </div> : null}
+          {(changingQuantity || !quote) && <p role="status" style={changingQuantity ? { position: 'absolute', inset: 12, margin: 0 } : undefined}>{!w.validQuantity ? 'Enter a valid quantity to check the item subtotal.' : w.error ? 'The current item subtotal could not be checked. Please retry.' : `Updating item subtotal for ${w.quantity} units…`}</p>}
         </div>}
       </>}
       {w.error && <p role="alert">{w.error} <button type="button" onClick={w.refresh}>Refresh offer</button></p>}

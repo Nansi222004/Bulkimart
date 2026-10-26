@@ -21,7 +21,7 @@ export async function completeDeliveryLogin(phone, otp, name, intent) {
   }
   if (!profile || typeof profile.status !== 'string') throw new Error('Delivery profile is unavailable. Please sign in again.');
   if (!isCurrentDeliverySession(snapshot)) throw new Error('Your session changed. Please sign in again.');
-  saveDeliverySession(body);
+  saveDeliverySession({ ...body, deliveryState: profile });
   openSessionDashboard(body.sessionRole);
   return { body, profile };
 }

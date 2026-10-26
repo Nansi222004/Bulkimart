@@ -461,7 +461,7 @@ export const SellerProvider = ({ children }) => {
         }));
       }
 
-      if (!(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && (editingProduct?.type || activeChannel) === 'ecommerce') {
+      if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && (editingProduct?.type || activeChannel) === 'ecommerce') {
         fd.append('sameDay', JSON.stringify(
           form.sameDayEnabled
             ? { enabled: true, processingMinutes: Number(form.processingMinutes) }

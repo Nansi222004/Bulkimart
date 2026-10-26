@@ -1670,7 +1670,7 @@ const CheckoutPage = () => {
         <aside className="checkout-summary-column" aria-label="Order summary">
           <details className="checkout-order-review" open>
             <summary><span>Review your items <small>{basketItems.length} {basketItems.length === 1 ? 'item' : 'items'}</small></span><span aria-hidden="true">⌄</span></summary>
-            {groups.length > 0 ? <BasketGroups groups={groups} showTotals={false} busy={isOrdering} /> : <p className="basket-note">Your items will appear after the basket loads.</p>}
+            {groups.length > 0 ? <BasketGroups groups={groups} showTotals={false} showStock={false} busy={isOrdering} /> : <p className="basket-note">Your items will appear after the basket loads.</p>}
           </details>
         {/* Bill Invoice Details Section */}
         <div className="profile-menu-card checkout-bill" style={{ padding: 16 }}>

@@ -5,7 +5,7 @@ import { portalRequest, boundedFetch } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { startRing, stopRing } from '../../../utils/notificationSoundManager';
 import { initPushNotifications, deregisterPushToken } from '../../../utils/firebaseMessaging';
-import { clearDeliverySession } from '../../../utils/deliverySession';
+import { clearDeliverySession, hasActiveDeliveryRegistration } from '../../../utils/deliverySession';
 import { completeDeliveryLogin } from '../utils/deliveryAuth';
 import { deliveryDraftOwner, readDeliveryRegistrationDraft, saveDeliveryRegistrationDraft, clearDeliveryRegistrationDraft } from '../../../utils/deliveryRegistrationDraft';
 import { startRiderPresence } from '../utils/riderPresence';
@@ -54,6 +54,13 @@ export const DeliveryProvider = ({ children }) => {
   const [riderProfile, setRiderProfile] = useState(null);
   const [riderName, setRiderName] = useState('');
   const [riderPhone, setRiderPhone] = useState('');
+
+  useEffect(() => {
+    if (riderStatus !== 'incomplete') return;
+    const exitRegistration = () => clearDeliverySession();
+    window.addEventListener('pagehide', exitRegistration);
+    return () => window.removeEventListener('pagehide', exitRegistration);
+  }, [riderStatus]);
 
   const [onboardingStep, setOnboardingStep] = useState(restoredDraft.current?.step || 1);
   const [onboardingFiles, setOnboardingFiles] = useState(() => restoredDraft.current?.files || { license: null, aadhaarFront: null, aadhaarBack: null, passbook: null });
@@ -798,11 +805,22 @@ export const DeliveryProvider = ({ children }) => {
         const d = body.data || {};
         if (cancelled) return;
 
+        if (d.status === 'incomplete' && !hasActiveDeliveryRegistration(sessionToken)) {
+          clearDeliverySession();
+          return;
+        }
+
         setRiderPhone(d.phone || '');
         setRiderName(d.name || '');
         setRiderStatus(d.status || '');
         setRiderRejection(d.rejectionReason || '');
         setRiderProfile(d);
+        if (d.status === 'incomplete') {
+          setPhoneVerified(true);
+          setRiderAuthed(Boolean(d.name));
+          setOnboardingStep(1);
+          return;
+        }
         setOnboardingForm((previous) => ({
           ...previous,
           vehicleType: d.vehicleType || previous.vehicleType,

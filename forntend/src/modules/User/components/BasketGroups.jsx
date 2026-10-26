@@ -5,7 +5,7 @@ import './BasketGroups.css';
 export const channelLabel = group => group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce';
 export const basketMoney = value => value == null ? 'Unavailable' : `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist }) {
+export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist, showStock = true }) {
   const wholesale = group.salesChannel === 'wholesale';
   const minimum = wholesale ? item.wholesaleSnapshot?.minimumQuantity : 1;
   const increment = wholesale ? item.wholesaleSnapshot?.quantityIncrement : 1;
@@ -18,7 +18,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <p>{item.variantName}{item.variantAttributes?.map(attr => ` · ${attr.name}: ${attr.value}`).join('')}</p>
       <p>{group.seller?.name || 'Vendor unavailable'} · {channelLabel(group)}</p>
       <p>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</p>
-      {item.fulfillmentType === 'digital' ? <p>Digital delivery · one licence</p> : <p>{item.available === false ? 'Unavailable — review or remove this item' : `Stock: ${item.stock}`}</p>}
+      {item.fulfillmentType === 'digital' ? <p>Digital delivery · one licence</p> : item.available === false ? <p>Unavailable — review or remove this item</p> : showStock && <p>Stock: {item.stock}</p>}
       {item.priceChanged && <p role="status">Price changed. Review the current price before checkout.</p>}
       {wholesale && item.wholesaleSnapshot && <p>MOQ {minimum} · increments of {increment} · tier from {item.wholesaleSnapshot.tierMinimumQuantity}</p>}
       {editable && <div className="basket-quantity">

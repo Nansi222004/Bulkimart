@@ -10,15 +10,15 @@ const orders = new Map();
 const User = { findById: jest.fn((id) => ({ select: async () => users.get(String(id)) || null })) };
 const Seller = { findOne: jest.fn(({ userId }) => Promise.resolve(sellersByUser.get(String(userId)) || null)) };
 const Order = {
-  find: jest.fn((filter) => ({
-    sort() { return this; },
-    skip() { return this; },
-    limit() { return this; },
-    lean: async () => [...orders.values()].filter((order) =>
-      order.items.some((item) => String(item.sellerId) === String(filter['items.sellerId']))),
-  })),
-  countDocuments: jest.fn(async (filter) => [...orders.values()].filter((order) =>
-    order.items.some((item) => String(item.sellerId) === String(filter['items.sellerId']))).length),
+  aggregate: jest.fn(async (pipeline) => {
+    const filter = pipeline[0].$match;
+    const rows = [...orders.values()].filter(order =>
+      order.items.some(item => String(item.sellerId) === String(filter['items.sellerId'])));
+    const page = pipeline.find(stage => stage.$facet).$facet.rows;
+    const skip = page.find(stage => '$skip' in stage).$skip;
+    const limit = page.find(stage => '$limit' in stage).$limit;
+    return [{ rows: rows.slice(skip, skip + limit), count: [{ total: rows.length }] }];
+  }),
   findById: jest.fn(async (id) => orders.get(String(id)) || null),
 };
 
@@ -92,7 +92,7 @@ test('seller order listing is scoped to their line items and omits competitorsâ€
   expect(response.body.data).toHaveLength(1);
   expect(response.body.data[0].items.map((item) => item.name)).toEqual(['Own item']);
   expect(response.body.data[0].subtotal).toBe(20.5);
-  expect(Order.find).toHaveBeenCalledWith({ 'items.sellerId': seller._id });
+  expect(Order.aggregate.mock.calls[0][0][0]).toEqual({ $match: { 'items.sellerId': seller._id } });
 });
 
 test('seller cannot update another sellerâ€™s order and unsupported transitions are rejected', async () => {
