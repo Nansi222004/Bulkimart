@@ -27,6 +27,7 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
     else if (snapshot.state !== 'configured') issue('commission_rule_missing', 'No historical recalculation is permitted');
     if (Object.values(snapshot.components).reduce((a,b) => a+b,0) !== snapshot.expectedPaise) issue('order_total_mismatch', 'Frozen components differ from expected payment');
     if (!payment) issue('payment_missing', 'Linked customer payment is missing');
+    if (payment?.merchandiseSettlementHold) issue('payment_disputed', 'Provider dispute requires reviewed recovery before settlement');
     if (order.status === 'delivered' && !order.financialPosting) issue('allocation_missing', 'Delivered order has no merchandise allocation');
     if (order.paymentMethod === 'cod') {
       if (['cancelled','returned','refunded'].includes(order.status) && order.codFinance?.collectedPaise) issue('terminal_order_cash_review', 'Cash custody and customer refund require separate reconciliation');

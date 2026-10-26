@@ -45,7 +45,7 @@ async function makeReturn() {
   const _id = new mongoose.Types.ObjectId();
   await Return.collection.insertOne({ _id, returnNumber: `SYNTHETIC-${_id}`, orderId: order._id,
     orderItemId: order.items[0]._id, customerId: driver._id, sellerId, productId: order.items[0].productId,
-    unitPriceSnapshot: 10, quantity: 1, reason: RETURN_REASONS[0],
+    unitPriceSnapshot: 10, quantity: 1, reason: RETURN_REASONS[0], status: 'APPROVED', pickupMethod: 'MANUAL',
     pickup: { status: 'NOT_ASSIGNED', offerAttempts: [{ riderId: partner._id, status: 'OFFERED' }] },
   });
   return Return.findById(_id);

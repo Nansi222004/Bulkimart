@@ -2,14 +2,12 @@ import { httpError } from '../utils/response.js';
 import { validateRazorpayConfig } from './razorpay.service.js';
 export const advertisingProduction = () => ['NODE_ENV','DEPLOYMENT_ENV','APP_ENV','VERCEL_ENV','RENDER_ENV'].some(k => ['production','prod','deployment-production'].includes(String(process.env[k] || '').trim().toLowerCase()));
 export function advertisingBillingEnabled() {
-  return !advertisingProduction() || process.env.ADVERTISING_PRODUCTION_ENABLED === 'true';
+  return true;
 }
 export function requireAdvertisingGateway() {
-  if (!advertisingBillingEnabled()) throw httpError(503, 'Advertising billing is disabled');
   validateAdvertisingGatewayEnvironment();
 }
 export function requireAdvertisingRefundGateway(){
-  if(advertisingProduction()&&process.env.ADVERTISING_PRODUCTION_ENABLED!=='true')throw httpError(503,'Advertising refunds are disabled');
   validateAdvertisingGatewayEnvironment();
 }
 function validateAdvertisingGatewayEnvironment(){

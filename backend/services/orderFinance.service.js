@@ -13,6 +13,7 @@ import { postLedgerEntry } from './sellerLedger.service.js';
 import { financialTransaction, requireFinanceOperation } from './financeSafety.service.js';
 import { moneyPaise } from './vendorCommission.service.js';
 import { httpError } from '../utils/response.js';
+import { returnHoldOpen } from './returnHold.service.js';
 
 const evidence = (input) => {
   const reference = String(input.reference || '').trim();
@@ -176,8 +177,9 @@ const ensurePayment = async (order, session, allowCompensatedRefunds = false) =>
   }
   const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
   if (!payment) throw httpError(409, 'Verified customer payment is required');
-  const cashReturns = allowCompensatedRefunds && await Return.exists({ orderId: { $in: (await Order.find({ paymentId: payment._id }).select('_id').session(session)).map(row => row._id) }, status: { $nin: ['REJECTED', 'CANCELLED'] }, refundAmount: { $gt: 0 } }).session(session);
-  const captureRefunds = allowCompensatedRefunds && payment.refundObligations.some(row => payment.captures.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId === row.gatewayPaymentId));
+  if (payment.merchandiseSettlementHold) throw httpError(409, 'Payment dispute requires financial reconciliation');
+  const cashReturns = allowCompensatedRefunds && await Return.exists({ orderId: { $in: (await Order.find({ paymentId: payment._id }).select('_id').session(session)).map(row => row._id) }, status: 'REFUNDED', refundAmount: { $gt: 0 } }).session(session);
+  const captureRefunds = allowCompensatedRefunds && payment.refundObligations.some(row => (row.status === 'processed' || !row.returnId) && payment.captures.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId === row.gatewayPaymentId));
   if (payment.status !== 'paid' || cashReturns || captureRefunds) {
     if (!allowCompensatedRefunds) throw httpError(409, 'Verified customer payment is required');
     await verifyRefundedFunding(payment, order, session);
@@ -243,11 +245,14 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
     if (order.financialPosting === 'reversed') return { status: 'reversed', alreadyProcessed: true };
     if (order.financialPosting !== 'held' || order.status !== 'delivered') throw httpError(409, 'Held delivered earnings are required');
     await ensurePayment(order, session, true);
-    if (order.items.some(item => !item.deliveredAt || (item.returnEligibleUntil && new Date(item.returnEligibleUntil) > new Date()))) throw httpError(409, 'Delivery evidence or return hold has not cleared');
     const returns = await Return.find({ orderId: order._id, status: { $nin: ['REJECTED', 'CANCELLED'] } }).session(session);
-    if (returns.some(ret => ret.status !== 'REFUNDED' || !order.financialReturnQuantities?.[`return_${ret._id}`])) throw httpError(409, 'Returns require financial reconciliation before release');
     const entries = await SellerLedgerEntry.find({ orderId: order._id, account: 'seller_payable', type: 'order_earning', bucket: 'held' }).session(session);
+    let heldLines = 0, releasedLines = 0;
     for (const entry of entries) {
+      const item = order.items.find(row => String(row._id) === entry.metadata.itemId);
+      const blocked = returnHoldOpen(item) || returns.some(ret => String(ret.orderItemId) === entry.metadata.itemId && (ret.status !== 'REFUNDED' || !order.financialReturnQuantities?.[`return_${ret._id}`]));
+      if (blocked) { heldLines++; continue; }
+      if (await SellerLedgerEntry.exists({ idempotencyKey: `FINANCE:${entry._id}:RELEASE:eligible` }).session(session)) continue;
       await Seller.updateOne({ _id: entry.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
       const reversals = await SellerLedgerEntry.find({ orderId: order._id, account: 'seller_payable', type: 'reversal', bucket: 'held', direction: 'debit', 'metadata.itemId': entry.metadata.itemId }).session(session);
       const amountPaise = moneyPaise(entry.amount) - reversals.reduce((sum, row) => sum + moneyPaise(row.amount), 0);
@@ -256,11 +261,14 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
       for (const [bucket, direction] of [['held', 'debit'], ['eligible', 'credit']]) await postLedgerEntry({
         idempotencyKey: `FINANCE:${entry._id}:RELEASE:${bucket}`, sellerId: entry.sellerId, orderId: order._id, account: 'seller_payable',
         type: 'adjustment', direction, bucket, amount: amountPaise / 100, description: `Return hold cleared ${order.orderNo}`,
-        postedBy: actorId, postedByRole: actorId ? 'admin' : 'system', metadata: { source: 'order-finance-v2', originalEntryId: String(entry._id) },
+        postedBy: actorId, postedByRole: actorId ? 'admin' : 'system', metadata: { source: 'order-finance-v2', originalEntryId: String(entry._id), itemId: entry.metadata.itemId },
       }, { session });
+      releasedLines++;
     }
-    await Order.updateOne({ _id: order._id }, { $set: { financialPosting: 'eligible' } }, { session });
-    return { status: 'eligible' };
+    if (heldLines && !releasedLines) throw httpError(409, 'Delivery evidence, return hold or financial reconciliation has not cleared');
+    const status = heldLines ? 'held' : 'eligible';
+    await Order.updateOne({ _id: order._id }, { $set: { financialPosting: status } }, { session });
+    return { status, heldLines, releasedLines };
   });
 };
 
@@ -336,7 +344,9 @@ export const reverseRefundedReturn = async (returnId, actorId, review) => {
     const parts = refundCompensation(snapshot, line, proportional);
     const net = parts.sellerPaise;
     if (net < 0) throw httpError(409, 'Partial refund rounding requires reconciliation');
-    const available = order.financialPosting === 'eligible' ? Math.min(net, Math.max(0, moneyPaise(Math.max(0, balances.eligible)))) : 0;
+    const original = await SellerLedgerEntry.findOne({ orderId: order._id, account: 'seller_payable', type: 'order_earning', 'metadata.itemId': line.itemId }).session(session);
+    const released = order.financialPosting === 'eligible' || original && await SellerLedgerEntry.exists({ idempotencyKey: `FINANCE:${original._id}:RELEASE:eligible` }).session(session);
+    const available = released ? Math.min(net, Math.max(0, moneyPaise(Math.max(0, balances.eligible)))) : 0;
     for (const [suffix, account, bucket, amount] of [
       ['NET_ELIGIBLE', 'seller_payable', 'eligible', available],
       ['NET_HELD', 'seller_payable', 'held', net - available],
@@ -358,6 +368,6 @@ export const reverseRefundedReturn = async (returnId, actorId, review) => {
     const allReversed = snapshot.lines.every(row => row.itemId === line.itemId ? after === row.qty : order.financialReturnQuantities?.[row.itemId] === row.qty);
     await Order.updateOne({ _id: order._id }, { $set: { [`financialReturnQuantities.${line.itemId}`]: after, [`financialReturnQuantities.return_${ret._id}`]: true, ...(allReversed ? { financialPosting: 'reversed' } : {}) } }, { session });
     await markReconciled();
-    return { reversedNetPaise: net, reconciliationRequired: net > available && order.financialPosting === 'eligible' };
+    return { reversedNetPaise: net, reconciliationRequired: Boolean(net > available && released) };
   });
 };

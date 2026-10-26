@@ -19,7 +19,7 @@ import {
   getSellerFaqs,
   answerSellerFaq
 } from '../controllers/seller.controller.js';
-import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived } from '../controllers/return.controller.js';
+import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived, selectReturnPickup, refreshReturnCourier, cancelReturnPickup } from '../controllers/return.controller.js';
 import {
   getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
 } from '../controllers/fulfillment.controller.js';
@@ -129,6 +129,9 @@ router.get('/returns', requireApprovedSeller, listSellerReturns);
 // Quick Commerce reverse pickup — Seller triggers/confirms these two steps;
 // every other transition stays Admin-only (services/return.service.js).
 router.post('/returns/:returnId/assign-rider', requireApprovedSeller, assignRiderForReturn);
+router.post('/returns/:returnId/pickup', requireApprovedSeller, selectReturnPickup);
+router.post('/returns/:returnId/pickup/refresh', requireApprovedSeller, refreshReturnCourier);
+router.post('/returns/:returnId/pickup/cancel', requireApprovedSeller, cancelReturnPickup);
 router.post('/returns/:returnId/mark-received', requireApprovedSeller, sellerConfirmReturnReceived);
 
 export default router;

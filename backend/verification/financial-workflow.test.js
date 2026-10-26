@@ -232,7 +232,7 @@ test('grouped COD Payment stays unpaid until every order cash handover is verifi
 });
 test('seller funds release only after return holds clear, with idempotent transfer between buckets', async () => {
   enable(); await verifyCash(); await postOrderFinance(order._id,admin._id);
-  await Order.updateOne({_id:order._id},{$set:{'items.0.returnEligibleUntil':new Date('2100-01-01')}});
+  await Order.updateOne({_id:order._id},{$set:{'items.0.returnEligibleUntil':new Date('2100-01-01'), 'items.0.returnPolicy.returnEligible': true, 'items.0.returnPolicy.returnWindowDays': 7}});
   await expect(releaseOrderFinance(order._id,admin._id)).rejects.toThrow(/hold/);
   await Order.updateOne({_id:order._id},{$set:{'items.0.returnEligibleUntil':new Date('2020-01-01')}});
   await Promise.all([releaseOrderFinance(order._id,admin._id),releaseOrderFinance(order._id,admin._id)]);
@@ -545,7 +545,7 @@ test('zero return completion records internal evidence and never a provider tran
   await Order.collection.updateOne({ _id: order._id }, { $set: { items: [freeItem, ...order.items.map(row=>row.toObject())], pricing: { subtotal: 200, couponDiscount: 100, totalAmount: 100 }, financialSnapshot: { ...frozen, lines: [freeLine, ...frozen.lines] } } });
   await verifyCash(); await postOrderFinance(order._id, admin._id);
   const retId = id(); await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: freeItem._id, customerId: user._id, sellerId: seller._id,
-    quantity: 1, productId: product._id, reason: 'OTHER', unitPriceSnapshot: 50, status: 'RETURN_RECEIVED', returnNumber: 'RET-ZERO', history: [], refundAllocationStartQuantity: 0 });
+    quantity: 1, productId: product._id, reason: 'OTHER', unitPriceSnapshot: 50, status: 'RETURN_RECEIVED', receivedAt: new Date(), restockDecision: 'NON_RESTOCKABLE', restockStatus: 'NOT_RESTOCKED', returnNumber: 'RET-ZERO', history: [], refundAllocationStartQuantity: 0 });
   const before = await Ledger.countDocuments();
   const ret = await processReturnRefund({ returnId: retId, adminId: admin._id });
   expect(ret.refundReference).toBeNull(); expect(ret.refundAmount).toBe(0); expect(ret.zeroRefundEvidence.key).toBe(`ZERO_RETURN:${retId}`);

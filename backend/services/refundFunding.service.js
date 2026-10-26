@@ -11,7 +11,7 @@ export const verifyReturnCashEvidence = async (payment, ret, session) => {
     const rows = payment.refundObligations.filter(row => String(row.returnId) === String(ret._id));
     if (rows.length !== 1 || rows[0].status !== 'processed' || !rows[0].verifiedAt || rows[0].amountPaise !== amount || rows[0].currency !== 'INR'
       || rows[0].providerRefundId !== ret.refundReference || !payment.captures.some(row => row.disposition === 'settled' && row.gatewayPaymentId === rows[0].gatewayPaymentId)) throw httpError(409, 'Verified provider refund evidence is missing');
-  } else if (payment?.method === 'wallet') {
+  } else if (payment?.method === 'wallet' || payment?.method === 'cod' && ret.refundDestination === 'wallet') {
     if (!await WalletLedger.exists({ userId: payment.userId, direction: 'credit', referenceId: String(ret._id), referenceType: 'RETURN', amount: ret.refundAmount, status: 'completed' }).session(session)) throw httpError(409, 'Wallet refund credit evidence is missing');
   } else if (payment?.method !== 'cod' || !ret.codSettledBy || !ret.codSettledAt || ret.refundReference !== 'MANUAL-COD' || ret.codSettlementNote?.length < 5) throw httpError(409, 'Manual COD refund settlement evidence is missing');
 };
@@ -21,8 +21,9 @@ export const verifyReturnCashEvidence = async (payment, ret, session) => {
 export const verifyRefundedFunding = async (payment, order, session) => {
   if (!['partial_refund', 'refunded'].includes(payment.status)) throw httpError(409, 'Verified customer payment is required');
   const siblings = await Order.find({ paymentId: payment._id }).select('_id').session(session);
-  const returns = await Return.find({ orderId: { $in: siblings.map(row => row._id) }, status: { $nin: ['REJECTED', 'CANCELLED'] } }).session(session);
-  if (!returns.length || returns.some(ret => ret.status !== 'REFUNDED')) throw httpError(409, 'Refund events are unresolved');
+  const allReturns = await Return.find({ orderId: { $in: siblings.map(row => row._id) }, status: { $nin: ['REJECTED', 'CANCELLED'] } }).session(session);
+  const returns = allReturns.filter(ret => ret.status === 'REFUNDED');
+  if (!returns.length) throw httpError(409, 'Refund events are unresolved');
   let refundedPaise = 0; const providerReferences = new Set();
   for (const ret of returns) {
     const amount = moneyPaise(ret.refundAmount);
@@ -39,7 +40,7 @@ export const verifyRefundedFunding = async (payment, order, session) => {
     if (payment.method === 'online') { if (providerReferences.has(ret.refundReference)) throw httpError(409, 'Provider refund reference was reused'); providerReferences.add(ret.refundReference); }
     refundedPaise += amount;
   }
-  if (payment.method === 'online' && payment.refundObligations.some(row => row.status !== 'processed' || !returns.some(ret => String(ret._id) === String(row.returnId)))) throw httpError(409, 'Unmatched payment refund obligation requires reconciliation');
+  if (payment.method === 'online' && payment.refundObligations.some(row => !allReturns.some(ret => String(ret._id) === String(row.returnId)) || row.status === 'processed' && !returns.some(ret => String(ret._id) === String(row.returnId)))) throw httpError(409, 'Unmatched payment refund obligation requires reconciliation');
   if (moneyPaise(payment.refund?.totalRefundedAmount ?? 0) !== refundedPaise || refundedPaise > moneyPaise(payment.amount)) throw httpError(409, 'Payment refund totals do not reconcile');
   const remaining = moneyPaise(payment.amount) - refundedPaise;
   if (payment.status !== (remaining ? 'partial_refund' : 'refunded') || !remaining) throw httpError(409, 'Fully refunded payment has no releasable funding');

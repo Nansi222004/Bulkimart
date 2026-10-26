@@ -31,6 +31,7 @@ import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
 import { buildReturnPolicySnapshotsFor } from '../services/returnPolicy.service.js';
+import { applyProductReturnSettings } from '../services/productReturns.service.js';
 import {
   ORDER_STATUS,
   CANCELLABLE_STATUSES,
@@ -407,6 +408,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       shgStoreId: p.shgStoreId,
       additionalMessage: line.additionalMessage || '',
       _returnCategoryId: p.category, // resolved into `returnPolicy` below, never persisted itself
+      _returnProduct: p,
       _returnableSnapshot: p.returnable, // QUICK COMMERCE only — see below; never persisted itself
     });
   }
@@ -431,12 +433,8 @@ export const createOrder = asyncHandler(async (req, res) => {
       const catPolicy = returnPolicyByCategory.get(String(l._returnCategoryId)) || {
         headerCategoryId: null, headerCategoryName: null, returnEligible: false, returnWindowDays: null,
       };
-      if (l.type === CHANNEL.GROCERY) {
-        const sellerReturnable = Boolean(l._returnableSnapshot);
-        l.returnPolicy = { ...catPolicy, sellerReturnable, returnEligible: catPolicy.returnEligible && sellerReturnable };
-      } else {
-        l.returnPolicy = catPolicy;
-      }
+      l.returnPolicy = applyProductReturnSettings(l._returnProduct, catPolicy);
+      delete l._returnProduct;
       delete l._returnCategoryId;
       delete l._returnableSnapshot;
     }
@@ -1267,23 +1265,11 @@ export const cancelOrder = asyncHandler(async (req, res) => {
 // @route   POST /api/orders/:id/return
 // @access  Private
 export const requestReturn = asyncHandler(async (req, res) => {
-  const { reason, images = [] } = req.body;
-  if (!reason) throw httpError(400, 'Please tell us why you are returning this order');
-
   const order = await Order.findById(req.params.id);
-  if (!order) throw httpError(404, 'Order not found');
-  if (String(order.userId) !== String(req.user._id)) throw httpError(403, 'This is not your order');
-  if (order.status !== ORDER_STATUS.DELIVERED) {
-    throw httpError(400, 'Only a delivered order can be returned');
-  }
-
-  order.status = ORDER_STATUS.RETURN_REQUESTED;
-  order.returnReason = reason;
-  order.returnImages = images;
-  pushTimeline(order, ORDER_STATUS.RETURN_REQUESTED, reason);
-  await order.save();
-
-  return ok(res, { orderNo: order.orderNo, status: order.status }, 'Return requested');
+  if (!order || String(order.userId) !== String(req.user._id)) throw httpError(404, 'Order not found');
+  throw httpError(410, 'Select an order item and submit its quantity and reason to POST /api/returns', {
+    code: 'ITEM_RETURN_REQUIRED', endpoint: '/api/returns', orderId: String(order._id),
+  });
 });
 
 // Auto-cancels the order if the seller does not accept it within 2 minutes

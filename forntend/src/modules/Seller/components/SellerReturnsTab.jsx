@@ -3,7 +3,7 @@ import { apiUrl } from '../../../utils/api';
 import { useSeller } from '../context/SellerContext';
 
 /**
- * Seller — Returns: read-only visibility into returns on this seller's own products.
+ * Seller returns and explicit pickup selection for the seller's own products.
  */
 const token = () => localStorage.getItem('sellerToken');
 const authHeaders = () => ({ Authorization: 'Bearer ' + token() });
@@ -48,6 +48,7 @@ export const SellerReturnsTab = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [actionId, setActionId] = useState(null);
   const [toast, setToast] = useState('');
+  const [pickupChoices, setPickupChoices] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -68,15 +69,28 @@ export const SellerReturnsTab = () => {
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 4000); };
 
   const assignRider = async (id) => {
+    if (!pickupChoices[id]) return;
     setActionId(id);
     try {
-      const res = await fetch(apiUrl(`/api/sellers/returns/${id}/assign-rider`), { method: 'POST', headers: authHeaders() });
+      const res = await fetch(apiUrl(`/api/sellers/returns/${id}/pickup`), { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ pickupMethod: pickupChoices[id] }) });
       const body = await res.json();
-      showToast(res.ok ? (body.message || 'Looking for a rider…') : (body.message || 'Could not arrange pickup'));
+      showToast(res.ok ? (body.message || 'Pickup updated') : (body.message || 'Could not arrange pickup'));
       await load();
+    } catch { showToast('Could not confirm pickup; reload before retrying');
     } finally {
       setActionId(null);
     }
+  };
+
+  const courierAction = async (id, action) => {
+    setActionId(id);
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/returns/${id}/pickup/${action}`), { method: 'POST', headers: authHeaders() });
+      const body = await res.json();
+      showToast(body.message || (res.ok ? 'Pickup updated' : 'Pickup needs review'));
+      await load();
+    } catch { showToast('Could not update pickup; reload before retrying'); }
+    finally { setActionId(null); }
   };
 
   const markReceived = async (id) => {
@@ -86,6 +100,7 @@ export const SellerReturnsTab = () => {
       const body = await res.json();
       showToast(res.ok ? (body.message || 'Marked as received') : (body.message || 'Could not mark as received'));
       await load();
+    } catch { showToast('Could not confirm receipt; reload before retrying');
     } finally {
       setActionId(null);
     }
@@ -415,13 +430,19 @@ export const SellerReturnsTab = () => {
                 {['APPROVED', 'AWAITING_RETURN'].includes(r.status) && (
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                     <div style={{ fontSize: 11.5, color: '#475569', fontWeight: 600 }}>
-                      <b>Pickup Logistics:</b> {PICKUP_LABEL[r.pickup?.status] || 'No rider yet'}
+                      <b>Pickup Logistics:</b> {r.pickupMethod === 'SHIPROCKET' ? (r.reverseBooking?.trackingState || r.reverseBooking?.state || 'Awaiting booking') : (PICKUP_LABEL[r.pickup?.status] || 'Choose a pickup method')}
                       {r.pickup?.partnerId?.userId?.name ? ` — ${r.pickup.partnerId.userId.name}` : ''}
                     </div>
-                    {(!r.pickup || r.pickup.status === 'NOT_ASSIGNED') && (
+                    {(!r.pickupMethod || ['failed', 'cancelled'].includes(r.reverseBooking?.state)) && ['NOT_ASSIGNED', 'CANCELLED'].includes(r.pickup?.status || 'NOT_ASSIGNED') && (
+                      <>
+                      <select aria-label="Pickup method" value={pickupChoices[r._id] || ''} onChange={e => setPickupChoices({ ...pickupChoices, [r._id]: e.target.value })}>
+                        <option value="">Choose pickup method</option>
+                        <option value="MANUAL">Manual Delivery / Local Rider</option>
+                        <option value="SHIPROCKET">Shiprocket Reverse Pickup</option>
+                      </select>
                       <button 
-                        disabled={actionId === r._id} 
-                        onClick={() => assignRider(r._id)} 
+                        disabled={actionId === r._id || !pickupChoices[r._id]}
+                        onClick={() => assignRider(r._id)}
                         style={{
                           border: 'none', 
                           background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 
@@ -435,10 +456,19 @@ export const SellerReturnsTab = () => {
                           boxShadow: '0 2px 6px rgba(3, 105, 161, 0.2)'
                         }}
                       >
-                        {actionId === r._id ? 'Assigning…' : 'Assign Rider'}
+                        {actionId === r._id ? 'Booking…' : 'Confirm pickup method'}
                       </button>
+                      </>
                     )}
-                    {r.pickup?.status === 'PICKED_UP' && (
+                    {r.pickupMethod === 'SHIPROCKET' && <>
+                      <span>{r.awbNumber ? `AWB: ${r.awbNumber}` : ''} {r.reverseBooking?.error}</span>
+                      <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'refresh')}>Refresh courier tracking</button>
+                      {r.reverseBooking?.state === 'booked' && (r.reverseBooking?.trackingRank || 0) < 2 && <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Request courier cancellation</button>}
+                    </>}
+                    {r.pickupMethod === 'MANUAL' && r.pickup?.status === 'NOT_ASSIGNED' && <>
+                      <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Cancel rider search</button>
+                    </>}
+                    {(r.pickup?.status === 'PICKED_UP' || r.reverseBooking?.trackingState === 'DELIVERED' && r.pickup?.status !== 'DELIVERED_TO_SELLER') && (
                       <button 
                         disabled={actionId === r._id} 
                         onClick={() => markReceived(r._id)} 

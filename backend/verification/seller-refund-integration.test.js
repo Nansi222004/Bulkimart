@@ -31,7 +31,8 @@ beforeEach(async()=>{
 });
 afterEach(()=>{for(const key of ['FINANCE_OPERATIONS_ENABLED','FINANCE_POLICY_APPROVAL_REFERENCE','FINANCE_E2E_APPROVAL_REFERENCE','FINANCE_SNAPSHOTS_ENABLED','RAZORPAY_MODE'])delete process.env[key];});
 
-test.each([1,2])('actual verified provider refund → compensation → release, quantity %i',async quantity=>{
+test.each([[1,'upi'],[2,'upi'],[1,'card'],[2,'card'],[1,'netbanking'],[2,'netbanking']])('verified original-source refund → compensation → release, quantity %i, method %s',async (quantity,method)=>{
+  client.payments.fetch.mockImplementation(async () => ({ id:'pay-fixture',order_id:'order-fixture',method,status:'captured',currency:'INR',amount:10000,amount_refunded:providerRefunds.filter(row=>row.status==='processed').reduce((n,row)=>n+row.amount,0) }));
   const user=await User.create({name:'Fixture customer',phone:'9876609001',roles:['buyer'],isActive:true});
   const adminId=new mongoose.Types.ObjectId();await Admin.collection.insertOne({_id:adminId,name:'Fixture finance operator',email:'refund@example.test',role:'admin',isActive:true,permissions:['manage_finance']});
   const sellerId=new mongoose.Types.ObjectId();await Seller.collection.insertOne({_id:sellerId,userId:user._id,businessName:'Fixture',status:'approved'});
@@ -41,12 +42,23 @@ test.each([1,2])('actual verified provider refund → compensation → release, 
   const order=await Order.create({userId:user._id,type:'grocery',status:'delivered',paymentMethod:'online',paymentId:payment._id,pricing:{discountRepresentation:'components-v1',subtotal:100,totalAmount:100},items:[{sellerId,productId,type:'grocery',name:'Fixture',price:50,qty:2,deliveredAt:new Date('2020-01-01')}]});
   delete process.env.FINANCE_SNAPSHOTS_ENABLED;payment.orderId=order._id;await payment.save();
   await postOrderFinance(order._id,adminId);
-  const ret=await Return.create({returnNumber:'RET-PROVIDER',orderId:order._id,orderItemId:order.items[0]._id,sellerId,customerId:user._id,productId,unitPriceSnapshot:50,quantity,reason:'OTHER',status:'RETURN_RECEIVED'});
+  const ret=await Return.create({returnNumber:'RET-PROVIDER',orderId:order._id,orderItemId:order.items[0]._id,sellerId,customerId:user._id,productId,unitPriceSnapshot:50,quantity,reason:'OTHER',status:'RETURN_RECEIVED',receivedAt:new Date(),restockDecision:'NON_RESTOCKABLE',restockStatus:'NOT_RESTOCKED'});
   const result=await processReturnRefund({returnId:ret._id,adminId});
   expect(result.status).toBe('REFUNDED');expect(result.refundAmount).toBe(quantity*50);
   expect((await Payment.findById(payment._id)).status).toBe(quantity===1?'partial_refund':'refunded');
   await reverseRefundedReturn(ret._id,adminId);await releaseOrderFinance(order._id,adminId);
   await processReturnRefund({returnId:ret._id,adminId});await reverseRefundedReturn(ret._id,adminId);
   expect(client.payments.refund).toHaveBeenCalledTimes(1);
+  expect(client.payments.refund).toHaveBeenCalledWith('pay-fixture',expect.objectContaining({amount:quantity*5000}));
+  expect(result.refundDestination).toBe('original_source');
   expect(await sellerBalances(sellerId)).toMatchObject({held:0,eligible:quantity===1?45:0});
+  if(quantity===1){
+    const second=await Return.create({returnNumber:'RET-SECOND',orderId:order._id,orderItemId:order.items[0]._id,sellerId,customerId:user._id,productId,unitPriceSnapshot:50,quantity:1,reason:'OTHER',status:'RETURN_RECEIVED',receivedAt:new Date(),restockDecision:'NON_RESTOCKABLE',restockStatus:'NOT_RESTOCKED'});
+    const next=await processReturnRefund({returnId:second._id,adminId});
+    expect(next.refundReference).not.toBe(result.refundReference);
+    expect(client.payments.refund).toHaveBeenCalledTimes(2);
+    expect((await Payment.findById(payment._id)).refund.totalRefundedAmount).toBe(100);
+    await reverseRefundedReturn(second._id,adminId);
+    expect(await sellerBalances(sellerId)).toMatchObject({held:0,eligible:0});
+  }
 });

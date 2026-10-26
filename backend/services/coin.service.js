@@ -273,6 +273,13 @@ export const reverseEarnedCoins = async ({ userId, amount, referenceType, refere
 /** Restores Coins that were REDEEMed on an order later cancelled/refunded. */
 export const refundRedeemedCoins = async ({ userId, amount, referenceType, referenceId, idempotencyKey, description, metadata, session }) => {
   validateAmount(amount);
+  if (idempotencyKey) {
+    const prior = await CoinTransaction.findOne({ idempotencyKey }).session(session || null);
+    if (prior) {
+      if (String(prior.userId) !== String(userId) || prior.amount !== amount) throw httpError(409, 'Coin refund evidence mismatch');
+      return { transaction: prior, wallet: await CoinWallet.findOne({ userId }).session(session || null) };
+    }
+  }
   const after = await CoinWallet.findOneAndUpdate(
     { userId },
     { $inc: { availableCoins: amount, lifetimeRefunded: amount } },

@@ -7,6 +7,8 @@ import DeliveryPartner from '../models/DeliveryPartner.js';
 import Delivery from '../models/Delivery.js';
 import { distanceKm } from '../utils/geo.js';
 import { httpError } from '../utils/response.js';
+import { financialTransaction } from './financeSafety.service.js';
+import { postLedgerEntry } from './sellerLedger.service.js';
 import { riderPayout, rateSnapshotFor, payoutModeOf } from './riderPay.service.js';
 import { canTakeAnother } from './riderCapacity.service.js';
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
@@ -50,6 +52,7 @@ const PICKUP_MAX_ATTEMPTS = 3;
 export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
   const ret = await Return.findById(returnId);
   if (!ret) return;
+  if (ret.pickupMethod !== 'MANUAL') return;
   if (![RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN].includes(ret.status)) return;
   if (ret.pickup?.status !== RETURN_PICKUP_STATUS.NOT_ASSIGNED) return; // already assigned/cancelled since this attempt was scheduled
 
@@ -123,9 +126,11 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
     const existing = (ret.pickup.offerAttempts || []).find((o) => String(o.riderId) === String(r._id));
     if (existing && existing.status !== OFFER_ATTEMPT_STATUS.OFFERED) continue; // already declined/expired for this rider — don't re-ring them
 
+    const active = { _id: ret._id, pickupMethod: 'MANUAL', status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED };
     const result = existing
-      ? await Return.updateOne({ _id: ret._id, 'pickup.offerAttempts.riderId': r._id }, { $set: { 'pickup.offerAttempts.$.offeredAt': new Date() } })
-      : await Return.updateOne({ _id: ret._id }, { $push: { 'pickup.offerAttempts': { riderId: r._id, status: OFFER_ATTEMPT_STATUS.OFFERED } } });
+      ? await Return.updateOne({ ...active, 'pickup.offerAttempts': { $elemMatch: { riderId: r._id, status: OFFER_ATTEMPT_STATUS.OFFERED } } }, { $set: { 'pickup.offerAttempts.$.offeredAt': new Date() } })
+      : await Return.updateOne({ ...active, 'pickup.offerAttempts.riderId': { $ne: r._id } }, { $push: { 'pickup.offerAttempts': { riderId: r._id, status: OFFER_ATTEMPT_STATUS.OFFERED } } });
+    if (!result.modifiedCount) continue;
 
     const km = distanceKm(r.baseLocation, pickupPoint);
     await emit('rider', r._id, 'return_pickup_ping', { ...payload, pickupDistanceKm: km });
@@ -152,10 +157,21 @@ export const arrangeReturnPickup = async ({ returnId, sellerId }) => {
   if (![RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN].includes(ret.status)) {
     throw httpError(400, 'This return is not ready for pickup yet', { code: 'RETURN_NOT_APPROVED' });
   }
-  if (ret.pickup.status !== RETURN_PICKUP_STATUS.NOT_ASSIGNED) {
+  if (![RETURN_PICKUP_STATUS.NOT_ASSIGNED, RETURN_PICKUP_STATUS.CANCELLED].includes(ret.pickup.status)) {
     throw httpError(400, `This return's pickup is already ${ret.pickup.status.toLowerCase()}`, { code: 'PICKUP_ALREADY_ASSIGNED' });
   }
-
+  const order = await Order.findById(ret.orderId).lean();
+  const seller = await Seller.findById(sellerId).lean();
+  const item = order?.items.find(row => String(row._id) === String(ret.orderItemId));
+  if (!item || String(item.sellerId) !== String(sellerId)) throw httpError(403, 'Return item ownership mismatch');
+  const city = value => String(value || '').trim().toLowerCase();
+  if (!city(order.shippingAddress?.city) || city(order.shippingAddress.city) !== city(seller?.storeDetails?.city)) throw httpError(400, 'Local rider pickup requires customer and seller in the same city; select Shiprocket');
+  if (!Number.isFinite(distanceKm(order.shippingAddress, seller?.storeDetails))) throw httpError(400, 'Pickup and seller coordinates are required');
+  const claimed = await Return.updateOne({ _id: returnId, status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, 'pickup.status': { $in: ['NOT_ASSIGNED', 'CANCELLED'] }, 'reverseBooking.state': { $nin: ['creating', 'booked', 'uncertain', 'cancel_pending'] } }, {
+    $set: { pickupMethod: 'MANUAL', 'pickup.status': 'NOT_ASSIGNED' }, $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: 'Seller selected Manual Delivery / Local Rider' } },
+  });
+  if (!claimed.matchedCount) throw httpError(409, 'Reconcile or cancel the existing courier pickup first');
+  ret.pickupMethod = 'MANUAL'; ret.pickup.status = 'NOT_ASSIGNED';
   broadcastReturnPickupToRiders(String(ret._id), 1).catch((e) => console.warn('[RETURN PICKUP] broadcast failed:', e.message));
   return ret;
 };
@@ -193,6 +209,9 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
       claimed = await Return.findOneAndUpdate(
         {
           _id: returnId,
+          pickupMethod: 'MANUAL',
+          status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] },
+          'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } },
           'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED,
           'pickup.partnerId': { $exists: false },
           $nor: [{ 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: { $ne: OFFER_ATTEMPT_STATUS.OFFERED } } } }],
@@ -284,16 +303,18 @@ export const expireReturnPickupOffer = async ({ returnId, partnerId }) => {
  * PICKUP OTP — customer hands the item to the rider
  * ========================================================================== */
 
-const genOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
+const genOtp = () => crypto.randomInt(1000, 10000).toString();
 
 export const generateReturnPickupOtp = async ({ returnId, partnerId }) => {
   const ret = await Return.findById(returnId);
   if (!ret) throw httpError(404, 'Return not found');
   if (String(ret.pickup.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
   if (!ret.pickup.deliveryId) throw httpError(400, 'No pickup trip on record');
+  if (ret.pickupMethod === 'SHIPROCKET' || ret.pickup.status !== 'ASSIGNED') throw httpError(409, 'Only an assigned manual pickup can request an OTP');
 
   const otp = genOtp();
-  await Delivery.updateOne({ _id: ret.pickup.deliveryId }, { $set: { otp, otpVerified: false, otpAttempts: 0, otpIssuedAt: new Date() } });
+  const issued = await Delivery.updateOne({ _id: ret.pickup.deliveryId, otpVerified: { $ne: true }, $or: [{ otpIssuedAt: { $exists: false } }, { otpIssuedAt: { $lte: new Date(Date.now() - 60000) } }] }, { $set: { otp, otpVerified: false, otpAttempts: 0, otpIssuedAt: new Date() } });
+  if (!issued.modifiedCount) throw httpError(409, 'OTP was recently issued or pickup already completed');
 
   emit('user', ret.customerId, 'return_pickup_otp_ready', { returnId: String(ret._id), otp });
   notifyUser(ret.customerId, {
@@ -308,29 +329,24 @@ export const generateReturnPickupOtp = async ({ returnId, partnerId }) => {
 const OTP_MAX_ATTEMPTS = 5;
 
 export const verifyReturnPickupOtp = async ({ returnId, partnerId, otp }) => {
-  const ret = await Return.findById(returnId);
-  if (!ret) throw httpError(404, 'Return not found');
-  if (String(ret.pickup.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
-  if (!ret.pickup.deliveryId) throw httpError(400, 'No pickup trip on record');
-
-  const delivery = await Delivery.findById(ret.pickup.deliveryId);
-  if (!delivery) throw httpError(404, 'Pickup trip not found');
-  if (delivery.otpAttempts >= OTP_MAX_ATTEMPTS) throw httpError(429, 'Too many wrong attempts — ask the customer to regenerate the code');
-  if (!delivery.otp) throw httpError(400, 'No pickup code has been generated yet');
-
-  if (String(otp) !== String(delivery.otp)) {
-    delivery.otpAttempts += 1;
-    await delivery.save();
-    throw httpError(400, `Incorrect code (${OTP_MAX_ATTEMPTS - delivery.otpAttempts} attempt(s) left)`, { code: 'WRONG_OTP' });
-  }
-
-  delivery.otpVerified = true;
-  delivery.status = 'picked_up';
-  await delivery.save();
-
-  ret.pickup.status = RETURN_PICKUP_STATUS.PICKED_UP;
-  ret.pickedUpAt = new Date();
-  await ret.save();
+  const result = await financialTransaction(async session => {
+    const ret = await Return.findById(returnId).session(session);
+    if (!ret || String(ret.pickup?.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
+    if (ret.pickupMethod === 'SHIPROCKET' || ret.pickup.status !== 'ASSIGNED') throw httpError(409, 'Pickup is not awaiting collection');
+    const delivery = await Delivery.findOne({ _id: ret.pickup.deliveryId, partnerId, direction: 'return_pickup' }).session(session);
+    if (!delivery || !delivery.otp || delivery.otpVerified) throw httpError(409, 'No active pickup OTP');
+    if (delivery.otpAttempts >= OTP_MAX_ATTEMPTS) throw httpError(429, 'Too many wrong attempts; regenerate the pickup code');
+    if (!delivery.otpIssuedAt || Date.now() - delivery.otpIssuedAt.getTime() > 600000) throw httpError(400, 'Pickup OTP expired');
+    if (String(otp) !== delivery.otp) {
+      delivery.otpAttempts += 1; await delivery.save({ session });
+      return { incorrect: true };
+    }
+    delivery.otpVerified = true; delivery.status = 'picked_up'; await delivery.save({ session });
+    ret.pickup.status = 'PICKED_UP'; ret.pickedUpAt = new Date(); await ret.save({ session });
+    return { ret, delivery };
+  });
+  if (result.incorrect) throw httpError(400, 'Incorrect pickup code', { code: 'WRONG_OTP' });
+  const { ret, delivery } = result;
 
   notifyUser(ret.customerId, {
     event: NOTIFICATION_EVENT.RETURN_PICKED_UP, title: 'Item picked up',
@@ -353,9 +369,10 @@ export const verifyReturnPickupOtp = async ({ returnId, partnerId, otp }) => {
  * ========================================================================== */
 
 export const updateReturnPickupLocation = async ({ returnId, partnerId, lat, lng }) => {
-  const ret = await Return.findById(returnId).select('pickup').lean();
+  const ret = await Return.findById(returnId).select('pickup pickupMethod').lean();
   if (!ret) throw httpError(404, 'Return not found');
   if (String(ret.pickup?.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
+  if (ret.pickupMethod === 'SHIPROCKET' || !['ASSIGNED', 'PICKED_UP'].includes(ret.pickup.status)) throw httpError(409, 'Pickup is not active');
   await Delivery.updateOne({ _id: ret.pickup.deliveryId }, { $set: { partnerLocation: { lat, lng, updatedAt: new Date() } } });
   return { ok: true };
 };
@@ -365,11 +382,13 @@ export const updateReturnPickupStage = async ({ returnId, partnerId, status }) =
   const allowed = ['arrived_at_store', 'in_transit', 'arrived_at_customer'];
   if (!allowed.includes(status)) throw httpError(400, `status must be one of: ${allowed.join(', ')}`);
 
-  const ret = await Return.findById(returnId).select('pickup sellerId returnNumber').lean();
+  const ret = await Return.findById(returnId).select('pickup sellerId returnNumber pickupMethod').lean();
   if (!ret) throw httpError(404, 'Return not found');
   if (String(ret.pickup?.partnerId) !== String(partnerId)) throw httpError(403, 'Not your assigned pickup');
 
-  const delivery = await Delivery.findOneAndUpdate({ _id: ret.pickup.deliveryId }, { $set: { status } }, { returnDocument: 'after' });
+  if (ret.pickupMethod === 'SHIPROCKET' || !['ASSIGNED', 'PICKED_UP'].includes(ret.pickup.status) || status !== 'arrived_at_store' && ret.pickup.status !== 'PICKED_UP') throw httpError(409, 'Pickup stage requires verified collection');
+  const delivery = await Delivery.findOneAndUpdate({ _id: ret.pickup.deliveryId, status: { $ne: 'delivered' } }, { $set: { status } }, { returnDocument: 'after' });
+  if (!delivery) throw httpError(409, 'Pickup trip already completed');
   if (ret.sellerId) {
     emit('seller', ret.sellerId, 'return_pickup_stage', { returnId: String(ret._id), status });
   }
@@ -389,41 +408,37 @@ export const updateReturnPickupStage = async ({ returnId, partnerId, status }) =
  * is physically back, ready for that review.
  */
 export const markReturnDeliveredToSeller = async ({ returnId, sellerId }) => {
-  const ret = await Return.findById(returnId);
-  if (!ret) throw httpError(404, 'Return not found');
-  if (String(ret.sellerId) !== String(sellerId)) throw httpError(403, 'Not authorized for this return');
-  if (ret.pickup.status !== RETURN_PICKUP_STATUS.PICKED_UP) {
-    throw httpError(400, 'This return has not been picked up from the customer yet', { code: 'NOT_PICKED_UP' });
-  }
-
-  const delivery = await Delivery.findById(ret.pickup.deliveryId);
-  if (delivery && delivery.status !== 'delivered') {
-    delivery.status = 'delivered';
-    delivery.endTime = new Date();
-    delivery.partnerEarnings = riderPayout(delivery.route?.distanceKm, { mode: payoutModeOf({ type: 'grocery' }), rates: delivery.ratesUsed }).total;
-    await delivery.save();
-
-    const credit = { $set: { isAvailable: true }, $inc: { totalDeliveries: 1, 'earnings.total': delivery.partnerEarnings, 'earnings.pending': delivery.partnerEarnings } };
-    const rider = await DeliveryPartner.findById(delivery.partnerId).select('financialWorkflowVersion').lean();
-    if (rider?.financialWorkflowVersion === 2 && delivery.partnerEarnings > 0) {
-      // Riders on the ledger get the return-pickup fee there too, so it can be
-      // withdrawn. No customer payment backs it, so it is available at once.
-      const { financialTransaction } = await import('./financeSafety.service.js');
-      const { postLedgerEntry } = await import('./sellerLedger.service.js');
-      await financialTransaction(async session => {
-        await DeliveryPartner.updateOne({ _id: delivery.partnerId }, credit, { session });
-        await postLedgerEntry({ idempotencyKey: `RETURN_PICKUP:${delivery._id}:EARNING`, partnerId: delivery.partnerId, deliveryId: delivery._id, orderId: ret.orderId,
-          account: 'rider_payable', type: 'delivery_earning', direction: 'credit', bucket: 'eligible', amount: Math.round(delivery.partnerEarnings * 100) / 100,
-          description: `Return pickup ${ret.returnNumber}`, metadata: { source: 'return-pickup', returnId: String(ret._id) } }, { session });
-      });
+  const ret = await financialTransaction(async session => {
+    const ret = await Return.findById(returnId).session(session);
+    if (!ret || String(ret.sellerId) !== String(sellerId)) throw httpError(404, 'Return not found');
+    if (ret.pickup.status === 'DELIVERED_TO_SELLER') return ret;
+    if (!['APPROVED', 'AWAITING_RETURN'].includes(ret.status)) throw httpError(409, 'Return is not awaiting receipt');
+    if (ret.pickupMethod === 'SHIPROCKET') {
+      if (ret.reverseBooking?.trackingState !== 'DELIVERED' || !ret.reverseBooking.deliveredAt) throw httpError(409, 'Verified courier delivery evidence is required');
     } else {
-      await DeliveryPartner.updateOne({ _id: delivery.partnerId }, credit);
+      if (ret.pickup.status !== 'PICKED_UP') throw httpError(409, 'Return has not been collected');
+      const delivery = await Delivery.findOne({ _id: ret.pickup.deliveryId, direction: 'return_pickup', partnerId: ret.pickup.partnerId, otpVerified: true }).session(session);
+      if (!delivery) throw httpError(409, 'Verified pickup trip is required');
+      if (delivery.status === 'delivered') throw httpError(409, 'Historical receipt/earnings require reconciliation');
+      const amount = riderPayout(delivery.route?.distanceKm, { mode: payoutModeOf({ type: 'grocery' }), rates: delivery.ratesUsed }).total;
+      if (!Number.isFinite(amount) || amount < 0 || !delivery.ratesUsed?.rateId) throw httpError(409, 'Verified rider rates are required');
+      delivery.status = 'delivered'; delivery.endTime = new Date(); delivery.partnerEarnings = amount;
+      const rider = await DeliveryPartner.findById(delivery.partnerId).session(session);
+      if (!rider) throw httpError(409, 'Assigned rider is missing');
+      if (rider.financialWorkflowVersion === 2 && amount > 0) {
+        await postLedgerEntry({ idempotencyKey: 'RETURN_PICKUP:' + delivery._id + ':EARNING', partnerId: delivery.partnerId, deliveryId: delivery._id, orderId: ret.orderId,
+          account: 'rider_payable', type: 'delivery_earning', direction: 'credit', bucket: 'eligible', amount,
+          description: 'Return pickup ' + ret.returnNumber, metadata: { source: 'return-pickup', returnId: String(ret._id) } }, { session });
+      }
+      await DeliveryPartner.updateOne({ _id: delivery.partnerId }, { $set: { isAvailable: true }, $inc: { totalDeliveries: 1, 'earnings.total': amount, 'earnings.pending': amount } }, { session });
+      await delivery.save({ session });
     }
-  }
-
-  ret.pickup.status = RETURN_PICKUP_STATUS.DELIVERED_TO_SELLER;
-  ret.pickup.sellerConfirmedReceivedAt = new Date();
-  await ret.save();
+    ret.pickup.status = 'DELIVERED_TO_SELLER';
+    ret.pickup.sellerConfirmedReceivedAt = new Date();
+    ret.history.push({ toStatus: ret.status, changedByRole: 'seller', comment: 'Seller confirmed physical receipt' });
+    await ret.save({ session });
+    return ret;
+  });
 
   notifyAllAdmins({
     event: NOTIFICATION_EVENT.RETURN_DELIVERED_TO_SELLER, title: 'Return back with seller',

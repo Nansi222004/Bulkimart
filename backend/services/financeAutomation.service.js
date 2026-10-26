@@ -102,7 +102,7 @@ export const runFinanceAutomationOnce = async ({ now = Date.now() } = {}) => {
     }
   }
 
-  const toRelease = await Order.find({ ...snapshot, financialPosting: 'held', status: 'delivered', 'items.returnEligibleUntil': { $not: { $gt: new Date(now) } }, ...due(now) }).select('_id').limit(BATCH).lean();
+  const toRelease = await Order.find({ ...snapshot, financialPosting: 'held', status: 'delivered', ...due(now) }).sort({ 'financeAutomation.lastAttemptAt': 1, _id: 1 }).select('_id').limit(BATCH).lean();
   for (const { _id } of toRelease) await attempt(_id, 'release', () => releaseOrderFinance(_id, null), summary);
 
   const heldRides = await Delivery.find({ financialEarningStatus: 'held' }).select('orderId').limit(BATCH * 4).lean();

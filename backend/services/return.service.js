@@ -11,17 +11,17 @@ import {
   RETURN_REFUND_STATUS, PAYMENT_METHOD, PAYMENT_STATUS,
 } from '../constants/enums.js';
 import * as coinService from './coin.service.js';
-import * as phonepeService from './phonepe.service.js';
 import { ensureReturnObligation, processRefundObligation } from './paymentRecovery.service.js';
 import { refundToWallet } from './wallet.service.js';
 import { WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { notifyUser, notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
 import { mutateInventory } from './inventory.service.js';
+import { financialTransaction } from './financeSafety.service.js';
+import WalletLedger from '../models/WalletLedger.js';
 
 /**
- * The real, item-level Return backend (Phase 4). `order.controller.js
- * ::requestReturn` is a separate, untouched, legacy whole-order endpoint —
- * nothing here calls it or feeds it, and nothing here ever sets
+ * Canonical item-level Return backend. The legacy whole-order endpoint is
+ * deprecated and points clients here. This workflow never sets
  * `Order.status` to RETURN_REQUESTED/RETURNED/REFUNDED.
  */
 
@@ -146,20 +146,34 @@ export const getReturnEligibility = async ({ orderId, orderItemId, customerId, q
  * want) or is rejected as RETURN_QUANTITY_EXCEEDED — never silently
  * duplicated, never double-reserved.
  */
-export const createReturnRequest = async ({ orderId, orderItemId, customerId, quantity, reason, customerDescription, attachments }) => {
+export const createReturnRequest = async ({ orderId, orderItemId, customerId, quantity, reason, customerDescription, attachments, requestKey }) => {
+  if (requestKey != null && (typeof requestKey !== 'string' || !requestKey.trim() || requestKey.length > 100)) throw httpError(400, 'Invalid Idempotency-Key');
+  const replay = requestKey && await Return.findOne({ customerId, requestKey });
+  if (replay) {
+    if (String(replay.orderId) !== String(orderId) || String(replay.orderItemId) !== String(orderItemId) || replay.quantity !== Number(quantity) || replay.reason !== reason || (replay.customerDescription || '') !== (customerDescription || '')) throw httpError(409, 'Return key reused with different data');
+    return replay;
+  }
   const { order, item } = await getReturnEligibility({ orderId, orderItemId, customerId, quantity });
 
   const session = await mongoose.startSession();
   let created;
   try {
     await session.withTransaction(async () => {
+      if (requestKey) {
+        const existing = await Return.findOne({ customerId, requestKey }).session(session);
+        if (existing) {
+          if (String(existing.orderId) !== String(orderId) || String(existing.orderItemId) !== String(orderItemId) || existing.quantity !== Number(quantity) || existing.reason !== reason || (existing.customerDescription || '') !== (customerDescription || '')) throw httpError(409, 'Return key reused with different data');
+          created = existing; return;
+        }
+      }
+      if (new Date(item.returnEligibleUntil) <= new Date()) throw httpError(409, 'Return window expired before reservation');
       if (order.financialSnapshot && item.sellerId) {
         const { default: Seller } = await import('../models/Seller.js');
         await Seller.updateOne({ _id: item.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
         if (new Date(item.returnEligibleUntil) <= new Date()) throw httpError(409, 'Return window expired before reservation');
       }
       const guardResult = await Order.updateOne(
-        { _id: orderId, items: { $elemMatch: { _id: orderItemId, returnedQty: { $lte: item.qty - quantity } } } },
+        { _id: orderId, status: ORDER_STATUS.DELIVERED, items: { $elemMatch: { _id: orderItemId, returnEligibleUntil: { $gt: new Date() }, returnedQty: { $lte: item.qty - quantity } } } },
         { $inc: { 'items.$.returnedQty': quantity } },
         { session }
       );
@@ -171,6 +185,7 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
 
       const [doc] = await Return.create([{
         orderId,
+        ...(requestKey ? { requestKey } : {}),
         orderItemId,
         customerId,
         sellerId: item.sellerId,
@@ -263,6 +278,11 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
       if (toStatus === RETURN_STATUS.REJECTED && !rejectionReason) {
         throw httpError(400, 'A rejection reason is required', { code: 'INVALID_RETURN_STATUS_TRANSITION' });
       }
+      if (RETURN_QUANTITY_RELEASING_STATUSES.includes(toStatus) && (
+        ret.pickupMethod && ret.pickup?.status !== 'CANCELLED' ||
+        ['creating', 'booked', 'uncertain', 'cancel_pending'].includes(ret.reverseBooking?.state) ||
+        ['ASSIGNED', 'PICKED_UP', 'DELIVERED_TO_SELLER'].includes(ret.pickup?.status)
+      )) throw httpError(409, 'Cancel and reconcile the active pickup before closing this return');
 
       const fromStatus = ret.status;
       const now = new Date();
@@ -272,6 +292,8 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
       if (toStatus === RETURN_STATUS.APPROVED)     ret.approvedAt = now;
       if (toStatus === RETURN_STATUS.REJECTED)     { ret.rejectedAt = now; ret.rejectionReason = rejectionReason; }
       if (toStatus === RETURN_STATUS.RETURN_RECEIVED) {
+        if (ret.pickup?.status !== 'DELIVERED_TO_SELLER' || !ret.pickup?.sellerConfirmedReceivedAt) throw httpError(409, 'Seller receipt is required before inspection');
+        if (![RESTOCK_DECISION.RESTOCKABLE, RESTOCK_DECISION.NON_RESTOCKABLE].includes(restockDecision)) throw httpError(400, 'An inspection/restock decision is required');
         ret.receivedAt = now;
         ret.receivedBy = adminId;
         if (restockDecision) ret.restockDecision = restockDecision;
@@ -417,7 +439,6 @@ export const calculateReturnRefund = (returnDoc, order) => {
 
 const REFUND_LOCK_STALE_MS = 5 * 60 * 1000;
 const refundIdempotencyKey = (returnId) => `RETURN_REFUND:${returnId}`;
-const merchantRefundId = (returnId) => `RETRF-${returnId}`;
 
 /** Acquire the per-return refund-processing lock, or throw if one is already active. */
 const acquireRefundLock = async (returnId) => {
@@ -435,8 +456,8 @@ const acquireRefundLock = async (returnId) => {
   return claimed;
 };
 
-const releaseRefundLock = async (returnId) => {
-  await Return.updateOne({ _id: returnId }, { $unset: { refundLockedAt: 1 } }).catch(() => {});
+const releaseRefundLock = async (returnId, lockedAt) => {
+  await Return.updateOne({ _id: returnId, refundLockedAt: lockedAt }, { $unset: { refundLockedAt: 1 } });
 };
 
 /**
@@ -464,6 +485,7 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
 
     const order = await Order.findById(ret.orderId);
     if (!order) throw httpError(404, 'Order not found for this return');
+    if (!ret.receivedAt || ![RESTOCK_STATUS.RESTOCKED, RESTOCK_STATUS.NOT_RESTOCKED].includes(ret.restockStatus)) throw httpError(409, 'Receipt and completed inspection are required before refund');
 
     // Freeze the breakdown once, on first entry — never silently recomputed
     // on a retry, so the audited figure can never drift.
@@ -514,17 +536,17 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
     const payment = await Payment.findById(order.paymentId);
     if (!payment) throw httpError(400, 'No payment record found for this order — cannot refund');
 
-    // ---- COD: no automatic money-movement mechanism exists (Phase 6M) ----
-    if (payment.method === PAYMENT_METHOD.COD) {
-      ret.refundStatus = RETURN_REFUND_STATUS.MANUAL_PENDING;
-      await ret.save();
-      return ret; // stays REFUND_PENDING until an admin manually settles it
+    if ([PAYMENT_METHOD.COD, PAYMENT_METHOD.WALLET].includes(payment.method)) {
+      const credit = await creditReturnWallet(ret, order);
+      ret.refundDestination = 'wallet';
+      return await completeRefund(ret, { refundReference: credit.transactionId, refundStatus: RETURN_REFUND_STATUS.COMPLETED, adminId, note: 'Refund credited to Bulkimart Wallet' });
     }
 
     // A provider-verified obligation may already be processed if Return
     // finalization was interrupted. Recover it before the legacy paid-state
     // guard, which would otherwise reject the now-refunded Payment.
     if (payment.gateway?.provider === 'razorpay' && payment.method === PAYMENT_METHOD.ONLINE) {
+      ret.refundDestination = 'original_source';
       const key = await ensureReturnObligation(String(payment._id), ret, Math.round(breakdown.refundAmount * 100));
       const existingDebt = (await Payment.findById(payment._id)).refundObligations.find(row => row.key === key);
       const outcome = await processRefundObligation({ paymentId: String(payment._id), key, actor: adminId, reconcile: ['processing', 'reconciliation_required'].includes(existingDebt.status) });
@@ -536,103 +558,12 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
       return ret;
     }
 
-    if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.PARTIAL_REFUND].includes(payment.status)) {
-      return await failRefund(ret, `Payment for this order is not in a refundable state (${payment.status})`);
-    }
+    // Legacy PhonePe evidence remains readable, but new requests cannot use
+    // the retired branch, which has no obligation/reconciliation contract.
+    throw httpError(409, 'This payment provider requires historical refund reconciliation; new refunds are disabled');
 
-    const alreadyRefunded = payment.refund?.totalRefundedAmount || 0;
-    if (alreadyRefunded + breakdown.refundAmount > payment.amount + 0.01) {
-      return await failRefund(ret, 'Refund would exceed the amount actually paid on this payment');
-    }
-
-    // ---- WALLET payment: credit refund directly back to customer NHCONE Wallet ----
-    if (payment.method === PAYMENT_METHOD.WALLET) {
-      const walletRes = await refundToWallet({
-        userId: ret.customerId,
-        amount: breakdown.refundAmount,
-        reason: `Refund for item return ${ret.returnNumber}`,
-        referenceType: WALLET_REFERENCE_TYPE.RETURN,
-        referenceId: String(ret._id),
-        idempotencyKey: `RETURN_REFUND:${ret._id}`,
-      });
-
-      payment.refund = {
-        ...payment.refund?.toObject?.() || payment.refund || {},
-        amount: breakdown.refundAmount,
-        reason: 'Item return',
-        status: 'processed',
-        processedAt: now,
-        merchantRefundId: `RETRF-${ret._id}`,
-        totalRefundedAmount: round2(alreadyRefunded + breakdown.refundAmount),
-      };
-      payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
-        ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
-      await payment.save();
-
-      return await completeRefund(ret, {
-        refundReference: walletRes.transaction?.transactionId || `WAL-RETRF-${ret._id}`,
-        refundStatus: RETURN_REFUND_STATUS.COMPLETED,
-        adminId,
-        note: 'Refund credited to Bulkimart Wallet',
-      });
-    }
-
-    // ---- Verified gateway refund. Never fall back from one provider to another. ----
-    let gatewayResult;
-    const gatewayProvider = payment.gateway?.provider || 'phonepe';
-    try {
-      gatewayResult = await phonepeService.createRefund({
-            merchantRefundId: merchantRefundId(ret._id),
-            originalMerchantOrderId: payment.gateway?.merchantOrderId,
-            amountPaise: phonepeService.rupeesToPaise(breakdown.refundAmount),
-          });
-    } catch (err) {
-      return await failRefund(ret, err.message || 'Payment gateway refund request failed');
-    }
-
-    const state = String(gatewayResult.state || '').toUpperCase();
-    if (state === 'FAILED') {
-      return await failRefund(ret, `Payment gateway reported the refund as failed (${gatewayResult.raw?.errorCode || 'no code'})`);
-    }
-
-    // COMPLETED or a pending/async state (e.g. PENDING) — PhonePe's own
-    // webhook (pg.refund.completed / pg.refund.failed) is the safety net for
-    // an async outcome, same convention as payment settlement; we only mark
-    // REFUNDED here when the synchronous response already says so.
-    payment.refund = {
-      ...payment.refund?.toObject?.() || payment.refund || {},
-      amount: breakdown.refundAmount,
-      reason: 'Item return',
-      status: state === 'COMPLETED' ? 'processed' : 'pending',
-      ...(state === 'COMPLETED' ? { processedAt: now } : {}),
-      merchantRefundId: merchantRefundId(ret._id),
-      ...(gatewayProvider === 'razorpay'
-        ? { razorpayRefId: gatewayResult.refundId }
-        : { phonepeRefundId: gatewayResult.refundId }),
-      gatewayState: gatewayResult.state,
-      totalRefundedAmount: state === 'COMPLETED'
-        ? round2(alreadyRefunded + breakdown.refundAmount)
-        : alreadyRefunded,
-    };
-    if (state === 'COMPLETED') {
-      payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
-        ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
-    }
-    await payment.save();
-
-    if (state === 'COMPLETED') {
-      return await completeRefund(ret, { refundReference: gatewayResult.refundId, refundStatus: RETURN_REFUND_STATUS.COMPLETED, adminId, note: `${gatewayProvider} refund completed` });
-    }
-
-    // Async/pending gateway state — leave the Return in REFUND_PENDING with
-    // the reference recorded; the webhook or a later retry/status-check
-    // resolves it, never guessed as success here.
-    ret.refundReference = gatewayResult.refundId;
-    ret.refundStatus = RETURN_REFUND_STATUS.PROCESSING;
-    await ret.save();
-    return ret;
   } finally {
-    await releaseRefundLock(returnId);
+    await releaseRefundLock(returnId, locked.refundLockedAt);
   }
 };
 
@@ -640,31 +571,29 @@ export const processReturnRefund = async ({ returnId, adminId }) => {
 export const settleRazorpayRefundWebhook = async ({ refundId, state, errorCode }) => {
   if (!refundId || !['COMPLETED', 'FAILED'].includes(state)) return { changed: false };
   const ret = await Return.findOne({ refundReference: refundId });
-  if (!ret || [RETURN_STATUS.REFUNDED, RETURN_STATUS.REFUND_FAILED].includes(ret.status)) {
+  if (!ret || ret.status === RETURN_STATUS.REFUNDED) {
     return { changed: false };
   }
   const payment = await Payment.findOne({ 'refund.razorpayRefId': refundId });
 
   if (state === 'FAILED') {
     if (payment) {
-      payment.refund.status = 'failed';
-      payment.refund.gatewayState = 'FAILED';
-      await payment.save();
+      await Payment.updateOne({ _id: payment._id, 'refund.razorpayRefId': refundId, 'refund.status': { $ne: 'processed' } }, { $set: { 'refund.status': 'failed', 'refund.gatewayState': 'FAILED' } });
     }
     await failRefund(ret, `Razorpay reported the refund as failed (${errorCode || 'no code'})`);
     return { changed: true, status: 'failed' };
   }
 
-  if (payment && payment.refund?.status !== 'processed') {
-    const prior = payment.refund?.totalRefundedAmount || 0;
-    payment.refund.status = 'processed';
-    payment.refund.processedAt = new Date();
-    payment.refund.gatewayState = 'COMPLETED';
-    payment.refund.totalRefundedAmount = round2(prior + (payment.refund.amount || 0));
-    payment.status = payment.refund.totalRefundedAmount >= payment.amount - 0.01
-      ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
-    await payment.save();
-  }
+  if (payment) await financialTransaction(async session => {
+    const current = await Payment.findOneAndUpdate({ _id: payment._id, 'refund.razorpayRefId': refundId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
+    if (!current || current.refund.status === 'processed') return;
+    const total = moneyPaise(current.refund.totalRefundedAmount || 0) + moneyPaise(current.refund.amount || 0);
+    if (total > moneyPaise(current.amount)) throw httpError(409, 'Legacy refund totals require reconciliation');
+    current.refund.status = 'processed'; current.refund.processedAt = new Date(); current.refund.gatewayState = 'COMPLETED';
+    current.refund.totalRefundedAmount = total / 100;
+    current.status = total === moneyPaise(current.amount) ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+    await current.save({ session });
+  });
   await completeRefund(ret, {
     refundReference: refundId,
     refundStatus: RETURN_REFUND_STATUS.COMPLETED,
@@ -673,8 +602,42 @@ export const settleRazorpayRefundWebhook = async ({ refundId, state, errorCode }
   return { changed: true, status: 'completed' };
 };
 
-/** Shared terminal-success path: restores allocated Coins, marks REFUNDED. */
-const completeRefund = async (ret, { refundReference, refundStatus, adminId, note }) => {
+// Credit and payment projection share one commit. A crash before Return
+// finalization is recovered from this exact ledger reference on the next call.
+const creditReturnWallet = async (ret, order) => financialTransaction(async session => {
+  const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
+  if (!payment || String(payment.userId) !== String(ret.customerId) || !(payment.groupRef && payment.groupRef === order.groupRef || String(payment.orderId) === String(order._id))) throw httpError(409, 'Refund payment ownership mismatch');
+  const fresh = await Return.findById(ret._id).session(session);
+  if (fresh.codSettledAt || fresh.refundReference === 'MANUAL-COD' || fresh.refundStatus === 'manual_pending') throw httpError(409, 'Historical offline refund requires reconciliation before wallet credit');
+  const key = refundIdempotencyKey(ret._id);
+  const prior = await WalletLedger.findOne({ idempotencyKey: key }).session(session);
+  if (prior) {
+    if (String(prior.userId) !== String(ret.customerId) || prior.amount !== ret.refundAmount || prior.direction !== 'credit' || prior.status !== 'completed') throw httpError(409, 'Wallet refund evidence mismatch');
+    return prior;
+  }
+  if (payment.method === PAYMENT_METHOD.WALLET && ![PAYMENT_STATUS.PAID, PAYMENT_STATUS.PARTIAL_REFUND].includes(payment.status)) throw httpError(409, 'Wallet payment is not refundable');
+  if (payment.method === PAYMENT_METHOD.COD && !['paid', 'partial_refund'].includes(payment.status)) throw httpError(409, 'COD collection must be confirmed before wallet refund');
+  const refunded = moneyPaise(payment.refund?.totalRefundedAmount || 0) + moneyPaise(ret.refundAmount);
+  if (refunded > moneyPaise(payment.amount)) throw httpError(409, 'Refund exceeds original payment');
+  const result = await refundToWallet({ userId: ret.customerId, amount: ret.refundAmount, reason: `Refund for ${ret.returnNumber}`, referenceType: WALLET_REFERENCE_TYPE.RETURN, referenceId: String(ret._id), idempotencyKey: key, session });
+  payment.refund ||= {};
+  payment.refund.totalRefundedAmount = refunded / 100;
+  payment.refund.amount = ret.refundAmount;
+  payment.refund.status = 'processed';
+  payment.refund.processedAt = new Date();
+  payment.status = refunded === moneyPaise(payment.amount) ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+  await payment.save({ session });
+  await Return.updateOne({ _id: ret._id }, { $set: { refundDestination: 'wallet', refundReference: result.transaction.transactionId } }, { session });
+  return result.transaction;
+});
+
+/** Shared terminal-success path: coin evidence and Return commit together. */
+const completeRefund = async (original, { refundReference, refundStatus, adminId, note }) => {
+  const ret = await financialTransaction(async session => {
+  const ret = await Return.findById(original._id).session(session);
+  if (ret.status === RETURN_STATUS.REFUNDED) return ret;
+  if (!['REFUND_PENDING', 'REFUND_FAILED'].includes(ret.status) || !ret.receivedAt || !['RESTOCKED', 'NOT_RESTOCKED'].includes(ret.restockStatus)) throw httpError(409, 'Refund finalization requires received and inspected return');
+  ret.refundDestination = original.refundDestination || (ret.refundAmount === 0 ? 'none' : ret.refundDestination);
   const breakdown = ret.refundBreakdown || {};
   if (breakdown.allocatedCoinsCount > 0) {
     await coinService.refundRedeemedCoins({
@@ -684,7 +647,8 @@ const completeRefund = async (ret, { refundReference, refundStatus, adminId, not
       referenceId: ret._id,
       idempotencyKey: `${refundIdempotencyKey(ret._id)}:COINS`,
       description: `Coins restored for return ${ret.returnNumber}`,
-    }).catch((err) => console.error('[RETURN REFUND] Coin restore failed:', err.message));
+      session,
+    });
   }
 
   const now = new Date();
@@ -697,8 +661,9 @@ const completeRefund = async (ret, { refundReference, refundStatus, adminId, not
     ret.zeroRefundEvidence = { key: `ZERO_RETURN:${ret._id}`, actorId: adminId, reason: note, completedAt: now };
   }
   ret.history.push({ fromStatus: RETURN_STATUS.REFUND_PENDING, toStatus: RETURN_STATUS.REFUNDED, changedBy: adminId, changedByModel: 'Admin', changedByRole: 'admin', comment: note, timestamp: now });
-  await ret.save();
-
+  await ret.save({ session });
+  return ret;
+  });
   notifyUser(ret.customerId, {
     event: NOTIFICATION_EVENT.REFUND_COMPLETED, title: 'Refund completed',
     message: `₹${ret.refundAmount} has been refunded for ${ret.returnNumber}.`,
@@ -712,11 +677,12 @@ const completeRefund = async (ret, { refundReference, refundStatus, adminId, not
 /** Shared failure path: REFUND_FAILED, safely retryable, never claims success. */
 const failRefund = async (ret, reason) => {
   const now = new Date();
-  ret.status = RETURN_STATUS.REFUND_FAILED;
-  ret.refundStatus = RETURN_REFUND_STATUS.FAILED;
-  ret.refundFailureReason = reason;
-  ret.history.push({ fromStatus: RETURN_STATUS.REFUND_PENDING, toStatus: RETURN_STATUS.REFUND_FAILED, comment: reason, timestamp: now });
-  await ret.save();
+  const changed = await Return.findOneAndUpdate({ _id: ret._id, status: { $in: [RETURN_STATUS.REFUND_PENDING, RETURN_STATUS.REFUND_FAILED] } }, {
+    $set: { status: RETURN_STATUS.REFUND_FAILED, refundStatus: RETURN_REFUND_STATUS.FAILED, refundFailureReason: reason },
+    $push: { history: { fromStatus: RETURN_STATUS.REFUND_PENDING, toStatus: RETURN_STATUS.REFUND_FAILED, comment: reason, timestamp: now } },
+  }, { returnDocument: 'after' });
+  if (!changed) return Return.findById(ret._id); // Late failure cannot undo terminal success.
+  ret = changed;
 
   notifyUser(ret.customerId, {
     event: NOTIFICATION_EVENT.REFUND_FAILED, title: 'Refund failed',
@@ -732,37 +698,10 @@ const failRefund = async (ret, reason) => {
   return ret;
 };
 
-/**
- * The ONLY way a COD return's refund ever reaches a terminal state — there
- * is no automatic COD money-movement mechanism anywhere in this codebase
- * (Phase 6M audit finding). An admin manually confirms the cash was
- * actually handed/transferred back to the customer.
- */
-export const markCodRefundSettled = async ({ returnId, adminId, note }) => {
-  if (!note || !note.trim()) throw httpError(400, 'A settlement note is required (how/when the cash was returned)');
-
+/** Read-only compatibility for historical offline COD settlements. */
+export const markCodRefundSettled = async ({ returnId }) => {
   const ret = await Return.findById(returnId);
   if (!ret) throw httpError(404, 'Return not found');
-  if (ret.refundStatus !== RETURN_REFUND_STATUS.MANUAL_PENDING) {
-    throw httpError(400, 'This return is not awaiting manual COD settlement', { code: 'INVALID_RETURN_STATUS_TRANSITION' });
-  }
-
-  const now = new Date();
-  ret.status = RETURN_STATUS.REFUNDED;
-  ret.refundStatus = RETURN_REFUND_STATUS.COMPLETED;
-  ret.refundReference = 'MANUAL-COD';
-  ret.refundedAt = now;
-  ret.codSettledBy = adminId;
-  ret.codSettledAt = now;
-  ret.codSettlementNote = note;
-  ret.history.push({ fromStatus: RETURN_STATUS.REFUND_PENDING, toStatus: RETURN_STATUS.REFUNDED, changedBy: adminId, changedByModel: 'Admin', changedByRole: 'admin', comment: `Manual COD settlement: ${note}`, timestamp: now });
-  await ret.save();
-
-  notifyUser(ret.customerId, {
-    event: NOTIFICATION_EVENT.REFUND_COMPLETED, title: 'Refund completed',
-    message: `₹${ret.refundAmount} has been refunded (cash/manual) for ${ret.returnNumber}.`,
-    metadata: { returnId: ret._id, returnNumber: ret.returnNumber }, route: `/orders/${ret.orderId}`,
-  }).catch(() => {});
-
-  return ret;
+  if (ret.status === 'REFUNDED' && ret.refundReference === 'MANUAL-COD' && ret.codSettledAt) return ret;
+  throw httpError(409, 'Offline COD refunds are retired. Use the refund endpoint to credit Bulkimart Wallet; reconcile historical cash payments separately.');
 };

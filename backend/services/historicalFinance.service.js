@@ -10,6 +10,7 @@ import Ledger from '../models/SellerLedgerEntry.js';
 import { httpError } from '../utils/response.js';
 import { financialTransaction, requireFinanceOperation } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
+import { returnHoldOpen } from './returnHold.service.js';
 import Admin from '../models/Admin.js';
 import SellerPayout from '../models/SellerPayout.js';
 import { moneyPaise } from '../utils/financeMoney.js';
@@ -116,8 +117,7 @@ export const applyHistoricalBatch = async ({ batchId, actorId }) => {
   return applyReviewedHistoricalBatch({ batchId: batch._id, actorId, approvalReference: batch.approvalReference || '' });
 };
 
-// Old orders are past their return window and refunds were checked during
-// review, so applied earnings can be made available to pay in one step.
+// Recheck delivery, windows and disputes at release, even after batch review.
 export const releaseHistoricalBatch = async ({ batchId, actorId }) => {
   requireFinanceOperation();
   await financeOperator(actorId);
@@ -127,6 +127,12 @@ export const releaseHistoricalBatch = async ({ batchId, actorId }) => {
     if (batch.status === 'released') return { batchId: batch._id, alreadyProcessed: true };
     if (batch.status !== 'applied') throw httpError(409, 'Apply the batch before releasing it');
     for (const row of batch.rows) {
+      const source = await Order.findById(row.orderId).session(session);
+      const item = source?.items.find(item => String(item._id) === String(row.itemId));
+      if (!source || source.status !== 'delivered' || !item || returnHoldOpen(item)) throw httpError(409, 'Historical earnings still require delivery/return-window clearance');
+      const funding = await Payment.findOneAndUpdate({ _id: source.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
+      if (!funding || funding.merchandiseSettlementHold) throw httpError(409, 'Historical payment requires financial reconciliation');
+      if (await Return.exists({ orderId: row.orderId, orderItemId: row.itemId, status: { $nin: ['REJECTED', 'CANCELLED'] } }).session(session)) throw httpError(409, 'Historical return requires reviewed financial reconciliation');
       const entry = await Ledger.findOne({ idempotencyKey: `${row.idempotencyKey}:NET`, account: 'seller_payable', bucket: 'held' }).session(session);
       if (!entry) throw httpError(409, `${row.orderNo}: applied earnings are missing`);
       await Seller.updateOne({ _id: row.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });

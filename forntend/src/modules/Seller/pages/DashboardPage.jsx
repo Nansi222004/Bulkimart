@@ -63,12 +63,25 @@ export const DashboardPage = () => {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
     sellerProfile, userProfile, bizForm, requestWholesaleChannel, wholesaleRequestBusy, fetchSellerProfile, profileLoading,
+    setProductListingMode,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
 
   const isHybrid = (selectedTypes.includes('ecommerce') && selectedTypes.includes('quick')) ||
     (Array.isArray(sellerProfile?.salesChannels) && sellerProfile.salesChannels.includes('ecommerce') && sellerProfile.salesChannels.includes('grocery'));
+
+  const roleLabel = isHybrid
+    ? 'Hybrid Seller'
+    : (activeMode === 'quick' || (sellerProfile?.salesChannels?.includes('grocery') && !sellerProfile?.salesChannels?.includes('ecommerce')))
+      ? 'Quick Seller'
+      : 'E-Comm Seller';
+
+  const roleColor = isHybrid
+    ? '#8b5cf6'
+    : activeMode === 'quick'
+      ? '#10b981'
+      : '#3b82f6';
 
   const displayName = sellerProfile?.storeDetails?.name || sellerProfile?.businessName || sellerProfile?.userId?.name || userProfile?.name || sellerProfile?.userId?.phone || userProfile?.phone || bizForm?.storeName || 'Seller';
   const displayInitial = (displayName || 'S').trim().charAt(0).toUpperCase();
@@ -158,13 +171,13 @@ export const DashboardPage = () => {
 
             {/* Profile chip — avatar only below 768px, name+role at 768px+ */}
             <div className="seller-profile-chip">
-              <div className="seller-profile-avatar" style={{ backgroundColor: activeMode === 'quick' ? '#10b981' : '#3b82f6' }}>
+              <div className="seller-profile-avatar" style={{ backgroundColor: roleColor }}>
                 {displayInitial}
               </div>
               <div className="seller-profile-text">
                 <span className="seller-profile-name">{displayName}</span>
-                <span className="seller-profile-role" style={{ color: activeMode === 'quick' ? '#10b981' : '#3b82f6' }}>
-                  {activeMode === 'quick' ? 'Quick Seller' : 'E-Comm Seller'}
+                <span className="seller-profile-role" style={{ color: roleColor }}>
+                  {roleLabel}
                 </span>
               </div>
             </div>
@@ -208,17 +221,59 @@ export const DashboardPage = () => {
                         : 'Request access to prepare quantity-based pricing'}
                 </span>
               </div>
-              <button type="button" disabled={profileLoading} onClick={() => fetchSellerProfile({ fresh: true })}>{profileLoading ? 'Refreshing access…' : 'Refresh access'}</button>
-              {sellerProfile.wholesaleChannel?.status !== 'approved' && sellerProfile.wholesaleChannel?.status !== 'pending' && sellerProfile.wholesaleChannel?.status !== 'suspended' && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {sellerProfile.wholesaleChannel?.status === 'approved' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductListingMode('wholesale');
+                      setActiveTab('products');
+                    }}
+                    style={{
+                      border: '1px solid #0284c7',
+                      borderRadius: 8,
+                      background: '#0284c7',
+                      color: '#fff',
+                      padding: '7px 14px',
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    Manage Wholesale Offers →
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={requestWholesaleChannel}
-                  disabled={wholesaleRequestBusy}
-                  style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '9px 14px', fontWeight: 700, cursor: 'pointer' }}
+                  disabled={profileLoading}
+                  onClick={() => fetchSellerProfile({ fresh: true })}
+                  style={{
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 8,
+                    background: '#fff',
+                    color: '#334155',
+                    padding: '7px 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: profileLoading ? 'not-allowed' : 'pointer',
+                  }}
                 >
-                  {wholesaleRequestBusy ? 'Requesting…' : 'Request Wholesale Access'}
+                  {profileLoading ? 'Refreshing access…' : 'Refresh access'}
                 </button>
-              )}
+                {sellerProfile.wholesaleChannel?.status !== 'approved' && sellerProfile.wholesaleChannel?.status !== 'pending' && sellerProfile.wholesaleChannel?.status !== 'suspended' && (
+                  <button
+                    type="button"
+                    onClick={requestWholesaleChannel}
+                    disabled={wholesaleRequestBusy}
+                    style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '9px 14px', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    {wholesaleRequestBusy ? 'Requesting…' : 'Request Wholesale Access'}
+                  </button>
+                )}
+              </div>
             </section>
           )}
           {renderActiveTab()}

@@ -399,6 +399,10 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   }
 
   const evt = parseRazorpayWebhookEvent(req.body);
+  if (String(req.body.event || '').startsWith('payment.dispute.')) {
+    const { recordMerchandiseDispute } = await import('../services/merchandiseDispute.service.js');
+    if (await recordMerchandiseDispute(req.body)) return res.status(200).json({ success: true, message: 'Merchandise dispute held for reconciliation' });
+  }
   // Dispatch by stored purpose before importing the advertising domain. Other
   // payment purposes retain their own handlers and dependencies.
   const entity=req.body.payload?.payment?.entity||req.body.payload?.order?.entity;

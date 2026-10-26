@@ -101,6 +101,8 @@ const paymentSchema = new Schema(
     // can only be taken by the read/reconcile operation.
     refundOperation: { token: String, key: String, startedAt: Date },
     settlementRevision: { type: Number, default: 0 },
+    merchandiseDisputes: [{ _id: false, providerId: String, gatewayPaymentId: String, event: String, receivedAt: Date }],
+    merchandiseSettlementHold: { type: Boolean, default: false },
     // Explicit checkout dismissal fences retries; later captures remain auditable
     // and become refund obligations rather than reviving the cancelled order.
     checkoutAbandonedAt: Date,

@@ -123,6 +123,7 @@ export const processRefundObligation = async ({ paymentId, key, actor, reconcile
   try {
     if (debt.status === 'processed') return debt;
     const client = recoveryClient();
+    if (payment.merchandiseSettlementHold && !reconcile) throw conflict('Payment dispute requires reconciliation before another refund');
     if (!reconcile) await markRefund(paymentId, key, token, actor, 'processing', 'Exclusive processing claim acquired');
     const capture = await verifyCapture(payment, debt, client);
     debt.receipt ||= receiptFor(paymentId, key);
@@ -146,7 +147,7 @@ export const processRefundObligation = async ({ paymentId, key, actor, reconcile
       verifyRefund(prior, debt, capture, { allowLegacy: true });
       return await applyRefund({ paymentId, key, refund: prior, capture, actor, allowLegacy: true });
     }
-    if (!found && competing.length) {
+    if (!found && competing.length && key.startsWith('CANCEL:') && !debt.returnId) {
       const exact = competing.filter(ret => ret.refundReference && Math.round(ret.refundAmount * 100) === debt.amountPaise);
       if (exact.length !== 1) throw conflict('Existing Return refund overlaps this obligation');
       found = await client.refunds.fetch(exact[0].refundReference);
@@ -233,9 +234,19 @@ export const ensureReturnObligation = async (paymentId, ret, amountPaise) => {
   try {
     await session.withTransaction(async () => {
       const payment = await Payment.findById(paymentId).session(session);
+      if (!payment || payment.gateway?.provider !== 'razorpay' || payment.method !== 'online' || String(payment.userId) !== String(ret.customerId)) throw conflict('Original Razorpay payment is required');
+      const order = await Order.findOne({ _id: ret.orderId, paymentId: payment._id, userId: ret.customerId }).session(session);
+      if (!order) throw conflict('Return payment ownership mismatch');
+      const captures = payment.captures.filter(row => row.disposition === 'settled' && row.currency === 'INR' && row.amountPaise === Math.round(payment.amount * 100));
+      if (captures.length !== 1 || !captures[0].gatewayPaymentId || !captures[0].gatewayOrderId) throw conflict('A unique original captured payment is required');
+      const capture = captures[0];
+      const prior = payment.refundObligations.find(row => row.key === key);
+      if (prior && (prior.amountPaise !== amountPaise || String(prior.returnId) !== String(ret._id) || prior.gatewayPaymentId !== capture.gatewayPaymentId)) throw conflict('Return obligation evidence mismatch');
       if (payment.refundObligations.some(row => String(row.orderId) === String(ret.orderId) && row.key.startsWith('CANCEL:'))) throw conflict('Cancellation obligation already owns this refund debt');
       if (!payment.refundObligations.some(row => row.key === key)) {
-        payment.refundObligations.push({ key, orderId: ret.orderId, returnId: ret._id, gatewayOrderId: payment.gateway.orderId, gatewayPaymentId: payment.gateway.paymentId, amountPaise, currency: 'INR', reason: 'Item return', createdAt: new Date(), status: 'pending', receipt: receiptFor(paymentId, key) });
+        const reserved = payment.refundObligations.filter(row => row.gatewayPaymentId === capture.gatewayPaymentId && row.status !== 'failed').reduce((sum, row) => sum + row.amountPaise, 0);
+        if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0 || reserved + amountPaise > capture.amountPaise) throw conflict('Return obligations exceed captured funds');
+        payment.refundObligations.push({ key, orderId: ret.orderId, returnId: ret._id, gatewayOrderId: capture.gatewayOrderId, gatewayPaymentId: capture.gatewayPaymentId, amountPaise, currency: 'INR', reason: 'Item return', createdAt: new Date(), status: 'pending', receipt: receiptFor(paymentId, key) });
         await payment.save({ session });
       }
     });

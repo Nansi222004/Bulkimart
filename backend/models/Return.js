@@ -10,9 +10,8 @@ const ObjectId = Schema.Types.ObjectId;
 
 /**
  * One customer's return of a SPECIFIC QUANTITY of a SPECIFIC Order item —
- * never the whole order. `order.controller.js::requestReturn` (the legacy
- * whole-order endpoint) is untouched and unrelated; this is the real,
- * item-level system described in the V1 spec.
+ * never the whole order. The legacy whole-order endpoint now directs callers
+ * to this canonical item-level workflow.
  *
  * Everything needed to judge and refund this return is SNAPSHOTTED here at
  * request time — productName/Image/price come from the Order item itself
@@ -59,6 +58,7 @@ const returnPickupOfferSchema = new Schema(
 const returnSchema = new Schema(
   {
     returnNumber: { type: String, required: true, unique: true },
+    requestKey: { type: String },
 
     orderId:     { type: ObjectId, ref: 'Order', required: true, index: true },
     orderItemId: { type: ObjectId, required: true, index: true }, // Order.items[]._id — a subdocument, not its own collection
@@ -131,7 +131,8 @@ const returnSchema = new Schema(
     },
     refundAmount:        Number, // mirrors refundBreakdown.refundAmount — kept flat for existing readers (admin list/detail, customer UI)
     refundStatus:        { type: String, enum: RETURN_REFUND_STATUSES },
-    refundReference:     String, // PhonePe refundId on success; 'MANUAL-COD' on a manual COD settlement
+    refundReference:     String, // Actual provider refund / wallet transaction; legacy MANUAL-COD is preserved.
+    refundDestination: { type: String, enum: ['original_source', 'wallet', 'historical_offline', 'none'] },
     zeroRefundEvidence: { key: String, actorId: { type: ObjectId, ref: 'Admin' }, reason: String, completedAt: Date },
     refundAllocationStartQuantity: Number,
     // Set once seller earnings have been reduced for this refund, or when the
@@ -147,9 +148,7 @@ const returnSchema = new Schema(
     // A stale lock (crash mid-attempt) is reclaimable after 5 minutes — see
     // return.service.js::processReturnRefund.
     refundLockedAt:      Date,
-    // Manual COD settlement — the only way a COD return's refund ever
-    // reaches a terminal state, since no automatic COD money-movement
-    // mechanism exists in this codebase (Phase 6M).
+    // Immutable evidence for historical offline COD settlements only.
     codSettledBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     codSettledAt:   Date,
     codSettlementNote: String,
@@ -162,12 +161,28 @@ const returnSchema = new Schema(
     restockStatus:   { type: String, enum: RESTOCK_STATUSES, default: RESTOCK_STATUS.NOT_PROCESSED },
 
     // Future Shiprocket reverse-logistics fields — reserved, never faked.
-    // Every one of these stays null/undefined until a real integration
-    // (a later, separate phase) actually sets it. UNRELATED to `pickup`
-    // below — that's the real, working internal-rider reverse pickup;
-    // these remain a courier/AWB-shaped placeholder for a different,
-    // not-yet-built integration.
+    // Courier identifiers are written only from actual provider responses.
     reverseShipmentId:  String,
+    pickupMethod: { type: String, enum: ['MANUAL', 'SHIPROCKET'] },
+    reverseBooking: {
+      state: { type: String, enum: ['creating', 'booked', 'uncertain', 'failed', 'cancel_pending', 'cancelled'] },
+      step: String,
+      operationToken: String,
+      reference: String,
+      environment: String,
+      orderId: String,
+      shipmentId: String,
+      dispatchedAt: Date,
+      attemptedAt: Date,
+      attemptCount: { type: Number, default: 0 },
+      package: { length: Number, breadth: Number, height: Number, weight: Number },
+      error: String,
+      providerStatus: String,
+      trackingState: String,
+      trackingRank: { type: Number, default: 0 },
+      deliveredAt: Date,
+      events: [{ _id: false, key: String, status: String, at: Date }],
+    },
     awbNumber:           String,
     courierName:         String,
     trackingUrl:         String,
@@ -202,6 +217,8 @@ const returnSchema = new Schema(
 );
 
 returnSchema.index({ orderItemId: 1, status: 1 });
+returnSchema.index({ customerId: 1, requestKey: 1 }, { unique: true, partialFilterExpression: { requestKey: { $type: 'string' } } });
+returnSchema.index({ 'reverseBooking.shipmentId': 1 }, { unique: true, partialFilterExpression: { 'reverseBooking.shipmentId': { $type: 'string' } } });
 returnSchema.index({ customerId: 1, requestedAt: -1 });
 returnSchema.index({ sellerId: 1, requestedAt: -1 });
 returnSchema.index({ status: 1, requestedAt: -1 });

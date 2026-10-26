@@ -149,6 +149,7 @@ export const OrderTrackingPage = () => {
   const [returnFiles, setReturnFiles] = useState([]);
   const [submittingReturn, setSubmittingReturn] = useState(false);
   const [returnFormError, setReturnFormError] = useState('');
+  const [returnRequestKey, setReturnRequestKey] = useState('');
   const [viewingReturn, setViewingReturn] = useState(null);
 
   const authHeader = () => ({ Authorization: 'Bearer ' + localStorage.getItem('userToken') });
@@ -204,6 +205,7 @@ export const OrderTrackingPage = () => {
   }, [viewingReturn?._id, viewingReturn?.pickup?.status]);
 
   const openReturnModal = (item) => {
+    setReturnRequestKey(crypto.randomUUID());
     const eligibility = returnEligibilityByItem[item._id];
     setReturnModalItem(item);
     setReturnQty(1);
@@ -234,7 +236,7 @@ export const OrderTrackingPage = () => {
       if (returnDescription.trim()) fd.append('customerDescription', returnDescription.trim());
       returnFiles.forEach((f) => fd.append('attachments', f));
 
-      const res = await fetch(apiUrl('/api/returns'), { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const res = await fetch(apiUrl('/api/returns'), { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': returnRequestKey }, body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || 'Could not submit your return request');
 
@@ -1266,13 +1268,14 @@ export const OrderTrackingPage = () => {
             {viewingReturn.rejectionReason && <p style={{ fontSize: 12.5, margin: '0 0 6px', color: '#b91c1c' }}><b>Rejection reason:</b> {viewingReturn.rejectionReason}</p>}
             {viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && (
               <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>
-                <b>Refund:</b> ₹{viewingReturn.refundAmount}
+                <b>Refund:</b> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}
                 {viewingReturn.status === 'REFUNDED'
                   ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}`
-                  : ' — processing'}
+                  : ` — ${viewingReturn.refundStatus || 'pending'}`}
               </p>
             )}
 
+            {viewingReturn.pickupMethod === 'SHIPROCKET' && <p>Shiprocket pickup: {viewingReturn.reverseBooking?.trackingState || viewingReturn.reverseBooking?.state}{viewingReturn.awbNumber ? ` · AWB ${viewingReturn.awbNumber}` : ''}</p>}
             {viewingReturn.attachments?.length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0' }}>
                 {viewingReturn.attachments.map((a, i) => (

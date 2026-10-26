@@ -11,6 +11,7 @@ import {
   processReturnRefund, markCodRefundSettled,
 } from '../services/return.service.js';
 import { arrangeReturnPickup, markReturnDeliveredToSeller } from '../services/returnPickup.service.js';
+import { bookReturnCourier, reconcileReturnCourier, cancelReturnCourier } from '../services/returnCourier.service.js';
 import {
   RETURN_REASONS, RETURN_STATUSES, RETURN_MAX_ATTACHMENTS, RETURN_STATUS,
 } from '../constants/enums.js';
@@ -64,6 +65,11 @@ const publicReturnShape = (ret, delivery) => ({
   rejectionReason: ret.rejectionReason,
   refundAmount: ret.refundAmount,
   refundStatus: ret.refundStatus,
+  refundDestination: ret.refundDestination,
+  pickupMethod: ret.pickupMethod,
+  reverseBooking: ret.reverseBooking && { state: ret.reverseBooking.state, trackingState: ret.reverseBooking.trackingState, error: ret.reverseBooking.error },
+  awbNumber: ret.awbNumber,
+  trackingUrl: ret.trackingUrl,
   refundReference: ret.refundStatus === 'completed' ? ret.refundReference : undefined,
   refundedAt: ret.refundedAt,
   restockDecision: ret.restockDecision,
@@ -129,6 +135,7 @@ export const createReturn = asyncHandler(async (req, res) => {
 
   const ret = await createReturnRequest({
     orderId, orderItemId, customerId: req.user._id, quantity: qty, reason, customerDescription, attachments,
+    requestKey: req.get('Idempotency-Key'),
   });
 
   return created(res, publicReturnShape(ret), `Return ${ret.returnNumber} requested`);
@@ -222,6 +229,32 @@ export const assignRiderForReturn = asyncHandler(async (req, res) => {
   return ok(res, { returnId: ret._id, pickupStatus: ret.pickup.status }, 'Looking for a nearby rider…');
 });
 
+export const selectReturnPickup = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller not found');
+  const input = { returnId: req.params.returnId, sellerId: seller._id };
+  if (!['MANUAL', 'SHIPROCKET'].includes(req.body.pickupMethod)) throw httpError(400, 'Choose MANUAL or SHIPROCKET');
+  const ret = req.body.pickupMethod === 'MANUAL' ? await arrangeReturnPickup(input) : await bookReturnCourier(input);
+  return ok(res, ret, req.body.pickupMethod === 'MANUAL' ? 'Looking for a nearby rider' : 'Shiprocket pickup status recorded');
+});
+export const refreshReturnCourier = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller not found');
+  return ok(res, await reconcileReturnCourier({ returnId: req.params.returnId, sellerId: seller._id }));
+});
+export const cancelReturnPickup = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller not found');
+  const ret = await Return.findOne({ _id: req.params.returnId, sellerId: seller._id });
+  if (!ret) throw httpError(404, 'Return not found');
+  if (ret.pickupMethod === 'SHIPROCKET') return ok(res, await cancelReturnCourier({ returnId: ret._id, sellerId: seller._id }), 'Cancellation requested; refresh for provider confirmation');
+  const changed = await Return.findOneAndUpdate({ _id: ret._id, pickupMethod: 'MANUAL', status: { $in: ['APPROVED', 'AWAITING_RETURN'] }, 'pickup.status': 'NOT_ASSIGNED', 'pickup.partnerId': { $exists: false } }, {
+    $set: { 'pickup.status': 'CANCELLED', 'pickup.offerAttempts': [] }, $unset: { pickupMethod: 1 }, $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: 'Unassigned manual pickup cancelled' } },
+  }, { returnDocument: 'after' });
+  if (!changed) throw httpError(409, 'An assigned or collected pickup cannot be switched');
+  return ok(res, changed);
+});
+
 /**
  * @desc    Seller confirms they physically received the returned item back
  *          from the rider. Does NOT move Return.status — only Admin's
@@ -294,7 +327,7 @@ const buildReturnDetail = async (returnId) => {
   if (!ret) throw httpError(404, 'Return not found');
 
   const order = await Order.findById(ret.orderId)
-    .select('orderNo status pricing paymentMethod paymentId deliveredAt items shippingAddress')
+    .select('orderNo status pricing paymentMethod paymentId deliveredAt items shippingAddress financialSnapshot')
     .populate('paymentId', 'status method amount transactionId')
     .lean();
 
@@ -326,7 +359,7 @@ export const processReturnRefundAdmin = asyncHandler(async (req, res) => {
   return ok(res, await buildReturnDetail(ret._id), `Return ${ret.returnNumber} refund is now ${ret.refundStatus || ret.status}`);
 });
 
-// @desc    Manually confirm a COD return's cash refund was actually settled
+// @desc    Read-only compatibility for an already-settled historical COD refund
 // @route   POST /api/admin/returns/:id/cod-settle
 // @access  Private/Admin
 export const codSettleReturnAdmin = asyncHandler(async (req, res) => {

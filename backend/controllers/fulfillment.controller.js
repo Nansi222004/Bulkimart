@@ -327,9 +327,16 @@ export const shiprocketWebhook = asyncHandler(async (req, res) => {
   if (!expected) throw httpError(503, 'Shiprocket webhook authentication is not configured');
   // Shiprocket sends the optional webhook security token in x-api-key.
   const supplied = String(req.get('x-api-key') || '');
-  const valid = supplied.length === expected.length
+  const valid = Buffer.byteLength(supplied) === Buffer.byteLength(expected)
     && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
   if (!valid) throw httpError(401, 'Invalid Shiprocket webhook token');
+
+  if (Number(req.body?.is_return) === 1) {
+    const { applyReverseTracking } = await import('../services/returnCourier.service.js');
+    const result = await applyReverseTracking({ shipmentId: req.body.shipment_id, awb: req.body.awb || req.body.awb_code,
+      statusId: req.body.shipment_status_id, status: req.body.shipment_status, eventId: req.body.event_id, environment: environment.mode });
+    return ok(res, { processed: result.changed }, 'Return tracking evidence checked');
+  }
 
   const awb = String(req.body?.awb || req.body?.awb_code || '');
   const shipmentId = String(req.body?.shipment_id || '');

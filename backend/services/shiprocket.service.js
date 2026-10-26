@@ -27,6 +27,38 @@ const authenticated = async () => ({
   maxRedirects: 0,
 });
 
+// Reverse operations reuse this client's authentication and timeout policy.
+// Mock mode deliberately refuses to invent bookings: tests replace axios.
+export const prepareReverseClient = async () => {
+  const environment = shiprocketEnvironment();
+  if (environment.mode === 'mock') throw new Error('Reverse pickup requires a mocked transport in tests or a configured provider account');
+  if (environment.mode === 'live' && process.env.NODE_ENV !== 'production') throw new Error('Local reverse pickup cannot use a live Shiprocket account');
+  await getShiprocketToken();
+  return environment.mode;
+};
+export const createReverseOrder = async payload => {
+  await prepareReverseClient();
+  return (await axios.post(`${baseUrl()}/v1/external/orders/create/return`, payload, await authenticated())).data;
+};
+export const findReverseOrders = async reference => {
+  await prepareReverseClient();
+  const response = await axios.get(`${baseUrl()}/v1/external/orders/processing/return`, { ...await authenticated(), params: { search: reference, page: 1, per_page: 100 } });
+  if (!Array.isArray(response.data?.data)) throw new Error('Return order lookup is incomplete');
+  return response.data.data.filter(row => String(row.channel_order_id) === reference);
+};
+export const getReverseOrder = async orderId => {
+  await prepareReverseClient();
+  return (await axios.get(`${baseUrl()}/v1/external/orders/show/${encodeURIComponent(orderId)}`, await authenticated())).data?.data;
+};
+export const cancelReverseOrder = async orderId => {
+  await prepareReverseClient();
+  return (await axios.post(`${baseUrl()}/v1/external/orders/cancel`, { ids: [orderId] }, await authenticated())).data;
+};
+export const trackReverseShipment = async shipmentId => {
+  await prepareReverseClient();
+  return (await axios.get(`${baseUrl()}/v1/external/courier/track/shipment/${encodeURIComponent(shipmentId)}`, await authenticated())).data;
+};
+
 const mockPickups = new Map(); // Explicit mock integration only; never live state.
 export const listPickupLocations = async () => {
   if (isMockIntegrationEnabled('SHIPROCKET_MODE')) return [...mockPickups.values()];
@@ -112,7 +144,7 @@ export const createShiprocketOrder = async (orderData) => {
   }
 };
 
-export const assignCourier = async (shipmentId, courierId) => {
+export const assignCourier = async (shipmentId, courierId, { isReturn = false } = {}) => {
   if (isMockIntegrationEnabled('SHIPROCKET_MODE')) {
     return {
       success: true,
@@ -126,7 +158,7 @@ export const assignCourier = async (shipmentId, courierId) => {
   try {
     const response = await axios.post(
       `${baseUrl()}/v1/external/courier/assign/awb`,
-      { shipment_id: shipmentId, ...(courierId ? { courier_id: courierId } : {}) },
+      { shipment_id: shipmentId, ...(courierId ? { courier_id: courierId } : {}), ...(isReturn ? { is_return: 1 } : {}) },
       await authenticated(),
     );
     const data = response.data?.response?.data || response.data;

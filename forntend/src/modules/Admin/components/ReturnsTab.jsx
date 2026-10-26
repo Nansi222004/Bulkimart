@@ -3,14 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { adminGet, adminPatch, adminPost } from '../../../utils/adminApi';
 
-/**
- * Admin — Returns & Refunds (item-level, Phase 4/5/6). Every action here is a
- * validated state-machine transition on the backend (services/return.service.js)
- * — no arbitrary status dropdown. Refund execution (Phase 6) is real:
- * "Process Refund" calls the actual PhonePe refund / COD manual-settlement
- * path — nothing here ever claims a refund succeeded on its own authority.
- * No Shiprocket/AWB/pickup UI — not implemented yet.
- */
+/** Item returns, inspection, and refunds backed by server evidence. */
 
 const STATUS_LABEL = {
   RETURN_REQUESTED: 'Requested', UNDER_REVIEW: 'Under Review', APPROVED: 'Approved',
@@ -33,8 +26,6 @@ export const ReturnsTab = () => {
   const [showRejectFor, setShowRejectFor] = useState(null);
   const [restockChoice, setRestockChoice] = useState('RESTOCKABLE');
   const [processing, setProcessing] = useState(false);
-  const [codNote, setCodNote] = useState('');
-  const [showCodSettle, setShowCodSettle] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -119,7 +110,7 @@ export const ReturnsTab = () => {
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--sa-text-primary)' }}>Returns & Refunds</h2>
         <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>
-          Item-level return requests. Refund execution and inventory restock are a later phase — this stops at Refund Pending.
+          Review item returns, confirm inspection, and track original-source or Bulkimart Wallet refunds.
         </p>
       </div>
 
@@ -211,6 +202,7 @@ export const ReturnsTab = () => {
               <p style={{ margin: 0 }}><b>Return deadline:</b> {detail.returnEligibleUntilSnapshot ? new Date(detail.returnEligibleUntilSnapshot).toLocaleString('en-IN') : '—'}</p>
               <p style={{ margin: 0 }}><b>Reason:</b> {detail.reason?.replace(/_/g, ' ')}{detail.customerDescription ? ` — "${detail.customerDescription}"` : ''}</p>
 
+              {detail.pickupMethod === 'SHIPROCKET' && <p>Shiprocket: {detail.reverseBooking?.trackingState || detail.reverseBooking?.state} {detail.awbNumber && `· AWB ${detail.awbNumber}`} {detail.reverseBooking?.error}</p>}
               {detail.pickup && detail.pickup.status !== 'NOT_ASSIGNED' && (
                 <div style={{ background: '#f8fafc', border: '1px solid var(--sa-border)', borderRadius: 10, padding: 10 }}>
                   <p style={{ margin: 0, fontWeight: 800 }}>Reverse pickup: {detail.pickup.status.replace(/_/g, ' ')}</p>
@@ -250,7 +242,7 @@ export const ReturnsTab = () => {
 
               {detail.refundStatus && (
                 <p style={{ margin: 0, fontSize: 12 }}>
-                  <b>Refund:</b> {detail.refundStatus}
+                  <b>Refund:</b> {detail.refundStatus} · {detail.refundDestination === 'wallet' ? 'Bulkimart Wallet' : detail.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}
                   {detail.refundAmount != null ? ` · ₹${detail.refundAmount}` : ''}
                   {detail.refundReference ? ` · Ref: ${detail.refundReference}` : ''}
                   {detail.refundedAt ? ` · ${new Date(detail.refundedAt).toLocaleString('en-IN')}` : ''}
@@ -303,31 +295,12 @@ export const ReturnsTab = () => {
                   {processing ? 'Processing…' : 'Process Refund'}
                 </button>
               )}
-              {detail.status === 'REFUND_PENDING' && detail.refundStatus === 'manual_pending' && (
-                showCodSettle ? (
-                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <p style={{ margin: 0, fontSize: 11.5, color: '#92400e' }}>
-                      COD order — no automatic refund mechanism exists. Confirm only after the cash has actually been returned to the customer.
-                    </p>
-                    <textarea
-                      value={codNote} onChange={(e) => setCodNote(e.target.value)}
-                      placeholder="How/when was the cash returned? (required)" rows={2}
-                      style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid #fde68a', fontSize: 12.5, fontFamily: 'inherit' }}
-                    />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="sa-btn-primary" disabled={!codNote.trim() || processing} onClick={() => codSettle(detail._id)}>
-                        Confirm Manual Refund
-                      </button>
-                      <button className="sa-action-btn" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => setShowCodSettle(false)}>Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button className="sa-btn-primary" onClick={() => setShowCodSettle(true)}>Mark COD Refund Settled Manually</button>
-                )
+              {detail.refundStatus === 'manual_pending' && (
+                <p>Historical offline refund requires reconciliation of any cash already paid. New COD refunds credit Bulkimart Wallet.</p>
               )}
               {detail.status === 'REFUND_PENDING' && detail.refundStatus !== 'manual_pending' && (
                 <p style={{ margin: 0, fontSize: 11.5, color: 'var(--sa-text-muted)' }}>
-                  Refund is with PhonePe (async) — retry if it doesn't resolve.
+                  Refund confirmation is pending. Check the recorded destination and refresh its status.
                   {' '}<button className="sa-action-btn" style={{ width: 'auto', padding: '6px 12px', marginLeft: 6 }} disabled={processing} onClick={() => processRefund(detail._id)}>Check / Retry</button>
                 </p>
               )}
