@@ -23,6 +23,20 @@ test('recent amount is canonical rupees; partial collections never appear as an 
   const h=hookHarness(Dashboard,{},'/admin',{dashboardOverview:ov,dashboardFinance:f,fetchDashboardOverview(){}});
   try{assert.match(text(h),/Order amount:|₹95.00/);assert.match(text(h),/Verified records subtotal|₹12.50/);assert.match(text(h),/records need reconciliation/);}finally{h.close();}
 });
+
+test('recent orders show readable references, IST dates, clear statuses and open the real orders page',()=>{
+  const ov=overview();ov.recentOrders=[{id:'507f1f77bcf86cd799439011',orderNo:'ORD-20261026-REFERENCE',buyerName:'Customer',type:'grocery',amount:940,status:'out_for_delivery',createdAt:'2026-10-25T20:00:00Z'}];
+  let destination;
+  const h=hookHarness(Dashboard,{},'/admin',{dashboardOverview:ov,dashboardFinance:finance(),fetchDashboardOverview(){},setActiveTab(value){destination=value;}});
+  try {
+    const order=h.find(node=>node.props?.className==='sa-recent-order-number');assert.equal(order.props.children,'ORD-20261026-REFERENCE');
+    const status=h.find(node=>String(node.props?.className).includes('sa-recent-order-status'));assert.equal(status.props.children,'Out for delivery');
+    const date=h.find(node=>node.type==='time');assert.match([date.props.children].flat().join(''),/26 Oct 2026/);assert.match([date.props.children].flat().join(''),/IST/);
+    assert.ok(h.find(node=>node.props?.className==='sa-recent-order-amount' && node.props.children==='₹940.00'));
+    assert.equal(h.find(node=>node.type==='ul' && node.props['aria-label']==='Recent orders').props.tabIndex,0);
+    h.click('View All Orders');assert.equal(destination,'user-orders');
+  } finally {h.close();}
+});
 test('malformed successful responses fail contract validation instead of becoming zero',()=>{
   for(const data of [null,{}, {...overview(),totalOrders:'17'}, {...overview(),recentOrders:[{id:'x'}]}])assert.throws(()=>read.readDashboardOverview(data));
   for(const data of [null,{}, {...finance(),unit:'rupees'}, {...finance(),collections:{...metric(),amountPaise:null}}, {...finance(),orderValue:{...metric(),amountPaise:'0'}}])assert.throws(()=>read.readDashboardFinance(data));

@@ -1,7 +1,8 @@
-import { dashboardMoney } from '../utils/dashboardRead';
+import { dashboardMoney, dashboardStatusLabels, dashboardChannelLabels } from '../utils/dashboardRead';
 import React, { useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { FinancialOverviewChart, OrderAnalyticsCharts } from '../components/DashboardCharts';
+import './RecentOrders.css';
 
 export const SuperAdminDashboard = () => {
   const { triggerToast, setActiveTab, dashboardOverviewLoading, dashboardOverviewError, dashboardFinance, dashboardFinanceError, dashboardOverview, fetchDashboardOverview } = useAdmin();
@@ -16,10 +17,13 @@ export const SuperAdminDashboard = () => {
 
   const recentOrders = (ov?.recentOrders || []).map((o) => ({
     id: o.id || o._id || '—',
+    orderNo: o.orderNo || o.id || o._id || 'Order number unavailable',
     customer: o.buyerName || 'Customer',
-    type: o.type === 'grocery' ? 'Quick Commerce' : o.type === 'ecommerce' ? 'E-Commerce' : (o.type || 'Order'),
+    type: dashboardChannelLabels[o.type] || o.type || 'Order',
     amount: o.amount,
-    status: o.status || 'Pending',
+    statusKey: (o.status || 'pending').toLowerCase(),
+    status: dashboardStatusLabels[(o.status || '').toLowerCase()] || (o.status || 'Pending').replaceAll('_', ' '),
+    createdAt: o.createdAt && Number.isFinite(Date.parse(o.createdAt)) ? o.createdAt : null,
   }));
   const lowStockAlerts = (ov?.lowStockAlerts || []).map((p) => ({
     name: p.name || 'Product',
@@ -127,34 +131,33 @@ export const SuperAdminDashboard = () => {
       </div>
 
       {/* Double columns activity grids */}
-      <div className="sa-double-row">
+      <div className="sa-double-row sa-activity-widgets">
 
         {/* Column 1: Recent Orders List */}
-        <div className="sa-widget-card">
+        <section className="sa-widget-card sa-recent-orders-card" aria-labelledby="sa-recent-orders-heading">
           <div className="sa-card-header">
-            <h3 className="sa-card-title">Recent Orders</h3>
-            <button className="sa-collapse-btn" onClick={() => triggerToast('View all orders...')}>View All</button>
+            <h3 id="sa-recent-orders-heading" className="sa-card-title">Recent Orders</h3>
+            <button type="button" className="sa-collapse-btn" onClick={() => setActiveTab('user-orders')}>View All Orders</button>
           </div>
-          <div className="sa-widget-list">
-            {recentOrders.length === 0 ? (
-              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>No recent orders.</div>
-            ) : recentOrders.map((order, idx) => (
-              <div key={order.id || idx} className="sa-widget-row">
-                <div className="sa-widget-left">
-                  <div className="sa-widget-avatar">ORD</div>
-                  <div className="sa-widget-info">
-                    <span className="sa-widget-name">{order.customer}</span>
-                    <span className="sa-widget-sub">{order.id} • {order.type}</span>
+          {recentOrders.length === 0 ? <p className="sa-recent-orders-empty">No recent orders.</p> : (
+            <ul className="sa-recent-orders-list" tabIndex={0} aria-label="Recent orders">
+              {recentOrders.map((order, idx) => (
+              <li key={order.id || idx} className="sa-recent-order">
+                <div className="sa-recent-order-main">
+                  <span className="sa-recent-order-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5v8l-9 5-9-5V8l9-5Z"/><path d="m3 8 9 5 9-5M12 13v8M7.5 5.5l9 5"/></svg></span>
+                  <div className="sa-recent-order-info">
+                    <span className="sa-recent-order-number">{order.orderNo}</span>
+                    <div className="sa-recent-order-meta"><span>{order.type}</span>{order.createdAt && <time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} IST</time>}</div>
+                    {order.customer !== 'Customer' && <span className="sa-recent-order-customer">{order.customer}</span>}
                   </div>
                 </div>
-                <div className="sa-widget-right">
-                  <span className="sa-widget-value">Order amount: {dashboardMoney(order.amount)}</span>
-                  <span className={`sa-status-pill ${(order.status || 'pending').toString().toLowerCase().replace(/\s+/g, '-')}`}>{order.status}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                <span className="sa-recent-order-amount" aria-label={`Order amount: ${dashboardMoney(order.amount)}`}>{dashboardMoney(order.amount)}</span>
+                <span className={`sa-status-pill sa-recent-order-status ${order.statusKey.replace(/[\s_]+/g, '-')}`}>{order.status}</span>
+              </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         {/* Column 2: Low Stock Warning alerts */}
         <div className="sa-widget-card">
