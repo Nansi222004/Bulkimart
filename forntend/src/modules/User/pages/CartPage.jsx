@@ -56,7 +56,7 @@ export default function CartPage() {
   };
   const pathFor = (item, group) => `/api/cart/${group.salesChannel === 'wholesale' ? 'wholesale/' : ''}${item.itemId}`;
   const remove = (item, group) => mutate(pathFor(item, group), 'DELETE');
-  return <section className="cart-page-container customer-basket" aria-label="Customer cart">
+  return <section className="cart-page-container customer-basket" aria-label="Customer cart" aria-busy={busy || basket.loading}>
     <header className="basket-heading">
       <div className="basket-heading-inner"><BrandLogo variant="icon" /><div><span className="basket-brand-name">Bulkimart</span><h1>Shopping Cart</h1></div>
         <button type="button" className="cart-secondary-btn basket-continue" aria-label="Continue shopping" onClick={() => setActiveNav('home')}><span className="basket-continue-full">Continue shopping</span><span className="basket-continue-short" aria-hidden="true">Shop</span> <span aria-hidden="true">→</span></button>
@@ -65,7 +65,7 @@ export default function CartPage() {
     </header>
     <div className="basket-body">
       {(error || basket.error) && <div role="alert" className="wholesale-cart-alert">{error || basket.error} <button type="button" className="cart-secondary-btn" onClick={basket.reload} disabled={busy || basket.loading}>Refresh prices</button></div>}
-      {basket.loading && <div className="basket-loading" role="status"><span className="basket-loading-mark" aria-hidden="true" />Refreshing your basket…</div>}
+      {basket.loading && !data && <div className="basket-loading" role="status"><span className="basket-loading-mark" aria-hidden="true" />Refreshing your basket…</div>}
       {data?.warnings?.map(message => <div role="alert" className="wholesale-cart-alert" key={message}>{message}</div>)}
       {!basket.loading && data && !items.length && <CartEmptyState onBrowse={() => setActiveNav('home')} />}
       {items.length > 0 && <>

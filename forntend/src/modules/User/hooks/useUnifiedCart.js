@@ -15,7 +15,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
  * how the two ends start disagreeing.
  */
 export const useUnifiedCart = (destination, couponCode, purchaseMode = 'retail') => {
-  const [data, setData] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -24,16 +24,19 @@ export const useUnifiedCart = (destination, couponCode, purchaseMode = 'retail')
   const customerToken = localStorage.getItem('userToken');
   const lat = destination?.lat;
   const lng = destination?.lng;
+  // Keep the current basket mounted during repricing, including coupon
+  // changes. Never reuse another account's or delivery destination's basket.
+  const dataScope = JSON.stringify([customerToken, lat ?? null, lng ?? null, purchaseMode]);
+  const data = snapshot?.scope === dataScope ? snapshot.data : null;
 
   const load = useCallback(async () => {
     const request = ++generation.current;
     controller.current?.abort(); controller.current = new AbortController();
     const token = localStorage.getItem('userToken');
-    if (!token) { setData(null); setLoading(false); return; }
+    if (!token) { setSnapshot(null); setLoading(false); return; }
 
     setLoading(true);
     setError('');
-    setData(null);
     try {
       const qs = new URLSearchParams();
       if (purchaseMode === 'basket') qs.set('purchaseMode', 'basket');
@@ -49,16 +52,16 @@ export const useUnifiedCart = (destination, couponCode, purchaseMode = 'retail')
       });
       const body = await res.json().catch(() => ({}));
       if (request !== generation.current || token !== localStorage.getItem('userToken')) return;
-      if (!res.ok) { setError(body.message || 'Could not load your basket'); setData(null); return; }
-      setData(body.data || null);
+      if (!res.ok) { setError(body.message || 'Could not load your basket'); setSnapshot(null); return; }
+      setSnapshot({ scope: dataScope, data: body.data || null });
     } catch (err) {
       if (request !== generation.current || err.name === 'AbortError') return;
       setError(err.message || 'Network error — is the server running?');
-      setData(null);
+      setSnapshot(null);
     } finally {
       if (request === generation.current) setLoading(false);
     }
-  }, [lat, lng, couponCode, purchaseMode, customerToken]);
+  }, [lat, lng, couponCode, purchaseMode, customerToken, dataScope]);
 
   useEffect(() => { load(); return () => { generation.current++; controller.current?.abort(); }; }, [load]);
 
