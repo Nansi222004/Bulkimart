@@ -367,7 +367,7 @@ const CheckoutPage = () => {
       // Atlantic, and a rider sent there would have no way to tell.
       lat: coords?.lat,
       lng: coords?.lng,
-      type: addressType,
+      label: addressType,
       landmarkImage: landmarkImgUrl || null,
     });
     
@@ -1021,7 +1021,7 @@ const CheckoutPage = () => {
                         padding: '1px 8px', 
                         borderRadius: 20 
                       }}>
-                        {addr.type || addr.label || 'Home'}
+                        {addr.label || 'Home'}
                       </span>
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 4, lineHeight: 1.4 }}>

@@ -24,6 +24,7 @@
   gap: 0;
   background: var(--sf-background);
   scroll-padding-bottom: 120px;
+  scroll-padding-top: 96px;
 }
 
 .customer-basket *, .checkout-page-container * { box-sizing: border-box; }
@@ -101,6 +102,9 @@
 /* Brand and page heading stay compact and retain the existing customer nav. */
 .customer-basket { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 .customer-basket .basket-heading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   padding: max(12px, var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px))) max(16px, calc((100% - 1120px) / 2)) 12px;
   color: var(--text-primary);
   background: #fff;

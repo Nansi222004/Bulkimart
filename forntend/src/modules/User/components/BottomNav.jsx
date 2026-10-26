@@ -1,5 +1,6 @@
 import React from 'react';
 import { useUser } from '../context/UserContext';
+import useTypingFocus from '../../../hooks/useTypingFocus';
 
 const ICONS = {
   home: (color, active) => (
@@ -33,12 +34,15 @@ const ICONS = {
 
 const BottomNav = () => {
   const { activeNav, setActiveNav } = useUser();
+  const typing = useTypingFocus();
   const items = [
     { id: 'home', label: 'Home' },
     { id: 'categories', label: 'Categories' },
     { id: 'orders', label: 'Orders' },
     { id: 'account', label: 'Profile' },
   ];
+
+  if (typing) return null;
 
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
