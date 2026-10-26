@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { protect, requireAdmin, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { createServiceUploadControls } from '../middlewares/serviceUpload.middleware.js';
-import { gstAssistanceCapabilities, requireGstAssistance } from '../services/gstAssistance.service.js';
+import { gstAssistanceCapabilities } from '../services/gstAssistance.service.js';
 import { httpError } from '../utils/response.js';
 import * as c from '../controllers/gstAssistance.controller.js';
 import { currentGstFee } from '../services/gstFee.service.js';
@@ -24,7 +24,7 @@ export function gstAssistanceRouter(admin = false) {
   const base = admin ? '/:id' : '/me';
   r.get(base, asyncHandler(c.detail));
   r.get(`${base}/files/:fileId`, asyncHandler(c.download));
-  r.post(`${base}/actions`, (_req, _res, next) => { requireGstAssistance(); next(); }, c.preflight, uploads.limiter, uploads.handle(c.act));
+  r.post(`${base}/actions`, c.preflight, uploads.limiter, uploads.handle(c.act));
   r.use((e, _req, _res, next) => { if (e.name === 'VersionError' || e.code === 11000) { e.status = 409; e.message = 'Request changed. Refresh before continuing.'; } next(e); });
   return r;
 }

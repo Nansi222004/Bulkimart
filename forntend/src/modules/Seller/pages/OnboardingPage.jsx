@@ -1,8 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import GstDecision from '../../../components/gst/GstDecision';
 import GstAssistance from '../../../components/gst/GstAssistance';
-import { gstDecisionValid } from '../../../components/gst/gstApi';
-import { sellerDocumentIssues } from '../utils/onboardingValidation';
+import { sellerDocumentIssues, sellerBankErrors, sellerStepIssues } from '../utils/onboardingValidation';
 import { useSeller } from '../context/SellerContext';
 import { LocationPicker } from '../../../components/LocationPicker';
 import BrandLogo from '../../../components/BrandLogo';
@@ -42,6 +41,13 @@ const StepBack = ({ step, onNavigate }) => (
   <button type="button" className="secondary-onboarding-btn" style={{ marginBottom: 14 }} onClick={() => onNavigate(step)}>
     Back
   </button>
+);
+
+const reviewRow = (label, value) => (
+  <div className="review-item-row" key={label} style={{ gap: 16 }}>
+    <span className="review-item-key" style={{ flex: '0 1 40%', minWidth: 0 }}>{label}</span>
+    <span className="review-item-val" style={{ flex: '1 1 60%', minWidth: 0, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap', textAlign: 'right' }}>{value || 'Not provided'}</span>
+  </div>
 );
 
 export const OnboardingPage = ({ onSubmitted }) => {
@@ -89,9 +95,33 @@ export const OnboardingPage = ({ onSubmitted }) => {
     logoutSeller,
   } = useSeller();
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
+  const [attemptedSteps, setAttemptedSteps] = useState({});
+  const [touchedBankFields, setTouchedBankFields] = useState({});
+  const validationRef = useRef(null);
 
   const totalSteps = 9;
   const documentIssues = sellerDocumentIssues({ uploadedDocs, panNumber, gstDecision });
+  const registration = { aadhaarNo, bizForm, addressForm, bankForm, uploadedDocs, panNumber, gstDecision, userProfile };
+  const reviewIssues = [
+    [3, 'Identity details'], [4, 'Business details'], [5, 'Store address'], [6, 'Bank details'],
+  ].map(([step, label]) => ({ step, label, issues: sellerStepIssues(step, registration) })).filter(section => section.issues.length > 0);
+  const stepIssues = sellerStepIssues(onboardingStep, registration);
+  const bankErrors = sellerBankErrors(bankForm);
+  const continueFromStep = (nextStep) => {
+    setAttemptedSteps(previous => ({ ...previous, [onboardingStep]: true }));
+    if (stepIssues.length === 0) setOnboardingStep(nextStep);
+  };
+  const bankFieldError = field => (attemptedSteps[6] || touchedBankFields[field]) && bankErrors[field];
+  const bankInputProps = field => ({
+    required: true,
+    'aria-invalid': Boolean(bankFieldError(field)),
+    'aria-describedby': bankFieldError(field) ? `bank-${field}-error` : undefined,
+    onBlur: () => setTouchedBankFields(previous => ({ ...previous, [field]: true })),
+  });
+  const bankFieldMessage = field => bankFieldError(field) && <p id={`bank-${field}-error`} role="alert" style={{ color: '#b91c1c', fontSize: 13 }}>{bankFieldError(field)}</p>;
+  useEffect(() => {
+    if (attemptedSteps[onboardingStep]) validationRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [attemptedSteps, onboardingStep]);
 
   return (
     <div className="seller-main-content">
@@ -113,6 +143,13 @@ export const OnboardingPage = ({ onSubmitted }) => {
             ))}
           </div>
         </div>
+
+        {attemptedSteps[onboardingStep] && onboardingStep !== 6 && stepIssues.length > 0 && (
+          <div ref={validationRef} role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>
+            <p>Please complete this step before continuing:</p>
+            <ul>{stepIssues.map(issue => <li key={issue}>{issue}</li>)}</ul>
+          </div>
+        )}
 
         {/* SCREEN 1: CHOOSE SALES CHANNELS */}
         {onboardingStep === 1 && (
@@ -342,8 +379,11 @@ export const OnboardingPage = ({ onSubmitted }) => {
             {!aadhaarVerified ? (
               <button 
                 className="primary-onboarding-btn" 
-                onClick={verifyAadhaar}
-                disabled={aadhaarNo.length !== 12 || aadhaarVerifying}
+                onClick={() => {
+                  setAttemptedSteps(previous => ({ ...previous, 3: true }));
+                  if (stepIssues.length === 0) verifyAadhaar();
+                }}
+                disabled={aadhaarVerifying}
               >
                 {aadhaarVerifying ? 'Verifying...' : 'Verify Aadhaar'}
               </button>
@@ -357,7 +397,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   </div>
                 </div>
 
-                <button className="primary-onboarding-btn" style={{ marginTop: 20 }} onClick={() => setOnboardingStep(4)}>
+                <button className="primary-onboarding-btn" style={{ marginTop: 20 }} onClick={() => continueFromStep(4)}>
                   Continue
                 </button>
               </>
@@ -396,8 +436,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button 
               className="primary-onboarding-btn" 
-              onClick={() => setOnboardingStep(5)}
-              disabled={!bizForm.storeName.trim()}
+              onClick={() => continueFromStep(5)}
             >
               Continue
             </button>
@@ -426,6 +465,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 lng: addressForm.lng,
                 accuracy: addressForm.accuracy,
                 source: addressForm.source,
+                formatted: addressForm.formatted,
               }}
               onChange={(loc) =>
                 setAddressForm({
@@ -439,23 +479,24 @@ export const OnboardingPage = ({ onSubmitted }) => {
                   lng: loc.lng,
                   accuracy: loc.accuracy,
                   source: loc.source,
+                  formatted: loc.formatted ?? addressForm.formatted,
                 })
               }
               onLookup={lookupStoreAddress}
-              buttonLabel="Pin my store location"
+              buttonLabel="Use current location (Pin my store)"
               addressLabel="Shop address"
             />
-            <label>Pickup contact email (required by Shiprocket)
-              <input className="onboarding-input" type="email" maxLength="254" value={bizForm.pickupEmail || ''} onChange={event => setBizForm({ ...bizForm, pickupEmail: event.target.value })} placeholder="Store contact email" />
-            </label>
+            <div className="onboarding-form-group seller-pickup-email">
+              <label className="nh-loc-label" htmlFor="seller-pickup-email">Pickup contact email <span className="nh-loc-req">*</span></label>
+              <input id="seller-pickup-email" className="nh-loc-input" type="email" maxLength={254} autoComplete="off" required
+                aria-describedby="seller-pickup-email-hint" value={bizForm.pickupEmail || ''}
+                onChange={event => setBizForm({ ...bizForm, pickupEmail: event.target.value })} placeholder="e.g. store@example.com" />
+              <p id="seller-pickup-email-hint" className="seller-pickup-email-hint">Required to register your store’s Shiprocket pickup location.</p>
+            </div>
 
             <button
               className="primary-onboarding-btn"
-              onClick={() => setOnboardingStep(6)}
-              disabled={
-                !(addressForm.lat !== undefined && addressForm.lng !== undefined) &&
-                !(addressForm.street && /^\d{6}$/.test(addressForm.pincode || ''))
-              }
+              onClick={() => continueFromStep(6)}
             >
               Continue
             </button>
@@ -470,8 +511,10 @@ export const OnboardingPage = ({ onSubmitted }) => {
             <p className="onboarding-subtitle">Provide details where weekly sales balance transfers will occur.</p>
 
             <div className="onboarding-form-group">
-              <label className="onboarding-label">Account Holder Name</label>
+              <label className="onboarding-label">Account Holder Name *</label>
               <input 
+                {...bankInputProps('holderName')}
+                maxLength={100}
                 type="text" 
                 className="onboarding-input" 
                 placeholder="Name as in bank passbook" 
@@ -479,11 +522,14 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 value={bankForm.holderName}
                 onChange={(e) => setBankForm({ ...bankForm, holderName: e.target.value })}
               />
+              {bankFieldMessage('holderName')}
             </div>
 
             <div className="onboarding-form-group">
-              <label className="onboarding-label">Bank Name</label>
+              <label className="onboarding-label">Bank Name *</label>
               <input 
+                {...bankInputProps('bankName')}
+                maxLength={100}
                 type="text" 
                 className="onboarding-input" 
                 placeholder="e.g. HDFC Bank / SBI" 
@@ -491,11 +537,15 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 value={bankForm.bankName}
                 onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
               />
+              {bankFieldMessage('bankName')}
             </div>
 
             <div className="onboarding-form-group">
-              <label className="onboarding-label">Bank Account Number</label>
+              <label className="onboarding-label">Bank Account Number *</label>
               <input 
+                {...bankInputProps('accountNumber')}
+                inputMode="numeric"
+                maxLength={18}
                 type="password" 
                 className="onboarding-input" 
                 placeholder="Account Number" 
@@ -503,25 +553,27 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 value={bankForm.accountNumber}
                 onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
               />
+              {bankFieldMessage('accountNumber')}
             </div>
 
             <div className="onboarding-form-group">
-              <label className="onboarding-label">IFSC Code</label>
+              <label className="onboarding-label">IFSC Code *</label>
               <input 
+                {...bankInputProps('ifscCode')}
                 type="text" 
                 className="onboarding-input" 
                 placeholder="e.g. HDFC0001234" 
                 maxLength={11} 
                 autoComplete="off"
                 value={bankForm.ifscCode}
-                onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value })}
+                onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value.toUpperCase() })}
               />
+              {bankFieldMessage('ifscCode')}
             </div>
 
             <button 
               className="primary-onboarding-btn" 
-              onClick={() => setOnboardingStep(7)}
-              disabled={!bankForm.holderName.trim() || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()}
+              onClick={() => continueFromStep(7)}
             >
               Continue
             </button>
@@ -556,7 +608,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
               />
             </div>
 
-            <DocRow label="PAN Card Scan" docKey="pan"
+            <DocRow label="PAN Card Scan" hint="Optional" docKey="pan"
               file={uploadedDocs.pan} onPick={handleDocUpload} onDelete={handleDocDelete} />
 
             <DocRow label="Business Registration Certificate" hint="Optional" docKey="businessCert"
@@ -566,14 +618,10 @@ export const OnboardingPage = ({ onSubmitted }) => {
             <button
               className="primary-onboarding-btn"
               style={{ marginTop: 24 }}
-              onClick={() => setOnboardingStep(8)}
+              onClick={() => continueFromStep(8)}
             >
               Continue to Review
             </button>
-            {documentIssues.length > 0 && <div role="status"><p>You can review now. Complete these items before final submission:</p><ul>{documentIssues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
-            {!gstDecisionValid(gstDecision || {}) && <p role="status" style={{ fontSize: 13, marginTop: 8 }}>
-              {gstDecision?.choice === 'assistance' ? 'Enter the GST assistance contact name and accept consent above to continue.' : 'Choose your GST registration option to continue.'}
-            </p>}
           </>
         )}
 
@@ -591,18 +639,25 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 <h4 className="review-card-title">Business Information</h4>
                   <button className="review-edit-btn" onClick={() => setOnboardingStep(4)}>Edit</button>
               </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Store Name</span>
-                <span className="review-item-val">{bizForm.storeName}</span>
+              {reviewRow('Store Name', bizForm.storeName)}
+              {reviewRow('Vendor Type', sellerTypeLabelFromModes(selectedTypes))}
+              {reviewRow('Category', bizForm.category)}
+              {reviewRow('Store Description', bizForm.description)}
+              {reviewRow('Mobile Number', userProfile?.phone || sellerPhone)}
+            </div>
+
+            <div className="review-summary-card">
+              <div className="review-card-header">
+                <h4 className="review-card-title">Store Address</h4>
+                <button className="review-edit-btn" onClick={() => setOnboardingStep(5)}>Edit</button>
               </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Vendor Type</span>
-                <span className="review-item-val">{sellerTypeLabelFromModes(selectedTypes)}</span>
-              </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Category</span>
-                <span className="review-item-val">{bizForm.category}</span>
-              </div>
+              {reviewRow('Street Address', addressForm?.street)}
+              {reviewRow('Landmark', addressForm?.landmark)}
+              {reviewRow('City / District', addressForm?.district)}
+              {reviewRow('State', addressForm?.state)}
+              {reviewRow('Pincode', addressForm?.pincode)}
+              {reviewRow('Pickup Contact Email', bizForm.pickupEmail || userProfile?.email)}
+              {addressForm?.lat != null && addressForm?.lng != null && reviewRow('Store Map Pin', `${addressForm.lat}, ${addressForm.lng}`)}
             </div>
 
             {/* Bank credentials Summary */}
@@ -611,19 +666,34 @@ export const OnboardingPage = ({ onSubmitted }) => {
                 <h4 className="review-card-title">Bank Details</h4>
                 <button className="review-edit-btn" onClick={() => setOnboardingStep(6)}>Edit</button>
               </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Bank Name</span>
-                <span className="review-item-val">{bankForm.bankName}</span>
+              {reviewRow('Bank Name', bankForm.bankName)}
+              {reviewRow('Account Holder', bankForm.holderName)}
+              {reviewRow('Account Number', bankForm.accountNumber)}
+              {reviewRow('IFSC Code', bankForm.ifscCode)}
+            </div>
+
+            <div className="review-summary-card">
+              <div className="review-card-header">
+                <h4 className="review-card-title">Identity & KYC Documents</h4>
+                <button className="review-edit-btn" onClick={() => setOnboardingStep(7)}>Edit</button>
               </div>
-              <div className="review-item-row">
-                <span className="review-item-key">Account Holder</span>
-                <span className="review-item-val">{bankForm.holderName}</span>
-              </div>
+              {reviewRow('Aadhaar Number', aadhaarNo ? `XXXX-XXXX-${aadhaarNo.slice(-4)}` : '')}
+              {reviewRow('PAN Number', panNumber)}
+              {[
+                ['Aadhaar Front', 'aadhaarFront'], ['Aadhaar Back', 'aadhaarBack'],
+                ['Bank Passbook / Cheque', 'passbook'], ['PAN Card Scan (Optional)', 'pan'],
+                ['Business Certificate (Optional)', 'businessCert'],
+              ].map(([label, key]) => reviewRow(label, uploadedDocs[key]?.name || (uploadedDocs[key] ? 'Attached' : 'Not uploaded')))}
             </div>
 
             <div className="review-summary-card">
               <div className="review-card-header"><h4 className="review-card-title">GST registration</h4><button className="review-edit-btn" onClick={() => setOnboardingStep(7)}>Edit</button></div>
               <p>{gstDecision?.choice === 'assistance' ? 'GST assistance requested through Bulkimart. Your request will be submitted with this application and reviewed separately. You can complete registration now.' : gstDecision?.choice === 'has_gstin' ? `GSTIN supplied: ${gstDecision.gstin}` : 'Continuing without a GSTIN.'}</p>
+              {gstDecision?.choice === 'assistance' && <>
+                {reviewRow('Contact Person', gstDecision.contactName)}
+                {reviewRow('Assistance Message', gstDecision.message)}
+                {reviewRow('Consent', gstDecision.consent ? 'Accepted' : 'Not accepted')}
+              </>}
             </div>
 
             {/* Declaration Checkbox */}
@@ -633,6 +703,13 @@ export const OnboardingPage = ({ onSubmitted }) => {
             </label>
 
             {documentIssues.length > 0 && <div role="status"><p>Complete these items before submitting:</p><ul>{documentIssues.map(issue => <li key={issue}>{issue}</li>)}</ul><button type="button" className="secondary-onboarding-btn" onClick={() => setOnboardingStep(7)}>Complete documents and GST details</button></div>}
+            {reviewIssues.length > 0 && <div role="alert" style={{ color: '#b91c1c', marginBottom: 16 }}>
+              <p>Complete these details before submitting your application:</p>
+              {reviewIssues.map(({ step, label, issues }) => <div key={step}>
+                <ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul>
+                <button type="button" className="review-edit-btn" onClick={() => setOnboardingStep(step)}>{`Edit ${label.toLowerCase()}`}</button>
+              </div>)}
+            </div>}
             {submitError && (
               <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 11,
                             background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)' }}>
@@ -642,8 +719,9 @@ export const OnboardingPage = ({ onSubmitted }) => {
 
             <button
               className="primary-onboarding-btn"
-              disabled={submitting || !declarationAccepted || documentIssues.length > 0}
+              disabled={submitting || !declarationAccepted || documentIssues.length > 0 || reviewIssues.length > 0}
               onClick={async () => {
+                if (reviewIssues.length > 0 || documentIssues.length > 0) return;
                 const res = await submitSellerApplication();
                 if (res.ok) {
                   setOnboardingStep(9);

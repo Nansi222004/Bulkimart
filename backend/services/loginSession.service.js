@@ -15,7 +15,7 @@ export async function resolveLoginSession(user, claimedRole) {
     }
     return { sessionRole: role, dashboard: '/delivery/dashboard', deliveryState: { status: partner.status, onboardingStep: partner.onboardingStep } };
   }
-  if (!['buyer', 'seller'].includes(role) || !user.roles.includes(role)) {
+  if (!['buyer', 'seller'].includes(role) || !user.roles.includes(role) || (role === 'buyer' && user.customerRegistered === false)) {
     throw httpError(403, 'Account role is not authorized for this session. Please sign in again.');
   }
   return { sessionRole: role, dashboard: role === 'seller' ? '/seller' : '/' };

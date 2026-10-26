@@ -50,7 +50,7 @@ beforeAll(async () => {
   for (const m of [Seller, User, Admin, Gst, Fee, Payment, Ledger]) { await m.createCollection(); if (m !== Gst) await m.init(); }
 });
 beforeEach(async () => {
-  process.env.GST_ASSISTANCE_ENABLED = 'true'; process.env.NODE_ENV = 'test'; delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
+  process.env.NODE_ENV = 'test'; delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_ENABLED; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
   gatewayOrders.clear();gatewayPayments.clear();uncertainCheckout=false;
   Object.assign(process.env,{PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_gst_fixture',RAZORPAY_KEY_SECRET:'isolated-gst-secret',RAZORPAY_WEBHOOK_SECRET:'isolated-gst-webhook'});
   for (const c of Object.values(mongoose.connection.collections)) await c.deleteMany({}); notify.mockClear();
@@ -159,19 +159,20 @@ test('malformed files and stale writes do not leave orphan private documents', a
   await auth(request(app).post(`/admin/gst-assistance/${seller._id}/actions`), admin, 'admin').field('version', version).field('action', 'transition').field('status', 'approved').field('message', 'Stale').attach('documents', pdf.bytes, { filename: pdf.name, contentType: pdf.mime }).expect(409);
   expect((await readdir(root)).length).toBe(before);
 });
-test.each(['production', 'prod', 'deployment-production'])('production alias %s blocks assistance even with flag true', async name => {
+test.each(['production', 'prod', 'deployment-production'])('production alias %s accepts assistance without environment switches', async name => {
   process.env.DEPLOYMENT_ENV = name;
-  expect(gstAssistanceCapabilities().enabled).toBe(false); await submit().expect(503);
-  expect(await Gst.countDocuments()).toBe(0); delete process.env.DEPLOYMENT_ENV;
+  expect(gstAssistanceCapabilities()).toEqual({ enabled: true, productionBlocked: false });
+  await submit().expect(200);
+  expect(await Gst.countDocuments()).toBe(1); delete process.env.DEPLOYMENT_ENV;
 });
 
-test.each(['production', 'prod', 'deployment-production'])('production alias %s accepts assistance with explicit production intake enabled', async name => {
-  process.env.DEPLOYMENT_ENV = name; process.env.GST_ASSISTANCE_PRODUCTION_ENABLED = 'true';
+test.each(['production', 'prod', 'deployment-production'])('production alias %s ignores obsolete disabled intake flags', async name => {
+  process.env.DEPLOYMENT_ENV = name; process.env.GST_ASSISTANCE_ENABLED = 'false'; process.env.GST_ASSISTANCE_PRODUCTION_ENABLED = 'false';
   expect(gstAssistanceCapabilities()).toEqual({ enabled: true, productionBlocked: false });
   await submit().expect(200);
   expect((await detail()).status).toBe('pending');
   expect((await Seller.findById(seller._id)).onboardingStep).toBe(5);
-  delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
+  delete process.env.DEPLOYMENT_ENV; delete process.env.GST_ASSISTANCE_ENABLED; delete process.env.GST_ASSISTANCE_PRODUCTION_ENABLED;
 });
 
 test('seller can submit registration while GST assistance remains pending', async () => {
@@ -263,9 +264,10 @@ test('concurrent checkout initialization creates one gateway order and a late ca
   expect((await detail()).billing.reviewRequired).toBe(true);expect((await detail()).billing.status).not.toBe('paid');
   expect((await Payment.findOne({gstAssistanceRequestId:seller._id})).refundObligations).toHaveLength(1);
 });
-test('disabled defaults do not block legacy optional-GST onboarding', async () => {
-  delete process.env.GST_ASSISTANCE_ENABLED; expect(gstAssistanceCapabilities().enabled).toBe(false);
-  await submit().expect(503); await submit({ pan: 'ABCDE1234F' }).expect(200);
+test('assistance and legacy optional-GST onboarding both work without environment switches', async () => {
+  expect(gstAssistanceCapabilities().enabled).toBe(true);
+  await submit({ pan: 'ABCDE1234F' }).expect(200);
+  await submit().expect(200);
 });
 test('failure after request creation rolls back request and seller progression, allowing a safe retry', async () => {
   const spy = jest.spyOn(Seller, 'updateOne').mockRejectedValueOnce(Error('Synthetic seller write failure'));

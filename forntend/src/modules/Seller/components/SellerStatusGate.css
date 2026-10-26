@@ -1,0 +1,73 @@
+.seller-status-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  padding: clamp(12px, 3vw, 32px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.seller-status-card,
+.seller-status-shell > .gst-registration-assistance {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 960px;
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.seller-status-card {
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.seller-status-card > p {
+  max-width: 600px;
+  margin-inline: auto !important;
+}
+
+.seller-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.seller-status-actions button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.seller-status-retry {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.seller-status-exit {
+  border: 1px solid #078ccb;
+  background: #078ccb;
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .seller-status-actions button {
+    flex: 1 1 160px;
+  }
+}

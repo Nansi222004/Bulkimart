@@ -1,6 +1,6 @@
 import { payoutIntent } from '../utils/payoutIntent';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import { sellerDocumentIssues } from '../utils/onboardingValidation';
+import { sellerStepIssues } from '../utils/onboardingValidation';
 import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import { readSellerFinances } from '../utils/sellerFinanceRead';
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
@@ -14,8 +14,10 @@ import {
   clearSellerDraft,
   getSellerDraftKey,
   readSellerDraft,
+  readSellerSessionDraft,
   selectedModesToChannels,
   writeSellerDraft,
+  writeSellerSessionDraft,
 } from '../utils/onboardingDraft';
 import { normalizePhoneInput, normalizeSellerIntent, safeErrorMessage, sellerOtpPayload } from '../utils/sellerAuth';
 import { SELLER_SESSION_CHANGED as SESSION_CHANGED, saveSellerSession } from '../../../utils/portalSession';
@@ -38,12 +40,13 @@ export const SellerProvider = ({ children }) => {
   const draftKey = getSellerDraftKey(userId);
   const [draftIdentityKey, setDraftIdentityKey] = useState(draftKey);
   const [initialDraft] = useState(() => readSellerDraft(getBrowserStorage(), draftKey));
+  const [initialSessionDraft] = useState(() => readSellerSessionDraft(draftKey));
   const submitSellerApplicationLock = React.useRef(false);
 
   // GLOBAL STATES
   const [isOnboarded, setIsOnboarded] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(() => initialDraft?.step || 1);
-  const [selectedTypes, setSelectedTypes] = useState(() => initialDraft?.selectedTypes || ['ecommerce']); // can contain 'ecommerce', 'quick'
+  const [onboardingStep, setOnboardingStep] = useState(() => initialSessionDraft?.step || Math.min(initialDraft?.step || 1, 3));
+  const [selectedTypes, setSelectedTypes] = useState(() => initialSessionDraft?.selectedTypes || initialDraft?.selectedTypes || ['ecommerce']); // can contain 'ecommerce', 'quick'
   const [activeMode, setActiveMode] = useState('ecommerce'); // 'ecommerce' | 'quick'
 
   // The panel toggle says "Quick"; the database calls that channel `grocery`.
@@ -85,9 +88,9 @@ export const SellerProvider = ({ children }) => {
   // never auto-creates, an account. SellerLoginPage.jsx renders a dedicated
   // "not a member" screen instead of the phone/OTP form while this is true.
   const [notAMember, setNotAMember] = useState(false);
-  const [aadhaarVerified, setAadhaarVerified] = useState(false);
+  const [aadhaarVerified, setAadhaarVerified] = useState(() => Boolean(initialSessionDraft?.aadhaarVerified));
   const [aadhaarVerifying, setAadhaarVerifying] = useState(false);
-  const [aadhaarNo, setAadhaarNo] = useState('');
+  const [aadhaarNo, setAadhaarNo] = useState(() => initialSessionDraft?.aadhaarNo || '');
 
   const [bizForm, setBizForm] = useState(() => ({
     storeName: initialDraft?.bizForm?.storeName || '',
@@ -95,7 +98,8 @@ export const SellerProvider = ({ children }) => {
     category: initialDraft?.bizForm?.category || 'Groceries',
     description: initialDraft?.bizForm?.description || '',
     pickupEmail: '',
-    leaderName: ''
+    leaderName: '',
+    ...initialSessionDraft?.bizForm,
   }));
 
   /**
@@ -104,7 +108,7 @@ export const SellerProvider = ({ children }) => {
    * The defaults used to be 'Delhi' / 'New Delhi', which quietly filed every
    * seller who skipped the field under a city they had never been to.
    */
-  const [addressForm, setAddressForm] = useState({
+  const [addressForm, setAddressForm] = useState(() => ({
     street: '',
     landmark: '',
     state: '',
@@ -114,26 +118,30 @@ export const SellerProvider = ({ children }) => {
     lng: undefined,
     accuracy: undefined,
     source: undefined,
-  });
+    formatted: '',
+    ...initialSessionDraft?.addressForm,
+  }));
 
-  const [bankForm, setBankForm] = useState({
+  const [bankForm, setBankForm] = useState(() => ({
     holderName: '',
     bankName: '',
     accountNumber: '',
-    ifscCode: ''
-  });
+    ifscCode: '',
+    ...initialSessionDraft?.bankForm,
+  }));
 
   // Real File objects picked from the user's device (not placeholders).
-  const [uploadedDocs, setUploadedDocs] = useState({
+  const [uploadedDocs, setUploadedDocs] = useState(() => ({
     aadhaarFront: null,
     aadhaarBack: null,
     pan: null,
     passbook: null,
-    businessCert: null
-  });
+    businessCert: null,
+    ...initialSessionDraft?.uploadedDocs,
+  }));
 
-  const [panNumber, setPanNumber] = useState('');
-  const [gstDecision, setGstDecision] = useState({ choice: '', gstin: '', contactName: '', message: '', consent: false });
+  const [panNumber, setPanNumber] = useState(() => initialSessionDraft?.panNumber || '');
+  const [gstDecision, setGstDecision] = useState(() => ({ choice: '', gstin: '', contactName: '', message: '', consent: false, ...initialSessionDraft?.gstDecision }));
 
   // Live application state returned by the backend
   const [submitting, setSubmitting] = useState(false);
@@ -149,7 +157,9 @@ export const SellerProvider = ({ children }) => {
       clearSellerDraft(getBrowserStorage(), draftIdentityKey);
       const draft = readSellerDraft(getBrowserStorage(), draftKey);
       if (draft || switchingAccounts) {
-        setOnboardingStep(draft?.step || 1);
+        // Stored drafts omit identity and documents, so resume before those
+        // steps rather than restoring Review with empty required fields.
+        setOnboardingStep(Math.min(draft?.step || 1, 3));
         setSelectedTypes(draft?.selectedTypes || ['ecommerce']);
         setActiveMode(draft?.selectedTypes?.includes('quick') && !draft?.selectedTypes?.includes('ecommerce') ? 'quick' : 'ecommerce');
         setBizForm((current) => ({
@@ -166,7 +176,7 @@ export const SellerProvider = ({ children }) => {
         // account change; they are never copied into another seller's session.
         setOtpSent(false); setOtpCode(''); setSellerPhone(''); setOtpVerified(false);
         setAadhaarNo(''); setAadhaarVerified(false);
-        setAddressForm({ street: '', landmark: '', state: '', district: '', pincode: '', lat: undefined, lng: undefined, accuracy: undefined, source: undefined });
+        setAddressForm({ street: '', landmark: '', state: '', district: '', pincode: '', lat: undefined, lng: undefined, accuracy: undefined, source: undefined, formatted: '' });
         setBankForm({ holderName: '', bankName: '', accountNumber: '', ifscCode: '' });
         setUploadedDocs({ aadhaarFront: null, aadhaarBack: null, pan: null, passbook: null, businessCert: null });
         setPanNumber('');
@@ -183,7 +193,8 @@ export const SellerProvider = ({ children }) => {
       return;
     }
     writeSellerDraft(getBrowserStorage(), draftKey, { step: onboardingStep, selectedTypes, bizForm });
-  }, [draftKey, draftIdentityKey, onboardingStep, selectedTypes, bizForm, submittedSeller]);
+    writeSellerSessionDraft(draftKey, { step: onboardingStep, selectedTypes, bizForm, aadhaarNo, aadhaarVerified, addressForm, bankForm, uploadedDocs, panNumber, gstDecision });
+  }, [draftKey, draftIdentityKey, onboardingStep, selectedTypes, bizForm, submittedSeller, aadhaarNo, aadhaarVerified, addressForm, bankForm, uploadedDocs, panNumber, gstDecision]);
 
   // ACTIVE SELLER PANEL DATA STATES
   const [searchQuery, setSearchQuery] = useState('');
@@ -1117,7 +1128,7 @@ export const SellerProvider = ({ children }) => {
   };
 
   const verifyAadhaar = () => {
-    if (aadhaarNo.length !== 12) {
+    if (!/^[0-9]{12}$/.test(aadhaarNo)) {
       triggerToast('Aadhaar number must be 12 digits');
       return;
     }
@@ -1189,8 +1200,13 @@ export const SellerProvider = ({ children }) => {
 
     try {
       const salesChannels = selectedModesToChannels(selectedTypes);
-      const missing = sellerDocumentIssues({ uploadedDocs, panNumber, gstDecision });
-      if (missing.length) throw new Error(missing.join('. ') + '.');
+      const registration = { aadhaarNo, bizForm, addressForm, bankForm, uploadedDocs, panNumber, gstDecision, userProfile: profile };
+      for (const step of [3, 4, 5, 6, 7]) {
+        const issues = sellerStepIssues(step, registration);
+        if (issues.length) {
+          throw new Error(issues.join(' '));
+        }
+      }
       await call('/api/sellers/start', {
         method: 'POST',
         headers: JSON_H,

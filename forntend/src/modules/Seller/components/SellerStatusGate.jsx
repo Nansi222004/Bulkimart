@@ -1,5 +1,6 @@
 import React from 'react';
 import GstAssistance from '../../../components/gst/GstAssistance';
+import './SellerStatusGate.css';
 
 /**
  * Blocks the seller panel until an admin has approved the account.
@@ -9,24 +10,6 @@ import GstAssistance from '../../../components/gst/GstAssistance';
  * The backend enforces this too (middlewares/vendor.middleware.js); this screen
  * exists so the seller sees a clear explanation instead of failed requests.
  */
-
-const SHELL = {
-  minHeight: '70vh',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 24,
-};
-
-const CARD = {
-  maxWidth: 420,
-  width: '100%',
-  textAlign: 'center',
-  padding: '32px 24px',
-  borderRadius: 16,
-  border: '1px solid rgba(148,163,184,0.25)',
-  background: 'rgba(148,163,184,0.06)',
-};
 
 const STATES = {
   pending: {
@@ -63,15 +46,14 @@ export const SellerStatusGate = ({ status, storeName, rejectionReason, onRetry, 
   const s = STATES[status] || STATES.pending;
 
   return (
-    <div style={SHELL}>
-      <div style={CARD}>
+    <div className="seller-status-shell">
+      <div className="seller-status-card">
         <div style={{ fontSize: 44, lineHeight: 1, marginBottom: 12 }}>{s.icon}</div>
 
         {storeName && (
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>{storeName}</div>
         )}
 
-        <GstAssistance />
         <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 10px', color: s.tone }}>
           {s.title}
         </h2>
@@ -98,15 +80,11 @@ export const SellerStatusGate = ({ status, storeName, rejectionReason, onRetry, 
 
         <p style={{ fontSize: 12, opacity: 0.65, margin: '0 0 20px' }}>{s.note}</p>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <div className="seller-status-actions">
           {onRetry && (
             <button
               onClick={onRetry}
-              style={{
-                padding: '9px 18px', borderRadius: 9, fontWeight: 800, fontSize: 12,
-                border: '1px solid rgba(148,163,184,0.35)', background: 'transparent',
-                color: 'inherit', cursor: 'pointer',
-              }}
+              className="seller-status-retry"
             >
               Check status again
             </button>
@@ -114,16 +92,14 @@ export const SellerStatusGate = ({ status, storeName, rejectionReason, onRetry, 
           {onExit && (
             <button
               onClick={onExit}
-              style={{
-                padding: '9px 18px', borderRadius: 9, fontWeight: 800, fontSize: 12,
-                border: 'none', background: '#10b981', color: '#062e24', cursor: 'pointer',
-              }}
+              className="seller-status-exit"
             >
-              Back to shopping
+              Back to login
             </button>
           )}
         </div>
       </div>
+      <GstAssistance />
     </div>
   );
 };

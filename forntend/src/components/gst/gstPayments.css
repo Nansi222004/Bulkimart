@@ -30,7 +30,7 @@
 .gst-intake-status p { margin: 8px 0; }
 .gst-intake-status button { margin-left: 12px; }
 .gst-intake-enabled { background: #eefbf4; border-color: #a6dec1; }
-.gst-intake-disabled, .gst-intake-error { background: #fffaeb; border-color: #f0d693; }
+.gst-intake-error { background: #fffaeb; border-color: #f0d693; }
 .gst-registration-assistance [role=alert] { padding: 12px 16px; border-radius: 8px; background: #fff0f0; color: #b42318; }
 @media (max-width: 600px) { .gst-admin-workspace { margin: 12px; padding: 16px; } .gst-workspace-heading h2 { font-size: 20px; } .gst-toolbar { align-items: stretch; } .gst-toolbar > button { width: 100%; } .gst-request-detail { padding: 12px; } }
 .gst-registration-assistance .gst-payment-panel,
@@ -42,3 +42,235 @@
 .gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) button { box-sizing: border-box; min-height: 44px; max-width: 100%; margin: 6px 8px 6px 0; padding: 10px 14px; border: 1px solid #078ccb; border-radius: 8px; background: #078ccb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: normal; }
 .gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) button:disabled { opacity: .5; cursor: default; }
 .gst-registration-assistance :is(.gst-payment-panel, .gst-fee-editor) :focus-visible { outline: 3px solid #ed8719; outline-offset: 3px; }
+
+.gst-details-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, .55);
+}
+
+.gst-details-overlay .gst-details-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 100%);
+  min-height: 0;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d7e3ed;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, .22);
+  font-size: 15px;
+}
+
+.gst-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.gst-details-header > div {
+  min-width: 0;
+}
+
+.gst-details-header h2 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.35;
+}
+
+.gst-details-header p {
+  margin: 4px 0 0;
+  color: #586c85;
+}
+
+.gst-details-header > button {
+  flex: 0 0 44px;
+  min-height: 44px;
+  padding: 8px;
+}
+
+.gst-details-body {
+  min-height: 0;
+  padding: 20px 24px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.gst-details-dialog .gst-request-detail {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.gst-details-dialog .gst-request-detail > h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+@media (max-width: 600px) {
+  .gst-details-header {
+    padding: 16px;
+  }
+
+  .gst-details-body {
+    padding: 16px;
+  }
+
+  .gst-details-dialog .gst-request-detail > button {
+    width: 100%;
+    min-height: 44px;
+    margin-inline: 0;
+  }
+}
+
+/* Seller request details have one card boundary, rather than nested gutters. */
+.gst-seller-workspace {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+  padding: clamp(16px, 3vw, 24px);
+  border-color: #e2e8f0;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.gst-seller-workspace .gst-workspace-heading h2 {
+  font-size: clamp(20px, 3vw, 26px);
+  line-height: 1.3;
+  margin-bottom: 0;
+}
+
+.gst-seller-workspace .gst-toolbar {
+  margin: 16px 0;
+  padding-top: 0;
+  border: 0;
+}
+
+.gst-seller-workspace .gst-request-detail {
+  min-width: 0;
+  margin-top: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.gst-seller-workspace .gst-request-detail > h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  line-height: 1.4;
+  color: #075985;
+}
+
+.gst-seller-workspace .gst-request-detail > p {
+  margin: 12px 0;
+}
+
+.gst-seller-workspace .gst-payment-panel {
+  min-width: 0;
+  padding: clamp(14px, 2.5vw, 20px);
+  margin: 20px 0;
+  border-color: #cce9f6;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.gst-seller-workspace .gst-payment-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.gst-seller-workspace .gst-payment-heading h4 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.gst-seller-workspace .gst-payment-amount {
+  font-size: clamp(22px, 3vw, 28px);
+  line-height: 1.2;
+  color: #075985;
+}
+
+.gst-seller-workspace .gst-payment-status {
+  font-size: 14px;
+  color: #475569;
+}
+
+.gst-seller-workspace .gst-payment-status span {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 10px;
+  border: 1px solid #cbdde9;
+  border-radius: 20px;
+  background: #fff;
+  font-weight: 600;
+}
+
+.gst-seller-workspace .gst-payment-terms {
+  max-width: 70ch;
+  color: #475569;
+}
+
+.gst-seller-workspace .gst-payment-panel .gst-payment-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0;
+  line-height: 1.5;
+}
+
+.gst-seller-workspace .gst-payment-consent input {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: #078ccb;
+}
+
+.gst-seller-workspace .gst-payment-consent span {
+  min-width: 0;
+}
+
+.gst-seller-workspace button {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.gst-seller-workspace .gst-request-detail > h4 {
+  margin: 24px 0 12px;
+}
+
+.gst-seller-workspace .gst-request-detail > ol {
+  margin: 0;
+  padding-left: 20px;
+  color: #475569;
+}
+
+.gst-seller-workspace .gst-request-detail > ol li + li {
+  margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+  .gst-seller-workspace .gst-toolbar > button,
+  .gst-seller-workspace .gst-request-detail > button,
+  .gst-seller-workspace .gst-payment-panel > button {
+    display: block;
+    width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

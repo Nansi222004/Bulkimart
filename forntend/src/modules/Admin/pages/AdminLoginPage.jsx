@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 import BrandLogo from '../../../components/BrandLogo';
+import './AdminLoginPage.css';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@admin.com';
 const DEFAULT_ADMIN_PASSWORD = 'Admin123';
@@ -72,7 +73,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
       onLoginSuccess(data.token);
     } catch (err) {
       if (err.name === 'TypeError' || err.message?.includes('Failed to fetch')) {
-        setError('Cannot connect to backend server. Please verify backend is running on port 5050.');
+        setError('Unable to connect. Please try again.');
       } else {
         setError(err.message || 'An error occurred during login');
       }
@@ -82,12 +83,11 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="admin-auth-page" style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.header}>
-          <BrandLogo variant="full" portal="Admin" />
-          <h2 style={styles.title}>Bulkimart Admin</h2>
-          <p style={styles.subtitle}>SuperAdmin Management Portal</p>
+    <div className="admin-auth-page">
+      <div className="admin-auth-card">
+        <div className="admin-auth-header">
+          <BrandLogo variant="full" />
+          <h2 style={styles.title}>Admin sign in</h2>
         </div>
 
         {/* Demo / Admin Credentials Box */}
@@ -98,7 +98,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
-              <span style={styles.credentialTitle}>Admin Login Credentials</span>
+              <span style={styles.credentialTitle}>Credentials</span>
             </div>
             <button
               type="button"
@@ -154,7 +154,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
         </div>
 
         {error && (
-          <div style={styles.errorAlert}>
+          <div role="alert" style={styles.errorAlert}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 8, flexShrink: 0 }}>
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
@@ -225,7 +225,7 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
         </form>
 
         <div style={styles.footer}>
-          <span>Secured SuperAdmin Node · Authorized Access Only</span>
+          <span>Authorized access only</span>
         </div>
       </div>
     </div>
@@ -233,48 +233,20 @@ export const AdminLoginPage = ({ onLoginSuccess }) => {
 };
 
 const styles = {
-  container: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    height: '100dvh',
-    overflowY: 'auto',
-    flexDirection: 'column',
-    background: 'linear-gradient(135deg, #eaf9fe 0%, #ffffff 55%, #fff3e5 100%)',
-    fontFamily: "'Inter', sans-serif",
-    color: '#0f172a',
-    margin: 0,
-    padding: 'max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom))',
-  },
-  card: {
-    flexShrink: 0,
-    marginBlock: 'auto',
-    width: '100%',
-    maxWidth: '420px',
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: 'clamp(20px, 5vw, 40px)',
-    boxShadow: '0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04)',
-    border: '1px solid #e2e8f0',
-    boxSizing: 'border-box'
-  },
-  header: {
-    textAlign: 'center',
-    marginBottom: '24px',
-  },
   credentialBox: {
     backgroundColor: '#f0f9ff',
     border: '1px solid #bae6fd',
     borderRadius: '12px',
-    padding: '14px 16px',
-    marginBottom: '20px',
+    padding: '12px',
+    marginBottom: '14px',
   },
   credentialHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: '10px',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginBottom: '8px',
   },
   credentialTitleWrap: {
     display: 'flex',
@@ -354,25 +326,20 @@ const styles = {
     letterSpacing: '-0.5px'
   },
   title: {
-    fontSize: '24px',
+    fontSize: '22px',
     fontWeight: '800',
     color: '#0f172a',
-    margin: '0 0 6px 0',
-  },
-  subtitle: {
-    fontSize: '13px',
-    color: '#64748b',
     margin: 0,
   },
   form: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '14px',
   },
   formGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '6px',
   },
   label: {
     fontSize: '12px',
@@ -382,7 +349,7 @@ const styles = {
     letterSpacing: '0.5px'
   },
   input: {
-    padding: '14px 16px',
+    padding: '10px 12px',
     borderRadius: '10px',
     border: '1.5px solid #cbd5e1',
     backgroundColor: '#f8fafc',
@@ -398,7 +365,7 @@ const styles = {
     width: '100%',
   },
   passwordInput: {
-    padding: '14px 48px 14px 16px',
+    padding: '10px 44px 10px 12px',
     borderRadius: '10px',
     border: '1.5px solid #cbd5e1',
     backgroundColor: '#f8fafc',
@@ -424,13 +391,12 @@ const styles = {
     transition: 'color 0.2s',
   },
   button: {
-    padding: '14px',
+    padding: '12px',
     borderRadius: '10px',
     border: 'none',
     color: '#ffffff',
     fontSize: '14px',
     fontWeight: '800',
-    marginTop: '10px',
     transition: 'all 0.2s',
     boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
   },
@@ -443,12 +409,12 @@ const styles = {
     padding: '12px 16px',
     color: '#dc2626',
     fontSize: '13px',
-    marginBottom: '24px',
+    marginBottom: '14px',
     lineHeight: 1.4
   },
   footer: {
     textAlign: 'center',
-    marginTop: '32px',
+    marginTop: '14px',
     fontSize: '11px',
     color: '#64748b',
     fontWeight: '600',

@@ -3,16 +3,15 @@ import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import './gstDecision.css';
 export default function GstDecision({ value, onChange }) {
-  const [availability, setAvailability] = useState('loading'), [attempt, retry] = useState(0);
-  const enabled = availability === 'enabled';
+  const [detailsState, setDetailsState] = useState('loading'), [attempt, retry] = useState(0);
   const [fee, setFee] = useState(null);
   useEffect(() => {
-    const controller = new AbortController(); setAvailability('loading');
+    const controller = new AbortController(); setDetailsState('loading');
     boundedFetch(apiUrl('/api/sellers/gst-assistance/capabilities'), { signal: controller.signal }).then(async r => {
       const b = await r.json();
-      if (!r.ok || b.success === false || typeof b.data?.enabled !== 'boolean') throw new Error('Invalid capabilities');
-      if (!controller.signal.aborted) { setAvailability(b.data.enabled ? 'enabled' : 'disabled'); setFee(b.data.fee || null); }
-    }).catch(() => { if (!controller.signal.aborted) setAvailability('error'); });
+      if (!r.ok || b.success === false || !b.data) throw new Error('Invalid GST assistance details');
+      if (!controller.signal.aborted) { setDetailsState('ready'); setFee(b.data.fee || null); }
+    }).catch(() => { if (!controller.signal.aborted) setDetailsState('error'); });
     return () => controller.abort();
   }, [attempt]);
   const update = changes => onChange({ ...value, ...changes });
@@ -27,11 +26,10 @@ export default function GstDecision({ value, onChange }) {
       <small>15-character format check only. This does not verify registration.</small>
     </label>}
     {noGstin && <><p>Would you like to apply for GST registration through Bulkimart?</p>
-      <label><input type="radio" name="gst-assistance" checked={value.choice === 'assistance'} disabled={!enabled} onChange={() => update({ choice: 'assistance' })}/> Yes, Apply through Bulkimart</label>
+      <label><input type="radio" name="gst-assistance" checked={value.choice === 'assistance'} onChange={() => update({ choice: 'assistance' })}/> Yes, Apply through Bulkimart</label>
       <label><input type="radio" name="gst-assistance" checked={value.choice === 'without_gstin'} onChange={() => update({ choice: 'without_gstin', consent: false })}/> No, Continue without GST</label>
-      {availability === 'loading' && <p role="status">Checking GST assistance availability…</p>}
-      {availability === 'disabled' && <p role="status">GST registration assistance is not currently accepting requests. Choose “No, Continue without GST” to finish your seller application.</p>}
-      {availability === 'error' && <p role="alert">We couldn’t check GST assistance availability. <button type="button" onClick={() => retry(n => n + 1)}>Retry availability</button></p>}
+      {detailsState === 'loading' && <p role="status">Loading GST assistance details…</p>}
+      {detailsState === 'error' && <p role="alert">We couldn’t load GST assistance details. You can still request assistance. <button type="button" onClick={() => retry(n => n + 1)}>Retry details</button></p>}
       <p>You may submit your vendor application for review. Selling remains subject to vendor approval and applicable GST requirements. If GST registration is required for your business, obtain it before selling.</p>
     </>}
     {value.choice === 'assistance' && <section aria-label="GST registration assistance form">

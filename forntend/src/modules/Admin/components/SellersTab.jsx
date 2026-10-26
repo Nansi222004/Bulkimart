@@ -186,7 +186,7 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
                 {seller.status === 'approved' && (
                   <button className="admin-btn-sm reject" onClick={() => suspendSeller(seller._id)}>Suspend</button>
                 )}
-                <button className="admin-btn-sm details" onClick={() => fetchSellerDetail(seller._id)}>View Dossier</button>
+                <button className="admin-btn-sm details" onClick={() => fetchSellerDetail(seller._id)}>View Detail</button>
               </div>
             </div>
           ))}

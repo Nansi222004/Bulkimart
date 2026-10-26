@@ -36,31 +36,33 @@ test('initial GST question has no implied yes/no answer; changing to No clears G
     assert.match(text(h.tree), /format check only/);
   } finally { h.close(); }
 });
-test('no-GSTIN choice offers assistance and decline; assistance stays disabled when server capability is off', async () => {
+test('no-GSTIN choice always offers assistance even if a stale backend reports it disabled', async () => {
   const h = hookHarness(Decision, { value: { choice: 'no_gstin' }, onChange: () => {} });
   try {
     h.requests[0].resolve({ success: true, data: { enabled: false } }); await h.settle();
     assert.match(text(h.tree), /Yes, Apply through Bulkimart/); assert.match(text(h.tree), /No, Continue without GST/);
-    const radio = h.find(n => n.type === 'input' && n.props.name === 'gst-assistance'); assert.equal(radio.props.disabled, true);
+    const radio = h.find(n => n.type === 'input' && n.props.name === 'gst-assistance'); assert.equal(Boolean(radio.props.disabled), false);
     assert.match(text(h.tree), /applicable GST requirements/);
   } finally { h.close(); }
 });
 
-test('enabled assistance can be selected without a submission or navigation', async () => {
+test('assistance can be selected immediately while its details are loading', async () => {
   const updates=[],h=hookHarness(Decision,{value:{choice:'no_gstin',gstin:''},onChange:value=>updates.push(value)});
   try {
-    assert.match(text(h.tree), /Checking GST assistance availability/);
-    h.requests[0].resolve({success:true,data:{enabled:true}});await h.settle();
+    assert.match(text(h.tree), /Loading GST assistance details/);
     const radio=h.find(n=>n.type==='input'&&n.props.name==='gst-assistance');
-    assert.equal(radio.props.disabled,false);radio.props.onChange();
+    assert.equal(Boolean(radio.props.disabled),false);radio.props.onChange();
     assert.equal(updates[0].choice,'assistance');assert.equal(h.requests.length,1);
+    h.requests[0].resolve({success:true,data:{enabled:true}});await h.settle();
   } finally {h.close();}
 });
 
 test('seller continues to review with assistance selected and submits without waiting for GST review',async()=>{
   const steps=[];
   const context={onboardingStep:7,setOnboardingStep:step=>steps.push(step),uploadedDocs:{aadhaarFront:{},aadhaarBack:{},passbook:{}},panNumber:'ABCDE1234F',
-    gstDecision:{choice:'assistance',contactName:'Test contact',consent:true},bizForm:{storeName:'Test store'},bankForm:{},selectedTypes:[],submitSellerApplication:async()=>({ok:true})};
+    gstDecision:{choice:'assistance',contactName:'Test contact',consent:true},bizForm:{storeName:'Test store',pickupEmail:'seller@example.test'},
+    aadhaarNo:'123456789012',addressForm:{street:'Test street',pincode:'452001'},
+    bankForm:{holderName:'Test Seller',bankName:'HDFC Bank',accountNumber:'001234567890',ifscCode:'HDFC0001234'},selectedTypes:['ecommerce'],submitSellerApplication:async()=>({ok:true})};
   const h=hookHarness(Onboarding,{},'/seller',context);
   try{
     assert.equal(Boolean(h.find(n=>n.type==='button'&&n.props.children==='Continue to Review').props.disabled),false);
@@ -74,15 +76,14 @@ test('seller continues to review with assistance selected and submits without wa
   }finally{h.close();}
 });
 
-test('missing KYC does not hide review navigation and final submission lists the missing items',()=>{
+test('missing KYC stays on the documents page and lists the missing items before review',()=>{
   const steps=[],context={onboardingStep:7,setOnboardingStep:step=>steps.push(step),uploadedDocs:{},panNumber:'',gstDecision:{choice:'without_gstin'},bizForm:{},bankForm:{},selectedTypes:[]};
   const h=hookHarness(Onboarding,{},'/seller',context);
   try{
-    h.click('Continue to Review');assert.deepEqual(steps,[8]);context.onboardingStep=8;h.rerender();
+    h.click('Continue to Review');assert.deepEqual(steps,[]);
     assert.match(text(h.tree),/Upload Aadhaar front/);assert.match(text(h.tree),/Upload Aadhaar back/);assert.match(text(h.tree),/passbook/);assert.match(text(h.tree),/10-character PAN/);
-    h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});h.flush();
-    assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Submit for Verification').props.disabled,true);
-    h.click('Complete documents and GST details');assert.deepEqual(steps,[8,7]);
+    assert.match(text(h.tree),/Please complete this step before continuing/);
+    assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Submit for Verification'),undefined);
   }finally{h.close();}
 });
 
@@ -115,13 +116,15 @@ test('vendor fee payment requires explicit acceptance and never exposes a pay ac
   try{assert.equal(paid.find(n=>n.type==='button'&&text(n).includes('to Bulkimart')),undefined);assert.match(text(paid.tree),/Payment status:.*paid/);}finally{paid.close();}
 });
 
-test('failed availability check offers retry and does not falsely report service disabled',async()=>{
-  const h=hookHarness(Decision,{value:{choice:'no_gstin'},onChange:()=>{}});
+test('failed details request keeps assistance selectable and offers retry',async()=>{
+  const updates=[],h=hookHarness(Decision,{value:{choice:'no_gstin'},onChange:value=>updates.push(value)});
   try{
     h.requests[0].resolve({message:'Unavailable'},503);await h.settle();
-    assert.match(text(h.tree),/couldn’t check/);assert.doesNotMatch(text(h.tree),/not currently accepting/);
-    h.click('Retry availability');h.requests[1].resolve({data:{enabled:true}});await h.settle();
-    assert.equal(h.find(n=>n.type==='input'&&n.props.name==='gst-assistance').props.disabled,false);
+    assert.match(text(h.tree),/couldn’t load/);assert.doesNotMatch(text(h.tree),/not currently accepting/);
+    const radio=h.find(n=>n.type==='input'&&n.props.name==='gst-assistance');
+    assert.equal(Boolean(radio.props.disabled),false);radio.props.onChange();assert.equal(updates[0].choice,'assistance');
+    h.click('Retry details');h.requests[1].resolve({data:{enabled:true}});await h.settle();
+    assert.equal(Boolean(h.find(n=>n.type==='input'&&n.props.name==='gst-assistance').props.disabled),false);
   }finally{h.close();}
 });
 test('assistance form asks for minimum contact details and consent, without government or payment claims', () => {
@@ -199,15 +202,65 @@ test('admin queue distinguishes loading, empty results and request load errors',
   } finally { h.close(); requests.clearPortalRequests(); }
 });
 
-test('admin intake indicator reports disabled backend configuration and can recheck', async () => {
+test('admin intake notice confirms the permanent feature without an availability switch or request', () => {
   const h = hookHarness(Intake);
   try {
-    h.requests[0].resolve({ data: { enabled: false } }); await h.settle();
-    assert.match(text(h.tree), /intake is disabled/);
-    assert.match(text(h.tree), /deployed backend environment/);
-    h.click('Recheck intake'); h.requests[1].resolve({ data: { enabled: true } }); await h.settle();
     assert.match(text(h.tree), /Accepting GST assistance requests/);
+    assert.doesNotMatch(text(h.tree), /environment|disabled|cannot select/);
+    assert.equal(h.requests.length, 0);
   } finally { h.close(); }
+});
+
+test('admin request opens a loading popup, and closing it prevents a late response from reopening details', async () => {
+  requests.clearPortalRequests(); const h = hookHarness(Panel, { admin: true });
+  try {
+    h.requests[0].resolve({ data: { requests: [row()] } }); await h.settle();
+    const pending = h.find(n => n.type === 'button' && n.props['aria-haspopup'] === 'dialog').props.onClick(); h.flush();
+    assert.ok(h.find(n => n.props?.role === 'dialog'));
+    assert.match(text(h.tree), /Loading request details/);
+    h.find(n => n.props?.['aria-label'] === 'Close GST assistance details').props.onClick(); h.flush();
+    assert.equal(h.find(n => n.props?.role === 'dialog'), undefined);
+    h.requests[1].resolve({ data: row() }); await pending; await h.settle();
+    assert.equal(h.find(n => n.props?.role === 'dialog'), undefined);
+    assert.equal(h.find(n => n.props?.className === 'gst-request-detail'), undefined);
+  } finally { h.close(); requests.clearPortalRequests(); }
+});
+
+test('admin detail failures stay in the popup and retry loads the selected request', async () => {
+  requests.clearPortalRequests(); const h = hookHarness(Panel, { admin: true });
+  try {
+    h.requests[0].resolve({ data: { requests: [row()] } }); await h.settle();
+    const pending = h.find(n => n.type === 'button' && n.props['aria-haspopup'] === 'dialog').props.onClick();
+    h.requests[1].resolve({ message: 'Could not load this request' }, 503); await pending; await h.settle();
+    const dialog = h.find(n => n.props?.role === 'dialog');
+    assert.match(text(dialog), /Could not load this request/);
+    const retry = h.click('Retry request'); h.requests[2].resolve({ data: row() }); await retry; await h.settle();
+    assert.match(text(h.find(n => n.props?.role === 'dialog')), /Status history/);
+    assert.equal(h.find(n => n.props?.role === 'alert'), undefined);
+    assert.equal([h.tree.props.children].flat(Infinity).some(n => n?.props?.className === 'gst-request-detail'), false);
+  } finally { h.close(); requests.clearPortalRequests(); }
+});
+
+test('saving an admin review keeps its popup open and updates the filtered queue', async () => {
+  requests.clearPortalRequests(); const h = hookHarness(Panel, { admin: true });
+  try {
+    h.requests[0].resolve({ data: { requests: [row()] } }); await h.settle();
+    h.find(n => n.type === 'select').props.onChange({ target: { value: 'pending' } }); h.flush();
+    h.requests[1].resolve({ data: { requests: [row()] } }); await h.settle();
+    const pending = h.find(n => n.type === 'button' && n.props['aria-haspopup'] === 'dialog').props.onClick();
+    h.requests[2].resolve({ data: row() }); await pending; await h.settle();
+    h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Review started' } });
+    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'under_review' } }); h.flush();
+    const saving = h.click('Save assistance status');
+    assert.equal(h.find(n => n.props?.['aria-label'] === 'Close GST assistance details').props.disabled, true);
+    assert.equal(h.requests[3].options.body.get('action'), 'transition');
+    assert.equal(h.requests[3].options.body.get('version'), '2');
+    h.requests[3].resolve({ data: row('under_review') }); await saving; await h.settle();
+    assert.ok(h.find(n => n.props?.role === 'dialog'));
+    h.find(n => n.props?.['aria-label'] === 'Close GST assistance details').props.onClick(); h.flush();
+    assert.equal(h.find(n => n.type === 'button' && n.props['aria-haspopup'] === 'dialog'), undefined);
+    assert.match(text(h.tree), /No GST assistance requests/);
+  } finally { h.close(); requests.clearPortalRequests(); }
 });
 
 test('fee settings cannot save when the current fee failed to load', async () => {

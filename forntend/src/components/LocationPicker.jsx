@@ -91,8 +91,9 @@ export const LocationPicker = ({
               geocoded = {
                 address: streetLine,
                 city: addr.city || addr.town || addr.village || addr.county || addr.state_district || '',
-                state: addr.state || 'Uttar Pradesh',
-                pincode: addr.postcode || ''
+                state: addr.state || '',
+                pincode: addr.postcode || '',
+                formatted: data.display_name || ''
               };
             }
           } catch (e) {
@@ -105,8 +106,9 @@ export const LocationPicker = ({
             ...next,
             address: geocoded.address || next.address || '',
             city: geocoded.city || next.city || '',
-            state: geocoded.state || next.state || 'Uttar Pradesh',
+            state: geocoded.state || next.state || '',
             pincode: geocoded.pincode || next.pincode || '',
+            formatted: geocoded.formatted || next.formatted || '',
           });
           setNotice('Address filled in from your location.');
         } else {
@@ -132,14 +134,22 @@ export const LocationPicker = ({
     delete next.lat;
     delete next.lng;
     delete next.accuracy;
+    delete next.formatted;
     onChange(next);
     setNotice('');
   };
 
   const busy = disabled || resolving;
 
+  const fullLocationText = value.formatted || [
+    value.address,
+    value.landmark,
+    value.city,
+    value.state && value.pincode ? `${value.state} - ${value.pincode}` : (value.state || value.pincode)
+  ].filter(Boolean).join(', ');
+
   return (
-    <div className="nh-loc">
+    <div className="nh-loc" autoComplete="off">
       <button
         type="button"
         className="nh-loc-gps"
@@ -149,22 +159,26 @@ export const LocationPicker = ({
         {locating ? '📍 Finding you…' : resolving ? '📍 Looking up the address…' : `📍 ${buttonLabel}`}
       </button>
 
-      {hasFix && !hideCoords && (
+      {hasFix && (
         <div className="nh-loc-fix">
           <div className="nh-loc-fix-head">
-            <span className="nh-loc-badge">GPS</span>
-            <span className="nh-loc-coords">
-              {Number(value.lat).toFixed(5)}, {Number(value.lng).toFixed(5)}
-            </span>
+            <span className="nh-loc-badge">📍 Pinned Location</span>
             <button type="button" className="nh-loc-clear" onClick={clearFix} disabled={busy}>
               Clear
             </button>
           </div>
-          {value.accuracy !== undefined && (
-            <p className="nh-loc-accuracy">
-              Accurate to about {value.accuracy} m
-              {value.accuracy > 100 && ' — move outdoors for a better fix'}
-            </p>
+          <div className="nh-loc-full-text">
+            {fullLocationText ? (
+              <span>{fullLocationText}</span>
+            ) : (
+              <span className="nh-loc-pending-text">Location pinned — confirm or enter address details below</span>
+            )}
+          </div>
+          {!hideCoords && (
+            <div className="nh-loc-coords-sub">
+              GPS: {Number(value.lat).toFixed(5)}, {Number(value.lng).toFixed(5)}
+              {value.accuracy !== undefined && ` (±${value.accuracy}m)`}
+            </div>
           )}
         </div>
       )}
@@ -173,65 +187,82 @@ export const LocationPicker = ({
       {notice && !error && <p className="nh-loc-notice">{notice}</p>}
 
       <div className="nh-loc-divider">
-        <span>{hasFix ? 'Confirm the address' : 'Or enter it manually'}</span>
+        <span>{hasFix ? 'Confirm or edit the address' : 'Or enter it manually'}</span>
       </div>
 
       <div className="nh-loc-group">
-        <label className="nh-loc-label">
+        <label className="nh-loc-label" htmlFor="nh-loc-address">
           {addressLabel} {!hasFix && <span className="nh-loc-req">*</span>}
         </label>
         <input
+          id="nh-loc-address"
           type="text"
           className="nh-loc-input"
-          placeholder="House / shop no, street, area"
+          placeholder="House / shop / building name, street, area"
           value={value.address || ''}
           onChange={field('address')}
           disabled={busy}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck="false"
         />
       </div>
 
       <div className="nh-loc-group">
-        <label className="nh-loc-label">Landmark</label>
+        <label className="nh-loc-label" htmlFor="nh-loc-landmark">Landmark</label>
         <input
+          id="nh-loc-landmark"
           type="text"
           className="nh-loc-input"
-          placeholder="e.g. opposite the bus depot"
+          placeholder="Landmark (optional)"
           value={value.landmark || ''}
           onChange={field('landmark')}
           disabled={busy}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck="false"
         />
       </div>
 
       <div className="nh-loc-row">
         <div className="nh-loc-group">
-          <label className="nh-loc-label">City</label>
+          <label className="nh-loc-label" htmlFor="nh-loc-city">City</label>
           <input
+            id="nh-loc-city"
             type="text"
             className="nh-loc-input"
-            placeholder="e.g. Nagpur"
+            placeholder="City / district"
             value={value.city || ''}
             onChange={field('city')}
             disabled={busy}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
           />
         </div>
         <div className="nh-loc-group">
-          <label className="nh-loc-label">State</label>
+          <label className="nh-loc-label" htmlFor="nh-loc-state">State</label>
           <input
+            id="nh-loc-state"
             type="text"
             className="nh-loc-input"
-            placeholder="e.g. Maharashtra"
+            placeholder="State"
             value={value.state || ''}
             onChange={field('state')}
             disabled={busy}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
           />
         </div>
       </div>
 
       <div className="nh-loc-group">
-        <label className="nh-loc-label">
+        <label className="nh-loc-label" htmlFor="nh-loc-pincode">
           Pincode <span className="nh-loc-req">*</span>
         </label>
         <input
+          id="nh-loc-pincode"
           type="text"
           inputMode="numeric"
           maxLength={6}
@@ -242,6 +273,9 @@ export const LocationPicker = ({
           // something the server will reject.
           onChange={(e) => set({ pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })}
           disabled={busy}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck="false"
         />
       </div>
     </div>

@@ -14,7 +14,13 @@ export function clearDeliverySession(notify = true) {
   if (notify) window.dispatchEvent(new Event(DELIVERY_SESSION_CHANGED));
 }
 export function saveDeliverySession(body) {
-  if (!body.success || typeof body.token !== 'string' || !body.token || !body.user?._id || body.sessionRole !== 'delivery' || !body.user.roles?.includes('delivery')) throw new Error('Invalid Delivery login session. Please sign in again.');
+  // The backend authenticates applicants before approval so they can resume
+  // onboarding or view their status. The delivery role is granted on approval.
+  const roles = body.user?.roles;
+  const applicant = ['incomplete', 'pending', 'under_review', 'rejected', 'suspended'].includes(body.deliveryState?.status);
+  if (!body.success || typeof body.token !== 'string' || !body.token || !body.user?._id || body.sessionRole !== 'delivery'
+    || !Array.isArray(roles) || !roles.length || roles.some(role => !['buyer', 'seller', 'shg', 'delivery'].includes(role))
+    || (!roles.includes('delivery') && !applicant)) throw new Error('Invalid Delivery login session. Please sign in again.');
   clearDeliverySession(false);
   localStorage.setItem('deliveryToken', body.token);
   localStorage.setItem('deliveryUserProfile', JSON.stringify(body.user));

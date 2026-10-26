@@ -24,14 +24,32 @@ const findUserByPhone = async (rawPhone) => {
   return { phone, user };
 };
 
+const hasCustomerAccount = (user) => user?.roles?.includes('buyer') && user.customerRegistered !== false;
+
+const checkCustomerEntry = (user, isLogin) => {
+  if (user && !user.isActive) throw httpError(403, 'Access denied — user account is deactivated');
+  if (user && (!Array.isArray(user.roles) || !user.roles.length || user.roles.some(role => !['buyer', 'seller', 'shg', 'delivery'].includes(role)))) {
+    throw httpError(403, 'Account has no supported login role. Please contact support.');
+  }
+  if (isLogin === true && !hasCustomerAccount(user)) {
+    throw httpError(404, 'Mobile number not registered as a customer. Please register your account first.', { code: 'NOT_REGISTERED' });
+  }
+  // Older delivery signups automatically received the buyer role. Let those
+  // identities complete customer registration once without duplicating them.
+  const legacyDelivery = user && user.customerRegistered === undefined && (user.deliveryPartnerId || user.roles.includes('delivery'));
+  if (isLogin === false && hasCustomerAccount(user) && !legacyDelivery) {
+    throw httpError(400, 'Mobile number is already registered. Please sign in instead.', { code: 'ALREADY_REGISTERED' });
+  }
+};
+
 /**
  * `role`, when given, is a claim the caller has already verified at THIS
  * exact moment (e.g. verifySellerOTP only reaches this call after confirming
  * an approved Seller record) — never a value handed straight through from
  * request input. It rides in the JWT so later requests (e.g. creating a
  * support ticket) can trust "this session authenticated as a seller"
- * without re-deriving it from a client-supplied hint. Shared login resolves
- * buyer/Delivery membership; dedicated entry points verify their own profiles.
+ * without re-deriving it from a client-supplied hint. Each entry point verifies
+ * membership for its own portal.
  */
 const generateToken = (id, type, role) => {
   return signSessionToken({ id, type, ...(role ? { role } : {}) });
@@ -70,24 +88,7 @@ export const requestOTP = asyncHandler(async (req, res) => {
     throw new Error("Please provide a valid phone number");
   }
 
-  // Strict DB check based on login mode
-  if (isLogin === true) {
-    if (!existingUser) {
-      throw httpError(
-        404,
-        "Mobile number not registered. Please register your account first.",
-        { code: "NOT_REGISTERED" }
-      );
-    }
-  } else if (isLogin === false) {
-    if (existingUser) {
-      throw httpError(
-        400,
-        "Mobile number is already registered. Please sign in instead.",
-        { code: "ALREADY_REGISTERED" }
-      );
-    }
-  }
+  checkCustomerEntry(existingUser, isLogin);
 
   const result = await sendOTP(phone);
 
@@ -128,26 +129,10 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
   let user = foundUser;
   let isNewUser = false;
 
-  if (isLogin === true) {
-    if (!user) {
-      throw httpError(
-        404,
-        "Mobile number not registered. Please register your account first.",
-        { code: "NOT_REGISTERED" }
-      );
-    }
-  } else if (isLogin === false) {
-    if (user) {
-      throw httpError(
-        400,
-        "Mobile number is already registered. Please sign in instead.",
-        { code: "ALREADY_REGISTERED" }
-      );
-    }
-  }
+  checkCustomerEntry(user, isLogin);
 
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   if (!user) {
-    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
     user = await User.create({
       phone,
       name: (name || "").trim(),
@@ -155,10 +140,28 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
       // a real duplicate value. Phone-only registration must omit email.
       ...(normalizedEmail ? { email: normalizedEmail } : {}),
       roles: ["buyer"],
+      customerRegistered: true,
       wallet: { balance: 0, transactions: [] }
     });
     isNewUser = true;
-
+  } else if (isLogin === false) {
+    // OTP has been verified. Extend this identity while retaining its delivery
+    // profile, wallet and other memberships. Concurrent signups cannot overwrite
+    // an already completed customer registration.
+    user = await User.findOneAndUpdate(
+      { _id: user._id, customerRegistered: { $ne: true } },
+      {
+        $set: {
+          customerRegistered: true,
+          ...(typeof name === 'string' && name.trim() ? { name: name.trim() } : {}),
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        },
+        $addToSet: { roles: 'buyer' },
+      },
+      { new: true, runValidators: true },
+    );
+    if (!user) throw httpError(400, 'Mobile number is already registered. Please sign in instead.', { code: 'ALREADY_REGISTERED' });
+    isNewUser = true;
   }
 
   if (!user.isActive) {
@@ -166,7 +169,7 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
     throw new Error("Access denied — user account is deactivated");
   }
 
-  const session = await resolveLoginSession(user);
+  const session = await resolveLoginSession(user, 'buyer');
   const token = generateToken(user._id, "user", session.sessionRole);
 
   res.status(200).json({
@@ -348,7 +351,7 @@ export const requestDeliveryOTP = asyncHandler(async (req, res) => {
 
 export const verifyDeliveryOTP = asyncHandler(async (req, res) => {
   const entry = await deliveryEntry(req, true);
-  const user = entry.user || await User.create({ phone: entry.phone, roles: ['buyer'], wallet: { balance: 0, transactions: [] } });
+  const user = entry.user || await User.create({ phone: entry.phone, roles: ['buyer'], customerRegistered: false, wallet: { balance: 0, transactions: [] } });
   if (!entry.partner) {
     // Explicit registration creates only an incomplete application, never approval.
     const partner = await DeliveryPartner.findOneAndUpdate({ userId: user._id },

@@ -558,6 +558,7 @@ export const UserProvider = ({ children }) => {
       if (!response.ok) {
         throw new Error(data.message || 'OTP verification failed');
       }
+      if (data.sessionRole !== 'buyer') throw new Error('Customer sign-in could not be completed. Please try again.');
       if (!isCurrentUserSession(snapshot)) throw new Error('Your session changed. Please sign in again.');
       saveUserSession(data);
       openSessionDashboard(data.sessionRole);

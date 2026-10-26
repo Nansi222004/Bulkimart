@@ -16,9 +16,11 @@ export default function GstPaymentPanel({ row, admin=false, onUpdated }) {
     }else{const result=await gstApi(false,'/me/payment-status',{method:'POST',json:{}});setMessage(result.status==='paid'?'Payment verified. Bulkimart has received your service fee.':`Payment status: ${result.status}`);}
     await onUpdated?.();
   }catch(e){setMessage(e.message);}finally{lock.current=false;setBusy(false);}}
-  return <section className="gst-payment-panel" aria-label="GST assistance payment"><h4>Bulkimart service fee: ₹{(bill.amountPaise/100).toFixed(2)}</h4><p>Payment status: {bill.status}</p><p>{bill.terms}</p>
+  return <section className="gst-payment-panel" aria-label="GST assistance payment">
+    <div className="gst-payment-heading"><h4>Bulkimart service fee</h4><strong className="gst-payment-amount">₹{(bill.amountPaise/100).toFixed(2)}</strong></div>
+    <p className="gst-payment-status">Payment status: <span>{bill.status}</span></p><p className="gst-payment-terms">{bill.terms}</p>
     {bill.reviewRequired&&<p role="status">This payment needs Bulkimart review. Contact support for reconciliation or refund assistance.</p>}
-    {payable&&<><p>You can finish seller registration before paying. GST assistance work requires verified payment.</p><label><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/> I accept the displayed service fee and payment terms.</label><button disabled={busy||!accepted} onClick={()=>run(true)}>Pay ₹{(bill.amountPaise/100).toFixed(2)} to Bulkimart</button></>}
+    {payable&&<><p>You can finish seller registration before paying. GST assistance work requires verified payment.</p><label className="gst-payment-consent"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/><span>I accept the displayed service fee and payment terms.</span></label><button disabled={busy||!accepted} onClick={()=>run(true)}>Pay ₹{(bill.amountPaise/100).toFixed(2)} to Bulkimart</button></>}
     {!admin&&['pending','failed','paid'].includes(bill.status)&&<button disabled={busy} onClick={()=>run(false)}>Check payment status</button>}
     {message&&<p role="status">{message}</p>}
   </section>;

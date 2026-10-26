@@ -52,6 +52,10 @@ const userSchema = new Schema(
     // does not invalidate its historical roles array. No active route grants it.
     roles: [{ type: String, enum: ["buyer", "seller", "shg", "delivery"] }],
 
+    // Delivery registration creates a shared identity, not a customer signup.
+    // Absent on older accounts; retain their existing buyer membership.
+    customerRegistered: { type: Boolean },
+
     // Links to role-specific profiles
     sellerId:          { type: ObjectId, ref: "Seller" },
     deliveryPartnerId: { type: ObjectId, ref: "DeliveryPartner" },

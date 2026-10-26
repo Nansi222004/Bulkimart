@@ -1,6 +1,30 @@
 export const SELLER_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRAFT_PREFIX = 'bulkimart:seller-onboarding:v1:';
 const ALLOWED_MODES = new Set(['ecommerce', 'quick']);
+const sessionDrafts = new Map();
+
+// Keep entered identity/bank fields and real Files across component remounts
+// in this tab. They are never serialized into browser storage.
+export const readSellerSessionDraft = (key, now = Date.now()) => {
+  const draft = key && sessionDrafts.get(key);
+  if (!draft) return null;
+  if (now - draft.updatedAt > SELLER_DRAFT_TTL_MS) {
+    sessionDrafts.delete(key);
+    return null;
+  }
+  return draft;
+};
+
+export const writeSellerSessionDraft = (key, draft, now = Date.now()) => {
+  if (!key) return;
+  sessionDrafts.set(key, {
+    ...draft, updatedAt: now,
+    selectedTypes: [...draft.selectedTypes],
+    bizForm: { ...draft.bizForm }, addressForm: { ...draft.addressForm },
+    bankForm: { ...draft.bankForm }, uploadedDocs: { ...draft.uploadedDocs },
+    gstDecision: { ...draft.gstDecision },
+  });
+};
 
 export const selectedModesToChannels = (modes) => {
   if (!Array.isArray(modes) || modes.length === 0 || modes.some((mode) => !ALLOWED_MODES.has(mode))) {
@@ -91,6 +115,7 @@ export const writeSellerDraft = (storage, key, draft, now = Date.now()) => {
 };
 
 export const clearSellerDraft = (storage, key) => {
+  sessionDrafts.delete(key);
   if (!storage || !key) return;
   try { storage.removeItem(key); } catch { /* unavailable storage */ }
 };

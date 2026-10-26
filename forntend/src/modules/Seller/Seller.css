@@ -635,6 +635,18 @@
   color: var(--text-secondary);
 }
 
+.seller-pickup-email {
+  margin-top: 16px;
+  margin-bottom: 20px;
+}
+
+.seller-pickup-email-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .onboarding-input {
   width: 100%;
   box-sizing: border-box;

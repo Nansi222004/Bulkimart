@@ -27,7 +27,7 @@ export default function CustomerSessionGate({ children }) {
         localStorage.setItem('userProfile', JSON.stringify(body.profile));
         if (body.sessionRole === 'delivery') {
           // Migrate old shared credentials only after server verification.
-          if (!localStorage.getItem('deliveryToken')) saveDeliverySession({ success: true, token, user: body.profile, sessionRole: 'delivery' });
+          if (!localStorage.getItem('deliveryToken')) saveDeliverySession({ success: true, token, user: body.profile, sessionRole: 'delivery', deliveryState: body.deliveryState });
           clearUserSession(false);
           setSession({ token: '', loading: false }); return;
         }

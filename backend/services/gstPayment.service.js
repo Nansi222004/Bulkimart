@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import Request from '../models/GstAssistanceRequest.js';
 import Payment from '../models/Payment.js';
 import { currentGstFee } from './gstFee.service.js';
-import { requireGstAssistance } from './gstAssistance.service.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSignature, validateRazorpayConfig } from './razorpay.service.js';
 import { reconcileCreationAttempt } from './paymentRecovery.service.js';
@@ -12,8 +11,7 @@ import { httpError } from '../utils/response.js';
 
 const fail = (message, status = 409) => { throw httpError(status, message); };
 const active = row => !['cancelled','rejected','completed'].includes(row.status);
-export function requireGstGateway(intake = false) {
-  if (intake) requireGstAssistance();
+export function requireGstGateway() {
   const production = ['NODE_ENV','DEPLOYMENT_ENV','APP_ENV','VERCEL_ENV','RENDER_ENV'].some(key => ['production','prod','deployment-production'].includes(String(process.env[key] || '').trim().toLowerCase()));
   if (process.env.PAYMENT_GATEWAY !== 'razorpay' || process.env.RAZORPAY_MODE !== (production ? 'live' : 'test')) fail('Configure the matching Razorpay mode for GST service payments', 503);
   try { validateRazorpayConfig(); } catch { fail('GST service payment gateway is not configured', 503); }
@@ -24,7 +22,7 @@ async function owned(id, userId, session = null) {
   return row;
 }
 export async function initiateGstPayment(id, userId, input, key) {
-  requireGstGateway(true);
+  requireGstGateway();
   if (!/^[a-zA-Z0-9-]{16,100}$/.test(key || '')) fail('A payment request key is required', 400);
   const prepared = await financialTransaction(async session => {
     const row = await owned(id, userId, session);
