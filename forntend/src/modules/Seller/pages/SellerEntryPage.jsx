@@ -29,7 +29,7 @@ const OPTIONS = [
 export const SellerEntryPage = ({ onChoose }) => (
   <div className="seller-main-content seller-auth-page">
     <div className="seller-header-row">
-      <BrandLogo className="seller-auth-logo" variant="compact" portal="Seller" transparent />
+      <BrandLogo audience="seller" className="seller-auth-logo" variant="compact" portal="Seller" />
       <button
         type="button"
         onClick={() => { window.location.href = '/'; }}
@@ -64,7 +64,7 @@ export const SellerEntryPage = ({ onChoose }) => (
             fontSize: 20, fontWeight: 900, letterSpacing: 0.5,
           }}
         >
-          BM
+          <BrandLogo audience="seller" variant="icon" />
         </div>
       </div>
 

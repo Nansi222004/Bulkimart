@@ -90,7 +90,7 @@ export const LeftNav = ({ isCollapsed, onToggleCollapse }) => {
       {/* Brand logo header */}
       <div className="seller-left-nav-logo">
         <div className="logo-brand-group">
-          <BrandLogo className="logo-icon-box" variant="icon" />
+          <BrandLogo audience="seller" className="logo-icon-box" variant="icon" />
           {!isCollapsed && <span className="seller-logo-text">Bulkimart Seller</span>}
         </div>
         <button

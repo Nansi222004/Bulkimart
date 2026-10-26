@@ -2,7 +2,7 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './componentHarness.mjs';
-let vite, Center, Commission, Rates, Charges, Shiprocket, simulate, Sidebar, Overview, Policy;
+let vite, Center, Commission, Rates, Charges, Shiprocket, simulate, Sidebar, Overview, Policy, Courier;
 before(async()=>{
   vite=await createServer({server:{middlewareMode:true},appType:'custom'});
   const load=async file=>(await vite.ssrLoadModule('/src/modules/Admin/components/'+file+'.jsx'));
@@ -11,6 +11,7 @@ before(async()=>{
   Shiprocket=(await load('QuickThirdPartySettingsTab')).default; simulate=(await load('CommissionSimulation')).simulateCommission;
   Sidebar=(await load('LeftSidebar')).default;
   Overview=(await load('FinanceOverview')).default; Policy=(await load('FinancePolicySettings')).default;
+  Courier=(await load('CourierCostsPanel')).default;
 });
 after(async()=>vite.close());
 const text=h=>JSON.stringify(h.tree,(_key,value)=>typeof value==='function'?undefined:value);
@@ -109,9 +110,16 @@ test('commission history loads authoritative rule metadata and never rewrites it
 test('successful commission save reloads persisted audit history after review',async()=>{
   const h=hookHarness(Commission);try{
     h.requests[0].resolve({data:{rules:[],flags:{}}});await h.settle();
-    for(const [label,value] of [['Commission value','5'],['GST rate on commission (%)','0'],['GST treatment','exempt'],['Starts from','2026-10-21T12:00'],['Change reason','Synthetic fixture approval']])edit(h,label,value);
-    submit(h);assert.equal(posts(h).length,0);confirm(h);posts(h)[0].resolve({data:{version:'SAVED'}});await h.settle();
-    h.requests.at(-1).resolve({data:{rules:[{_id:'fixture',version:'SAVED',channel:'ecommerce',method:'percentage',value:5,taxRate:0,taxTreatment:'exempt',effectiveDate:'2026-10-21',isActive:false,reason:'Synthetic fixture approval',createdBy:'fixture-admin'}],flags:{}}});await h.settle();assert.match(text(h),/SAVED/);assert.match(text(h),/Saved and reloaded from the server/);
+    for(const [label,value] of [['Commission value','5'],['GST rate on commission (%)','0'],['GST treatment','exempt'],['Change reason','Synthetic fixture approval']])edit(h,label,value);
+    submit(h);assert.equal(posts(h).length,0);confirm(h);
+    // No schedule is sent: a saved rule replaces the current one immediately.
+    const payload=JSON.parse(posts(h)[0].options.body);assert.equal(payload.effectiveDate,undefined);assert.equal(payload.isActive,true);assert.equal(payload.supersedes,null);
+    posts(h)[0].resolve({data:{version:'SAVED'}});await h.settle();
+    const saved={_id:'fixture',version:'SAVED',channel:'ecommerce',vendorType:'general',method:'percentage',value:5,taxRate:0,taxTreatment:'exempt',isActive:true,reason:'Synthetic fixture approval',createdBy:'fixture-admin'};
+    h.requests.at(-1).resolve({data:{rules:[saved],current:[saved],coverage:[{channel:'ecommerce',vendorType:'general',ruleId:'fixture',active:true,overrides:0}],flags:{}}});await h.settle();
+    assert.match(text(h),/SAVED/);assert.match(text(h),/Saved and reloaded from the server/);assert.match(text(h),/Edit current commission rule/);assert.match(text(h),/Current/);
+    // Editing that scope again names the rule being replaced.
+    edit(h,'Change reason','Synthetic second change');submit(h);confirm(h);assert.equal(JSON.parse(posts(h).at(-1).options.body).supersedes,'fixture');
   }finally{h.close();}
 });
 test('successful rider draft retains persisted inputs and invokes authoritative reload',async()=>{
@@ -134,17 +142,28 @@ test('Shiprocket loads persisted values and shows returned revision history afte
 test('overview shows setup gaps, to-do items with links and ledger totals without writing',async()=>{
   const opened=[];const h=hookHarness(Overview,{onNavigate:view=>opened.push(view)});try{
     assert.match(h.requests[0].url,/finance\/overview$/);
-    h.requests[0].resolve({data:{flags:{snapshots:true,operations:false,payouts:false,policyApproved:true,testsApproved:true},commissionRulesConfigured:false,
+    h.requests[0].resolve({data:{flags:{snapshots:true,operations:false,payouts:false,policyApproved:true,testsApproved:true},commissionRulesConfigured:false,commissionCoverage:[{channel:'ecommerce',vendorType:'general',active:false},{channel:'quick',vendorType:'general',active:true}],
       policy:{configured:false,bankVerificationConfigured:false,payoutSchedule:'weekly',payoutWeekday:1,tcsRatePercent:0.5,tdsRatePercent:0.1,sellerMinPayout:500,riderMinPayout:100},
       todo:{cashToVerify:2,cashMismatch:0,cashWithRiders:1,missingRule:0,waitingPayment:3,needsReview:1,onHold:4,sellerPayouts:0,riderPayouts:0},
       totalsPaise:{sellersOnHold:9040,sellersAvailable:0,sellersRequested:0,sellersPaid:0,ridersOnHold:4000,ridersAvailable:0,ridersRequested:0,ridersPaid:0,commission:900,commissionGst:0,tcs:50,tds:10,platformDiscounts:1000,codShortages:0,codCashWithRiders:10000}}});
     await h.settle();
     assert.match(text(h),/2 · COD handovers to check/);assert.match(text(h),/1 · Orders that need your review/);assert.doesNotMatch(text(h),/Seller payout requests/);
     assert.match(text(h),/₹90.40/);assert.match(text(h),/₹10.00/);assert.match(text(h),/every Monday/);
-    assert.match(text(h),/✗ At least one commission rule is active/);
+    assert.match(text(h),/✗ A commission rule is switched on/);assert.match(text(h),/No switched-on rule for: E-Commerce/);
     const openButtons=[];(function walk(n){if(!n||typeof n!=='object')return;if(n.type==='button'&&n.props.children==='Open')openButtons.push(n);[n.props?.children].flat(Infinity).forEach(walk);})(h.tree);
     openButtons.forEach(button=>button.props.onClick());assert.ok(opened.includes('cod'));assert.ok(opened.includes('commissions'));assert.ok(opened.includes('policies'));
     assert.equal(posts(h).length,0);
+  }finally{h.close();}
+});
+test('courier costs show estimates apart from provider bills and record a bill with its evidence',async()=>{
+  const h=hookHarness(Courier);try{
+    assert.match(h.requests[0].url,/finance\/courier-costs\?direction=forward&page=1$/);
+    h.requests[0].resolve({data:{total:1,page:1,limit:25,rows:[{key:'forward:SR-1',direction:'forward',orderId:'order-1',orderNo:'ORD-1',shipmentId:'SR-1',awb:'AWB-1',estimatePaise:5550,actualPaise:null,status:'estimated',evidence:[]}]}});await h.settle();
+    assert.match(text(h),/Estimate only/);assert.match(text(h),/₹55.50/);assert.equal(posts(h).length,0);
+    h.find(n=>n.type==='button'&&n.props.children==='Record bill').props.onClick();h.flush();
+    for(const [label,value] of [['Amount charged (₹)','60'],['Bill or invoice number','INV-1001'],['Reason','Matched to the invoice']])edit(h,label,value);
+    submit(h);const body=JSON.parse(posts(h)[0].options.body);
+    assert.deepEqual(body,{direction:'forward',orderId:'order-1',amount:60,reference:'INV-1001',source:'provider_invoice',reason:'Matched to the invoice'});
   }finally{h.close();}
 });
 test('payout and tax policy loads, explains every field, reviews before saving and keeps errors visible',async()=>{

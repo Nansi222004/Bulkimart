@@ -3,6 +3,8 @@ import Payment from '../models/Payment.js';
 import Return from '../models/Return.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import Partner from '../models/DeliveryPartner.js';
+import { effectiveAccountExpr } from './sellerLedger.service.js';
+import { deliverySplit } from './orderFinance.service.js';
 
 const cents = value => Math.round(Number(value || 0) * 100);
 export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => {
@@ -10,9 +12,11 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
   const [orders, total, negative, duplicateKeys] = await Promise.all([
     Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     Order.countDocuments(filter),
-    Ledger.aggregate([{ $group: { _id: { sellerId: '$sellerId', partnerId: '$partnerId', providerId: '$providerId', account: { $ifNull: ['$account', 'seller_payable'] }, bucket: '$bucket' },
+    // An unpaid courier obligation is expected to be negative (the seller owes
+    // it), so it is reported through its own balance, not as an exception.
+    Ledger.aggregate([{ $group: { _id: { sellerId: '$sellerId', partnerId: '$partnerId', providerId: '$providerId', account: effectiveAccountExpr, bucket: '$bucket' },
       amount: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, '$amount', { $multiply: ['$amount', -1] }] } } } },
-      { $match: { amount: { $lt: -0.005 } } }, { $limit: 100 }]),
+      { $match: { amount: { $lt: -0.005 }, '_id.account': { $ne: 'seller_courier_obligation' } } }, { $limit: 100 }]),
     Ledger.aggregate([{ $group: { _id: '$idempotencyKey', count: { $sum: 1 } } }, { $match: { count: { $gt: 1 } } }, { $limit: 100 }]),
   ]);
   const exceptions = [];
@@ -44,6 +48,16 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
         const actual = entries.filter(row => row.account === account && row.type === type && row.direction === 'credit' && row.metadata?.itemId === line.itemId).reduce((sum,row) => sum + cents(row.amount),0);
         if (actual !== expected) issue('merchandise_posting_mismatch', `${line.itemId}: ${account} ${actual} paise; expected ${expected} paise`);
       }
+    }
+    if (order.financialPosting) {
+      try {
+        const split = deliverySplit(order, snapshot);
+        const posted = type => entries.filter(row => row.type === type && row.direction === 'credit').reduce((sum, row) => sum + cents(row.amount), 0);
+        // Orders posted before the split carried the incentive inside customer delivery.
+        const legacy = !posted('same_day_incentive') && posted('customer_delivery') === split.deliveryPaise + split.incentivePaise;
+        if (legacy && split.incentivePaise) issue('same_day_incentive_unallocated', `${split.incentivePaise} paise of the delivery charge was posted as platform income; review separately`);
+        else if (posted('customer_delivery') !== split.deliveryPaise || posted('same_day_incentive') !== split.incentivePaise) issue('delivery_posting_mismatch', `delivery ${posted('customer_delivery')} / incentive ${posted('same_day_incentive')} paise; expected ${split.deliveryPaise} / ${split.incentivePaise}`);
+      } catch (error) { issue('delivery_posting_mismatch', error.message); }
     }
     for (const ret of returns) if (!order.financialReturnQuantities?.[`return_${ret._id}`]) issue('return_reconciliation_required', `${ret._id}: ${ret.status}`);
   }

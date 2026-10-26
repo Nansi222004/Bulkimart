@@ -1,0 +1,18 @@
+.registration-terms-link { display: inline; padding: 2px 0; border: 0; background: transparent; color: #0369a1; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.registration-terms-note { margin: 0; font-size: 13px; color: #475569; line-height: 1.6; }
+.registration-policy-overlay { display: flex; align-items: center; justify-content: center; background: rgb(15 23 42 / 50%); }
+.registration-policy-dialog { display: flex; flex-direction: column; width: min(680px, 100%); max-height: 100%; background: white; color: #0f172a; border-radius: 16px; overflow: hidden !important; box-shadow: 0 20px 60px rgb(15 23 42 / 25%); }
+.registration-policy-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #e2e8f0; flex-shrink: 0; }
+.registration-policy-dialog h2 { margin: 0; font-size: 20px; }
+.registration-policy-dialog header button { min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; background: #f1f5f9; color: #0f172a; font-size: 24px; cursor: pointer; }
+.registration-policy-content { padding: 16px 20px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; line-height: 1.7; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.registration-policy-content h3 { margin-top: 0; }
+.registration-policy-content h4 { margin-bottom: 4px; }
+.registration-policy-version { color: #64748b; font-size: 12px; }
+.registration-policy-dialog footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid #e2e8f0; flex-shrink: 0; }
+.registration-policy-dialog footer button, .registration-policy-content button { min-height: 44px; padding: 10px 16px; border: 1px solid #bae6fd; border-radius: 8px; background: #f0f9ff; color: #0369a1; cursor: pointer; font-weight: 700; }
+.registration-terms-link:focus-visible { outline: 2px solid #0284c7; outline-offset: 3px; border-radius: 2px; }
+@media (max-width: 480px) {
+  .registration-policy-dialog h2 { font-size: 18px; }
+  .registration-policy-dialog header, .registration-policy-content, .registration-policy-dialog footer { padding-inline: 14px; }
+}

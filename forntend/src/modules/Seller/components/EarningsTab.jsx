@@ -27,9 +27,10 @@ export const EarningsTab = () => {
     ['Paid to you', balances.settled, '#334155', 'Sent to your bank so far.'],
   ];
   const other = [
-    ['Total earned', balances.earnedEarnings], ['Payout requested', balances.reserved], ['Pending', balances.pending],
-    ['Shiprocket courier charges', balances.quickFreightObligations], ['Shiprocket service fees', balances.bulkimartServiceFees],
+    ['Total earned', balances.earnedEarnings], ['Same-day incentives', balances.sameDayIncentives], ['Payout requested', balances.reserved], ['Pending', balances.pending],
   ];
+  // Prepaid Shiprocket charges are separate from earnings and never reduce what you can withdraw.
+  const courier = balances.courierObligations;
   if (financeLoading) return <div role="status" style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading authoritative seller ledger…</div>;
   if (financeError || !financeSummary) return <section style={{ padding: 20 }}>
     <h1>Earnings & settlements</h1><div role={financeError ? 'alert' : 'status'}>{financeError || 'Seller finances have not loaded yet.'}</div>
@@ -54,7 +55,10 @@ export const EarningsTab = () => {
         <div style={{ fontSize: 12, color: '#64748b' }}>{title}</div><div style={{ marginTop: 6, fontSize: 23, fontWeight: 800, color }}>{money(value)}</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{help}</div>
       </div>)}
     </div>
-    <p style={{ fontSize: 12, color: '#475569', marginBottom: 20 }}>{other.map(([title, value]) => `${title}: ${money(value)}`).join(' · ')}{policy && <><br />Payouts: {policy.schedule === 'weekly' ? `sent automatically every ${WEEKDAYS[policy.weekday]}` : 'request them any time'}{policy.minimum > 0 ? ` · minimum ${money(policy.minimum)}` : ''}</>}</p>
+    {courier?.charged > 0 && <p style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+      {`Shiprocket charges you prepaid: ${money(courier.charged)} charged · ${money(courier.paid)} paid · ${money(courier.outstanding)} still to pay`}
+      <br />{`Includes courier ${money(balances.quickFreightObligations)} and Bulkimart service fees ${money(balances.bulkimartServiceFees)}. These are paid separately and are not taken from your earnings.`}</p>}
+    <p style={{ fontSize: 12, color: '#475569', marginBottom: 20 }}>{other.map(([title, value]) => `${title}: ${money(value)}`).join(' · ')}{policy &&<><br />Payouts: {policy.schedule === 'weekly' ? `sent automatically every ${WEEKDAYS[policy.weekday]}` : 'request them any time'}{policy.minimum > 0 ? ` · minimum ${money(policy.minimum)}` : ''}</>}</p>
     {financeSummary?.coverage && <div style={{ padding: 14, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 10, marginBottom: 16, fontSize: 12 }}>
       How it works: an order is delivered → once payment (or COD cash) reaches Bulkimart, your earning appears as “On hold” → after the return window it becomes “Available” → you withdraw it. Older orders from before this system need a finance review; contact support with the order number.
     </div>}

@@ -149,7 +149,7 @@ test.each([
 ])('commission calculations use approved fixed/percentage/limits/tax fixtures: %j', (changes, expected) => {
   expect(calculateCommission(10000, { ...ruleInput(), ...changes })).toMatchObject(expected);
 });
-test.each([{ value: null }, { taxRate: '' }, { taxRate: 18, taxTreatment: 'exempt' }, { minimum: -1 }, { minimum: 10, maximum: 1 }, { isActive: 'true' }, { effectiveDate: 'bad' }, { channel: 'unknown' }, { productId: '$gt' }, { value: 100.001 }])('backend rejects invalid configuration: %j', changes => {
+test.each([{ value: null }, { taxRate: '' }, { taxRate: 18, taxTreatment: 'exempt' }, { minimum: -1 }, { minimum: 10, maximum: 1 }, { isActive: 'true' }, { reason: 'x' }, { channel: 'unknown' }, { productId: '$gt' }, { value: 100.001 }])('backend rejects invalid configuration: %j', changes => {
   expect(() => validateCommissionRule({ ...ruleInput(), ...changes })).toThrow();
 });
 test('fully discounted item has no fixed minimum; deductions cannot produce negative net', () => {
@@ -161,10 +161,10 @@ test('proportional allocation conserves discount residuals and uses deterministi
   expect(allocatePaise(100, [100, 200, 300]).reduce((a,b) => a+b,0)).toBe(100);
   expect(() => allocatePaise(4, [1,2])).toThrow();
 });
-test('product override wins; effective dates and historical snapshots remain independent', async () => {
+test('product override wins; replacing the channel rule never changes frozen orders', async () => {
   await saveCommissionVersion({ ...ruleInput(), productId: String(product._id), value: 12 }, admin._id);
   expect((await buildOrderFinancialSnapshot(order)).lines[0].commissionPaise).toBe(1200);
-  await saveCommissionVersion({ ...ruleInput(), effectiveDate: '2100-01-01', value: 20, supersedes: (await Commission.findOne({ productId: null }))._id.toString() }, admin._id);
+  await saveCommissionVersion({ ...ruleInput(), value: 20, supersedes: (await Commission.findOne({ productId: null }))._id.toString() }, admin._id);
   expect((await queryOrder()).financialSnapshot.lines[0].commissionPaise).toBe(1000);
   expect((await buildOrderFinancialSnapshot(order)).lines[0].commissionPaise).toBe(1200);
 });
@@ -585,7 +585,8 @@ test('ledger refuses fractional paisa, other currencies, and conflicting currenc
 
 test('ledger activity and buckets sum integer paisa and convert to rupees exactly once', async () => {
   for (const [key,type,direction,amount] of [['a','order_earning','credit',1.01],['b','quick_freight_obligation','debit',.1],['c','quick_service_fee','debit',.2]]) await postLedgerEntry({idempotencyKey:key,sellerId:seller._id,type,direction,bucket:'held',amount,description:'Synthetic precision event'});
-  expect(await sellerBalances(seller._id)).toMatchObject({held:.71,earnedEarnings:1.01,quickFreightObligations:.1,bulkimartServiceFees:.2});
+  // Courier obligations are reported on their own and never reduce held earnings.
+  expect(await sellerBalances(seller._id)).toMatchObject({held:1.01,earnedEarnings:1.01,quickFreightObligations:.1,bulkimartServiceFees:.2,courierObligations:{charged:.3,paid:0,outstanding:.3}});
 });
 
 test('historical report is read-only, payable unknown, and known online/COD evidence stays blocked', async () => {

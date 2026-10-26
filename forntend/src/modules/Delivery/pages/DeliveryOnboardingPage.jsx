@@ -223,7 +223,7 @@ export const DeliveryOnboardingPage = () => {
     <div className="delivery-onboarding-wrapper">
       <div className="delivery-onboarding-header">
         <div className="delivery-onboarding-brand">
-          <BrandLogo variant="compact" portal="Delivery" />
+          <BrandLogo audience="delivery" variant="compact" portal="Delivery" />
         </div>
         <p className="delivery-onboarding-sub">
           {riderName ? `Hello ${riderName.split(' ')[0]} — let's get you on the road` : 'Become a Delivery Partner'}

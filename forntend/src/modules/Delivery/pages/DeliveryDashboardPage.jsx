@@ -65,7 +65,7 @@ export const DeliveryDashboardPage = () => {
     <div className="delivery-dashboard-wrapper">
       {/* Top Header Card */}
       <div className="delivery-dashboard-header">
-        <BrandLogo variant="mark" portal="Delivery" />
+        <BrandLogo audience="delivery" variant="mark" portal="Delivery" />
         <div className="delivery-header-profile">
           <div className="delivery-avatar">
             {(riderName || 'R').charAt(0).toUpperCase()}

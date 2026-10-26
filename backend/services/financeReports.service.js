@@ -81,17 +81,24 @@ export const sellerTaxStatement = async ({ sellerId, months = 12, now = Date.now
 const CLEARING = 'Customer payments clearing';
 // [debit, credit] for a credit-direction entry; a debit-direction entry is the
 // same pair reversed. null = internal bucket move or memo, not an accounting event.
+// Prepaid Quick Shiprocket charges are a seller receivable settled by the
+// seller's own payment, whichever ledger account they were posted to.
+const SELLER_COURIER = 'Seller courier receivable';
+const courierObligationPair = row => ({
+  quick_freight_obligation: ['Courier payable (Shiprocket)', SELLER_COURIER],
+  quick_service_fee: ['Shiprocket service fee income', SELLER_COURIER],
+  quick_fee_tax: ['GST payable', SELLER_COURIER],
+  quick_fee_payment: ['Bank', SELLER_COURIER],
+})[row.type] || null;
 const accountPair = row => {
   const account = row.account || 'seller_payable', key = String(row.idempotencyKey || '');
   switch (account) {
     case 'seller_payable':
-      if (row.type === 'order_earning' || row.type === 'reversal' || (row.type === 'adjustment' && row.metadata?.source === 'historical-reviewed-v1')) return [CLEARING, 'Seller payable'];
+      if (row.type === 'order_earning' || row.type === 'reversal' || row.type === 'same_day_incentive' || (row.type === 'adjustment' && row.metadata?.source === 'historical-reviewed-v1')) return [CLEARING, 'Seller payable'];
       if (row.type === 'payout_settlement') return row.bucket === 'settled' ? ['Seller payable', 'Bank'] : null;
-      if (row.type === 'quick_freight_obligation') return ['Courier payable (Shiprocket)', 'Seller payable'];
-      if (row.type === 'quick_service_fee') return ['Shiprocket service fee income', 'Seller payable'];
-      if (row.type === 'quick_fee_tax') return ['GST payable', 'Seller payable'];
-      if (row.type === 'quick_fee_payment') return ['Bank', 'Seller payable'];
-      return null;
+      return courierObligationPair(row);
+    case 'seller_courier_obligation': return courierObligationPair(row);
+    case 'courier_expense': return ['Courier expense', 'Courier payable (Shiprocket)'];
     case 'commission_revenue': return [CLEARING, 'Commission income'];
     case 'tax_liability': return [CLEARING, 'GST payable'];
     case 'tcs_liability': return [CLEARING, 'TCS payable'];
@@ -111,7 +118,7 @@ const accountPair = row => {
     default: return null;
   }
 };
-const JOURNAL_ACCOUNTS = ['seller_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'rider_payable', 'cod_custody', 'cod_excess_liability'];
+const JOURNAL_ACCOUNTS = ['seller_payable', 'seller_courier_obligation', 'courier_expense','commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'rider_payable', 'cod_custody', 'cod_excess_liability'];
 
 export const journal = async ({ from, to }) => {
   const range = dateRange(from, to);

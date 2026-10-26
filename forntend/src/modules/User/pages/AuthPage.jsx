@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import BrandLogo from '../../../components/BrandLogo';
+import RegistrationTerms from '../../../components/RegistrationTerms';
 
 const AuthPage = () => {
   const { sendOtp, verifyOtp, updateUserProfile, setActiveNav } = useUser();
@@ -13,6 +14,17 @@ const AuthPage = () => {
   const [step, setStep] = useState('phone');
   const [enteredOtp, setEnteredOtp] = useState('');
   const [mockOtpHint, setMockOtpHint] = useState('');
+  const [resendDeadline, setResendDeadline] = useState(0);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const otpRequest = useRef(false);
+
+  useEffect(() => {
+    if (step !== 'otp' || !resendDeadline) return;
+    const update = () => setResendSeconds(Math.max(0, Math.ceil((resendDeadline - Date.now()) / 1000)));
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [step, resendDeadline]);
 
   // Form states
   const [phone, setPhone] = useState('');
@@ -49,29 +61,37 @@ const AuthPage = () => {
 
   const handleSendOTP = async (e) => {
     if (e) e.preventDefault();
+    if (otpRequest.current || isLoading || (step === 'otp' && Date.now() < resendDeadline)) return;
     if (!validatePhone()) return;
 
+    otpRequest.current = true;
     setIsLoading(true);
     setErrors({});
     setSuccessMessage('');
 
-    const result = await sendOtp(phone.trim(), isLogin);
-    setIsLoading(false);
-
-    if (result.success) {
-      setStep('otp');
-      setSuccessMessage('OTP sent successfully to your mobile number.');
-      if (result.otp) {
-        // Mock mode: display OTP on UI for easy testing
-        setMockOtpHint(result.otp);
+    try {
+      const result = await sendOtp(phone.trim(), isLogin);
+      if (result.success) {
+        setStep('otp');
+        setEnteredOtp('');
+        setResendDeadline(Date.now() + 30000);
+        setResendSeconds(30);
+        setSuccessMessage('OTP sent successfully to your mobile number.');
+        setMockOtpHint(result.otp || '');
+      } else {
+        setErrors({ api: result.message || 'Failed to send OTP.' });
       }
-    } else {
-      setErrors({ api: result.message || 'Failed to send OTP.' });
+    } catch (error) {
+      setErrors({ api: error.message || 'Failed to send OTP.' });
+    } finally {
+      otpRequest.current = false;
+      setIsLoading(false);
     }
   };
 
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
+    if (isLoading) return;
     if (!enteredOtp || enteredOtp.trim().length !== 4) {
       setErrors({ otp: 'Please enter a valid 4-digit OTP' });
       return;
@@ -98,9 +118,12 @@ const AuthPage = () => {
   };
 
   const handleBackToPhone = () => {
+    if (isLoading) return;
     setStep('phone');
     setEnteredOtp('');
     setMockOtpHint('');
+    setResendDeadline(0);
+    setResendSeconds(0);
     setErrors({});
     setSuccessMessage('');
   };
@@ -136,6 +159,7 @@ const AuthPage = () => {
             <button 
               type="button" 
               className={`auth-tab-btn ${isLogin ? 'active' : ''}`}
+              disabled={isLoading}
               onClick={() => {
                 setIsLogin(true);
                 setErrors({});
@@ -150,6 +174,7 @@ const AuthPage = () => {
             <button
               type="button"
               className={`auth-tab-btn ${!isLogin ? 'active' : ''}`}
+              disabled={isLoading}
               onClick={() => {
                 setIsLogin(false);
                 setErrors({});
@@ -248,21 +273,23 @@ const AuthPage = () => {
             {!isLogin && (
               <>
                 <div className="auth-form-options">
-                  <label className="auth-checkbox-label terms-checkbox">
+                  <div className="auth-checkbox-label terms-checkbox">
                     <input
                       type="checkbox"
+                      id="customer-registration-terms"
+                      aria-label="I agree to the Terms & Conditions"
                       checked={agreeTerms}
                       onChange={(e) => setAgreeTerms(e.target.checked)}
                       className={errors.terms ? 'has-error' : ''}
                     />
-                    I agree to the Terms & Conditions
-                  </label>
+                    <span><label htmlFor="customer-registration-terms">I agree to the</label>{' '}<RegistrationTerms audience="user" /></span>
+                  </div>
                   {errors.terms && <span className="auth-error-msg terms-error">{errors.terms}</span>}
                 </div>
               </>
             )}
 
-            <button type="submit" className="auth-submit-btn">
+            <button type="submit" className="auth-submit-btn" disabled={isLoading}>
               Send OTP Verification
             </button>
           </form>
@@ -297,7 +324,7 @@ const AuthPage = () => {
               {errors.otp && <span className="auth-error-msg" style={{ display: 'block' }}>{errors.otp}</span>}
             </div>
 
-            <button type="submit" className="auth-submit-btn">
+            <button type="submit" className="auth-submit-btn" disabled={isLoading}>
               {isLogin ? 'Verify & Sign In' : 'Verify & Register'}
             </button>
 
@@ -306,6 +333,7 @@ const AuthPage = () => {
                 type="button" 
                 className="auth-link-btn" 
                 onClick={handleBackToPhone}
+                disabled={isLoading}
                 style={{ color: '#94a3b8' }}
               >
                 ← Back to Phone
@@ -314,8 +342,9 @@ const AuthPage = () => {
                 type="button" 
                 className="auth-link-btn" 
                 onClick={() => handleSendOTP()}
+                disabled={isLoading || resendSeconds > 0}
               >
-                Resend OTP
+                {resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Resend OTP'}
               </button>
             </div>
           </form>

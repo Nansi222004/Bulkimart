@@ -3,12 +3,26 @@ import QuickCommerceFinancialSnapshot from '../models/QuickCommerceFinancialSnap
 import { getShiprocketCapabilities } from './shiprocket.service.js';
 import { httpError } from '../utils/response.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
+import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import Order from '../models/Order.js';
 import { validateRazorpayConfig } from './razorpay.service.js';
 import { getPaymentGateway } from '../config/runtime.js';
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 
 export const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+/**
+ * Where an order's prepaid Shiprocket obligation lives. New obligations use
+ * their own seller account so an unpaid quote never looks like negative
+ * earnings; orders charged before that keep their original account so the
+ * matching payment credit nets against it.
+ */
+export const courierObligationAccount = async (orderId, session = null) => {
+  const query = SellerLedgerEntry.findOne({ orderId, type: { $in: ['quick_freight_obligation', 'quick_service_fee', 'quick_fee_tax'] } }).select('account').lean();
+  if (session) query.session(session);
+  const existing = await query;
+  return existing ? existing.account || 'seller_payable' : 'seller_courier_obligation';
+};
 
 const pendingPolicies = (config) => [
   ['Customer delivery-charge surplus', config?.policy?.customerSurplusTreatment],
@@ -177,20 +191,21 @@ export const recordQuickCommerceObligation = async ({ order, sellerId, quote, co
   if (!session) throw httpError(500, 'A MongoDB transaction is required for financial posting');
   const { snapshot, alreadyExists } = await createImmutableFinancialSnapshot({ order, sellerId, quote, config, session });
   if (!alreadyExists) {
+    const account = 'seller_courier_obligation';
     const freight = snapshot.vendorFreightShare > 0 ? await postLedgerEntry({
-      idempotencyKey: `QUICK_FREIGHT:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id,
+      idempotencyKey: `QUICK_FREIGHT:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id, account,
       type: 'quick_freight_obligation', direction: 'debit', bucket: 'held', amount: snapshot.vendorFreightShare,
       reference: snapshot.snapshotNo, description: `Quick courier freight obligation for ${order.orderNo}`,
       metadata: { calculationVersion: snapshot.calculationVersion },
     }, { session }) : null;
     const fee = snapshot.serviceFee.amount > 0 ? await postLedgerEntry({
-      idempotencyKey: `QUICK_SERVICE_FEE:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id,
+      idempotencyKey: `QUICK_SERVICE_FEE:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id, account,
       type: 'quick_service_fee', direction: 'debit', bucket: 'held', amount: snapshot.serviceFee.amount,
       reference: snapshot.snapshotNo, description: `Bulkimart Quick third-party service fee for ${order.orderNo}`,
       metadata: { feeVersion: snapshot.serviceFee.version, basis: snapshot.serviceFee.calculationBasis },
     }, { session }) : null;
     const tax = snapshot.serviceFee.taxAmount > 0 ? await postLedgerEntry({
-      idempotencyKey: `QUICK_TAX:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id,
+      idempotencyKey: `QUICK_TAX:${order._id}`, sellerId, orderId: order._id, snapshotId: snapshot._id, account,
       type: 'quick_fee_tax', direction: 'debit', bucket: 'held', amount: snapshot.serviceFee.taxAmount,
       reference: snapshot.snapshotNo, description: 'Tax on Quick Shiprocket service fee',
     }, { session }) : null;

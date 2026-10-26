@@ -10,16 +10,22 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated } from '../utils/response.js';
 import { financeFlags } from '../services/financeSafety.service.js';
 import { financialReconciliation } from '../services/financialReconciliation.service.js';
-import { saveCommissionVersion } from '../services/vendorCommission.service.js';
+import { saveCommissionVersion, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
 import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
 import { getFinancePolicy, saveFinancePolicy } from '../services/financePolicy.service.js';
 import { taxReport, journal, trialBalance, toCsv, rupees } from '../services/financeReports.service.js';
 import SellerPayout from '../models/SellerPayout.js';
+import { effectiveAccountExpr } from '../services/sellerLedger.service.js';
+import { courierCostSummary, listCourierCosts, recordActualCourierCost, disputeCourierCost } from '../services/courierCost.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
 
 export const getCommissionConfiguration = asyncHandler(async (req, res) => {
-  const rules = await Commission.find({ financeVersion: 2, channel: { $ne: 'legal' } }).sort({ createdAt: -1, _id: -1 }).limit(500).lean();
-  return ok(res, { rules, flags: financeFlags(), historicalRulesApplied: false });
+  // `rules` is the full change history; `current` is what new orders use.
+  const [rules, { current, coverage }] = await Promise.all([
+    Commission.find({ financeVersion: 2, channel: { $ne: 'legal' } }).sort({ createdAt: -1, _id: -1 }).limit(500).lean(),
+    describeCurrentCommissionRules(),
+  ]);
+  return ok(res, { rules, current, coverage, flags: financeFlags(), historicalRulesApplied: false });
 });
 export const createCommissionConfiguration = asyncHandler(async (req, res) => ok(res, await saveCommissionVersion(req.body, req.user._id), 'Commission version saved; live financial operations use separate release gates'));
 
@@ -106,7 +112,7 @@ export const listFinanceLedger = asyncHandler(async (req, res) => {
   const [rows, total, balances] = await Promise.all([
     SellerLedgerEntry.find(match).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     SellerLedgerEntry.countDocuments(match),
-    SellerLedgerEntry.aggregate([{ $match: match }, { $group: { _id: { account: { $ifNull: ['$account', 'seller_payable'] }, bucket: '$bucket' },
+    SellerLedgerEntry.aggregate([{ $match: match }, { $group: { _id: { account: effectiveAccountExpr, bucket: '$bucket' },
       amount: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, '$amount', { $multiply: ['$amount', -1] }] } }, count: { $sum: 1 } } }]),
   ]);
   return ok(res, { rows, balances, total, page, limit, flags: financeFlags() });
@@ -135,6 +141,13 @@ export const releaseOrder = asyncHandler(async (req, res) => ok(res, await relea
 export const releaseRider = asyncHandler(async (req, res) => ok(res, await releaseDeliveryEarning(req.params.id, req.user._id, reviewed(req))));
 export const reverseReturn = asyncHandler(async (req, res) => ok(res, await reverseRefundedReturn(req.params.id, req.user._id, reviewed(req))));
 export const getFinancialExceptions = asyncHandler(async (req, res) => ok(res, await financialReconciliation({ page: Math.max(1, parseInt(req.query.page, 10) || 1) })));
+
+export const getCourierCosts = asyncHandler(async (req, res) => {
+  if (req.query.direction && !['forward', 'reverse'].includes(req.query.direction)) throw httpError(400, 'Invalid shipment direction');
+  ok(res, { ...await listCourierCosts({ direction: req.query.direction || 'forward', page: Math.max(1, parseInt(req.query.page, 10) || 1) }), flags: financeFlags() });
+});
+export const recordCourierCost = asyncHandler(async (req, res) => ok(res, await recordActualCourierCost({ actorId: req.user._id, input: req.body || {} }), 'Provider courier charge recorded'));
+export const disputeCourierCharge = asyncHandler(async (req, res) => ok(res, await disputeCourierCost({ actorId: req.user._id, input: req.body || {} }), 'Courier charge marked as disputed'));
 
 export const getHistoricalBatches = asyncHandler(async (req, res) => ok(res, await listHistoricalBatches()));
 export const postHistoricalBatch = asyncHandler(async (req, res) => ok(res, await createHistoricalBatch({ rows: req.body?.rows, note: req.body?.note, actorId: req.user._id }), 'Batch prepared; another admin must approve it'));
@@ -205,22 +218,31 @@ export const getFinanceOverview = asyncHandler(async (req, res) => {
     count({ financialPosting: 'held' }),
     SellerPayout.countDocuments({ status: 'PENDING' }),
     DeliveryPayout.countDocuments({ status: 'pending', financeVersion: 2 }),
-    SellerLedgerEntry.aggregate([{ $match: { advertisingCampaignId: { $exists: false } } }, { $group: { _id: { account: { $ifNull: ['$account', 'seller_payable'] }, bucket: '$bucket' },
+    SellerLedgerEntry.aggregate([{ $match: { advertisingCampaignId: { $exists: false } } }, { $group: { _id: { account: effectiveAccountExpr, bucket: '$bucket', type: '$type' },
       paise: { $sum: { $cond: [{ $eq: ['$direction', 'credit'] }, { $round: [{ $multiply: ['$amount', 100] }, 0] }, { $multiply: [{ $round: [{ $multiply: ['$amount', 100] }, 0] }, -1] }] } } } }]),
     getFinancePolicy(),
   ]);
-  const total = (account, buckets) => accounts.filter(row => row._id.account === account && (!buckets || buckets.includes(row._id.bucket))).reduce((sum, row) => sum + row.paise, 0);
+  const total = (account, buckets, types) => accounts.filter(row => row._id.account === account && (!buckets || buckets.includes(row._id.bucket)) && (!types || types.includes(row._id.type))).reduce((sum, row) => sum + row.paise, 0);
+  const courierCharged = -total('seller_courier_obligation', null, ['quick_freight_obligation', 'quick_service_fee', 'quick_fee_tax']);
+  const courierPaid = total('seller_courier_obligation', null, ['quick_fee_payment']);
+  const [courier, commission] = await Promise.all([courierCostSummary(), describeCurrentCommissionRules()]);
   return ok(res, {
     flags: financeFlags(),
     policy: { payoutSchedule: policy.payoutSchedule, payoutWeekday: policy.payoutWeekday, tcsRatePercent: policy.tcsRatePercent, tdsRatePercent: policy.tdsRatePercent,
       sellerMinPayout: policy.sellerMinPayout, riderMinPayout: policy.riderMinPayout, configured: policy.configured, bankVerificationConfigured: Boolean(policy.bankVerificationMethod) },
-    commissionRulesConfigured: await Commission.exists({ financeVersion: 2, isActive: true, channel: { $ne: 'legal' } }).then(Boolean),
+    // Configured only when a current, switched-on rule actually covers a channel.
+    commissionRulesConfigured: commission.coverage.some(row => row.active),
+    commissionCoverage: commission.coverage,
     todo: { snapshotFailed, cashToVerify, cashMismatch, cashWithRiders, cashOverdue, missingRule, waitingPayment, needsReview, onHold, sellerPayouts, riderPayouts },
     totalsPaise: {
       sellersOnHold: total('seller_payable', ['held']), sellersAvailable: total('seller_payable', ['eligible']), sellersRequested: total('seller_payable', ['reserved']), sellersPaid: total('seller_payable', ['settled']),
       ridersOnHold: total('rider_payable', ['held']), ridersAvailable: total('rider_payable', ['eligible']), ridersRequested: total('rider_payable', ['reserved']), ridersPaid: total('rider_payable', ['settled']),
       commission: total('commission_revenue'), commissionGst: total('tax_liability'), tcs: total('tcs_liability'), tds: total('tds_liability'),
       platformDiscounts: total('platform_discount_expense'), codShortages: total('cod_shortage_expense'), codCashWithRiders: total('cod_custody'),
+      customerDelivery: total('customer_delivery'), sellerSameDayIncentives: total('seller_payable', null, ['same_day_incentive']),
+      sellerCourierCharged: courierCharged, sellerCourierPaid: courierPaid, sellerCourierOutstanding: Math.max(0, courierCharged - courierPaid),
+      courierCostActual: total('courier_expense'), courierCostEstimatedUnverified: courier.estimatedUnverifiedPaise,
     },
+    courierCosts: { shipments: courier.shipments, actual: courier.actual, estimatedOnly: courier.estimatedOnly, disputed: courier.disputed },
   });
 });

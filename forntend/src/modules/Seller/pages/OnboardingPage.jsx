@@ -127,7 +127,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
     <div className="seller-main-content">
       {/* Header */}
       <div className="seller-header-row">
-        <BrandLogo variant="compact" portal="Seller onboarding" />
+        <BrandLogo audience="seller" variant="compact" portal="Seller onboarding" />
       </div>
 
       <div className="onboarding-container">

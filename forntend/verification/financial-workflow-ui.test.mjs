@@ -338,7 +338,7 @@ test('commission editor starts without invented rates and never posts on load', 
     h.requests[0].resolve(config(false)); await h.settle();
     assert.equal(field(h, 'Commission value').props.value, ''); assert.equal(field(h, 'GST rate on commission (%)').props.value, '');
     assert.match(body(h), /Money actions are switched off on the server/); assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0);
-    for (const label of ['Channel', 'Commission method', 'Commission value', 'GST treatment', 'Starts from', 'Change reason'])
+    for (const label of ['Channel', 'Vendor type', 'Commission method', 'Commission value', 'GST treatment', 'Change reason'])
       assert.ok([field(h, label) && h.find(n => n.type === 'label' && [n.props.children].flat().includes(label)).props.children].flat().some(child => child?.props?.className === 'finance-hint'), `Missing help text: ${label}`);
   } finally { h.close(); }
 });
@@ -346,13 +346,13 @@ test('commission form saves explicit version data and displays backend validatio
   const h = hookHarness(Admin); try {
     h.requests[0].resolve(config(false)); await h.settle();
     change(h, 'Commission value', '10'); change(h, 'GST rate on commission (%)', '0'); change(h, 'GST treatment', 'exempt');
-    change(h, 'Starts from', '2026-01-01T12:00'); change(h, 'Change reason', 'Synthetic fixture only');
+    change(h, 'Change reason', 'Synthetic fixture only');
     h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
     assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0, 'Review must precede persistence');
     h.find(node => node.type?.name === 'FinanceReview').props.onConfirm(); h.flush();
     const pending = h.requests.find(row => row.options.method === 'POST'); assert.ok(pending);
     const payload = JSON.parse(pending.options.body);
-    assert.equal(payload.value, 10); assert.equal(payload.taxRate, 0); assert.equal(payload.isActive, false);
+    assert.equal(payload.value, 10); assert.equal(payload.taxRate, 0); assert.equal(payload.isActive, true); assert.equal(payload.effectiveDate, undefined);
     assert.equal(payload.base, 'eligible_item_subtotal'); assert.equal(payload.fixedScope, 'order_item'); assert.equal(payload.supersedes, null);
     pending.resolve({ message: 'Commission changed; refresh before saving' },409); await h.settle();
     assert.match(body(h), /Commission changed/); assert.equal(field(h, 'Commission value').props.value, '10');

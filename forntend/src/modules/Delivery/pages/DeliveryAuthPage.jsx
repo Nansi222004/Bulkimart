@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import BrandLogo from '../../../components/BrandLogo';
+import RegistrationTerms from '../../../components/RegistrationTerms';
 
 /**
  * Rider sign-in and registration.
@@ -104,7 +105,7 @@ export const DeliveryAuthPage = () => {
           )}
 
           <div className="auth-brand-header">
-            <BrandLogo className="auth-brand-logo" variant="full" transparent />
+            <BrandLogo audience="delivery" className="auth-brand-logo" variant="full" />
             <span className="auth-portal-badge auth-portal-badge--delivery">Delivery Partner</span>
           </div>
 
@@ -176,7 +177,7 @@ export const DeliveryAuthPage = () => {
 
         {/* Brand Header */}
         <div className="auth-brand-header">
-          <BrandLogo className="auth-brand-logo" variant="full" transparent />
+          <BrandLogo audience="delivery" className="auth-brand-logo" variant="full" />
           <span className="auth-portal-badge auth-portal-badge--delivery">Delivery Partner</span>
         </div>
 
@@ -235,6 +236,7 @@ export const DeliveryAuthPage = () => {
               />
             </div>
 
+            {isRegister && <p className="registration-terms-note">Read our <RegistrationTerms audience="delivery" /> before registering.</p>}
             <button
               type="submit"
               className="auth-submit-btn"

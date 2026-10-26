@@ -9,7 +9,8 @@ import { getCommissionConfiguration, createCommissionConfiguration, listFinanceO
   verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod,
   writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
   getTaxReport, getAccountingJournal, getTrialBalance,
-  getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute } from '../controllers/financeWorkflow.controller.js';
+  getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute,
+  getCourierCosts, recordCourierCost, disputeCourierCharge } from '../controllers/financeWorkflow.controller.js';
 import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
@@ -106,6 +107,9 @@ router.post('/finance/orders/:id/release', releaseOrder);
 router.post('/finance/orders/:id/release-rider', releaseRider);
 router.get('/finance/returns/:id/preview', previewRefundCompensation);
 router.post('/finance/returns/:id/reverse', reverseReturn);
+router.get('/finance/courier-costs', getCourierCosts);
+router.post('/finance/courier-costs/actual', recordCourierCost);
+router.post('/finance/courier-costs/dispute', disputeCourierCharge);
 
 // ---- dashboard -------------------------------------------------------------
 router.get('/dashboard/pending-counts', getPendingCounts);

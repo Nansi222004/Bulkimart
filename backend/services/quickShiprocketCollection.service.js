@@ -7,6 +7,7 @@ import { postLedgerEntry } from './sellerLedger.service.js';
 import { razorpayAttempt, addRefundObligation } from './paymentObligations.service.js';
 import { httpError } from '../utils/response.js';
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
+import { courierObligationAccount } from './quickCommerceFinance.service.js';
 
 // Called only after the shared Razorpay verifier/webhook has authenticated the
 // provider signal. Seller collection never settles the customer's Payment.
@@ -37,6 +38,7 @@ export const settleQuickShiprocketCollection = async ({ payment, state, gatewayO
         fresh.status = 'paid'; fresh.paidAt = new Date();
         fresh.gateway = { ...fresh.gateway, provider: 'razorpay', orderId: gatewayOrderId, paymentId: gatewayPaymentId };
         await postLedgerEntry({ idempotencyKey: `QUICK_COLLECTION:${snapshot._id}`, sellerId: snapshot.sellerId, orderId: snapshot.orderId, snapshotId: snapshot._id,
+          account: await courierObligationAccount(snapshot.orderId, session),
           type: 'quick_fee_payment', direction: 'credit', bucket: 'held', amount: fresh.amount, reference: gatewayPaymentId,
           description: 'Verified seller payment against Quick Shiprocket freight, service fee and tax' }, { session });
         await Order.updateOne({ _id: snapshot.orderId }, { $set: { 'fulfillment.chargeStatus': 'collected' } }, { session });

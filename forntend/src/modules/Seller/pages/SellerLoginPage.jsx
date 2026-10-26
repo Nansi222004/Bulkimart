@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSeller } from '../context/SellerContext';
 import BrandLogo from '../../../components/BrandLogo';
+import RegistrationTerms from '../../../components/RegistrationTerms';
 import { apiUrl } from '../../../utils/api';
 import { normalizePhoneInput, safeErrorMessage } from '../utils/sellerAuth';
 
@@ -107,7 +108,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
 
         {/* Brand Header */}
         <div className="auth-brand-header">
-          <BrandLogo className="auth-brand-logo" variant="full" transparent />
+          <BrandLogo audience="seller" className="auth-brand-logo" variant="full" />
           <span className="auth-portal-badge auth-portal-badge--seller">Seller Portal</span>
         </div>
 
@@ -196,6 +197,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
                   />
                 </div>
 
+                {isRegister && <p className="registration-terms-note">Read our <RegistrationTerms audience="seller" /> before registering.</p>}
                 <button
                   type="submit"
                   className="auth-submit-btn"

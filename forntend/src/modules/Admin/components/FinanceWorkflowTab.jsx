@@ -7,7 +7,19 @@ import { hint, label, COD_STATUS, POSTING, BUCKET, ACCOUNT, EXCEPTION } from './
 
 const rupees = paise => typeof paise === 'number' && Number.isFinite(paise) ? `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 const empty = { channel: 'ecommerce', vendorType: 'general', method: 'percentage', value: '', minimum: '', maximum: '',
-  categoryId: '', productId: '', taxTreatment: '', taxRate: '', effectiveDate: '', isActive: false, reason: '' };
+  categoryId: '', productId: '', taxTreatment: '', taxRate: '', isActive: true, reason: '' };
+const CHANNEL_NAMES = { ecommerce: 'E-Commerce', quick: 'Quick Commerce', wholesale: 'Wholesale' };
+const VENDOR_NAMES = { general: 'General sellers', shg: 'SHG sellers' };
+const sameScope = (rule, scope) => rule.channel === scope.channel && rule.vendorType === scope.vendorType
+  && String(rule.categoryId || '') === String(scope.categoryId || '') && String(rule.productId || '') === String(scope.productId || '');
+const rateText = rule => rule.method === 'fixed' ? `₹${rule.value} per item` : `${rule.value}%`;
+// The editable form for a scope: its current rule, or a blank rule switched on.
+const draftFor = ({ channel, vendorType, categoryId, productId }, current) => {
+  const scope = { channel, vendorType, categoryId: categoryId || '', productId: productId || '' };
+  const rule = current.find(row => sameScope(row, scope));
+  return rule ? { ...empty, ...scope, method: rule.method, value: rule.value, minimum: rule.minimum ?? '', maximum: rule.maximum ?? '',
+    taxTreatment: rule.taxTreatment, taxRate: rule.taxRate, isActive: rule.isActive } : { ...empty, ...scope };
+};
 const titles = { commissions: 'Commission', orders: 'All orders', cod: 'COD cash', ledger: 'Ledger & checks', payouts: 'Rider payouts' };
 const subtitles = {
   commissions: 'Set platform commission charged on vendor sales. Sellers receive their full price, and discounts are funded by the platform.',
@@ -25,6 +37,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
   const [refundPreview, setRefundPreview] = useState(null), [refundProof, setRefundProof] = useState({ reason: '', reference: '' });
   const [review, setReview] = useState(false);
   const [tab, setTab] = useState(initialTab), [rules, setRules] = useState([]), [flags, setFlags] = useState({});
+  const [current, setCurrent] = useState([]), [coverage, setCoverage] = useState([]);
   const [draft, setDraft] = useState(empty), [rows, setRows] = useState([]), [balances, setBalances] = useState([]);
   const [report, setReport] = useState(null);
   const [refundId, setRefundId] = useState('');
@@ -41,6 +54,8 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     const config = await adminGet('/finance/commissions');
     if (currentGeneration !== generation.current) return;
     setFlags(config.data.flags); setRules(config.data.rules);
+    setCurrent(config.data.current || []); setCoverage(config.data.coverage || []);
+    if (tab === 'commissions') setDraft(draft => draftFor(draft, config.data.current || []));
     if (tab === 'ledger') {
       const [result, reconciliation] = await Promise.all([adminGet(`/finance/ledger?page=${page}&account=${encodeURIComponent(account)}`), adminGet(`/finance/reconciliation?page=${page}`)]);
       if (currentGeneration !== generation.current) return;
@@ -74,20 +89,26 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     event.preventDefault();
     if (draft.method === 'percentage' && Number(draft.value) > 100) return setMessage('Commission percentage cannot exceed 100.');
     if (draft.minimum !== '' && draft.maximum !== '' && Number(draft.minimum) > Number(draft.maximum)) return setMessage('Minimum cannot exceed maximum.');
+    if (String(draft.reason || '').trim().length < 5) return setMessage('Give a reason of at least five characters; it is kept in the change history.');
     if (!review) { setReview(true); return; }
     perform(async () => {
-      const parent = rules.find(rule => rule.channel === draft.channel && rule.vendorType === draft.vendorType && (rule.categoryId || '') === draft.categoryId && (rule.productId || '') === draft.productId);
-      const effectiveDate = draft.effectiveDate ? new Date(draft.effectiveDate).toISOString() : new Date().toISOString();
-      const reason = draft.reason?.trim()?.length >= 5 ? draft.reason.trim() : 'Platform commission update';
       const taxTreatment = draft.taxTreatment || 'inclusive';
       const taxRate = draft.taxTreatment === 'exempt' ? 0 : (draft.taxRate !== '' ? Number(draft.taxRate) : 0);
-      await adminPost('/finance/commissions', { ...draft, value: Number(draft.value), taxTreatment, taxRate,
-        reason, effectiveDate,
+      await adminPost('/finance/commissions', { ...draft, value: Number(draft.value), taxTreatment, taxRate, reason: draft.reason.trim(),
         minimum: draft.minimum === '' ? null : Number(draft.minimum), maximum: draft.maximum === '' ? null : Number(draft.maximum),
-        supersedes: parent?._id || null,
+        // The rule being replaced; the server refuses the save if someone changed it meanwhile.
+        supersedes: currentRule?._id || null,
         base: 'eligible_item_subtotal', fixedScope: 'order_item' });
-      setDraft(empty); setReview(false);
+      setReview(false);
     });
+  };
+  const currentRule = current.find(rule => sameScope(rule, draft));
+  // A scope change loads that scope's current rule; a half-typed ID just updates the field.
+  const changeScope = changes => {
+    setReview(false);
+    const next = { ...draft, ...changes };
+    if ([next.categoryId, next.productId].every(value => !value || /^[a-f\d]{24}$/i.test(value))) setDraft(draftFor(next, current));
+    else setDraft(next);
   };
   const submitAction = event => {
     event.preventDefault();
@@ -122,30 +143,44 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     {!hideNavigation && <nav aria-label="Finance views">{[['commissions','Commission'],['orders','All orders'],['cod','COD cash'],['ledger','Ledger & checks'],['payouts','Rider payouts']].map(([value, text]) => <button type="button" aria-pressed={tab === value} key={value} onClick={() => changeTab(value)}>{text}</button>)}</nav>}
     {message && <p role="status" className="finance-notice">{message}</p>}
     {tab === 'commissions' ? <>
-      {review ? <FinanceReview title={draft.isActive ? 'Review commission rule (switched on)' : 'Review commission rule (switched off)'} values={{Channel: draft.channel, Vendor: draft.vendorType, Method: draft.method, Value: `${draft.value} ${draft.method === 'fixed' ? '₹ per item' : '%'}`, Minimum: draft.minimum || 'None', Maximum: draft.maximum || 'None', GST: `${draft.taxTreatment || 'inclusive'} ${draft.taxRate || 0}%`, 'Starts from': draft.effectiveDate || 'Immediately', Category: draft.categoryId || 'All', Product: draft.productId || 'All', Status: draft.isActive ? 'On — applies to new orders from the start time' : 'Off — stops this rule for new orders from the start time', Reason: draft.reason || 'Platform commission update'}} busy={busy} onConfirm={() => saveRule({preventDefault(){}})} onCancel={() => setReview(false)} /> : <form onSubmit={saveRule} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} className="finance-panel">
-        <h3>Set Commission Rate</h3><p className="finance-muted">Set vendor commission for new orders. Past orders retain their original rate.</p>
+      {review ? <FinanceReview title={draft.isActive ? 'Review commission rule (switched on)' : 'Review commission rule (switched off)'} values={{Channel: draft.channel, Vendor: draft.vendorType, Method: draft.method, Value: `${draft.value} ${draft.method === 'fixed' ? '₹ per item' : '%'}`, Minimum: draft.minimum || 'None', Maximum: draft.maximum || 'None', GST: `${draft.taxTreatment || 'inclusive'} ${draft.taxRate || 0}%`, Replaces: currentRule ? `${rateText(currentRule)} (${currentRule.isActive ? 'on' : 'off'})` : 'Nothing — first rule for this scope', Category: draft.categoryId || 'All', Product: draft.productId || 'All', Status: draft.isActive ? 'On — new orders use it as soon as you save' : 'Off — new orders in this scope stop using it as soon as you save', Reason: draft.reason}} busy={busy} onConfirm={() => saveRule({preventDefault(){}})} onCancel={() => setReview(false)} /> : <form onSubmit={saveRule} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} className="finance-panel">
+        <h3>{currentRule ? 'Edit current commission rule' : 'Create commission rule'}</h3>
+        <p className="finance-muted">{currentRule
+          ? `${CHANNEL_NAMES[draft.channel]} · ${VENDOR_NAMES[draft.vendorType]}${draft.productId ? ' · this product' : draft.categoryId ? ' · this category' : ''} currently uses ${rateText(currentRule)} (${currentRule.isActive ? 'on' : 'off'}). Saving replaces it for new orders straight away; past orders keep the rate they were placed with.`
+          : `${CHANNEL_NAMES[draft.channel]} · ${VENDOR_NAMES[draft.vendorType]} has no rule for this scope yet. Saving creates it for new orders straight away.`}</p>
         <div className="finance-grid">
-          <label>Channel<select value={draft.channel} onChange={e => setDraft({ ...draft, channel: e.target.value })}><option value="ecommerce">E-Commerce</option><option value="quick">Quick Commerce</option><option value="wholesale">Wholesale</option></select>{hint('Store channel this commission applies to.')}</label>
+          <label>Channel<select value={draft.channel} onChange={e => changeScope({ channel: e.target.value })}><option value="ecommerce">E-Commerce</option><option value="quick">Quick Commerce</option><option value="wholesale">Wholesale</option></select>{hint('Store channel this commission applies to.')}</label>
+          <label>Vendor type<select value={draft.vendorType} onChange={e => changeScope({ vendorType: e.target.value })}><option value="general">General</option><option value="shg">SHG</option></select>{hint('General sellers or self-help groups.')}</label>
           <label>Commission method<select value={draft.method} onChange={e => setDraft({ ...draft, method: e.target.value })}><option value="percentage">Percentage (%)</option><option value="fixed">Fixed (₹ per item)</option></select>{hint(draft.method === 'fixed' ? 'Fixed fee per item line.' : 'Percentage of item sale price.')}</label>
           <label>Commission value<input type="number" min="0" step="0.01" max={draft.method === 'percentage' ? 100 : undefined} required value={draft.value} onChange={e => setDraft({ ...draft, value: e.target.value })} placeholder="e.g. 10" />{hint(draft.method === 'fixed' ? '₹ kept per item line.' : 'Percentage kept from each sale.', draft.method === 'fixed' ? '15 → ₹15 per item' : '10 → 10% commission')}</label>
+          <label>Change reason<input required minLength={5} maxLength={500} value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} placeholder="Why the rate is changing" />{hint('Required. Kept in the change history.', 'Annual rate review')}</label>
         </div>
-        <details className="finance-advanced" style={{ margin: '14px 0', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#0369a1' }}>⚙️ More options (Tax, schedule & category/product overrides)</summary><div className="finance-grid" style={{ marginTop: 12 }}>
+        <details className="finance-advanced" style={{ margin: '14px 0', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#f8fafc' }}><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#0369a1' }}>⚙️ More options (Tax & category/product overrides)</summary><div className="finance-grid" style={{ marginTop: 12 }}>
           <label>GST treatment<select value={draft.taxTreatment} onChange={e => setDraft({ ...draft, taxTreatment: e.target.value })}><option value="">Default (Inclusive)</option><option value="inclusive">Commission already includes GST</option><option value="exclusive">Add GST on top of commission</option><option value="exempt">No GST (Exempt)</option></select>{hint('GST charged on Bulkimart’s commission.')}</label>
           <label>GST rate on commission (%)<input type="number" min="0" max="100" step="0.01" value={draft.taxRate} onChange={e => setDraft({...draft,taxRate:e.target.value})} placeholder="0" />{hint('Standard GST rate (usually 18%, or 0 for exempt).', '18')}</label>
-          <label>Vendor type<select value={draft.vendorType} onChange={e => setDraft({ ...draft, vendorType: e.target.value })}><option value="general">General</option><option value="shg">SHG</option></select>{hint('General sellers or self-help groups.')}</label>
-          <label>Starts from<input type="datetime-local" value={draft.effectiveDate} onChange={e => setDraft({...draft,effectiveDate:e.target.value})} />{hint('Leave blank to start immediately.')}</label>
-          <label>Change reason<input minLength={5} maxLength={500} value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} placeholder="Optional note for change history" />{hint('Shown in the change history.', 'Standard rate update')}</label>
           <label>Minimum commission (₹, optional)<input type="number" min="0" step="0.01" value={draft.minimum} onChange={e => setDraft({...draft,minimum:e.target.value})} />{hint('Never charge less than this per item line.', '5')}</label>
           <label>Maximum commission (₹, optional)<input type="number" min="0" step="0.01" value={draft.maximum} onChange={e => setDraft({...draft,maximum:e.target.value})} />{hint('Never charge more than this per item line.', '200')}</label>
-          {['categoryId','productId'].map(key => <label key={key}>{key === 'categoryId' ? 'Only for category ID (optional)' : 'Only for product ID (optional)'}<input value={draft[key]} pattern="[a-fA-F0-9]{24}" onChange={e => setDraft({ ...draft, [key]: e.target.value })} placeholder="24-character ID" />{hint(key === 'categoryId' ? 'Paste a category ID to give that category its own rate.' : 'Paste a product ID to give one product its own rate.')}</label>)}
+          {['categoryId','productId'].map(key => <label key={key}>{key === 'categoryId' ? 'Only for category ID (optional)' : 'Only for product ID (optional)'}<input value={draft[key]} pattern="[a-fA-F0-9]{24}" onChange={e => changeScope({ [key]: e.target.value.trim() })} placeholder="24-character ID" />{hint(key === 'categoryId' ? 'Paste a category ID to give that category its own rate.' : 'Paste a product ID to give one product its own rate.')}</label>)}
         </div></details>
         <label className="finance-check"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} />Switch this rule on</label>
-        {hint('Enable this rate for new orders immediately.')}
-        <button disabled={busy} type="submit" style={{ marginTop: 10 }}>Review rule</button>
+        {hint(draft.isActive ? 'New orders in this scope use this rate as soon as you save.' : 'Switched off: new orders fall back to the broader rule, or are held if there is none.')}
+        <button disabled={busy} type="submit" style={{ marginTop: 10 }}>{currentRule ? 'Review change' : 'Review rule'}</button>
       </form>}
       <CommissionSimulation rule={draft} />
-      <div className="finance-panel"><h3>Rule history</h3><p className="finance-muted">Newest first. Product rules win over category rules, which win over the channel rule.</p>
-        {rules.length ? rules.map(rule => <details key={rule._id}><summary>{rule.channel} · {rule.method === 'fixed' ? `₹${rule.value} per item` : `${rule.value}%`} · {!rule.isActive ? 'Off' : new Date(rule.effectiveDate) > new Date() ? 'Starts later' : !flags.snapshots ? 'On (order recording is switched off on the server)' : 'On'} · {new Date(rule.effectiveDate).toLocaleString()}</summary><p>Version: {rule.version}<br />GST: {rule.taxTreatment} {rule.taxRate}%<br />Changed by: {rule.createdBy}<br />Reason: {rule.reason}<br />Product: {rule.productId || 'All'} · Category: {rule.categoryId || 'All'}</p><button type="button" onClick={() => setDraft({ ...empty, ...rule, categoryId: rule.categoryId || '', productId: rule.productId || '', minimum: rule.minimum ?? '', maximum: rule.maximum ?? '', effectiveDate: '', reason: '' })}>Copy into a new version</button></details>) : <p>No commission rules yet. Until one is switched on, delivered orders cannot add seller earnings.</p>}
+      <div className="finance-panel"><h3>Which rule applies</h3><p className="finance-muted">The rule each channel uses for new orders. A product rule beats a category rule, which beats the channel rule.</p>
+        <div className="finance-table" role="region" tabIndex={0} aria-label="Commission coverage"><table><thead><tr>{['Channel', 'Vendors', 'Current rule', 'Overrides', ''].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {coverage.map(row => { const rule = current.find(item => String(item._id) === String(row.ruleId)); return <tr key={`${row.channel}:${row.vendorType}`}>
+            <td>{CHANNEL_NAMES[row.channel]}</td><td>{VENDOR_NAMES[row.vendorType]}</td>
+            <td>{!rule ? 'No rule — new orders are held' : row.active ? rateText(rule) : `${rateText(rule)} (switched off — new orders are held)`}</td>
+            <td>{row.overrides || '—'}</td>
+            <td><button type="button" onClick={() => changeScope({ channel: row.channel, vendorType: row.vendorType, categoryId: '', productId: '' })}>Edit</button></td>
+          </tr>; })}
+        </tbody></table></div>
+        {current.filter(rule => rule.categoryId || rule.productId).map(rule => <p key={rule._id}>{`${CHANNEL_NAMES[rule.channel]} · ${VENDOR_NAMES[rule.vendorType]} · ${rule.productId ? `product ${rule.productId}` : `category ${rule.categoryId}`}: ${rateText(rule)} (${rule.isActive ? 'on' : 'off'})`}
+          <button type="button" onClick={() => changeScope({ channel: rule.channel, vendorType: rule.vendorType, categoryId: rule.categoryId || '', productId: rule.productId || '' })}>Edit</button></p>)}
+      </div>
+      <div className="finance-panel"><h3>Change history</h3><p className="finance-muted">Every saved version, newest first. Older versions are kept for audit and for the orders placed under them.</p>
+        {rules.length ? rules.map(rule => <details key={rule._id}><summary>{CHANNEL_NAMES[rule.channel] || rule.channel} · {rateText(rule)} · {current.some(item => String(item._id) === String(rule._id)) ? (rule.isActive ? 'Current' : 'Current (off)') : 'Replaced'} · {new Date(rule.createdAt || rule.effectiveDate).toLocaleString()}</summary><p>Version: {rule.version}<br />GST: {rule.taxTreatment} {rule.taxRate}%<br />Changed by: {rule.createdBy}<br />Reason: {rule.reason}<br />Product: {rule.productId || 'All'} · Category: {rule.categoryId || 'All'}</p></details>) : <p>No commission rules yet. Until one is switched on, delivered orders cannot add seller earnings.</p>}
       </div>
     </> : <>
       {['cod','orders'].includes(tab) && <form className="finance-panel finance-grid" onSubmit={event => { event.preventDefault(); setPage(1); perform(load); }}>

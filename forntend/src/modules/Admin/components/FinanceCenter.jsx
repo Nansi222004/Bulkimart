@@ -5,6 +5,7 @@ import DeliveryRatesTab, { CustomerDeliveryChargeCard } from './DeliveryRatesTab
 import QuickThirdPartySettingsTab from './QuickThirdPartySettingsTab';
 import SellerLedgerAdminTab from './SellerLedgerAdminTab';
 import FinanceOverview from './FinanceOverview';
+import CourierCostsPanel from './CourierCostsPanel';
 import FinancePolicySettings from './FinancePolicySettings';
 import { TaxReportPanel, AccountingExportPanel } from './FinanceReports';
 import './FinanceCenter.css';
@@ -14,7 +15,7 @@ export const financeAreas = {
   orders: { label: 'Orders & COD', description: 'Each order’s money breakdown. Earnings move on their own; only orders that need you are flagged.', views: [['orders', 'All orders'], ['cod', 'COD cash']] },
   payouts: { label: 'Payouts', description: 'What Bulkimart owes sellers and riders, and the payout requests to pay.', views: [['seller-payouts', 'Seller payouts'], ['earnings', 'Seller balances'], ['payouts', 'Rider payouts'], ['rider-earnings', 'Rider balances'], ['courier-payments', 'Shiprocket fee payments']] },
   settings: { label: 'Settings', description: 'Rates and rules. Every change is saved as a new version with your reason; past orders keep their old rates.', views: [['commissions', 'Commission'], ['rates', 'Rider pay'], ['charges', 'Customer delivery charge'], ['shiprocket', 'Shiprocket fee'], ['policies', 'Payouts & tax']] },
-  reports: { label: 'Reports', description: 'The full ledger, automatic checks, tax and accounting exports, and orders placed before the finance system started.', views: [['ledger', 'Ledger & checks'], ['tax', 'Tax reports'], ['accounting', 'Accounting export'], ['historical', 'Old orders']] },
+  reports: { label: 'Reports', description: 'The full ledger, automatic checks, tax and accounting exports, and orders placed before the finance system started.', views: [['ledger', 'Ledger & checks'], ['courier-costs', 'Courier costs'], ['tax', 'Tax reports'],['accounting', 'Accounting export'], ['historical', 'Old orders']] },
 };
 
 export const legacyFinanceViews = {
@@ -46,6 +47,7 @@ export default function FinanceCenter({ legacyTab }) {
   if (view === 'overview') content = <FinanceOverview onNavigate={go} />;
   else if (view === 'historical') content = <HistoricalFinancePanel />;
   else if (view === 'tax') content = <TaxReportPanel />;
+  else if (view === 'courier-costs') content = <CourierCostsPanel />;
   else if (view === 'accounting') content = <AccountingExportPanel />;
   else if (view === 'rates') content = <DeliveryRatesTab includeCustomer={false} />;
   else if (view === 'charges') content = <CustomerDeliveryChargeCard />;

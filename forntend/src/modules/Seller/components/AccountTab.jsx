@@ -135,8 +135,12 @@ export const AccountTab = () => {
               <span className="finance-row-val">₹{Number(ledgerBalances.earnedEarnings || 0).toLocaleString('en-IN')}</span>
             </div>
             <div className="finance-breakdown-row">
-              <span className="finance-row-key">Quick Delivery Obligations</span>
-              <span className="finance-row-val">-₹{Number((ledgerBalances.quickFreightObligations || 0) + (ledgerBalances.bulkimartServiceFees || 0)).toLocaleString('en-IN')}</span>
+              <span className="finance-row-key">Same-day Incentives</span>
+              <span className="finance-row-val">₹{Number(ledgerBalances.sameDayIncentives || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div className="finance-breakdown-row">
+              <span className="finance-row-key">Shiprocket Charges Still to Pay (prepaid separately)</span>
+              <span className="finance-row-val">₹{Number(ledgerBalances.courierObligations?.outstanding || 0).toLocaleString('en-IN')}</span>
             </div>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Held / Pending</span>

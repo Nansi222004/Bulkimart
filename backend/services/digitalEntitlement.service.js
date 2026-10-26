@@ -39,9 +39,20 @@ export const activateDigitalEntitlements = async ({ payment, session }) => {
         { upsert: true, session },
       );
     }
-    if (digitalItems.length > 0 && digitalItems.length === (order.items || []).length) {
+    if (digitalItems.length > 0 && digitalItems.length === (order.items || []).length && order.status !== 'delivered') {
+      // Access activation is the fulfilment moment. Stamp it on every item the
+      // same way rider and courier delivery do, so the return window (from the
+      // item's own frozen policy) starts here and held earnings can release.
+      const deliveredAt = new Date();
+      for (const item of order.items) {
+        const { returnEligible, returnWindowDays } = item.returnPolicy || {};
+        item.deliveredAt = deliveredAt;
+        item.returnEligibleUntil = returnEligible && Number.isFinite(returnWindowDays) && returnWindowDays > 0
+          ? new Date(deliveredAt.getTime() + returnWindowDays * 24 * 60 * 60 * 1000)
+          : null;
+      }
       order.status = 'delivered';
-      order.timeline.push({ status: 'delivered', timestamp: new Date(), note: 'Digital purchase access activated' });
+      order.timeline.push({ status: 'delivered', timestamp: deliveredAt, note: 'Digital purchase access activated' });
       await order.save({ session });
     }
   }

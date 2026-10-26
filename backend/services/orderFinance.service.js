@@ -11,7 +11,7 @@ import Return from '../models/Return.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { financialTransaction, requireFinanceOperation } from './financeSafety.service.js';
-import { moneyPaise } from './vendorCommission.service.js';
+import { moneyPaise, sameDayIncentiveOf } from './vendorCommission.service.js';
 import { httpError } from '../utils/response.js';
 import { returnHoldOpen } from './returnHold.service.js';
 
@@ -37,6 +37,36 @@ export const refundCompensation = (snapshot, line, proportional) => {
   if (!platformFunded(snapshot)) return { sellerPaise: proportional(line.eligiblePaise) - commissionPaise - taxPaise, commissionPaise, taxPaise, tcsPaise: 0, tdsPaise: 0, platformDiscountPaise: 0 };
   return { sellerPaise: proportional(line.netPaise), commissionPaise, taxPaise, tcsPaise: proportional(line.tcsPaise || 0),
     tdsPaise: proportional(line.tdsPaise || 0), platformDiscountPaise: proportional(line.platformDiscountPaise || 0) };
+};
+/**
+ * The customer delivery charge split into platform delivery income and the
+ * Same-Day seller incentive. New snapshots freeze the split; older ones kept
+ * the incentive inside deliveryPaise, and the order's own frozen delivery
+ * record says how much of it belonged to the seller.
+ */
+export const deliverySplit = (order, snapshot) => {
+  const components = snapshot.components;
+  if (components.sellerIncentivePaise !== undefined) return { deliveryPaise: components.deliveryPaise, incentivePaise: components.sellerIncentivePaise };
+  const incentivePaise = sameDayIncentiveOf(order, components.deliveryPaise);
+  return { deliveryPaise: components.deliveryPaise - incentivePaise, incentivePaise };
+};
+const incentiveSeller = snapshot => {
+  const sellers = [...new Set(snapshot.lines.map(line => String(line.sellerId)))];
+  if (sellers.length !== 1) throw httpError(409, 'A Same-Day seller incentive requires exactly one seller on the order');
+  return sellers[0];
+};
+// The incentive is paid for fulfilment and is never refunded with an item, so
+// it leaves the hold with the order rather than with any one line.
+const releaseSameDayIncentive = async (order, actorId, session) => {
+  const entry = await SellerLedgerEntry.findOne({ orderId: order._id, account: 'seller_payable', type: 'same_day_incentive', bucket: 'held', direction: 'credit' }).session(session);
+  if (!entry || await SellerLedgerEntry.exists({ idempotencyKey: `FINANCE:${entry._id}:RELEASE:eligible` }).session(session)) return false;
+  await Seller.updateOne({ _id: entry.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
+  for (const [bucket, direction] of [['held', 'debit'], ['eligible', 'credit']]) await postLedgerEntry({
+    idempotencyKey: `FINANCE:${entry._id}:RELEASE:${bucket}`, sellerId: entry.sellerId, orderId: order._id, account: 'seller_payable',
+    type: 'adjustment', direction, bucket, amount: entry.amount, description: `Same-day incentive released ${order.orderNo}`,
+    postedBy: actorId, postedByRole: actorId ? 'admin' : 'system', metadata: { source: 'order-finance-v2', originalEntryId: String(entry._id), kind: 'same_day_incentive' },
+  }, { session });
+  return true;
 };
 // Cash Bulkimart accepts as settled: what was verified plus any shortage the
 // platform has written off under the approved "platform absorbs" policy.
@@ -229,9 +259,14 @@ export const postOrderFinance = async (orderId, actorId, review) => {
         if (amount > 0) await postLedgerEntry({ ...common, idempotencyKey: `FINANCE:${order._id}:${line.itemId}:${suffix}`, account, type, amount: amount / 100, description: `${type} for ${order.orderNo}` }, { session });
       }
     }
-    if (snapshot.components.deliveryPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, orderId: order._id,
-      account: 'customer_delivery', type: 'customer_delivery', direction: 'credit', bucket: 'held', amount: snapshot.components.deliveryPaise / 100,
+    const { deliveryPaise, incentivePaise } = deliverySplit(order, snapshot);
+    if (deliveryPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, orderId: order._id,
+      account: 'customer_delivery', type: 'customer_delivery', direction: 'credit', bucket: 'held', amount: deliveryPaise / 100,
       description: `Customer delivery charge ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
+    if (incentivePaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:SAME_DAY_INCENTIVE`, sellerId: incentiveSeller(snapshot), orderId: order._id,
+      paymentId: order.paymentId, account: 'seller_payable', type: 'same_day_incentive', direction: 'credit', bucket: 'held', amount: incentivePaise / 100,
+      description: `Same-day seller incentive ${order.orderNo}`, postedBy: actorId, postedByRole: actorId ? 'admin' : 'system',
+      metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
     await Order.updateOne({ _id: order._id }, { $set: { financialPosting: 'held', ...(order.paymentMethod === 'cod' ? { 'codFinance.status': 'allocated' } : {}) } }, { session });
     return { status: 'held', alreadyProcessed: false };
   });
@@ -267,6 +302,7 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
     }
     if (heldLines && !releasedLines) throw httpError(409, 'Delivery evidence, return hold or financial reconciliation has not cleared');
     const status = heldLines ? 'held' : 'eligible';
+    if (status === 'eligible') await releaseSameDayIncentive(order, actorId, session);
     await Order.updateOne({ _id: order._id }, { $set: { financialPosting: status } }, { session });
     return { status, heldLines, releasedLines };
   });
@@ -367,6 +403,9 @@ export const reverseRefundedReturn = async (returnId, actorId, review) => {
     // Zero-value returns still need a durable processed marker.
     const allReversed = snapshot.lines.every(row => row.itemId === line.itemId ? after === row.qty : order.financialReturnQuantities?.[row.itemId] === row.qty);
     await Order.updateOne({ _id: order._id }, { $set: { [`financialReturnQuantities.${line.itemId}`]: after, [`financialReturnQuantities.return_${ret._id}`]: true, ...(allReversed ? { financialPosting: 'reversed' } : {}) } }, { session });
+    // Item refunds never include the delivery charge, so a fully refunded
+    // order still owes the seller the incentive the customer paid for fulfilment.
+    if (allReversed) await releaseSameDayIncentive(order, actorId, session);
     await markReconciled();
     return { reversedNetPaise: net, reconciliationRequired: Boolean(net > available && released) };
   });

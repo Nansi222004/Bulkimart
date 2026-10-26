@@ -1,6 +1,7 @@
 import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { ecommerceOrderRow } from '../utils/ecommerceOrderDisplay';
 
 export const SectionModuleTab = ({ moduleId }) => {
   const {
@@ -134,17 +135,9 @@ export const SectionModuleTab = ({ moduleId }) => {
 
     'ecom-orders': {
       title: 'E-Commerce Orders Log',
-      desc: 'National shipments dispatched via third-party logistics courier partners.',
+      desc: 'E-commerce orders delivered by courier partners or Bulkimart Delivery.',
       columns: ['Order ID', 'Customer', 'Items', 'Total Amount', 'Courier Partner', 'Tracking #', 'Status'],
-      data: moduleId === 'ecom-orders' ? customerOrders.map((o) => ({
-        id: o._id,
-        customer: o.userId?.name || o.userId?.phone || 'Customer',
-        items: (o.items || []).length,
-        amount: `₹${(o.payment?.totalAmount || 0).toLocaleString('en-IN')}`,
-        courier: o.shiprocket?.courier || '—',
-        tracking: o.shiprocket?.awb || '—',
-        status: o.status,
-      })) : []
+      data: moduleId === 'ecom-orders' ? customerOrders.map(ecommerceOrderRow) : []
     },
 
     'qcom-orders': {
@@ -231,14 +224,14 @@ export const SectionModuleTab = ({ moduleId }) => {
           <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>{currentConfig.desc}</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        {moduleId !== 'ecom-orders' && <div style={{ display: 'flex', gap: 10 }}>
           <button className="sa-btn-primary" onClick={() => triggerToast(`Add item form opened for ${currentConfig.title}...`)}>
             + Add New Entry
           </button>
           <button className="sa-btn-primary" style={{ backgroundColor: '#ffffff', color: 'var(--sa-text-primary)', border: '1px solid var(--sa-border)' }} onClick={() => triggerToast(`Exporting ${currentConfig.title} as CSV...`)}>
             Export CSV
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Action Row: Search & Status Filters */}
@@ -258,9 +251,9 @@ export const SectionModuleTab = ({ moduleId }) => {
 
         <select className="sa-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="All">All Statuses</option>
-          <option value="Active">Active / Approved</option>
+          {moduleId === 'ecom-orders' ? ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery', 'delivered', 'cancelled', 'return_requested', 'returned', 'refunded'].map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>) : <><option value="Active">Active / Approved</option>
           <option value="Pending">Pending Review</option>
-          <option value="Delivered">Delivered / Sent</option>
+          <option value="Delivered">Delivered / Sent</option></>}
         </select>
       </div>
 
@@ -280,7 +273,9 @@ export const SectionModuleTab = ({ moduleId }) => {
             </tr>
           </thead>
           <tbody>
-            {filteredData.length === 0 ? (
+            {moduleId === 'ecom-orders' && customerOrdersLoading ? (
+              <tr><td colSpan={currentConfig.columns.length + 1} style={{ padding: 30, textAlign: 'center' }}>Loading orders…</td></tr>
+            ) : filteredData.length === 0 ? (
               <tr>
                 <td colSpan={currentConfig.columns.length + 1} style={{ padding: '30px', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
                   No matching records found.
@@ -325,19 +320,19 @@ export const SectionModuleTab = ({ moduleId }) => {
         <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: '520px' }}>
             <div className="admin-modal-header">
-              <h3 className="admin-modal-title">Record Information Sheet</h3>
+              <h3 className="admin-modal-title">{moduleId === 'ecom-orders' ? `Order ${selectedRow.id}` : 'Record Information Sheet'}</h3>
               <button className="admin-modal-close" onClick={() => setSelectedRow(null)}>✕</button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {Object.keys(selectedRow).map(key => (
+              {Object.keys(selectedRow).map((key, index) => (
                 <div key={key} className="admin-item-row" style={{ padding: '4px 0' }}>
-                  <span className="admin-item-label" style={{ textTransform: 'capitalize' }}>{key}</span>
+                  <span className="admin-item-label" style={{ textTransform: 'capitalize' }}>{moduleId === 'ecom-orders' ? currentConfig.columns[index] : key}</span>
                   <span className="admin-item-value" style={{ fontWeight: 800 }}>{String(selectedRow[key])}</span>
                 </div>
               ))}
 
-              <hr style={{ borderColor: 'var(--sa-border)', margin: '8px 0' }} />
+              {moduleId !== 'ecom-orders' && <><hr style={{ borderColor: 'var(--sa-border)', margin: '8px 0' }} />
 
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="sa-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { triggerToast('Record status updated.'); setSelectedRow(null); }}>
@@ -346,7 +341,7 @@ export const SectionModuleTab = ({ moduleId }) => {
                 <button className="sa-btn-primary" style={{ flex: 1, justifyContent: 'center', backgroundColor: '#ffffff', color: 'var(--sa-error)', border: '1px solid var(--sa-error)' }} onClick={() => { triggerToast('Record deleted.'); setSelectedRow(null); }}>
                   Delete
                 </button>
-              </div>
+              </div></>}
             </div>
           </div>
         </ModalPortal>
