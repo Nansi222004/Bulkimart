@@ -1276,15 +1276,12 @@ export const getMyReviewedProductIds = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Add product review — held for moderation, not published
+ * @desc    Add and publish a product review
  * @route   POST /api/products/:id/reviews
  * @access  Private
  *
- * The review is stored `pending` and deliberately does NOT move the product's
- * score: a rating that counted the moment it was posted would let anyone
- * change a product's stars without a human ever seeing the words attached.
- * `applyApprovedRatings` is still called so the rollup stays consistent with
- * whatever is approved right now.
+ * Published reviews contribute to the product's score. Admins can subsequently
+ * moderate them through the existing review management screen.
  */
 export const addProductReview = asyncHandler(async (req, res) => {
   const { rating, comment, images } = req.body;
@@ -1312,12 +1309,19 @@ export const addProductReview = asyncHandler(async (req, res) => {
     throw new Error('Product already reviewed by you');
   }
 
+  const reviewImages = images === undefined ? [] : images;
+  if (!Array.isArray(reviewImages) || reviewImages.some(image => typeof image !== 'string')
+    || reviewImages.length + (req.files?.length || 0) > 4) {
+    throw httpError(400, 'You can upload up to 4 review photos.');
+  }
+  const uploadedImages = await Promise.all((req.files || []).map(file => uploadToCloudinary(file.buffer, 'reviews', { resource_type: 'image' })));
+
   product.ratings.reviews.push({
     userId: req.user._id,
     userName: req.user.name || '',
     rating: stars,
     comment,
-    images: images || [],
+    images: [...reviewImages, ...uploadedImages],
     status: 'approved',
   });
 

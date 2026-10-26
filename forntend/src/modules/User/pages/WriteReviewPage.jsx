@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useUser } from '../context/UserContext';
+import React, { useState, useEffect, useRef } from 'react';
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { apiUrl } from '../../../utils/api';
 
 const RATING_LABELS = {
@@ -11,14 +11,21 @@ const RATING_LABELS = {
 };
 
 export const WriteReviewPage = ({ productId, onBack }) => {
-  const { setSelectedProduct } = useUser();
+  const ui = useFeedback();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [photos, setPhotos] = useState([]);
+  const photoUrls = useRef(new Set());
+  const submissionLock = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => () => {
+    photoUrls.current.forEach(url => URL.revokeObjectURL(url));
+    photoUrls.current.clear();
+  }, []);
 
   useEffect(() => {
     if (!productId) return;
@@ -46,23 +53,29 @@ export const WriteReviewPage = ({ productId, onBack }) => {
   }, [productId]);
 
   const handlePhotoUpload = (e) => {
-    const files = Array.from(e.target.files).slice(0, 4 - photos.length);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (reader.result) {
-          setPhotos((prev) => [...prev, reader.result].slice(0, 4));
-        }
-      };
-      reader.readAsDataURL(file);
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length + photos.length > 4) { setError('You can upload up to 4 review photos.'); return; }
+    if (files.some(file => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
+      setError('Review photos must be JPG, PNG or WEBP images.'); return;
+    }
+    if (files.some(file => file.size > 5 * 1024 * 1024)) { setError('Each review photo must be 5 MB or smaller.'); return; }
+    setError('');
+    const selected = files.map(file => {
+      const url = URL.createObjectURL(file); photoUrls.current.add(url);
+      return { file, url };
     });
+    setPhotos(prev => [...prev, ...selected]);
   };
 
   const handleRemovePhoto = (index) => {
+    URL.revokeObjectURL(photos[index].url); photoUrls.current.delete(photos[index].url);
     setPhotos((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSubmit = async () => {
+    if (submissionLock.current) return;
+    submissionLock.current = true;
     setSubmitting(true);
     setError('');
 
@@ -70,31 +83,32 @@ export const WriteReviewPage = ({ productId, onBack }) => {
       const token = localStorage.getItem('userToken');
       if (!token) throw new Error('Please sign in to leave a review.');
 
+      const form = new FormData();
+      form.append('rating', String(rating));
+      form.append('comment', comment.trim());
+      photos.forEach(photo => form.append('images', photo.file));
       const res = await fetch(apiUrl(`/api/products/${productId}/reviews`), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          rating,
-          comment: comment.trim(),
-          images: photos,
-        }),
+        body: form,
       });
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.message || 'Failed to submit review');
+        throw new Error(res.status === 413 ? 'The review photos are too large. Please use smaller photos and try again.' : body.message || 'Failed to submit review');
       }
 
       // Successfully posted review directly
+      ui.notify('Review published. You can see it under Ratings & Reviews on the product page.', { type: 'success' });
       if (onBack) {
         onBack();
       }
     } catch (err) {
       setError(err.message || 'Error submitting review');
     } finally {
+      submissionLock.current = false;
       setSubmitting(false);
     }
   };
@@ -166,12 +180,12 @@ export const WriteReviewPage = ({ productId, onBack }) => {
         <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
           <h4 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Add Photos</h4>
           <p style={{ margin: '0 0 14px 0', fontSize: 12, color: '#64748b' }}>
-            Capture and add your product experiences!
+            Add up to 4 JPG, PNG or WEBP photos, up to 5 MB each.
           </p>
 
           {photos.length < 4 && (
             <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px', border: '1.5px dashed #818cf8', borderRadius: 12, background: '#f5f3ff', cursor: 'pointer' }}>
-              <input type="file" accept="image/*" multiple onChange={handlePhotoUpload} style={{ display: 'none' }} />
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={submitting} onChange={handlePhotoUpload} style={{ display: 'none' }} />
               <span style={{ fontSize: 20 }}>📷</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5' }}>
                 Add photos ({photos.length}/4)
@@ -182,10 +196,12 @@ export const WriteReviewPage = ({ productId, onBack }) => {
           {/* Photo Previews */}
           {photos.length > 0 && (
             <div style={{ display: 'flex', gap: 10, marginTop: 12, overflowX: 'auto', paddingBottom: 4 }}>
-              {photos.map((src, idx) => (
+              {photos.map((photo, idx) => (
                 <div key={idx} style={{ position: 'relative', flexShrink: 0 }}>
-                  <img src={src} alt="preview" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #e2e8f0' }} />
+                  <img src={photo.url} alt={`Review photo ${idx + 1} preview`} style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #e2e8f0' }} />
                   <button
+                    disabled={submitting}
+                    aria-label={`Remove review photo ${idx + 1}`}
                     onClick={() => handleRemovePhoto(idx)}
                     style={{
                       position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%',
@@ -223,7 +239,7 @@ export const WriteReviewPage = ({ productId, onBack }) => {
         </div>
 
         {error && (
-          <p style={{ margin: 0, fontSize: 12.5, color: '#ef4444', textAlign: 'center', fontWeight: 600 }}>
+          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: '#ef4444', textAlign: 'center', fontWeight: 600 }}>
             {error}
           </p>
         )}

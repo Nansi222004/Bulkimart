@@ -30,7 +30,7 @@ import {
 import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { downloadBulkTemplate, processBulkUpload } from '../controllers/bulkProduct.controller.js';
-import { uploadProductImages, uploadBulkFiles } from '../middlewares/upload.middleware.js';
+import { uploadProductImages, uploadBulkFiles, uploadReviewImages } from '../middlewares/upload.middleware.js';
 import { uploadEbookFile } from '../middlewares/ebookUpload.middleware.js';
 
 const router = express.Router();
@@ -102,7 +102,7 @@ router.patch('/:id/channels', protect, requireRole('seller', 'admin'), requireSe
 router.patch('/:id/stock', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, adjustProductStock);
 router.delete('/:id', protect, requireRole('seller', 'admin'), deleteProduct);
 
-router.post('/:id/reviews', protect, addProductReview);
+router.post('/:id/reviews', protect, uploadReviewImages, addProductReview);
 router.post('/:id/faqs', protect, askProductQuestion);
 
 export default router;

@@ -1,0 +1,31 @@
+.pm-dialog { flex-direction: row; }
+.pm-sidebar { width: 260px; box-sizing: border-box; }
+.pm-tab-nav { flex-direction: column; }
+.pm-main { min-height: 0; overscroll-behavior: contain; }
+.pm-variant-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%; }
+
+@media (max-width: 767px) {
+  .pm-overlay.modal-viewport {
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+  }
+  /* One scroll container lets the header and actions move out of the way when
+     the keyboard shrinks the viewport. Inputs retain their full natural height. */
+  .pm-dialog { flex-direction: column; width: 100% !important; height: 100% !important; overflow-y: auto !important; border-radius: 12px !important; scroll-padding-block: 16px; }
+  .pm-sidebar { width: 100%; padding: 10px 12px !important; border-right: 0 !important; border-bottom: 1px solid var(--border-color); gap: 8px; }
+  .pm-sidebar-brand { display: none !important; }
+  .pm-tab-nav { flex-direction: row; overflow-x: auto; gap: 4px !important; }
+  .pm-tab-nav button { flex-shrink: 0; min-height: 44px; gap: 6px; }
+  .pm-sidebar-footer { display: flex; align-items: center; gap: 10px; padding-top: 8px !important; }
+  .pm-sidebar-footer > label { margin: 0 !important; flex-shrink: 0; }
+  .pm-sidebar-footer > select { width: auto !important; flex: 1; min-width: 0; min-height: 40px; }
+  .pm-right-column { display: contents !important; }
+  .pm-header { padding: 14px 16px !important; gap: 8px; }
+  .pm-header h3 { font-size: 18px !important; }
+  .pm-header > button { min-width: 44px; min-height: 44px; }
+  .pm-main { flex: none !important; overflow: visible !important; padding: 16px !important; }
+  .pm-main input, .pm-main select, .pm-main textarea { scroll-margin-block: 16px; }
+  .pm-variant-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .pm-footer { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); padding: 12px 16px !important; gap: 8px !important; margin-top: auto; }
+  .pm-footer > button { min-height: 44px; padding: 10px !important; font-size: 14px !important; }
+  .pm-footer-error { grid-column: 1 / -1; margin: 0 !important; gap: 4px; }
+}

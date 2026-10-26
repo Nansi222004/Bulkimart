@@ -9,6 +9,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
+import './ProductModal.css';
 
 /**
  * Premium tabbed product create/edit panel.
@@ -58,6 +59,21 @@ export const ProductModal = () => {
   const wholesaleDialog = useRef(null);
   useSellerDialog(wholesaleDialog, showAddProductModal && (wholesaleOnly || wholesaleProductEditor));
   const isEditing = Boolean(editingProductId);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!showAddProductModal || !viewport) return;
+    let frame;
+    const revealField = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const field = document.activeElement;
+        if (window.matchMedia('(max-width: 767px)').matches && wholesaleDialog.current?.contains(field)
+          && field?.matches('input,textarea,select')) field.scrollIntoView({ block: 'nearest' });
+      });
+    };
+    viewport.addEventListener('resize', revealField);
+    return () => { viewport.removeEventListener('resize', revealField); cancelAnimationFrame(frame); };
+  }, [showAddProductModal]);
   const isDigital = newProductForm.fulfillmentType === 'digital' || editingProduct?.fulfillmentType === 'digital';
   const [activeTab, setActiveTab] = useState('general');
   const [ebookFile, setEbookFile] = useState(null);
@@ -290,9 +306,12 @@ export const ProductModal = () => {
     }));
   };
 
-  const wholesaleDirty = offerSnapshot !== JSON.stringify(variants.map(v => [v._id,v.wholesalePricing || {enabled:false}]));
   const savedOffers = new Map(JSON.parse(offerSnapshot || '[]').map(([id,pricing])=>[String(id),JSON.stringify(pricing)]));
   const wholesaleChanges = variants.filter(v=>v._id && JSON.stringify(v.wholesalePricing || {enabled:false})!==savedOffers.get(String(v._id)));
+  // Retail variant additions/removals do not edit Wholesale offer terms.
+  const wholesaleDirty = wholesaleOnly || wholesaleProductEditor
+    ? offerSnapshot !== JSON.stringify(variants.map(v => [v._id,v.wholesalePricing || {enabled:false}]))
+    : wholesaleChanges.length > 0;
   const wholesaleInvalid = wholesaleChanges.some(v => Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length);
   const saveWholesalePricing = async () => {
     if (!isEditing || !editingProductId || !wholesaleAuthorized || isDigital || wholesaleLock.current) return;
@@ -480,35 +499,12 @@ export const ProductModal = () => {
   const showSameDayBlock = activeChannel === 'ecommerce';
 
   return (
-    <ModalPortal style={{...S.overlay,...(wholesaleProductEditor ? {zIndex:1100} : {})}} onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
-      {/* Mobile: sidebar stacks above the main content instead of beside it —
-          at 260px fixed width (see S.sidebar) inside a 92%-wide dialog, the
-          two-pane layout only left ~92px for the main content on a 375px
-          screen. `flexDirection`/sidebar `width` aren't in the S.* inline
-          style objects (deliberately removed from S.sidebar below), so this
-          class can govern them without an inline style winning over it. */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        .pm-dialog { flex-direction: column; }
-        .pm-sidebar { width: 100%; box-sizing: border-box; }
-        .pm-tab-nav { flex-direction: column; }
-        .pm-variant-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%; }
-        @media (max-width: 767px) {
-          .pm-sidebar { max-height: 38%; overflow-y: auto; padding: 12px; }
-          .pm-tab-nav { flex-direction: row; overflow-x: auto; gap: 4px; }
-          .pm-tab-nav button { flex-shrink: 0; min-height: 44px; }
-          .pm-variant-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .pm-dialog main { padding: 16px; }
-        }
-        @media (min-width: 768px) {
-          .pm-dialog { flex-direction: row; }
-          .pm-sidebar { width: 260px; }
-        }
-      ` }} />
-      <div ref={wholesaleProductEditor ? wholesaleDialog : undefined} role="dialog" aria-modal="true" aria-label={wholesaleProductEditor ? "Wholesale product listing" : "Product listing editor"} className={`pm-dialog ${wholesaleOnly ? 'pm-wholesale' : wholesaleProductEditor ? 'pm-wholesale-product' : ''}`} style={S.dialog} onClick={(e) => e.stopPropagation()}>
+    <ModalPortal className="pm-overlay" style={{...S.overlay,...(wholesaleProductEditor ? {zIndex:1100} : {})}} onClick={close} onKeyDown={event=>{if(event.key==='Escape')close();}}>
+      <div ref={wholesaleDialog} role="dialog" aria-modal="true" aria-label={wholesaleProductEditor ? "Wholesale product listing" : "Product listing editor"} className={`pm-dialog ${wholesaleOnly ? 'pm-wholesale' : wholesaleProductEditor ? 'pm-wholesale-product' : ''}`} style={S.dialog} onClick={(e) => e.stopPropagation()}>
         {/* ---- left sidebar column ---- */}
         <div className="pm-sidebar" style={S.sidebar}>
           <div>
-            <div style={{ ...S.sidebarBrand, ...(wholesaleOnly ? { marginBottom: 8 } : {}) }}>
+            <div className="pm-sidebar-brand" style={{ ...S.sidebarBrand, ...(wholesaleOnly ? { marginBottom: 8 } : {}) }}>
               <span style={S.sidebarBrandIcon}>🏷️</span>
               <span style={S.sidebarBrandLabel}>Listing Editor</span>
             </div>
@@ -519,6 +515,7 @@ export const ProductModal = () => {
                   <button
                     key={t.id}
                     type="button"
+                    aria-current={activeTab === t.id ? 'step' : undefined}
                     onClick={() => setActiveTab(t.id)}
                     style={{ ...S.tabBtn, ...(activeTab === t.id ? S.tabBtnActive : {}) }}
                   >
@@ -537,7 +534,7 @@ export const ProductModal = () => {
             </nav>
           </div>
 
-          <div style={{ ...S.sidebarFooter, ...(wholesaleOnly ? { display: 'none' } : {}) }}>
+          <div className="pm-sidebar-footer" style={{ ...S.sidebarFooter, ...(wholesaleOnly ? { display: 'none' } : {}) }}>
             {!isDigital && !wholesaleProductEditor && <>
               <label style={S.sideLabel}>Status</label>
               <select
@@ -562,8 +559,8 @@ export const ProductModal = () => {
         </div>
 
         {/* ---- right content column ---- */}
-        <div style={S.rightColumn}>
-          <div style={S.header}>
+        <div className="pm-right-column" style={S.rightColumn}>
+          <div className="pm-header" style={S.header}>
             <div style={{ minWidth: 0 }}>
               <h3 style={S.title}>{wholesaleProductEditor ? (isEditing ? 'Edit Wholesale Product' : 'Add Wholesale Product') : isEditing ? 'Edit Product' : 'Add Product Listing'}</h3>
               <div style={S.breadcrumb}>
@@ -575,7 +572,7 @@ export const ProductModal = () => {
             <button type="button" onClick={close} style={S.closeBtn} aria-label="Close">✕</button>
           </div>
 
-          <div style={S.main}>
+          <div className="pm-main" style={S.main}>
             <p className="seller-products-hint" role="status">Selling channels: {wholesaleProductEditor ? 'Wholesale only. Not listed in E-Commerce or Quick Commerce. Physical products follow the existing publication policy.' : editingProduct?.sellingChannels?.join(', ') || [editingProduct?.type || activeChannel,...(editingProduct?.channels || []).filter(c=>c.isActive!==false).map(c=>c.type)].join(', ')}</p>
             {wholesaleOnly && <p style={{padding:12}}>Wholesale terms only. Retail details are shown for reference; manage them in E-Commerce or Quick Commerce.</p>}
             {activeTab === 'general' && (
@@ -773,7 +770,7 @@ export const ProductModal = () => {
                 )}
 
                 {/* Same-Day, only on the Ecommerce/Shop All leg. */}
-                {!wholesaleProductEditor && !isDigital && showSameDayBlock && (
+                {isEditing && !wholesaleProductEditor && !isDigital && showSameDayBlock && (
                   <div className="onboarding-form-group" style={{ border: '1.5px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
                       <input type="checkbox" checked={Boolean(newProductForm.sameDayEnabled)}
@@ -1139,9 +1136,9 @@ export const ProductModal = () => {
           </div>
 
           {/* ---- footer ---- */}
-          <div style={S.footer}>
+          <div className="pm-footer" style={S.footer}>
             {!wholesaleOnly && !canSubmit && !savingProduct && allErrors.length > 0 && (
-              <div style={S.footerErrorHint} onClick={navigateToFirstError} title="Click to fix missing fields">
+              <div className="pm-footer-error" style={S.footerErrorHint} onClick={navigateToFirstError} title="Click to fix missing fields">
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626' }}>
                   ⚠️ {allErrors[0]} {allErrors.length > 1 ? `(+${allErrors.length - 1} more)` : ''}
                 </span>

@@ -54,6 +54,19 @@ const productImageUpload = multer({
   },
 });
 export const uploadProductImages = (fieldName, maxCount = 5) => productImageUpload.array(fieldName, maxCount);
+
+// Review photos travel as files rather than base64 inside the small JSON body.
+const reviewImageUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 4, fields: 2, fieldSize: 100 * 1024 },
+  fileFilter: (_req, file, cb) => cb(['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)
+    ? null : Object.assign(new Error('Review photos must be JPG, PNG or WEBP images.'), { status: 400 }), true),
+}).array('images', 4);
+export const uploadReviewImages = (req, res, next) => reviewImageUpload(req, res, error => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('Each review photo must be 5 MB or smaller.'), { status: 413 }));
+  if (['LIMIT_FILE_COUNT', 'LIMIT_UNEXPECTED_FILE'].includes(error?.code)) return next(Object.assign(new Error('You can upload up to 4 review photos.'), { status: 400 }));
+  next(error);
+});
 export const uploadBulkFiles = multer({ storage }).fields([
   { name: 'excelFile', maxCount: 1 },
   { name: 'zipFile', maxCount: 1 }
