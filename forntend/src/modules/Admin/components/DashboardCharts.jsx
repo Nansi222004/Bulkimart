@@ -37,9 +37,10 @@ export function FinancialOverviewChart({finance, error, loading, onRetry}) {
         {' '}Verified records subtotal only: {dashboardMoney(data[key].verifiedSubtotalPaise/100)}.
       </p>)}
       <p>Order value is gross before subsequent item refunds; collections are net of verified refunds and exclude wallet transfers. Neither is platform revenue.</p>
-      <p>Recognized Bulkimart revenue: unavailable. {data.platformRevenue.blocker}</p>
-      <p>Net posted merchandise commission subtotal only: {dashboardMoney(data.platformRevenue.verifiedSubtotalPaise/100)}.
-        {' '}{data.platformRevenue.incompleteRecords} evidence issues; not recognized platform-wide revenue.</p>
+      <p>Posted Bulkimart revenue: {data.platformRevenue.status==='unavailable' ? 'unavailable' : dashboardMoney(data.platformRevenue.verifiedSubtotalPaise/100)}.
+        {data.platformRevenue.status==='incomplete' && ' Verified subtotal · reconciliation pending.'} {data.platformRevenue.blocker}</p>
+      <p>{data.platformRevenue.basis || 'Net posted merchandise commission subtotal only'}: {dashboardMoney(data.platformRevenue.verifiedSubtotalPaise/100)}.
+        {' '}{data.platformRevenue.incompleteRecords} evidence issues.</p>
       <p>{data.orderValue.excludedRecords} order-value exclusions; {data.collections.excludedRecords} collection exclusions. Historical time series unavailable: event attribution and historical coverage are not approved.</p>
       <small>Financial snapshot observed {new Date(data.asOf).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})} · Asia/Kolkata</small>
     </>}

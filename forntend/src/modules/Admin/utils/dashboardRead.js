@@ -12,7 +12,9 @@ export function readDashboardFinance(data) {
     const row=data[key];
     if (!row || !['complete','incomplete','unavailable'].includes(row.status) || !amount(row.verifiedSubtotalPaise) || !count(row.incompleteRecords) || !count(row.excludedRecords)
       || (row.status==='complete' ? !amount(row.amountPaise) || row.amountPaise!==row.verifiedSubtotalPaise || row.incompleteRecords!==0 : row.amountPaise!==null)
-      || (key!=='platformRevenue' && row.verifiedSubtotalPaise<0) || (key==='platformRevenue' && (row.status!=='unavailable' || typeof row.blocker!=='string'))) throw Error('Invalid financial metric');
+      || (key!=='platformRevenue' && row.verifiedSubtotalPaise<0) || (row.status==='unavailable' && key==='platformRevenue' && typeof row.blocker!=='string')) throw Error('Invalid financial metric');
+    if (row.issues !== undefined && (!Array.isArray(row.issues) || row.issues.some(issue => !issue || typeof issue.code!=='string' || !count(issue.count) || issue.count===0 || typeof issue.message!=='string' || typeof issue.resolution!=='string'))) throw Error('Invalid financial issues');
+    if (row.breakdown !== undefined && (!row.breakdown || typeof row.breakdown!=='object' || ['orderCommissionPaise','parcelRevenuePaise','advertisingRevenuePaise'].some(component=>!amount(row.breakdown[component])) || Object.values(row.breakdown).reduce((sum,value)=>sum+value,0)!==row.verifiedSubtotalPaise)) throw Error('Invalid revenue breakdown');
   }
   return data;
 }

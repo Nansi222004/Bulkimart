@@ -1,11 +1,12 @@
 import {before,after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
+import react from '@vitejs/plugin-react';
 import {hookHarness} from './componentHarness.mjs';
 
 let vite,charts,read;
 before(async()=>{
-  vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
+  vite=await createServer({configFile:false,plugins:[react()],server:{middlewareMode:true,hmr:false},appType:'custom'});
   charts=await vite.ssrLoadModule('/src/modules/Admin/components/DashboardCharts.jsx');
   read=await vite.ssrLoadModule('/src/modules/Admin/utils/dashboardRead.js');
 });
@@ -22,7 +23,7 @@ const finance=()=>({version:1,currency:'INR',unit:'paise',scope:'all-time',timez
 test('financial comparison uses verified API amounts, converts paise once and never charts recognized revenue',()=>{
   const h=hookHarness(charts.FinancialOverviewChart,{finance:finance()});
   try {
-    const body=text(h);for(const value of ['₹123.45','₹56.78','₹12.50','not recognized platform-wide revenue','not a historical trend'])assert.ok(body.includes(value));
+    const body=text(h);for(const value of ['₹123.45','₹56.78','₹12.50','Posted Bulkimart revenue','not a historical trend'])assert.ok(body.includes(value));
     assert.ok(!body.includes('₹12,345.00'));
     const figure=h.find(node=>node.type==='figure');assert.equal(figure.props['aria-label'],'Order value and collections · INR');
     assert.equal(figure.props.children[1].props.children.length,2);
@@ -39,6 +40,12 @@ test('genuine financial zero stays labelled zero; incomplete totals have no bar'
     const rows=h.find(node=>node.type==='figure').props.children[1].props.children;
     assert.equal(rows.length,1);assert.equal(rows[0].key,'orderValue');assert.match(text(h),/2/);
   } finally {h.close();}
+});
+
+test('available posted income replaces the permanent revenue-unavailable message',()=>{
+  const value=finance();value.platformRevenue={...metric(),amountPaise:1020,verifiedSubtotalPaise:1020,basis:'Net posted commissions and earned fees'};
+  const h=hookHarness(charts.FinancialOverviewChart,{finance:value});
+  try {assert.match(text(h),/Posted Bulkimart revenue/);assert.match(text(h),/₹10.20/);assert.doesNotMatch(text(h),/revenue: unavailable|not recognized platform-wide revenue/);} finally {h.close();}
 });
 
 test('loading, missing, malformed and permission errors cannot render financial zero bars',()=>{

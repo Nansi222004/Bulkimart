@@ -62,15 +62,20 @@ export const SuperAdminDashboard = () => {
 
         {metricCards.map(([title,key]) => {
           const metric=dashboardFinance?.[key];
+          const hasVerifiedAmount = metric && ['complete','incomplete'].includes(metric.status);
           return <div className="sa-kpi-card sa-financial-card" key={key}>
             <span className="sa-kpi-title">{title}</span>
-            <span className={`sa-kpi-value${metric?.status==='complete' ? '' : ' sa-value-unavailable'}`}>{metric?.status==='complete' ? dashboardMoney(metric.amountPaise/100) : 'Unavailable'}</span>
-            <span className="sa-kpi-description">{key==='orderValue' ? 'Completed order value' : key==='collections' ? 'Verified external collections' : 'Recognized platform revenue'}</span>
+            <span className={`sa-kpi-value${hasVerifiedAmount ? '' : ' sa-value-unavailable'}`}>{hasVerifiedAmount ? dashboardMoney((metric.status==='complete' ? metric.amountPaise : metric.verifiedSubtotalPaise)/100) : 'Unavailable'}</span>
+            {metric?.status==='incomplete' && <span className="sa-kpi-description" role="status">Verified subtotal · reconciliation pending</span>}
+            <span className="sa-kpi-description">{key==='orderValue' ? 'Completed order value' : key==='collections' ? 'Verified external order collections' : 'Posted commissions and earned fees'}</span>
             <details className="sa-metric-details">
               <summary>{metric?.incompleteRecords>0 ? `${metric.incompleteRecords} records need reconciliation` : metric?.status==='complete' ? 'About this figure' : 'Why unavailable?'}</summary>
               <div className="sa-metric-explanation">
-                <p>{key==='orderValue' ? 'Gross completed orders, before subsequent refunds' : key==='collections' ? 'Net verified external order collections; wallets excluded' : 'Recognized platform-wide revenue is not configured'}</p>
-                {metric && metric.status!=='complete' && <p>{key==='platformRevenue' ? 'Posted merchandise commission' : 'Verified records subtotal'}: {dashboardMoney(metric.verifiedSubtotalPaise/100)}. Total unavailable.</p>}
+                <p>{metric?.basis || (key==='orderValue' ? 'Gross completed orders, before subsequent refunds' : key==='collections' ? 'Net verified external order collections; wallets excluded' : 'Posted merchandise commission and earned fees')}</p>
+                {metric && metric.status!=='complete' && <p>Verified records subtotal: {dashboardMoney(metric.verifiedSubtotalPaise/100)}. The final total requires reconciliation.</p>}
+                {metric?.breakdown && <p>Order commission: {dashboardMoney(metric.breakdown.orderCommissionPaise/100)}; parcel income: {dashboardMoney(metric.breakdown.parcelRevenuePaise/100)}; advertising income: {dashboardMoney(metric.breakdown.advertisingRevenuePaise/100)}.</p>}
+                {metric?.issues?.length>0 && <ul>{metric.issues.map(issue => <li key={issue.code}>{issue.count} × {issue.message} {issue.resolution}</li>)}</ul>}
+                {metric?.incompleteRecords>0 && <button type="button" className="sa-refresh-button" onClick={() => setActiveTab('finance-center')}>Open Finance Center</button>}
                 {metric?.excludedRecords>0 && <p>{metric.excludedRecords} unverified or out-of-scope records excluded.</p>}
                 {metric?.blocker && <p>{metric.blocker}</p>}
               </div>

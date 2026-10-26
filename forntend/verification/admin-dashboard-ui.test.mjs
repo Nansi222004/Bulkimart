@@ -1,9 +1,10 @@
 import {before,after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
+import react from '@vitejs/plugin-react';
 import {hookHarness} from './componentHarness.mjs';
 let vite,Dashboard,Provider,read;
-before(async()=>{vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});Dashboard=(await vite.ssrLoadModule('/src/modules/Admin/pages/SuperAdminDashboard.jsx')).SuperAdminDashboard;Provider=(await vite.ssrLoadModule('/src/modules/Admin/context/AdminContext.jsx')).AdminProvider;read=await vite.ssrLoadModule('/src/modules/Admin/utils/dashboardRead.js');});
+before(async()=>{vite=await createServer({configFile:false,plugins:[react()],server:{middlewareMode:true,hmr:false},appType:'custom'});Dashboard=(await vite.ssrLoadModule('/src/modules/Admin/pages/SuperAdminDashboard.jsx')).SuperAdminDashboard;Provider=(await vite.ssrLoadModule('/src/modules/Admin/context/AdminContext.jsx')).AdminProvider;read=await vite.ssrLoadModule('/src/modules/Admin/utils/dashboardRead.js');});
 after(async()=>vite.close());
 const text=h=>JSON.stringify(h.tree,(_key,value)=>typeof value==='function'?undefined:value);
 const overview=()=>({totalOrders:0,ecommerceOrders:0,groceryOrders:0,totalUsers:0,totalSellers:1,pendingSellers:2,recentOrders:[],lowStockAlerts:[],recentSellers:[],ecommerceCategories:[],quickCommerceCategories:[]});
@@ -26,6 +27,20 @@ test('malformed successful responses fail contract validation instead of becomin
   for(const data of [null,{}, {...overview(),totalOrders:'17'}, {...overview(),recentOrders:[{id:'x'}]}])assert.throws(()=>read.readDashboardOverview(data));
   for(const data of [null,{}, {...finance(),unit:'rupees'}, {...finance(),collections:{...metric(),amountPaise:null}}, {...finance(),orderValue:{...metric(),amountPaise:'0'}}])assert.throws(()=>read.readDashboardFinance(data));
   assert.equal(read.readDashboardFinance(finance()).collections.amountPaise,0);
+});
+
+test('posted revenue and partial collections display real amounts with explicit coverage and a reconciliation route',()=>{
+  const f=finance();f.collections={...metric(),status:'incomplete',amountPaise:null,verifiedSubtotalPaise:280000,incompleteRecords:2,issues:[{code:'capture_missing',count:2,message:'Missing payment capture.',resolution:'Verify original gateway receipts.'}]};
+  f.platformRevenue={...metric(),status:'incomplete',amountPaise:null,verifiedSubtotalPaise:1020,incompleteRecords:3,breakdown:{orderCommissionPaise:0,parcelRevenuePaise:1020,advertisingRevenuePaise:0},basis:'Posted commission and earned parcel income.'};
+  assert.equal(read.readDashboardFinance(f).platformRevenue.verifiedSubtotalPaise,1020);
+  let destination;
+  const h=hookHarness(Dashboard,{},'/admin',{dashboardOverview:overview(),dashboardFinance:f,fetchDashboardOverview(){},setActiveTab(value){destination=value;}});
+  try {
+    const body=text(h);assert.match(body,/₹2,800.00/);assert.match(body,/₹10.20/);assert.match(body,/Verified subtotal · reconciliation pending/);assert.match(body,/Missing payment capture/);assert.doesNotMatch(body,/Recognized platform-wide revenue is not configured/);
+    h.click('Open Finance Center');assert.equal(destination,'finance-center');
+  } finally {h.close();}
+  f.platformRevenue={...metric(),amountPaise:1020,verifiedSubtotalPaise:1020};
+  assert.equal(read.readDashboardFinance(f).platformRevenue.status,'complete');
 });
 test('actual context clears stale data, handles failure and retry, and rejects older concurrent responses',async()=>{
   const h=hookHarness(Provider,{},'/admin',undefined,{localStorage:{getItem:()=>null,removeItem(){}}});

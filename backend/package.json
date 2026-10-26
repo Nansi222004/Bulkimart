@@ -7,6 +7,8 @@
   },
   "main": "index.js",
   "scripts": {
+    "audit:dashboard": "node scripts/auditDashboardMetrics.mjs",
+    "test:dashboard-metrics": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/admin-dashboard-metrics.test.js",
     "test:image-search": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/image-search.test.js",
     "image-search:index": "node scripts/imageSearchIndex.mjs",
     "test:rider-service-area": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/rider-service-area.test.js",

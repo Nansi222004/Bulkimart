@@ -15,7 +15,7 @@ import Admin from '../models/Admin.js';
 import User from '../models/User.js';
 import Seller from '../models/Seller.js';
 import { ORDER_STATUSES } from '../constants/enums.js';
-import { newMetric, addCompletedOrder, addOrderCollection, getAdminFinancialMetrics } from '../services/adminDashboardMetrics.service.js';
+import { newMetric, addCompletedOrder, addOrderCollection, addPostedRevenue, getAdminFinancialMetrics } from '../services/adminDashboardMetrics.service.js';
 
 const oid=()=>new mongoose.Types.ObjectId();
 const app=express(); app.use(express.json()); app.use('/api/admin',adminRoutes); app.use(errorHandler);
@@ -37,6 +37,63 @@ test('gross completed order value uses canonical prices and remains distinct fro
   expect(metric.verifiedSubtotalPaise).toBe(9500);
   addCompletedOrder(metric,{status:'delivered',pricing:{totalAmount:0}});expect(metric.incompleteRecords).toBe(0);
   addCompletedOrder(metric,{status:'delivered',payment:{totalAmount:999}});expect(metric.incompleteRecords).toBe(1);
+});
+
+test('abandoned online checkouts without an order are exclusions, not broken collections',()=>{
+  for (const status of ['pending','failed']) {
+    const metric=newMetric();addOrderCollection(metric,{...online(),status,captures:[]},[],[]);
+    expect(metric).toMatchObject({incompleteRecords:0,excludedRecords:1,verifiedSubtotalPaise:0});
+  }
+});
+
+test('missing capture and unmatched totals expose actionable reasons without leaking provider details',()=>{
+  const legacy=newMetric();addOrderCollection(legacy,{...online(),captures:[]},orders(),[]);
+  expect(legacy.issues[0]).toMatchObject({code:'capture_missing',count:1});
+  const mismatch=newMetric();addOrderCollection(mismatch,online(),[{...orders()[0],pricing:{totalAmount:99}}],[]);
+  expect(mismatch.issues[0].code).toBe('capture_total_mismatch');
+});
+
+const posted = extra => ({_id:oid(),entryNo:String(oid()),idempotencyKey:String(oid()),currency:'INR',account:'commission_revenue',amount:10,direction:'credit',type:'platform_commission',metadata:{source:'order-finance-v2'},...extra});
+
+test('posted order commission becomes available, and reversals reduce it once',async()=>{
+  await Ledger.collection.insertMany([posted(),posted({amount:2,direction:'debit',type:'reversal'})]);
+  const result=await getAdminFinancialMetrics();
+  expect(result.platformRevenue).toMatchObject({status:'complete',amountPaise:800,verifiedSubtotalPaise:800,breakdown:{orderCommissionPaise:800,parcelRevenuePaise:0,advertisingRevenuePaise:0}});
+  expect(result.platformRevenue.blocker).toBeUndefined();
+});
+
+test('earned parcel and recognized advertising income are consolidated while taxes and receipts are excluded',async()=>{
+  await Ledger.collection.insertMany([
+    posted({account:'parcel_revenue',type:'adjustment',amount:10.2,parcelDeliveryId:oid(),metadata:{amountPaise:1020}}),
+    posted({account:'parcel_revenue',type:'reversal',amount:2,direction:'debit',parcelDeliveryId:oid(),metadata:{amountPaise:200}}),
+    posted({account:'advertising_revenue',type:'advertising_recognition',amount:40,advertisingCampaignId:oid(),paymentId:oid()}),
+    posted({account:'advertising_revenue',type:'advertising_refund',amount:5,direction:'debit',advertisingCampaignId:oid(),paymentId:oid()}),
+    posted({account:'parcel_collections',type:'adjustment',amount:100}),posted({account:'tax_liability',amount:18}),
+    posted({serviceApplicationId:oid(),metadata:{},amount:25}),
+  ]);
+  const before=await Ledger.countDocuments(), result=await getAdminFinancialMetrics();
+  expect(result.platformRevenue).toMatchObject({status:'complete',amountPaise:4320,excludedRecords:1,breakdown:{orderCommissionPaise:0,parcelRevenuePaise:820,advertisingRevenuePaise:3500}});
+  expect(await Ledger.countDocuments()).toBe(before);
+});
+
+test('legacy orders retain missing-evidence warnings while available parcel income remains visible as a verified subtotal',async()=>{
+  await Order.collection.insertMany([250,920,940].map(amount=>({_id:oid(),orderNo:`LEGACY-${amount}`,status:'delivered',pricing:{totalAmount:amount}})));
+  await Ledger.collection.insertOne(posted({account:'parcel_revenue',type:'adjustment',amount:10.2,parcelDeliveryId:oid(),metadata:{amountPaise:1020}}));
+  const result=await getAdminFinancialMetrics();
+  expect(result.orderValue.amountPaise).toBe(211000);
+  expect(result.platformRevenue).toMatchObject({status:'incomplete',amountPaise:null,verifiedSubtotalPaise:1020,incompleteRecords:3,issues:[{code:'historical_commission_missing',count:3}]});
+});
+
+test('reviewed historical commission is included and fully covered historical items stop blocking revenue',async()=>{
+  const orderId=oid(),itemId=oid(),metadata={source:'historical-reviewed-v1',itemId:String(itemId),batchId:'HB-fixture',operatorId:String(oid()),reviewerId:String(oid()),evidenceHash:'fixture',policyVersion:'original-agreement'};
+  await Order.collection.insertOne({_id:orderId,status:'delivered',items:[{_id:itemId}],pricing:{totalAmount:100}});
+  await Ledger.collection.insertMany([posted({orderId,metadata}),posted({orderId,metadata,account:'merchandise_gross',type:'merchandise_gross',amount:100})]);
+  expect((await getAdminFinancialMetrics()).platformRevenue).toMatchObject({status:'complete',amountPaise:1000,incompleteRecords:0});
+});
+
+test('unattributed income remains incomplete instead of being silently counted',()=>{
+  const metric=newMetric();addPostedRevenue(metric,posted({account:'parcel_revenue',type:'adjustment',metadata:{amountPaise:1000}}));
+  expect(metric).toMatchObject({verifiedSubtotalPaise:0,incompleteRecords:1,issues:[{code:'revenue_entry_invalid'}]});
 });
 
 test.each(['pending','failed'])('%s attempts without captures never count as collection',status=>{
@@ -103,13 +160,13 @@ test('real HTTP summary uses canonical recent amount and approved-only sellers; 
   const overview=await request(app).get('/api/admin/dashboard/overview').set('Authorization',token());expect(overview.status).toBe(200);expect(overview.body.data).toMatchObject({totalOrders:1,totalSellers:1,pendingSellers:1,revenue:null});expect(overview.body.data.recentOrders[0].amount).toBe(100);
   const response=await request(app).get('/api/admin/dashboard/financial-metrics').set('Authorization',token());expect(response.status).toBe(200);
   expect(response.body.data.orderValue).toMatchObject({amountPaise:10000,status:'complete'});expect(response.body.data.collections.amountPaise).toBe(10000);
-  expect(response.body.data.platformRevenue).toMatchObject({amountPaise:null,verifiedSubtotalPaise:1525,status:'unavailable'});
+  expect(response.body.data.platformRevenue).toMatchObject({amountPaise:null,verifiedSubtotalPaise:1525,status:'incomplete',breakdown:{orderCommissionPaise:1525,parcelRevenuePaise:0,advertisingRevenuePaise:0}});
   expect(JSON.stringify(response.body)).not.toContain('capture');
   expect(await Order.findById(orderId).lean()).toEqual(before.order);expect(await Payment.findById(paymentId).lean()).toEqual(before.payment);expect(await Ledger.countDocuments()).toBe(before.entries);
 });
 
 test('empty covered zeros differ from missing historical evidence; financial authorization is explicit',async()=>{
-  const empty=await getAdminFinancialMetrics();expect(empty.orderValue.amountPaise).toBe(0);expect(empty.collections.amountPaise).toBe(0);expect(empty.platformRevenue.amountPaise).toBeNull();
+  const empty=await getAdminFinancialMetrics();expect(empty.orderValue.amountPaise).toBe(0);expect(empty.collections.amountPaise).toBe(0);expect(empty.platformRevenue.amountPaise).toBe(0);expect(empty.platformRevenue.status).toBe('complete');
   await Order.collection.insertOne({_id:oid(),status:'delivered',pricing:{totalAmount:250}});
   const missing=await getAdminFinancialMetrics();expect(missing.collections).toMatchObject({amountPaise:null,status:'incomplete'});expect(missing.orderValue.amountPaise).toBe(25000);
   await Admin.updateOne({_id:adminId},{$set:{permissions:[]}});
