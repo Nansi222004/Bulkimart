@@ -138,7 +138,7 @@ const SearchPage = () => {
     rememberSearch(p.name, p.images?.[0]);
     setSelectedProduct({
       id: p._id, _id: p._id, name: p.name,
-      image: p.images?.[0] || '', images: p.images || [],
+      image: p.matchedImageUrl || p.images?.[0] || '', images: p.images || [],
       price: p.price, mrp: p.mrp, discountPercent: p.discountPercent,
       stock: p.fulfillmentType === 'digital' ? 1 : p.stock, type: p.type,
       fulfillmentType: p.fulfillmentType || 'physical',
@@ -213,7 +213,7 @@ const SearchPage = () => {
               {results.map((p) => (
                 <div key={p._id} className="search-page-result-card" onClick={() => openProduct(p)}>
                   <div className="search-page-result-img-wrap">
-                    <img src={p.images?.[0]} alt={p.name} />
+                    <img src={p.matchedImageUrl || p.images?.[0]} alt={p.name} />
                   </div>
                   <p className="search-page-result-name">{p.name}</p>
                   <p className="search-page-result-shop">{p.sellerId?.storeDetails?.name || p.sellerId?.businessName || ''}</p>

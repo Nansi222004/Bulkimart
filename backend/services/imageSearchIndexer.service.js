@@ -28,12 +28,16 @@ export async function downloadCatalogImage(url) {
 export async function syncProductImageIndex(productId, download = downloadCatalogImage) {
   const product = await Product.findById(productId).select('images isDeleted').lean();
   if (!product || product.isDeleted) { await Index.deleteMany({ productId }); return; }
-  const urls = [...new Set(product.images || [])].slice(0, 5);
+  const urls = [...new Set(product.images || [])];
+  let failed = false;
   for (const imageUrl of urls) {
-    const fingerprint = await fingerprintImage(await download(imageUrl));
-    await Index.updateOne({ productId, imageUrl }, { $set: fingerprint }, { upsert: true });
+    try {
+      const fingerprint = await fingerprintImage(await download(imageUrl));
+      await Index.updateOne({ productId, imageUrl }, { $set: fingerprint }, { upsert: true });
+    } catch { failed = true; }
   }
   await Index.deleteMany({ productId, imageUrl: { $nin: urls } });
+  if (failed) throw new Error('Some catalogue images could not be indexed');
 }
 export async function processImageIndexJob() {
   const now = new Date();

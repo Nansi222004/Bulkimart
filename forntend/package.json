@@ -21,7 +21,7 @@
     "test:checkout": "node --test tests/checkout-ui.test.mjs",
     "test:auth": "node --test tests/auth-role.test.mjs",
     "test:services": "node --test tests/service-ui.test.mjs",
-    "test:image-search": "node --test tests/image-search-ui.test.mjs",
+    "test:image-search": "node --test verification/image-search-ui.test.mjs",
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
