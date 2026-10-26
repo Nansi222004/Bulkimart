@@ -37,6 +37,21 @@ test('presence asks for fresh GPS every minute and never posts after cleanup',as
     await success({coords:{latitude:22.74,longitude:75.84}});tick();assert.equal(requests,2);stop();await success({coords:{latitude:0,longitude:0}});tick();assert.equal(requests,2);assert.equal(sent.length,1);
   }finally{globalThis.setInterval=originalSet;globalThis.clearInterval=originalClear;}
 });
+test('Update location restarts a request that is still waiting and reports progress',async()=>{
+  let calls=[],pendingStates=[],sent=[];
+  const stop=startRiderPresence({gpsTimeoutMs:60000,geolocation:{getCurrentPosition(ok){calls.push(ok);}},send:async point=>sent.push(point),onPendingChange:value=>pendingStates.push(value)});
+  try{
+    assert.deepEqual(pendingStates,[true]);
+    stop.refresh();assert.equal(calls.length,2,'a manual tap must not be swallowed while the first fix is pending');
+    await calls[0]({coords:{latitude:1,longitude:1}});assert.equal(sent.length,0,'the superseded fix is ignored');
+    await calls[1]({coords:{latitude:22.74,longitude:75.84}});assert.equal(sent.length,1);assert.equal(pendingStates.at(-1),false);
+  }finally{stop();}
+});
+test('a blocked location permission tells the rider how to turn it back on',async()=>{
+  const messages=[];
+  const stop=startRiderPresence({geolocation:{getCurrentPosition(_ok,fail){fail({code:1});}},send:async()=>{},onError:message=>messages.push(message)});
+  try{assert.match(messages.at(-1),/permission is blocked/);}finally{stop();}
+});
 test('a stalled GPS permission request times out, permits retry, and ignores its late fix',async()=>{
   let calls=[],messages=[],sent=[];
   const stop=startRiderPresence({gpsTimeoutMs:5,geolocation:{getCurrentPosition(ok){calls.push(ok);}},send:async point=>sent.push(point),onError:message=>messages.push(message)});

@@ -115,12 +115,13 @@ export const DeliveryProvider = ({ children }) => {
   const [riderLocation, setRiderLocation] = useState(null);
   const [presenceError,setPresenceError]=useState('');
   const [presenceUpdatedAt,setPresenceUpdatedAt]=useState(null);
+  const [presenceUpdating,setPresenceUpdating]=useState(false);
   const presenceUpdater=useRef(null);
   useEffect(()=>{
-    if(!isOnline||riderProfile?.status!=='approved'){setPresenceError('');return;}
+    if(!isOnline||riderProfile?.status!=='approved'){setPresenceError('');setPresenceUpdating(false);return;}
     const token=localStorage.getItem('deliveryToken');
     setPresenceError('Updating your live location. Allow location access to receive nearby parcel requests.');
-    const stop=startRiderPresence({geolocation:navigator.geolocation,onError:setPresenceError,send:async point=>{
+    const stop=startRiderPresence({geolocation:navigator.geolocation,onError:setPresenceError,onPendingChange:setPresenceUpdating,send:async point=>{
       const res=await boundedFetch(apiUrl('/api/delivery/presence'),{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(point)});
       if(!res.ok)throw new Error('Location update failed');
       if(token===localStorage.getItem('deliveryToken')){setPresenceError('');setPresenceUpdatedAt(Date.now());setRiderLocation({lat:point.lat,lng:point.lng});}
@@ -361,7 +362,7 @@ export const DeliveryProvider = ({ children }) => {
       });
       const body = await res.json();
       triggerToast(res.ok ? 'Pickup confirmed' : (body.message || 'Incorrect code'));
-      if (res.ok) await fetchReturnPickups();
+      if (res.ok) { await fetchReturnPickups(); setEarningsSummaryVersion((version) => version + 1); }
       return { ok: res.ok, message: body.message };
     } catch (err) {
       return { ok: false, message: err.message };
@@ -722,7 +723,42 @@ export const DeliveryProvider = ({ children }) => {
       ...prev,
       lifetime: { ...prev.lifetime, total, trips, tips, available: true },
     }));
+    // Every profile refresh (load, login, finished trip) also re-reads today's and this week's totals.
+    setEarningsSummaryVersion((version) => version + 1);
   }, []);
+  const [earningsSummaryVersion, setEarningsSummaryVersion] = useState(0);
+
+  /**
+   * Today's and this week's earnings, from the rider's completed deliveries on
+   * the server, so the figures survive a reload. On a failed read the slices
+   * stay unavailable and the screens keep showing a dash rather than ₹0.
+   */
+  useEffect(() => {
+    if (riderProfile?.status !== 'approved') return;
+    const token = localStorage.getItem('deliveryToken');
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await boundedFetch(apiUrl('/api/delivery/earnings/summary'), { headers: { Authorization: `Bearer ${token}` } });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || token !== localStorage.getItem('deliveryToken')) return;
+        const { daily, weekly } = body.data || {};
+        setEarningsData((prev) => ({
+          ...prev,
+          daily: daily ? {
+            ...prev.daily, trips: daily.trips, total: daily.total, tips: daily.tips, available: true,
+            breakdown: (daily.breakdown || []).map((trip) => ({
+              ...trip,
+              time: new Date(trip.completedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }),
+            })),
+          } : prev.daily,
+          weekly: weekly ? { ...prev.weekly, trips: weekly.trips, total: weekly.total, tips: weekly.tips, days: weekly.days, available: true } : prev.weekly,
+        }));
+      } catch { /* Keep the dash; the next profile refresh retries. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [riderProfile?.status, earningsSummaryVersion]);
 
   // Decide what an existing token entitles the holder to. The question is not
   // "are they logged in" but "have they already registered as a rider" — only
@@ -1483,6 +1519,7 @@ export const DeliveryProvider = ({ children }) => {
       riderLocation,
       presenceError,
       presenceUpdatedAt,
+      presenceUpdating,
       refreshPresence:()=>presenceUpdater.current?.refresh(),
       toastMessage,
       triggerToast,

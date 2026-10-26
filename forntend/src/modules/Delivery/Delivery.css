@@ -198,9 +198,28 @@
   width: 100%;
 }
 
+/* Brand and step dots stay fixed at the top of the onboarding scroll area. */
+.delivery-onboarding-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: calc(-1 * max(16px, env(safe-area-inset-top))) -16px 0;
+  padding: max(16px, env(safe-area-inset-top)) 16px 10px;
+  background-color: #f7fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Keep focused fields from sliding under the pinned header. */
+.delivery-onboarding-viewport {
+  scroll-padding-top: 140px;
+}
+
 .delivery-onboarding-header {
   text-align: center;
-  margin-top: 10px;
+  margin-top: 4px;
 }
 
 .delivery-onboarding-brand {
@@ -425,6 +444,13 @@
     padding: 18px 14px;
   }
 
+  .delivery-onboarding-top {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
   .delivery-step-indicator-row {
     gap: clamp(10px, 5vw, 20px);
     margin: 4px 0;
@@ -531,6 +557,43 @@
   padding: 4px 0 16px 0;
   border-bottom: 1px solid #e2e8f0;
   margin-bottom: 16px;
+}
+
+/* Live-location card on the rider home screen. */
+.delivery-presence-card {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #d5e5eb;
+  background-color: #ffffff;
+  font-size: 12.5px;
+  color: #172b46;
+}
+
+.delivery-presence-card.parcel-presence-warning {
+  border-color: #fcd34d;
+  background-color: #fffbeb;
+}
+
+.delivery-presence-btn {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  background-color: #1b7a37;
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.delivery-presence-btn[aria-busy="true"] {
+  background-color: #4b8f5f;
 }
 
 .delivery-header-profile {

@@ -3,6 +3,7 @@ import { useDelivery } from '../context/DeliveryContext';
 import BrandLogo from '../../../components/BrandLogo';
 import { LocationPicker } from '../../../components/LocationPicker';
 import { submitDeliveryPayoutStep } from '../utils/onboarding';
+import { normalizeRiderDocument, vehicleNumberError, drivingLicenceError, VEHICLE_NUMBER_EXAMPLE, DRIVING_LICENCE_EXAMPLE } from '../../../../../backend/shared/riderDocuments.mjs';
 
 /** What the server accepts, with labels a rider recognises. */
 const VEHICLES = [
@@ -119,9 +120,17 @@ export const DeliveryOnboardingPage = () => {
   // ---------------------------------------------------------------------------
 
   const doStep1 = async () => {
+    setStepErrors({});
     if (!onboardingForm.vehicleType) { triggerToast('Please select a vehicle type.'); return; }
-    if (!onboardingForm.vehicleNumber) { triggerToast('Please enter your vehicle number.'); return; }
-    if (needsLicence && !onboardingForm.dlNumber) { triggerToast('Please enter your licence number.'); return; }
+    const errors = {
+      vehicleNumber: vehicleNumberError(onboardingForm.vehicleNumber, onboardingForm.vehicleType),
+      dlNumber: needsLicence ? drivingLicenceError(onboardingForm.dlNumber) : '',
+    };
+    if (errors.vehicleNumber || errors.dlNumber) {
+      setStepErrors(errors);
+      triggerToast(errors.vehicleNumber || errors.dlNumber);
+      return;
+    }
     if (needsLicence && !files.license && !riderProfile?.drivingLicense?.url) {
       triggerToast('Please upload a photo of your driving licence.');
       return;
@@ -130,8 +139,8 @@ export const DeliveryOnboardingPage = () => {
     setBusy(true);
     const res = await submitVehicle({
       vehicleType: onboardingForm.vehicleType,
-      vehicleNo: onboardingForm.vehicleNumber,
-      licenseNo: onboardingForm.dlNumber,
+      vehicleNo: normalizeRiderDocument(onboardingForm.vehicleNumber),
+      licenseNo: needsLicence ? normalizeRiderDocument(onboardingForm.dlNumber) : '',
       licenseExpiry: onboardingForm.dlExpiry,
       licenseFile: files.license,
     });
@@ -221,27 +230,30 @@ export const DeliveryOnboardingPage = () => {
 
   return (
     <div className="delivery-onboarding-wrapper">
-      <div className="delivery-onboarding-header">
-        <div className="delivery-onboarding-brand">
-          <BrandLogo audience="delivery" variant="compact" portal="Delivery" />
+      {/* Stays pinned while the form below scrolls, so the rider always sees which step they are on. */}
+      <div className="delivery-onboarding-top">
+        <div className="delivery-onboarding-header">
+          <div className="delivery-onboarding-brand">
+            <BrandLogo audience="delivery" variant="compact" portal="Delivery" />
+          </div>
+          <p className="delivery-onboarding-sub">
+            {riderName ? `Hello ${riderName.split(' ')[0]} — let's get you on the road` : 'Become a Delivery Partner'}
+          </p>
         </div>
-        <p className="delivery-onboarding-sub">
-          {riderName ? `Hello ${riderName.split(' ')[0]} — let's get you on the road` : 'Become a Delivery Partner'}
-        </p>
-      </div>
 
-      {onboardingStep <= 4 && (
-        <div className="delivery-step-indicator-row">
-          {[1, 2, 3, 4].map((n) => (
-            <div
-              key={n}
-              className={`delivery-step-dot ${onboardingStep === n ? 'active' : ''} ${onboardingStep > n ? 'completed' : ''}`}
-            >
-              {onboardingStep > n ? '✓' : n}
-            </div>
-          ))}
-        </div>
-      )}
+        {onboardingStep <= 4 && (
+          <div className="delivery-step-indicator-row">
+            {[1, 2, 3, 4].map((n) => (
+              <div
+                key={n}
+                className={`delivery-step-dot ${onboardingStep === n ? 'active' : ''} ${onboardingStep > n ? 'completed' : ''}`}
+              >
+                {onboardingStep > n ? '✓' : n}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="delivery-onboarding-card">
 
@@ -272,11 +284,17 @@ export const DeliveryOnboardingPage = () => {
               <input
                 type="text"
                 className="delivery-text-input"
-                placeholder="e.g. MH31AB1234"
+                placeholder={onboardingForm.vehicleType === 'bicycle' ? 'Any identifier, e.g. frame number' : `e.g. ${VEHICLE_NUMBER_EXAMPLE}`}
                 value={onboardingForm.vehicleNumber}
                 disabled={busy}
-                onChange={(e) => set('vehicleNumber', e.target.value.toUpperCase())}
+                maxLength={20}
+                autoCapitalize="characters"
+                autoComplete="off"
+                aria-invalid={Boolean(stepErrors.vehicleNumber)}
+                onChange={(e) => { set('vehicleNumber', e.target.value.toUpperCase()); setStepErrors((prev) => ({ ...prev, vehicleNumber: '' })); }}
               />
+              {onboardingForm.vehicleType !== 'bicycle' && <p className="delivery-file-meta">As on your number plate, e.g. MH31AB1234 or 22BH1234AB.</p>}
+              {stepErrors.vehicleNumber && <p className="delivery-inline-error" role="alert">{stepErrors.vehicleNumber}</p>}
             </div>
 
             {needsLicence && (
@@ -288,11 +306,17 @@ export const DeliveryOnboardingPage = () => {
                   <input
                     type="text"
                     className="delivery-text-input"
-                    placeholder="e.g. MH3120230001234"
+                    placeholder={`e.g. ${DRIVING_LICENCE_EXAMPLE}`}
                     value={onboardingForm.dlNumber}
                     disabled={busy}
-                    onChange={(e) => set('dlNumber', e.target.value.toUpperCase())}
+                    maxLength={20}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    aria-invalid={Boolean(stepErrors.dlNumber)}
+                    onChange={(e) => { set('dlNumber', e.target.value.toUpperCase()); setStepErrors((prev) => ({ ...prev, dlNumber: '' })); }}
                   />
+                  <p className="delivery-file-meta">15 characters: state, RTO code, year of issue and number, e.g. MH31 2023 0001234.</p>
+                  {stepErrors.dlNumber && <p className="delivery-inline-error" role="alert">{stepErrors.dlNumber}</p>}
                 </div>
 
                 <div className="delivery-input-group">

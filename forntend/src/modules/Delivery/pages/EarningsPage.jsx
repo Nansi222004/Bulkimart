@@ -27,10 +27,9 @@ export const EarningsPage = () => {
   const data = earningsData[period];
 
   /**
-   * A figure we cannot vouch for is shown as a dash, never as ₹0. Only
-   * `lifetime` survives a reload — it comes from the partner record in Mongo —
-   * while today's and this week's totals are known only from trips completed
-   * since this tab was opened.
+   * A figure we cannot vouch for is shown as a dash, never as ₹0. `lifetime`
+   * comes from the partner record; today's and this week's totals come from
+   * the rider's completed deliveries on the server.
    */
   const money = (n) => (data.available ? `₹${n}` : '—');
   const count = (n) => (data.available ? n : '—');
@@ -154,8 +153,8 @@ export const EarningsPage = () => {
         {!data.available && (
           <p className="delivery-payout-footer-label">
             {period === 'daily'
-              ? 'Trips finished in this session are counted here. Reopening the app clears it — your all-time total is always kept.'
-              : 'Weekly figures are not available yet. Your all-time total is on the Lifetime tab.'}
+              ? 'Today’s trips could not be loaded yet. Reopen the app to try again — your all-time total is always kept.'
+              : 'This week’s trips could not be loaded yet. Your all-time total is on the Lifetime tab.'}
           </p>
         )}
       </div>

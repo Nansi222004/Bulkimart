@@ -22,6 +22,7 @@ import {
   updateDeliveryLocation,
   getActiveDelivery,
   getRiderHistory,
+  getEarningsSummary,
   requestPayout,
   getMyPayouts
 } from '../controllers/deliveryPartner.controller.js';
@@ -69,6 +70,7 @@ router.put('/availability', requireApprovedPartner, toggleAvailability);
 router.get('/orders/active', requireApprovedPartner, getActiveDelivery);
 router.get('/orders/pending', requireApprovedPartner, getPendingDeliveryOrders);
 router.get('/orders/history', requireApprovedPartner, getRiderHistory);
+router.get('/earnings/summary', requireApprovedPartner, getEarningsSummary);
 router.post('/orders/:id/accept', requireApprovedPartner, acceptOrder);
 router.post('/orders/:id/decline', requireApprovedPartner, declineOrder);
 router.post('/orders/:id/expire', requireApprovedPartner, expireOrder);

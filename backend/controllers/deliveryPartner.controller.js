@@ -21,6 +21,7 @@ import DeliveryPayout from '../models/DeliveryPayout.js';
 import { requestVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
 import { recordDeliveryEarning, recordCodEvent } from '../services/orderFinance.service.js';
 import { DELIVERY_PAYOUT_STATUS, DELIVERY_MIN_PAYOUT_AMOUNT } from '../constants/enums.js';
+import { normalizeRiderDocument, vehicleNumberError, drivingLicenceError } from '../shared/riderDocuments.mjs';
 
 /**
  * Delivery partner onboarding — three steps, then an admin verifies by hand.
@@ -92,7 +93,8 @@ export const submitStep1 = asyncHandler(async (req, res) => {
   if (!['bicycle', 'bike', 'auto', 'car'].includes(vehicleType)) {
     throw httpError(400, 'Vehicle type must be bicycle, bike, auto or car');
   }
-  if (!vehicleNo) throw httpError(400, 'Vehicle number is required');
+  const vehicleProblem = vehicleNumberError(vehicleNo, vehicleType);
+  if (vehicleProblem) throw httpError(400, vehicleProblem);
 
   /**
    * A bicycle needs no licence — not a number, and not a photograph.
@@ -103,7 +105,8 @@ export const submitStep1 = asyncHandler(async (req, res) => {
    */
   const needsLicence = vehicleType !== 'bicycle';
   if (needsLicence) {
-    if (!licenseNo) throw httpError(400, 'Licence number is required for a motor vehicle');
+    const licenceProblem = drivingLicenceError(licenseNo);
+    if (licenceProblem) throw httpError(400, licenceProblem);
     if (!req.file && !partner.drivingLicense?.url) {
       throw httpError(400, 'Please upload a photo of your driving licence');
     }
@@ -120,12 +123,12 @@ export const submitStep1 = asyncHandler(async (req, res) => {
     : partner.drivingLicense?.url;
 
   partner.vehicleType = vehicleType;
-  partner.vehicleNo = String(vehicleNo).toUpperCase().replace(/\s+/g, '');
+  partner.vehicleNo = normalizeRiderDocument(vehicleNo);
   // Switching to a bicycle clears the licence rather than leaving one attached
   // to a vehicle that does not need it.
   partner.drivingLicense = needsLicence
     ? {
-        no: licenseNo,
+        no: normalizeRiderDocument(licenseNo),
         url,
         expiryDate: licenseExpiry || partner.drivingLicense?.expiryDate,
       }
@@ -2149,6 +2152,67 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
   const page_ = all.slice(skip, skip + limit);
 
   return paginated(res, page_, { page, limit, total });
+});
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const istDayStart = (date) => {
+  const ist = new Date(date.getTime() + IST_OFFSET_MS);
+  return new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_OFFSET_MS);
+};
+
+// @desc    Today's and this week's earnings, read from the rider's completed deliveries
+// @route   GET /api/delivery/earnings/summary
+// @access  Private (approved delivery partner)
+//
+// Days and weeks are India time; the week runs Monday to Sunday. Amounts are
+// the pay recorded on each Delivery at completion (tip included, as on the
+// partner's lifetime total), summed in paise so rupee totals never drift.
+export const getEarningsSummary = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const todayStart = istDayStart(now);
+  const weekdayIndex = (new Date(now.getTime() + IST_OFFSET_MS).getUTCDay() + 6) % 7;
+  const weekStart = new Date(todayStart.getTime() - weekdayIndex * DAY_MS);
+
+  const deliveries = await Delivery.find({ partnerId: req.partner._id, status: 'delivered', endTime: { $gte: weekStart, $lte: now } })
+    .select('orderId direction endTime partnerEarnings partnerTip')
+    .populate('orderId', 'orderNo paymentMethod pricing.totalAmount')
+    .sort({ endTime: -1 })
+    .lean();
+
+  const paise = (value) => Math.round((Number(value) || 0) * 100);
+  const daily = { trips: 0, totalPaise: 0, tipsPaise: 0, breakdown: [] };
+  const weekly = { trips: 0, totalPaise: 0, tipsPaise: 0, dayPaise: WEEKDAY_LABELS.map(() => 0) };
+
+  for (const delivery of deliveries) {
+    const amountPaise = paise(delivery.partnerEarnings), tipPaise = paise(delivery.partnerTip);
+    const dayIndex = Math.floor((istDayStart(delivery.endTime).getTime() - weekStart.getTime()) / DAY_MS);
+    weekly.trips += 1; weekly.totalPaise += amountPaise; weekly.tipsPaise += tipPaise;
+    if (dayIndex >= 0 && dayIndex < 7) weekly.dayPaise[dayIndex] += amountPaise;
+    if (delivery.endTime >= todayStart) {
+      daily.trips += 1; daily.totalPaise += amountPaise; daily.tipsPaise += tipPaise;
+      const order = delivery.orderId || {};
+      const isCod = delivery.direction !== 'return_pickup' && order.paymentMethod === 'cod';
+      daily.breakdown.push({
+        id: String(delivery._id),
+        type: delivery.direction === 'return_pickup' ? 'Return pickup' : 'Delivery',
+        completedAt: delivery.endTime,
+        orderId: order.orderNo || '—',
+        amount: amountPaise / 100,
+        tip: tipPaise / 100,
+        isCod,
+        codAmount: isCod ? Number(order.pricing?.totalAmount) || 0 : 0,
+      });
+    }
+  }
+
+  return ok(res, {
+    timezone: 'Asia/Kolkata',
+    daily: { date: todayStart, trips: daily.trips, total: daily.totalPaise / 100, tips: daily.tipsPaise / 100, breakdown: daily.breakdown },
+    weekly: { weekStart, trips: weekly.trips, total: weekly.totalPaise / 100, tips: weekly.tipsPaise / 100,
+      days: WEEKDAY_LABELS.map((day, index) => ({ day, amount: weekly.dayPaise[index] / 100 })) },
+  });
 });
 
 /* ============================================================================

@@ -310,8 +310,16 @@ const ProductDetailPage = () => {
 
   if (!product) return null;
 
+  const promptCartSignIn = () => {
+    if (currentUser) return false;
+    setCartActionError('');
+    ui.notify('Please sign in to use your cart.', { type: 'info' });
+    return true;
+  };
+
   const handleAddToCart = async () => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
+    if (promptCartSignIn()) return;
     setCartActionPending(true);
     setCartActionError('');
     const result = await addToCart(product.id, 1, selectedVariantId || undefined);
@@ -341,6 +349,7 @@ const ProductDetailPage = () => {
    */
   const handleBuyNow = async () => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
+    if (promptCartSignIn()) return;
     setCartActionPending(true);
     setCartActionError('');
     if (qty === 0) {

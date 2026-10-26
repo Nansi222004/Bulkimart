@@ -22,6 +22,7 @@ export const DeliveryDashboardPage = () => {
     riderPingOrder,
     presenceError,
     presenceUpdatedAt,
+    presenceUpdating,
     refreshPresence
   } = useDelivery();
 
@@ -98,7 +99,20 @@ export const DeliveryDashboardPage = () => {
       </div>
 
       {/* COD Debit Wallet Status Card */}
-      {isOnline&&<section className={presenceError?'parcel-presence-warning':'parcel-presence-status'} aria-label="Live location"><p role={presenceError?'alert':'status'}>{presenceError||<><strong>{presenceUpdatedAt?'Location ready':'Updating your location'}</strong>{presenceUpdatedAt&&<small>Updated {new Date(presenceUpdatedAt).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})}</small>}</>}</p><button type="button" onClick={refreshPresence}>Update location</button></section>}
+      {isOnline && (
+        <section className={`delivery-presence-card ${presenceError ? 'parcel-presence-warning' : 'parcel-presence-status'}`} aria-label="Live location">
+          <p role={presenceError ? 'alert' : 'status'}>
+            {presenceError || <>
+              <strong>{presenceUpdatedAt ? 'Location ready' : 'Updating your location'}</strong>
+              {presenceUpdatedAt && <small>Updated {new Date(presenceUpdatedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</small>}
+            </>}
+          </p>
+          {/* Never disabled: a tap while a fix is pending restarts it. */}
+          <button type="button" className="delivery-presence-btn" onClick={refreshPresence} aria-busy={presenceUpdating}>
+            {presenceUpdating ? 'Updating…' : 'Update location'}
+          </button>
+        </section>
+      )}
       <ParcelRiderInbox enabled={riderProfile?.status==='approved'}/>
       <div className="delivery-card delivery-debit-wallet-card">
         <div className="delivery-card-header">
@@ -147,11 +161,9 @@ export const DeliveryDashboardPage = () => {
       {/* Today's KPI Dashboard */}
       <div className="delivery-dashboard-kpi-grid">
         {/*
-          Today's total is only known from trips finished since this tab opened,
-          so after a reload it shows a dash rather than ₹0 — a rider who earned
-          ₹263 this morning should not be told they earned nothing. The all-time
-          figure beside it comes from their record in the database and is always
-          right.
+          Today's total is read from the rider's completed deliveries on the
+          server (India time), so it survives a reload. Until that read
+          succeeds it shows a dash rather than ₹0.
         */}
         <div className="delivery-kpi-card">
           <span className="delivery-kpi-label">Today's Earnings</span>
@@ -160,8 +172,8 @@ export const DeliveryDashboardPage = () => {
           </span>
           <span className="delivery-kpi-sub">
             {earningsData.daily.available
-              ? `${earningsData.daily.trips} trip${earningsData.daily.trips === 1 ? '' : 's'} this session`
-              : 'Counted as you deliver'}
+              ? `${earningsData.daily.trips} trip${earningsData.daily.trips === 1 ? '' : 's'} today`
+              : 'Loading today’s trips'}
           </span>
         </div>
         <div className="delivery-kpi-card">
