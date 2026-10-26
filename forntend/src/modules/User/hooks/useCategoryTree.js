@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { boundedFetch } from '../../../utils/portalRequests';
 
 /**
- * The admin's category tree for one storefront, fetched once and shared.
+ * The admin's category tree for one storefront, shared for a short interval.
  *
  * Five landing sections need to know which category they represent. Each of them
  * asking the server would be five identical requests for a tree that changes
  * about as often as the shop's signage, so the answer is shared: the first
  * caller starts the request and everyone else — including components that mount
  * later, or mount again after a navigation — waits on that same promise.
+ * Expired trees refresh when the app is visible so an empty first response
+ * cannot hide categories published later in the same app session.
  *
  * Header → Main → Subcategory is preserved exactly as the server sends it. This
  * flattens nothing; it only indexes the tree so a section can find its own node
@@ -26,27 +29,29 @@ import { apiUrl } from '../../../utils/api';
  */
 const inflight = new Map();   // channel -> Promise<tree>
 const resolved = new Map();   // channel -> tree, once it has arrived
+const expires = new Map();
+const CACHE_MS = 30000;
 
 const fetchTree = (type) => {
   const existing = inflight.get(type);
   if (existing) return existing;
 
-  const p = fetch(apiUrl(`/api/categories/tree?type=${type}`))
+  const p = boundedFetch(apiUrl(`/api/categories/tree?type=${type}`))
     .then((res) => {
       if (!res.ok) throw new Error(`Categories unavailable (${res.status})`);
       return res.json();
     })
     // The tree endpoint answers with a bare array, not the {success,data} envelope.
     .then((data) => {
-      const tree = Array.isArray(data) ? data : [];
+      if (!Array.isArray(data)) throw new Error('Categories returned an invalid response');
+      const previous = resolved.get(type);
+      const tree = previous && JSON.stringify(previous) === JSON.stringify(data) ? previous : data;
       resolved.set(type, tree);
+      expires.set(type, Date.now() + CACHE_MS);
       return tree;
     })
-    .catch((err) => {
-      // A failed fetch must not become a permanent empty tree: forget it so the
-      // next mount tries again rather than showing an empty shop forever.
-      inflight.delete(type);
-      throw err;
+    .finally(() => {
+      if (inflight.get(type) === p) inflight.delete(type);
     });
 
   inflight.set(type, p);
@@ -84,35 +89,49 @@ export const useCategoryTree = (type) => {
   const [loading, setLoading] = useState(() => !resolved.has(type));
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [loadedType, setLoadedType] = useState(type);
 
   useEffect(() => {
     let cancelled = false;
 
     const known = resolved.get(type);
-    if (known) { setTree(known); setLoading(false); setError(''); return undefined; }
-
-    setLoading(true);
+    setTree(known || []);
+    setLoadedType(type);
+    setLoading(!known);
     setError('');
-
-    fetchTree(type)
-      .then((data) => { if (!cancelled) setTree(data); })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err.message || 'Could not load categories');
-        setTree([]);
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
+    const refresh = () => {
+      if ((expires.get(type) || 0) > Date.now()) {
+        // Another section may have refreshed the shared cache since this one
+        // last rendered. Adopt that result even when no request is necessary.
+        setTree(resolved.get(type) || []); setLoading(false); setError('');
+        return;
+      }
+      fetchTree(type)
+        .then((data) => { if (!cancelled) { setTree(data); setError(''); } })
+        .catch((err) => { if (!cancelled) setError(err.message || 'Could not load categories'); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    };
+    const visible = () => { if (document.visibilityState !== 'hidden') refresh(); };
+    refresh();
+    window.addEventListener('focus', visible);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', visible);
+    const timer = setInterval(visible, CACHE_MS);
+    return () => {
+      cancelled = true; clearInterval(timer);
+      window.removeEventListener('focus', visible);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, [type, attempt]);
 
   const retry = () => {
-    inflight.delete(type);
     resolved.delete(type);
+    expires.delete(type);
     setAttempt((value) => value + 1);
   };
 
-  return { tree, loading, error, retry };
+  return { tree: loadedType === type ? tree : [], loading: loadedType !== type || loading, error, retry };
 };
 
 /**
@@ -139,6 +158,6 @@ export const useCategoryBranch = (type, slug) => {
 };
 
 /** Testing seam: forget everything cached, so a run starts cold. */
-export const __resetCategoryCache = () => { inflight.clear(); resolved.clear(); };
+export const __resetCategoryCache = () => { inflight.clear(); resolved.clear(); expires.clear(); };
 
 export default useCategoryTree;

@@ -1,5 +1,6 @@
 import { feedback as ui } from '../../../utils/feedback';
 import React from 'react';
+import { sellerPricingRows } from '../utils/sellerOrderAmounts';
 const money = value => value == null ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
 const date = value => value ? new Date(value).toLocaleString('en-IN') : 'Not recorded';
 const statusText = value => String(value || 'Not recorded').replaceAll('_', ' ').replace(/^./, first => first.toUpperCase());
@@ -19,8 +20,7 @@ export function orderDetailSections(order) {
         {order.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}<br />Payment: {order.paymentMethod} · {order.paymentStatus}</p>
       {order.cancellationReason && <p>Cancellation/rejection reason: {order.cancellationReason}</p>}
       {order.customerInstructions && <p>Customer instructions: {order.customerInstructions}</p>}
-      <dl>{(order.pricing ? Object.entries(order.pricing).filter(([key]) => ['subtotal','discount','deliveryCharge','tax','taxAmount','totalAmount','tipAmount','coinDiscount'].includes(key)) : [['Seller items subtotal', order.subtotal]])
-        .map(([key, value]) => <React.Fragment key={key}><dt className={key === 'totalAmount' ? 'seller-detail-pricing-total' : undefined}>{key.replace(/([A-Z])/g, ' $1')}</dt><dd className={key === 'totalAmount' ? 'seller-detail-pricing-total' : undefined}>{money(value)}</dd></React.Fragment>)}</dl>
+      <dl>{sellerPricingRows(order).map(([label, value]) => <React.Fragment key={label}><dt className={label === 'Order total' ? 'seller-detail-pricing-total' : undefined}>{label}</dt><dd className={label === 'Order total' ? 'seller-detail-pricing-total' : undefined}>{label.toLowerCase().includes('discount') ? '−' : ''}{money(value)}</dd></React.Fragment>)}</dl>
       {!order.pricing && <p>Full basket pricing is withheld for multi-store orders.</p>}
     </section>
     <section className="seller-detail-customer"><h2>Customer & delivery address</h2><p><strong>{order.shippingAddress?.name || order.customer?.name || 'Not recorded'}</strong><br />{order.shippingAddress?.phone}</p>

@@ -95,6 +95,29 @@ test('seller order listing is scoped to their line items and omits competitorsâ€
   expect(Order.aggregate.mock.calls[0][0][0]).toEqual({ $match: { 'items.sellerId': seller._id } });
 });
 
+test('seller order totals include coupon discounts and frozen commission deductions', async () => {
+  ownOrder.items = [{ ...ownOrder.items[0], _id: new mongoose.Types.ObjectId(), price: 500, qty: 1 }];
+  ownOrder.pricing = { discountRepresentation: 'components-v1', subtotal: 500, discount: 0, couponDiscount: 100, deliveryCharge: 40, totalAmount: 440 };
+  ownOrder.financialSnapshot = { version: 2, lines: [{ sellerId: String(seller._id), grossPaise: 50000, eligiblePaise: 40000,
+    allocatedDiscounts: { discount: 0, couponDiscount: 10000, cdsDiscount: 0, coinDiscount: 0 },
+    rule: { method: 'percentage', value: 10 }, commissionPaise: 4000, taxPaise: 720, netPaise: 45280 }] };
+  const response = await request(app).get('/api/sellers/orders').set(bearer(token)).expect(200);
+  expect(response.body.data[0].pricing.totalAmount).toBe(440);
+  expect(response.body.data[0].sellerAmounts).toMatchObject({ subtotal: 500, couponDiscount: 100, totalDiscount: 100,
+    customerItemsTotal: 400, commission: 40, commissionTax: 7.2, netEarnings: 452.8 });
+});
+
+test('multi-store discounts stay scoped to this seller and legacy coupon aliases are counted once', async () => {
+  ownOrder.items[0].price = 50; ownOrder.items[0].qty = 2;
+  ownOrder.items[1].price = 100;
+  ownOrder.pricing = { subtotal: 200, discount: 40, couponDiscount: 40, totalAmount: 160 };
+  const response = await request(app).get('/api/sellers/orders').set(bearer(token)).expect(200);
+  const row = response.body.data[0];
+  expect(row.pricing).toBeUndefined();
+  expect(row.sellerAmounts).toMatchObject({ subtotal: 100, couponDiscount: 20, discount: 0, totalDiscount: 20,
+    customerItemsTotal: 80, commission: null, netEarnings: null });
+});
+
 test('seller cannot update another sellerâ€™s order and unsupported transitions are rejected', async () => {
   const unrelated = {
     ...ownOrder,

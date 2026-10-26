@@ -1,4 +1,5 @@
 import React from 'react';
+import { paymentSummary } from '../utils/paymentSummary';
 import { CartIcon, CartSection, CartTotalRow } from './CartUI';
 import './BasketGroups.css';
 
@@ -51,13 +52,15 @@ export function BasketGroups({ groups, busy, onMode, showTotals = true, ...actio
   </CartSection>)}</div>;
 }
 
-export function BasketSummary({ data }) {
-  const deliveryCharge = data?.totals?.deliveryCharge ?? 0;
+export function BasketSummary({ data, coinDiscount = 0 }) {
+  const summary = paymentSummary(data?.totals, { coinDiscount });
+  const { deliveryCharge } = summary;
   return <CartSection title="Order summary">{data?.totals ? <>
-    <CartTotalRow label="Items Subtotal" value={basketMoney(data.totals.subtotal)} />
+    <CartTotalRow label="Items Subtotal" value={basketMoney(summary.subtotal)} />
     <CartTotalRow label="Delivery Charges" value={deliveryCharge === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>FREE</span> : basketMoney(deliveryCharge)} />
-    {data.totals.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(data.totals.sameDayPremium)} />}
-    {data.totals.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(data.totals.couponDiscount)}`} />}
-    <CartTotalRow label="Grand Total" value={basketMoney(data.totals.totalAmount)} strong />
+    {summary.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(summary.sameDayPremium)} />}
+    {summary.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(summary.couponDiscount)}`} />}
+    {summary.coinDiscount > 0 && <CartTotalRow label="Bulkimart Coins" value={`−${basketMoney(summary.coinDiscount)}`} />}
+    <CartTotalRow label="Grand Total" value={basketMoney(summary.totalAmount)} strong />
   </> : <p className="basket-note">Please resolve unavailable items before checkout.</p>}</CartSection>;
 }

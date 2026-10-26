@@ -1,11 +1,11 @@
 import ModalPortal from '../../../components/ModalPortal';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './LandmarkImagePicker.css';
 
 /**
  * LandmarkImagePicker Component
  * End-to-end component for landmark image attachment with explicit choices:
- * 1. 📸 Take Photo (Camera directly via capture="environment")
+ * 1. 📸 Take Photo (live camera preview and capture)
  * 2. 📁 Choose from Gallery / File Manager
  */
 const LandmarkImagePicker = ({
@@ -20,8 +20,48 @@ const LandmarkImagePicker = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
 
-  const cameraInputRef = useRef(null);
+  const [cameraStatus, setCameraStatus] = useState('closed');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const cameraRequestRef = useRef(0);
   const galleryInputRef = useRef(null);
+
+  const stopCamera = () => {
+    cameraRequestRef.current++;
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  const closeModal = () => {
+    stopCamera();
+    setCameraStatus('closed');
+    setCameraReady(false);
+    setCapturing(false);
+    setShowOptionsModal(false);
+  };
+
+  useEffect(() => {
+    window.addEventListener('pagehide', closeModal);
+    return () => {
+      window.removeEventListener('pagehide', closeModal);
+      stopCamera();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cameraStatus !== 'live' || !videoRef.current) return;
+    const request = cameraRequestRef.current;
+    videoRef.current.srcObject = streamRef.current;
+    videoRef.current.play().catch(() => {
+      if (request !== cameraRequestRef.current) return;
+      stopCamera();
+      setCameraStatus('closed');
+      setError('Could not start the camera preview. Please try again.');
+    });
+  }, [cameraStatus]);
 
   const handleFilePicked = async (file) => {
     if (!file) return;
@@ -42,21 +82,60 @@ const LandmarkImagePicker = ({
     }
   };
 
-  const onCameraChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) handleFilePicked(file);
-    e.target.value = '';
-  };
-
   const onGalleryChange = (e) => {
     const file = e.target.files?.[0];
     if (file) handleFilePicked(file);
     e.target.value = '';
   };
 
-  const openCamera = () => {
-    if (cameraInputRef.current) {
-      cameraInputRef.current.click();
+  const openCamera = async () => {
+    stopCamera();
+    const request = cameraRequestRef.current;
+    setError(null);
+    setCameraReady(false);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Camera is unavailable. Open the app over HTTPS and allow camera access.');
+      return;
+    }
+    setCameraStatus('starting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      // A permission prompt can resolve after the user has closed this sheet.
+      if (request !== cameraRequestRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setCameraStatus('live');
+    } catch (err) {
+      if (request !== cameraRequestRef.current) return;
+      setCameraStatus('closed');
+      setError(err?.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access in app or browser settings and try again.'
+        : 'Could not open the camera. Check that it is available and try again.');
+    }
+  };
+
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    if (capturing || !video?.videoWidth || !video.videoHeight) return;
+    const request = cameraRequestRef.current;
+    setCapturing(true);
+    try {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+      if (request !== cameraRequestRef.current) return;
+      if (!blob) throw new Error('Could not capture the photo. Please try again.');
+      closeModal();
+      await handleFilePicked(new File([blob], 'landmark-photo.jpg', { type: 'image/jpeg' }));
+    } catch (err) {
+      if (request !== cameraRequestRef.current) return;
+      setCapturing(false);
+      setError(err?.message || 'Could not capture the photo. Please try again.');
     }
   };
 
@@ -93,7 +172,7 @@ const LandmarkImagePicker = ({
           type="button"
           className="landmark-upload-trigger-btn"
           disabled={disabled || uploading}
-          onClick={() => setShowOptionsModal(true)}
+          onClick={() => { setError(null); setShowOptionsModal(true); }}
         >
           {uploading ? (
             <span>⏳ Uploading photo to Cloud...</span>
@@ -109,20 +188,30 @@ const LandmarkImagePicker = ({
         </button>
       )}
 
-      {error && <p className="landmark-picker-error">⚠️ {error}</p>}
+      {error && !showOptionsModal && <p className="landmark-picker-error" role="alert">⚠️ {error}</p>}
 
       {/* Choice Modal (Camera vs Gallery) */}
       {showOptionsModal && (
-        <ModalPortal className="landmark-modal-overlay" onClick={() => setShowOptionsModal(false)}>
+        <ModalPortal className="landmark-modal-overlay" onClick={closeModal} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeModal(); } }}>
           <div className="landmark-modal-sheet" onClick={(e) => e.stopPropagation()}>
             {/* Keep native pickers inside the modal: the app root is inert while it is open. */}
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onCameraChange} />
             <input ref={galleryInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onGalleryChange} />
             <div className="landmark-sheet-header">
-              <h4>Landmark Image Option</h4>
-              <button type="button" className="landmark-close-btn" onClick={() => setShowOptionsModal(false)}>✕</button>
+              <h4>{cameraStatus === 'closed' ? 'Landmark Image Option' : 'Take Landmark Photo'}</h4>
+              <button type="button" className="landmark-close-btn" aria-label="Close camera options" onClick={closeModal}>✕</button>
             </div>
-            
+
+            {error && <p className="landmark-picker-error" role="alert">⚠️ {error}</p>}
+            {cameraStatus !== 'closed' ? (
+              <>
+                {cameraStatus === 'starting' ? <p role="status">Opening camera…</p> : (
+                  <video ref={videoRef} className="landmark-camera-preview" autoPlay playsInline muted onLoadedData={() => setCameraReady(true)} />
+                )}
+                <button type="button" className="landmark-capture-btn" disabled={!cameraReady || capturing} onClick={capturePhoto}>
+                  {capturing ? 'Capturing…' : 'Capture photo'}
+                </button>
+              </>
+            ) : <>
             <p className="landmark-sheet-desc">
               Choose how you want to attach the landmark photo:
             </p>
@@ -144,8 +233,9 @@ const LandmarkImagePicker = ({
                 </div>
               </button>
             </div>
+            </>}
 
-            <button type="button" className="landmark-cancel-btn" onClick={() => setShowOptionsModal(false)}>
+            <button type="button" className="landmark-cancel-btn" onClick={closeModal}>
               Cancel
             </button>
           </div>

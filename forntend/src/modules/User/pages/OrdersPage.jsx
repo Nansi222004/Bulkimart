@@ -40,8 +40,11 @@ const STATUS_CLASS = {
 };
 
 const OrdersPage = () => {
-  const { setActiveNav, orders, ordersLoading, setSelectedOrder, fetchOrders } = useUser();
+  const { setActiveNav, orders, ordersLoading, ordersError, setSelectedOrder, fetchOrders } = useUser();
   const [searchQuery, setSearchQuery] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
 
   // Razorpay checkout returns here only after the authenticated backend
   // verification call. The query is a UX cue, never payment proof.
@@ -100,10 +103,12 @@ const OrdersPage = () => {
 
   // Filter orders based on search query
   const q = searchQuery.trim().toLowerCase();
-  const filteredOrders = !q ? rows : rows.filter((o) =>
-    o.productName.toLowerCase().includes(q) ||
+  const filteredOrders = rows.filter((o) =>
+    (statusFilter === 'all' || o.raw.status === statusFilter || (statusFilter === 'confirmed' && o.raw.status === 'preparing')) &&
+    (channelFilter === 'all' || o.channel === channelFilter) &&
+    (!q || o.productName.toLowerCase().includes(q) ||
     o.status.toLowerCase().includes(q) ||
-    (o.orderNo || '').toLowerCase().includes(q)
+    (o.orderNo || '').toLowerCase().includes(q))
   );
 
   return (
@@ -166,7 +171,8 @@ const OrdersPage = () => {
           />
         </div>
 
-        <button className="orders-filter-btn" aria-label="Open filters">
+        <button type="button" className="orders-filter-btn" aria-label="Open filters" aria-expanded={filtersOpen}
+          aria-controls="orders-filters" onClick={() => setFiltersOpen(value => !value)}>
           <svg className="filter-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="4" y1="21" x2="4" y2="14"></line>
             <line x1="4" y1="10" x2="4" y2="3"></line>
@@ -182,6 +188,18 @@ const OrdersPage = () => {
         </button>
       </div>
 
+      {filtersOpen && <div id="orders-filters" className="orders-filter-panel">
+        <label>Order status<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>
+          <option value="all">All statuses</option>
+          {Object.entries(STATUS_LABEL).filter(([value]) => value !== 'preparing').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></label>
+        <label>Storefront<select value={channelFilter} onChange={event => setChannelFilter(event.target.value)}>
+          <option value="all">All storefronts</option>
+          {[...Object.values(CHANNEL_LABEL), 'Wholesale'].map(label => <option key={label} value={label}>{label}</option>)}
+        </select></label>
+        <button type="button" onClick={() => { setStatusFilter('all'); setChannelFilter('all'); }}>Clear filters</button>
+        <button type="button" onClick={() => setFiltersOpen(false)}>Done</button>
+      </div>}
 
       {/* Scrollable Orders List Content */}
       <div className="orders-scroll-content">
@@ -227,7 +245,7 @@ const OrdersPage = () => {
                   {order.raw.paymentMethod === 'online' && order.raw.status === 'placed' && (
                     <button type="button" className="cart-secondary-btn"
                       onClick={event => { event.stopPropagation(); setSelectedOrder(order.raw); }}>
-                      Payment details
+                      Order Details
                     </button>
                   )}
                   {/*
@@ -263,11 +281,12 @@ const OrdersPage = () => {
         {ordersLoading && (
           <div className="empty-filter-view">Loading your orders…</div>
         )}
-        {!ordersLoading && filteredOrders.length === 0 && (
+        {ordersError && <div className="empty-filter-view" role="alert">{ordersError} <button type="button" onClick={fetchOrders}>Retry</button></div>}
+        {!ordersLoading && !ordersError && filteredOrders.length === 0 && (
           <div className="empty-filter-view">
             {searchQuery
               ? `No orders match "${searchQuery}".`
-              : 'You have not placed any orders yet.'}
+              : statusFilter !== 'all' || channelFilter !== 'all' ? 'No orders match these filters.' : 'You have not placed any orders yet.'}
           </div>
         )}
       </div>

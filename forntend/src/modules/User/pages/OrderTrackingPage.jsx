@@ -1,5 +1,6 @@
 import { orderDiscountRows } from '../../../utils/orderDiscounts';
 import ModalPortal from '../../../components/ModalPortal';
+import DeliveryPartnerRating from '../components/DeliveryPartnerRating';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
@@ -45,6 +46,8 @@ export const OrderTrackingPage = () => {
   const [riderLive, setRiderLive] = useState(null);
 
   const orderId = selectedOrder?._id;
+
+  useEffect(() => { setTrack(null); setRiderLive(null); }, [orderId]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -863,6 +866,10 @@ export const OrderTrackingPage = () => {
           </span>
         </div>
 
+        {currentStatus === 'delivered' && <DeliveryPartnerRating key={orderId} orderId={orderId}
+          riderName={track?.rider?.name} deliveryRating={track?.deliveryRating}
+          onRated={rating => setTrack(previous => ({ ...previous, deliveryRating: { ...previous?.deliveryRating, rating } }))} />}
+
         {/* Items Summary card */}
         <div className="profile-menu-card" style={{ padding: 16 }}>
           <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
@@ -1024,6 +1031,7 @@ export const OrderTrackingPage = () => {
       {/* Rate & Review modal */}
       {reviewModalItem && (
         <ModalPortal
+          className="user-action-modal"
           style={{
             position: 'absolute',
             inset: 0,
@@ -1112,7 +1120,7 @@ export const OrderTrackingPage = () => {
               <p style={{ margin: '8px 0 0', fontSize: 12, color: '#b91c1c' }}>{reviewFormError}</p>
             )}
 
-            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <div className="user-form-actions" style={{ display: 'flex', gap: 10, marginTop: 14 }}>
               <button
                 onClick={() => setReviewModalItem(null)}
                 disabled={submittingReview}
@@ -1143,6 +1151,7 @@ export const OrderTrackingPage = () => {
       {/* Return Item modal */}
       {returnModalItem && (
         <ModalPortal
+          className="user-action-modal"
           style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.65)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px 12px', boxSizing: 'border-box' }}
           onClick={() => !submittingReturn && setReturnModalItem(null)}
         >
@@ -1207,7 +1216,7 @@ export const OrderTrackingPage = () => {
 
                 {returnFormError && <p style={{ margin: '0 0 10px', fontSize: 12, color: '#b91c1c' }}>{returnFormError}</p>}
 
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="user-form-actions" style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => setReturnModalItem(null)} disabled={submittingReturn} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 800, cursor: submittingReturn ? 'not-allowed' : 'pointer' }}>Cancel</button>
                   <button onClick={submitReturn} disabled={submittingReturn} style={{ flex: 2, padding: '12px 0', borderRadius: 12, border: 'none', background: submittingReturn ? '#94a3b8' : '#b45309', color: '#fff', fontSize: 13, fontWeight: 900, cursor: submittingReturn ? 'not-allowed' : 'pointer' }}>
                     {submittingReturn ? 'Submitting…' : 'Submit Return Request'}

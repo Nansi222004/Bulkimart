@@ -108,6 +108,18 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     { $match: { sellerId: seller._id, isDeleted: false } },
     { $group: { _id: '$status', count: { $sum: 1 } } },
   ]);
+  // Stored Seller counters are not maintained by checkout. Count each order
+  // once and attribute only this seller's delivered merchandise to revenue.
+  const [orderMetrics] = await Order.aggregate([
+    { $match: { 'items.sellerId': seller._id } },
+    { $unwind: '$items' },
+    { $match: { 'items.sellerId': seller._id } },
+    { $group: { _id: '$_id', status: { $first: '$status' },
+      grossPaise: { $sum: { $round: [{ $multiply: ['$items.price', '$items.qty', 100] }, 0] } } } },
+    { $group: { _id: null, totalOrders: { $sum: 1 },
+      deliveredOrders: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] } },
+      revenuePaise: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, '$grossPaise', 0] } } } },
+  ]);
 
   return ok(res, {
     _id: seller._id,
@@ -173,8 +185,9 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     metrics: {
       commissionRate: seller.commissionRate,
       rating: seller.rating,
-      totalOrders: seller.totalOrders,
-      totalRevenue: seller.totalRevenue,
+      totalOrders: orderMetrics?.totalOrders || 0,
+      totalRevenue: (orderMetrics?.revenuePaise || 0) / 100,
+      deliveredOrders: orderMetrics?.deliveredOrders || 0,
       products: productCounts.reduce((acc, c) => ({ ...acc, [c._id]: c.count }), {}),
     },
 
@@ -1676,7 +1689,7 @@ export const getCustomerOrders = asyncHandler(async (req, res) => {
       // An order's items all belong to the same fulfilment group (see
       // Order.js's own `groupRef` comment), so the first item's vendor is
       // the order's vendor.
-      .populate('items.sellerId', 'businessName')
+      .populate('items.sellerId', 'businessName storeDetails.name storeDetails.address storeDetails.city storeDetails.phone')
       // Delivery partner — vehicle details live on DeliveryPartner itself;
       // name/phone live on the User behind it, one level further in.
       .populate({
@@ -1684,6 +1697,8 @@ export const getCustomerOrders = asyncHandler(async (req, res) => {
         select: 'vehicleType vehicleNo userId',
         populate: { path: 'userId', select: 'name phone' },
       })
+      .populate('paymentId', 'method status amount refund')
+      .populate('deliveryId', 'status createdAt startTime endTime otpVerified timeline pickupLocation dropLocation route')
       .lean(),
     Order.countDocuments(filter),
   ]);

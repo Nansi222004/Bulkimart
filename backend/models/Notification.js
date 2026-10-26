@@ -55,6 +55,8 @@ const notificationSchema = new Schema(
       parcelDeliveryId: { type: ObjectId, ref: 'ParcelDelivery' },
       applicationId: { type: ObjectId, ref: 'ServiceApplication' },
       orderId:        { type: ObjectId, ref: "Order" },
+      returnId:       { type: ObjectId, ref: 'Return' },
+      returnNumber:   String,
       sellerId:       { type: ObjectId, ref: 'Seller' },
       subscriptionId: { type: ObjectId, ref: "Subscription" },
       productId:      { type: ObjectId, ref: "Product" },

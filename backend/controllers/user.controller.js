@@ -151,6 +151,14 @@ export const addAddress = asyncHandler(async (req, res) => {
     addressIdentity(address) === addressIdentity(newAddress)
   );
   if (duplicate) {
+    // Re-saving a destination must preserve the customer's new label/photo.
+    if (label) duplicate.label = label;
+    if (landmarkImage !== undefined) duplicate.landmarkImage = landmarkImage;
+    if (isDefault) {
+      user.addresses.forEach(address => address.isDefault = false);
+      duplicate.isDefault = true;
+    }
+    await user.save();
     return res.status(200).json({
       success: true,
       addresses: uniqueAddresses(user.addresses),

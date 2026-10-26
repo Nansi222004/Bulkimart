@@ -183,9 +183,11 @@ describe('Address and Checkout contact autofill HTTP API tests', () => {
     // Must enforce authenticated identity, ignoring spoofed values
     expect(saved.name).toBe('Aman Verma');
     expect(saved.phone).toBe('9876543210');
+    expect(saved.label).toBe('Work');
+    expect(saved.isDefault).toBe(true);
   });
 
-  test('adding the same normalized destination selects the existing address instead of appending it', async () => {
+  test('re-saving a Home destination as Work persists the label and landmark without appending an address', async () => {
     const existing = {
       _id: '507f1f77bcf86cd799439088',
       name: 'Aman Verma', phone: '9876543210',
@@ -199,12 +201,34 @@ describe('Address and Checkout contact autofill HTTP API tests', () => {
     const res = await request(app).post('/api/users/addresses').send({
       line1: '  FLAT 101,  Galaxy Heights ', line2: 'sector 4',
       city: 'INDORE', state: 'madhya pradesh', pincode: '452001', label: 'Work',
+      landmarkImage: 'https://example.test/new-landmark.jpg',
     });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ addressId: existing._id, duplicate: true });
     expect(currentUserMock.addresses).toHaveLength(1);
-    expect(currentUserMock.save).not.toHaveBeenCalled();
+    expect(currentUserMock.save).toHaveBeenCalledTimes(1);
+    const listing = await request(app).get('/api/users/addresses');
+    expect(listing.body.data[0]).toMatchObject({
+      _id: existing._id, label: 'Work', isDefault: true,
+      landmarkImage: 'https://example.test/new-landmark.jpg',
+    });
+  });
+
+  test('selecting an existing destination without a label or photo preserves both', async () => {
+    const existing = {
+      _id: '507f1f77bcf86cd799439088', line1: 'Office 202', city: 'Indore',
+      pincode: '452001', label: 'Work', landmarkImage: 'https://example.test/office.jpg',
+    };
+    const other = { _id: '507f1f77bcf86cd799439089', line1: 'Home 1', isDefault: true };
+    currentUserMock = createMockUser({ addresses: [existing, other] });
+    const res = await request(app).post('/api/users/addresses').send({
+      line1: 'Office 202', city: 'Indore', pincode: '452001', isDefault: true,
+    });
+    expect(res.status).toBe(200);
+    expect(existing).toMatchObject({ label: 'Work', landmarkImage: 'https://example.test/office.jpg', isDefault: true });
+    expect(other.isDefault).toBe(false);
+    expect(currentUserMock.addresses).toHaveLength(2);
   });
 
   test('missing profile name or phone produces a clear 400 validation error', async () => {

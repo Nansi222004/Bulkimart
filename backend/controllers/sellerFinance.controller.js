@@ -11,6 +11,7 @@ import { requireFinanceOperation, financeFlags } from '../services/financeSafety
 import { getFinancePolicy } from '../services/financePolicy.service.js';
 import { createSellerPayoutRequest } from '../services/sellerPayout.service.js';
 import { sellerTaxStatement } from '../services/financeReports.service.js';
+import { sellerFinancialAmounts } from '../services/sellerOrderAmounts.service.js';
 
 const ownSeller = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
@@ -27,6 +28,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
       { $match: { status: 'delivered', 'items.sellerId': seller._id } },
       { $project: { orderNo: 1, createdAt: 1, financialPosting: 1,
         paymentMethod: 1, cashState: '$codFinance.status', snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
+        financialSnapshot: { version: '$financialSnapshot.version', lines: { $filter: { input: { $ifNull: ['$financialSnapshot.lines', []] }, as: 'line', cond: { $eq: ['$$line.sellerId', String(seller._id)] } } } },
         items: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
       { $set: { grossAmount: { $sum: { $map: { input: '$items', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
       { $facet: {
@@ -43,7 +45,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
     deliveredSales: {
       orderCount: sales[0]?.totals[0]?.orderCount || 0,
       grossAmount: Number((sales[0]?.totals[0]?.grossAmount || 0).toFixed(2)),
-      orders: sales[0]?.orders || [],
+      orders: (sales[0]?.orders || []).map(({ financialSnapshot, ...row }) => ({ ...row, sellerAmounts: sellerFinancialAmounts(financialSnapshot, seller._id) })),
       limit: 20,
     },
     coverage: {

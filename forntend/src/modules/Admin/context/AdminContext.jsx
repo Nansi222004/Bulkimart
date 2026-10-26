@@ -793,6 +793,8 @@ export const AdminProvider = ({ children }) => {
   // Order history — one buyer's (pass userId) or a whole channel's (pass type).
   const [customerOrders, setCustomerOrders] = useState([]);
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
+  const [customerOrdersError, setCustomerOrdersError] = useState('');
+  const customerOrdersRequest = useRef(0);
   const [customerOrdersMeta, setCustomerOrdersMeta] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
 
   /**
@@ -803,16 +805,21 @@ export const AdminProvider = ({ children }) => {
    * showed a single Quick Commerce order.
    */
   const fetchCustomerOrders = useCallback(async ({ userId, type, status, search, page = 1, limit = 20 } = {}) => {
+    const request = ++customerOrdersRequest.current;
     setCustomerOrdersLoading(true);
+    setCustomerOrdersError('');
     try {
       const { data, meta } = await adminGet(`/consumers/orders${qs({ userId, type, status, search, page, limit })}`);
+      if (request !== customerOrdersRequest.current) return;
       setCustomerOrders(data || []);
       setCustomerOrdersMeta(meta || { page: 1, limit, total: 0, pages: 0 });
-    } catch {
+    } catch (error) {
+      if (request !== customerOrdersRequest.current) return;
+      setCustomerOrdersError(error.message || 'Could not load orders. Please retry.');
       setCustomerOrders([]);
       setCustomerOrdersMeta({ page: 1, limit, total: 0, pages: 0 });
     } finally {
-      setCustomerOrdersLoading(false);
+      if (request === customerOrdersRequest.current) setCustomerOrdersLoading(false);
     }
   }, []);
 
@@ -1194,6 +1201,7 @@ export const AdminProvider = ({ children }) => {
       fetchCustomerActivityLog,
       customerOrders,
       customerOrdersLoading,
+      customerOrdersError,
       customerOrdersMeta,
       fetchCustomerOrders,
       reviewsList,

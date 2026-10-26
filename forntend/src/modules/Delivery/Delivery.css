@@ -1109,7 +1109,7 @@
   margin-top: 10px;
 }
 
-.delivery-customer-actions-row button {
+.delivery-customer-actions-row :is(button, a) {
   flex: 1;
   padding: 8px;
   background-color: #f1f5f9;
@@ -1119,6 +1119,54 @@
   font-weight: 700;
   border-radius: 6px;
   cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+}
+
+.delivery-support-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.delivery-support-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 480px;
+  max-height: 100%;
+  border-radius: 16px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.delivery-support-sheet > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.delivery-support-sheet h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.delivery-support-sheet > header button {
+  padding: 10px;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.delivery-support-content {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Items checklists */

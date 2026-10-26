@@ -4,6 +4,7 @@ import { socket } from '../../../utils/socket';
 import { apiUrl } from '../../../utils/api';
 import { onForegroundMessage } from '../../../utils/firebaseMessaging';
 import ModalPortal from '../../../components/ModalPortal';
+import { sellerOrderTotal } from '../utils/sellerOrderAmounts';
 
 export const orderReference = notification => {
   const id = notification?.metadata?.orderId || notification?.orderId;
@@ -108,7 +109,8 @@ export default function SellerOrderAlerts() {
   <aside className="seller-order-alert" role="dialog" aria-modal="true" aria-label="New order received" aria-live="polite">
     <button type="button" className="modal-close-btn" aria-label="Dismiss new order" onClick={dismiss}>✕</button>
     <h3>New order received</h3><strong>{active.orderNo}</strong>
-    <p>{active.customer?.name || 'Customer'} · {active.itemCount} items · ₹{active.subtotal}</p>
+    <p>{active.customer?.name || 'Customer'} · {active.itemCount} items · {sellerOrderTotal(active).label}: ₹{sellerOrderTotal(active).value}</p>
+    {active.sellerAmounts?.couponDiscount > 0 && <p>Coupon discount: ₹{active.sellerAmounts.couponDiscount}</p>}
     <p>{active.paymentMethod === 'cod' ? 'Cash on Delivery · Pay on delivery' : `${active.paymentMethod} · ${active.paymentStatus}`}</p>
     <button type="button" onClick={async () => { if (await openSellerOrder(active._id, active.notificationId)) dismiss(); }}>View order</button>
     {queue.length > 1 && <small>{queue.length - 1} more new orders</small>}

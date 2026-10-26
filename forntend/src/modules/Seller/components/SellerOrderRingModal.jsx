@@ -2,6 +2,7 @@ import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { sellerOrderTotal } from '../utils/sellerOrderAmounts';
 
 export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
   const ui = useFeedback();
@@ -53,9 +54,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const itemsSubtotal = order.pricing?.subtotal !== undefined && order.pricing?.subtotal !== null
-    ? order.pricing.subtotal
-    : (order.items?.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.qty) || 1)), 0) || 0);
+  const total = sellerOrderTotal(order);
 
   return (
     <ModalPortal style={{
@@ -122,8 +121,8 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
               <strong style={{ fontSize: 16, color: 'var(--text-primary)' }}>{order.orderNo}</strong>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block' }}>Product Subtotal</span>
-              <strong style={{ fontSize: 20, color: '#10b981', fontWeight: 900 }}>₹{itemsSubtotal}</strong>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block' }}>{total.label}</span>
+              <strong style={{ fontSize: 20, color: '#10b981', fontWeight: 900 }}>₹{total.value}</strong>
             </div>
           </div>
 

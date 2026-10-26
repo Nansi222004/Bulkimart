@@ -8,6 +8,7 @@ import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
 import { Bike, Package } from 'lucide-react';
 import './SellerOrderDetails.css';
+import { sellerOrderTotal } from '../utils/sellerOrderAmounts';
 
 /**
  * Orders — live from GET /api/sellers/orders, and now actionable.
@@ -539,9 +540,11 @@ export const OrdersTab = ({ detailPage = false }) => {
                       {order.customer?.city ? ` • ${order.customer.city}` : ''}
                     </p>
                   </div>
-                  {/* This seller's share, not the basket total — the order may
-                      carry other sellers' goods and a shared delivery fee. */}
-                  <span className="order-f-amount">{money(order.subtotal)}</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <small>{sellerOrderTotal(order).label}</small>
+                    <div className="order-f-amount">{money(sellerOrderTotal(order).value)}</div>
+                    {order.sellerAmounts?.totalDiscount > 0 && <small>Discount: {money(order.sellerAmounts.totalDiscount)}</small>}
+                  </div>
                 </div>
 
                 {/* A Same-Day job carries a promise the shop has to pack against,

@@ -178,13 +178,16 @@ export const LandingPageContent = () => {
                       </>
                     );
                   }
+                  // Admin category tabs must query their grocery branch. Names
+                  // such as Fashion or Electronics also exist in Quick and must
+                  // not open the built-in Shop All sections.
+                  if (isSlug(activeSubNav)) {
+                    return <DynamicCategorySection channel="grocery" slug={activeSubNav} />;
+                  }
                   if (isGroceriesTab) return <GroceriesSection />;
                   if (isElectronicsTab) return <ElectronicsSection />;
                   if (isCouponsTab) return <CouponsSection />;
                   if (isFashionTab) return <FashionSection />;
-                  if (isSlug(activeSubNav)) {
-                    return <DynamicCategorySection channel="grocery" slug={activeSubNav} />;
-                  }
                   return null;
                 } else {
                   if (isCouponsTab) return <CouponsSection />;

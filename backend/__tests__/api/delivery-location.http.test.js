@@ -48,6 +48,23 @@ test.each(['flat','point'])('valid %s store coordinates permit manual assignment
 test('simultaneous retries produce one assignment, one history entry and one notification',async()=>{
   const result=await Promise.all([assign(),assign()]);expect(result.every(row=>row.status===200)).toBe(true);expect(await Delivery.countDocuments()).toBe(1);expect((await Order.findById(order._id)).assignmentHistory).toHaveLength(1);expect(notify).toHaveBeenCalledTimes(1);
 });
+
+test('active delivery provides the assigned customer phone and removes access when the trip ends',async()=>{
+  await Order.updateOne({_id:order._id},{$set:{'shippingAddress.name':'Fixture Customer','shippingAddress.phone':'+919876500001'}});
+  expect((await request(app).get('/active').expect(200)).body.data).toBeNull();
+  const assigned=await assign().expect(200);
+  await Delivery.updateOne({_id:assigned.body.data.deliveryId},{$set:{status:'picked_up'}});
+  const active=await request(app).get('/active').expect(200);
+  expect(active.body.data).toMatchObject({orderId:String(order._id),customerName:'Fixture Customer',customerPhone:'+919876500001',step:'transit'});
+  expect(active.body.data.otp).toBeUndefined();
+  await Order.updateOne({_id:order._id},{$set:{status:'delivered'}});
+  expect((await request(app).get('/active').expect(200)).body.data).toBeNull();
+});
+
+test('customer contact is not returned for another rider assignment',async()=>{
+  await Order.updateOne({_id:order._id},{$set:{deliveryPartnerId:new mongoose.Types.ObjectId(),'shippingAddress.phone':'+919876500001'}});
+  expect((await request(app).get('/active').expect(200)).body.data).toBeNull();
+});
 test('missing location names the actual store in queue and assignment error; saving a real pin enables retry',async()=>{
   await Seller.updateOne({_id:seller._id},{$unset:{'storeDetails.lat':'','storeDetails.lng':'','storeDetails.point':''}});
   const error=await assign().expect(409);expect(error.body.message).toMatch(/Actual order store.*map pin/);expect(await Delivery.countDocuments()).toBe(0);

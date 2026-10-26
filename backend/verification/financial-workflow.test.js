@@ -733,6 +733,9 @@ test('platform-funded coupon: seller is paid on full price with TCS/TDS withheld
   await cod('collect', 90); await cod('remit', 90); await cod('verify', 90);
   await postOrderFinance(order._id, admin._id);
   expect(await sellerBalances(seller._id)).toMatchObject({ held: 90.4, earnedEarnings: 90.4 });
+  const summary = await request(app).get('/api/sellers/finances/summary').set('Authorization', bearer(user, 'user', 'seller')).expect(200);
+  expect(summary.body.data.deliveredSales.orders.find(row => row._id === String(order._id)).sellerAmounts)
+    .toMatchObject({ subtotal: 100, couponDiscount: 10, commission: 9, tcs: .5, tds: .1, netEarnings: 90.4 });
   for (const [account, amount] of [['platform_discount_expense', 10], ['tcs_liability', .5], ['tds_liability', .1], ['commission_revenue', 9]]) expect((await Ledger.findOne({ account })).amount).toBe(amount);
   const retId = id(); await Return.collection.insertOne({ _id: retId, orderId: order._id, orderItemId: order.items[0]._id, quantity: 1, status: 'REFUNDED', refundReference: 'MANUAL-COD', codSettledBy: admin._id, codSettledAt: new Date(), codSettlementNote: 'Synthetic manual cash receipt', refundAmount: 45, returnNumber: 'RET-PLATFORM' });
   await reverseRefundedReturn(retId, admin._id);

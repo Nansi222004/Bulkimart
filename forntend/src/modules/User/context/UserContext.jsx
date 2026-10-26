@@ -56,8 +56,9 @@ export const UserProvider = ({ children }) => {
     // choose its theme/catalogue on refresh; a first-time visitor still
     // defaults to Quick in resolveMode().
     if (parts.length === 0) return null;
-    if (parts[0].startsWith('grocery--')) return 'quick';
-    if (parts[0].startsWith('ecommerce--')) return 'shop-all';
+    const categorySlug = parts[0] === 'categories' ? parts[1] || '' : parts[0];
+    if (categorySlug.startsWith('grocery--')) return 'quick';
+    if (categorySlug.startsWith('ecommerce--')) return 'shop-all';
     return STOREFRONT_OF_PATH[parts[0]] || null;   // null — this path says nothing
   };
 
@@ -431,8 +432,55 @@ export const UserProvider = ({ children }) => {
 
   useEffect(() => { fetchWalletBalance(); }, [fetchWalletBalance]);
 
-  // --- Orders --- (state lives with the API calls further down)
+  // --- Orders ---
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState('');
+  const orderRead = useRef(0);
+  const orderController = useRef(null);
+  useEffect(() => () => { orderRead.current++; orderController.current?.abort(); }, []);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const fetchOrders = useCallback(async () => {
+    const request = ++orderRead.current;
+    orderController.current?.abort();
+    if (!isSignedIn()) { setOrders([]); setSelectedOrder(null); setOrdersLoading(false); return; }
+    const controller = new AbortController();
+    orderController.current = controller;
+    const session = captureUserSession();
+    const current = () => request === orderRead.current && isCurrentUserSession(session);
+    setOrdersLoading(true); setOrdersError('');
+    try {
+      const res = await boundedFetch(apiUrl('/api/orders?limit=50'), { signal: controller.signal, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}` } });
+      const body = await res.json().catch(() => ({}));
+      if (!current()) return;
+      if (!res.ok || body.success === false || !Array.isArray(body.data)) throw new Error(body.message || 'Could not refresh your orders. Please retry.');
+      setOrders(body.data);
+      setSelectedOrder(previous => {
+        if (!previous) return previous;
+        const fresh = body.data.find(order => String(order._id) === String(previous._id));
+        return fresh ? { ...previous, ...fresh } : previous;
+      });
+    } catch (err) {
+      if (current()) setOrdersError(err.message || 'Could not refresh your orders. Please retry.');
+    } finally {
+      if (current()) setOrdersLoading(false);
+    }
+  }, [restoredSession?.verified, currentUser?._id, currentUser?.id]);
+
+  const orderViewActive = activeNav === 'orders' || Boolean(selectedOrder?._id);
+  useEffect(() => {
+    void fetchOrders();
+    if (!orderViewActive) return;
+    const refresh = () => { if (document.visibilityState !== 'hidden') void fetchOrders(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener?.('visibilitychange', refresh);
+    const timer = setInterval(refresh, 15000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener?.('visibilitychange', refresh);
+    };
+  }, [fetchOrders, orderViewActive]);
   const [activeRider, setActiveRider] = useState(null);
   // QUICK COMMERCE ONLY — the reverse-pickup OTP a rider needs from this
   // customer at handover. Kept separate from `activeRider` (that object is
@@ -454,11 +502,22 @@ export const UserProvider = ({ children }) => {
       } catch { }
     }
 
-    socket.on('order_status_updated', ({ orderId, status, timeline }) => {
-      setOrders(prev => prev.map(o => o._id === orderId ? { ...o, status, timeline } : o));
-    });
+    const session = captureUserSession();
+    const updateOrder = (orderId, patch) => {
+      if (!orderId) return;
+      // An earlier history request must not roll back a newer socket update.
+      orderRead.current++;
+      setOrders(previous => previous.map(order => String(order._id) === String(orderId) ? { ...order, ...patch } : order));
+      setSelectedOrder(previous => previous && String(previous._id) === String(orderId) ? { ...previous, ...patch } : previous);
+      void fetchOrders();
+    };
+    const handlers = {
+    connect: () => { void fetchOrders(); },
+    order_status_updated: ({ orderId, status, timeline }) => {
+      updateOrder(orderId, { ...(status ? { status } : {}), ...(Array.isArray(timeline) ? { timeline } : {}) });
+    },
 
-    socket.on('rider_assigned', ({ orderId, riderName, riderPhone, vehicleType, otp, deliveryId }) => {
+    rider_assigned: ({ orderId, riderName, riderPhone, vehicleType, otp, deliveryId }) => {
       setActiveRider({
         orderId,
         name: riderName,
@@ -470,53 +529,55 @@ export const UserProvider = ({ children }) => {
         lng: 75.871511,
         step: 'pickup'
       });
-      setOrders(prev => prev.map(o => o._id === orderId ? { ...o, status: 'out_for_delivery' } : o));
-    });
+      // Assignment alone does not establish that the parcel is out for delivery.
+      updateOrder(orderId, {});
+    },
 
-    socket.on('delivery_status_updated', ({ orderId, status }) => {
+    delivery_status_updated: ({ orderId, stage, status }) => {
       setActiveRider(prev => {
         if (prev && prev.orderId === orderId) {
-          return { ...prev, step: status }; // status will be 'transit' or 'arrived'
+          return { ...prev, step: stage || status };
         }
         return prev;
       });
-    });
+      updateOrder(orderId, {});
+    },
 
-    socket.on('location_update', ({ deliveryId, lat, lng }) => {
+    location_update: ({ deliveryId, lat, lng }) => {
       setActiveRider(prev => {
         if (prev && prev.deliveryId === deliveryId) {
           return { ...prev, lat, lng };
         }
         return prev;
       });
-    });
+    },
 
-    socket.on('otp_ready', ({ otp }) => {
+    otp_ready: ({ otp }) => {
       setActiveRider(prev => prev ? { ...prev, otp } : null);
-    });
+    },
 
     // QUICK COMMERCE ONLY — the reverse-pickup counterpart to `otp_ready`
     // above (services/returnPickup.service.js::generateReturnPickupOtp).
-    socket.on('return_pickup_otp_ready', ({ returnId, otp }) => {
+    return_pickup_otp_ready: ({ returnId, otp }) => {
       setReturnPickupOtp({ returnId, otp });
-    });
+    },
 
-    socket.on('order_delivered', ({ orderId }) => {
-      setActiveRider(null);
-      setOrders(prev => prev.map(o => o._id === orderId ? { ...o, status: 'delivered' } : o));
+    order_delivered: ({ orderId }) => {
+      setActiveRider(previous => previous && String(previous.orderId) === String(orderId) ? null : previous);
+      updateOrder(orderId, { status: 'delivered' });
+    },
+    };
+    const listeners = Object.entries(handlers).map(([event, handler]) => {
+      const listener = payload => { if (session.token && isCurrentUserSession(session)) handler(payload); };
+      socket.on(event, listener);
+      return [event, listener];
     });
 
     return () => {
-      socket.off('order_status_updated');
-      socket.off('rider_assigned');
-      socket.off('delivery_status_updated');
-      socket.off('location_update');
-      socket.off('otp_ready');
-      socket.off('return_pickup_otp_ready');
-      socket.off('order_delivered');
+      listeners.forEach(([event, listener]) => socket.off(event, listener));
       disconnectSocket();
     };
-  }, []);
+  }, [fetchOrders]);
 
   /**
    * Wishlist — backend is the source of truth (User.wishlist, product refs
@@ -1423,8 +1484,6 @@ export const UserProvider = ({ children }) => {
   // ========================
   // ORDERS — server-backed
   // ========================
-  const [orders, setOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const PAYMENT_CODE = {
     'Cash on Delivery': 'cod',
@@ -1435,22 +1494,6 @@ export const UserProvider = ({ children }) => {
     'online': 'online',
   };
 
-  const fetchOrders = useCallback(async () => {
-    if (!isSignedIn()) { setOrders([]); return; }
-    setOrdersLoading(true);
-    try {
-      const res = await fetch(apiUrl('/api/orders?limit=50'), { headers: authHeaders(false) });
-      if (!res.ok) { setOrders([]); return; }
-      const body = await res.json();
-      setOrders(body.data || []);
-    } catch {
-      setOrders([]);
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
 
 
@@ -1838,6 +1881,7 @@ export const UserProvider = ({ children }) => {
         cancelOrder, abandonCheckoutPayment,
         fetchOrders,
         ordersLoading,
+        ordersError,
         cartChannel,
         switchCartChannel,
         cartSummary,

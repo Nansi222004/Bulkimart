@@ -112,6 +112,9 @@
 .landmark-modal-sheet {
   width: 100%;
   max-width: 500px;
+  max-height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
   background: #ffffff;
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
@@ -121,6 +124,31 @@
   flex-direction: column;
   gap: 16px;
   animation: landmarkSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landmark-camera-preview {
+  width: 100%;
+  max-height: 55dvh;
+  min-height: 120px;
+  object-fit: contain;
+  background: #0f172a;
+  border-radius: 12px;
+}
+
+.landmark-capture-btn {
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: var(--sf-action, #D91430);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.landmark-capture-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 @keyframes landmarkSlideUp {

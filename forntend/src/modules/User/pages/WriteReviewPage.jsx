@@ -264,7 +264,7 @@ export const WriteReviewPage = ({ productId, onBack }) => {
       </div>
 
       {/* Sticky Bottom Action Footer */}
-      <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, background: '#fff', padding: '12px 20px 20px 20px', borderTop: '1px solid #e2e8f0', zIndex: 100, textAlign: 'center', boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
+      <div className="write-review-actions" style={{ position: 'sticky', bottom: 0, left: 0, right: 0, background: '#fff', padding: '12px 20px calc(20px + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid #e2e8f0', zIndex: 100, textAlign: 'center', boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
         <button
           onClick={handleSubmit}
           disabled={submitting}

@@ -128,6 +128,8 @@ const deliveryPartnerSchema = new Schema(
     },
     totalDeliveries: { type: Number, default: 0 },
     rating:          { type: Number, default: 0 },
+    ratingCount:     { type: Number, default: 0 },
+    ratingTotal:     { type: Number, default: 0 },
   },
   { timestamps: true }
 );

@@ -234,6 +234,18 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
     route: `/admin/returns/${created._id}`,
   }).catch(() => {});
 
+  // Publish after commit, using the item owner's seller rather than every
+  // seller on a mixed-store order. The shared pipeline persists, emits the
+  // foreground popup event and sends the background push to that seller.
+  if (created.sellerId) await notifySeller(created.sellerId, {
+    event: NOTIFICATION_EVENT.RETURN_REQUESTED,
+    dedupeKey: `seller-return-requested:${created._id}:${created.sellerId}`,
+    title: 'New return request',
+    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}`,
+    metadata: { returnId: created._id, returnNumber: created.returnNumber, orderId: created.orderId },
+    route: `/seller/item-returns?return=${created._id}`,
+  }).catch(() => {});
+
   return created;
 };
 

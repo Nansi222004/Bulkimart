@@ -423,26 +423,31 @@ const ProfilePage = () => {
 
 
   // Handle Adding Address
-  const handleAddAddressSubmit = (e) => {
+  const handleAddAddressSubmit = async (e) => {
     e.preventDefault();
     if (!newAddrName || !newAddrPhone || !newAddrLine1 || !newAddrPincode || !newAddrCity || !newAddrState) {
       setLocationError('Please fill out all address details');
       return;
     }
 
-    const addrId = addAddress({
+    const result = await addAddress({
       label: newAddrLabel,
       name: newAddrName,
       phone: newAddrPhone,
-      house: newAddrLine1,
-      street: newAddrLine2 || '',
+      line1: newAddrLine1,
+      line2: newAddrLine2 || '',
       city: newAddrCity,
       state: newAddrState,
       pincode: newAddrPincode,
       landmarkImage: newAddrLandmarkImage || null,
     });
 
-    setSelectedAddressId(addrId);
+    if (!result?.ok) {
+      setLocationError(result?.message || 'Could not save address. Please try again.');
+      return;
+    }
+    if (result.addressId) setSelectedAddressId(String(result.addressId));
+    setLocationError('');
     setIsAddingAddress(false);
 
     // Clear form fields

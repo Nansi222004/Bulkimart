@@ -1056,7 +1056,7 @@ export const trackOrder = asyncHandler(async (req, res) => {
   const shop = seller?.storeDetails;
   const delivery = order.deliveryId
     ? await Delivery.findById(order.deliveryId)
-        .select('status partnerLocation route pickupLocation dropLocation otp otpIssuedAt')
+        .select('status orderId partnerId direction customerRating partnerLocation route pickupLocation dropLocation otp otpIssuedAt')
         .lean()
     : null;
 
@@ -1143,6 +1143,13 @@ export const trackOrder = asyncHandler(async (req, res) => {
      * detail underneath it.
      */
     stage: delivery?.status || null,
+    deliveryRating: {
+      eligible: order.status === 'delivered' && delivery?.status === 'delivered'
+        && delivery.direction !== 'return_pickup' && Boolean(rider)
+        && String(delivery.orderId) === String(order._id)
+        && String(delivery.partnerId) === String(order.deliveryPartnerId),
+      rating: delivery?.customerRating?.rating || null,
+    },
 
     /**
      * The delivery code, for the person it belongs to.

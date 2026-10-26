@@ -49,7 +49,7 @@ const DynamicCategorySection = ({ channel, slug }) => {
     exists,
   } = useCategoryBranch(channel, slug);
 
-  const { products, loading } = useProducts({
+  const { products, loading, error: productsError, retry: retryProducts } = useProducts({
     type: channel,
     category: categoryParam,
     limit: BRANCH_FETCH_LIMIT,
@@ -123,6 +123,8 @@ const DynamicCategorySection = ({ channel, slug }) => {
         <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b', fontSize: 13 }}>
           Loading products...
         </div>
+      ) : productsError ? (
+        <div className="category-load-state" role="alert"><strong>Products could not be loaded.</strong><span>{productsError}</span><button type="button" onClick={retryProducts}>Try again</button></div>
       ) : products.length === 0 ? (
         <div style={{ marginTop: 20, padding: '40px 0', textAlign: 'center', color: '#94a3b8', fontSize: 13, backgroundColor: '#ffffff', borderRadius: 16, border: '1.5px dashed #e2e8f0' }}>
           No products listed here yet.

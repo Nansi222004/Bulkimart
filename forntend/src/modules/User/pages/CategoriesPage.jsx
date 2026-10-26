@@ -1,8 +1,8 @@
 import CategoryArtwork from '../components/CategoryArtwork';
 import React, { useEffect, useMemo, useState } from 'react';
-import { apiUrl } from '../../../utils/api';
 import { useUser } from '../context/UserContext';
 import { descendantIds, useCategoryTree } from '../hooks/useCategoryTree';
+import { useProducts } from '../hooks/useProducts';
 import { formatCurrency } from '../utils/helpers';
 import WishlistHeartButton from '../components/WishlistHeartButton';
 import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
@@ -25,10 +25,10 @@ const CategoriesPage = () => {
   const [query, setQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [productsLoading, setProductsLoading] = useState(false);
-  const [productsError, setProductsError] = useState('');
-  const [productsAttempt, setProductsAttempt] = useState(0);
+  const categoryIds = selected ? descendantIds(selected).join(',') : null;
+  const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({
+    type: channel, category: categoryIds, limit: 60, enabled: selected?.type === channel && !loading,
+  });
 
   const roots = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -38,51 +38,36 @@ const CategoriesPage = () => {
   useEffect(() => {
     setExpandedId(null);
     setSelected(null);
-    setProducts([]);
-    setProductsError('');
   }, [channel]);
 
   useEffect(() => {
-    const slug = selectedCategoryFilter?.slug;
+    const slug = selectedCategoryFilter?.slug || selectedCategoryFilter?._id;
     const find = nodes => { for (const category of nodes || []) { if (category.slug === slug || String(category._id) === slug) return category; const child = find(category.children); if (child) return child; } return null; };
     const category = slug ? find(tree) : null;
     setSelected(category);
-    if (category?.children?.length) setExpandedId(category._id);
-  }, [tree, selectedCategoryFilter?.slug, channel]);
-
-  useEffect(() => {
-    if (!selected) return undefined;
-    const controller = new AbortController();
-    const ids = descendantIds(selected).join(',');
-    setProductsLoading(true);
-    setProductsError('');
-
-    fetch(apiUrl(`/api/products?type=${channel}&category=${encodeURIComponent(ids)}&limit=60`), { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.message || `Products unavailable (${response.status})`);
-        return body.products || body.data || [];
-      })
-      .then(setProducts)
-      .catch((requestError) => {
-        if (requestError.name === 'AbortError') return;
-        setProducts([]);
-        setProductsError(requestError.message || 'Could not load products');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setProductsLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [selected, channel, productsAttempt]);
+    setExpandedId(category?._id || null);
+  }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, channel]);
 
   const chooseCategory = (category) => {
     setSelectedCategoryFilter(category);
     setSelected(category);
-    if (category.children?.length) setExpandedId((value) => value === category._id ? null : category._id);
+    setExpandedId((value) => value === category._id ? null : category._id);
     const path = `/categories/${category.slug || category._id}`;
     if (window.location.pathname !== path) window.history.pushState(null, '', path);
   };
+
+  const isExpanded = category => descendantIds(category).includes(expandedId);
+  const renderChildren = category => isExpanded(category) && category.children?.length > 0 && (
+    <div className="all-subcategory-list">
+      {category.children.map(child => <div className="all-subcategory-branch" key={child._id}>
+        <button type="button" aria-pressed={selected?._id === child._id}
+          aria-expanded={child.children?.length ? isExpanded(child) : undefined} onClick={() => chooseCategory(child)}>
+          <CategoryArtwork category={child} /><span>{child.name}</span>
+        </button>
+        {renderChildren(child)}
+      </div>)}
+    </div>
+  );
 
   return (
     <section className="all-categories-page">
@@ -123,7 +108,7 @@ const CategoriesPage = () => {
         <div className="all-categories-grid">
           {roots.map((category) => (
             <article key={category._id} className={`all-category-card ${selected?._id === category._id ? 'selected' : ''}`}>
-              <button type="button" className="all-category-main" onClick={() => chooseCategory(category)}>
+              <button type="button" className="all-category-main" aria-expanded={category.children?.length ? isExpanded(category) : undefined} onClick={() => chooseCategory(category)}>
                 <span className="all-category-art"><CategoryArtwork category={category} /></span>
                 <span className="all-category-copy">
                   <strong>{category.name}</strong>
@@ -131,16 +116,7 @@ const CategoriesPage = () => {
                 </span>
                 <span className="all-category-arrow" aria-hidden="true">›</span>
               </button>
-              {expandedId === category._id && category.children?.length > 0 && (
-                <div className="all-subcategory-list">
-                  {category.children.map((child) => (
-                    <button type="button" key={child._id} onClick={() => chooseCategory(child)}>
-                      <CategoryArtwork category={child} />
-                      <span>{child.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              {renderChildren(category)}
             </article>
           ))}
         </div>
@@ -150,13 +126,13 @@ const CategoriesPage = () => {
         <section className="category-results-section">
           <div className="category-results-heading">
             <div><span>Products in</span><h2>{selected.name}</h2></div>
-            <button type="button" onClick={() => { setSelected(null); setProducts([]); }}>Close</button>
+            <button type="button" onClick={() => { setSelected(null); setSelectedCategoryFilter(null); }}>Close</button>
           </div>
           <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} organicProducts={products} ready={!productsLoading && !productsError} />
           {productsLoading ? (
             <div className="category-products-grid">{Array.from({ length: 4 }, (_, index) => <div className="category-result-card skeleton" key={index} />)}</div>
           ) : productsError ? (
-            <div className="all-categories-state compact" role="alert"><span>{productsError}</span><button type="button" onClick={() => setProductsAttempt((value) => value + 1)}>Retry</button></div>
+            <div className="all-categories-state compact" role="alert"><span>{productsError}</span><button type="button" onClick={retryProducts}>Retry</button></div>
           ) : products.length === 0 ? (
             <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
           ) : (

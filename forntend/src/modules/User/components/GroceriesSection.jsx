@@ -1,7 +1,7 @@
 import CategoryArtwork from './CategoryArtwork';
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useUser } from '../context/UserContext';
-import { apiUrl } from '../../../utils/api';
+import { useCategoryTree } from '../hooks/useCategoryTree';
 import VegetablesSection from './VegetablesSection';
 import MilkSection from './MilkSection';
 
@@ -32,51 +32,17 @@ const GroceryBagGraphic = () => (
 );
 
 export const GroceriesSection = () => {
-  const { setActiveNav, setSelectedCategoryFilter } = useUser();
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        // 1. Try to fetch grocery categories flagged to show on home
-        let res = await fetch(apiUrl('/api/categories?showOnHome=true&type=grocery'));
-        let data = await res.json();
-        let list = Array.isArray(data) ? data : [];
-
-        // 2. Fallback: get Level 2 categories of the first Level 1 category
-        if (list.length === 0) {
-          const treeRes = await fetch(apiUrl('/api/categories/tree?type=grocery'));
-          const treeData = await treeRes.json();
-          if (Array.isArray(treeData) && treeData.length > 0) {
-            list = (treeData[0].children || []).slice(0, 4);
-          }
-        }
-
-        if (!cancelled) {
-          setCategories(list);
-        }
-      } catch (err) {
-        console.error('Error fetching grocery home categories:', err);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { setSelectedCategoryFilter } = useUser();
+  const { tree, loading, error, retry } = useCategoryTree('grocery');
+  const flatten = nodes => (nodes || []).flatMap(category => [category, ...flatten(category.children)]);
+  const promoted = flatten(tree).filter(category => !category.isSystem && category.showOnHome);
+  const roots = tree.flatMap(category => category.isSystem ? category.children || [] : [category]);
+  const categories = (promoted.length ? promoted : roots).slice(0, 4);
 
 
 
   const handleCategoryClick = (cat) => {
     setSelectedCategoryFilter(cat);
-    setActiveNav('categories');
   };
 
   return (
@@ -150,6 +116,8 @@ export const GroceriesSection = () => {
       }}>
         {loading ? (
           <div style={{ color: '#94a3b8', fontSize: 12, padding: '12px 0', gridColumn: 'span 4', textAlign: 'center' }}>Loading categories...</div>
+        ) : error ? (
+          <div role="alert">Categories unavailable. <button type="button" onClick={retry}>Retry</button></div>
         ) : (
           categories.map((item) => (
             <div key={item._id || item.id} className="groceries-card-category" onClick={() => handleCategoryClick(item)}>

@@ -92,6 +92,13 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
 
   const d = sellerDetail;
 
+  useEffect(() => {
+    if (!d?._id) return;
+    const refreshDetail = () => fetchSellerDetail(d._id);
+    window.addEventListener('focus', refreshDetail);
+    return () => window.removeEventListener('focus', refreshDetail);
+  }, [d?._id, fetchSellerDetail]);
+
   const [radiusInput, setRadiusInput] = useState('');
   useEffect(() => {
     setRadiusInput(d?.serviceRadiusKm !== undefined && d?.serviceRadiusKm !== null ? String(d.serviceRadiusKm) : '');

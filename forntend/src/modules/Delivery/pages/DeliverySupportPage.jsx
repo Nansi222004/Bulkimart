@@ -8,13 +8,13 @@ const getUserId = () => {
   try { return JSON.parse(localStorage.getItem('deliveryUserProfile') || 'null')?._id; } catch { return undefined; }
 };
 
-export const DeliverySupportPage = () => {
+export const DeliverySupportPage = ({ orderId, orderNo } = {}) => {
   const { triggerToast } = useDelivery();
   const { tickets, categories, loading, fetchCategories, fetchMyTickets, createTicket, fetchTicketDetail, sendMessage, reopenTicket } = useTickets('delivery');
   const currentUserId = getUserId();
 
-  const [category, setCategory] = useState('');
-  const [subject, setSubject] = useState('');
+  const [category, setCategory] = useState(orderId ? 'Order / Delivery' : '');
+  const [subject, setSubject] = useState(orderId ? `Delivery support: ${orderNo || orderId}` : '');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -31,9 +31,10 @@ export const DeliverySupportPage = () => {
     }
     setSubmitting(true);
     try {
-      const t = await createTicket({ category, subject, description }, files);
+      const t = await createTicket({ category, subject, description, ...(orderId ? { relatedOrder: orderId } : {}) }, files);
       triggerToast(`Ticket ${t.ticketNumber} created`);
       setCategory(''); setSubject(''); setDescription(''); setFiles([]);
+      if (orderId) await openDetail(t);
     } catch (err) {
       triggerToast(err.message, {type:'error'});
     } finally {

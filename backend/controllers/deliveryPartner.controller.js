@@ -2020,6 +2020,7 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
     merchantLocation: pickupCoordinates(delivery?.pickupLocation) || pickupCoordinates(shop) || undefined,
 
     customerName: order.shippingAddress?.name,
+    customerPhone: order.shippingAddress?.phone || null,
     customerAddress: [order.shippingAddress?.line1, order.shippingAddress?.line2, order.shippingAddress?.city]
       .filter(Boolean).join(', '),
     customerLocation: order.shippingAddress?.lat !== undefined

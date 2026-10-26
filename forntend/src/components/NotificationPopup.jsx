@@ -5,6 +5,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { socket } from '../utils/socket';
 import { apiUrl } from '../utils/api';
 import { playNotificationDing } from '../utils/notificationSoundManager';
+import { onForegroundMessage } from '../utils/firebaseMessaging';
 
 /**
  * WhatsApp-style floating notification — a shared component for Customer
@@ -16,12 +17,9 @@ import { playNotificationDing } from '../utils/notificationSoundManager';
  * business event and every Admin broadcast — this component adds no new
  * socket event, no new backend call beyond the pre-existing
  * `PATCH /api/notifications/:id/read`, and creates no notification record
- * of its own. FCM stays background-only (see firebase-messaging-sw.js) —
- * this file never calls onForegroundMessage, which is what keeps socket
- * (foreground) and FCM (background) from ever both firing for the same
- * message while the tab is open (Section 15's duplicate-prevention
- * requirement is satisfied by NOT wiring FCM's foreground listener at all,
- * not by de-duplicating two live sources after the fact).
+ * of its own. Seller return requests also accept foreground FCM as a fallback
+ * when the socket is disconnected. Persisted notification IDs deduplicate the
+ * two transports so the same request produces one popup and one sound.
  *
  * @param {(route: string) => void} onNavigate — resolves a deep-link path
  *   to whatever this app's own tab-switching mechanism needs (each app's
@@ -38,7 +36,7 @@ const timeLabel = (iso) => {
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + getPortalToken() });
 
-export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) => {
+export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, subscribePush = onForegroundMessage }) => {
   const [stack, setStack] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const timers = useRef({});
@@ -50,8 +48,16 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) =
   }, []);
 
   useEffect(() => {
+    let alive = true, stopPush;
+    const token = getPortalToken();
+    const seen = new Set();
     const onNew = (payload) => {
       if (excludeSellerOrders && (payload?.event === 'ORDER_CREATED' || isRetiredSellerNotification(payload))) return;
+      if (payload?._id) {
+        if (seen.has(String(payload._id))) return;
+        seen.add(String(payload._id));
+        if (seen.size > 200) seen.delete(seen.values().next().value);
+      }
       const key = payload?._id || `${Date.now()}-${Math.random()}`;
       const entry = { ...payload, key, receivedAt: payload?.createdAt || new Date().toISOString() };
 
@@ -68,12 +74,22 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false }) =
     };
 
     socket.on('notification_new', onNew);
+    if (excludeSellerOrders) subscribePush(payload => {
+      const data = payload?.data;
+      if (!alive || token !== getPortalToken() || data?.audience !== 'seller' || data.event !== 'RETURN_REQUESTED') return;
+      const notification = { _id: data.notificationId, event: data.event, title: payload.notification?.title || data.title || 'New return request',
+        message: payload.notification?.body || data.body || 'A customer requested a return.', route: data.route || '/seller/item-returns',
+        metadata: { returnId: data.returnId, returnNumber: data.returnNumber, orderId: data.orderId } };
+      onNew(notification);
+      window.dispatchEvent(new CustomEvent('seller_return_notification', { detail: notification }));
+    }).then(stop => { if (alive) stopPush = stop; else stop?.(); }).catch(() => {});
     return () => {
+      alive = false; stopPush?.();
       socket.off('notification_new', onNew);
       Object.values(timers.current).forEach(clearTimeout);
       timers.current = {};
     };
-  }, [dismiss, excludeSellerOrders]);
+  }, [dismiss, excludeSellerOrders, subscribePush]);
 
   const openNotification = async (n) => {
     dismiss(n.key);

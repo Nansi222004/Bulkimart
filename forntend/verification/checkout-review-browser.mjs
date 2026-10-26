@@ -14,12 +14,12 @@ const vite = await createServer({ define: { 'import.meta.env.VITE_API_BASE_URL':
     server.middlewares.use(async (req, res, next) => {
       if (!req.url.startsWith('/checkout-review-fixture')) return next();
       res.setHeader('Content-Type', 'text/html');
-      res.end(await server.transformIndexHtml(req.url, '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><div id="root"></div><script type="module" src="/verification/checkout-review-browser-entry.jsx"></script></body></html>'));
+      res.end(await server.transformIndexHtml(req.url, '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body style="margin:0"><div id="root"></div><script type="module" src="/verification/checkout-review-browser-entry.jsx"></script></body></html>'));
     });
   } }] });
 await vite.listen();
 const origin = 'http://127.0.0.1:' + vite.httpServer.address().port;
-const browser = spawn(executable, ['--headless=new', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${temp}`, '--no-first-run', '--disable-background-networking', 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+const browser = spawn(executable, ['--headless=new', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${temp}`, '--no-first-run', '--disable-background-networking', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', 'about:blank'], { windowsHide: true, stdio: 'ignore' });
 let socket, sequence = 0;
 const pending = new Map(), errors = [], choosers = [];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -70,28 +70,63 @@ try {
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 740, deviceScaleFactor: 1, mobile: true });
   await command('Page.navigate', { url: origin + '/checkout-review-fixture' });
   await wait("!!document.querySelector('.landmark-upload-trigger-btn')");
-  console.log('Checking native camera and gallery pickers.');
+  console.log('Checking live camera capture, cancellation, permissions, and gallery.');
   assert.equal(await evaluate("document.querySelector('.basket-item').textContent.includes('Stock:')"), false);
   await click('.landmark-upload-trigger-btn');
   await wait("document.getElementById('root').inert");
   await pause(350);
-  assert.equal(await evaluate("document.querySelector('.landmark-modal-overlay').contains(document.querySelector('input[capture]'))"), true);
+  await evaluate(`window.fixture.streams=[];window.fixture.getUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia=async options=>{window.fixture.cameraOptions=options;const stream=await window.fixture.getUserMedia(options);window.fixture.streams.push(stream);return stream;}`);
   await click('.landmark-option-btn.camera');
-  for (let i = 0; i < 50 && !choosers.length; i++) await pause(100);
-  assert.equal(choosers.length, 1, 'Camera button opens a native file chooser despite inert app root');
-  assert.equal(await evaluate("document.querySelector('input[capture]').getAttribute('capture')"), 'environment');
-  await command('DOM.setFileInputFiles', { backendNodeId: choosers[0].backendNodeId, files: [resolve('public/favicon.svg')] });
+  await wait("!!document.querySelector('.landmark-capture-btn:not(:disabled)')");
+  assert.equal(choosers.length, 0, 'Camera opens a live preview, never a gallery picker');
+  assert.deepEqual(await evaluate('window.fixture.cameraOptions'), { video: { facingMode: { ideal: 'environment' } }, audio: false });
+  await click('.landmark-capture-btn');
   await wait("window.fixture.uploads.length===1 && !!document.querySelector('.landmark-preview-card img')");
+  const photo = await evaluate('window.fixture.uploads[0]');
+  assert.equal(photo.name, 'landmark-photo.jpg'); assert.equal(photo.type, 'image/jpeg'); assert.ok(photo.size > 0);
+  assert.equal(await evaluate("window.fixture.streams[0].getTracks().every(track=>track.readyState==='ended')"), true, 'Capture releases the camera');
   assert.equal(await evaluate("document.getElementById('root').inert"), false);
   await click('.landmark-remove-btn');
   await wait("!!document.querySelector('.landmark-upload-trigger-btn')");
   await click('.landmark-upload-trigger-btn');
   await wait("!!document.querySelector('.landmark-option-btn.gallery')"); await pause(350);
+  await click('.landmark-option-btn.camera');
+  await wait("!!document.querySelector('.landmark-capture-btn:not(:disabled)')");
+  await click('.landmark-cancel-btn');
+  assert.equal(await evaluate("window.fixture.streams[1].getTracks().every(track=>track.readyState==='ended')"), true, 'Cancel releases the camera');
+  assert.equal(await evaluate('window.fixture.uploads.length'), 1);
+
+  await click('.landmark-upload-trigger-btn'); await pause(350);
+  await evaluate("navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Denied','NotAllowedError')}");
+  await click('.landmark-option-btn.camera');
+  await wait("document.querySelector('.landmark-modal-sheet [role=alert]')?.textContent.includes('permission was denied')");
+  assert.equal(choosers.length, 0, 'Denied camera access never opens the gallery automatically');
+
+  // Closing a pending permission request must stop a stream that arrives late.
+  await evaluate("navigator.mediaDevices.getUserMedia=()=>new Promise(resolve=>{window.fixture.grant=resolve})");
+  await click('.landmark-option-btn.camera');
+  await wait("!!window.fixture.grant");
+  await click('.landmark-cancel-btn');
+  await evaluate("(async()=>{const stream=await window.fixture.getUserMedia({video:true});window.fixture.lateStream=stream;window.fixture.grant(stream)})()");
+  await wait("window.fixture.lateStream.getTracks().every(track=>track.readyState==='ended')");
+  assert.equal(await evaluate('window.fixture.uploads.length'), 1);
+  assert.equal(await evaluate("!!document.querySelector('.landmark-modal-overlay')"), false);
+
+  await click('.landmark-upload-trigger-btn'); await pause(350);
   await click('.landmark-option-btn.gallery');
-  for (let i = 0; i < 50 && choosers.length < 2; i++) await pause(100);
-  assert.equal(choosers.length, 2, 'Gallery still opens');
-  await command('DOM.setFileInputFiles', { backendNodeId: choosers[1].backendNodeId, files: [resolve('public/favicon.svg')] });
+  for (let i = 0; i < 50 && !choosers.length; i++) await pause(100);
+  assert.equal(choosers.length, 1, 'Gallery still opens');
+  await command('DOM.setFileInputFiles', { backendNodeId: choosers[0].backendNodeId, files: [resolve('public/favicon.svg')] });
   await wait('window.fixture.uploads.length===2');
+
+  await click('.landmark-remove-btn');
+  await click('.landmark-upload-trigger-btn'); await pause(350);
+  await evaluate("navigator.mediaDevices.getUserMedia=window.fixture.getUserMedia");
+  await click('.landmark-option-btn.camera');
+  await wait("!!document.querySelector('.landmark-capture-btn:not(:disabled)')");
+  await evaluate("window.fixture.activeStream=document.querySelector('video').srcObject;window.fixture.unmount()");
+  assert.equal(await evaluate("window.fixture.activeStream.getTracks().every(track=>track.readyState==='ended')"), true, 'Leaving the address form releases the camera');
 
   await command('Page.navigate', { url: origin + '/checkout-review-fixture?review' });
   console.log('Checking review scrolling and four large photo uploads.');
@@ -121,8 +156,29 @@ try {
   assert.ok(submission.photos.every(photo => photo.size <= 192 * 1024));
   assert.ok(submission.bytes < 1024 * 1024);
   assert.ok(await evaluate('window.fixture.originalPhotoBytes > 1024 * 1024'));
+
+  console.log('Checking delivery rating actions above the mobile footer and system safe area.');
+  await command('Page.navigate', { url: origin + '/checkout-review-fixture?rating' });
+  await wait("!!document.querySelector('.delivery-rating-card > button')");
+  await click('.delivery-rating-card > button');
+  await wait("!!document.querySelector('.delivery-rating-sheet')");
+  await command('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, right: 0, bottom: 34 } });
+  for (const [width, height] of [[390, 740], [320, 568], [390, 440]]) {
+    await command('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
+    await pause(350);
+    await evaluate("document.querySelector('.delivery-rating-sheet').scrollTop=10000");
+    const geometry = await evaluate(`(()=>{
+      const buttons=[...document.querySelectorAll('.user-form-actions button')];
+      return buttons.map(button=>{const r=button.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,clickable:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===button}});
+    })()`);
+    assert.ok(geometry.every(button => button.top >= 0 && button.bottom <= height - 34 && button.left >= 0 && button.right <= width && button.clickable), JSON.stringify({ width, height, geometry }));
+  }
+  await click('[aria-label="Rate delivery 4 stars"]');
+  await click('.user-form-actions button:last-child');
+  await wait("document.querySelector('.delivery-rating-card').textContent.includes('4/5')");
+  assert.equal(await evaluate('window.fixture.deliveryRating'), 4);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, camera: true, gallery: true, reviewScroll: true, fourPhotoRequestBytes: submission.bytes }));
+  console.log(JSON.stringify({ passed: true, camera: true, gallery: true, reviewScroll: true, mobileRatingActions: true, fourPhotoRequestBytes: submission.bytes }));
 } finally {
   socket?.close(); browser.kill(); await vite.close();
   assert.equal(dirname(resolve(temp)), resolve(tmpdir())); assert.ok(basename(temp).startsWith('bulkimart-checkout-review-'));

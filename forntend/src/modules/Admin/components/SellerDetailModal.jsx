@@ -355,7 +355,7 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                 </div>
 
                 <div style={{ padding: '14px 16px', backgroundColor: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Revenue</div>
+                  <div title="This seller's delivered item sales, before commission and refunds" style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Revenue</div>
                   <div style={{ fontSize: 20, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>
                     ₹{Number(d.metrics?.totalRevenue || 0).toLocaleString('en-IN')}
                   </div>

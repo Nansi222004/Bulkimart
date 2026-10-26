@@ -98,6 +98,10 @@ const deliverySchema = new Schema(
 
     startTime:      Date,
     endTime:        Date,
+    customerRating: {
+      rating: { type: Number, min: 1, max: 5 },
+      ratedAt: Date,
+    },
     partnerEarnings:Number,
     financialEarningStatus: { type: String, enum: ['held', 'eligible', 'reconciliation_required', 'zero_value'] },
 

@@ -1943,7 +1943,8 @@
 
 /* DATABASE-DRIVEN CUSTOMER CATEGORY DIRECTORY */
 .all-categories-page {
-  min-height: 100%;
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
   padding: 20px 18px 110px;
   background: var(--surface-background);
@@ -2115,6 +2116,11 @@
   width: 100%;
   box-sizing: border-box;
 }
+
+.all-subcategory-branch { min-width: 0; }
+.all-subcategory-branch > button { width: 100%; }
+.all-subcategory-branch > .all-subcategory-list { grid-template-columns: 1fr; padding: 8px 0 0 10px; }
+.all-subcategory-list button[aria-pressed="true"] { border-color: var(--primary); }
 
 .all-subcategory-list button {
   min-width: 0;
@@ -2888,6 +2894,50 @@
 }
 
 /* MY ORDERS PAGE STYLES */
+.orders-filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  flex-shrink: 0;
+  max-height: 30dvh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border-color);
+}
+.orders-filter-panel label { display: grid; gap: 6px; flex: 1 1 140px; font-size: 12px; font-weight: 700; }
+.orders-filter-panel select { width: 100%; min-height: 44px; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; font: inherit; background: #fff; }
+.orders-filter-panel > button { min-height: 44px; border: 1px solid var(--border-color); border-radius: 8px; background: #fff; padding: 8px 12px; color: var(--primary); font-weight: 700; }
+.orders-scroll-content { min-height: 0; }
+
+/* Form sheets live above the app navigation and leave room for system gestures. */
+.user-action-modal.modal-viewport {
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)) !important;
+}
+.user-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  background: #fff;
+}
+.user-form-actions > button { min-height: 44px; min-width: 0; white-space: normal; }
+.delivery-rating-card { padding: 16px; }
+.delivery-rating-card p { margin: 6px 0 12px; }
+.delivery-rating-card > button, .delivery-rating-sheet .user-form-actions > button {
+  min-height: 44px; border: 1px solid var(--primary, #D91430); border-radius: 10px;
+  padding: 10px 14px; background: #fff; color: var(--primary, #D91430); font: inherit; font-weight: 700;
+}
+.delivery-rating-sheet { width: 100%; max-width: 440px !important; padding: 20px; border-radius: 20px; background: #fff; color: #0f172a; }
+.delivery-rating-sheet h2 { font-size: 20px; margin-top: 0; }
+.delivery-rating-sheet p[role="alert"] { color: #b91c1c; }
+.delivery-rating-sheet .user-form-actions > button { flex: 1; }
+.delivery-rating-sheet .user-form-actions > button:last-child { background: var(--primary, #D91430); color: #fff; }
+.delivery-rating-stars { display: flex; justify-content: center; gap: 4px; }
+.delivery-rating-stars button { min-width: 44px; min-height: 48px; padding: 2px; border: 0; background: transparent; font-size: 36px; cursor: pointer; }
+
 .orders-page-container {
   display: flex;
   flex-direction: column;

@@ -11,6 +11,7 @@ import { DELIVERY_LABEL } from '../utils/deliveryLabel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import CouponThresholdProgress from '../components/CouponThresholdProgress';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
+import { paymentSummary } from '../utils/paymentSummary';
 import '../components/CartCheckout.css';
 
 const CheckoutPage = () => {
@@ -20,7 +21,6 @@ const CheckoutPage = () => {
     setSelectedAddressId,
     addAddress,
     uploadLandmarkImage,
-    getCartTotal,
     getCartItems,
     placeOrder,
     placeUnifiedOrder,
@@ -34,7 +34,6 @@ const CheckoutPage = () => {
     cartChannel,
     deliveryMode,
     setDeliveryMode,
-    getCouponDiscount,
     cartLoading,
     appliedCoupon,
     applyCoupon,
@@ -271,8 +270,8 @@ const CheckoutPage = () => {
   // actually on and the server actually applied one (0 otherwise, so an
   // order without Coins is byte-for-byte the pre-Coins total).
   const coinDiscountVal = (!isUnified && useCoinsSelected) ? (serverCart?.coins?.coinDiscount || 0) : 0;
-  const total = (!isUnified ? getCartTotal() : (unified.data?.totals?.totalAmount ?? 0)) - coinDiscountVal;
-  const grandTotalVal = total + tipAmount;
+  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { coinDiscount: coinDiscountVal, tipAmount });
+  const grandTotalVal = summary.totalAmount;
   const channelItems = getCartItems();
   const items = unified.data ? unified.basketItems : channelItems;
 
@@ -310,20 +309,10 @@ const CheckoutPage = () => {
       .catch(() => {});
   }, [isQuickCommerceCart, quickCommerceSeller, items, serverCart, quickGroup]);
 
-  const subtotalVal = isUnified && unified.data ? (unified.data.totals?.subtotal || 0) : (serverCart?.pricing?.subtotal || 0);
-  const couponDiscountVal = isUnified && unified.data
-    ? (unified.data.totals?.couponDiscount || 0)
-    : (getCouponDiscount ? getCouponDiscount() : 0);
-
-  const sameDayFee = serverCart?.pricing?.sameDayFee || 0;
-  const sameDayIncentive = serverCart?.pricing?.sameDayIncentive || 0;
-  const sameDayPremiumVal = isUnified && unified.data
-    ? (unified.data.totals?.sameDayPremium || 0) 
-    : (deliveryMode === 'same_day' ? (sameDayFee + sameDayIncentive) : 0);
-
-  const deliveryChargeVal = isUnified && unified.data
-    ? Math.max(0, (unified.data.totals?.deliveryCharge || 0) - (unified.data.totals?.sameDayPremium || 0))
-    : (deliveryMode === 'same_day' ? (serverCart?.pricing?.standardFee || 0) : (serverCart?.pricing?.deliveryCharge || 0));
+  const subtotalVal = summary.subtotal;
+  const couponDiscountVal = summary.couponDiscount;
+  const sameDayPremiumVal = summary.sameDayPremium;
+  const deliveryChargeVal = summary.deliveryCharge;
 
   const [landmarkImgUrl, setLandmarkImgUrl] = useState('');
   const [uploadingLandmarkImg, setUploadingLandmarkImg] = useState(false);
@@ -754,10 +743,10 @@ const CheckoutPage = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
           <button 
             className="pd-add-to-cart-btn"
-            onClick={() => setActiveNav('orders')}
+            onClick={() => setSelectedOrder(placedOrderDetails)}
             style={{ margin: 0 }}
           >
-            Track Active Orders Page
+            Track Order
           </button>
           
           <button 

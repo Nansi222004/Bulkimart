@@ -6,6 +6,7 @@ import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
+import { sellerOrderAmounts } from '../services/sellerOrderAmounts.service.js';
 import { eligiblePaymentStages, orderPaymentReady, orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 import Delivery from '../models/Delivery.js';
 import mongoose from 'mongoose';
@@ -689,6 +690,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       })),
       itemCount: mine.reduce((n, i) => n + (i.qty || 0), 0),
       subtotal: Number(subtotal.toFixed(2)),
+      sellerAmounts: sellerOrderAmounts(o, seller._id),
       customer: {
         name: o.shippingAddress?.name,
         city: o.shippingAddress?.city,

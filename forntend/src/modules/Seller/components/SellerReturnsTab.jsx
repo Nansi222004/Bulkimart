@@ -1,6 +1,9 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { useSeller } from '../context/SellerContext';
+import { boundedFetch } from '../../../utils/portalRequests';
+import { socket } from '../../../utils/socket';
+import { isSellerReturnNotification } from '../utils/returnNotification';
 
 /**
  * Seller returns and explicit pickup selection for the seller's own products.
@@ -49,22 +52,37 @@ export const SellerReturnsTab = () => {
   const [actionId, setActionId] = useState(null);
   const [toast, setToast] = useState('');
   const [pickupChoices, setPickupChoices] = useState({});
+  const alive = useRef(true), generation = useRef(0);
 
-  const load = async () => {
-    setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    const sessionToken = token(), epoch = ++generation.current;
+    if (!quiet) setLoading(true);
+    const current = () => alive.current && epoch === generation.current && sessionToken === token();
     try {
       const qs = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-      const res = await fetch(apiUrl(`/api/sellers/returns${qs}`), { headers: authHeaders() });
+      const res = await boundedFetch(apiUrl(`/api/sellers/returns${qs}`), { headers: { Authorization: 'Bearer ' + sessionToken } });
       const body = await res.json();
-      setReturns(body.data || []);
+      if (!res.ok) throw new Error(body.message || 'Could not load returns');
+      if (current()) setReturns(body.data || []);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  };
+  }, [statusFilter]);
 
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => {
+    alive.current = true; load();
+    const refresh = () => { void load(true); };
+    const onNotification = notification => { if (isSellerReturnNotification(notification)) refresh(); };
+    socket.on('notification_new', onNotification); socket.on('connect', refresh);
+    window.addEventListener('focus', refresh); window.addEventListener('seller_return_notification', refresh);
+    return () => {
+      alive.current = false; generation.current++;
+      socket.off('notification_new', onNotification); socket.off('connect', refresh);
+      window.removeEventListener('focus', refresh); window.removeEventListener('seller_return_notification', refresh);
+    };
+  }, [load]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 4000); };
 

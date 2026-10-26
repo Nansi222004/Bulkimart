@@ -3,6 +3,7 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { DeliveryMap } from '../../../components/DeliveryMap';
+import DeliverySupportPage from './DeliverySupportPage';
 
 export const ActiveDeliveryPage = () => {
   const ui = useFeedback();
@@ -25,6 +26,7 @@ export const ActiveDeliveryPage = () => {
   const [route, setRoute] = useState(null);
   const [showLandmarkModal, setShowLandmarkModal] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
 
   const handleRoute = useCallback((info) => setRoute(info), []);
 
@@ -126,9 +128,26 @@ export const ActiveDeliveryPage = () => {
 
   const landmarkImg = activeOrder.landmarkImage || activeOrder.locationReferenceImage || null;
   const hasImage = Boolean(landmarkImg && typeof landmarkImg === 'string' && landmarkImg.trim().length > 0);
+  const customerPhone = String(activeOrder.customerPhone || '').replace(/[\s()-]/g, '');
+  const canCallCustomer = /^\+?\d{7,15}$/.test(customerPhone);
 
   return (
     <div className="delivery-active-delivery-wrapper">
+      {showSupport && (
+        <ModalPortal className="delivery-support-overlay" aria-label="Delivery support"
+          onClick={event => { if (event.target === event.currentTarget) setShowSupport(false); }}
+          onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setShowSupport(false); } }}>
+          <section className="delivery-support-sheet">
+            <header>
+              <h2>Chat Support</h2>
+              <button type="button" onClick={() => setShowSupport(false)}>Back to delivery</button>
+            </header>
+            <div className="delivery-support-content">
+              <DeliverySupportPage orderId={activeOrder.orderId} orderNo={activeOrder.orderNo || activeOrder.orderNumber} />
+            </div>
+          </section>
+        </ModalPortal>
+      )}
       {showLandmarkModal && hasImage && !imageLoadError && (
         <ModalPortal
           onClick={() => setShowLandmarkModal(false)}
@@ -402,10 +421,12 @@ export const ActiveDeliveryPage = () => {
               )}
               
               <div className="delivery-customer-actions-row">
-                <button onClick={() => triggerToast(`Calling customer ${activeOrder.customerName}...`)}>
+                {canCallCustomer ? <a href={`tel:${customerPhone}`}>
                   📞 Call Customer
-                </button>
-                <button onClick={() => triggerToast('Opening chat thread...')}>
+                </a> : <button type="button" onClick={() => triggerToast('The customer phone number is unavailable. Please contact support.')}>
+                  📞 Call Customer
+                </button>}
+                <button type="button" onClick={() => setShowSupport(true)}>
                   💬 Chat Support
                 </button>
               </div>

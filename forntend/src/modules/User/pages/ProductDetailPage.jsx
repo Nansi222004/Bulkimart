@@ -1003,6 +1003,7 @@ const ProductDetailPage = () => {
       {/* Ask a Question modal */}
       {showAskModal && (
         <ModalPortal
+          className="user-action-modal"
           onClick={() => !submittingQuestion && setShowAskModal(false)}
           style={{
             position: 'absolute',
@@ -1072,7 +1073,7 @@ const ProductDetailPage = () => {
                 {questionError && (
                   <p style={{ margin: '8px 0 0', fontSize: 12, color: '#b91c1c' }}>{questionError}</p>
                 )}
-                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <div className="user-form-actions" style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                   <button
                     onClick={() => setShowAskModal(false)}
                     disabled={submittingQuestion}

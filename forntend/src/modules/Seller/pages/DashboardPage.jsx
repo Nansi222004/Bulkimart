@@ -26,13 +26,14 @@ import AccountTab from '../components/AccountTab';
 import SellerOrderAlerts from '../components/SellerOrderAlerts';
 import SellerPushControl from '../components/SellerPushControl';
 import NotificationPopup from '../../../components/NotificationPopup';
+import { isSellerReturnNotification } from '../utils/returnNotification';
 
 /** Maps an Admin/business-event deep link (always `/seller/...` per
  * broadcast.service.js's own allowlist) onto this dashboard's own tab ids. */
 const resolvePopupNav = (route) => {
   if (!route) return null;
   if (route.startsWith('/seller/services')) return 'services';
-  if (route.startsWith('/seller/returns')) return 'item-returns';
+  if (isSellerReturnNotification({ route })) return 'item-returns';
   if (route.startsWith('/seller/orders')) return 'orders';
   if (route.startsWith('/seller')) return 'dashboard';
   return null;
@@ -289,6 +290,7 @@ export const DashboardPage = () => {
           SellerOrderRingModal/SubscriptionRequestRingModal above, which
           keep their own higher-priority urgent ping behavior untouched. */}
       <NotificationPopup excludeSellerOrders onNavigate={(route, notification) => {
+        if (isSellerReturnNotification(notification)) return setActiveTab('item-returns');
         if (notification?.metadata?.orderId) return openSellerOrder(notification.metadata.orderId);
         const tab = resolvePopupNav(route); if (tab) setActiveTab(tab);
       }} />

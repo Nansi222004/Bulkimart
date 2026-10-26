@@ -2,22 +2,34 @@ import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { ecommerceOrderRow } from '../utils/ecommerceOrderDisplay';
+import { quickCommerceOrderRow } from '../utils/quickCommerceOrderDisplay';
+import QuickCommerceOrderDetails from './QuickCommerceOrderDetails';
 
 export const SectionModuleTab = ({ moduleId }) => {
   const {
     triggerToast,
-    customerOrders, customerOrdersLoading, fetchCustomerOrders,
+    customerOrders, customerOrdersLoading, customerOrdersError, fetchCustomerOrders,
   } = useAdmin();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedRow, setSelectedRow] = useState(null);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const isOrderModule = moduleId === 'ecom-orders' || moduleId === 'qcom-orders';
+
+  useEffect(() => { setSelectedRow(null); setSelectedOrder(null); }, [moduleId]);
 
   useEffect(() => {
-    if (moduleId === 'ecom-orders') {
-      fetchCustomerOrders({ type: 'ecommerce' });
-    } else if (moduleId === 'qcom-orders') {
-      fetchCustomerOrders({ type: 'grocery' });
-    }
+    if (!selectedOrder) return;
+    const current = customerOrders.find(order => order._id === selectedOrder._id);
+    if (current && current !== selectedOrder) setSelectedOrder(current);
+  }, [customerOrders, selectedOrder]);
+
+  useEffect(() => {
+    if (!isOrderModule) return;
+    const refreshOrders = () => fetchCustomerOrders({ type: moduleId === 'qcom-orders' ? 'grocery' : 'ecommerce' });
+    refreshOrders();
+    window.addEventListener('focus', refreshOrders);
+    return () => window.removeEventListener('focus', refreshOrders);
   }, [moduleId, fetchCustomerOrders]);
 
   // SECTION DEFINITIONS — columns describe the generic table shell for each
@@ -144,18 +156,7 @@ export const SectionModuleTab = ({ moduleId }) => {
       title: 'Quick Commerce Express Orders',
       desc: '30-minute instant delivery orders served by local dark store hubs.',
       columns: ['Order ID', 'Customer', 'Local Hub', 'Rider Partner', 'Est SLA', 'Amount', 'Status'],
-      data: moduleId === 'qcom-orders' ? customerOrders.map((o) => ({
-        // Rider assignment lives on the separate Delivery record, not here —
-        // out of scope for this pass, so shown as not tracked rather than a
-        // wrong-looking ID.
-        id: o._id,
-        customer: o.userId?.name || o.userId?.phone || 'Customer',
-        hub: '—',
-        rider: 'See Delivery Fleet',
-        eta: o.delivery?.promisedBy ? new Date(o.delivery.promisedBy).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—',
-        amount: `₹${(o.payment?.totalAmount || 0).toLocaleString('en-IN')}`,
-        status: o.status,
-      })) : []
+      data: moduleId === 'qcom-orders' ? customerOrders.filter(o => o.type === 'grocery').map(quickCommerceOrderRow) : []
     },
 
     'subscriptions': {
@@ -224,7 +225,8 @@ export const SectionModuleTab = ({ moduleId }) => {
           <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>{currentConfig.desc}</p>
         </div>
 
-        {moduleId !== 'ecom-orders' && <div style={{ display: 'flex', gap: 10 }}>
+        {moduleId === 'qcom-orders' && <button type="button" className="sa-btn-primary" disabled={customerOrdersLoading} onClick={() => fetchCustomerOrders({ type: 'grocery' })}>Refresh</button>}
+        {!isOrderModule && <div style={{ display: 'flex', gap: 10 }}>
           <button className="sa-btn-primary" onClick={() => triggerToast(`Add item form opened for ${currentConfig.title}...`)}>
             + Add New Entry
           </button>
@@ -251,7 +253,7 @@ export const SectionModuleTab = ({ moduleId }) => {
 
         <select className="sa-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="All">All Statuses</option>
-          {moduleId === 'ecom-orders' ? ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery', 'delivered', 'cancelled', 'return_requested', 'returned', 'refunded'].map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>) : <><option value="Active">Active / Approved</option>
+          {isOrderModule ? ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery', 'delivered', 'cancelled', 'return_requested', 'returned', 'refunded'].map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>) : <><option value="Active">Active / Approved</option>
           <option value="Pending">Pending Review</option>
           <option value="Delivered">Delivered / Sent</option></>}
         </select>
@@ -273,8 +275,10 @@ export const SectionModuleTab = ({ moduleId }) => {
             </tr>
           </thead>
           <tbody>
-            {moduleId === 'ecom-orders' && customerOrdersLoading ? (
+            {isOrderModule && customerOrdersLoading ? (
               <tr><td colSpan={currentConfig.columns.length + 1} style={{ padding: 30, textAlign: 'center' }}>Loading orders…</td></tr>
+            ) : isOrderModule && customerOrdersError ? (
+              <tr><td colSpan={currentConfig.columns.length + 1} role="alert">{customerOrdersError}</td></tr>
             ) : filteredData.length === 0 ? (
               <tr>
                 <td colSpan={currentConfig.columns.length + 1} style={{ padding: '30px', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
@@ -303,7 +307,7 @@ export const SectionModuleTab = ({ moduleId }) => {
                       );
                     })}
                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10 }} onClick={() => setSelectedRow(row)}>
+                      <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10 }} onClick={() => { setSelectedRow(row); if (moduleId === 'qcom-orders') setSelectedOrder(customerOrders.find(order => (order.orderNo || order._id) === row.id)); }}>
                         View Details
                       </button>
                     </td>
@@ -320,19 +324,19 @@ export const SectionModuleTab = ({ moduleId }) => {
         <ModalPortal className="admin-modal-overlay">
           <div className="admin-modal-sheet" style={{ maxWidth: '520px' }}>
             <div className="admin-modal-header">
-              <h3 className="admin-modal-title">{moduleId === 'ecom-orders' ? `Order ${selectedRow.id}` : 'Record Information Sheet'}</h3>
-              <button className="admin-modal-close" onClick={() => setSelectedRow(null)}>✕</button>
+              <h3 className="admin-modal-title">{isOrderModule ? `Order ${selectedOrder?.orderNo || selectedRow.id}` : 'Record Information Sheet'}</h3>
+              <button className="admin-modal-close" onClick={() => { setSelectedRow(null); setSelectedOrder(null); }}>✕</button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {Object.keys(selectedRow).map((key, index) => (
+              {moduleId === 'qcom-orders' && selectedOrder ? <QuickCommerceOrderDetails order={selectedOrder} /> : Object.keys(selectedRow).map((key, index) => (
                 <div key={key} className="admin-item-row" style={{ padding: '4px 0' }}>
                   <span className="admin-item-label" style={{ textTransform: 'capitalize' }}>{moduleId === 'ecom-orders' ? currentConfig.columns[index] : key}</span>
                   <span className="admin-item-value" style={{ fontWeight: 800 }}>{String(selectedRow[key])}</span>
                 </div>
               ))}
 
-              {moduleId !== 'ecom-orders' && <><hr style={{ borderColor: 'var(--sa-border)', margin: '8px 0' }} />
+              {!isOrderModule && <><hr style={{ borderColor: 'var(--sa-border)', margin: '8px 0' }} />
 
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="sa-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { triggerToast('Record status updated.'); setSelectedRow(null); }}>

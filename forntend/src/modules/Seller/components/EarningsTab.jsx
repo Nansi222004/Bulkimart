@@ -66,10 +66,13 @@ export const EarningsTab = () => {
       <h2 style={{ margin: '0 0 8px', fontSize: 17 }}>Delivered orders</h2>
       <strong>{sales.orderCount} delivered orders · {money(sales.grossAmount)} item sales</strong>
       <p style={{ color: '#64748b', fontSize: 13 }}>Full item prices, before commission and refunds.</p>
+      <p style={{ color: '#64748b', fontSize: 13 }}>Net earning includes the commission and tax deductions saved for each order. Refunds and settlement changes appear in your statement.</p>
       {sales.orders?.length ? <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 13, textAlign: 'left' }}>
-        <thead><tr>{['Order', 'Item sales', 'Where your money is'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
+        <thead><tr>{['Order', 'Item sales', 'Customer discount', 'Admin commission', 'GST on commission', 'TCS', 'TDS', 'Net earning', 'Where your money is'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
         <tbody>{sales.orders.map(order => <tr key={order._id}>
-          <td style={{ padding: 8 }}>{order.orderNo}</td><td style={{ padding: 8 }}>{money(order.grossAmount)}</td><td style={{ padding: 8 }}>{settlementStatus(order)}</td>
+          <td style={{ padding: 8 }}>{order.orderNo}</td><td style={{ padding: 8 }}>{money(order.grossAmount)}</td>
+          {['totalDiscount', 'commission', 'commissionTax', 'tcs', 'tds', 'netEarnings'].map(key => <td key={key} style={{ padding: 8 }}>{money(order.sellerAmounts?.[key])}</td>)}
+          <td style={{ padding: 8 }}>{settlementStatus(order)}</td>
         </tr>)}</tbody>
       </table>{sales.orderCount > sales.orders.length && <p>Showing the latest {sales.orders.length} delivered orders. See Orders for the full list.</p>}</div> : <p>No delivered orders yet.</p>}
     </section>}
