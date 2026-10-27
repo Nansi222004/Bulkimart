@@ -18,6 +18,9 @@ import SellerPayout from '../models/SellerPayout.js';
 import { effectiveAccountExpr } from '../services/sellerLedger.service.js';
 import { courierCostSummary, listCourierCosts, recordActualCourierCost, disputeCourierCost } from '../services/courierCost.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
+import User from '../models/User.js';
+import Admin from '../models/Admin.js';
+import Seller from '../models/Seller.js';
 
 export const getCommissionConfiguration = asyncHandler(async (req, res) => {
   // `rules` is the full change history; `current` is what new orders use.
@@ -77,7 +80,7 @@ export const listFinanceOrders = asyncHandler(async (req, res) => {
   const total = await Order.countDocuments(match);
   const exporting = req.query.export === 'csv';
   if (exporting && total > 5000) throw httpError(400, 'Narrow the date range to export at most 5000 records');
-  const fields = '_id orderNo status paymentMethod paymentId deliveryPartnerId deliveryId financialSnapshot financialPosting financialRevision financialOperationLog financialReturnQuantities codFinance financeAutomation createdAt';
+  const fields = '_id orderNo status paymentMethod paymentId deliveryPartnerId deliveryId financialSnapshot financialPosting financialRevision financialOperationLog financialReturnQuantities codFinance financeAutomation createdAt' + (rider ? '' : ' type salesChannel items._id items.name');
   const skip = exporting ? 0 : (page - 1) * limit, take = exporting ? 5000 : limit;
   // The admin COD list puts rider handover reports awaiting confirmation first,
   // then the latest cash activity; every other list stays newest order first.
@@ -89,7 +92,27 @@ export const listFinanceOrders = asyncHandler(async (req, res) => {
       { $sort: { codPriority: 1, 'codFinance.updatedAt': -1, createdAt: -1 } }, { $skip: skip }, { $limit: take },
       { $project: Object.fromEntries(fields.split(' ').map(field => [field, 1])) }])
     : await Order.find(match).select(fields).sort({ createdAt: -1 }).skip(skip).limit(take).lean();
-  const rows = orders.map(order => ({ ...order, exceptions: exceptionCodes(order),
+  // Display names are resolved in batches, without changing frozen money records.
+  const actors = new Map(), sellers = new Map();
+  if (!rider && !exporting && orders.length) {
+    const validIds = values => [...new Set(values.map(String).filter(value => mongoose.isValidObjectId(value)))];
+    const actorIds = validIds(orders.flatMap(order => (order.codFinance?.events || []).map(event => event.actorId)));
+    const sellerIds = validIds(orders.flatMap(order => (order.financialSnapshot?.lines || []).map(line => line.sellerId)));
+    const [users, admins, stores] = await Promise.all([
+      User.find({ _id: { $in: actorIds } }).select('name roles').lean(),
+      Admin.find({ _id: { $in: actorIds } }).select('name').lean(),
+      Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails.name').lean(),
+    ]);
+    users.forEach(user => actors.set(String(user._id), { name: user.name, role: user.roles?.includes('delivery') ? 'Delivery partner' : 'Team member' }));
+    admins.forEach(admin => actors.set(String(admin._id), { name: admin.name, role: 'Admin' }));
+    stores.forEach(store => sellers.set(String(store._id), store.storeDetails?.name || store.businessName));
+  }
+  const rows = orders.map(({ items, ...order }) => ({ ...order, exceptions: exceptionCodes(order),
+    ...(!rider && !exporting ? { display: {
+      channel: order.salesChannel === 'wholesale' ? 'wholesale' : order.type === 'grocery' ? 'quick' : order.type,
+      items: (order.financialSnapshot?.lines || []).map(line => ({ itemId: String(line.itemId), name: line.itemName || items?.find(item => String(item._id) === String(line.itemId))?.name || null, sellerName: sellers.get(String(line.sellerId)) || null })),
+      actors: Object.fromEntries((order.codFinance?.events || []).map(event => [String(event.actorId), actors.get(String(event.actorId)) || null])),
+    } } : {}),
     ...(rider ? { financialSnapshot: { expectedPaise: order.financialSnapshot.expectedPaise }, financialReturnQuantities: undefined, paymentId: undefined } : {}),
     cash: { expectedPaise: order.financialSnapshot.expectedPaise,
       collectedPaise: order.codFinance?.collectedPaise || 0, reportedPaise: order.codFinance?.reportedPaise || 0,

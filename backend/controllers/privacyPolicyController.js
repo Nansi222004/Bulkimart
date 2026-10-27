@@ -4,22 +4,24 @@ const ROLE_SLUG_MAP = {
   user: "user-policy",
   seller: "seller-policy",
   delivery: "delivery-policy",
-  shg: "shg-policy",
 };
 
 const SLUG_ROLE_MAP = {
   "user-policy": "user",
   "seller-policy": "seller",
   "delivery-policy": "delivery",
-  "shg-policy": "shg",
 };
+
+// Roles with a policy. A stored policy for the retired SHG role stays in the
+// database untouched but is no longer listed, served or editable.
+const POLICY_ROLES = Object.keys(ROLE_SLUG_MAP);
 
 // @desc    Get all privacy policies for all roles
 // @route   GET /api/privacy-policy
 // @access  Public
 export const getAllPolicies = async (req, res) => {
   try {
-    const policies = await PrivacyPolicy.find().sort({ role: 1 });
+    const policies = await PrivacyPolicy.find({ role: { $in: POLICY_ROLES } }).sort({ role: 1 });
     res.json({
       success: true,
       count: policies.length,
@@ -34,7 +36,7 @@ export const getAllPolicies = async (req, res) => {
   }
 };
 
-// @desc    Get privacy policy by role identifier (user, seller, delivery, shg)
+// @desc    Get privacy policy by role identifier (user, seller, delivery)
 // @route   GET /api/privacy-policy/role/:roleKey
 // @access  Public
 export const getPolicyByRole = async (req, res) => {
@@ -42,10 +44,10 @@ export const getPolicyByRole = async (req, res) => {
     const { roleKey } = req.params;
     const normalizedRole = (roleKey || "").toLowerCase();
 
-    if (!["user", "seller", "delivery", "shg"].includes(normalizedRole)) {
+    if (!POLICY_ROLES.includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid role specified. Supported roles: user, seller, delivery, shg",
+        message: "Invalid role specified. Supported roles: user, seller, delivery",
       });
     }
 
@@ -71,7 +73,7 @@ export const getPolicyByRole = async (req, res) => {
   }
 };
 
-// @desc    Get privacy policy by explicit slug route name (user-policy, seller-policy, delivery-policy, shg-policy)
+// @desc    Get privacy policy by explicit slug route name (user-policy, seller-policy, delivery-policy)
 // @route   GET /api/privacy-policy/:slug
 // @access  Public
 export const getPolicyBySlug = async (req, res) => {
@@ -79,11 +81,11 @@ export const getPolicyBySlug = async (req, res) => {
     const slug = String(req.params.slug || req.params.identifier || '').trim().toLowerCase();
 
     // Check if parameter is a role or slug
-    let role = SLUG_ROLE_MAP[slug] || slug;
+    const role = SLUG_ROLE_MAP[slug] || slug;
 
-    let policy = await PrivacyPolicy.findOne({
-      $or: [{ slug: slug }, { role: role }],
-    });
+    const policy = POLICY_ROLES.includes(role)
+      ? await PrivacyPolicy.findOne({ $or: [{ slug: slug }, { role: role }] })
+      : null;
 
     if (!policy) {
       return res.status(404).json({
@@ -115,12 +117,12 @@ export const updatePolicy = async (req, res) => {
     const { roleTitle, summary, sections, version, effectiveDate, isPublished } = req.body;
 
     const normalizedId = (identifier || "").toLowerCase();
-    const targetRole = SLUG_ROLE_MAP[normalizedId] || (["user", "seller", "delivery", "shg"].includes(normalizedId) ? normalizedId : null);
+    const targetRole = SLUG_ROLE_MAP[normalizedId] || (POLICY_ROLES.includes(normalizedId) ? normalizedId : null);
 
     if (!targetRole) {
       return res.status(400).json({
         success: false,
-        message: "Invalid route/role identifier. Allowed: user, seller, delivery, shg (or user-policy, seller-policy, delivery-policy, shg-policy)",
+        message: "Invalid route/role identifier. Allowed: user, seller, delivery (or user-policy, seller-policy, delivery-policy)",
       });
     }
 

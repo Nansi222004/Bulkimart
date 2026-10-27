@@ -7,15 +7,23 @@ import { spawn } from 'node:child_process';
 const original = new URL('../tests/mobile-layout.test.mjs', import.meta.url);
 const generated = new URL(`../tests/.finance-layout-${process.pid}.mjs`, import.meta.url);
 let source = await readFile(original, 'utf8');
+source = source.replace("['--headless=new',", "['--headless=new', '--disable-gpu', '--disable-extensions',");
 const sessionMarker = "localStorage.setItem('deliveryDebitWallet','500');";
 assert.ok(source.includes(sessionMarker), 'Existing browser session fixture changed');
 source = source.replace(sessionMarker, "localStorage.setItem('deliveryToken','rider-browser-fixture-token');");
 const marker = '  const path = new URL(raw).pathname;';
 assert.ok(source.includes(marker), 'Existing browser fixture hook changed');
 source = source.replace(marker, marker + `
-  const financeFlags={operations:false,payouts:false,policyApproved:false,testsApproved:false};
+  const financeFlags={operations:layoutScenario==='finance-actions',payouts:false,policyApproved:layoutScenario==='finance-actions',testsApproved:layoutScenario==='finance-actions'};
   const financeOrder={_id:'507f1f77bcf86cd799439022',orderNo:'FINANCE-COD-FIXTURE',status:'delivered',paymentMethod:'cod',exceptions:['cod_unverified'],
-    financialSnapshot:{expectedPaise:10000,lines:[]},cash:{expectedPaise:10000,collectedPaise:10000,reportedPaise:10000,verifiedPaise:0,outstandingPaise:10000,status:'remittance_reported'}};
+    financialSnapshot:{expectedPaise:10000,lines:[{itemId:'item-fixture',itemName:'Organic Amla',sellerId:'seller-fixture',grossPaise:10000,eligiblePaise:10000,commissionPaise:1000,taxPaise:0,netPaise:9000,rule:{version:'RULE-FIXTURE'}}]},
+    codFinance:{events:[{action:'collect',amountPaise:10000,reference:'COLLECT-1234',reason:'Recorded at customer delivery',actorId:'rider-fixture',at:'2026-10-28T10:00:00Z'},{action:'remit',amountPaise:10000,reference:'HANDOVER-5678',reason:'Deposited at cash desk',actorId:'rider-fixture',at:'2026-10-28T12:00:00Z'}]},
+    display:{channel:'quick',actors:{'rider-fixture':{name:'Neelam',role:'Delivery partner'}},items:[{itemId:'item-fixture',name:'Organic Amla',sellerName:'Fresh Store'}]},
+    cash:{expectedPaise:10000,collectedPaise:10000,reportedPaise:10000,verifiedPaise:0,outstandingPaise:10000,status:'remittance_reported'}};
+  if(path.startsWith('/api/admin/finance/orders/') && requestBody){
+    const payload=JSON.parse(requestBody);assert.equal(payload.reference,'CASH-BROWSER-1234');assert.equal(payload.reason,'Checked at the cash desk');
+    return {success:true,message:'Cash issue recorded'};
+  }
   if(path==='/api/admin/delivery-rates')return {success:true,data:{current:[{mode:'quick',source:'default',base:999,perKm:999}],history:[]}};
   if(path==='/api/admin/delivery-charge')return {success:true,data:{current:{source:'configured',flatFee:12,isActive:true,distanceRates:{quick:2,same_day:3},effectiveFrom:'2026-10-21T00:00:00Z'},history:[]}};
   if(path==='/api/admin/quick-commerce-third-party-config')return {success:true,data:{config:{revision:0,fee:{},enabled:false,paymentRequired:true},activationReady:false,blockers:['Release approval required']}};
@@ -42,12 +50,51 @@ source = source.replace(checkMarker, `
         await waitFor(\`!!document.querySelector('.finance-center')\`);
         assert.equal(await evaluate(\`[...document.querySelectorAll('.sa-nav-link')].filter(link=>link.title==='Finance Center').length\`),1);
         const click=label=>evaluate(\`[...document.querySelectorAll('.finance-center button')].find(button=>button.textContent===\${JSON.stringify(label)}).click()\`);
+        if(path.includes('view=cod') || path.includes('view=orders')){
+          await waitFor(\`!!document.querySelector('.finance-view-details:not(:disabled)')\`);
+          assert.equal(await evaluate(\`!!document.querySelector('.finance-records-table .finance-rider-report,.finance-records-table details')\`),false);
+          assert.equal(await evaluate(\`document.querySelector('.finance-records-table').textContent.includes('COLLECT-1234')\`),false);
+          assert.ok(await evaluate(\`document.querySelector('.finance-records-table tbody tr').getBoundingClientRect().height\`) < 140);
+          const shotDir=resolve('../test-artifacts/finance-order-details');await mkdir(shotDir,{recursive:true});
+          const prefix=(path.includes('view=cod')?'cod':'orders')+'-'+width;
+          await evaluate(\`document.querySelector('.finance-records-table').scrollIntoView({block:'center'})\`);
+          let shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(shotDir,prefix+'-table.png'),Buffer.from(shot.data,'base64'));
+          await evaluate(\`document.querySelector('.finance-view-details').focus()\`);
+          await click('View details');
+          await waitFor(\`!!document.querySelector('.finance-order-dialog')\`);
+          const dialogClick=label=>evaluate(\`[...document.querySelectorAll('.finance-order-dialog button')].find(button=>button.textContent===\${JSON.stringify(label)}).click()\`);
+          assert.equal(await evaluate(\`[...document.querySelectorAll('.finance-order-dialog button')].find(button=>button.textContent==='Confirm cash received').disabled\`),layoutScenario!=='finance-actions');
+          const geometry=await evaluate(\`(()=>{const r=document.querySelector('.finance-order-dialog').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight}})()\`);
+          assert.ok(geometry.left>=0 && geometry.right<=geometry.width+1 && geometry.top>=0 && geometry.bottom<=geometry.height+1,JSON.stringify(geometry));
+          shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(shotDir,prefix+'-details.png'),Buffer.from(shot.data,'base64'));
+          await dialogClick('Payment history');await waitFor(\`!!document.querySelector('.finance-payment-timeline')\`);
+          assert.equal(await evaluate(\`document.querySelector('.finance-payment-timeline').textContent.includes('COLLECT-1234') && document.querySelector('.finance-payment-timeline').textContent.includes('HANDOVER-5678')\`),true);
+          assert.equal(await evaluate(\`document.querySelector('.finance-payment-timeline').textContent.includes('Neelam')\`),true);
+          shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(shotDir,prefix+'-history.png'),Buffer.from(shot.data,'base64'));
+          await dialogClick('Item earnings');await waitFor(\`!!document.querySelector('[aria-label="Order money breakdown"]')\`);
+          assert.equal(await evaluate(\`document.querySelector('.finance-order-dialog').textContent.includes('Organic Amla') && document.querySelector('.finance-order-dialog').textContent.includes('Fresh Store')\`),true);
+          await dialogClick('Summary');await dialogClick('Refresh order');await waitFor(\`document.querySelector('.finance-order-dialog')?.textContent.includes('Order information updated.')\`);
+          if(layoutScenario==='finance-actions'){
+            await dialogClick('Report a cash problem');await waitFor(\`!!document.querySelector('.finance-order-dialog .finance-review')\`);
+            await evaluate(\`(()=>{const inputs=document.querySelectorAll('.finance-order-dialog .finance-review input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;for(const [input,value] of [[inputs[0],'CASH-BROWSER-1234'],[inputs[1],'Checked at the cash desk']]){set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));}})()\`);
+            await dialogClick('Cancel');await waitFor(\`!document.querySelector('.finance-order-dialog .finance-review')\`);
+            await dialogClick('Report a cash problem');await waitFor(\`!!document.querySelector('.finance-order-dialog .finance-review')\`);
+            await evaluate(\`(()=>{const inputs=document.querySelectorAll('.finance-order-dialog .finance-review input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;for(const [input,value] of [[inputs[0],'CASH-BROWSER-1234'],[inputs[1],'Checked at the cash desk']]){set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));}})()\`);
+            await dialogClick('Save cash issue');await waitFor(\`!document.querySelector('.finance-order-dialog .finance-review') && document.querySelector('.finance-order-dialog')?.textContent.includes('Saved and reloaded')\`);
+          }
+          await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+          await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+          await waitFor(\`!document.querySelector('.finance-order-dialog')\`);
+          assert.equal(await evaluate(\`document.activeElement===document.querySelector('.finance-view-details')\`),true);
+        }
         if(path==='/admin/finance-center' || path==='/admin/finance-operations'){
           await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('Setup checklist')\`);
           await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('1 · COD handovers to check')\`);
           await click('Orders & COD'); await click('COD cash');
           await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('FINANCE-COD-FIXTURE')\`);
+          await click('View details');
           assert.equal(await evaluate(\`[...document.querySelectorAll('button')].find(button=>button.textContent==='Confirm cash received').disabled\`),true);
+          await evaluate(\`document.querySelector('[aria-label="Close order details"]').click()\`);
           await click('Reports'); await click('Ledger & checks');
           await waitFor(\`document.querySelector('.finance-center')?.textContent.includes('cod unverified')\`);
         }
@@ -77,8 +124,8 @@ try {
   await writeFile(generated, source);
   const exit = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [generated.pathname.replace(/^\/(?:([A-Za-z]:))/, '$1'), '--full',
-      '--paths=/admin/finance-center,/admin/finance-center?area=settings&view=commissions,/admin/finance-center?area=settings&view=rates,/admin/finance-center?area=settings&view=charges,/admin/finance-center?area=settings&view=shiprocket,/admin/finance-center?area=payouts&view=earnings,/admin/finance-center?area=payouts&view=payouts,/admin/finance-center?area=payouts&view=rider-earnings,/admin/finance-center?area=payouts&view=seller-payouts,/admin/finance-center?area=payouts&view=courier-payments,/admin/finance-center?area=settings&view=policies,/admin/app-settings,/admin/finance-operations,/admin/quick-third-party-settings,/delivery/earnings,/seller/orders/507f1f77bcf86cd799439022',
-      '--widths=320,390,768,1440', '--label=finance-center'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
+      process.argv.find(arg=>arg.startsWith('--paths=')) || '--paths=/admin/finance-center,/admin/finance-center?area=settings&view=commissions,/admin/finance-center?area=settings&view=rates,/admin/finance-center?area=settings&view=charges,/admin/finance-center?area=settings&view=shiprocket,/admin/finance-center?area=payouts&view=earnings,/admin/finance-center?area=payouts&view=payouts,/admin/finance-center?area=payouts&view=rider-earnings,/admin/finance-center?area=payouts&view=seller-payouts,/admin/finance-center?area=payouts&view=courier-payments,/admin/finance-center?area=settings&view=policies,/admin/app-settings,/admin/finance-operations,/admin/quick-third-party-settings,/delivery/earnings,/seller/orders/507f1f77bcf86cd799439022',
+      process.argv.find(arg=>arg.startsWith('--widths=')) || '--widths=320,390,768,1440', '--label=finance-center'], { cwd: new URL('..', import.meta.url), stdio: 'inherit', windowsHide: true });
     child.on('error', reject); child.on('exit', resolve);
   });
   assert.equal(exit, 0, 'Finance browser regressions failed');

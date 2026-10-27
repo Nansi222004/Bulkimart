@@ -6,7 +6,7 @@ const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) =>
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
-export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) => {
+export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
   const [mode, setMode] = useState(defaultMode); // 'active' | 'history'
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -27,7 +27,6 @@ export const VendorOrdersTab = ({ defaultMode = 'active', isShgOnly = false }) =
     setError('');
     try {
       let query = `/api/admin/vendor-orders?mode=${currentMode}&page=${page}&limit=15`;
-      if (isShgOnly) query += `&shgOnly=true`;
       if (currentStatus && currentStatus !== 'all') query += `&status=${encodeURIComponent(currentStatus)}`;
       if (currentSearch && currentSearch.trim()) query += `&search=${encodeURIComponent(currentSearch.trim())}`;
 

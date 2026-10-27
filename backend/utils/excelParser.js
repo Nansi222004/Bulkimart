@@ -194,7 +194,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
   const modeTitle = isQuick
     ? '⚡ QUICK COMMERCE BULK PRODUCT UPLOAD TEMPLATE'
     : '🛒 E-COMMERCE BULK PRODUCT UPLOAD TEMPLATE';
-  const bannerColor = isQuick ? 'FF047857' : 'FF1E4E78'; // Forest Green for SHG, Emerald for Quick, Navy Blue for E-Commerce
+  const bannerColor = isQuick ? 'FF047857' : 'FF1E4E78'; // Emerald for Quick, Navy Blue for E-Commerce
 
   // Insert Row 1: Mode Title Banner (Merged A1:P1)
   worksheet.mergeCells('A1:P1');

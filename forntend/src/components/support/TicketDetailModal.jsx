@@ -9,7 +9,7 @@ const STATUS_COLORS = {
 const fmt = (iso) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 /**
- * Self-contained ticket conversation view — shared by Seller, SHG and
+ * Self-contained ticket conversation view — shared by Seller and
  * Delivery Partner (all similar utilitarian in-app dashboards). Customer's
  * dark-themed ProfilePage renders its own detail view instead, since the
  * plain light styling here wouldn't fit that context; the data underneath

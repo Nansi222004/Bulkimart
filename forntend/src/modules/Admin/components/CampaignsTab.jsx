@@ -15,7 +15,7 @@ import { apiUrl } from '../../../utils/api';
  * decides for themselves which of their own products actually join.
  */
 
-const STOREFRONT_LABEL = { grocery: 'Quick Commerce', ecommerce: 'Shop All', shg: 'SHG', general: 'All' };
+const STOREFRONT_LABEL = { grocery: 'Quick Commerce', ecommerce: 'Shop All', general: 'All' };
 
 const emptyForm = {
   name: '', description: '', imageFile: null, imageUrl: '', autoCreateBanner: true,

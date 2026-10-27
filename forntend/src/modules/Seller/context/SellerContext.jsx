@@ -471,7 +471,7 @@ export const SellerProvider = ({ children }) => {
 
       // Quick Commerce only — the backend ignores this for any other
       // channel, but it's kept off the request entirely here too, so an
-      // E-commerce/SHG edit's request body is unchanged by this feature.
+      // E-commerce edit's request body is unchanged by this feature.
       if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(editingProduct?.type || activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
         fd.append('returnWindowDays', form.returnable ? (form.returnWindowDays ?? '') : '');

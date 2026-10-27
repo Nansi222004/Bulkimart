@@ -11,7 +11,6 @@
   --sa-success: #16a34a;
   --sa-warning: #ff8500;
   --sa-error: #dc2626;
-  --sa-shg: #8b5cf6;     /* SHG Purple */
   --sa-ecom: #6366f1;    /* E-Commerce indigo */
 
   --sa-text-primary: #172b4d;
@@ -520,7 +519,6 @@
 }
 .sa-kpi-card.ecom::before { background-color: var(--sa-ecom); }
 .sa-kpi-card.qcom::before { background-color: var(--sa-success); }
-.sa-kpi-card.shg::before { background-color: var(--sa-shg); }
 .sa-kpi-card.sub::before { background-color: var(--sa-warning); }
 
 .sa-kpi-title {

@@ -397,7 +397,7 @@ const ProfilePage = () => {
   useEffect(() => {
     if (activeSection === 'privacy') {
       let targetTab = privacyTab;
-      if (privacyTab === 'delivery-policy' || privacyTab === 'shg-policy') {
+      if (privacyTab === 'delivery-policy') {
         targetTab = 'user-policy';
         setPrivacyTab('user-policy');
       }

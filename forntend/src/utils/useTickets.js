@@ -4,7 +4,7 @@ import { apiUrl } from './api';
 
 /**
  * Shared data hook for the Support/Ticket system — one implementation used
- * by Customer, Seller, SHG and Delivery Partner; all four call the exact
+ * by Customer, Seller and Delivery Partner; all three call the exact
  * same `/api/tickets` endpoints with no role field at all. The backend
  * derives which role the request is acting as entirely from the
  * authenticated session (JWT claim + live approval records — see

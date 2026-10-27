@@ -197,7 +197,7 @@ export const SuperAdminDashboard = () => {
             ) : sellerRegistrations.map((sel, idx) => (
               <div key={sel.id || sel.name || idx} className="sa-widget-row">
                 <div className="sa-widget-left">
-                  <div className="sa-widget-avatar" style={{ backgroundColor: (sel.type || '').includes('SHG') ? 'rgba(139, 92, 246, 0.1)' : 'rgba(14, 165, 233, 0.1)', color: (sel.type || '').includes('SHG') ? 'var(--sa-shg)' : 'var(--sa-primary)' }}>SEL</div>
+                  <div className="sa-widget-avatar" style={{ backgroundColor: 'rgba(14, 165, 233, 0.1)', color: 'var(--sa-primary)' }}>SEL</div>
                   <div className="sa-widget-info">
                     <span className="sa-widget-name" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>{sel.name}</span>

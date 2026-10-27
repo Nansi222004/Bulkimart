@@ -14,14 +14,14 @@ import { deliveryLabelFor } from '../utils/deliveryLabel';
 /**
  * What each storefront is called on a customer's receipt.
  *
- * The stored values are `grocery` / `ecommerce` / `shg`; these are the names
- * people actually see in the app. Kept in one place so the badge, and anything
- * else that needs to name a channel, cannot drift apart.
+ * The stored values are `grocery` / `ecommerce`; these are the names people
+ * actually see in the app. Kept in one place so the badge, and anything else
+ * that needs to name a channel, cannot drift apart. (The retired SHG store has
+ * no label or filter; a historical order of that type reads as "Order".)
  */
 const CHANNEL_LABEL = {
   grocery: 'Quick',
   ecommerce: 'Shop All',
-  shg: 'SHG Store',
 };
 
 const STATUS_LABEL = {
@@ -84,8 +84,7 @@ const OrdersPage = () => {
       status: STATUS_LABEL[o.status] || o.status,
       statusType: STATUS_CLASS[o.status] || 'pending',
       dateText: new Date(o.createdAt).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }),
-      // Three storefronts, not two. The `else` branch used to label an SHG
-      // order "Shop All", which is a different shop with a different fulfilment.
+      // Wholesale is a sales channel on Shop All orders, so it is checked first.
       channel: o.salesChannel === 'wholesale' ? 'Wholesale' : CHANNEL_LABEL[o.type] || 'Order',
       /**
        * How this one was delivered, from the order's own record.

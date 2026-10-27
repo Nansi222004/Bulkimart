@@ -376,6 +376,8 @@ test('COD actions remain disabled until server release gates are satisfied', asy
     h.requests[0].resolve(config(false)); await h.settle(); h.click('COD cash');
     h.requests[1].resolve(config(false)); await h.settle();
     h.requests[2].resolve({ data: [{ ...cashRow, cash: { ...cashRow.cash, status:'remittance_reported' } }], meta:{ pages:1 } }); await h.settle();
+    assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Confirm cash received'), undefined);
+    h.click('View details');
     assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Confirm cash received').props.disabled, true);
     assert.match(body(h), /Rider says handed over/);
     assert.equal(h.requests.filter(row=>row.options.method==='POST').length,0);
@@ -387,7 +389,8 @@ test('a verified COD shortage can be written off by the platform without typing 
     const row = { ...cashRow, financialRevision: 4, exceptions: ['cash_discrepancy'], cash: { ...cashRow.cash, status: 'discrepancy', collectedPaise: 10000, reportedPaise: 9000, verifiedPaise: 9000, shortagePaise: 1000 } };
     h.requests[1].resolve({ data: [row], meta: { pages: 1 } }); await h.settle();
     assert.match(body(h), /Amount mismatch/);
-    h.click('Write off shortage'); assert.match(body(h), /Bulkimart absorbs the ₹10.00 shortage/);
+    h.click('View details');
+    h.click('Cover cash shortfall'); assert.match(body(h), /Bulkimart absorbs the ₹10.00 shortage/);
     assert.equal(h.find(n => n.type === 'label' && [n.props.children].flat().includes('Cash received (₹)')), undefined);
     change(h, 'Evidence reference', 'SHORT-0001'); change(h, 'Reason', 'Customer paid ₹10 less');
     h.find(n => n.type === 'form' && n.props.className?.includes('finance-review')).props.onSubmit({ preventDefault() {} }); h.flush();
@@ -399,9 +402,163 @@ test('orders the automatic process could not finish show the reason and a manual
   const h = hookHarness(Admin, { initialTab: 'orders', hideNavigation: true }); try {
     h.requests[0].resolve(config(true)); await h.settle();
     h.requests[1].resolve({ data: [{ ...cashRow, paymentMethod: 'online', exceptions: ['allocation_not_posted', 'needs_admin_review'], financeAutomation: { step: 'post', lastError: 'Authoritative captured payment evidence is required' } }], meta: { pages: 1 } }); await h.settle();
-    assert.match(body(h), /Needs your review/); assert.match(body(h), /Why: Authoritative captured payment evidence/);
-    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Add earnings now').props.disabled, false);
+    h.click('View details');
+    assert.match(body(h), /Review the payment information/); assert.match(body(h), /Authoritative captured payment evidence/);
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Calculate seller earnings').props.disabled, false);
   } finally { h.close(); }
+});
+
+test('finance table keeps cash evidence and item breakdown inside the selected order popup', async () => {
+  const h = hookHarness(Admin, { initialTab: 'cod', hideNavigation: true });
+  try {
+    h.requests[0].resolve(config(true)); await h.settle();
+    const row = { ...cashRow, exceptions: ['commission_rule_missing'], cash: { ...cashRow.cash, status:'remittance_reported', collectedPaise:9000, reportedPaise:8000 },
+      codFinance: { events: [{ action:'collect', amountPaise:9000, reference:'COLLECT-1234', reason:'Collected at customer' }, { action:'remit', amountPaise:8000, reference:'HANDOVER-5678', reason:'Deposited at cash desk' }] },
+      financialSnapshot: { lines:[{ itemId:'line-one', itemName:'Amla', sellerId:'seller-one', grossPaise:10000, eligiblePaise:10000, commissionPaise:1000, taxPaise:0, netPaise:9000, rule:{version:'RULE-ONE'} }] } };
+    h.requests[1].resolve({data:[row],meta:{pages:1}}); await h.settle();
+    assert.doesNotMatch(body(h), /COLLECT-1234|HANDOVER-5678|RULE-ONE|No commission rule when ordered/);
+    assert.equal(h.find(n=>n.props?.role==='dialog'),undefined);
+    h.click('View details');
+    const dialog=h.find(n=>n.props?.role==='dialog'); assert.ok(dialog);
+    assert.match(body(h),/No commission rate was saved/);
+    h.click('Payment history'); assert.match(body(h),/COLLECT-1234/);assert.match(body(h),/HANDOVER-5678/);
+    h.click('Item earnings');assert.match(body(h),/Amla/);assert.doesNotMatch(body(h),/RULE-ONE/);
+    assert.ok(h.find(n=>n.type==='button'&&n.props.children==='Confirm cash received',dialog));
+    assert.equal(h.requests.filter(r=>r.options.method==='POST').length,0);
+    h.find(n=>n.props?.['aria-label']==='Close order details').props.onClick();h.flush();
+    assert.equal(h.find(n=>n.props?.role==='dialog'),undefined);assert.doesNotMatch(body(h),/COLLECT-1234/);
+  } finally {h.close();}
+});
+
+test('cash verification stays in the popup and reloads the selected record after confirmation', async () => {
+  const h=hookHarness(Admin,{initialTab:'cod',hideNavigation:true});
+  try {
+    h.requests[0].resolve(config(true));await h.settle();
+    const row={...cashRow,financialRevision:7,cash:{...cashRow.cash,status:'remittance_reported',reportedPaise:8000}};
+    h.requests[1].resolve({data:[row],meta:{pages:1}});await h.settle();
+    h.click('View details');h.click('Confirm cash received');
+    const dialog=h.find(n=>n.props?.role==='dialog');
+    assert.ok(h.find(n=>n.type==='form'&&n.props.className?.includes('finance-review'),dialog));
+    assert.equal(field(h,'Cash received (₹)').props.value,'80');
+    change(h,'Cash received (₹)','80');change(h,'Evidence reference','CASH-1234');change(h,'Reason','Received at cash desk');
+    h.find(n=>n.type==='form'&&n.props.className?.includes('finance-review')).props.onSubmit({preventDefault(){}});h.flush();
+    const post=h.requests.find(r=>r.options.method==='POST');
+    assert.deepEqual(JSON.parse(post.options.body),{expectedRevision:7,amount:80,reference:'CASH-1234',reason:'Received at cash desk'});
+    assert.match(post.url,/order-fixture\/cod\/verify$/);
+    post.resolve({success:true});await h.settle();h.requests.at(-1).resolve(config(true));await h.settle();
+    h.requests.at(-1).resolve({data:[{...row,cash:{...row.cash,verifiedPaise:8000,status:'verified'}}],meta:{pages:1}});await h.settle();
+    assert.ok(h.find(n=>n.props?.role==='dialog'));assert.match(body(h),/Cash received/);
+    assert.equal(h.find(n=>n.type==='form'&&n.props.className?.includes('finance-review')),undefined);
+  } finally {h.close();}
+});
+
+test('closing a draft finance action clears it before another order is opened',async()=>{
+  const h=hookHarness(Admin,{initialTab:'orders',hideNavigation:true});
+  try {
+    h.requests[0].resolve(config(true));await h.settle();
+    const first={...cashRow,cash:{...cashRow.cash,status:'remittance_reported'}};
+    const second={...cashRow,_id:'second-order',orderNo:'SECOND-ORDER'};
+    h.requests[1].resolve({data:[first,second],meta:{pages:1}});await h.settle();
+    h.click('View details');h.click('Report a cash problem');
+    change(h,'Evidence reference','DRAFT-1234');
+    h.find(n=>n.props?.className==='finance-order-overlay').props.onKeyDown({key:'Escape',stopPropagation(){}});h.flush();
+    const record=h.find(n=>n.type==='tr'&&h.find(c=>c.type==='strong'&&c.props.children==='SECOND-ORDER',n));
+    h.find(n=>n.type==='button'&&n.props.children==='View details',record).props.onClick();h.flush();
+    assert.equal(h.find(n=>n.type==='h2'&&n.props.id==='finance-order-detail-title').props.children,'SECOND-ORDER');
+    assert.equal(h.find(n=>n.type==='form'&&n.props.className?.includes('finance-review')),undefined);
+    assert.equal(h.requests.filter(r=>r.options.method==='POST').length,0);
+  }finally{h.close();}
+});
+
+const setupOrderList = async (row = cashRow, pages = 1) => {
+  const h=hookHarness(Admin,{initialTab:'orders',hideNavigation:true});
+  h.requests[0].resolve(config(true));await h.settle();
+  h.requests[1].resolve({data:[row],meta:{pages}});await h.settle();return h;
+};
+test('search applies once, pagination retains filters, and clearing filters removes the old query',async()=>{
+  const h=await setupOrderList(cashRow,2);
+  const completeRead=async()=>{h.requests.at(-1).resolve(config(true));await h.settle();h.requests.at(-1).resolve({data:[cashRow],meta:{pages:2}});await h.settle();};
+  try {
+    change(h,'Order number','COD-FIXTURE');change(h,'Cash status','collected');
+    assert.equal(h.requests.length,2,'Typing does not apply filters');
+    h.find(n=>n.type==='form'&&n.props.className==='finance-panel finance-grid').props.onSubmit({preventDefault(){}});h.flush();
+    await completeRead();
+    let query=new URL(h.requests.at(-1).url,'http://localhost').searchParams;assert.equal(query.get('q'),'COD-FIXTURE');assert.equal(query.get('status'),'collected');
+    assert.doesNotMatch(body(h),/Saved and reloaded/);
+    h.click('Next');await completeRead();query=new URL(h.requests.at(-1).url,'http://localhost').searchParams;assert.equal(query.get('page'),'2');assert.equal(query.get('q'),'COD-FIXTURE');
+    h.click('Clear filters');await completeRead();query=new URL(h.requests.at(-1).url,'http://localhost').searchParams;
+    assert.equal(query.get('page'),'1');assert.equal(query.get('q'),'');assert.equal(query.has('status'),false);
+    h.click('Next');await completeRead();h.click('Previous');await completeRead();assert.equal(new URL(h.requests.at(-1).url,'http://localhost').searchParams.get('page'),'1');
+  }finally{h.close();}
+});
+test('invalid date range is explained without making a request',async()=>{
+  const h=await setupOrderList();try{
+    change(h,'From','2026-10-28T12:00');change(h,'To','2026-10-27T12:00');
+    h.find(n=>n.type==='form'&&n.props.className==='finance-panel finance-grid').props.onSubmit({preventDefault(){}});h.flush();
+    assert.match(body(h),/end date that is on or after/);assert.equal(h.requests.length,2);
+  }finally{h.close();}
+});
+test('list and popup refresh reload the order and never claim to save money',async()=>{
+  const h=await setupOrderList();try{
+    const pending=h.click('Refresh orders');h.requests.at(-1).resolve(config(true));await h.settle();h.requests.at(-1).resolve({data:[cashRow],meta:{pages:1}});await pending;await h.settle();
+    h.click('View details');const refresh=h.click('Refresh order');h.requests.at(-1).resolve(config(true));await h.settle();h.requests.at(-1).resolve({data:[cashRow],meta:{pages:1}});await refresh;await h.settle();
+    assert.match(body(h),/Order information updated/);assert.equal(h.requests.filter(row=>row.options.method==='POST').length,0);assert.ok(h.find(n=>n.props?.role==='dialog'));
+  }finally{h.close();}
+});
+test('CSV button downloads a real CSV using the applied filters',async()=>{
+  const h=await setupOrderList();const reads=[],downloads=[],previousDocument=globalThis.document;
+  try {
+    globalThis.fetch=async url=>{reads.push(url);return new Response('Order,Amount\r\nCOD-FIXTURE,100',{headers:{'Content-Type':'text/csv','Content-Disposition':'attachment; filename="financial-orders.csv"'}});};
+    globalThis.document={createElement:()=>({click(){downloads.push({href:this.href,filename:this.download});},remove(){}}),body:{appendChild(){}}};
+    await h.click('Download CSV');await h.settle();
+    assert.match(reads[0],/export=csv/);assert.equal(downloads[0].filename,'financial-orders.csv');assert.match(downloads[0].href,/^blob:/);assert.match(body(h),/download has started/);assert.doesNotMatch(body(h),/Saved and reloaded/);
+  }finally{globalThis.document=previousDocument;h.close();}
+});
+
+for (const [button,action,extra] of [
+  ['Confirm cash received','cod/verify',{cash:{...cashRow.cash,status:'remittance_reported'}}],
+  ['Report a cash problem','cod/dispute',{cash:{...cashRow.cash,status:'verified'}}],
+  ['Cover cash shortfall','cod/writeoff',{cash:{...cashRow.cash,status:'discrepancy',shortagePaise:1000}}],
+  ['Calculate seller earnings','allocate',{exceptions:['needs_admin_review']}],
+  ['Release seller earnings','release',{exceptions:['needs_admin_review'],financialPosting:'held'}],
+  ['Release rider earnings','release-rider',{financeAutomation:{step:'rider_release'}}],
+]) test(button+' validates evidence, submits its real endpoint, and prevents double submission',async()=>{
+  const h=await setupOrderList({...cashRow,financialRevision:9,...extra});try{
+    h.click('View details');h.click(button);
+    const form=()=>h.find(n=>n.type==='form'&&n.props.className?.includes('finance-review'));
+    form().props.onSubmit({preventDefault(){}});h.flush();assert.equal(h.requests.filter(r=>r.options.method==='POST').length,0,'No generic evidence is invented');
+    change(h,'Evidence reference','RECEIPT-TEST-1234');change(h,'Reason','Checked with the cash desk');
+    if(action==='cod/verify')change(h,'Cash received (₹)','100');
+    form().props.onSubmit({preventDefault(){}});form().props.onSubmit({preventDefault(){}});h.flush();
+    const posts=h.requests.filter(r=>r.options.method==='POST');assert.equal(posts.length,1);assert.ok(posts[0].url.endsWith('/'+action));
+    assert.deepEqual(JSON.parse(posts[0].options.body),{expectedRevision:9,reference:'RECEIPT-TEST-1234',reason:'Checked with the cash desk',...(action==='cod/verify'?{amount:100}:{})});
+    posts[0].resolve({message:'The order was updated by another admin'},409);await h.settle();assert.match(body(h),/updated by another admin/);
+    h.click('Cancel');assert.equal(form(),undefined);assert.ok(h.find(n=>n.props?.role==='dialog'));
+  }finally{h.close();}
+});
+test('payment history shows readable staff names and item earnings show store names, without internal IDs',async()=>{
+  const actorId='507f1f77bcf86cd799439099';
+  const h=await setupOrderList({...cashRow,display:{channel:'quick',actors:{[actorId]:{name:'Neelam',role:'Delivery partner'}},items:[{itemId:'line-id',name:'Amla',sellerName:'Fresh Store'}]},codFinance:{events:[{action:'collect',actorId,amountPaise:10000,reference:'OTP-actual-reference',reason:'Recorded by the rider at OTP delivery'}]},financialSnapshot:{lines:[{itemId:'line-id',sellerId:'internal-seller-id',grossPaise:10000,eligiblePaise:10000,netPaise:9000,commissionPaise:1000,taxPaise:0,rule:{version:'internal-rule-id',method:'percentage',value:10}}]}});
+  try {
+    h.click('View details');assert.ok(h.find(n=>n.props?.['aria-label']==='Order payment summary'));
+    h.click('Payment history');assert.match(body(h),/Cash collected from customer/);assert.match(body(h),/Neelam/);assert.doesNotMatch(body(h),new RegExp(actorId));assert.match(body(h),/customer’s code/);
+    h.click('Item earnings');assert.match(body(h),/Fresh Store/);assert.match(body(h),/10% commission/);assert.doesNotMatch(body(h),/internal-seller-id|internal-rule-id/);
+    h.click('Summary');assert.ok(h.find(n=>n.props?.['aria-label']==='Order payment summary'));
+  }finally{h.close();}
+});
+test('an order read failure offers a working retry instead of pretending the list is empty',async()=>{
+  const h=hookHarness(Admin,{initialTab:'orders',hideNavigation:true});try{
+    h.requests[0].resolve(config(true));await h.settle();h.requests[1].resolve({message:'Order service unavailable'},503);await h.settle();
+    assert.match(body(h),/Orders could not be loaded/);assert.doesNotMatch(body(h),/No orders match/);
+    const retry=h.click('Retry loading orders');h.requests.at(-1).resolve(config(true));await h.settle();h.requests.at(-1).resolve({data:[cashRow],meta:{pages:1}});await retry;await h.settle();
+    assert.match(body(h),/COD-FIXTURE/);assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Retry loading orders'),undefined);
+  }finally{h.close();}
+});
+test('missing commission information disables calculation and explains why',async()=>{
+  const h=await setupOrderList({...cashRow,exceptions:['commission_rule_missing','needs_admin_review']});try{
+    h.click('View details');assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Calculate seller earnings').props.disabled,true);
+    assert.match(body(h),/commission or discount information to be reviewed/);assert.equal(h.requests.filter(r=>r.options.method==='POST').length,0);
+  }finally{h.close();}
 });
 test('seller per-order view shows product name and plain-language commission, never internal rule ids', async () => {
   const h = hookHarness(Seller,{orderId:'fixture'},'/seller/orders/fixture'); try {

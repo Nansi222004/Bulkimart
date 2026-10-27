@@ -24,7 +24,7 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
   const partnerId = req.partner._id;
 
   const [pending, mine] = await Promise.all([
-    Return.find({ 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED })
+    Return.find({ pickupMethod: 'MANUAL', status: { $in: ['APPROVED', 'AWAITING_RETURN'] }, $or: [{ 'pickup.requestedRiderId': { $exists: false } }, { 'pickup.requestedRiderId': partnerId }], 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED })
       .select('returnNumber productName productImage quantity sellerId orderId pickup')
       .populate('orderId', 'shippingAddress')
       .populate('sellerId', 'storeDetails businessName')

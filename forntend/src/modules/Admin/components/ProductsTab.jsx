@@ -29,7 +29,7 @@ const CHANNEL_TABS = [
   { label: 'Quick Commerce', value: 'grocery' },
 ];
 
-const CHANNEL_LABEL = { ecommerce: 'E-Commerce', grocery: 'Quick Commerce', shg: 'SHG' };
+const CHANNEL_LABEL = { ecommerce: 'E-Commerce', grocery: 'Quick Commerce' };
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
 const fileSize = (bytes) => {

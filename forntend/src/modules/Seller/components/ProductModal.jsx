@@ -108,9 +108,7 @@ export const ProductModal = () => {
   const [pickL2, setPickL2] = useState('');
   const [pickL3, setPickL3] = useState('');
 
-  // An SHG group's products always live under the SHG category tree,
-  // regardless of which storefront(s) the listing is targeting — only a
-  // Seller's tree is channel-scoped.
+  // E-books use the Shop All tree; everything else follows the active channel.
   const categoryTreeType = isDigital ? 'ecommerce' : activeChannel;
 
   useEffect(() => {
@@ -517,9 +515,7 @@ export const ProductModal = () => {
 
   // A listing's primary channel is fixed forever once created (the backend
   // doesn't even accept a `type` change on update) — only whether it's ALSO
-  // cross-listed to the other storefront ("Both") can move. Editing an
-  // SHG listing that's ecommerce-only must not offer a "Quick Commerce
-  // only" option that would silently do nothing.
+  // cross-listed to the other storefront ("Both") can move.
   const showSameDayBlock = activeChannel === 'ecommerce';
 
   return (

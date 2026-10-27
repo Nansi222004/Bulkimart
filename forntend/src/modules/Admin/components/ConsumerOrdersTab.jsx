@@ -95,9 +95,8 @@ export const ConsumerOrdersTab = () => {
     placedOn: o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—',
     courier: o.shiprocket?.courier || null,
     tracking: o.shiprocket?.awb || null,
-    // Whichever vendor fulfilled this order's item(s) — Seller and SHGStore
-    // are mutually exclusive per item, so at most one of these is ever set.
-    shopName: o.items?.[0]?.sellerId?.businessName || o.items?.[0]?.shgStoreId?.groupName || null,
+    // The seller that fulfilled this order's item(s).
+    shopName: o.items?.[0]?.sellerId?.businessName || null,
     // Delivery partner — vehicle details live on DeliveryPartner, name/phone
     // on the User behind it. Absent until a rider actually accepts the job.
     riderName: o.deliveryPartnerId?.userId?.name || null,

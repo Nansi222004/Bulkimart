@@ -10,6 +10,8 @@
 export const CHANNEL = {
   ECOM: 'ecommerce',
   GROCERY: 'grocery',
+  // Retired storefront: only names historical records (and the one-off
+  // category migration script). Never a live channel — see CHANNELS.
   SHG: 'shg',
 };
 export const CHANNELS = [CHANNEL.ECOM, CHANNEL.GROCERY];
@@ -176,15 +178,6 @@ export const VENDOR_STATUS = {
 };
 export const VENDOR_STATUSES = Object.values(VENDOR_STATUS);
 
-// SHG stores cannot be suspended in the current model
-export const SHG_STATUSES = [
-  VENDOR_STATUS.INCOMPLETE,
-  VENDOR_STATUS.PENDING,
-  VENDOR_STATUS.UNDER_REVIEW,
-  VENDOR_STATUS.APPROVED,
-  VENDOR_STATUS.REJECTED,
-];
-
 // ---------------------------------------------------------------- approvals
 export const APPROVAL = {
   PENDING: 'pending',
@@ -197,7 +190,6 @@ export const APPROVAL_STATUSES = Object.values(APPROVAL);
 export const ROLE = {
   BUYER: 'buyer',
   SELLER: 'seller',
-  SHG: 'shg',
   DELIVERY: 'delivery',
 };
 export const ROLES = Object.values(ROLE);
@@ -414,6 +406,8 @@ export const carrierForMode = (mode) =>
 export const TICKET_REQUESTER_ROLE = {
   CUSTOMER: 'customer',
   SELLER: 'seller',
+  // Retired: no requester resolves to it now, but tickets raised from the old
+  // SHG portal still carry it and Ticket validates against this list on save.
   SHG: 'shg',
   DELIVERY: 'delivery',
 };
@@ -461,10 +455,6 @@ export const TICKET_CATEGORIES_BY_ROLE = {
   ],
   [TICKET_REQUESTER_ROLE.SELLER]: [
     'Order', 'Payment / Payout', 'Product', 'Delivery', 'Account / KYC',
-    'Subscription', 'Campaign', 'Advertisement / Promotion', 'Technical Issue', 'Other',
-  ],
-  [TICKET_REQUESTER_ROLE.SHG]: [
-    'Order', 'Payment / Payout', 'Product', 'Delivery', 'Account',
     'Subscription', 'Campaign', 'Advertisement / Promotion', 'Technical Issue', 'Other',
   ],
   [TICKET_REQUESTER_ROLE.DELIVERY]: [

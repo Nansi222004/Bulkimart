@@ -63,8 +63,8 @@ const ProductCard = ({ product, onOpen, onAdd }) => (
           DIGITAL E-BOOK
         </span>
       )}
-      <span className="grid-product-shg" style={{ fontSize: 9.5, color: 'var(--sf-muted)', fontWeight: 600, marginTop: 2 }}>
-        {product.shg || product.brandName || ''}
+      <span className="grid-product-seller" style={{ fontSize: 9.5, color: 'var(--sf-muted)', fontWeight: 600, marginTop: 2 }}>
+        {product.sellerName || product.brandName || ''}
       </span>
 
       <div className="grid-product-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 6 }}>

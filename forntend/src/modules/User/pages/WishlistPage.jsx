@@ -167,7 +167,7 @@ const WishlistPage = () => {
 
                 {/* Card Details */}
                 <div className="wishlist-card-details">
-                  <span className="wishlist-card-shg">{product.shg || 'Verified Store'}</span>
+                  <span className="wishlist-card-seller">{product.sellerName || 'Verified Store'}</span>
                   <h4 className="wishlist-card-name">{product.name}</h4>
 
                   <div className="wishlist-card-price-row">

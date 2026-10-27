@@ -1,0 +1,15 @@
+.seller-return-page { padding-bottom: 40px; }
+.seller-return-summary { padding: 22px; background: white; border: 1px solid #e2e8f0; border-radius: 16px; margin-bottom: 20px; }
+.seller-return-page .seller-return-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: none; }
+.seller-return-sections > section { background: white; min-width: 0; overflow-wrap: anywhere; }
+.seller-return-sections h4 { font-size: 15px !important; text-transform: none !important; color: var(--text-primary) !important; margin-bottom: 14px !important; }
+.seller-return-pickup { border-radius: 16px; background: white; }
+.seller-return-pickup > p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+.seller-return-pickup button { min-height: 44px; }
+.seller-return-pickup .order-action-btn-sm { margin: 6px 8px 6px 0; }
+.return-row-card[role=button] { cursor: pointer; }
+.return-row-card[role=button]:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 767px) {
+  .seller-return-page .seller-return-sections { grid-template-columns: minmax(0, 1fr); }
+  .seller-return-summary { padding: 16px; }
+}

@@ -335,6 +335,26 @@ test('admin, seller and rider endpoints enforce ownership and real CSV export', 
   const other=await request(app).get(`/api/sellers/orders/${order._id}/financial-breakdown`).set('Authorization',bearer(stranger,'user','seller'));expect(other.status).toBe(404);
 });
 
+test('admin finance display resolves names without changing money records or exposing account credentials', async () => {
+  enable(); await verifyCash();
+  const before = (await queryOrder()).toObject();
+  for (const suffix of ['', '?cod=true']) {
+    const response = await request(app).get('/api/admin/finance/orders' + suffix).set('Authorization', bearer(admin, 'admin'));
+    expect(response.status).toBe(200);
+    const row = response.body.data.find(row => row._id === String(order._id));
+    expect(row.display).toMatchObject({ channel: 'quick', items: [{ itemId: String(order.items[0]._id), name: 'Fixture', sellerName: 'Fixture store' }] });
+    expect(row.display.actors[String(rider._id)]).toEqual({ name: 'Fixture rider', role: 'Delivery partner' });
+    expect(row.display.actors[String(admin._id)]).toEqual({ name: 'Fixture admin', role: 'Admin' });
+    expect(JSON.stringify(row.display)).not.toMatch(/9876600002|password|fixture@example/);
+  }
+  const after = (await queryOrder()).toObject();
+  expect(after.financialSnapshot).toEqual(before.financialSnapshot);
+  expect(after.codFinance).toEqual(before.codFinance);
+  const own = await request(app).get('/api/delivery/finances/cod').set('Authorization', bearer(rider));
+  expect(own.body.data[0].display).toBeUndefined();
+  expect(own.body.data[0].items).toBeUndefined();
+});
+
 test('discount and multi-vendor allocation conserve every paisa even for fully discounted tiny lines', async () => {
   const data=order.toObject();data.items=[{_id:id(),productId:product._id,sellerId:seller._id,type:'grocery',qty:1,price:.01},{_id:id(),productId:product._id,sellerId:id(),type:'grocery',qty:1,price:.01}];
   data.pricing={subtotal:.02,couponDiscount:.01,coinDiscount:.01,totalAmount:0};

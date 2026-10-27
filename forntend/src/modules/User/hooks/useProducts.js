@@ -61,8 +61,8 @@ export const normalizeProduct = (p) => ({
     weight: variant.weight,
     attributes: variant.attributes || [],
   })),
-  // the old cards showed a vendor line under the name
-  shg: p.shgStoreId?.groupName || p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
+  // The store name shown under the product name on cards.
+  sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
   category: p.category?.name || '',
   categoryId: p.category?._id || p.category,
   type: p.type,
@@ -80,7 +80,7 @@ export const normalizeProduct = (p) => ({
 
 /**
  * @param {object} options
- *   type      - 'ecommerce' | 'grocery' | 'shg'
+ *   type      - 'ecommerce' | 'grocery'
  *   category  - category _id
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products

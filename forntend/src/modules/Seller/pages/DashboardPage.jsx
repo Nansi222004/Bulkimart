@@ -24,6 +24,7 @@ import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
 import AccountTab from '../components/AccountTab';
 import SellerOrderAlerts from '../components/SellerOrderAlerts';
+import SellerReturnAlerts from '../components/SellerReturnAlerts';
 import SellerPushControl from '../components/SellerPushControl';
 import NotificationPopup from '../../../components/NotificationPopup';
 import { isSellerReturnNotification, openSellerReturn } from '../utils/returnNotification';
@@ -67,6 +68,8 @@ export const DashboardPage = () => {
     setProductListingMode,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [returnDetailId, setReturnDetailId] = useState(null);
+  const detailOpen = (activeTab === 'orders' && orderDetailId) || (activeTab === 'item-returns' && returnDetailId);
   const { unreadCount } = useNotifications({ autoFetch: false });
 
   const isHybrid = (selectedTypes.includes('ecommerce') && selectedTypes.includes('quick')) ||
@@ -100,7 +103,7 @@ export const DashboardPage = () => {
       case 'moneyrequest':  return <MoneyRequestTab />;
       case 'paymenthistory':return <PaymentHistoryTab />;
       case 'earnings':      return <EarningsTab />;
-      case 'item-returns':  return <SellerReturnsTab />;
+      case 'item-returns':  return <SellerReturnsTab onDetailChange={setReturnDetailId} />;
       case 'faqs':          return <FaqsTab />;
       case 'support':       return <SupportTab />;
       case 'profile':       return <ProfileTab />;
@@ -198,11 +201,11 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        {!(activeTab === 'orders' && orderDetailId) && <SellerPushControl />}
+        {!detailOpen && <SellerPushControl />}
 
         {/* Tab content */}
         <div className="seller-tab-content-container">
-          {sellerProfile?.status === 'approved' && !(activeTab === 'orders' && orderDetailId) && (
+          {sellerProfile?.status === 'approved' && !detailOpen && (
             <section aria-label="Wholesale channel access" style={{
               margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd',
               borderRadius: 12, background: '#f0fbff', display: 'flex',
@@ -283,13 +286,11 @@ export const DashboardPage = () => {
 
       <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
       <SellerOrderAlerts />
+      <SellerReturnAlerts />
 
-      {/* WhatsApp-style floating notification — reacts to the existing
-          socket `notification_new` event; no new backend call besides the
-          existing mark-read PATCH. Deliberately separate from
-          SellerOrderRingModal/SubscriptionRequestRingModal above, which
-          keep their own higher-priority urgent ping behavior untouched. */}
-      <NotificationPopup excludeSellerOrders onNavigate={(route, notification) => {
+      {/* Orders and new return requests have persistent alerts above.
+          Other updates use the shared floating notification. */}
+      <NotificationPopup excludeSellerOrders excludeSellerReturns onNavigate={(route, notification) => {
         if (isSellerReturnNotification(notification)) return openSellerReturn(setActiveTab, notification);
         if (notification?.metadata?.orderId) return openSellerOrder(notification.metadata.orderId);
         const tab = resolvePopupNav(route); if (tab) setActiveTab(tab);

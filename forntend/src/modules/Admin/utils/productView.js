@@ -10,8 +10,7 @@ export const productView = p => ({
           fileStatus: p.digital?.file?.status || 'missing',
           fileSizeBytes: p.digital?.file?.sizeBytes || 0,
         } : undefined,
-        sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName
-                 || p.shgStoreId?.groupName || '—',
+        sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '—',
         category: p.category?.name || '—',
         desc: p.description,
         price: p.price,

@@ -172,18 +172,11 @@ export const ReturnsTab = () => {
                 {detail.customerId?.phone ? ` · ${detail.customerId.phone}` : ''}
                 {detail.customerId?.email ? ` · ${detail.customerId.email}` : ''}
               </p>
-              {/*
-                An SHG return has no sellerId — the cooperative is the vendor —
-                so the group name is the seller for those, and the label says
-                which kind it is rather than showing a bare name.
-              */}
               <p style={{ margin: 0 }}>
                 <b>Seller:</b>{' '}
                 {detail.sellerId
                   ? `${detail.sellerId.storeDetails?.name || detail.sellerId.businessName}${detail.sellerId.storeDetails?.phone ? ` · ${detail.sellerId.storeDetails.phone}` : ''}`
-                  : detail.shgStoreId
-                    ? `${detail.shgStoreId.groupName} (SHG${detail.shgStoreId.district ? ` · ${detail.shgStoreId.district}` : ''})`
-                    : '—'}
+                  : '—'}
               </p>
               <p style={{ margin: 0 }}>
                 <b>Order:</b> {detail.order?.orderNo || '—'}

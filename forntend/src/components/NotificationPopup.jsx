@@ -9,7 +9,7 @@ import { onForegroundMessage } from '../utils/firebaseMessaging';
 
 /**
  * WhatsApp-style floating notification — a shared component for Customer
- * and Seller (SHG/Delivery have no notification center yet; see the final
+ * and Seller (Delivery has no notification center yet; see the final
  * report's "remaining limitations").
  *
  * Reuses the EXISTING pipeline end to end: the socket `notification_new`
@@ -36,7 +36,7 @@ const timeLabel = (iso) => {
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + getPortalToken() });
 
-export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, audience, subscribePush = onForegroundMessage }) => {
+export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, excludeSellerReturns = false, audience, subscribePush = onForegroundMessage }) => {
   const [stack, setStack] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const timers = useRef({});
@@ -53,6 +53,7 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, aud
     const seen = new Set();
     const onNew = (payload) => {
       if (!alive || token !== getPortalToken()) return;
+      if (excludeSellerReturns && payload?.event === 'RETURN_REQUESTED') return;
       if (audience === 'rider' && ['RIDER_PING', 'RETURN_PICKUP_OFFERED'].includes(payload?.event)) return;
       if (excludeSellerOrders && (payload?.event === 'ORDER_CREATED' || isRetiredSellerNotification(payload))) return;
       if (payload?._id) {
@@ -98,7 +99,7 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, aud
       Object.values(timers.current).forEach(clearTimeout);
       timers.current = {};
     };
-  }, [dismiss, excludeSellerOrders, audience, subscribePush]);
+  }, [dismiss, excludeSellerOrders, excludeSellerReturns, audience, subscribePush]);
 
   const openNotification = async (n) => {
     dismiss(n.key);

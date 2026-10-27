@@ -56,7 +56,7 @@ const WomenWearSection = () => {
             </div>
             <div className="grid-product-details">
               <h4 className="grid-product-name">{product.name}</h4>
-              <span className="grid-product-shg">{product.shg}</span>
+              <span className="grid-product-seller">{product.sellerName}</span>
               <SameDayBadge verdict={options[product.id]?.sameDay} compact />
               
               <div className="grid-product-footer">

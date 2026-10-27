@@ -340,7 +340,6 @@ export const getProductById = asyncHandler(async (req, res) => {
   product = await persistLegacyVariantIds(product);
 
   const data = product.toObject();
-  data.subscriptionUnavailable = false;
 
   const deal = await resolveCampaignPriceForProduct(product._id);
   if (deal) {

@@ -166,7 +166,7 @@ export const WriteReviewPage = ({ productId, onBack }) => {
           />
           <div style={{ flex: 1 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              {product?.brandName || product?.shg || 'PRODUCT'}
+              {product?.brandName || product?.sellerName || 'PRODUCT'}
             </span>
             <h3 style={{ margin: '2px 0 6px 0', fontSize: 13.5, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
               {product?.name}

@@ -39,3 +39,23 @@ export const EXCEPTION = {
 
 export const label = (map, value) => map[value] || String(value || '—').replaceAll('_', ' ');
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export const CASH_ACTIVITY = {
+  collect: 'Cash collected from customer', remit: 'Cash handover reported', verify: 'Cash receipt confirmed',
+  dispute: 'Cash problem reported', writeoff: 'Shortfall covered by Bulkimart',
+};
+export const cashActor = (entry, names) => {
+  const person = names?.[entry.actorId];
+  const role = person?.role || (['collect', 'remit'].includes(entry.action) ? 'Delivery partner' : 'Admin');
+  return person?.name ? `${person.name} · ${role}` : `${role} · name unavailable`;
+};
+export const cashNote = entry => entry.reason === 'Recorded by the rider at OTP delivery'
+  ? 'The delivery partner confirmed delivery using the customer’s code.' : entry.reason || 'No note was recorded.';
+export const ORDER_ISSUE = {
+  commission_rule_missing: 'No commission rate was saved with this order. Earnings need a finance review.',
+  discount_funding_policy_missing: 'This older order needs a review of who pays for its discount.',
+  cod_unverified: 'Bulkimart has not confirmed receiving the cash yet.',
+  cash_discrepancy: 'The cash received does not match the amount due.',
+  allocation_not_posted: 'Seller earnings have not been calculated yet.',
+  needs_admin_review: 'Automatic processing could not finish. Review the payment information before continuing.',
+};

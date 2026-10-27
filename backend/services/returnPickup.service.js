@@ -43,6 +43,60 @@ const emit = async (kind, id, event, payload) => {
  * ========================================================================== */
 
 const PICKUP_MAX_ATTEMPTS = 3;
+const pickupBaseRadius = () => Number(process.env.PICKUP_RADIUS_METERS) || 5000;
+const ACTIVE_REVERSE_BOOKING = ['creating', 'booked', 'uncertain', 'cancel_pending'];
+
+/**
+ * On-duty riders who could take this pickup right now: approved, available,
+ * an active delivery account, not reserved for a parcel, within their own
+ * radius of the customer, with spare capacity, and who have not already
+ * declined or let this return's offer expire. Shared by the seller's rider
+ * list, a seller's choice of rider, and the broadcast, so all three agree.
+ */
+const ridersForPickup = async (ret, pickupPoint, { maxMeters, limit = 30, riderId } = {}) => {
+  let riders = [];
+  try {
+    riders = await DeliveryPartner.find({
+      ...(riderId ? { _id: riderId } : {}),
+      status: 'approved',
+      isAvailable: true,
+      'parcelReservation.bookingId': { $exists: false },
+      'baseLocation.point': {
+        $near: { $geometry: { type: 'Point', coordinates: [pickupPoint.lng, pickupPoint.lat] }, $maxDistance: maxMeters },
+      },
+    }).limit(limit).populate('userId', 'name phone isActive roles');
+  } catch (e) {
+    console.warn('[RETURN PICKUP] geo search failed:', e.message);
+  }
+  const resolved = new Set((ret.pickup?.offerAttempts || []).filter((o) => o.status !== OFFER_ATTEMPT_STATUS.OFFERED).map((o) => String(o.riderId)));
+  riders = riders.filter((r) => {
+    if (!r.userId || r.userId.isActive === false || !r.userId.roles?.includes('delivery')) return false;
+    if (resolved.has(String(r._id))) return false;
+    if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
+    const riderLoc = (r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation;
+    const km = distanceKm(riderLoc, pickupPoint);
+    return km === undefined || km <= r.deliveryRadiusKm;
+  });
+  /**
+   * A rider already at RIDER_MAX_CONCURRENT_DELIVERIES (forward orders +
+   * return pickups combined — riderCapacity.service.js) should never even
+   * see this offer, not just be blocked at accept time. Accept-time
+   * capacity re-check (acceptReturnPickup) remains the actual enforcement
+   * against a race; this is purely to stop a rider from being pinged for
+   * work they cannot legally take.
+   */
+  const capacityChecks = await Promise.all(riders.map((r) => canTakeAnother(r._id)));
+  return riders.filter((_, i) => capacityChecks[i].ok);
+};
+
+// Why a local rider cannot do this pickup at all, or null when one can.
+const manualPickupBlocker = (order, seller) => {
+  const city = value => String(value || '').trim().toLowerCase();
+  if (!city(order?.shippingAddress?.city) || city(order.shippingAddress.city) !== city(seller?.storeDetails?.city)) return 'Local rider pickup requires customer and seller in the same city; select Shiprocket';
+  if (!Number.isFinite(distanceKm(order.shippingAddress, seller?.storeDetails))) return 'Pickup and seller coordinates are required';
+  return null;
+};
+const maskedPhone = (phone) => (phone ? '••••••' + String(phone).slice(-4) : null);
 
 /**
  * @param {string} returnId
@@ -58,42 +112,23 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
 
   const order = await Order.findById(ret.orderId).select('shippingAddress userId').lean();
   const seller = await Seller.findById(ret.sellerId).select('storeDetails businessName').lean();
-  if (!order?.shippingAddress?.lat || !seller?.storeDetails) return; // nothing to route from/to
+  if (!Number.isFinite(distanceKm(order?.shippingAddress, seller?.storeDetails))) return;
 
   const pickupPoint = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
-  const baseRadius = Number(process.env.PICKUP_RADIUS_METERS) || 5000;
-  const radiusMeters = baseRadius * attempt;
+  const requestedRiderId = ret.pickup?.requestedRiderId;
 
-  let riders = [];
-  try {
-    riders = await DeliveryPartner.find({
-      status: 'approved',
-      isAvailable: true,
-      'baseLocation.point': {
-        $near: { $geometry: { type: 'Point', coordinates: [pickupPoint.lng, pickupPoint.lat] }, $maxDistance: radiusMeters },
-      },
-    }).limit(5);
-  } catch (e) {
-    console.warn('[RETURN PICKUP] geo search failed:', e.message);
+  // A seller-chosen rider is the only one offered the pickup — no widening
+  // search and no other riders, the same rule as a requested forward order.
+  if (requestedRiderId) {
+    const riders = await ridersForPickup(ret, pickupPoint, { maxMeters: pickupBaseRadius() * PICKUP_MAX_ATTEMPTS, limit: 1, riderId: requestedRiderId });
+    if (!riders.length) {
+      await releaseRequestedRider(ret, requestedRiderId, 'is no longer available');
+      return;
+    }
+    return offerPickup(ret, order, seller, riders, pickupPoint);
   }
 
-  riders = riders.filter((r) => {
-    if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
-    const riderLoc = (r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation;
-    const km = distanceKm(riderLoc, pickupPoint);
-    return km === undefined || km <= r.deliveryRadiusKm;
-  });
-
-  /**
-   * A rider already at RIDER_MAX_CONCURRENT_DELIVERIES (forward orders +
-   * return pickups combined — riderCapacity.service.js) should never even
-   * see this offer, not just be blocked at accept time. Accept-time
-   * capacity re-check (acceptReturnPickup) remains the actual enforcement
-   * against a race; this is purely to stop a rider from being pinged for
-   * work they cannot legally take.
-   */
-  const capacityChecks = await Promise.all(riders.map((r) => canTakeAnother(r._id)));
-  riders = riders.filter((_, i) => capacityChecks[i].ok);
+  const riders = (await ridersForPickup(ret, pickupPoint, { maxMeters: pickupBaseRadius() * attempt, limit: 5 }));
 
   if (riders.length === 0) {
     if (attempt < PICKUP_MAX_ATTEMPTS) {
@@ -111,6 +146,10 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
     return;
   }
 
+  return offerPickup(ret, order, seller, riders, pickupPoint);
+};
+
+async function offerPickup(ret, order, seller, riders, pickupPoint) {
   const payload = {
     returnId: String(ret._id),
     returnNumber: ret.returnNumber,
@@ -128,7 +167,8 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
     const existing = (ret.pickup.offerAttempts || []).find((o) => String(o.riderId) === String(r._id));
     if (existing && existing.status !== OFFER_ATTEMPT_STATUS.OFFERED) continue; // already declined/expired for this rider — don't re-ring them
 
-    const active = { _id: ret._id, pickupMethod: 'MANUAL', status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED };
+    const active = { _id: ret._id, pickupMethod: 'MANUAL', status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED,
+      'pickup.requestedRiderId': ret.pickup?.requestedRiderId ? r._id : { $exists: false } };
     const result = existing
       ? await Return.updateOne({ ...active, 'pickup.offerAttempts': { $elemMatch: { riderId: r._id, status: OFFER_ATTEMPT_STATUS.OFFERED } } }, { $set: { 'pickup.offerAttempts.$.offeredAt': new Date() } })
       : await Return.updateOne({ ...active, 'pickup.offerAttempts.riderId': { $ne: r._id } }, { $push: { 'pickup.offerAttempts': { riderId: r._id, status: OFFER_ATTEMPT_STATUS.OFFERED } } });
@@ -145,14 +185,87 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
       }).catch(() => {});
     }
   }
+}
+
+/**
+ * The seller's chosen rider cannot take the pickup (declined, offer expired,
+ * or went off duty). Release the request and tell the seller to choose again —
+ * the pickup is never silently re-broadcast to other riders.
+ */
+async function releaseRequestedRider(ret, partnerId, why) {
+  const released = await Return.findOneAndUpdate(
+    { _id: ret._id, 'pickup.requestedRiderId': partnerId, 'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED, 'pickup.partnerId': { $exists: false } },
+    { $unset: { 'pickup.requestedRiderId': 1, pickupMethod: 1 }, $push: { history: { toStatus: ret.status, changedByRole: 'system', comment: `Requested delivery partner ${why}` } } },
+    { returnDocument: 'after' },
+  );
+  if (!released || !released.sellerId) return;
+  notifySeller(released.sellerId, {
+    event: NOTIFICATION_EVENT.RETURN_PICKUP_NO_RIDER,
+    title: 'Choose another delivery partner',
+    message: `The delivery partner you requested for return ${released.returnNumber} ${why}. Choose another rider or Shiprocket.`,
+    metadata: { returnId: released._id, returnNumber: released.returnNumber }, route: `/seller/item-returns?return=${released._id}`,
+  }).catch(() => {});
+  emit('seller', released.sellerId, 'return_pickup_released', { returnId: String(released._id) });
+}
+
+/**
+ * What the seller can choose for this return's pickup — the same shape and
+ * rules as an order's fulfillment options: eligible on-duty riders (contact
+ * masked) for Manual Delivery, or Shiprocket.
+ */
+export const returnPickupOptions = async ({ returnId, sellerId }) => {
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
+  const ret = await Return.findOne({ _id: returnId, sellerId });
+  if (!ret) throw httpError(404, 'Return not found');
+  const [order, seller] = await Promise.all([
+    Order.findById(ret.orderId).select('shippingAddress').lean(),
+    Seller.findById(sellerId).select('storeDetails businessName').lean(),
+  ]);
+  const searching = ret.pickupMethod === 'MANUAL' && ret.pickup?.status === RETURN_PICKUP_STATUS.NOT_ASSIGNED;
+  const stateReason = ![RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN].includes(ret.status) ? 'Approve this return before arranging pickup.'
+    : ret.pickup?.partnerId ? 'A delivery partner is already assigned to this pickup.'
+    : !['NOT_ASSIGNED', 'CANCELLED'].includes(ret.pickup?.status) ? 'This pickup is already in progress or complete.'
+    : ACTIVE_REVERSE_BOOKING.includes(ret.reverseBooking?.state) ? 'A Shiprocket pickup is already booked. Cancel it before choosing another method.'
+    : searching ? (ret.pickup?.requestedRiderId ? 'Waiting for the requested delivery partner to accept.' : 'Riders have been offered this pickup.') + ' Cancel the rider request to choose again.'
+    : null;
+  const manualBlocker = manualPickupBlocker(order, seller);
+  const pickupPoint = order?.shippingAddress?.lat !== undefined ? { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng } : null;
+  const riders = !stateReason && !manualBlocker && pickupPoint
+    ? await ridersForPickup(ret, pickupPoint, { maxMeters: pickupBaseRadius() * PICKUP_MAX_ATTEMPTS })
+    : [];
+  const address = order?.shippingAddress || {};
+  return {
+    returnId: ret._id,
+    stateReady: !stateReason,
+    stateReason,
+    // Customer address without contact details; the drop is the seller's own store.
+    pickup: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, pincode: address.pincode },
+    drop: { name: seller?.storeDetails?.name || seller?.businessName, address: seller?.storeDetails?.address, city: seller?.storeDetails?.city, pincode: seller?.storeDetails?.pincode },
+    manual: {
+      available: !stateReason && !manualBlocker && riders.length > 0,
+      eligibleRiderCount: riders.length,
+      riders: riders.map((r) => ({
+        id: r._id, name: r.userId?.name || 'Delivery partner', contact: maskedPhone(r.userId?.phone), online: true,
+        availability: 'On duty, capacity available', distanceKm: distanceKm((r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation, pickupPoint) ?? null,
+      })),
+      reason: stateReason || manualBlocker || (riders.length ? null : 'No eligible on-duty riders near the customer have capacity right now. Refresh availability, or use Shiprocket.'),
+    },
+    shiprocket: { available: !stateReason, reason: stateReason },
+  };
 };
 
 /* ============================================================================
  * ACCEPT / DECLINE / EXPIRE — same atomic-claim discipline as forward orders
  * ========================================================================== */
 
-/** Seller-triggered entry point — validates ownership/status, then broadcasts. */
-export const arrangeReturnPickup = async ({ returnId, sellerId }) => {
+/**
+ * Seller-triggered entry point — validates ownership/status, then offers the
+ * pickup: to the one rider the seller chose (`riderId`), or, with no choice,
+ * to eligible riders nearby. Mirrors selectManualFulfillment for orders.
+ */
+export const arrangeReturnPickup = async ({ returnId, sellerId, riderId }) => {
+  if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
+  if (riderId && !mongoose.Types.ObjectId.isValid(riderId)) throw httpError(400, 'Select a valid delivery partner');
   const ret = await Return.findById(returnId);
   if (!ret) throw httpError(404, 'Return not found');
   if (String(ret.sellerId) !== String(sellerId)) throw httpError(403, 'Not authorized for this return');
@@ -164,16 +277,24 @@ export const arrangeReturnPickup = async ({ returnId, sellerId }) => {
   }
   const order = await Order.findById(ret.orderId).lean();
   const seller = await Seller.findById(sellerId).lean();
-  const item = order?.items.find(row => String(row._id) === String(ret.orderItemId));
+  const item = order?.items?.find(row => String(row._id) === String(ret.orderItemId));
   if (!item || String(item.sellerId) !== String(sellerId)) throw httpError(403, 'Return item ownership mismatch');
-  const city = value => String(value || '').trim().toLowerCase();
-  if (!city(order.shippingAddress?.city) || city(order.shippingAddress.city) !== city(seller?.storeDetails?.city)) throw httpError(400, 'Local rider pickup requires customer and seller in the same city; select Shiprocket');
-  if (!Number.isFinite(distanceKm(order.shippingAddress, seller?.storeDetails))) throw httpError(400, 'Pickup and seller coordinates are required');
-  const claimed = await Return.updateOne({ _id: returnId, status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, 'pickup.status': { $in: ['NOT_ASSIGNED', 'CANCELLED'] }, 'reverseBooking.state': { $nin: ['creating', 'booked', 'uncertain', 'cancel_pending'] } }, {
-    $set: { pickupMethod: 'MANUAL', 'pickup.status': 'NOT_ASSIGNED' }, $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: 'Seller selected Manual Delivery / Local Rider' } },
+  const blocker = manualPickupBlocker(order, seller);
+  if (blocker) throw httpError(400, blocker);
+  if (riderId) {
+    const pickupPoint = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
+    const eligible = await ridersForPickup(ret, pickupPoint, { maxMeters: pickupBaseRadius() * PICKUP_MAX_ATTEMPTS, limit: 1, riderId });
+    if (!eligible.length) throw httpError(409, 'This delivery partner is no longer eligible. Refresh availability and select another partner.');
+  }
+  const claimed = await Return.updateOne({ _id: returnId, status: { $in: [RETURN_STATUS.APPROVED, RETURN_STATUS.AWAITING_RETURN] }, pickupMethod: { $ne: 'MANUAL' }, 'pickup.status': { $in: ['NOT_ASSIGNED', 'CANCELLED'] }, 'pickup.partnerId': { $exists: false }, 'reverseBooking.state': { $nin: ACTIVE_REVERSE_BOOKING } }, {
+    $set: { pickupMethod: 'MANUAL', 'pickup.status': 'NOT_ASSIGNED', ...(riderId ? { 'pickup.requestedRiderId': riderId } : {}) },
+    ...(riderId ? {} : { $unset: { 'pickup.requestedRiderId': 1 } }),
+    // Offers still open to other riders are withdrawn when one rider is requested; declines are kept.
+    ...(riderId ? { $pull: { 'pickup.offerAttempts': { status: OFFER_ATTEMPT_STATUS.OFFERED, riderId: { $ne: new mongoose.Types.ObjectId(riderId) } } } } : {}),
+    $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: riderId ? 'Seller requested a delivery partner for pickup; awaiting rider acceptance' : 'Seller selected Manual Delivery / Local Rider' } },
   });
   if (!claimed.matchedCount) throw httpError(409, 'Reconcile or cancel the existing courier pickup first');
-  ret.pickupMethod = 'MANUAL'; ret.pickup.status = 'NOT_ASSIGNED';
+  ret.pickupMethod = 'MANUAL'; ret.pickup.status = 'NOT_ASSIGNED'; ret.pickup.requestedRiderId = riderId || undefined;
   broadcastReturnPickupToRiders(String(ret._id), 1).catch((e) => console.warn('[RETURN PICKUP] broadcast failed:', e.message));
   return ret;
 };
@@ -216,6 +337,7 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
           'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: OFFER_ATTEMPT_STATUS.OFFERED } },
           'pickup.status': RETURN_PICKUP_STATUS.NOT_ASSIGNED,
           'pickup.partnerId': { $exists: false },
+          $or: [{ 'pickup.requestedRiderId': { $exists: false } }, { 'pickup.requestedRiderId': partnerId }],
           $nor: [{ 'pickup.offerAttempts': { $elemMatch: { riderId: partnerId, status: { $ne: OFFER_ATTEMPT_STATUS.OFFERED } } } }],
         },
         {
@@ -288,7 +410,8 @@ export const declineReturnPickup = async ({ returnId, partnerId, reason }) => {
     if (String(fresh.pickup?.partnerId) === String(partnerId)) throw httpError(400, 'You have already accepted this pickup');
     return fresh; // idempotent on a duplicate decline / an offer already resolved
   }
-  return result;
+  await releaseRequestedRider(result, partnerId, 'declined the pickup');
+  return await Return.findById(returnId);
 };
 
 export const expireReturnPickupOffer = async ({ returnId, partnerId }) => {
@@ -298,7 +421,8 @@ export const expireReturnPickupOffer = async ({ returnId, partnerId }) => {
     { $set: { 'pickup.offerAttempts.$[o].status': OFFER_ATTEMPT_STATUS.OFFER_EXPIRED, 'pickup.offerAttempts.$[o].expiredAt': now } },
     { returnDocument: 'after', arrayFilters: [{ 'o.riderId': partnerId, 'o.status': OFFER_ATTEMPT_STATUS.OFFERED }] }
   );
-  return result || await Return.findById(returnId); // idempotent, same shape as declineReturnPickup
+  if (result) await releaseRequestedRider(result, partnerId, 'did not accept before the offer expired');
+  return await Return.findById(returnId);
 };
 
 /* ============================================================================

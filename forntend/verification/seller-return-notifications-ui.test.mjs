@@ -121,8 +121,8 @@ test('a return deep link opens that return in full, and KPI counts use server to
     await h.settle();
     const modal = h.find(node => node.props?.['aria-label'] === 'Return details'); assert.ok(modal);
     assert.equal(h.find(node => node.props?.r, modal).props.r.returnNumber, 'RET-DETAIL');
-    assert.match(text(h.tree), /\b7\b/); assert.match(text(h.tree), /\b3\b/);
     h.find(node => node.props?.['aria-label'] === 'Close return details').props.onClick(); await h.settle();
+    assert.match(text(h.tree), /\b7\b/); assert.match(text(h.tree), /\b3\b/);
     assert.equal(h.find(node => node.props?.['aria-label'] === 'Return details'), undefined);
     assert.equal(window.location.search, '');
     window.dispatchEvent(new CustomEvent('seller_open_return', { detail: { returnId: id } })); await h.settle();
@@ -135,7 +135,14 @@ test('a seller approves a requested return and must give a reason to reject one'
   try {
     h.requests[0].resolve({ data: [{ _id: id, status: 'RETURN_REQUESTED', productName: 'Amla', returnNumber: 'RET-DECIDE', quantity: 1, pickup: { status: 'NOT_ASSIGNED' } }] }); await h.settle();
     assert.doesNotMatch(text(h.tree), /Bulkimart is reviewing/);
-    const button = label => h.find(node => node.type === 'button' && text(node).trim() === label);
+    assert.equal(h.find(node => node.type === 'button' && text(node).trim() === 'Approve return'), undefined, 'List only opens details');
+    h.find(node => node.props?.className === 'return-row-card').props.onClick(); await h.settle();
+    const row = { _id: id, status: 'RETURN_REQUESTED', productName: 'Amla', returnNumber: 'RET-DECIDE', quantity: 1, pickup: { status: 'NOT_ASSIGNED' } };
+    h.requests.at(-1).resolve({ data: row }); await h.settle();
+    const button = label => {
+      const child = h.find(node => node.props?.r);
+      return h.find(node => node.type === 'button' && text(node).trim() === label, child.props.decisionPanel(child.props.r));
+    };
     button('Reject').props.onClick(); await h.settle();
     const before = h.requests.length; await button('Confirm rejection').props.onClick(); assert.equal(h.requests.length, before, 'No request without a reason');
     button('Back').props.onClick(); await h.settle();
@@ -144,7 +151,7 @@ test('a seller approves a requested return and must give a reason to reject one'
     assert.match(post.url, new RegExp(`/api/sellers/returns/${id}/decision$`));
     assert.deepEqual(JSON.parse(post.options.body), { decision: 'APPROVED', rejectionReason: '' });
     post.resolve({ success: true, message: 'Return approved — choose a pickup method' }); await h.settle();
-    h.requests.at(-1).resolve({ data: [] }); await pending; await h.settle();
+    h.requests.filter(req => !req.options.method).forEach(req => req.resolve({ data: req.url.includes('?') ? [] : { ...row, status: 'APPROVED' } })); await pending; await h.settle();
     assert.match(text(h.tree), /choose a pickup method/);
   } finally { h.close(); }
 });

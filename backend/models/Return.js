@@ -208,6 +208,9 @@ const returnSchema = new Schema(
     pickup: {
       partnerId:  { type: ObjectId, ref: 'DeliveryPartner' },
       deliveryId: { type: ObjectId, ref: 'Delivery' },
+      // The delivery partner the seller picked, as with Order.fulfillment.requestedRiderId:
+      // only they are offered the pickup. Cleared if they decline or the offer expires.
+      requestedRiderId: { type: ObjectId, ref: 'DeliveryPartner' },
       offerAttempts: { type: [returnPickupOfferSchema], default: [] },
       status: { type: String, enum: RETURN_PICKUP_STATUSES, default: RETURN_PICKUP_STATUS.NOT_ASSIGNED },
       sellerConfirmedReceivedAt: Date,

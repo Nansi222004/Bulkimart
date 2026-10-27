@@ -1215,8 +1215,8 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     orderId: order._id,
     deliveryId: delivery._id,
     step: 'pickup',
-    merchantName: payloadMerchantName(order),
-    merchantAddress: 'Store Address',
+    merchantName: shop.name || pickupSeller.businessName || 'Store',
+    merchantAddress: [shop.address, shop.city].filter(Boolean).join(', ') || pickup.address,
     customerName: order.shippingAddress.name,
     customerAddress: `${order.shippingAddress.line1}, ${order.shippingAddress.line2 || ''}`,
     landmarkImage: order.shippingAddress?.landmarkImage || null,
@@ -1904,11 +1904,6 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
   return ok(res, formatted, 'Pending delivery orders retrieved successfully');
 });
 
-// Helper to resolve merchant store name
-const payloadMerchantName = (order) => {
-  const storeItem = order.items.find(item => item.sellerId);
-  return storeItem ? storeItem.name : 'SHG Merchant Store';
-};
 
 // @desc    Toggle rider availability (online/offline duty status)
 // @route   PUT /api/delivery/availability

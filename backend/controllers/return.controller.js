@@ -10,7 +10,7 @@ import {
   getReturnEligibility, createReturnRequest, transitionReturnStatus, calculateReturnRefund,
   processReturnRefund, markCodRefundSettled, sellerDecideReturn,
 } from '../services/return.service.js';
-import { arrangeReturnPickup, markReturnDeliveredToSeller } from '../services/returnPickup.service.js';
+import { arrangeReturnPickup, markReturnDeliveredToSeller, returnPickupOptions } from '../services/returnPickup.service.js';
 import { bookReturnCourier, reconcileReturnCourier, cancelReturnCourier } from '../services/returnCourier.service.js';
 import {
   RETURN_REASONS, RETURN_STATUSES, RETURN_MAX_ATTACHMENTS, RETURN_STATUS,
@@ -233,6 +233,7 @@ export const getSellerReturn = asyncHandler(async (req, res) => {
   const ret = await Return.findOne({ _id: req.params.returnId, sellerId: seller._id })
     .select(SELLER_HIDDEN_FIELDS)
     .populate('customerId', 'name')
+    .populate({ path: 'pickup.requestedRiderId', select: 'userId', populate: { path: 'userId', select: 'name' } })
     .populate({ path: 'pickup.partnerId', select: 'userId vehicleType vehicleNo', populate: { path: 'userId', select: 'name phone' } })
     .populate('pickup.deliveryId', 'status startTime endTime')
     .lean();
@@ -273,12 +274,9 @@ export const sellerDecideReturnCtrl = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Arrange a reverse pickup — broadcasts this APPROVED/AWAITING_RETURN
- *          return to nearby available Quick Commerce riders, same ping
- *          mechanism as a forward order (services/returnPickup.service.js).
- *          Fire-and-forget: the response confirms the broadcast started, not
- *          that a rider has accepted yet — the Seller sees `pickup.status`
- *          move to ASSIGNED once one does (poll GET /api/sellers/returns).
+ * @desc    Request an eligible delivery partner chosen by the seller.
+ *          The response confirms a request, not assignment; pickup.status
+ *          becomes ASSIGNED only after that partner accepts.
  * @route   POST /api/sellers/returns/:returnId/assign-rider
  * @access  Private/Seller (approved)
  */
@@ -286,17 +284,25 @@ export const assignRiderForReturn = asyncHandler(async (req, res) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
 
-  const ret = await arrangeReturnPickup({ returnId: req.params.returnId, sellerId: seller._id });
-  return ok(res, { returnId: ret._id, pickupStatus: ret.pickup.status }, 'Looking for a nearby rider…');
+  if (!mongoose.Types.ObjectId.isValid(req.body.riderId)) throw httpError(400, 'Choose a delivery partner');
+  const ret = await arrangeReturnPickup({ returnId: req.params.returnId, sellerId: seller._id, riderId: req.body.riderId });
+  return ok(res, { returnId: ret._id, pickupStatus: ret.pickup.status }, 'Pickup requested; awaiting delivery partner acceptance');
+});
+
+export const getReturnPickupOptions = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller not found');
+  return ok(res, await returnPickupOptions({ returnId: req.params.returnId, sellerId: seller._id }));
 });
 
 export const selectReturnPickup = asyncHandler(async (req, res) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller not found');
-  const input = { returnId: req.params.returnId, sellerId: seller._id };
+  const input = { returnId: req.params.returnId, sellerId: seller._id, riderId: req.body.riderId };
   if (!['MANUAL', 'SHIPROCKET'].includes(req.body.pickupMethod)) throw httpError(400, 'Choose MANUAL or SHIPROCKET');
+  if (req.body.pickupMethod === 'MANUAL' && !mongoose.Types.ObjectId.isValid(req.body.riderId)) throw httpError(400, 'Choose a delivery partner');
   const ret = req.body.pickupMethod === 'MANUAL' ? await arrangeReturnPickup(input) : await bookReturnCourier(input);
-  return ok(res, ret, req.body.pickupMethod === 'MANUAL' ? 'Looking for a nearby rider' : 'Shiprocket pickup status recorded');
+  return ok(res, ret, req.body.pickupMethod === 'MANUAL' ? 'Pickup requested; awaiting delivery partner acceptance' : 'Shiprocket pickup status recorded');
 });
 export const refreshReturnCourier = asyncHandler(async (req, res) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
@@ -310,7 +316,7 @@ export const cancelReturnPickup = asyncHandler(async (req, res) => {
   if (!ret) throw httpError(404, 'Return not found');
   if (ret.pickupMethod === 'SHIPROCKET') return ok(res, await cancelReturnCourier({ returnId: ret._id, sellerId: seller._id }), 'Cancellation requested; refresh for provider confirmation');
   const changed = await Return.findOneAndUpdate({ _id: ret._id, pickupMethod: 'MANUAL', status: { $in: ['APPROVED', 'AWAITING_RETURN'] }, 'pickup.status': 'NOT_ASSIGNED', 'pickup.partnerId': { $exists: false } }, {
-    $set: { 'pickup.status': 'CANCELLED', 'pickup.offerAttempts': [] }, $unset: { pickupMethod: 1 }, $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: 'Unassigned manual pickup cancelled' } },
+    $set: { 'pickup.status': 'CANCELLED', 'pickup.offerAttempts': [] }, $unset: { pickupMethod: 1, 'pickup.requestedRiderId': 1 }, $push: { history: { toStatus: ret.status, changedByRole: 'seller', comment: 'Unassigned manual pickup cancelled' } },
   }, { returnDocument: 'after' });
   if (!changed) throw httpError(409, 'An assigned or collected pickup cannot be switched');
   return ok(res, changed);

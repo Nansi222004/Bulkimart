@@ -65,7 +65,7 @@ const resolvePopupNav = (route) => {
  * Matched on the SLUG, which carries the channel and the path, so a grocery tab
  * can never fall through to a Shop All body.
  */
-const isSlug = (subNav) => /^(grocery|ecommerce|shg)--/.test(subNav || '');
+const isSlug = (subNav) => /^(grocery|ecommerce)--/.test(subNav || '');
 
 export const LandingPageContent = () => {
   const experience = useStorefront();

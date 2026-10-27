@@ -227,7 +227,7 @@ export const ElectronicsSection = () => {
               </div>
               <div className="grid-product-details" style={{ textAlign: 'left' }}>
                 <h4 className="grid-product-name" style={{ margin: '0 0 4px 0', fontSize: 12, fontWeight: 800, color: '#1e293b' }}>{product.name}</h4>
-                <span className="grid-product-shg" style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 8 }}>{product.shg}</span>
+                <span className="grid-product-seller" style={{ fontSize: 10, color: '#64748b', display: 'block', marginBottom: 8 }}>{product.sellerName}</span>
                 <SameDayBadge verdict={options[product.id]?.sameDay} compact />
 
                 <div className="grid-product-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

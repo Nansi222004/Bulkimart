@@ -8,7 +8,6 @@ import { useProducts } from '../hooks/useProducts';
 import { useProductDeliveryOptions } from '../hooks/useDeliveryOptions';
 import { formatCurrency } from '../utils/helpers';
 import { apiUrl } from '../../../utils/api';
-import UnavailableBadge from '../components/UnavailableBadge';
 import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
 import { useProductWholesale } from '../hooks/useProductWholesale';
 
@@ -260,15 +259,6 @@ const ProductDetailPage = () => {
     : [product?.image].filter(Boolean);
   const activeImage = allImages[activeImageIndex] || product?.image;
 
-  /**
-   * Whether this listing's SHG seller currently has an active subscription.
-   *
-   * Browse feeds already exclude these products server-side, so this only
-   * matters for a product reached by a direct link or one still sitting in
-   * an older cart. Asked of the server rather than derived from the list
-   * row, because the list row never carries the flag.
-   */
-  const [unavailable, setUnavailable] = useState(false);
   // A live Campaign deal, if this product has one right now — never
   // trusted from whatever the card that opened this page already had in
   // memory, since a deal can start or end between browsing and opening.
@@ -292,7 +282,6 @@ const ProductDetailPage = () => {
             setLoadedVariants(data.variants.map((variant) => ({ ...variant, id: String(variant._id) })));
             setLoadedProductId(String(product.id));
           }
-          setUnavailable(Boolean(data?.subscriptionUnavailable));
           setCampaignDeal(data?.campaignPrice ? {
             price: data.campaignPrice, discountValue: data.campaignDiscountValue, title: data.campaignTitle,
           } : null);
@@ -564,9 +553,8 @@ const ProductDetailPage = () => {
         {!isDigital && (!currentUser || /sign in|session|unauthorized|expired/i.test(wholesale.error)) && <button type="button" className="pd-wholesale-signin" onClick={signInForWholesale}>Sign in to buy Wholesale</button>}
 
         {/* Seller */}
-        <p className="pd-seller-info">Sold by <strong>{product.shg}</strong></p>
+        <p className="pd-seller-info">Sold by <strong>{product.sellerName}</strong></p>
 
-        {unavailable && <UnavailableBadge style={{ marginTop: 10 }} />}
         {wholesale.mode === 'retail' && <p style={{ margin: '8px 0 0', color: selectedStock > 0 ? '#64748B' : '#DC2626', fontSize: 12 }}>{isDigital ? (limitedEbook && !(selectedStock > 0) ? 'Sold out' : `Digital download · available after verified payment${limitedEbook ? ` · ${selectedStock} copies left` : ''}`) : selectedStock > 0 ? `${selectedStock} available` : 'Currently out of stock'}</p>}
       </div>
 
@@ -726,7 +714,7 @@ const ProductDetailPage = () => {
             <div>
               {/* Only facts the listing actually carries; rows without data are left out. */}
               {[
-                ['Seller', product.shg],
+                ['Seller', product.sellerName],
                 ['Category', product.category],
                 ['Brand', product.brandName],
                 ['Variant', selectedVariant?.name && selectedVariant.name !== 'Default' ? selectedVariant.name : ''],
@@ -947,13 +935,9 @@ const ProductDetailPage = () => {
         {wholesale.mode === 'wholesale' ? <>
           {wholesale.cartQty > 0
             ? <button type="button" className="pd-flipkart-btn go-cart" disabled={wholesale.pending} onClick={wholesale.openCart}>Go to Wholesale Cart ({wholesale.cartQty})</button>
-            : <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'Adding…' : 'Add to Wholesale Cart'}</button>}
-          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canBuyNow || unavailable} onClick={() => wholesale.buyNow()}>{wholesale.pending ? 'Please wait…' : 'Buy Wholesale Now'}</button>
-        </> : unavailable ? (
-          <button className="pd-flipkart-btn disabled" disabled>
-            CURRENTLY UNAVAILABLE
-          </button>
-        ) : (
+            : <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase} onClick={() => wholesale.add()}>{wholesale.pending ? 'Adding…' : 'Add to Wholesale Cart'}</button>}
+          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canBuyNow} onClick={() => wholesale.buyNow()}>{wholesale.pending ? 'Please wait…' : 'Buy Wholesale Now'}</button>
+        </> : (
           <>
             {qty === 0 ? (
               <button className="pd-flipkart-btn add-cart" onClick={handleAddToCart} disabled={cartActionPending || !(selectedStock > 0) || (productVariants.length > 1 && !selectedVariantId)}>
