@@ -734,10 +734,20 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     // computed, so a re-broadcast to an already-offered rider doesn't also
     // write a duplicate Notification row for them. Fire-and-forget: this
     // runs inside a per-rider loop and must not slow down the next ping.
-    if (modifiedCount) {
+    //
+    // A rider the seller picked by name is told once per request even when an
+    // earlier broadcast already left them an open offer (modifiedCount 0): the
+    // seller's choice is news, and the marker keeps re-broadcasts silent.
+    const requested = String(order.fulfillment?.requestedRiderId || '') === String(r._id);
+    const announce = requested
+      ? (await Order.updateOne({ _id: order._id, 'fulfillment.requestedRiderId': r._id, 'fulfillment.requestedRiderNotifiedAt': null },
+        { $set: { 'fulfillment.requestedRiderNotifiedAt': new Date() } })).modifiedCount
+      : modifiedCount;
+    if (announce) {
       notifyRider(String(r._id), {
-        event: NOTIFICATION_EVENT.RIDER_PING,
-        title: payload.payout?.tip > 0 ? `New order offer — ₹${payload.payout.tip} tip` : 'New order offer',
+        event: requested ? NOTIFICATION_EVENT.RIDER_REQUESTED : NOTIFICATION_EVENT.RIDER_PING,
+        title: requested ? `${payload.merchantName || 'A store'} assigned order ${order.orderNo} to you — accept now`
+          : payload.payout?.tip > 0 ? `New order offer — ₹${payload.payout.tip} tip` : 'New order offer',
         /**
          * The tip is named in the text, not only in the payload.
          *
@@ -777,11 +787,23 @@ const notifySellerAssignmentReleased = async order => {
   } catch { /* The seller also refreshes on focus and while viewing the order. */ }
 };
 
-const releaseRequestedRider = async (order, partner) => {
+const releaseRequestedRider = async (order, partner, outcome) => {
   const released = await Order.updateOne({ _id: order._id, deliveryPartnerId: null, 'fulfillment.requestedRiderId': partner._id }, {
-    $unset: { 'fulfillment.requestedRiderId': '' }, $set: { needsManualAssignment: true }, $inc: { __v: 1 },
+    $unset: { 'fulfillment.requestedRiderId': '', 'fulfillment.requestedRiderNotifiedAt': '' }, $set: { needsManualAssignment: true }, $inc: { __v: 1 },
   });
-  if (released.modifiedCount) await notifySellerAssignmentReleased(order);
+  if (!released.modifiedCount) return;
+  await notifySellerAssignmentReleased(order);
+  // Persisted + pushed, so a seller away from the order screen still learns
+  // the job needs another partner. Only for the rider the seller picked.
+  const name = (await User.findById(partner.userId).select('name').lean().catch(() => null))?.name || 'The delivery partner';
+  let sellerId; try { sellerId = orderStoreId(order); } catch { return; }
+  notifySeller(sellerId, {
+    event: NOTIFICATION_EVENT.RIDER_DECLINED,
+    title: outcome === 'declined' ? 'Delivery partner declined' : 'Delivery partner did not respond',
+    message: `${name} ${outcome === 'declined' ? 'declined' : 'did not accept'} order ${order.orderNo}. Please assign another delivery partner.`,
+    metadata: { orderId: order._id },
+    route: '/orders',
+  }).catch(e => console.error('[NOTIFICATION] notifySeller (rider declined) failed:', e.message));
 };
 
 export const declineOrder = asyncHandler(async (req, res) => {
@@ -836,7 +858,7 @@ export const declineOrder = asyncHandler(async (req, res) => {
     throw httpError(409, `This offer is already ${mine.status} — it can no longer be declined`);
   }
 
-  await releaseRequestedRider(order, partner);
+  await releaseRequestedRider(order, partner, 'declined');
   return ok(res, { status: OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER }, 'Offer declined');
 });
 
@@ -898,7 +920,7 @@ export const expireOrder = asyncHandler(async (req, res) => {
     throw httpError(409, `This offer is already ${mine.status} — it can no longer expire`);
   }
 
-  await releaseRequestedRider(order, partner);
+  await releaseRequestedRider(order, partner, 'expired');
   return ok(res, { status: OFFER_ATTEMPT_STATUS.OFFER_EXPIRED }, 'Offer expired');
 });
 

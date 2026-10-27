@@ -13,6 +13,9 @@ const schema = new Schema({
   revision: { type: Number, default: 1 },
   config: { type: Schema.Types.Mixed, required: true },
   history: { type: [Schema.Types.Mixed], default: [], select: false },
+  // Pending edits to a published/paused record: { values, revision, base, savedAt, savedBy }.
+  // The live fields above stay authoritative until the draft is published. Never public.
+  draft: { type: Schema.Types.Mixed, default: undefined },
   createdBy: { type: Schema.Types.ObjectId, ref: 'Admin' }, updatedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
 }, { timestamps: true, optimisticConcurrency: true });
 schema.index({ kind: 1, status: 1, scope: 1, startAt: 1, endAt: 1 });

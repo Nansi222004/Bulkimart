@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startCelebration } from '../src/utils/celebrationRenderer.js';
-import { DEFAULT_EFFECT, EFFECT_PRESETS, effectApplies } from '../../backend/shared/celebration.mjs';
+import { DEFAULT_EFFECT, EFFECT_PRESETS, MAX_PARTICLES, effectApplies, particleCount } from '../../backend/shared/celebration.mjs';
 function fixture() {
   const calls = [], frames = new Map(), doc = new EventTarget(), events = new EventTarget(); let id = 0, disconnected = 0, visible;
   doc.hidden = false;
@@ -15,8 +15,9 @@ for (const preset of EFFECT_PRESETS) test(`${preset} draws bounded particles at 
   const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset, density: 1000 }, h.env);
   assert.equal(h.frames.size, 0); h.show(true); assert.equal(h.frames.size, 1);
   h.tick(1); h.tick(34);
-  const shape = { snowfall: 'arc', petals: 'ellipse', sparkles: 'moveTo', confetti: 'rect' }[preset];
-  assert.equal(h.calls.filter(c => c[0] === shape).length, 200);
+  const shape = { snowfall: 'arc', petals: 'ellipse', sparkles: 'moveTo', confetti: 'rect', lights: 'arc', fireworks: 'arc' }[preset];
+  // Lights: halo + bulb for floor(390/16) bulbs. Fireworks: one burst of 33 sparks. Others: 100 capped particles.
+  assert.equal(h.calls.filter(c => c[0] === shape).length, { lights: 2 * 2 * 24, fireworks: 2 * 33 }[preset] ?? 200);
   assert.equal(h.canvas.width, 780); assert.equal(h.canvas.height, 1000);
   h.doc.hidden = true; h.doc.dispatchEvent(new Event('visibilitychange')); assert.equal(h.frames.size, 0);
   h.doc.hidden = false; h.doc.dispatchEvent(new Event('visibilitychange')); assert.equal(h.frames.size, 1);
@@ -39,4 +40,47 @@ test('route targeting excludes product overlays and unrelated campaign pages', (
   for (const route of [{ activeNav: 'checkout' }, { activeNav: 'home', selectedProduct: {} }, { activeNav: 'home', selectedCampaignId: 'other' }]) assert.equal(effectApplies({ scope: 'homepage' }, route), false);
   assert.equal(effectApplies({ scope: 'campaign', campaignId: 'deal' }, { selectedCampaignId: 'deal' }), true);
   assert.equal(effectApplies({ scope: 'campaign', campaignId: 'deal' }, { selectedCampaignId: 'other' }), false);
+});
+const arcsPerFrame = (h, from) => h.calls.slice(from).filter(c => c[0] === 'arc').length;
+test('intensity scales particle quantity and never exceeds the particle cap', () => {
+  assert.equal(particleCount({ density: 40, intensity: 'low' }), 20);
+  assert.equal(particleCount({ density: 40, intensity: 'medium' }), 40);
+  assert.equal(particleCount({ density: 40, intensity: 'high' }), 60);
+  assert.equal(particleCount({ density: 100, intensity: 'high' }), MAX_PARTICLES);
+  const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'snowfall', density: 10, intensity: 'low' }, h.env); h.show(true); h.tick(1);
+  assert.equal(h.calls.filter(c => c[0] === 'arc').length, 5); stop();
+});
+test('fireworks keep at most three bursts and 100 sparks at maximum intensity over time', () => {
+  const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'fireworks', density: 100, intensity: 'high', speed: 3, duration: 0 }, h.env); h.show(true);
+  let peak = 0;
+  for (let i = 0; i < 400; i++) { const from = h.calls.length; h.tick(1 + i * 16); peak = Math.max(peak, arcsPerFrame(h, from)); }
+  assert.ok(peak > 0 && peak <= MAX_PARTICLES, `peak sparks ${peak}`); assert.equal(h.frames.size, 1); stop();
+});
+test('duration 0 loops while visible instead of stopping', () => {
+  const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, duration: 0 }, h.env); h.show(true);
+  for (let i = 0; i < 200; i++) h.tick(1 + i * 50);
+  assert.equal(h.frames.size, 1); stop(); assert.equal(h.frames.size, 0);
+});
+test('reduced-motion still frame draws once and schedules no animation frames', () => {
+  const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'lights' }, h.env, { still: true });
+  assert.equal(h.frames.size, 0); assert.equal(h.calls.filter(c => c[0] === 'arc').length, 48);
+  h.doc.dispatchEvent(new Event('visibilitychange')); assert.equal(h.frames.size, 0); stop();
+  const f = fixture(), stopFireworks = startCelebration(f.canvas, { ...DEFAULT_EFFECT, preset: 'fireworks' }, f.env, { still: true });
+  assert.ok(f.calls.some(c => c[0] === 'arc')); assert.equal(f.frames.size, 0); stopFireworks();
+});
+test('lights and fireworks stay inside the canvas box at maximum size and intensity', () => {
+  for (const preset of ['lights', 'fireworks']) {
+    const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset, direction: 'right', density: 100, intensity: 'high', size: 2, duration: 0 }, h.env); h.show(true);
+    for (let i = 0; i < 120; i++) h.tick(1 + i * 16);
+    // Lights and fireworks draw in canvas coordinates: every centre stays within the 390×500 box.
+    for (const [, x, y] of h.calls.filter(c => c[0] === 'arc')) assert.ok(x >= 0 && x <= 390 && y >= 0 && y <= 500, `${preset} drew outside its box at ${x},${y}`);
+    stop();
+  }
+});
+test('drift direction moves falling particles sideways', () => {
+  const random = Math.random; Math.random = () => 0.5;
+  try {
+    const xAfter = direction => { const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'snowfall', density: 1, direction, duration: 0 }, h.env); h.show(true); for (let i = 0; i < 40; i++) h.tick(1 + i * 50); stop(); return h.calls.filter(c => c[0] === 'translate').at(-1)[1]; };
+    const down = xAfter('down'); assert.ok(xAfter('right') > down + 10); assert.ok(xAfter('left') < down - 10);
+  } finally { Math.random = random; }
 });

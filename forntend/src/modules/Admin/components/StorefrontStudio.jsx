@@ -3,17 +3,20 @@ import { adminGet, adminPost, adminPatch, authGet, authPost } from '../../../uti
 import { useAdmin } from '../context/AdminContext';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import ModalPortal from '../../../components/ModalPortal';
-import { PRESETS, DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, themeStyle } from '../../../utils/storefront';
+import { PRESETS, PRESET_EFFECTS, DEFAULT_TOKENS, DEFAULT_HEADER, COLOR_KEYS, resolveTokens, themeStyle } from '../../../utils/storefront';
+import { DEFAULT_EFFECT, EFFECT_COLORS } from '../../../../../backend/shared/celebration.mjs';
 import StorefrontMedia from '../../User/components/StorefrontMedia';
 import StorefrontMediaFields from './StorefrontMediaFields';
 import StorefrontEffectFields from './StorefrontEffectFields';
+import StorefrontHeaderFields from './StorefrontHeaderFields';
 import Celebration from '../../User/components/Celebration';
+import { FestiveHeader, normalizeHeader } from '../../User/components/FestiveHeader';
 import StorefrontSplashPreview from './StorefrontSplashPreview';
 import '../../User/Storefront.css';
 import './StorefrontStudio.css';
 const names = { theme: 'Themes', campaign: 'Promotional campaigns', section: 'Homepage sections' };
 const blank = kind => ({ kind, name: '', description: '', scope: 'global', device: 'all', priority: 0, order: 0, startAt: '', endAt: '',
-  config: kind === 'theme' ? { preset: 'Default Bulkimart', tokens: { ...DEFAULT_TOKENS } } : kind === 'campaign' ? { placement: 'hero', bannerId: '', themeId: '', frequency: 'session', duration: 5, countdown: false } : { title: '', source: 'recent', categoryId: '', campaignId: '', bannerId: '', maxPrice: 99, limit: 8, variant: 'plain' } });
+  config: kind === 'theme' ? { preset: 'Default Bulkimart', tokens: { ...DEFAULT_TOKENS }, header: { ...DEFAULT_HEADER } } : kind === 'campaign' ? { placement: 'hero', bannerId: '', themeId: '', frequency: 'session', duration: 5, countdown: false } : { title: '', source: 'recent', categoryId: '', campaignId: '', bannerId: '', maxPrice: 99, limit: 8, variant: 'plain' } });
 // Admin scheduling is explicitly Asia/Kolkata, independent of the workstation timezone.
 export const scheduleInput = value => value ? new Date(new Date(value).getTime() + 330 * 60000).toISOString().slice(0, 16) : '';
 export const scheduleISO = value => value ? new Date(`${value}:00+05:30`).toISOString() : null;
@@ -51,6 +54,9 @@ export default function StorefrontStudio() {
     return () => { cancelled = true; };
   }, [!!form, form?.scope, reload]);
 
+  // The preview countdown ticks only while one is configured; preview never publishes.
+  const [clock, setClock] = useState(Date.now()), countdownOn = !!form?.config.header?.countdown?.enabled;
+  useEffect(() => { if (!countdownOn) return; setClock(Date.now()); const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, [countdownOn]);
   useEffect(() => { if (!dirty) return; const warn = e => { e.preventDefault(); e.returnValue = ''; }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
   useEffect(() => () => { if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl); }, [bannerPreviewUrl]);
   const change = patch => { setDirty(true); setForm(f => ({ ...f, ...patch })); };
@@ -58,7 +64,9 @@ export default function StorefrontStudio() {
   const cancelBannerUpload = () => { setShowUploadBanner(false); setBannerFile(null); setBannerPreviewUrl(''); setBannerUploadError(''); };
   
   const open = row => {
-    setForm(row ? { ...row, config: structuredClone(row.config), startAt: scheduleInput(row.startAt), endAt: scheduleInput(row.endAt) } : blank(kind));
+    // A live record with a saved draft opens its draft; the live version stays as listed.
+    const source = row?.draft ? { ...row, ...row.draft.values } : row;
+    setForm(row ? { ...source, config: structuredClone(source.config), startAt: scheduleInput(source.startAt), endAt: scheduleInput(source.endAt), draftRevision: row.draft?.revision || 0 } : blank(kind));
     setDirty(false);
     setFormError('');
     setShowUploadBanner(false);
@@ -108,9 +116,10 @@ export default function StorefrontStudio() {
       const payload = { ...form, config: { ...form.config, ...(bannerId ? { bannerId } : {}) }, startAt: scheduleISO(form.startAt), endAt: scheduleISO(form.endAt) };
       let result = form._id ? await adminPatch(`/storefront/${form._id}`, payload) : await adminPost('/storefront', payload);
       // Retain saved identity even when subsequent publication fails validation.
-      setForm(f => ({ ...f, _id: result.data._id, revision: result.data.revision, status: 'draft' })); setDirty(false);
-      if (publish) result = await adminPost(`/storefront/${result.data._id}/actions/publish`, { revision: result.data.revision });
-      triggerToast(publish ? 'Published. Customers refresh within 30 seconds.' : 'Draft saved. Publish when ready.'); setForm(null); setReload(r => r + 1);
+      const liveDraft = !!result.data.draft;
+      setForm(f => ({ ...f, _id: result.data._id, revision: result.data.revision, status: result.data.status, draftRevision: result.data.draft?.revision || 0 })); setDirty(false);
+      if (publish) result = await adminPost(`/storefront/${result.data._id}/actions/publish`, { revision: result.data.revision, draftRevision: result.data.draft?.revision });
+      triggerToast(publish ? 'Published. Customers refresh within 30 seconds.' : liveDraft ? 'Draft saved. The live version is unchanged until you publish this draft.' : 'Draft saved. Publish when ready.'); setForm(null); setReload(r => r + 1);
     } catch (err) { setFormError(err.message); setReload(r => r + 1); } finally { operationBusy.current = false; setBusy(false); }
   };
 
@@ -177,10 +186,20 @@ export default function StorefrontStudio() {
     if (busy) return;
     if (['archive', 'rollback'].includes(name) && !await ui.ask(`${name === 'archive' ? 'Archive' : 'Roll back'} “${row.name}”? ${name === 'archive' ? 'This removes it from the storefront and preserves its history.' : 'The previous publication will be validated and published again.'}`)) return;
     setBusy(true); setError('');
-    try { await adminPost(`/storefront/${row._id}/actions/${name}`, { revision: row.revision }); setReload(r => r + 1); triggerToast('Configuration updated.'); } catch (err) { setError(err.message); } finally { setBusy(false); }
+    if (name === 'discard' && !await ui.ask(`Discard the unpublished changes to “${row.name}”? The live version is not affected.`)) return;
+    try { await adminPost(`/storefront/${row._id}/actions/${name}`, { revision: row.revision, draftRevision: row.draftRevision ?? row.draft?.revision }); setReload(r => r + 1); triggerToast(name === 'discard' ? 'Draft discarded. The live version is unchanged.' : 'Configuration updated.'); return true; } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
   const tokens = form?.kind === 'theme' ? resolveTokens(form.config.tokens) : themes.find(t => t._id === form?.config.themeId)?.config.tokens || DEFAULT_TOKENS;
+  // Choosing a festive preset suggests matching header colours and animation; every value stays editable.
+  const applyPreset = preset => {
+    const next = PRESETS[preset], suggested = PRESET_EFFECTS[preset], current = form.config.animation;
+    config({ preset, tokens: { ...next }, header: { ...DEFAULT_HEADER, ...form.config.header, background: next.header, text: next.headerText },
+      ...(suggested ? { animation: { ...DEFAULT_EFFECT, ...current, enabled: true, preset: suggested, colors: [...EFFECT_COLORS[suggested]] } } : {}) });
+  };
+  const previewHeader = normalizeHeader(form?.kind === 'theme' ? form.config.header : themes.find(t => t._id === form?.config.themeId)?.config.header);
+  const festive = !!(previewHeader?.enabled && previewHeader.title);
+  const previewEffect = form?.config.animation && form.config.animation.scope !== 'banner' ? { ...form.config.animation, startAt: null, endAt: null } : null;
   const select = (label, value, choices, onChange) => <Field label={label}><select value={value ?? ''} onChange={e => onChange(e.target.value)}>{choices.map(option => <option key={option.value ?? option} value={option.value ?? option}>{option.label ?? option}</option>)}</select></Field>;
   const refs = list => [{ value: '', label: 'None selected' }, ...list.map(r => ({ value: r._id, label: r.name || r.title || r._id }))];
   const bannerRefs = list => [
@@ -200,8 +219,11 @@ export default function StorefrontStudio() {
       {row.kind === 'theme' && <div className="studio-palette">{['primary', 'secondary', 'accent', 'background'].map(key => <span key={key} style={{ background: row.config.tokens[key] }} />)}</div>}
       <div className="studio-record-top"><span className={`studio-status studio-status--${row.lifecycle}`}>{row.lifecycle}</span><span>{row.scope} · Priority {row.priority}</span></div><h2>{row.name}</h2><p>{row.description || `${row.kind === 'section' ? `${row.config.source} · Order ${row.order}` : row.config.placement || row.config.preset}`}</p>
       <dl><dt>From</dt><dd>{displayDate(row.startAt)}</dd><dt>Until</dt><dd>{displayDate(row.endAt)}</dd></dl>
-      <div className="studio-actions"><button onClick={() => open(row)}>Edit & preview</button><button onClick={() => { open({ ...row, _id: undefined, revision: undefined, name: `${row.name} copy`.slice(0, 100), status: 'draft' }); setDirty(true); }}>Duplicate</button>
-        <button disabled={busy} onClick={() => action(row, row.status === 'published' ? 'pause' : 'publish')}>{row.status === 'published' ? 'Pause' : 'Publish'}</button>
+      {row.draft && <p className="studio-help" role="status">Unpublished draft saved {displayDate(row.draft.savedAt)}.{row.draft.stale ? ' The live version changed since; open, review and save it before publishing.' : ' Customers still see the live version.'}</p>}
+      <div className="studio-actions"><button onClick={() => open(row)}>{row.draft ? 'Edit draft & preview' : 'Edit & preview'}</button><button onClick={() => { open({ ...row, draft: null, _id: undefined, revision: undefined, name: `${row.name} copy`.slice(0, 100), status: 'draft' }); setDirty(true); }}>Duplicate</button>
+        <button disabled={busy} onClick={() => action(row, row.status === 'published' ? 'pause' : 'publish')}>{row.status === 'published' ? 'Pause' : row.draft ? 'Publish draft' : 'Publish'}</button>
+        {row.draft && row.status === 'published' && <button disabled={busy || row.draft.stale} onClick={() => action(row, 'publish')}>Publish draft</button>}
+        {row.draft && <button disabled={busy} onClick={() => action(row, 'discard')}>Discard draft</button>}
         {row.status !== 'archived' && <button disabled={busy} onClick={() => action(row, 'archive')}>Archive</button>}{row.canRollback && <button disabled={busy} onClick={() => action(row, 'rollback')}>Rollback</button>}
       </div>
     </article>)}</div>}
@@ -215,7 +237,7 @@ export default function StorefrontStudio() {
         <div className="studio-pair">{select('Storefront', form.scope, ['global', 'quick', 'shop-all'], scope => change({ scope }))}{select('Device', form.device, ['all', 'mobile', 'desktop'], device => change({ device }))}</div>
         <div className="studio-pair"><Field label="Start · IST"><input type="datetime-local" value={form.startAt} onChange={e => change({ startAt: e.target.value })} /></Field><Field label="End · IST"><input type="datetime-local" value={form.endAt} onChange={e => change({ endAt: e.target.value })} /></Field></div>
         <Field label="Priority (higher wins)"><input type="number" min="0" max="1000" value={form.priority} onChange={e => change({ priority: Number(e.target.value) })} /></Field>
-        {form.kind === 'theme' && <>{select('Apply theme', form.config.application || 'storefront', [{ value: 'storefront', label: 'Storefront default for this scope' }, { value: 'campaign', label: 'Only while a linked campaign is active' }], application => config({ application }))}{select('Theme preset', form.config.preset, Object.keys(PRESETS), preset => config({ preset, tokens: { ...PRESETS[preset] } }))}<div className="studio-colors">{COLOR_KEYS.map(key => <Field key={key} label={key.replace(/[A-Z]/g, letter => ' ' + letter.toLowerCase())}><input type="color" value={tokens[key]} onChange={e => config({ tokens: { ...tokens, [key]: e.target.value } })} /></Field>)}</div>
+        {form.kind === 'theme' && <>{select('Apply theme', form.config.application || 'storefront', [{ value: 'storefront', label: 'Storefront default for this scope' }, { value: 'campaign', label: 'Only while a linked campaign is active' }], application => config({ application }))}{select('Theme preset', form.config.preset, Object.keys(PRESETS), applyPreset)}<div className="studio-colors">{COLOR_KEYS.map(key => <Field key={key} label={key.replace(/[A-Z]/g, letter => ' ' + letter.toLowerCase())}><input type="color" value={tokens[key]} onChange={e => config({ tokens: { ...tokens, [key]: e.target.value } })} /></Field>)}</div>
           {Object.entries({ font: ['system', 'sans', 'serif'], card: ['rounded', 'square'], button: ['rounded', 'pill'], gradient: ['none', 'soft'], category: ['framed', 'minimal'], product: ['elevated', 'flat'], decoration: ['none', 'dots', 'confetti', 'lights'], motion: ['none', 'gentle'] }).map(([key, options]) => <React.Fragment key={key}>{select(key, tokens[key], options, value => config({ tokens: { ...tokens, [key]: value } }))}</React.Fragment>)}<p className="studio-help">Text and buttons require 4.5:1 contrast. Invalid combinations cannot be saved.</p><h3>Category artwork</h3><p className="studio-help">Select published artwork from Banner library. Tiles always open the selected category. Add only accurate campaign labels.</p>
 {(form.config.categoryTiles || []).map((tile, index) => <div key={index} className="studio-category-tile">
 {select('Tile category', tile.categoryId, refs(categories), categoryId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, categoryId } : t) }))}
@@ -448,18 +470,20 @@ export default function StorefrontStudio() {
 <label className="studio-check"><input type="checkbox" checked={!!form.config.appearance?.background} onChange={e => config({ appearance: e.target.checked ? { background: DEFAULT_TOKENS.highlight, text: DEFAULT_TOKENS.text, accent: DEFAULT_TOKENS.primary } : {} })} />Custom section colors</label>
 {form.config.appearance?.background && <div className="studio-colors">{['background', 'text', 'accent'].map(key => <Field key={key} label={'Section ' + key}><input type="color" value={form.config.appearance[key]} onChange={e => config({ appearance: { ...form.config.appearance, [key]: e.target.value } })} /></Field>)}</div>}
         </>}
+        {form.kind === 'theme' && <StorefrontHeaderFields value={form.config.header} onChange={header => config({ header })} deals={deals} />}
         {form.kind !== 'section' && <StorefrontEffectFields value={form.config.animation} onChange={animation => config({ animation })} allowBanner={form.kind === 'campaign'} deals={deals} />}
         </fieldset>
       </form><aside className="studio-preview-pane"><div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
         <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>
-        {form.config.animation?.scope !== 'banner' && <Celebration effect={form.config.animation ? { ...form.config.animation, startAt: null, endAt: null } : undefined} contained preview />}
         {form.kind === 'campaign' && form.config.placement === 'splash' ? <StorefrontSplashPreview banner={previewBanner} config={form.config} device={preview} endAt={form.endAt ? `${form.endAt}:00+05:30` : null} /> : <><div className="studio-preview-header">BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
-          {previewBanner ? <><div className="studio-preview-art"><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} eager /><Celebration effect={previewBanner.animation} contained preview /></div><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
+          {/* Same bounded hosts as the storefront: festive header first, otherwise the hero. */}
+          {festive && <FestiveHeader header={previewHeader} effect={previewEffect} now={clock} preview />}
+          {previewBanner ? <><div className="studio-preview-art"><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} eager /><Celebration effect={previewBanner.animation || (festive ? null : previewEffect)} preview /></div><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy studio-preview-hero"><Celebration effect={festive ? null : previewEffect} preview /><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
         <div className="studio-preview-collection" style={form.kind === 'section' ? { background: form.config.appearance?.background, color: form.config.appearance?.text, borderColor: form.config.appearance?.accent } : undefined}>
 <strong>{form.kind === 'section' ? form.config.title || 'Collection preview' : 'Shop by category'}</strong><div className="studio-preview-category"><span>Category artwork</span></div><small>{form.kind === 'section' ? (form.config.layout || 'rail') + ' layout · live catalog after publication' : 'Published category artwork appears here'}</small></div>
 <div className="studio-preview-nav"><strong>⌂ Home</strong><span>▦ Categories</span><span>♧ Cart</span></div>
 </>}</div>{!(form.kind === 'campaign' && form.config.placement === 'splash') && <p className="studio-help">Appearance preview only. Published content uses live, eligible catalog data.</p>}</aside></div>
-      <footer>{form.status === 'published' && <p>Saving a draft removes this configuration from the live storefront until republished.</p>}{formError && <p className="studio-error" role="alert">{formError}</p>}<div className="studio-actions"><button disabled={busy || uploadingBanner} onClick={close}>Cancel</button><button disabled={busy || uploadingBanner} type="submit" form="studio-form">{uploadingBanner ? 'Uploading…' : busy ? 'Saving…' : 'Save draft'}</button><button disabled={busy || uploadingBanner || !form.name.trim()} className="sa-btn-primary" onClick={() => save(true)}>{uploadingBanner ? 'Uploading…' : form.startAt ? 'Publish schedule' : 'Publish now'}</button></div></footer>
+      <footer>{['published', 'paused'].includes(form.status) && <p>{form.draftRevision ? 'Editing the saved draft.' : 'Editing creates a draft.'} The {form.status === 'paused' ? 'paused' : 'live'} version stays unchanged until you publish this draft. Cancel abandons unsaved changes.</p>}{formError && <p className="studio-error" role="alert">{formError}</p>}<div className="studio-actions"><button disabled={busy || uploadingBanner} onClick={close}>Cancel</button>{form._id && form.draftRevision > 0 && <button disabled={busy || uploadingBanner} onClick={async () => { if (await action(form, 'discard')) { setDirty(false); setForm(null); } }}>Discard draft</button>}<button disabled={busy || uploadingBanner} type="submit" form="studio-form">{uploadingBanner ? 'Uploading…' : busy ? 'Saving…' : 'Save draft'}</button><button disabled={busy || uploadingBanner || !form.name.trim()} className="sa-btn-primary" onClick={() => save(true)}>{uploadingBanner ? 'Uploading…' : form.startAt ? 'Publish schedule' : ['published', 'paused'].includes(form.status) ? 'Publish draft' : 'Publish now'}</button></div></footer>
       </div>
     </ModalPortal>}
   </div>;

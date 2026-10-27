@@ -11,7 +11,7 @@ import DeliveryProfilePage from '../pages/DeliveryProfilePage';
 import DeliverySupportPage from '../pages/DeliverySupportPage';
 import ParcelOperations from '../../../components/parcels/ParcelOperations';
 import DeliveryNavbar from '../components/DeliveryNavbar';
-import DeliveryNotifications from '../components/DeliveryNotifications';
+import DeliveryNotifications, { DeliveryNotificationBell } from '../components/DeliveryNotifications';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
 import { DELIVERY_SESSION_CHANGED } from '../../../utils/deliverySession';
@@ -102,6 +102,9 @@ const DeliveryRoutesContent = () => {
     );
   }
 
+  // Mirrors renderActiveView: parcels first, then an active trip, then the tab.
+  const pageTitle = activeTab === 'parcels' ? 'Parcels' : activeOrder ? 'Current delivery' : PAGE_TITLES[activeTab];
+
   // Active delivery overlay overrides subpaths if an active order is being processed
   const renderActiveView = () => {
     if (activeTab === 'parcels') return <ParcelOperations />;
@@ -129,15 +132,16 @@ const DeliveryRoutesContent = () => {
 
   return (
     <div className="delivery-app-container">
-      {/* Toast Alert popups */}
-      {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
       <DeliveryNotifications onNavigate={route => {
         window.history.pushState(null, '', route); setCurrentPath(route.split(/[?#]/)[0]);
-      }} />
+      }}>
+      {/* Toast Alert popups */}
+      {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
 
-      {/* Fixed title bar for the secondary tabs; Duty and an active trip carry their own. */}
-      {!activeOrder && PAGE_TITLES[activeTab] && (
-        <header className="delivery-page-appbar"><h1>{PAGE_TITLES[activeTab]}</h1></header>
+      {/* Fixed title bar with the notification bell for every screen except
+          Duty, whose own sticky header carries the bell. */}
+      {pageTitle && (
+        <header className="delivery-page-appbar"><h1>{pageTitle}</h1><DeliveryNotificationBell /></header>
       )}
 
       {/* Main content scroll container */}
@@ -164,6 +168,7 @@ const DeliveryRoutesContent = () => {
       {!activeOrder && (
         <DeliveryNavbar activeTab={activeTab} setActiveTab={handleTabChange} />
       )}
+      </DeliveryNotifications>
     </div>
   );
 };

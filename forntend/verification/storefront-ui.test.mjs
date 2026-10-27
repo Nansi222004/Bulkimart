@@ -2,14 +2,17 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { createServer } from 'vite';
-import { hookHarness } from '../tests/service-hookHarness.mjs';
+import { hookHarness, registerFeedback } from '../tests/service-hookHarness.mjs';
 import { DEFAULT_EFFECT } from '../../backend/shared/celebration.mjs';
-let Celebration, DecorationToggle, EffectFields, MediaFields;
+let Celebration, DecorationToggle, EffectFields, MediaFields, Festive, HeaderFields, LAYER;
 let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   policy = await vite.ssrLoadModule('/src/utils/storefront.js');
-  ({ default: Celebration, DecorationToggle } = await vite.ssrLoadModule('/src/modules/User/components/Celebration.jsx'));
+  registerFeedback((await vite.ssrLoadModule('/src/utils/feedback.js')).feedback);
+  ({ default: Celebration, DecorationToggle, LAYER_STYLE: LAYER } = await vite.ssrLoadModule('/src/modules/User/components/Celebration.jsx'));
+  Festive = await vite.ssrLoadModule('/src/modules/User/components/FestiveHeader.jsx');
+  HeaderFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontHeaderFields.jsx')).default;
   EffectFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontEffectFields.jsx')).default;
   MediaFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontMediaFields.jsx')).default;
   Splash = (await vite.ssrLoadModule('/src/modules/User/components/PromotionalSplash.jsx')).default;
@@ -673,4 +676,155 @@ test('a launch splash does not return when sign-in remounts the storefront in th
   finally { remount?.close(); Object.defineProperty(globalThis, 'window', descriptor || { configurable: true, writable: true, value: current }); }
   const nextLaunch = browserHarness(Splash, {}, context);
   try { assert.ok(nextLaunch.find(n => n.props?.className === 'sf-splash') || nextLaunch.tree?.props?.className === 'sf-splash', 'A new launch still shows it'); } finally { nextLaunch.close(); }
+});
+
+// Festive header: decorative animation is confined to bounded hosts.
+const festiveHeader = (patch = {}) => ({ ...policy.DEFAULT_HEADER, enabled: true, title: 'Festive Sale', subtitle: 'Lights, gifts and more', target: 'categories', cta: 'Shop now', ...patch });
+const liveEffect = { ...DEFAULT_EFFECT, enabled: true, preset: 'lights', scope: 'homepage', id: 'theme', revision: 1 };
+test('boundary: the decorative layer is absolute inside its host, never viewport-fixed, and ignores pointer input', async () => {
+  const h = browserHarness(Celebration, { effect: { ...DEFAULT_EFFECT, enabled: true } }, {});
+  try { assert.equal(h.tree.props.style.position, 'absolute'); assert.equal(h.tree.props.style.inset, 0); assert.equal(h.tree.props.style.pointerEvents, 'none'); } finally { h.close(); }
+  assert.equal(LAYER.position, 'absolute');
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/modules/User/components/Celebration.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /['"]fixed['"]/, 'Celebration has no viewport-fixed mode');
+  const css = await readFile(new URL('../src/modules/User/Storefront.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sf-festive\{[^}]*position:relative[^}]*overflow:hidden[^}]*contain:paint/);
+  assert.doesNotMatch(css, /\.sf-(celebration|decoration-toggle|festive)[^{]*\{[^}]*position:fixed/, 'No festive selector is viewport-fixed');
+  assert.match(css, /\.sf-festive-content\{[^}]*z-index:2/, 'Header copy sits above the decorative layer');
+});
+test('boundary: the storefront provider exposes the page effect but mounts no overlay of its own', async () => {
+  const h = browserHarness(Provider, {}, { activeMode: 'shop-all', activeSubNav: 'ecommerce--smart-buy', activeNav: 'home' });
+  try {
+    h.requests[0].resolve({ data: { version: 'fx', animations: [liveEffect], theme: { id: 'published', tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }, banners: [], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() } });
+    await h.settle();
+    assert.equal(h.tree.props.value.effect.preset, 'lights');
+    assert.equal(h.find(n => n.type === Celebration || n.type === 'canvas' || n.type === DecorationToggle), undefined);
+  } finally { h.close(); }
+});
+test('festive header renders copy, CTA, bounded animation and an in-header opt-out', () => {
+  let destination;
+  const props = { header: festiveHeader({ height: 220, background: '#123b5c', text: '#ffffff' }), effect: liveEffect, now: Date.now(), onNavigate: d => { destination = d; } };
+  const h = browserHarness(Festive.FestiveHeader, props, {});
+  try {
+    assert.equal(h.tree.type, 'section'); assert.equal(h.tree.props.className, 'sf-festive');
+    assert.equal(h.tree.props.style['--sf-festive-height'], '220px'); assert.equal(h.tree.props.style['--sf-festive-bg'], '#123b5c');
+    assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'lights');
+    assert.ok(h.find(n => n.type === DecorationToggle));
+    assert.match(text(h.tree), /Festive Sale/); assert.match(text(h.tree), /Lights, gifts and more/);
+    h.find(n => n.type === 'button' && n.props.className === 'sf-cta').props.onClick(); assert.deepEqual(destination, { type: 'NAV', id: 'categories' });
+    props.effect = null; props.header = festiveHeader({ target: 'none', cta: '' }); h.rerender();
+    assert.equal(h.find(n => n.type === DecorationToggle), undefined); assert.equal(h.find(n => n.props?.className === 'sf-cta'), undefined);
+    props.preview = true; props.effect = liveEffect; h.rerender(); assert.equal(h.find(n => n.type === DecorationToggle), undefined, 'Preview has no customer opt-out');
+  } finally { h.close(); }
+});
+test('countdown follows persisted sale dates before, during and after the sale and never goes negative', () => {
+  const start = Date.parse('2030-11-01T00:00:00+05:30'), end = Date.parse('2030-11-03T00:00:00+05:30');
+  const c = { ...policy.DEFAULT_COUNTDOWN, enabled: true, title: 'Big Sale', startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() };
+  assert.deepEqual(policy.countdownState(c, start - 90061000), { phase: 'before', target: start, remaining: 90061000 });
+  assert.deepEqual(policy.countdownParts(90061000), { days: 1, hours: 1, minutes: 1, seconds: 1 });
+  assert.equal(policy.countdownState(c, start).phase, 'during'); assert.equal(policy.countdownState(c, end - 1).remaining, 1);
+  assert.equal(policy.countdownState(c, end).phase, 'after'); assert.equal(policy.countdownState({ ...c, showRemaining: false }, start + 1).phase, 'live');
+  assert.equal(policy.countdownState({ ...c, enabled: false }, start).phase, 'off');
+  assert.deepEqual(policy.countdownParts(-5000), { days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const render = now => { const h = browserHarness(Festive.FestiveCountdown, { countdown: c, now }, {}); try { return h.tree ? text(h.tree) : null; } finally { h.close(); } };
+  assert.match(render(start - 3723000), /Big Sale · Starts in.*01.*:.*02.*:.*03/);
+  assert.match(render(end - 59000), /Ends in.*00.*:.*00.*:.*59/);
+  assert.equal(render(end), null, 'Expired countdown hides by default');
+  const h = browserHarness(Festive.FestiveCountdown, { countdown: { ...c, expiredText: 'Sale ended — thank you!' }, now: end + 1 }, {});
+  try { assert.match(text(h.tree), /Sale ended/); } finally { h.close(); }
+});
+test('the page effect is hosted once: by the festive header when published, otherwise inside the hero', () => {
+  const context = { banners: [banner], device: 'mobile', loading: false, now: Date.now(), effect: liveEffect, theme: { tokens: policy.DEFAULT_TOKENS } };
+  const h = browserHarness(Hero, {}, context);
+  try {
+    const art = h.find(n => n.props?.className === 'sf-hero-art');
+    assert.equal(art.props.children.find(n => n?.type === Celebration).props.effect.preset, 'lights');
+    context.theme = { tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }; h.rerender();
+    assert.equal(h.find(n => n.type === Celebration).props.effect, null, 'Festive header owns the page effect');
+    context.banners = [{ ...banner, animation: { ...liveEffect, preset: 'petals', scope: 'banner' } }]; h.rerender();
+    assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'petals', 'Banner-scoped effects stay on their banner');
+  } finally { h.close(); }
+  const connected = browserHarness(Festive.default, {}, { theme: { tokens: policy.DEFAULT_TOKENS }, effect: liveEffect, now: Date.now() });
+  try { assert.equal(connected.tree, null, 'No festive header without published configuration'); } finally { connected.close(); }
+});
+const labelText = tree => { const out = []; const walk = n => { if (!n || typeof n !== 'object') return; if (n.type === 'label') out.push(text(n)); [n.props?.children].flat(Infinity).forEach(walk); }; walk(tree); return out.join('|'); };
+test('admin effect fields show only settings relevant to the selected animation', () => {
+  const props = { value: { ...DEFAULT_EFFECT, enabled: true, preset: 'petals' }, onChange: next => { props.value = next; } }, h = browserHarness(EffectFields, props, {});
+  try {
+    for (const label of [/Drift direction/, /Intensity/, /Particle quantity/, /Particle size/, /Reduced-motion fallback/]) assert.match(labelText(h.tree), label);
+    h.find(n => n.type === 'select' && n.props.value === 'petals').props.onChange({ target: { value: 'fireworks' } }); h.rerender();
+    assert.equal(props.value.preset, 'fireworks'); assert.deepEqual(props.value.colors, ['#FFD45A', '#FF6B6B', '#7FDBFF']);
+    assert.doesNotMatch(labelText(h.tree), /Drift direction/); assert.match(labelText(h.tree), /Sparks per burst/);
+    h.find(n => n.type === 'select' && n.props.value === 'fireworks').props.onChange({ target: { value: 'none' } }); h.rerender();
+    assert.equal(props.value.enabled, false); assert.doesNotMatch(labelText(h.tree), /Intensity|Speed|Opacity/);
+  } finally { h.close(); }
+});
+test('admin header fields store IST sale dates and only reveal countdown settings when enabled', () => {
+  const props = { value: festiveHeader(), onChange: next => { props.value = next; }, deals: [{ _id: '507f1f77bcf86cd799439099', name: 'Diwali deal' }] }, h = browserHarness(HeaderFields, props, {});
+  try {
+    assert.doesNotMatch(labelText(h.tree), /Sale start/);
+    h.find(n => n.type === 'input' && n.props.type === 'checkbox' && n.props.checked === false).props.onChange({ target: { checked: true } }); h.rerender();
+    assert.equal(props.value.countdown.enabled, true); assert.match(labelText(h.tree), /Sale start · IST/);
+    h.find(n => n.type === 'input' && n.props.type === 'datetime-local').props.onChange({ target: { value: '2030-11-01T09:30' } }); h.rerender();
+    assert.equal(props.value.countdown.startAt, '2030-11-01T04:00:00.000Z');
+    h.find(n => n.type === 'select').props.onChange({ target: { value: 'campaign' } }); h.rerender();
+    assert.match(labelText(h.tree), /Diwali deal/);
+  } finally { h.close(); }
+});
+
+// Safe draft editing in Storefront Studio.
+const liveTheme = () => {
+  const base = { kind: 'theme', name: 'Live theme', description: '', scope: 'global', device: 'all', priority: 0, order: 0, startAt: null, endAt: null, timezone: 'Asia/Kolkata' };
+  const config = title => ({ preset: 'Diwali Celebration', application: 'storefront', categoryTiles: [], tokens: policy.PRESETS['Diwali Celebration'], header: festiveHeader({ title }), animation: liveEffect });
+  return { ...base, _id: '507f1f77bcf86cd799439031', status: 'published', lifecycle: 'active', revision: 4, canRollback: true, config: config('Live title'),
+    draft: { revision: 2, stale: false, savedAt: new Date().toISOString(), values: { ...base, name: 'Live theme (draft)', config: config('Draft title') } } };
+};
+async function studioWithRows(rows, extra = {}) {
+  const toasts = [], h = browserHarness(Studio.default, {}, { triggerToast: m => toasts.push(m), setActiveTab() {}, ...extra });
+  await new Promise(r => setTimeout(r, 260)); h.flush();
+  h.requests[0].resolve({ data: rows, meta: { pages: 1 } }); await h.settle();
+  return { h, toasts };
+}
+test('studio opens the saved draft of a live theme, previews it with the real festive header and saves with its draft revision', async () => {
+  const row = liveTheme(), { h, toasts } = await studioWithRows([row]);
+  try {
+    assert.match(text(h.tree), /Unpublished draft saved .*Customers still see the live version/);
+    h.click('Edit draft & preview');
+    for (const request of h.requests.filter(r => !r.settled)) request.resolve({ data: [] }); await h.settle();
+    assert.equal(h.find(n => n.type === Festive.FestiveHeader).props.header.title, 'Draft title');
+    assert.equal(h.find(n => n.props?.label === 'Name').props.children.props.value, 'Live theme (draft)');
+    assert.match(text(h.tree), /Editing the saved draft\.\s+The\s+live\s+version stays unchanged until you publish this draft/);
+    const pending = h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
+    const patch = h.requests.find(r => r.options.method === 'PATCH'), body = JSON.parse(patch.options.body);
+    assert.equal(body.revision, 4); assert.equal(body.draftRevision, 2); assert.equal(body.config.header.title, 'Draft title');
+    patch.resolve({ data: { ...row, draft: { ...row.draft, revision: 3 } } }); await pending; await h.settle();
+    assert.deepEqual(toasts, ['Draft saved. The live version is unchanged until you publish this draft.']);
+    assert.equal(h.requests.some(r => r.options.method === 'POST'), false, 'Saving a draft never publishes');
+  } finally { h.close(); }
+});
+test('studio publishes a live draft with both revisions and discards a draft without publishing', async () => {
+  const row = liveTheme();
+  let { h } = await studioWithRows([row]);
+  try {
+    h.click('Publish draft'); await h.settle();
+    const publish = h.requests.find(r => r.options.method === 'POST');
+    assert.match(publish.url, /\/storefront\/507f1f77bcf86cd799439031\/actions\/publish$/); assert.deepEqual(JSON.parse(publish.options.body), { revision: 4, draftRevision: 2 });
+    publish.resolve({ data: { ...row, draft: null, revision: 5 } }); await h.settle();
+  } finally { h.close(); }
+  ({ h } = await studioWithRows([row]));
+  try {
+    h.click('Discard draft'); await h.settle();
+    const discard = h.requests.find(r => r.options.method === 'POST');
+    assert.match(discard.url, /\/actions\/discard$/); assert.deepEqual(JSON.parse(discard.options.body), { revision: 4, draftRevision: 2 });
+  } finally { h.close(); }
+  const paused = { ...row, status: 'paused', lifecycle: 'paused' };
+  ({ h } = await studioWithRows([paused]));
+  try { assert.ok(h.find(n => n.type === 'button' && n.props.children === 'Publish draft')); assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Pause'), undefined); } finally { h.close(); }
+  const stale = { ...row, draft: { ...row.draft, stale: true } };
+  ({ h } = await studioWithRows([stale]));
+  try {
+    assert.match(text(h.tree), /live version changed since; open, review and save it before publishing/);
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Publish draft').props.disabled, true);
+  } finally { h.close(); }
 });

@@ -390,6 +390,9 @@ const orderSchema = new Schema(
 
     fulfillment: {
       requestedRiderId: { type: ObjectId, ref: 'DeliveryPartner' },
+      // Set once the requested rider has been pushed the acceptable offer, so
+      // repeated broadcasts for the same request do not ring them again.
+      requestedRiderNotifiedAt: Date,
       readyAt: Date,
       assignmentPolicy: { type: String, enum: ['seller_after_acceptance'] },
       method: { type: String, enum: ["manual", "shiprocket", "third_party"] },

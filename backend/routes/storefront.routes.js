@@ -36,7 +36,7 @@ storefrontAdminRouter.patch('/:id', asyncHandler(async (req, res) => {
   if (!objectId(req.params.id)) throw httpError(400, 'Invalid configuration ID');
   return ok(res, adminDTO(await saveExperience(req.params.id, req.body, req.user._id)));
 }));
-storefrontAdminRouter.post('/:id/actions/:action', asyncHandler(async (req, res) => ok(res, adminDTO(await transitionExperience(req.params.id, req.params.action, req.body.revision, req.user._id)))));
+storefrontAdminRouter.post('/:id/actions/:action', asyncHandler(async (req, res) => ok(res, adminDTO(await transitionExperience(req.params.id, req.params.action, req.body.revision, req.user._id, req.body.draftRevision)))));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => {
   const extensions = { 'image/jpeg': /\.jpe?g$/i, 'image/png': /\.png$/i, 'image/webp': /\.webp$/i, 'video/mp4': /\.mp4$/i, 'video/webm': /\.webm$/i };
   cb(extensions[file.mimetype]?.test(file.originalname) ? null : httpError(400, 'Use JPEG, PNG, WebP, MP4 or WebM with a matching extension'), true);

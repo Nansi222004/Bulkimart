@@ -374,7 +374,7 @@ export const BannersTab = () => {
                 <div><button type="button" onClick={() => setPreview('mobile')}>Mobile preview</button><button type="button" onClick={() => setPreview('desktop')}>Desktop preview</button></div>
                 <div style={{ position: 'relative', width: preview === 'mobile' ? 'min(300px, 100%)' : '100%', overflow: 'hidden' }} className="studio-preview">
                   <StorefrontMedia banner={{ ...form, image: form.imageUrl }} device={preview} eager />
-                  <Celebration effect={form.animation ? { ...form.animation, startAt: null, endAt: null } : undefined} contained preview />
+                  <Celebration effect={form.animation ? { ...form.animation, startAt: null, endAt: null } : undefined} preview />
                   <h3>{form.title}</h3><p>{form.subtitle}</p><span>{form.cta}</span>
                 </div>
                 <label style={fieldLabel}>Subtitle<input style={fieldInput} value={form.subtitle} maxLength={300} onChange={e => setForm(f => ({ ...f, subtitle: e.target.value }))} /></label>

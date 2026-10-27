@@ -1,11 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Bell } from 'lucide-react';
 import ModalPortal from '../../../components/ModalPortal';
 import NotificationPopup from '../../../components/NotificationPopup';
 import { useNotifications } from '../../../utils/useNotifications';
 import { socket } from '../../../utils/socket';
 
-export default function DeliveryNotifications({ onNavigate }) {
+// One inbox owner per rider shell; each screen's own header renders the bell,
+// so the trigger always sits inside the header instead of a detached row above it.
+const InboxContext = createContext(null);
+export function DeliveryNotificationBell() {
+  const inbox = useContext(InboxContext);
+  if (!inbox) return null;
+  const count = inbox.unreadCount > 99 ? '99+' : inbox.unreadCount;
+  return <button type="button" className="delivery-notification-bell" aria-label="Delivery notifications" aria-describedby={inbox.unreadCount > 0 ? 'delivery-unread-count' : undefined} aria-expanded={inbox.open} onClick={inbox.show}>
+    <Bell size={20} aria-hidden="true" />{inbox.unreadCount > 0 && <span id="delivery-unread-count">{count}<span className="delivery-visually-hidden"> unread</span></span>}
+  </button>;
+}
+export default function DeliveryNotifications({ onNavigate, children }) {
   const [open, setOpen] = useState(false);
   const { notifications, unreadCount, loading, error, actionPending, fetchNotifications, fetchUnreadCount, markRead } = useNotifications({ autoFetch: open });
   useEffect(() => {
@@ -18,10 +29,8 @@ export default function DeliveryNotifications({ onNavigate }) {
     if (!/^\/delivery\/(dashboard|earnings|history|returns|profile|support|parcels)(?:[?#]|$)/.test(route || '')) return;
     setOpen(false); onNavigate(route);
   };
-  return <>
-    <div className="delivery-notification-toolbar"><button type="button" aria-label="Delivery notifications" aria-expanded={open} onClick={() => setOpen(true)}>
-      <Bell size={18} aria-hidden="true" /> Notifications{unreadCount > 0 && <span>{unreadCount}</span>}
-    </button></div>
+  return <InboxContext.Provider value={{ open, unreadCount, show: () => setOpen(true) }}>
+    {children}
     <NotificationPopup audience="rider" onNavigate={navigate} />
     {open && <ModalPortal className="delivery-notifications-overlay" role="dialog" aria-modal="true" aria-label="Delivery notifications">
       <section className="delivery-notifications-sheet">
@@ -36,5 +45,5 @@ export default function DeliveryNotifications({ onNavigate }) {
         </button>)}
       </section>
     </ModalPortal>}
-  </>;
+  </InboxContext.Provider>;
 }

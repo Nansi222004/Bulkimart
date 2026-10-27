@@ -17,8 +17,8 @@ import Category from '../models/Category.js';
 import Admin from '../models/Admin.js';
 import User from '../models/User.js';
 import { signSessionToken } from '../config/jwt.js';
-import { DEFAULT_TOKENS, PRESETS, lifecycle } from '../shared/storefront.mjs';
-import { validateTokens, validateExperience } from '../services/storefrontPolicy.service.js';
+import { DEFAULT_TOKENS, PRESETS, PRESET_EFFECTS, DEFAULT_HEADER, DEFAULT_COUNTDOWN, lifecycle } from '../shared/storefront.mjs';
+import { validateTokens, validateExperience, validateHeader } from '../services/storefrontPolicy.service.js';
 import { resolveExperience } from '../services/storefront.service.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { DEFAULT_EFFECT, EFFECT_PRESETS } from '../shared/celebration.mjs';
@@ -32,7 +32,7 @@ const theme = extra => ({ kind: 'theme', name: 'Seasonal theme', description: 'P
 const promo = extra => ({ kind: 'campaign', name: 'Launch campaign', scope: 'global', config: { placement: 'splash', bannerId: String(banner._id), frequency: 'session', duration: 5 }, ...extra });
 const send = (method, path, body, auth = admin) => { const req = request(app)[method](path); if (auth) req.set('Authorization', `Bearer ${auth}`); return body ? req.send(body) : req; };
 const create = async payload => (await send('post', '/api/admin/storefront', payload).expect(201)).body.data;
-const transition = async (row, action = 'publish', expected = 200) => (await send('post', `/api/admin/storefront/${row._id}/actions/${action}`, { revision: row.revision }).expect(expected)).body;
+const transition = async (row, action = 'publish', expected = 200) => (await send('post', `/api/admin/storefront/${row._id}/actions/${action}`, { revision: row.revision, draftRevision: row.draft?.revision }).expect(expected)).body;
 const publicRead = async () => (await request(app).get('/api/storefront/experience?scope=quick&device=mobile').expect(200)).body.data;
 beforeAll(async () => {
   db = await MongoMemoryServer.create({ binary: { version: '7.0.14' } }); await mongoose.connect(db.getUri());
@@ -96,7 +96,9 @@ test('campaign effects rank deterministically and disappear with their banner or
   const high = await create(promo({ priority: 2, config: { placement: 'hero', bannerId: String(banner._id), animation: { ...DEFAULT_EFFECT, enabled: true, preset: 'snowfall' } } }));
   await transition(low); const published = (await transition(high)).data;
   const live = await publicRead(); expect(live.animations.map(e => e.id)).toEqual([high._id, low._id]);
-  await send('patch', `/api/admin/storefront/${high._id}`, { ...published, config: { ...published.config, animation: { ...published.config.animation, enabled: false } } }).expect(200);
+  const edited = (await send('patch', `/api/admin/storefront/${high._id}`, { ...published, config: { ...published.config, animation: { ...published.config.animation, enabled: false } } }).expect(200)).body.data;
+  expect((await publicRead()).animations.map(e => e.id)).toEqual([high._id, low._id]); // draft edit leaves live effect
+  await transition(edited);
   expect((await publicRead()).animations.map(e => e.id)).toEqual([low._id]);
   await Banner.updateOne({ _id: banner._id }, { isActive: false });
   expect((await publicRead()).animations).toEqual([]);
@@ -189,8 +191,9 @@ test('theme CRUD, draft isolation, publication, revision and private field proje
   row = (await transition(row)).data; expect((await publicRead()).theme.id).toBe(row._id);
   const payload = await publicRead(); expect(JSON.stringify(payload)).not.toMatch(/Private planning|createdBy|history|updatedBy|description/);
   row = (await send('patch', `/api/admin/storefront/${row._id}`, { ...theme({ name: 'Edited' }), revision: row.revision }).expect(200)).body.data;
-  expect(row.status).toBe('draft'); expect((await publicRead()).theme.id).toBeUndefined();
-  await transition(row); expect((await publicRead()).theme.id).toBe(row._id);
+  expect(row.status).toBe('published'); expect(row.draft.values.name).toBe('Edited'); expect((await publicRead()).theme.id).toBe(row._id);
+  expect(JSON.stringify(await publicRead())).not.toMatch(/Edited|draft/);
+  row = (await transition(row)).data; expect(row.name).toBe('Edited'); expect(row.draft).toBeNull(); expect((await publicRead()).theme.id).toBe(row._id);
 });
 test.each(['draft', 'paused', 'archived'])('%s never appears publicly', async status => {
   const row = await create(promo()); if (status !== 'draft') { const published = (await transition(row)).data; await transition(published, status === 'paused' ? 'pause' : 'archive'); }
@@ -379,4 +382,169 @@ test('archived banners can be restored as drafts without becoming public', async
 test('legacy grocery and garment destinations keep supported navigation', async () => {
   await Banner.collection.insertOne({ title: 'Legacy grocery', image: banner.image, type: 'grocery', targetRoute: '/grocery', isActive: true });
   expect((await publicRead()).banners[0].destination).toEqual({ type: 'SUBNAV', id: 'groceries' });
+});
+
+// Festive header and animation presets: closed vocabulary, draft isolation and public projection.
+const festive = (header = {}) => theme({ config: { preset: 'Diwali Celebration', tokens: PRESETS['Diwali Celebration'], header: { ...DEFAULT_HEADER, enabled: true, title: 'Festive Sale', subtitle: 'Lights and gifts', ...header },
+  animation: { ...DEFAULT_EFFECT, enabled: true, preset: 'lights', scope: 'homepage', intensity: 'high', size: 1.5, duration: 0, reducedMotion: 'static' } } });
+test.each([
+  [{ title: '' }], [{ title: 'x'.repeat(61) }], [{ background: '#ffffff', text: '#eeeeee' }], [{ height: 1000 }], [{ height: 80 }],
+  [{ image: 'http://insecure.test/art.png' }], [{ image: 'https://cdn.test/art.svg' }], [{ image: 'javascript:alert(1)' }],
+  [{ target: 'campaign' }], [{ target: 'categories', cta: '' }], [{ target: 'https://evil.test' }], [{ html: '<script>alert(1)</script>' }],
+  [{ countdown: { enabled: true } }], [{ countdown: { enabled: true, endAt: '2030-01-01T00:00' } }], [{ countdown: { enabled: true, onExpire: 'alert(1)', endAt: '2030-01-01T00:00:00Z' } }],
+  [{ countdown: { enabled: true, startAt: '2030-01-02T00:00:00Z', endAt: '2030-01-01T00:00:00Z' } }],
+])('festive header rejects %j', async header => { await send('post', '/api/admin/storefront', festive(header)).expect(400); });
+test.each([{ intensity: 'extreme' }, { size: 3 }, { size: 0.1 }, { direction: 'up' }, { reducedMotion: 'flash' }, { duration: -1 }, { preset: 'lasers' }])('festive animation rejects %j', async patch => {
+  const payload = festive(); payload.config.animation = { ...payload.config.animation, ...patch };
+  await send('post', '/api/admin/storefront', payload).expect(400);
+});
+test('festive header and animation persist as a draft, publish publicly, and roll back with the theme', async () => {
+  const countdown = { ...DEFAULT_COUNTDOWN, enabled: true, title: 'Diwali Sale', startAt: '2030-11-01T00:00:00+05:30', endAt: '2030-11-03T00:00:00+05:30', expiredText: 'See you next year' };
+  let row = await create(festive({ height: 240, target: 'categories', cta: 'Shop now', image: 'https://cdn.fixture.test/diya.webp', countdown }));
+  expect(row.config.header).toMatchObject({ enabled: true, height: 240, target: 'categories', countdown: { enabled: true, showRemaining: true } });
+  expect(row.config.animation).toMatchObject({ preset: 'lights', intensity: 'high', size: 1.5, duration: 0, reducedMotion: 'static', direction: 'down' });
+  expect((await publicRead()).theme.header).toBeUndefined(); // draft is Admin-only
+  row = (await transition(row)).data;
+  const published = await publicRead();
+  expect(published.theme.header).toEqual(row.config.header);
+  expect(published.animations).toEqual([expect.objectContaining({ preset: 'lights', intensity: 'high', scope: 'homepage' })]);
+  expect(JSON.stringify(published)).not.toMatch(/Private planning|history|createdBy/);
+  // Editing a live theme saves a draft copy; the live header stays until the draft is published.
+  row = (await send('patch', `/api/admin/storefront/${row._id}`, { ...festive({ title: 'Winter Sale', countdown }), revision: row.revision }).expect(200)).body.data;
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+  row = (await transition(row)).data; expect((await publicRead()).theme.header.title).toBe('Winter Sale');
+  await transition(row, 'rollback'); expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+});
+test('legacy themes without a header resolve to a disabled default header', async () => {
+  await Experience.collection.insertOne({ kind: 'theme', name: 'Legacy', status: 'published', scope: 'global', device: 'all', priority: 0, order: 0, revision: 1, timezone: 'Asia/Kolkata', config: { preset: 'Default Bulkimart', tokens: DEFAULT_TOKENS } });
+  const data = await publicRead();
+  expect(data.theme.header).toEqual(DEFAULT_HEADER); expect(data.animations).toEqual([]);
+});
+test('a header button to an unavailable deal blocks publication and is dropped publicly if the deal later ends', async () => {
+  const missing = await create(festive({ target: 'campaign', cta: 'Shop deal', campaignId: String(id()) }));
+  await transition(missing, 'publish', 400);
+  const deal = await Campaign.collection.insertOne({ name: 'Live deal', isEnabled: true, isDraft: false, startAt: new Date(Date.now() - 60000), endAt: new Date(Date.now() + 3600000), discountValue: 10 });
+  const row = (await transition(await create(festive({ target: 'campaign', cta: 'Shop deal', campaignId: String(deal.insertedId) })))).data;
+  expect((await publicRead()).theme.header).toMatchObject({ target: 'campaign', campaignId: String(deal.insertedId) });
+  await Campaign.collection.updateOne({ _id: deal.insertedId }, { $set: { isEnabled: false } });
+  expect((await publicRead()).theme.header).toMatchObject({ target: 'none', campaignId: '' });
+  expect(row.status).toBe('published');
+});
+test('festive presets suggest valid animations and ship contrast-valid header colours', () => {
+  for (const [name, preset] of Object.entries(PRESET_EFFECTS)) {
+    expect(EFFECT_PRESETS).toContain(preset);
+    const tokens = PRESETS[name]; expect(() => validateTokens(tokens)).not.toThrow();
+    expect(() => validateHeader({ ...DEFAULT_HEADER, enabled: true, title: name, background: tokens.header, text: tokens.headerText })).not.toThrow();
+  }
+});
+
+// Safe draft editing: a published record keeps its live version until its draft is published.
+const live = async (header = {}) => (await transition(await create(festive(header)))).data;
+const saveDraft = async (row, header, extra = {}, expected = 200) => (await send('patch', `/api/admin/storefront/${row._id}`, { ...festive(header), revision: row.revision, draftRevision: row.draft?.revision, ...extra }).expect(expected)).body.data;
+test('editing a live theme saves a reloadable draft and leaves the public payload byte-identical', async () => {
+  const row = await live();
+  const before = await publicRead();
+  const draft = await saveDraft(row, { title: 'Winter Sale' }, { name: 'Winter edit' });
+  expect(draft).toMatchObject({ status: 'published', revision: row.revision, name: 'Seasonal theme', draft: { revision: 1, stale: false, values: { name: 'Winter edit' } } });
+  expect(draft.draft.values.config.header.title).toBe('Winter Sale');
+  const after = await publicRead();
+  expect({ ...after, serverTime: 0, validUntil: 0 }).toEqual({ ...before, serverTime: 0, validUntil: 0 });
+  // Reload: the admin list returns the saved draft beside the unchanged live fields.
+  const listed = (await send('get', '/api/admin/storefront?kind=theme').expect(200)).body.data.find(r => r._id === row._id);
+  expect(listed.config.header.title).toBe('Festive Sale'); expect(listed.draft.values.config.header.title).toBe('Winter Sale');
+  expect(JSON.stringify(after)).not.toMatch(/Winter/);
+  // Stored live fields are untouched in the database too.
+  const stored = await Experience.findById(row._id).lean();
+  expect(stored.config.header.title).toBe('Festive Sale'); expect(stored.revision).toBe(row.revision);
+});
+test('publishing the draft swaps it in atomically, bumps the public revision, records history and clears the draft', async () => {
+  const row = await live();
+  const draft = await saveDraft(row, { title: 'Winter Sale' });
+  const published = (await transition(draft)).data;
+  expect(published).toMatchObject({ status: 'published', revision: row.revision + 1, draft: null, canRollback: true });
+  expect((await publicRead()).theme.header.title).toBe('Winter Sale');
+  expect((await Experience.findById(row._id).select('+history').lean()).history.map(h => h.config.header.title)).toEqual(['Festive Sale', 'Winter Sale']);
+});
+test('cancelling a draft discards it without touching the live version or its revision', async () => {
+  const row = await live(); const version = (await publicRead()).version;
+  const draft = await saveDraft(row, { title: 'Abandoned' });
+  const discarded = (await send('post', `/api/admin/storefront/${row._id}/actions/discard`, { revision: draft.revision, draftRevision: draft.draft.revision }).expect(200)).body.data;
+  expect(discarded).toMatchObject({ draft: null, revision: row.revision, status: 'published' });
+  expect((await publicRead()).version).toBe(version);
+  await send('post', `/api/admin/storefront/${row._id}/actions/discard`, { revision: discarded.revision }).expect(400);
+});
+test('stale draft saves, stale publishes and stale discards are rejected with 409', async () => {
+  const row = await live();
+  const first = await saveDraft(row, { title: 'Editor A' });
+  await saveDraft(row, { title: 'Editor B' }, {}, 409); // B opened before A saved (no draftRevision)
+  const second = await saveDraft(first, { title: 'Editor A again' });
+  expect(second.draft.revision).toBe(2);
+  await send('post', `/api/admin/storefront/${row._id}/actions/publish`, { revision: row.revision, draftRevision: 1 }).expect(409);
+  await send('post', `/api/admin/storefront/${row._id}/actions/discard`, { revision: row.revision, draftRevision: 1 }).expect(409);
+  await send('post', `/api/admin/storefront/${row._id}/actions/publish`, { revision: row.revision - 1, draftRevision: 2 }).expect(409);
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+  // Two publishes of the same draft: the second is stale.
+  await transition(second); await send('post', `/api/admin/storefront/${row._id}/actions/publish`, { revision: second.revision, draftRevision: 2 }).expect(409);
+  expect((await publicRead()).theme.header.title).toBe('Editor A again');
+});
+test('a draft cannot overwrite a live version that changed after it was saved (rollback), until it is re-saved', async () => {
+  let row = await live();
+  row = (await transition(await saveDraft(row, { title: 'Second' }))).data; // live: Second
+  const draft = await saveDraft(row, { title: 'Third' });
+  const rolled = (await transition(draft, 'rollback')).data; // live: Festive Sale, draft kept
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+  expect(rolled.draft).toMatchObject({ revision: 1, stale: true });
+  await send('post', `/api/admin/storefront/${row._id}/actions/publish`, { revision: rolled.revision, draftRevision: 1 }).expect(409);
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+  const reviewed = await saveDraft(rolled, { title: 'Third' });
+  expect(reviewed.draft).toMatchObject({ revision: 2, stale: false });
+  await transition(reviewed); expect((await publicRead()).theme.header.title).toBe('Third');
+});
+test('invalid or expired drafts fail publication and leave the live version intact', async () => {
+  const row = await live();
+  await saveDraft(row, { title: '' }, {}, 400); // validated on save, nothing stored
+  expect((await Experience.findById(row._id).lean()).draft).toBeUndefined();
+  const expired = await saveDraft(row, {}, { startAt: '2020-01-01T00:00:00Z', endAt: '2020-01-02T00:00:00Z' });
+  await send('post', `/api/admin/storefront/${row._id}/actions/publish`, { revision: expired.revision, draftRevision: 1 }).expect(400);
+  const stored = await Experience.findById(row._id).lean();
+  expect(stored).toMatchObject({ status: 'published', revision: row.revision, endAt: null }); expect(stored.draft.revision).toBe(1);
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+});
+test('a scheduled draft keeps the current live version until published, then follows its schedule', async () => {
+  const row = await live();
+  const start = new Date(Date.now() + 3600000).toISOString();
+  const draft = await saveDraft(row, { title: 'Tomorrow' }, { startAt: start });
+  expect((await publicRead()).theme.header.title).toBe('Festive Sale');
+  const scheduled = (await transition(draft)).data;
+  expect(scheduled.lifecycle).toBe('scheduled'); expect(new Date(scheduled.startAt).toISOString()).toBe(start);
+  expect((await resolveExperience('quick', 'mobile', '', Date.parse(start) + 1000)).theme.header.title).toBe('Tomorrow');
+});
+test('pause, resume and archive keep a pending draft; publishing a paused record publishes its draft', async () => {
+  const row = await live();
+  const draft = await saveDraft(row, { title: 'After pause' });
+  const paused = (await transition(draft, 'pause')).data;
+  expect(paused.draft).toMatchObject({ revision: 1, stale: false }); expect((await publicRead()).theme.header).toBeUndefined();
+  const pausedEdit = await saveDraft(paused, { title: 'Edited while paused' });
+  expect(pausedEdit.status).toBe('paused');
+  await transition(pausedEdit); expect((await publicRead()).theme.header.title).toBe('Edited while paused');
+  const second = await saveDraft((await send('get', '/api/admin/storefront?kind=theme').expect(200)).body.data[0], { title: 'Kept on archive' });
+  const archived = (await transition(second, 'archive')).data;
+  expect(archived.draft.revision).toBe(1); expect((await publicRead()).theme.header).toBeUndefined();
+});
+test('draft saves on a live splash campaign do not change its public revision (no repeat splash)', async () => {
+  const row = (await transition(await create(promo()))).data;
+  const before = (await request(app).get('/api/storefront/experience?scope=quick&device=mobile').expect(200)).body.data.splash;
+  await send('patch', `/api/admin/storefront/${row._id}`, { ...promo({ name: 'Renamed' }), revision: row.revision }).expect(200);
+  const after = (await request(app).get('/api/storefront/experience?scope=quick&device=mobile').expect(200)).body.data.splash;
+  expect(after.revision).toBe(before.revision); expect(after.name).toBe(before.name);
+});
+test('never-published drafts and legacy published records keep their existing behavior', async () => {
+  const draftOnly = await create(festive());
+  const edited = (await send('patch', `/api/admin/storefront/${draftOnly._id}`, { ...festive({ title: 'In place' }), revision: draftOnly.revision }).expect(200)).body.data;
+  expect(edited).toMatchObject({ status: 'draft', revision: draftOnly.revision + 1, draft: null }); expect(edited.config.header.title).toBe('In place');
+  const legacy = await Experience.collection.insertOne({ kind: 'theme', name: 'Legacy live', status: 'published', scope: 'global', device: 'all', priority: 0, order: 0, revision: 3, timezone: 'Asia/Kolkata', config: { preset: 'Default Bulkimart', tokens: DEFAULT_TOKENS }, history: [] });
+  expect((await publicRead()).theme.id).toBe(String(legacy.insertedId));
+  const legacyDraft = (await send('patch', `/api/admin/storefront/${legacy.insertedId}`, { ...festive(), revision: 3 }).expect(200)).body.data;
+  expect(legacyDraft).toMatchObject({ revision: 3, draft: { revision: 1, stale: false } }); expect((await publicRead()).theme.header).toEqual(DEFAULT_HEADER);
+  await transition(legacyDraft); expect((await publicRead()).theme.header.title).toBe('Festive Sale');
 });

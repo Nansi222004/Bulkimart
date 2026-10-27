@@ -14,6 +14,7 @@ import Payment from '../models/Payment.js';
 import Snapshot from '../models/QuickCommerceFinancialSnapshot.js';
 import { requireVerifiedQuickCollection } from '../services/quickShiprocketCollection.service.js';
 import { riderIneligibility } from '../services/riderEligibility.service.js';
+import { notifyRider, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
 import { riderCodCashBalances, riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
 import { RIDER_COD_CASH_LIMIT } from '../shared/deliveryCash.mjs';
@@ -218,12 +219,22 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
   }, { $set: {
     deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': 'seller',
     'fulfillment.selectedAt': new Date(), 'fulfillment.chargeStatus': 'not_applicable',
-    'fulfillment.requestedRiderId': riderId || null, needsManualAssignment: false,
+    'fulfillment.requestedRiderId': riderId || null, 'fulfillment.requestedRiderNotifiedAt': null, needsManualAssignment: false,
   }, $push: { timeline: { status: order.status, timestamp: new Date(), note: riderId ? 'Seller requested a delivery partner; awaiting rider acceptance' : 'Seller selected manual delivery; riders accept after the parcel is offered' } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
   if (!updated) throw httpError(409, 'Order changed or a courier shipment is already being set up. Refresh before choosing delivery.');
   if (updated.status === ORDER_STATUS.DISPATCHED) {
+    // The broadcast pushes the requested rider an acceptable offer.
     const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
     broadcastNewOrderToRiders(updated._id).catch(console.error);
+  } else if (riderId) {
+    // Not offerable until dispatch, but the rider should know the job is theirs now.
+    notifyRider(riderId, {
+      event: NOTIFICATION_EVENT.RIDER_REQUESTED,
+      title: `New delivery assigned by ${seller.storeDetails?.name || seller.businessName || 'a store'}`,
+      message: `Order ${updated.orderNo} is assigned to you. You will be asked to accept it as soon as the parcel is ready for pickup.`,
+      metadata: { orderId: updated._id },
+      route: '/delivery/dashboard',
+    }).catch(e => console.error('[NOTIFICATION] notifyRider (requested) failed:', e.message));
   }
   return ok(res, { deliveryType: updated.deliveryType, fulfillment: updated.fulfillment }, 'Manual Bulkimart delivery selected');
 });

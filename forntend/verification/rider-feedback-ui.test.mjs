@@ -81,7 +81,8 @@ test('rider inbox restores a missed cash settlement and opens earnings using the
   const navigated = [];
   const h = hookHarness(Inbox, { onNavigate: route => navigated.push(route) }, '/delivery/dashboard');
   try {
-    h.find(node => node.props['aria-label'] === 'Delivery notifications').props.onClick(); h.flush();
+    // The bell lives in each screen's header; the inbox exposes its open action to it.
+    h.find(node => node.props?.value?.show).props.value.show(); h.flush();
     const request = h.requests.find(row => row.url.includes('/api/notifications?page='));
     assert.equal(request.options.headers.Authorization, 'Bearer fixture-only-token');
     request.resolve({ data: [{ _id: 'settled', title: 'COD cash settled', message: 'Your cash has been received.', route: '/delivery/earnings', isRead: true, createdAt: '2026-10-27T08:00:00Z' }] });

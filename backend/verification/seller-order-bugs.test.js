@@ -5,7 +5,8 @@ const notifications = await import('../services/notification.service.js');
 jest.unstable_mockModule('../services/notification.service.js', () => ({ ...notifications, notifyUser: jest.fn(async () => {}), notifySeller: jest.fn(async () => {}), notifyRider: jest.fn(async () => {}), notifyAllAdmins: jest.fn(async () => {}) }));
 jest.unstable_mockModule('../socket/rooms.js', () => ({ emitToUser: jest.fn(), emitToSeller: jest.fn(), emitToRider: jest.fn(), emitToAdmin: jest.fn() }));
 const { getFulfillmentOptions, selectManualFulfillment } = await import('../controllers/fulfillment.controller.js');
-const { acceptOrder, cancelDelivery, declineOrder, expireOrder, getPendingDeliveryOrders } = await import('../controllers/deliveryPartner.controller.js');
+const { acceptOrder, cancelDelivery, declineOrder, expireOrder, getPendingDeliveryOrders, broadcastNewOrderToRiders } = await import('../controllers/deliveryPartner.controller.js');
+const { notifyRider, notifySeller, NOTIFICATION_EVENT } = await import('../services/notification.service.js');
 const { getSellerOrders } = await import('../controllers/seller.controller.js');
 const { sellerOrderActions } = await import('../services/sellerOrderActions.service.js');
 const { riderCashAllowsOrder } = await import('../services/riderCashEligibility.service.js');
@@ -131,4 +132,51 @@ test('existing cancelled rider trips expose reassignment and release their stale
   expect(updated.deliveryId).toBeUndefined();
   expect(String(updated.fulfillment.requestedRiderId)).toBe(String(riders[1]._id));
   expect((await Delivery.findById(trip._id)).status).toBe('rejected');
+});
+
+// Push notifications for a seller-requested rider and for that rider's decline.
+const requestedPushes = () => notifyRider.mock.calls.filter(([, opts]) => opts.event === NOTIFICATION_EVENT.RIDER_REQUESTED);
+const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 25)); };
+test('a rider requested while the order is preparing is pushed immediately, then once more when it becomes acceptable', async () => {
+  jest.clearAllMocks();
+  await call(selectManualFulfillment, sellerReq({ riderId: String(riders[0]._id) }));
+  expect(requestedPushes()).toHaveLength(1);
+  const [partnerId, heads] = requestedPushes()[0];
+  expect(String(partnerId)).toBe(String(riders[0]._id));
+  expect(heads).toMatchObject({ title: 'New delivery assigned by Store', route: '/delivery/dashboard', metadata: { orderId: order._id } });
+  expect(heads.message).toMatch(/Order SELLER-BUGS is assigned to you/);
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'dispatched' } });
+  await broadcastNewOrderToRiders(order._id); await broadcastNewOrderToRiders(order._id);
+  expect(requestedPushes()).toHaveLength(2);
+  expect(requestedPushes()[1][1].title).toBe('Store assigned order SELLER-BUGS to you — accept now');
+  expect(notifyRider.mock.calls.filter(([id]) => String(id) !== String(riders[0]._id))).toHaveLength(0);
+});
+test('a rider already holding an open offer is still pushed once when the seller picks them', async () => {
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'dispatched' }, $push: { offerAttempts: { riderId: riders[0]._id, status: 'OFFERED', offeredAt: new Date() } } });
+  jest.clearAllMocks();
+  await call(selectManualFulfillment, sellerReq({ riderId: String(riders[0]._id) }));
+  await broadcastNewOrderToRiders(order._id); await settle();
+  expect(requestedPushes()).toHaveLength(1);
+  expect(String(requestedPushes()[0][0])).toBe(String(riders[0]._id));
+  expect((await Order.findById(order._id)).fulfillment.requestedRiderNotifiedAt).toBeInstanceOf(Date);
+});
+test.each([['decline', declineOrder, 'Delivery partner declined', /Rider 1 declined order SELLER-BUGS\. Please assign another delivery partner\./],
+  ['expiry', expireOrder, 'Delivery partner did not respond', /Rider 1 did not accept order SELLER-BUGS\. Please assign another delivery partner\./]])(
+  '%s by the requested rider notifies the seller to reassign', async (_name, handler, title, message) => {
+    await Order.updateOne({ _id: order._id }, { $set: { status: 'dispatched', 'fulfillment.requestedRiderId': riders[0]._id }, $push: { offerAttempts: { riderId: riders[0]._id, status: 'OFFERED', offeredAt: new Date(Date.now() - 60000) } } });
+    jest.clearAllMocks();
+    await call(handler, riderReq());
+    const sent = notifySeller.mock.calls.filter(([, opts]) => opts.event === NOTIFICATION_EVENT.RIDER_DECLINED);
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0][0])).toBe(String(seller._id));
+    expect(sent[0][1]).toMatchObject({ title, metadata: { orderId: expect.anything() } }); expect(sent[0][1].message).toMatch(message);
+    await call(handler, riderReq()).catch(() => {});
+    expect(notifySeller.mock.calls.filter(([, opts]) => opts.event === NOTIFICATION_EVENT.RIDER_DECLINED)).toHaveLength(1);
+  });
+test('a decline by a rider the seller did not pick does not notify the seller', async () => {
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'dispatched', 'fulfillment.requestedRiderId': riders[0]._id }, $push: { offerAttempts: { riderId: riders[1]._id, status: 'OFFERED', offeredAt: new Date() } } });
+  jest.clearAllMocks();
+  await call(declineOrder, riderReq(1));
+  expect(notifySeller).not.toHaveBeenCalled();
+  expect(String((await Order.findById(order._id)).fulfillment.requestedRiderId)).toBe(String(riders[0]._id));
 });

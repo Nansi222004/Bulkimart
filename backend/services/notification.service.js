@@ -27,6 +27,9 @@ export const NOTIFICATION_EVENT = {
   DELIVERY_DELAYED: 'DELIVERY_DELAYED',
   NO_RIDER_FOUND: 'NO_RIDER_FOUND',
   RIDER_PING: 'RIDER_PING',
+  // Seller picked a specific rider for an order / that rider turned it down.
+  RIDER_REQUESTED: 'RIDER_REQUESTED',
+  RIDER_DECLINED: 'RIDER_DECLINED',
   CAMPAIGN_UPDATE: 'CAMPAIGN_UPDATE',
   SELLER_PROMOTION_UPDATE: 'SELLER_PROMOTION_UPDATE',
   SYSTEM: 'SYSTEM',
@@ -86,6 +89,8 @@ const EVENT_CATEGORY = {
   DELIVERY_DELAYED: 'delivery',
   NO_RIDER_FOUND: 'delivery',
   RIDER_PING: 'delivery',
+  RIDER_REQUESTED: 'delivery',
+  RIDER_DECLINED: 'delivery',
   CAMPAIGN_UPDATE: 'promotion',
   SELLER_PROMOTION_UPDATE: 'promotion',
   SYSTEM: 'system',

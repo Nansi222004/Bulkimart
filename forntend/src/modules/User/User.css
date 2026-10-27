@@ -1947,10 +1947,12 @@
 
 /* DATABASE-DRIVEN CUSTOMER CATEGORY DIRECTORY */
 .all-categories-page {
+  --page-pad-top: 20px;
+  --page-pad-x: 18px;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 20px 18px 110px;
+  padding: var(--page-pad-top) var(--page-pad-x) 110px;
   background: var(--surface-background);
   color: var(--text-primary);
 }
@@ -2315,7 +2317,7 @@
 }
 
 @media (max-width: 560px) {
-  .all-categories-page { padding: 16px 12px 108px; }
+  .all-categories-page { --page-pad-top: 16px; --page-pad-x: 12px; padding-bottom: 108px; }
   .all-categories-header { grid-template-columns: 1fr; gap: 11px; }
   .all-categories-header > div:first-child { grid-column: auto; }
   .all-categories-channel-tabs button { flex: 1; }
@@ -5439,7 +5441,8 @@ input[type="checkbox"] {
   background-color: #ffffff;
   border-bottom: 1px solid var(--border-color, #f1f5f9);
   position: sticky;
-  top: 0;
+  /* Flush with the main scroll area's top edge (it pins inside the 16px padding). */
+  top: -16px;
   z-index: 20;
 }
 
@@ -6236,16 +6239,19 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
   top: 0;
   z-index: 30;
 }
-.search-page-header { background-color: var(--bg-page, #fff); }
+/* Search sits in the padded main scroll area; pin it flush with the top edge. */
+.search-page-header { top: -16px; background-color: var(--bg-page, #fff); }
 
 /* The all-categories page scrolls itself; its title and search stay on top. */
 @media (max-width: 1024px) {
   .all-categories-page > .all-categories-header {
     position: sticky;
-    top: -8px;
+    /* Derived from the page padding at every width, so the bar stays flush
+       with the top and edge to edge with no content showing above it. */
+    top: calc(-1 * var(--page-pad-top));
     z-index: 30;
-    margin: -20px -18px 12px;
-    padding: 20px 18px 12px;
+    margin: calc(-1 * var(--page-pad-top)) calc(-1 * var(--page-pad-x)) 12px;
+    padding: var(--page-pad-top) var(--page-pad-x) 12px;
     background: var(--surface-background);
   }
 }
@@ -6253,7 +6259,9 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
 /* Account: the title bar is pinned; the profile card below it scrolls. */
 .profile-page-container > .profile-appbar {
   position: sticky;
-  top: 0;
+  /* Sticks inside the scroll area's 16px top padding; pinning at -16px puts it
+     flush with the top edge so no scrolling content shows above it. */
+  top: -16px;
   z-index: 30;
   margin: -16px -16px 0;
   padding: max(12px, var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px))) 20px 12px;

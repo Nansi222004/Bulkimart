@@ -23,8 +23,32 @@ export const PRESETS = Object.fromEntries([
   ['Diwali Celebration', { primary: '#813e14', accent: '#ffc247' }], ['Holi Colors', { primary: '#9b247e', accent: '#2fd3be' }],
   ['Eid Celebration', { primary: '#116b52', accent: '#e0bc62' }], ['Summer Sale', { primary: '#006b87', accent: '#ffba49' }],
   ['Monsoon Sale', { primary: '#285c84', accent: '#63cebc' }], ['New Year Celebration', { primary: '#423c85', accent: '#f6c768' }],
-  ['Wholesale Business Sale', { primary: '#245379', accent: '#ff9c45' }], ['Custom Admin Theme', {}],
+  ['Wholesale Business Sale', { primary: '#245379', accent: '#ff9c45' }],
+  ['Winter Snowfall', { primary: '#1f5f8b', secondary: '#123b5c', accent: '#cfeaff', highlight: '#e8f4ff', highlightText: '#123b5c', categorySurface: '#e8f4ff', decoration: 'none' }],
+  ['Spring Blossom', { primary: '#a3195b', secondary: '#6e1040', accent: '#ffc0d9', highlight: '#ffe6f0', highlightText: '#6e1040', categorySurface: '#ffe6f0', decoration: 'none' }],
+  ['Custom Admin Theme', {}],
 ].map(([name, tokens]) => [name, resolveTokens(tokens)]));
+// Suggested header animation per festive preset; Admin may change any of it.
+export const PRESET_EFFECTS = { 'Diwali Celebration': 'lights', 'Festive Celebration': 'lights', 'Winter Snowfall': 'snowfall', 'Spring Blossom': 'petals', 'Holi Colors': 'petals', 'New Year Celebration': 'fireworks', 'Eid Celebration': 'sparkles' };
+// Festive header/hero shown below the search and category navigation.
+export const HEADER_TARGETS = ['none', 'categories', 'hot-deals', 'smart-buy', 'campaign'];
+export const DEFAULT_COUNTDOWN = { enabled: false, title: '', startAt: null, endAt: null, showRemaining: true, expiredText: '' };
+export const DEFAULT_HEADER = { enabled: false, title: '', subtitle: '', cta: '', target: 'none', campaignId: '', height: 180, background: '#79000B', text: '#FFFFFF', image: '', countdown: DEFAULT_COUNTDOWN };
+export const headerDestination = header => header.target === 'campaign' ? { type: 'CAMPAIGN', id: header.campaignId }
+  : header.target === 'categories' ? { type: 'NAV', id: 'categories' } : ['hot-deals', 'smart-buy'].includes(header.target) ? { type: 'SUBNAV', id: header.target } : { type: 'NONE' };
+// The single countdown calculation used by the storefront and the Admin preview.
+export function countdownState(countdown, now = Date.now()) {
+  if (!countdown?.enabled) return { phase: 'off' };
+  const start = countdown.startAt ? Date.parse(countdown.startAt) : NaN, end = countdown.endAt ? Date.parse(countdown.endAt) : NaN;
+  if (Number.isFinite(start) && now < start) return { phase: 'before', target: start, remaining: start - now };
+  if (Number.isFinite(end) && now < end) return countdown.showRemaining === false ? { phase: 'live' } : { phase: 'during', target: end, remaining: end - now };
+  if (Number.isFinite(end)) return { phase: 'after' };
+  return Number.isFinite(start) ? { phase: 'live' } : { phase: 'off' };
+}
+export function countdownParts(ms) {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return { days: Math.floor(seconds / 86400), hours: Math.floor(seconds / 3600) % 24, minutes: Math.floor(seconds / 60) % 60, seconds: seconds % 60 };
+}
 export const SCOPES = ['global', 'quick', 'shop-all'];
 export const FREQUENCIES = ['launch', 'session', 'daily', 'version'];
 export const SOURCES = ['recent', 'featured', 'category', 'price', 'campaign', 'wholesale'];

@@ -4,7 +4,6 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { DEFAULT_TOKENS, freshExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
-import Celebration, { DecorationToggle } from '../components/Celebration';
 import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
 const Context = createContext({ ...fallback, now: Date.now(), loading: false });
@@ -65,6 +64,7 @@ export function StorefrontProvider({ children }) {
     return () => { document.body.style.background = previous; };
   }, [current.theme.tokens]);
   const effect = current.animations?.find(e => effectActive(e, now) && effectApplies(e, user));
-  const hasEffects = effect || current.banners.some(b => b.animation?.enabled) || current.sections.some(s => s.banner?.animation?.enabled) || current.splash?.banner?.animation?.enabled;
-  return <Context.Provider value={{ ...current, now, loading, device }}><CustomerThemeContext.Provider value={themeStyle(current.theme.tokens)}>{children}<Celebration effect={effect} now={now} />{hasEffects && <DecorationToggle />}</CustomerThemeContext.Provider></Context.Provider>;
+  // The page-level effect is rendered by the festive header (or, without one,
+  // inside the hero banner). It is never mounted over the whole viewport.
+  return <Context.Provider value={{ ...current, effect, now, loading, device }}><CustomerThemeContext.Provider value={themeStyle(current.theme.tokens)}>{children}</CustomerThemeContext.Provider></Context.Provider>;
 }

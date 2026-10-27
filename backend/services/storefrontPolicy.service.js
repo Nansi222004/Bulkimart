@@ -1,6 +1,6 @@
 import { httpError } from '../utils/response.js';
-import { DEFAULT_EFFECT, EFFECT_PRESETS } from '../shared/celebration.mjs';
-import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES } from '../shared/storefront.mjs';
+import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY } from '../shared/celebration.mjs';
+import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
@@ -15,7 +15,9 @@ export function validateEffect(value, scopes = ['storefront', 'homepage', 'campa
   one(e.preset, EFFECT_PRESETS, 'animation preset'); one(e.scope, scopes, 'animation scope');
   if (!Array.isArray(e.colors) || !e.colors.length || e.colors.length > 6 || e.colors.some(c => typeof c !== 'string' || !/^#[a-f\d]{6}$/i.test(c))) fail('Use 1–6 hex animation colors');
   for (const [key, min, max] of [['speed', 0.2, 3], ['opacity', 0.05, 0.8]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
-  integer(e.density, 1, 100, 'Particle density'); integer(e.duration, 1, 120, 'Animation duration');
+  for (const [key, min, max] of [['size', 0.5, 2]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
+  one(e.intensity, Object.keys(INTENSITY), 'animation intensity'); one(e.direction, ['down', 'left', 'right'], 'animation direction'); one(e.reducedMotion, ['hide', 'static'], 'reduced-motion fallback');
+  integer(e.density, 1, 100, 'Particle density'); integer(e.duration, 0, 120, 'Animation duration');
   if (e.campaignId && !objectId(e.campaignId)) fail('Invalid animation campaign');
   if (e.scope === 'campaign' && !e.campaignId) fail('Select an animation campaign page');
   for (const key of ['startAt', 'endAt']) {
@@ -65,6 +67,37 @@ export function validateSectionAppearance(input = {}) {
   if (Object.keys(result).length && (!result.background || !result.text || contrast(result.background, result.text) < 4.5)) fail('Section text and background need 4.5:1 contrast');
   return result;
 }
+const instant = (value, label) => {
+  if (!value) return null;
+  if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) fail(`${label} requires a timezone`);
+  return value;
+};
+const closed = (value, defaults, label) => {
+  if (value == null) return { ...defaults };
+  if (typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
+  for (const key of Object.keys(value)) if (!Object.hasOwn(defaults, key)) fail(`Unsupported ${label.toLowerCase()} setting: ${key}`);
+  return { ...defaults, ...value };
+};
+// Festive header copy is plain text; colours, sizes and destinations are closed values.
+export function validateHeader(value) {
+  const h = closed(value, DEFAULT_HEADER, 'Festive header');
+  if (typeof h.enabled !== 'boolean') fail('Festive header enabled must be boolean');
+  const header = { enabled: h.enabled, title: str(h.title, 60, 'header title'), subtitle: str(h.subtitle, 120, 'header subtitle'), cta: str(h.cta, 24, 'header button text'),
+    target: one(h.target, HEADER_TARGETS, 'header destination'), campaignId: h.campaignId ? String(h.campaignId) : '', height: integer(h.height, 120, 320, 'Header height'),
+    background: h.background, text: h.text, image: mediaUrl(h.image) };
+  if (header.image && !/\.(jpg|jpeg|png|webp)$/i.test(new URL(header.image, 'https://local.test').pathname)) fail('Header artwork must be a JPEG, PNG or WebP image');
+  for (const key of ['background', 'text']) if (typeof header[key] !== 'string' || !/^#[a-f\d]{6}$/i.test(header[key])) fail(`Header ${key} must be a six-digit hex color`);
+  if (contrast(header.background, header.text) < 4.5) fail('Header text needs at least 4.5:1 contrast on the header background');
+  if (header.target === 'campaign' ? !objectId(header.campaignId) : header.campaignId) fail(header.target === 'campaign' ? 'Select a deal campaign for the header button' : 'Header campaign is only used by the campaign destination');
+  if (header.target !== 'none' && !header.cta) fail('Enter header button text for the selected destination');
+  const c = closed(h.countdown, DEFAULT_COUNTDOWN, 'Countdown');
+  if (typeof c.enabled !== 'boolean' || typeof c.showRemaining !== 'boolean') fail('Countdown switches must be boolean');
+  header.countdown = { enabled: c.enabled, title: str(c.title, 40, 'countdown title'), startAt: instant(c.startAt, 'Countdown start'), endAt: instant(c.endAt, 'Countdown end'), showRemaining: c.showRemaining, expiredText: str(c.expiredText, 60, 'countdown expiry text') };
+  if (header.countdown.enabled && !header.countdown.startAt && !header.countdown.endAt) fail('Set a sale start or end time for the countdown');
+  if (header.countdown.startAt && header.countdown.endAt && Date.parse(header.countdown.endAt) <= Date.parse(header.countdown.startAt)) fail('Sale end must follow sale start');
+  if (header.enabled && !header.title) fail('Enter a festive header title');
+  return header;
+}
 export function validateExperience(input, kind) {
   one(kind, ['theme', 'campaign', 'section'], 'record type');
   const row = { name: str(input.name, 100, 'name'), description: str(input.description ?? '', 2000, 'description'),
@@ -86,7 +119,7 @@ export function validateExperience(input, kind) {
       return { categoryId: String(tile.categoryId), bannerId: String(tile.bannerId), badge: str(tile.badge || '', 24, 'category badge') };
     });
     if (new Set(categoryTiles.map(tile => tile.categoryId)).size !== categoryTiles.length) fail('Each category can have only one artwork override');
-    row.config = { preset: one(c.preset || 'Custom Admin Theme', Object.keys(PRESETS), 'preset'), application: one(c.application || 'storefront', ['storefront', 'campaign'], 'theme application'), tokens: validateTokens(c.tokens), categoryTiles };
+    row.config = { preset: one(c.preset || 'Custom Admin Theme', Object.keys(PRESETS), 'preset'), application: one(c.application || 'storefront', ['storefront', 'campaign'], 'theme application'), tokens: validateTokens(c.tokens), categoryTiles, header: validateHeader(c.header) };
   }
   if (kind === 'campaign') row.config = {
     placement: one(c.placement || 'hero', ['hero', 'splash', 'announcement'], 'placement'), bannerId: ref('bannerId'), themeId: ref('themeId'),

@@ -1,4 +1,4 @@
-export { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, themeStyle, lifecycle } from '../../../backend/shared/storefront.mjs';
+export { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, PRESET_EFFECTS, themeStyle, lifecycle, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, headerDestination, countdownState, countdownParts } from '../../../backend/shared/storefront.mjs';
 // An anonymous response from a pre-migration server/cache is a brand fallback,
 // not an administrator's published theme. Explicit theme IDs remain authoritative.
 export function normalizeExperience(data) {

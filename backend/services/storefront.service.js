@@ -14,6 +14,7 @@ export const snapshot = row => Object.fromEntries(['name', 'description', 'scope
 const overlap = (a, b) => (!a.endAt || !b.startAt || new Date(a.endAt) > new Date(b.startAt)) && (!b.endAt || !a.startAt || new Date(b.endAt) > new Date(a.startAt));
 export async function validateReferences(row) {
   const c = row.config;
+  if (c.header?.target === 'campaign' && !await Campaign.exists({ _id: c.header.campaignId, isEnabled: true, isDraft: { $ne: true }, endAt: { $gt: new Date() } })) throw httpError(400, 'Select an enabled, published campaign for the header button');
   if (c.animation?.scope === 'campaign' && !await Campaign.exists({ _id: c.animation.campaignId, isEnabled: true, isDraft: { $ne: true }, endAt: { $gt: new Date() } })) throw httpError(400, 'Select an enabled, published campaign page for the animation');
   for (const tile of c.categoryTiles || []) {
     if (!await Category.exists({ _id: tile.categoryId, isActive: true, ...(row.scope === 'global' ? { type: { $in: ['grocery', 'ecommerce'] } } : { type: row.scope === 'quick' ? 'grocery' : 'ecommerce' }) })) throw httpError(400, 'Select an active category matching the theme storefront');
@@ -53,16 +54,40 @@ export async function saveExperience(id, input, actor) {
   if (existing && input.revision !== existing.revision) throw httpError(409, 'This configuration changed. Reload before saving.');
   const kind = existing?.kind || input.kind;
   const values = validateExperience(input, kind);
-  // Saving is always a draft. Publication is a separate, validated action.
+  // A record with a live (or paused) publication keeps it: edits go to its draft copy,
+  // and neither the live fields nor the public revision change until publication.
+  if (existing && LIVE.includes(existing.status)) {
+    checkDraft(existing, input.draftRevision);
+    existing.draft = { values, revision: (existing.draft?.revision || 0) + 1, base: liveHash(existing), savedAt: new Date(), savedBy: actor };
+    existing.updatedBy = actor; return existing.save();
+  }
+  // Never-published records are themselves the draft. Publication is a separate, validated action.
   if (existing) { Object.assign(existing, values, { status: 'draft', updatedBy: actor }); existing.revision++; return existing.save(); }
   return Experience.create({ ...values, kind, createdBy: actor, updatedBy: actor });
 }
-export async function transitionExperience(id, action, revision, actor) {
+const LIVE = ['published', 'paused'];
+// Identifies the live publication; pause/resume do not change it, publish and rollback do.
+const liveHash = row => crypto.createHash('sha256').update(JSON.stringify(snapshot(row))).digest('hex').slice(0, 20);
+function checkDraft(row, draftRevision) {
+  if ((draftRevision || 0) !== (row.draft?.revision || 0)) throw httpError(409, 'This draft changed. Reload before continuing.');
+}
+export async function transitionExperience(id, action, revision, actor, draftRevision) {
   if (!objectId(id)) throw httpError(400, 'Invalid configuration ID');
   const row = await Experience.findById(id).select('+history');
   if (!row) throw httpError(404, 'Configuration not found');
   if (revision !== row.revision) throw httpError(409, 'This configuration changed. Reload before continuing.');
-  if (!['publish', 'pause', 'archive', 'rollback'].includes(action)) throw httpError(400, 'Unsupported action');
+  if (!['publish', 'pause', 'archive', 'rollback', 'discard'].includes(action)) throw httpError(400, 'Unsupported action');
+  if (action === 'discard') {
+    if (!row.draft) throw httpError(400, 'There is no draft to discard');
+    checkDraft(row, draftRevision);
+    row.draft = undefined; row.updatedBy = actor; // live publication and revision are untouched
+    return row.save();
+  }
+  if (action === 'publish' && row.draft) {
+    checkDraft(row, draftRevision);
+    if (row.draft.base !== liveHash(row)) throw httpError(409, 'The live version changed after this draft was saved. Open the draft, review it and save it again before publishing.');
+    Object.assign(row, row.draft.values); // validated below before anything is saved
+  }
   if (action === 'rollback') {
     const previous = row.history.at(-2);
     if (!previous) throw httpError(400, 'No earlier publication to restore');
@@ -76,11 +101,17 @@ export async function transitionExperience(id, action, revision, actor) {
     await validateReferences(row); await checkConflicts(row);
     row.status = 'published';
     row.history = [...row.history, snapshot(row)].slice(-20);
+    if (action === 'publish') row.draft = undefined;
   } else row.status = action === 'pause' ? 'paused' : 'archived';
   row.updatedBy = actor; row.revision++;
+  // One optimistic-concurrency save: the live swap, history and draft removal land together.
   return row.save();
 }
-export const adminDTO = row => { const { history, ...rest } = row.toObject ? row.toObject() : row; return { ...rest, lifecycle: lifecycle(row), canRollback: (history?.length || 0) > 1 }; };
+export const adminDTO = row => {
+  const { history, draft, ...rest } = row.toObject ? row.toObject() : row;
+  return { ...rest, lifecycle: lifecycle(row), canRollback: (history?.length || 0) > 1,
+    draft: draft ? { values: draft.values, revision: draft.revision, savedAt: draft.savedAt, stale: draft.base !== liveHash(row) } : null };
+};
 
 // Explicit projection prevents draft/audit fields and private product details leaking.
 export function publicBanner(b, now = Date.now(), type) {
@@ -170,7 +201,10 @@ export async function resolveExperience(scope, device, category = '', now = Date
     if (e.scope === 'campaign' && !deal) return [];
     return [{ id: r.id, revision: r.revision, ...e, endAt: [r.endAt, e.endAt, deal?.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null }];
   });
-  const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
+  // A header button never links to a deal that is not currently shoppable.
+  let header = theme?.config.header || null;
+  if (header?.target === 'campaign' && !await Campaign.exists({ _id: header.campaignId, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } })) header = { ...header, target: 'none', campaignId: '' };
+  const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, header, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
     splash: resolvedCampaigns.find(c => c.config.placement === 'splash') || null,
     announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };
   const version = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 20);

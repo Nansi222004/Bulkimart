@@ -13,6 +13,7 @@ import { UserProvider, useUser } from '../context/UserContext';
 import '../User.css';
 import UnifiedHeader from '../components/UnifiedHeader';
 import HeroBanner from '../components/HeroBanner';
+import StorefrontFestiveHeader from '../components/FestiveHeader';
 import DynamicCategorySection from '../components/DynamicCategorySection';
 import QuickActions from '../components/QuickActions';
 import PopularCategories from '../components/PopularCategories';
@@ -130,6 +131,8 @@ export const LandingPageContent = () => {
             {/* Scrollable contents below the header */}
             <div className="home-feed-scrollable">
               <StorefrontAnnouncement />
+              {/* Festive header: the bounded host for theme animation on the home feed */}
+              <StorefrontFestiveHeader />
               {/* Hero Promo Carousel Banner (shown on all pages if banners exist) */}
               <HeroBanner />
 

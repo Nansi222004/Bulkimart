@@ -6,6 +6,7 @@ import DepositModal from '../components/DepositModal';
 import BrandLogo from '../../../components/BrandLogo';
 import ParcelRiderInbox from '../../../components/parcels/ParcelRiderInbox';
 import SellerPushControl from '../../Seller/components/SellerPushControl';
+import { DeliveryNotificationBell } from '../components/DeliveryNotifications';
 import { riderRatingSummary } from '../utils/riderRating';
 
 export const DeliveryDashboardPage = () => {
@@ -85,8 +86,9 @@ export const DeliveryDashboardPage = () => {
           </div>
         </div>
 
+        <div className="delivery-header-actions">
         {/* Online/Offline Toggle */}
-        <button 
+        <button
           className={`delivery-status-toggle-btn ${isOnline ? 'online' : 'offline'}`}
           onClick={() => {
             if (isWalletBlocked && !isOnline) {
@@ -100,6 +102,8 @@ export const DeliveryDashboardPage = () => {
           <span className="status-toggle-indicator" />
           {isOnline ? 'Go Offline' : 'Go Online'}
         </button>
+        <DeliveryNotificationBell />
+        </div>
       </div>
 
       <section className="delivery-rating-card" aria-label="Customer rating">

@@ -4,21 +4,25 @@ import StorefrontMedia, { useReducedMotion } from './StorefrontMedia';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { apiUrl } from '../../../utils/api';
 import defaultBanner from '../../../assets/banner1.png';
-import Celebration from './Celebration';
+import Celebration, { DecorationToggle } from './Celebration';
+import { hasFestiveHeader } from './FestiveHeader';
 export default function HeroBanner() {
-  const { banners, loading, device, now } = useStorefront();
+  const { banners, loading, device, now, effect: pageEffect, theme } = useStorefront();
   const [index, setIndex] = useState(0), [paused, setPaused] = useState(false), [hover, setHover] = useState(false);
   const reduced = useReducedMotion(), navigate = usePromotionNavigation();
   const current = index % Math.max(1, banners.length), banner = banners[current];
+  // Without a festive header, the hero is the bounded host for the page effect.
+  const hostEffect = hasFestiveHeader(theme) ? null : pageEffect, heroEffect = banner?.animation || hostEffect;
   useEffect(() => { if (banners.length < 2 || paused || hover || reduced || banner?.video) return; const timer = setInterval(() => setIndex(i => i + 1), 6000); return () => clearInterval(timer); }, [banners.length, paused, hover, reduced, banner?.video]);
   if (!banner) return loading ? <div className="sf-hero-skeleton" aria-label="Loading promotions" /> : <section className="sf-hero sf-hero-default" aria-label="Welcome to Bulkimart">
     <button type="button" className="sf-default-banner-link" aria-label="Explore products" onClick={() => navigate({ type: 'NAV', id: 'categories' })}>
       <img src={defaultBanner} alt="Bulkimart — Everyday finds. One smart shop. Discover products from shops and local sellers." width="1774" height="887" fetchPriority="high" />
     </button>
+    <Celebration effect={hostEffect} now={now} />{hostEffect && <DecorationToggle />}
   </section>;
   const go = () => { fetch(apiUrl(`/api/banners/${banner.id}/click`), { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
   return <section className="sf-hero" aria-roledescription="carousel" aria-label="Featured promotions" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocusCapture={() => setHover(true)} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setHover(false); }}>
-    <div className="sf-hero-art"><StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} /><Celebration effect={paused ? null : banner.animation} now={now} contained /></div>
+    <div className="sf-hero-art"><StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} /><Celebration effect={paused ? null : heroEffect} now={now} />{heroEffect && <DecorationToggle />}</div>
     <div className="sf-hero-copy"><span className="sf-eyebrow">DISCOVER SOMETHING GOOD</span><h2>{banner.title}</h2>{banner.subtitle && <p>{banner.subtitle}</p>}
       {banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={go}>{banner.cta || 'Explore now'} <span aria-hidden="true">→</span></button>}
     </div>

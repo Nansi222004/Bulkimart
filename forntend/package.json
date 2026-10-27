@@ -10,6 +10,8 @@
     "test:parcel-browser": "node verification/parcel-delivery-browser.mjs && node verification/parcel-journey-browser.mjs",
     "test:storefront": "node --test verification/storefront-ui.test.mjs verification/celebration-renderer.test.mjs",
     "test:storefront-browser": "npm run build && node verification/storefront-browser.mjs",
+    "test:festive-browser": "node verification/festive-header-browser.mjs",
+    "test:sticky-headers": "npm run build && node verification/sticky-header-gap-browser.mjs",
     "test:financial-workflow": "node --test verification/financial-workflow-ui.test.mjs",
     "test:financial-browser": "node verification/financial-workflow-browser.mjs",
     "test:payment-overlays": "node --test verification/razorpay-overlay.test.mjs verification/payment-ui.test.mjs",
