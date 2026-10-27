@@ -51,7 +51,8 @@ const DeliveryRoutesContent = () => {
     if (currentPath.endsWith('/parcels')) return 'parcels';
     if (currentPath.endsWith('/earnings')) return 'earnings';
     if (currentPath.endsWith('/history')) return 'history';
-    if (currentPath.endsWith('/returns')) return 'returns';
+    // /delivery/returns/<id> is one pickup's full-page view inside the Returns tab.
+    if (/\/returns(?:\/[a-f\d]{24})?$/i.test(currentPath)) return 'returns';
     if (currentPath.endsWith('/profile')) return 'profile';
     if (currentPath.endsWith('/support')) return 'support';
     return 'dashboard';

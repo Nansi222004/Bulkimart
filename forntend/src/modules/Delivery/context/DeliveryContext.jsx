@@ -539,7 +539,9 @@ export const DeliveryProvider = ({ children }) => {
    * than the context holding a global copy of something only one screen
    * shows.
    */
-  const fetchRiderHistory = async ({ type, page } = {}) => {
+  // Stable identity: Trip History reloads when this changes, and the provider
+  // re-renders on every location/socket/poll update.
+  const fetchRiderHistory = useCallback(async ({ type, page } = {}) => {
     const params = new URLSearchParams();
     if (type && type !== 'ALL') params.set('type', type);
     if (page) params.set('page', page);
@@ -550,7 +552,7 @@ export const DeliveryProvider = ({ children }) => {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message || 'Could not load history');
     return body; // { success, data, meta }
-  };
+  }, []);
 
   // Live Location Broadcast every 5 seconds
   /**

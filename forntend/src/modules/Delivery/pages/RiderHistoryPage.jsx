@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 
 // Backend sends the raw enum; only this screen decides how a rider reads it.
@@ -33,22 +33,29 @@ export const RiderHistoryPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const load = useCallback(async (type) => {
+  // Reload only when the filter changes, and ignore a response for a filter the
+  // rider has already left, so the list never flickers or shows stale rows.
+  const fetcher = useRef(fetchRiderHistory), toast = useRef(triggerToast);
+  fetcher.current = fetchRiderHistory; toast.current = triggerToast;
+  const load = useCallback(async (type, isCurrent) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchRiderHistory({ type });
-      setItems(res.data || []);
+      const res = await fetcher.current({ type });
+      if (isCurrent()) setItems(res.data || []);
     } catch (err) {
+      if (!isCurrent()) return;
       setError(err.message || 'Could not load history');
-      triggerToast(err.message || 'Could not load history', {type:'error'});
+      toast.current(err.message || 'Could not load history', {type:'error'});
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [fetchRiderHistory]);
+  }, []);
 
   useEffect(() => {
-    load(filter);
+    let current = true;
+    load(filter, () => current);
+    return () => { current = false; };
   }, [filter, load]);
 
   return (
