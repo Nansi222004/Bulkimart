@@ -6,6 +6,7 @@ import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
 import Delivery from '../models/Delivery.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
+import { notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
 import Seller from '../models/Seller.js';
 import Return from '../models/Return.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
@@ -121,7 +122,8 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
   if (!amountGiven && !['dispute', 'writeoff'].includes(action)) throw httpError(400, 'Amount is required');
   const typedPaise = amountGiven ? moneyPaise(input.amount) : null;
   const admin = ['verify', 'dispute', 'writeoff'].includes(action);
-  return financialTransaction(async session => {
+  let notice = null;
+  const result = await financialTransaction(async session => {
     const order = await lockOrder(orderId, session, admin && input.expectedRevision != null ? { ...input, actorId, action: `cod:${action}` } : undefined);
     if (order.paymentMethod !== 'cod') throw httpError(409, 'Order is not COD');
     if (!admin && String(order.deliveryPartnerId) !== String(partnerId)) throw httpError(404, 'COD assignment not found');
@@ -169,6 +171,8 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
       await cashLedger(order, 'credit', 'COLLECTED', actorId, session, amountPaise);
     } else if (action === 'remit') {
       if (cash.status !== 'collected') throw httpError(409, 'Collection must precede remittance reporting');
+      // A rider can hand over only the cash they reported collecting.
+      if (amountPaise <= 0 || amountPaise > (cash.collectedPaise || 0)) throw httpError(409, `Handover amount must be more than zero and at most the ₹${((cash.collectedPaise || 0) / 100).toFixed(2)} you collected`);
       cash.status = 'remittance_reported'; cash.reportedPaise = amountPaise;
       // A rider report never establishes platform receipt.
     } else {
@@ -193,9 +197,32 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
       if (['verified','allocated'].includes(cash.status)) await markCodPaymentIfSettled(order, expectedPaise, session);
     }
     cash.events.push({ action, ...proof, amountPaise, actorId: String(actorId), at: new Date(), deliveryId: String(delivery._id), partnerId: String(delivery.partnerId), result: cash.status });
+    // Latest cash activity, so the admin COD list can show new reports first.
+    cash.updatedAt = new Date();
     await Order.updateOne({ _id: order._id }, { $set: { codFinance: cash } }, { session });
+    notice = { orderId: order._id, orderNo: order.orderNo, partnerId: order.deliveryPartnerId, status: cash.status, amountPaise, expectedPaise };
     return cash;
   });
+  if (notice) notifyCodEvent(action, notice);
+  return result;
+};
+
+const rupeeText = paise => `₹${(paise / 100).toFixed(2)}`;
+// After commit: admins hear about a rider's handover; the rider hears how it was settled.
+const notifyCodEvent = (action, { orderId, orderNo, partnerId, status, amountPaise, expectedPaise }) => {
+  const metadata = { orderId, orderNo };
+  if (action === 'remit') {
+    notifyAllAdmins({ event: NOTIFICATION_EVENT.COD_HANDOVER_REPORTED, title: 'Rider cash settlement request',
+      message: `${orderNo}: rider reports handing over ${rupeeText(amountPaise)}. Confirm when the cash is received.`,
+      metadata, route: '/admin/finance-center?area=orders&view=cod' }).catch(() => {});
+    return;
+  }
+  const riderMessage = action === 'dispute' ? `Your cash report for ${orderNo} is under review. Bulkimart will contact you.`
+    : status === 'discrepancy' ? `Bulkimart received ${rupeeText(amountPaise)} for ${orderNo}, but ${rupeeText(expectedPaise)} was due. Bulkimart will contact you.`
+    : ['verify', 'writeoff'].includes(action) && ['verified', 'allocated'].includes(status) ? `Your COD cash for ${orderNo} is settled. Bulkimart confirmed receipt.` : null;
+  if (riderMessage && partnerId) notifyRider(partnerId, { event: NOTIFICATION_EVENT.COD_CASH_SETTLED,
+    title: status === 'discrepancy' || action === 'dispute' ? 'COD cash needs attention' : 'COD cash settled',
+    message: riderMessage, metadata, route: '/delivery/earnings' }).catch(() => {});
 };
 
 const ensurePayment = async (order, session, allowCompensatedRefunds = false) => {

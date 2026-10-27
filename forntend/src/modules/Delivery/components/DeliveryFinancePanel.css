@@ -2,3 +2,10 @@
 .delivery-finance-panel button { min-height: 44px; padding: 8px 12px; border: 1px solid #087fa2; border-radius: 8px; background: #087fa2; color: white; }
 .delivery-finance-panel button:disabled { opacity: .55; }
 .delivery-finance-panel :focus-visible { outline: 3px solid #ed8126; outline-offset: 3px; }
+.delivery-finance-panel .delivery-finance-actions { display: flex; gap: 12px; margin-top: 8px; }
+.delivery-finance-panel .delivery-finance-actions button { flex: 1; }
+.delivery-finance-panel .delivery-finance-actions .is-secondary { background: #ffffff; color: #087fa2; }
+.delivery-finance-notice { margin: 12px 0; padding: 12px; border-radius: 10px; font-weight: 600; line-height: 1.45; }
+.delivery-finance-notice.is-success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.delivery-finance-notice.is-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.delivery-finance-field-error { display: block; margin-top: 6px; color: #b91c1c; font-size: 12px; font-weight: 700; }

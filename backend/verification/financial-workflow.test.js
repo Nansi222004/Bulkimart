@@ -205,7 +205,8 @@ test('impossible collection, duplicate evidence, unauthorized rider and unverifi
   await expect(cod('collect',100,{reason:'Changed evidence'})).rejects.toThrow(/reused/);
 });
 test.each([90,110])('shortage/excess %i remains disputed and cannot allocate', async amount => {
-  enable(); await cod('collect'); await cod('remit', amount); await cod('verify', amount);
+  // The rider can hand over at most what they collected; the admin may still receive more or less.
+  enable(); await cod('collect'); await cod('remit', Math.min(amount, 100)); await cod('verify', amount);
   expect((await queryOrder()).codFinance.status).toBe('discrepancy');
   expect((await Payment.findById(payment._id)).status).toBe('pending');
   const custody=await Ledger.find({account:'cod_custody'});expect(custody.reduce((sum,row)=>sum+(row.direction==='credit'?row.amount:-row.amount),0)).toBe(Math.max(0,100-amount));
@@ -213,6 +214,32 @@ test.each([90,110])('shortage/excess %i remains disputed and cannot allocate', a
   await expect(postOrderFinance(order._id, admin._id)).rejects.toThrow(/not verified/);
   await cod('verify',100,{ reference:'CORRECTED-HANDOVER', reason:'Additional cash independently received' });
   expect((await queryOrder()).codFinance.events).toHaveLength(4);
+});
+test('a rider cannot report handing over more cash than they collected', async () => {
+  enable(); await cod('collect', 80);
+  await expect(cod('remit', 90)).rejects.toThrow(/at most the ₹80.00 you collected/);
+  await expect(cod('remit', 0)).rejects.toThrow();
+  expect((await queryOrder()).codFinance.status).toBe('collected');
+});
+test('a handover report alerts admins and a confirmed receipt tells the rider', async () => {
+  const { default: Notification } = await import('../models/Notification.js');
+  const settle = () => new Promise(resolve => setTimeout(resolve, 200));
+  enable(); await cod('collect'); await cod('remit'); await settle();
+  const alert = await Notification.findOne({ event: 'COD_HANDOVER_REPORTED' }).lean();
+  expect(alert).toMatchObject({ title: 'Rider cash settlement request', route: '/admin/finance-center?area=orders&view=cod' });
+  expect(await Notification.countDocuments({ userId: rider._id, event: 'COD_CASH_SETTLED' })).toBe(0);
+  await cod('verify'); await settle();
+  expect(await Notification.findOne({ userId: rider._id, event: 'COD_CASH_SETTLED' }).lean()).toMatchObject({ title: 'COD cash settled', route: '/delivery/earnings' });
+  expect((await Order.findById(order._id).lean()).codFinance.updatedAt).toBeInstanceOf(Date);
+});
+test('the admin COD list returns pending handovers, including when filtered by rider', async () => {
+  enable(); await cod('collect'); await cod('remit');
+  for (const query of ['cod=true', 'cod=true&partnerId=' + partner._id]) {
+    const list = await request(app).get('/api/admin/finance/orders?' + query).set('Authorization', bearer(admin, 'admin'));
+    expect(list.status).toBe(200);
+    expect(list.body.data.map(row => [String(row._id), row.cash.status])).toEqual([[String(order._id), 'remittance_reported']]);
+    expect(list.body.data[0].codFinance.events.at(-1)).toMatchObject({ action: 'remit' });
+  }
 });
 test('cash reporter cannot self-verify and a failed delivery cannot collect', async () => {
   enable(); await cod('collect'); await cod('remit');

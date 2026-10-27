@@ -21,7 +21,13 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <p>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</p>
       {item.fulfillmentType === 'digital' ? <p>Digital delivery · one licence</p> : item.available === false ? <p>Unavailable — review or remove this item</p> : showStock && <p>Stock: {item.stock}</p>}
       {item.priceChanged && <p role="status">Price changed. Review the current price before checkout.</p>}
-      {wholesale && item.wholesaleSnapshot && <p>MOQ {minimum} · increments of {increment} · tier from {item.wholesaleSnapshot.tierMinimumQuantity}</p>}
+      {wholesale && item.wholesaleSnapshot && (() => {
+        // Only terms that tell the shopper something: a minimum of 1, steps of
+        // 1 or a tier that starts at the minimum are the defaults, not news.
+        const tier = item.wholesaleSnapshot.tierMinimumQuantity;
+        const terms = [minimum > 1 && `Min order ${minimum}`, increment > 1 && `Steps of ${increment}`, tier > minimum && `Bulk price from ${tier} units`].filter(Boolean);
+        return terms.length ? <p>{terms.join(' · ')}</p> : null;
+      })()}
       {editable && <div className="basket-quantity">
         <button type="button" aria-label={`Decrease ${item.name}`} disabled={busy || item.qty - increment < minimum} onClick={() => onQuantity(item, group, item.qty - increment)}>−</button>
         <label><span className="visually-hidden">Quantity for {item.name}</span><input aria-label={`Quantity for ${item.name}`} type="number" inputMode="numeric" min={minimum} max={maximum} step={increment} key={item.qty} defaultValue={item.qty} disabled={busy} onInput={event => event.target.setCustomValidity('')} onBlur={event => {

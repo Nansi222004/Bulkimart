@@ -936,10 +936,19 @@ const ProductDetailPage = () => {
           {cartActionError}
         </div>
       )}
+      {/* Wholesale results show beside the buttons that caused them; the
+          offer panel above is usually scrolled out of view by then. */}
+      {wholesale.mode === 'wholesale' && (wholesale.error || wholesale.message) && (
+        <div className={`pd-wholesale-feedback ${wholesale.error ? 'is-error' : 'is-success'}`} role={wholesale.error ? 'alert' : 'status'}>
+          {wholesale.error || wholesale.message}
+        </div>
+      )}
       <div className="pd-sticky-cta">
         {wholesale.mode === 'wholesale' ? <>
-          <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'ADDING…' : 'Add to Wholesale Cart'}</button>
-          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add(true)}>Buy Wholesale Now</button>
+          {wholesale.cartQty > 0
+            ? <button type="button" className="pd-flipkart-btn go-cart" disabled={wholesale.pending} onClick={wholesale.openCart}>Go to Wholesale Cart ({wholesale.cartQty})</button>
+            : <button type="button" className="pd-flipkart-btn add-cart" disabled={!wholesale.canPurchase || unavailable} onClick={() => wholesale.add()}>{wholesale.pending ? 'Adding…' : 'Add to Wholesale Cart'}</button>}
+          <button type="button" className="pd-flipkart-btn buy-now" disabled={!wholesale.canBuyNow || unavailable} onClick={() => wholesale.buyNow()}>{wholesale.pending ? 'Please wait…' : 'Buy Wholesale Now'}</button>
         </> : unavailable ? (
           <button className="pd-flipkart-btn disabled" disabled>
             CURRENTLY UNAVAILABLE

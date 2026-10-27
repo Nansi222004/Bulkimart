@@ -64,6 +64,9 @@ export const NOTIFICATION_EVENT = {
   RETURN_PICKUP_OTP_READY: 'RETURN_PICKUP_OTP_READY',
   RETURN_PICKED_UP: 'RETURN_PICKED_UP',
   RETURN_DELIVERED_TO_SELLER: 'RETURN_DELIVERED_TO_SELLER',
+  // Rider COD cash handover: reported to admins, settled back to the rider.
+  COD_HANDOVER_REPORTED: 'COD_HANDOVER_REPORTED',
+  COD_CASH_SETTLED: 'COD_CASH_SETTLED',
   // Admin Push Notifications Broadcaster — a marketing/informational
   // message an admin composed, never a business event.
   ADMIN_BROADCAST: 'ADMIN_BROADCAST',
@@ -118,6 +121,8 @@ const EVENT_CATEGORY = {
   RETURN_PICKUP_OTP_READY: 'delivery',
   RETURN_PICKED_UP: 'delivery',
   RETURN_DELIVERED_TO_SELLER: 'delivery',
+  COD_HANDOVER_REPORTED: 'delivery',
+  COD_CASH_SETTLED: 'delivery',
   ADMIN_BROADCAST: 'broadcast',
 };
 

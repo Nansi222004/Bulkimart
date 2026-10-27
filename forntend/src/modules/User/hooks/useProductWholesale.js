@@ -119,6 +119,25 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
   // amounts if the quantity changed; only a matching fresh quote can be bought.
   const shownQuote = quote || (mode === 'wholesale' && offer && preview?.selectionKey === quantityKey && preview.offerTerms === offerTerms ? preview.data : null);
   const canPurchase = Boolean(mode === 'wholesale' && validQuantity && (quote || !token) && !loading && !quoteLoading && !pending && !error && !catalogError);
+  // How many of this variant are already in the shopper's Wholesale cart, so
+  // Buy Now can go straight there instead of adding the same quantity again
+  // (which fails once it would exceed stock or the maximum order).
+  const [cart, setCart] = useState(null);
+  const cartKey = `${key}:${variantId}`;
+  useEffect(() => {
+    if (!token || !productId || !variantId || mode !== 'wholesale') return;
+    const controller = new AbortController(), session = captureUserSession();
+    boundedFetch(apiUrl('/api/cart/wholesale'), { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal, cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => {
+        if (!body || !isCurrentUserSession(session)) return;
+        const line = body.data?.items?.find(item => String(item.productId) === String(productId) && String(item.variantId) === String(variantId));
+        setCart({ key: cartKey, qty: Number(line?.qty) || 0 });
+      })
+      .catch(() => { /* unknown cart state only means Buy Now adds as before */ });
+    return () => controller.abort();
+  }, [cartKey, token, mode]);
+  const cartQty = cart?.key === cartKey ? cart.qty : 0;
   const add = async (buyNow = false) => {
     if (lock.current || !canPurchase) return;
     if (!token) { onSignIn?.(); return; }
@@ -133,6 +152,7 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
       if (!isCurrentUserSession(session) || latestPurchase.current !== purchaseIdentity) return;
       if (!response.ok) throw new Error(body.message || 'Could not add to the Wholesale cart.');
       const cartLine = body.data?.items?.find(item => String(item.productId) === String(productId) && String(item.variantId) === String(variantId));
+      if (cartLine) setCart({ key: cartKey, qty: Number(cartLine.qty) || 0 });
       const changedPrice = cartLine && cartLine.price !== quote.unitPrice;
       setMessage(changedPrice ? 'Added to your cart. The current cart price has changed; review the updated quote before checkout.' : 'Added to your cart. Review the current quote and delivery charges before checkout.');
       window.dispatchEvent(new Event('cart:changed'));
@@ -141,5 +161,8 @@ export function useProductWholesale({ productId, variantId, currentUser, enabled
       if (isCurrentUserSession(session) && latestPurchase.current === purchaseIdentity) { refresh(); setError(err.message); setMessage(err.message); }
     } finally { lock.current = false; setPending(false); }
   };
-  return { mode, chooseMode, retailAvailable, available: variants.length > 0, offer, quantity, setQuantity, validQuantity, quote, shownQuote, loading, quoteLoading, catalogError, error, message, pending, canPurchase, add, refresh, openCart };
+  // Buy Now: an item already in the cart goes straight to it; otherwise add, then go.
+  const buyNow = () => { if (token && cartQty > 0 && !pending) { openCart(); return; } return add(true); };
+  const canBuyNow = canPurchase || Boolean(token && cartQty > 0 && mode === 'wholesale' && !pending);
+  return { mode, chooseMode, retailAvailable, available: variants.length > 0, offer, quantity, setQuantity, validQuantity, quote, shownQuote, loading, quoteLoading, catalogError, error, message, pending, canPurchase, canBuyNow, cartQty, add, buyNow, refresh, openCart };
 }

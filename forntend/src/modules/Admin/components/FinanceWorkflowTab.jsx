@@ -237,6 +237,15 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
                 <div>Handed over: <strong>{rupees(row.cash.reportedPaise)}</strong></div>
                 <div>Received: <strong>{rupees(row.cash.verifiedPaise)}</strong></div>
                 {row.cash.writtenOffPaise ? <div style={{ color: '#047857', fontWeight: 600 }}>+{rupees(row.cash.writtenOffPaise)} written off</div> : null}
+                {/* What the rider reported, so the admin can check it before confirming. */}
+                {[['collect', 'Collection'], ['remit', 'Handover']].map(([action, title]) => {
+                  const report = row.codFinance?.events?.filter(entry => entry.action === action).at(-1);
+                  return report ? <div key={action} className="finance-rider-report">
+                    <strong>{title} report · {rupees(report.amountPaise)}{report.at ? ` · ${new Date(report.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}</strong>
+                    <div>Evidence reference: <span>{report.reference || '—'}</span></div>
+                    <div>Details: <span>{report.reason || '—'}</span></div>
+                  </div> : null;
+                })}
               </div>
             ) : <span style={{ color: '#94a3b8' }}>—</span>}
           </td>

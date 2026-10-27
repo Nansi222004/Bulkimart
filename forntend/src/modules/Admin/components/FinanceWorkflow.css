@@ -16,3 +16,8 @@
 .finance-table th, .finance-table td { padding: 12px; border-bottom: 1px solid #e1edf1; text-align: left; vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }
 .finance-workflow details { padding: 10px 0; border-bottom: 1px solid #e1edf1; }
 .finance-workflow summary { cursor: pointer; padding: 8px 0; }
+
+/* Rider's COD collection / handover report shown in the cash column. */
+.finance-rider-report { margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #f0f9ff; border: 1px solid #bae6fd; color: #0c4a6e; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.finance-rider-report strong { display: block; color: #075985; }
+.finance-rider-report span { color: #0f172a; font-weight: 600; }

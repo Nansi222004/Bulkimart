@@ -4,6 +4,7 @@ import OrderPingModal from '../components/OrderPingModal';
 import DepositModal from '../components/DepositModal';
 import BrandLogo from '../../../components/BrandLogo';
 import ParcelRiderInbox from '../../../components/parcels/ParcelRiderInbox';
+import SellerPushControl from '../../Seller/components/SellerPushControl';
 
 export const DeliveryDashboardPage = () => {
   const { 
@@ -97,6 +98,10 @@ export const DeliveryDashboardPage = () => {
           {isOnline ? 'Go Offline' : 'Go Online'}
         </button>
       </div>
+
+      {/* Order-request alerts while the app is closed need the rider's one-time
+          permission; the browser only asks after a tap. */}
+      <div className="delivery-push-control"><SellerPushControl /></div>
 
       {/* COD Debit Wallet Status Card */}
       {isOnline && (

@@ -1,6 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+
+// Fields that open the on-screen keyboard.
+const TYPING = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=file]):not([type=range]), textarea, select, [contenteditable="true"]';
 
 export const DeliveryNavbar = ({ activeTab, setActiveTab }) => {
+  // While the rider is typing, the keyboard owns the bottom of the screen; the
+  // menu would otherwise sit on top of it and cover the form being filled in.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const update = () => setTyping(Boolean(document.activeElement?.matches?.(TYPING)));
+    const later = () => setTimeout(update, 0);
+    document.addEventListener('focusin', update); document.addEventListener('focusout', later);
+    return () => { document.removeEventListener('focusin', update); document.removeEventListener('focusout', later); };
+  }, []);
+  if (typing) return null;
   return (
     <nav className="delivery-navbar-bottom" aria-label="Delivery navigation">
       <button 

@@ -1,10 +1,19 @@
 import ModalPortal from '../../../components/ModalPortal';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { DeliveryMap } from '../../../components/DeliveryMap';
 
 const PING_WINDOW_SECONDS = 60; // how long a rider has to accept before the offer expires
 
 export const OrderPingModal = ({ order, onAccept, onDecline, onExpire }) => {
   const [timeLeft, setTimeLeft] = useState(PING_WINDOW_SECONDS);
+  const [showMap, setShowMap] = useState(false);
+  const validPoint = point => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng));
+  const pickupPoint = useMemo(() => validPoint(order.merchantLocation) ? { lat: Number(order.merchantLocation.lat), lng: Number(order.merchantLocation.lng), name: order.merchantName } : undefined, [order.merchantLocation?.lat, order.merchantLocation?.lng, order.merchantName]);
+  const dropPoint = useMemo(() => validPoint(order.customerLocation) ? { lat: Number(order.customerLocation.lat), lng: Number(order.customerLocation.lng), name: order.customerName } : undefined, [order.customerLocation?.lat, order.customerLocation?.lng, order.customerName]);
+  // The full route in the phone's maps app, shop to customer.
+  const fullMapUrl = pickupPoint && dropPoint
+    ? `https://www.google.com/maps/dir/?api=1&origin=${pickupPoint.lat},${pickupPoint.lng}&destination=${dropPoint.lat},${dropPoint.lng}&travelmode=driving`
+    : pickupPoint ? `https://www.google.com/maps/search/?api=1&query=${pickupPoint.lat},${pickupPoint.lng}` : null;
 
   /**
    * Count down, and nothing else.
@@ -121,6 +130,19 @@ export const OrderPingModal = ({ order, onAccept, onDecline, onExpire }) => {
             </strong>
           </div>
         </div>
+
+        {/* Route preview — the map stays closed until asked, so the offer fits on screen. */}
+        {(pickupPoint || dropPoint) && (
+          <div className="ping-map-box">
+            <div className="ping-map-actions">
+              <button type="button" className="ping-map-toggle" aria-expanded={showMap} onClick={() => setShowMap(open => !open)}>
+                {showMap ? 'Hide map' : 'View route on map'}
+              </button>
+              {fullMapUrl && <a className="ping-map-open" href={fullMapUrl} target="_blank" rel="noreferrer">Open full map ↗</a>}
+            </div>
+            {showMap && <DeliveryMap pickup={pickupPoint} drop={dropPoint} showRiderCard={false} height={200} />}
+          </div>
+        )}
 
         {/* Addresses summary */}
         <div className="ping-addresses-box">

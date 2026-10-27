@@ -38,6 +38,8 @@ const WholesalePage = () => {
   const [pages, setPages] = useState(1);
   const [categories, setCategories] = useState([]);
   const [sort, setSort] = useState(() => new URLSearchParams(window.location.search).get('sort') || 'default');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = Number(Boolean(category)) + Number(sort !== 'default');
 
   useEffect(() => {
     const syncProductRoute = () => {
@@ -107,7 +109,7 @@ const WholesalePage = () => {
     window.history.replaceState(null, '', '/wholesale' + (params.size ? '?' + params : ''));
     if (key === 'q') setQuery(value);
     if (key === 'category') setCategory(value);
-    if (key === 'sort') setSort(value);
+    if (key === 'sort') setSort(value || 'default');
     setPage(key === 'page' ? Number(value) : 1);
   };
 
@@ -130,7 +132,7 @@ const WholesalePage = () => {
         </div>
       </header>
 
-      {/* Toolbar: Search, Category, Pagination */}
+      {/* Toolbar: search with a filter button; category and sort live in the filter panel */}
       <div className="wholesale-toolbar">
         <div className="wholesale-filters-row">
           <div className="wholesale-search-wrapper">
@@ -157,68 +159,64 @@ const WholesalePage = () => {
               </button>
             )}
           </div>
-
-          <div className="wholesale-category-wrapper">
-            <label className="visually-hidden" htmlFor="wholesale-category">Filter by category</label>
-            <select
-              id="wholesale-category"
-              value={category}
-              onChange={(event) => updateFilter('category', event.target.value)}
-            >
-              <option value="">All Categories</option>
-              {categories.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-            <svg className="wholesale-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="6 9 12 15 18 9" />
+          <button
+            type="button"
+            className={`wholesale-filter-btn${filtersOpen ? ' is-open' : ''}`}
+            aria-label="Filters"
+            aria-expanded={filtersOpen}
+            aria-controls="wholesale-filter-panel"
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
             </svg>
-          </div>
+            {activeFilters > 0 && <span className="wholesale-filter-dot" aria-label={`${activeFilters} active`} />}
+          </button>
         </div>
 
+        {filtersOpen && (
+          <div id="wholesale-filter-panel" className="wholesale-filter-panel">
+            <label htmlFor="wholesale-category">Category</label>
+            <div className="wholesale-category-wrapper">
+              <select
+                id="wholesale-category"
+                value={category}
+                onChange={(event) => updateFilter('category', event.target.value)}
+              >
+                <option value="">All Categories</option>
+                {categories.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+              <svg className="wholesale-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+            <label htmlFor="wholesale-sort">Sort</label>
+            <div className="wholesale-category-wrapper">
+              <select id="wholesale-sort" value={sort} onChange={event => updateFilter('sort', event.target.value)}>
+                <option value="default">Recommended</option>
+                <option value="name">Name</option>
+                <option value="price-asc">Bulk price: low to high</option>
+                <option value="price-desc">Bulk price: high to low</option>
+              </select>
+              <svg className="wholesale-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+            {activeFilters > 0 && <button type="button" className="wholesale-filter-reset" onClick={() => { updateFilter('category', ''); updateFilter('sort', ''); }}>Clear filters</button>}
+          </div>
+        )}
+
         <div className="wholesale-meta-row">
-          <label>Sort by{' '}
-            <select aria-label="Sort Wholesale offers" value={sort} onChange={event => updateFilter('sort', event.target.value)}>
-              <option value="default">Default order</option>
-              <option value="name">Name</option>
-              <option value="price-asc">Bulk price: low to high</option>
-              <option value="price-desc">Bulk price: high to low</option>
-            </select>
-          </label>
           <span className="wholesale-results-count">
             {loading ? 'Loading offers…' : error ? 'Offers unavailable' : <>Showing <strong>{filtered.length}</strong> {filtered.length === 1 ? 'offer' : 'offers'}</>}
-            {category && <span> in <em>{category}</em></span>}
           </span>
-
-          <nav aria-label="Wholesale catalog pages" className="wholesale-pagination">
-            <button
-              type="button"
-              className="wholesale-page-btn"
-              disabled={loading || !!error || page <= 1}
-              onClick={() => updateFilter('page', String(page - 1))}
-              aria-label="Previous page"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-              <span>Previous</span>
+          {category && (
+            <button type="button" className="wholesale-active-chip" onClick={() => updateFilter('category', '')} aria-label={`Remove category ${category}`}>
+              {category} <span aria-hidden="true">✕</span>
             </button>
-            <span className="wholesale-page-indicator">
-              Page <strong>{page}</strong> of <strong>{pages}</strong>
-            </span>
-            <button
-              type="button"
-              className="wholesale-page-btn"
-              disabled={loading || !!error || page >= pages}
-              onClick={() => updateFilter('page', String(page + 1))}
-              aria-label="Next page"
-            >
-              <span>Next</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
-          </nav>
+          )}
         </div>
       </div>
 
@@ -318,6 +316,39 @@ const WholesalePage = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Page controls only when the catalogue spans more than one page. */}
+      {!loading && !error && pages > 1 && (
+        <nav aria-label="Wholesale catalog pages" className="wholesale-pagination">
+          <button
+            type="button"
+            className="wholesale-page-btn"
+            disabled={page <= 1}
+            onClick={() => updateFilter('page', String(page - 1))}
+            aria-label="Previous page"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Previous</span>
+          </button>
+          <span className="wholesale-page-indicator">
+            Page <strong>{page}</strong> of <strong>{pages}</strong>
+          </span>
+          <button
+            type="button"
+            className="wholesale-page-btn"
+            disabled={page >= pages}
+            onClick={() => updateFilter('page', String(page + 1))}
+            aria-label="Next page"
+          >
+            <span>Next</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </nav>
       )}
     </section>
   );

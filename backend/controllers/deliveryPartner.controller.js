@@ -748,6 +748,8 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
           ? `${payload.merchantName} — ${payload.distance} km, ₹${payload.payout.total} (includes ₹${payload.payout.tip} customer tip)`
           : `${payload.merchantName} — ${payload.distance} km, ₹${payload.payout?.total ?? payload.totalAmount}`,
         metadata: { orderId: order._id, tipAmount: payload.payout?.tip || 0 },
+        // Tapping the push opens the rider app, where the offer is waiting.
+        route: '/delivery/dashboard',
       }).catch((e) => console.error('[NOTIFICATION] notifyRider (ping) failed:', e.message));
     }
   }

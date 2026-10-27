@@ -77,8 +77,18 @@ export const listFinanceOrders = asyncHandler(async (req, res) => {
   const total = await Order.countDocuments(match);
   const exporting = req.query.export === 'csv';
   if (exporting && total > 5000) throw httpError(400, 'Narrow the date range to export at most 5000 records');
-  const orders = await Order.find(match).select('_id orderNo status paymentMethod paymentId deliveryPartnerId deliveryId financialSnapshot financialPosting financialRevision financialOperationLog financialReturnQuantities codFinance financeAutomation createdAt')
-    .sort({ createdAt: -1 }).skip(exporting ? 0 : (page - 1) * limit).limit(exporting ? 5000 : limit).lean();
+  const fields = '_id orderNo status paymentMethod paymentId deliveryPartnerId deliveryId financialSnapshot financialPosting financialRevision financialOperationLog financialReturnQuantities codFinance financeAutomation createdAt';
+  const skip = exporting ? 0 : (page - 1) * limit, take = exporting ? 5000 : limit;
+  // The admin COD list puts rider handover reports awaiting confirmation first,
+  // then the latest cash activity; every other list stays newest order first.
+  const codQueue = req.query.cod === 'true' && !rider;
+  const orders = codQueue
+    // Aggregation does not cast like find(), so the rider filter needs a real ObjectId.
+    ? await Order.aggregate([{ $match: match.deliveryPartnerId ? { ...match, deliveryPartnerId: new mongoose.Types.ObjectId(String(match.deliveryPartnerId)) } : match },
+      { $addFields: { codPriority: { $cond: [{ $eq: ['$codFinance.status', 'remittance_reported'] }, 0, 1] } } },
+      { $sort: { codPriority: 1, 'codFinance.updatedAt': -1, createdAt: -1 } }, { $skip: skip }, { $limit: take },
+      { $project: Object.fromEntries(fields.split(' ').map(field => [field, 1])) }])
+    : await Order.find(match).select(fields).sort({ createdAt: -1 }).skip(skip).limit(take).lean();
   const rows = orders.map(order => ({ ...order, exceptions: exceptionCodes(order),
     ...(rider ? { financialSnapshot: { expectedPaise: order.financialSnapshot.expectedPaise }, financialReturnQuantities: undefined, paymentId: undefined } : {}),
     cash: { expectedPaise: order.financialSnapshot.expectedPaise,

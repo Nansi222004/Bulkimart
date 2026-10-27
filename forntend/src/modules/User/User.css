@@ -6269,3 +6269,50 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
 .user-main-content.page-ebooks .orders-page-container { overflow: visible; }
 .user-main-content.page-ebooks .orders-header-row { position: sticky; top: 0; z-index: 20; }
 .user-main-content.page-orders .orders-scroll-content { padding-bottom: 16px; }
+
+/* ---------------------------------------------------------------------------
+   Wholesale product page
+   --------------------------------------------------------------------------- */
+.pd-wholesale-terms { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; padding: 0; }
+.pd-wholesale-terms li { padding: 6px 10px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; line-height: 1.2; }
+.pd-wholesale-terms strong { color: #0f172a; }
+.pd-wholesale-tiers { margin: 12px 0; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.pd-wholesale-tiers table { margin: 0; }
+.pd-wholesale-tiers caption { padding: 10px 12px 0; }
+.pd-wholesale-tiers th { background: #f8fafc; font-size: 12px; color: #64748b; }
+.pd-wholesale-tiers th, .pd-wholesale-tiers td { padding: 10px 12px; }
+.pd-wholesale-tiers tr:last-child td { border-bottom: 0; }
+.pd-wholesale-stepper { display: flex; align-items: stretch; gap: 8px; }
+.pd-wholesale .pd-wholesale-stepper button { flex: none; width: 48px; min-height: 48px; padding: 0; font-size: 22px; font-weight: 700; color: #0f172a; }
+.pd-wholesale .pd-wholesale-stepper button:disabled { opacity: .4; cursor: not-allowed; }
+.pd-wholesale .pd-wholesale-stepper input { flex: 1; min-width: 0; text-align: center; font-weight: 700; }
+.pd-wholesale-checking { margin: 6px 0 0; font-size: 12px; color: #64748b; }
+.pd-wholesale-total-label { display: block; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: #15803d; margin-bottom: 4px; }
+.pd-wholesale-total strong { font-size: 15px; color: #14532d; }
+.pd-wholesale-savings { color: #15803d; font-weight: 700; }
+.pd-wholesale .pd-wholesale-view-cart { width: 100%; margin-top: 12px; }
+
+/* Result of Add / Buy, pinned just above the bottom buttons. */
+.pd-wholesale-feedback {
+  position: sticky;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  z-index: 51;
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .12);
+}
+.pd-wholesale-feedback.is-success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.pd-wholesale-feedback.is-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+/* Scrolling inside the phone app's WebView: make the product page and the
+   storefront feed explicit vertical scroll areas, so a swipe always scrolls
+   them rather than handing the gesture to the page behind. */
+.product-detail-page,
+.user-main-content {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}

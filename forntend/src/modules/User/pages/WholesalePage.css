@@ -792,3 +792,73 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Toolbar: search + filter button; category and sort in a collapsible panel.
+   --------------------------------------------------------------------------- */
+.wholesale-toolbar .wholesale-filters-row,
+.wholesale-page .wholesale-filters-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.wholesale-filter-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--wholesale-border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--wholesale-navy);
+  cursor: pointer;
+}
+.wholesale-filter-btn.is-open { border-color: var(--wholesale-blue); color: var(--wholesale-blue-dark); background: var(--wholesale-orange-light, #fff7e6); }
+.wholesale-filter-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wholesale-blue);
+  box-shadow: 0 0 0 2px #ffffff;
+}
+.wholesale-filter-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--wholesale-border);
+  border-radius: 12px;
+  background: var(--wholesale-bg-subtle, #fafafa);
+}
+.wholesale-filter-panel > label { font-size: 12px; font-weight: 700; color: var(--wholesale-muted); margin-top: 4px; }
+.wholesale-filter-reset {
+  justify-self: start;
+  margin-top: 6px;
+  border: 0;
+  background: none;
+  padding: 6px 0;
+  color: var(--wholesale-blue-dark);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.wholesale-page .wholesale-meta-row { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+.wholesale-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--wholesale-border);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--wholesale-blue-dark);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* Pagination now sits under the product grid. */
+.wholesale-page > .wholesale-pagination { display: flex; justify-content: space-between; width: 100%; margin: 16px 0 8px; box-sizing: border-box; }

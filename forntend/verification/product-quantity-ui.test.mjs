@@ -59,7 +59,7 @@ test('rapid quantity changes request only the final quantity and preserve the to
     request.resolve({ data: quoteData(25) }); await h.settle();
     assert.equal(current(h).canPurchase, true); assert.equal(current(h).quote.subtotal, 1750);
     assert.equal(reads(h, '/wholesale/catalog').length, 1);
-    assert.equal(reads(h, '/api/cart/wholesale').length, 0);
+    assert.equal(reads(h, '/api/cart/wholesale').filter(r => r.options.method === 'POST').length, 0);
   } finally { f.close(); }
 });
 
@@ -86,7 +86,7 @@ test('failed price checks preserve the offer and typed quantity, block buying an
     reads(h, '/wholesale/quote').at(-1).resolve({ message: 'Price check unavailable' }, 503); await h.settle();
     assert.equal(current(h).available, true); assert.equal(current(h).quantity, 10);
     assert.equal(current(h).quote, null); assert.equal(current(h).canPurchase, false); assert.ok(total(h));
-    await current(h).add(); assert.equal(reads(h, '/api/cart/wholesale').length, 0);
+    await current(h).add(); assert.equal(reads(h, '/api/cart/wholesale').filter(r => r.options.method === 'POST').length, 0);
     current(h).refresh(); h.flush();
     reads(h, '/wholesale/catalog').at(-1).resolve({ data: [{ variants: [terms] }] }); await h.settle();
     t.mock.timers.tick(350); await h.settle();

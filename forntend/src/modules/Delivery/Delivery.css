@@ -2407,3 +2407,21 @@ input[type="checkbox"] { accent-color: #08b9e8; }
 /* Bottom-nav labels stay on one line on narrow phones ("Earnings", not "Earning/s"). */
 .delivery-navbar-bottom .nav-label { white-space: nowrap; }
 .delivery-navbar-bottom .delivery-nav-item { min-width: 0; }
+
+/* Order-request notification switch (shared component, delivery styling). */
+.delivery-push-control { margin: 0 0 16px; }
+.delivery-push-control .seller-push-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.delivery-push-control .seller-push-enable { min-height: 44px; padding: 0 16px; border: 1.5px solid #0ea5c6; border-radius: 12px; background: #ffffff; color: #0369a1; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.delivery-push-control .seller-push-enable:disabled { opacity: .6; }
+.delivery-push-control .seller-push-status { font-size: 12px; color: #64748b; }
+.delivery-push-control .seller-push-enabled { font-size: 12px; font-weight: 700; color: #15803d; }
+
+/* Order request: route preview and full-map link. */
+.ping-map-box { margin: 0 0 12px; }
+.ping-map-actions { display: flex; gap: 8px; }
+.ping-map-actions > * { flex: 1; display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border-radius: 10px; font: inherit; font-size: 12.5px; font-weight: 800; text-decoration: none; cursor: pointer; box-sizing: border-box; }
+.ping-map-toggle { border: 1.5px solid #0ea5c6; background: #ffffff; color: #0369a1; }
+.ping-map-open { border: 1.5px solid #e2e8f0; background: #f8fafc; color: #0f172a; }
+.ping-map-actions + * { margin-top: 10px; border-radius: 12px; overflow: hidden; }
+.delivery-push-control .seller-push-control { margin: 0; padding: 0; }
+.delivery-push-control .seller-push-enable { width: 100%; }
