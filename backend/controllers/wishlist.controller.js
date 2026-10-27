@@ -12,7 +12,7 @@ import { ok, httpError } from '../utils/response.js';
  * never disagree at the moment of adding.
  */
 const isEligible = (product) =>
-  !!product && retailAllowed(product) && product.fulfillmentType !== 'digital' && !product.isDeleted && product.isActive && product.status === 'approved';
+  !!product && retailAllowed(product) && !product.isDeleted && product.isActive && product.status === 'approved';
 
 /**
  * @desc    The signed-in shopper's wishlist, as live Product data
@@ -39,7 +39,7 @@ export const getWishlist = asyncHandler(async (req, res) => {
   if (!ids.length) return ok(res, { items: [], productIds: [], count: 0 });
 
   const products = await Product.find({ _id: { $in: ids }, $and: [retailVisibility()] })
-    .select('name images price mrp discountPercent stock isActive isDeleted status type fulfillmentType sellerId shgStoreId')
+    .select('name images price mrp discountPercent stock isActive isDeleted status type fulfillmentType digital.stockTracked sellingChannels sellerId shgStoreId')
     .lean();
 
   const byId = new Map(products.map((p) => [String(p._id), p]));
@@ -63,9 +63,11 @@ export const getWishlist = asyncHandler(async (req, res) => {
       mrp: p.mrp,
       discountPercent: p.discountPercent || 0,
       stock: p.stock,
-      inStock: (p.stock || 0) > 0,
+      inStock: p.fulfillmentType === 'digital' && !p.digital?.stockTracked || (p.stock || 0) > 0,
       available: isEligible(p),
       type: p.type,
+      fulfillmentType: p.fulfillmentType,
+      digital: p.digital,
     }));
 
   return ok(res, { items, productIds: items.map((i) => String(i._id)), count: items.length });

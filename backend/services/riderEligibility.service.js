@@ -19,6 +19,7 @@ export const riderPickupPosition = rider => {
 // Order-specific operational checks shared by availability and actual offers.
 // Approval grants membership; it does not turn on the rider's duty switch.
 export function riderIneligibility(rider, user, order, pickup, { requireDuty = true } = {}) {
+  if (order.fulfillment?.requestedRiderId && String(order.fulfillment.requestedRiderId) !== String(rider._id)) return 'another_rider_requested';
   if (rider.parcelReservation?.bookingId) return 'parcel_reserved';
   if (rider.status !== 'approved') return 'not_approved';
   if (!user?.isActive || !user.roles?.includes('delivery')) return 'inactive_account';

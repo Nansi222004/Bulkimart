@@ -9,6 +9,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { distanceKm } from '../utils/geo.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
+import { riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
 import { payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
 import { requireOrderPickup, pickupCoordinates } from '../services/storePickup.service.js';
 import { notifyRider, NOTIFICATION_EVENT } from '../services/notification.service.js';
@@ -30,6 +31,7 @@ const pickupFor = async (order) => {
 const isRiderEligible = async (partner, pickup, order, { session = null, checkCapacity = true } = {}) => {
   if (partner.parcelReservation?.bookingId) return false;
   if (partner.status !== 'approved' || !partner.isAvailable) return false;
+  if (!await riderCashAllowsOrder(partner._id, order, { session })) return false;
   const user = await User.findById(partner.userId).select('isActive roles').session(session);
   if (!user?.isActive || !user.roles?.includes('delivery')) return false;
   const zones = partner.zones || [];

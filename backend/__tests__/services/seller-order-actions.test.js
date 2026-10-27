@@ -12,7 +12,8 @@ test.each(['creating','assigning','reconciliation_required'])('shipment lock %s 
 });
 test('assignment prevents cancellation; internal delivery completion is rider-only; payment gates acceptance', () => {
   expect(sellerOrderActions({ ...order('placed'), vendorDecision: { status: 'pending' } }, false).map(a => a.to)).toEqual([]);
-  expect(sellerOrderActions(order('dispatched'))).toEqual([]);
+  expect(sellerOrderActions(order('dispatched'))).toEqual([{ setup: true, label: 'Reassign delivery partner' }]);
+  expect(sellerOrderActions({ ...order('dispatched'), deliveryPartnerId: 'assigned', deliveryId: 'trip' })).toEqual([]);
   expect(sellerOrderActions(order('out_for_delivery'))).toEqual([]);
   expect(sellerOrderActions({ ...order('preparing'), deliveryId: 'assigned' }).some(a => a.reject)).toBe(false);
   expect(sellerOrderActions({ ...order('preparing', 'shiprocket'), fulfillment: { assignmentPolicy: 'seller_after_acceptance', method: 'shiprocket' }, shiprocket: { orderId: 'real', shipmentId: 'real', awb: 'real', courier: 'real' } }).map(a => a.to)).toEqual(['dispatched']);

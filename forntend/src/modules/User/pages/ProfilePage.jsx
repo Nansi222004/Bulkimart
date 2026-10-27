@@ -3,6 +3,8 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
+import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
+import { boundedFetch } from '../../../utils/portalRequests';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
@@ -35,12 +37,12 @@ const ProfilePage = () => {
 
 
 
-  // Wallet top-up UI is retired until a Razorpay implementation is approved.
   const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
   const [addMoneyAmount, setAddMoneyAmount] = useState('');
   const [isInitiatingTopup, setIsInitiatingTopup] = useState(false);
   const [topupError, setTopupError] = useState('');
   const [topupAlert, setTopupAlert] = useState(null);
+  const topupInFlight = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -58,40 +60,41 @@ const ProfilePage = () => {
     }
   }, [fetchWalletBalance]);
 
-  const handleInitiateTopup = async (customAmt) => {
-    void customAmt;
-    setTopupError('Wallet top-up is temporarily unavailable while this flow is migrated to Razorpay.');
-  };
-
-  const handleDevQuickTopup = async (customAmt) => {
-    const amt = Number(customAmt || addMoneyAmount);
-    if (!Number.isFinite(amt) || amt < 1) {
-      setTopupError('Please enter a valid amount of at least ₹1');
+  const handleInitiateTopup = async () => {
+    if (topupInFlight.current) return;
+    const amt = Number(addMoneyAmount);
+    if (!Number.isFinite(amt) || amt < 1 || amt > 100000 || Math.abs(amt * 100 - Math.round(amt * 100)) > 0.000001) {
+      setTopupError('Enter an amount from ₹1 to ₹1,00,000 with at most two decimal places.');
       return;
     }
+    topupInFlight.current = true;
     setIsInitiatingTopup(true);
     setTopupError('');
     try {
-      const res = await fetch(apiUrl('/api/wallet/dev-topup'), {
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + localStorage.getItem('userToken'),
+      };
+      const res = await boundedFetch(apiUrl('/api/wallet/topup/initiate'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + localStorage.getItem('userToken')
-        },
+        headers,
         body: JSON.stringify({ amount: amt })
       });
-      const body = await res.json();
-      if (body.success) {
-        setShowAddMoneyModal(false);
-        setTopupAlert({ type: 'success', message: `🎉 ₹${amt} credited to your wallet instantly!` });
-        fetchWalletBalance?.();
-        loadRealWalletDetails();
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.success) throw new Error(body.message || 'Could not start wallet payment.');
+      const result = await openRazorpayCheckout(body.data, headers);
+      setShowAddMoneyModal(false);
+      if (result.ok && result.verified) {
+        setTopupAlert({ type: 'success', message: `₹${amt} added to your wallet.` });
       } else {
-        setTopupError(body.message || 'Instant top-up failed.');
+        setTopupAlert({ type: 'error', message: result.message || 'Payment has not been confirmed. Check your wallet before trying again.' });
       }
+      fetchWalletBalance?.();
+      await loadRealWalletDetails();
     } catch (err) {
-      setTopupError('Network error performing instant top-up.');
+      setTopupError(err.message || 'Could not start wallet payment. Please try again.');
     } finally {
+      topupInFlight.current = false;
       setIsInitiatingTopup(false);
     }
   };
@@ -814,6 +817,7 @@ const ProfilePage = () => {
                   <span style={{ textTransform: 'uppercase', color: '#fef08a' }}>{realWalletData?.status || 'ACTIVE'}</span>
                 </div>
                 <button
+                  disabled={isInitiatingTopup}
                   onClick={() => {
                     setShowAddMoneyModal(true);
                     setTopupError('');
@@ -839,8 +843,7 @@ const ProfilePage = () => {
               </div>
             </div>
 
-            {/* Retired add-money modal retained temporarily for layout-safe removal. */}
-            {false && showAddMoneyModal && (
+            {showAddMoneyModal && (
               <ModalPortal style={{
                 position: 'fixed',
                 inset: 0,
@@ -866,6 +869,8 @@ const ProfilePage = () => {
                       💳 Add Money to Wallet
                     </h3>
                     <button
+                      disabled={isInitiatingTopup}
+                      aria-label="Close add money"
                       onClick={() => setShowAddMoneyModal(false)}
                       style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#64748b' }}
                     >
@@ -874,7 +879,7 @@ const ProfilePage = () => {
                   </div>
 
                   <p style={{ fontSize: '12.5px', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>
-                    Wallet top-up is temporarily unavailable while billing moves to Razorpay.
+                    Pay securely with Razorpay to add money to your wallet.
                   </p>
 
                   {topupError && (
@@ -920,11 +925,13 @@ const ProfilePage = () => {
 
                   <form onSubmit={(e) => { e.preventDefault(); handleInitiateTopup(); }}>
                     <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '12.5px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                      <label htmlFor="wallet-topup-amount" style={{ display: 'block', fontSize: '12.5px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
                         Enter Custom Amount (₹)
                       </label>
                       <input
+                        id="wallet-topup-amount"
                         type="number"
+                        step="0.01"
                         min="1"
                         max="100000"
                         placeholder="e.g. 750"
@@ -970,28 +977,6 @@ const ProfilePage = () => {
                         {isInitiatingTopup ? 'Starting payment...' : `Pay ₹${addMoneyAmount || 0}`}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDevQuickTopup()}
-                        disabled={isInitiatingTopup}
-                        style={{
-                          width: '100%',
-                          padding: '12px',
-                          borderRadius: '12px',
-                          border: '1.5px solid #BAEAF8',
-                          backgroundColor: 'var(--sf-highlight, #FFF0B3)',
-                          color: 'var(--sf-action-hover, #B50918)',
-                          fontWeight: '800',
-                          fontSize: '13.5px',
-                          cursor: isInitiatingTopup ? 'wait' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px'
-                        }}
-                      >
-                        ⚡ Instant Add ₹{addMoneyAmount || 0} (Dev Test Mode)
-                      </button>
                     </div>
                   </form>
                 </div>
@@ -1596,7 +1581,7 @@ const ProfilePage = () => {
   };
 
   return (
-    <div className="profile-page-container" style={{ position: 'relative', minHeight: '100%', paddingBottom: '60px' }}>
+    <div className="profile-page-container" style={{ position: 'relative', paddingBottom: '20px' }}>
       {/* Hidden File Input for Avatar Upload */}
       <input
         type="file"
@@ -1741,7 +1726,7 @@ const ProfilePage = () => {
             maxWidth: '540px',
             height: '100dvh',
             backgroundColor: '#f8fafc',
-            overflowY: 'auto',
+            overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 0 40px rgba(0, 0, 0, 0.25)',
@@ -1750,7 +1735,7 @@ const ProfilePage = () => {
             {renderSectionHeader(
               menuItems.find(item => item.id === activeSection)?.label || 'Detail'
             )}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
               {renderSectionContent()}
             </div>
           </div>

@@ -5,6 +5,7 @@
 /* SCROLLABLE MAIN FEED */
 .user-main-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   padding-bottom: 90px;
@@ -39,8 +40,11 @@
 .user-main-content.page-account {
   overflow-y: auto !important;
   padding: 16px 16px 140px 16px !important;
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
+
+.user-main-content.page-account::-webkit-scrollbar { display: block; width: 5px; }
+.user-main-content.page-account::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 5px; }
 
 .user-main-content:is(.page-checkout, .page-cart) {
   padding: 0;
@@ -3261,6 +3265,7 @@
 /* USER PROFILE PAGE STYLES */
 .profile-page-container {
   display: flex;
+  flex: none;
   flex-direction: column;
   animation: fadeIn 0.3s ease;
   padding-bottom: 40px;
@@ -6262,8 +6267,10 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
 
 /* My Orders: only the order list scrolls (its intended design); the title,
    search and filters stay in place. */
-.user-main-content.page-orders { overflow: hidden; }
+.user-main-content.page-orders { overflow: hidden; padding: 0; gap: 0; }
 .user-main-content.page-orders > .orders-page-container { flex: 1; min-height: 0; height: auto; }
+.user-main-content.page-orders ~ .bottom-nav-bar { position: relative; flex-shrink: 0; }
+.user-main-content.page-orders :is(.orders-header-row, .orders-header-divider, .orders-search-filter-row) { flex-shrink: 0; }
 
 /* E-books shares the orders card but has no inner list, so its title sticks. */
 .user-main-content.page-ebooks .orders-page-container { overflow: visible; }

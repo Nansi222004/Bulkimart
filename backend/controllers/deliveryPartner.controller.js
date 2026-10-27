@@ -16,6 +16,7 @@ import { VENDOR_STATUS, CHANNEL, CHANNELS, riderClaimableStatuses, OFFER_ATTEMPT
 import { parseLocation, hasUsableLocation, distanceKm, etaMinutes } from '../utils/geo.js';
 import { riderPayout, payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
 import { canTakeAnother, maxConcurrentDeliveries } from '../services/riderCapacity.service.js';
+import { riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
 import { requestVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
@@ -574,9 +575,10 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
   // Apply the same account/coverage/capacity rules shown to sellers, including
   // after Quick fallback queries. Never offer jobs to inactive user accounts.
   const operational = [];
+  if (order.fulfillment?.requestedRiderId) riders = await DeliveryPartner.find({ _id: order.fulfillment.requestedRiderId, status: 'approved', isAvailable: true });
   for (const rider of riders) {
     const user = await User.findById(rider.userId).select('isActive roles');
-    if (!riderIneligibility(rider, user, order, seller.storeDetails) && (await canTakeAnother(rider._id)).ok) operational.push(rider);
+    if (!riderIneligibility(rider, user, order, seller.storeDetails) && (await canTakeAnother(rider._id)).ok && await riderCashAllowsOrder(rider._id, order)) operational.push(rider);
   }
   riders = operational.slice(0, 5);
 
@@ -768,6 +770,20 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
 // decline arriving the instant another rider accepts, or the instant this
 // same offer expires, simply fails to match — Mongo is the arbiter, not a
 // race between two requests reading stale state.
+const notifySellerAssignmentReleased = async order => {
+  try {
+    const { emitToSeller } = await import('../socket/rooms.js');
+    emitToSeller(orderStoreId(order), 'rider_assignment_released', { orderId: order._id });
+  } catch { /* The seller also refreshes on focus and while viewing the order. */ }
+};
+
+const releaseRequestedRider = async (order, partner) => {
+  const released = await Order.updateOne({ _id: order._id, deliveryPartnerId: null, 'fulfillment.requestedRiderId': partner._id }, {
+    $unset: { 'fulfillment.requestedRiderId': '' }, $set: { needsManualAssignment: true }, $inc: { __v: 1 },
+  });
+  if (released.modifiedCount) await notifySellerAssignmentReleased(order);
+};
+
 export const declineOrder = asyncHandler(async (req, res) => {
   const partner = req.partner; // injected by requireApprovedPartner
   // Optional and not yet collected by any UI (see Section 4 of the request) —
@@ -820,6 +836,7 @@ export const declineOrder = asyncHandler(async (req, res) => {
     throw httpError(409, `This offer is already ${mine.status} — it can no longer be declined`);
   }
 
+  await releaseRequestedRider(order, partner);
   return ok(res, { status: OFFER_ATTEMPT_STATUS.DECLINED_BY_RIDER }, 'Offer declined');
 });
 
@@ -881,6 +898,7 @@ export const expireOrder = asyncHandler(async (req, res) => {
     throw httpError(409, `This offer is already ${mine.status} — it can no longer expire`);
   }
 
+  await releaseRequestedRider(order, partner);
   return ok(res, { status: OFFER_ATTEMPT_STATUS.OFFER_EXPIRED }, 'Offer expired');
 });
 
@@ -907,7 +925,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   // and leaving it out of the projection quietly treated every Quick order as a
   // Shop All one — claimable only at `dispatched`, which is exactly the window
   // early ringing exists to open.
-  const candidate = await Order.findById(req.params.id).select('items status type deliveryType deliveryPartnerId deliveryId shippingAddress paymentId paymentMethod');
+  const candidate = await Order.findById(req.params.id).select('items status type fulfillment deliveryType deliveryPartnerId deliveryId shippingAddress paymentId paymentMethod');
   if (!candidate) throw httpError(404, 'Order not found');
   if (!await orderPaymentReady(candidate)) throw httpError(409, 'Payment must be verified before accepting a delivery');
 
@@ -947,6 +965,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
       _id: req.params.id,
       // One shared definition, so the offer and the claim cannot disagree.
       status: { $in: riderClaimableStatuses(candidate.type) },
+      'fulfillment.requestedRiderId': { $in: [null, partner._id] },
       deliveryType: { $ne: 'shiprocket' },
       $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }],
       /**
@@ -1124,6 +1143,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     // A refusal rolls back the order, delivery, offer history and duty together.
     const currentCapacity = await canTakeAnother(partner._id, { session, excludeOrderId: order._id });
     if (!currentCapacity.ok) throw httpError(409, currentCapacity.reason);
+    if (!await riderCashAllowsOrder(partner._id, order, { session })) throw httpError(409, 'Your COD cash limit has been reached. Settle your cash before accepting another COD delivery.');
   }
     });
   } finally { await session.endSession(); }
@@ -1220,9 +1240,8 @@ export const cancelDelivery = asyncHandler(async (req, res) => {
   const partner = req.partner; // injected by requireApprovedPartner
   const { reason } = req.body || {};
 
-  const order = await Order.findById(req.params.id).select('deliveryPartnerId deliveryId status');
+  const order = await Order.findById(req.params.id).select('items deliveryPartnerId deliveryId status');
   if (!order) throw httpError(404, 'Order not found');
-  if (!order.deliveryId) throw httpError(404, 'No delivery record exists for this order');
 
   /**
    * Ownership is read from the Delivery record, not `order.deliveryPartnerId`.
@@ -1235,7 +1254,8 @@ export const cancelDelivery = asyncHandler(async (req, res) => {
    * the reliable answer to "was this ever this rider's delivery" even after
    * the order itself has moved on.
    */
-  const delivery = await Delivery.findById(order.deliveryId);
+  const delivery = order.deliveryId ? await Delivery.findById(order.deliveryId)
+    : await Delivery.findOne({ orderId: order._id, partnerId: partner._id, status: 'rejected' }).sort({ createdAt: -1 });
   if (!delivery || String(delivery.partnerId) !== String(partner._id)) {
     throw httpError(404, 'No active delivery assignment found');
   }
@@ -1264,9 +1284,11 @@ export const cancelDelivery = asyncHandler(async (req, res) => {
       if (deliveryResult.modifiedCount !== 1) return; // no-op transaction; disambiguated below
 
       const orderResult = await Order.updateOne(
-        { _id: order._id, deliveryPartnerId: partner._id },
+        { _id: order._id, deliveryPartnerId: partner._id, deliveryId: order.deliveryId },
         {
-          $unset: { deliveryPartnerId: '' },
+          $unset: { deliveryPartnerId: '', deliveryId: '', 'fulfillment.requestedRiderId': '' },
+          $set: { needsManualAssignment: true },
+          $inc: { __v: 1 },
           $push: {
             timeline: {
               status: order.status,
@@ -1281,6 +1303,9 @@ export const cancelDelivery = asyncHandler(async (req, res) => {
         // Would leave the Delivery marked rejected with the order still
         // assigned — abort rather than commit a half-applied cancellation.
         throw httpError(409, 'This order is no longer assigned to you');
+      }
+      if ((await canTakeAnother(partner._id, { session })).ok) {
+        await DeliveryPartner.updateOne({ _id: partner._id, 'parcelReservation.bookingId': { $exists: false }, 'parcelReturnClaim.token': { $exists: false } }, { $set: { isAvailable: true }, $inc: { __v: 1 } }, { session });
       }
       cancelled = true;
     });
@@ -1303,6 +1328,7 @@ export const cancelDelivery = asyncHandler(async (req, res) => {
   // Re-open the order to the existing dispatch mechanism — the same call
   // the seller's own status-update trigger already makes elsewhere in this
   // file. Not a new reassignment path; reusing the one that exists.
+  await notifySellerAssignmentReleased(order);
   broadcastNewOrderToRiders(order._id).catch(console.error);
 
   return ok(res, { status: 'rejected' }, 'Delivery cancelled — the order has been released for reassignment');
@@ -1774,6 +1800,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
     $and: [
       { $or: CHANNELS.map((ch) => ({ type: ch, status: { $in: riderClaimableStatuses(ch) } })) },
       { $or: [{ deliveryPartnerId: null }, { deliveryPartnerId: { $exists: false } }] },
+      { 'fulfillment.requestedRiderId': { $in: [null, partner._id] } },
     ],
     /**
      * Not an order this rider already resolved.
@@ -1815,6 +1842,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
     const shop = storePickup(seller);
     if (!shop) continue;
     if (riderIneligibility(partner, req.user, order, shop)) continue;
+    if (!await riderCashAllowsOrder(partner._id, order)) continue;
     await recordOfferIfNew(order._id, partner._id);
     const drop = { lat: order.shippingAddress.lat, lng: order.shippingAddress.lng };
     const legKm = distanceKm(shop, drop);

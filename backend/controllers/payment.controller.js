@@ -26,6 +26,7 @@ import { ORDER_STATUS, PAYMENT_STATUS } from '../constants/enums.js';
 import { settleSellerPromotionPayment } from './sellerPromotion.controller.js';
 import { settlePackagingOrderPayment } from './packaging.controller.js';
 import { settleWalletTopupPayment } from './wallet.controller.js';
+import { settleRazorpayWalletTopup } from '../services/walletTopup.service.js';
 import { settleRazorpayRefundWebhook } from '../services/return.service.js';
 import { redeemReservedCoins, releaseReservedCoins } from '../services/coin.service.js';
 import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
@@ -442,6 +443,13 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   ] });
   if (!payment) payment = await recoverCreationFromWebhook(evt);
   if (!payment) return res.status(200).json({ success: true, message: 'Unknown order' });
+  if (payment.isWalletTopup) {
+    await settleRazorpayWalletTopup({ payment,
+      state: evt.kind === 'payment_completed' ? 'COMPLETED' : 'FAILED',
+      gatewayOrderId: evt.gatewayOrderId, gatewayPaymentId: evt.paymentId,
+      amountPaise: evt.amountPaise, currency: evt.currency, paymentDetails: evt.paymentDetails });
+    return res.status(200).json({ success: true });
+  }
   if (payment.parcelDeliveryId) {
     await handleParcelWebhook(req.body, evt);
     return res.status(200).json({ success: true });

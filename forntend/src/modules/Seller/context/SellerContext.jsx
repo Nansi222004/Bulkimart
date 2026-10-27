@@ -869,10 +869,10 @@ export const SellerProvider = ({ children }) => {
     } catch (err) { return { ok: false, message: err.message }; }
   }, []);
 
-  const selectManualFulfillment = useCallback(async (orderId) => {
+  const selectManualFulfillment = useCallback(async (orderId, riderId) => {
     try {
       const res = await fetch(apiUrl(`/api/sellers/orders/${orderId}/fulfillment/manual`), {
-        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: '{}',
+        method: 'POST', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify(riderId ? { riderId } : {}),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, message: body.message || 'Could not select manual delivery' };
@@ -906,6 +906,23 @@ export const SellerProvider = ({ children }) => {
   }, [sellerProfile?._id, sellerProfile?.status, profileLoading, profileError, fetchSellerOrders]);
 
   const [payouts, setPayouts] = useState([]);
+  useEffect(() => {
+    if (sellerProfile?.status !== 'approved' || !orderDetailId) return;
+    let active = true;
+    const token = localStorage.getItem('sellerToken');
+    const refresh = async hint => {
+      if (hint?.orderId && String(hint.orderId) !== String(orderDetailId)) return;
+      const result = await fetchSellerOrder(orderDetailId);
+      if (active && token === localStorage.getItem('sellerToken') && result.ok) {
+        setSelectedOrder(current => String(current?._id) === String(orderDetailId) ? result.data : current);
+      }
+    };
+    const events = ['rider_assigned', 'rider_assignment_released', 'no_rider_found'];
+    events.forEach(event => socket.on(event, refresh));
+    window.addEventListener('focus', refresh);
+    const timer = setInterval(refresh, 15000);
+    return () => { active = false; clearInterval(timer); events.forEach(event => socket.off(event, refresh)); window.removeEventListener('focus', refresh); };
+  }, [sellerProfile?.status, orderDetailId, fetchSellerOrder]);
   const [financeSummary, setFinanceSummary] = useState(null);
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [financeLoading, setFinanceLoading] = useState(false);

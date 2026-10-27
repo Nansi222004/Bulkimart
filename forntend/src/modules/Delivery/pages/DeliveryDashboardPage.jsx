@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { RIDER_COD_CASH_LIMIT } from '../../../../../backend/shared/deliveryCash.mjs';
 import { useDelivery } from '../context/DeliveryContext';
 import OrderPingModal from '../components/OrderPingModal';
 import DepositModal from '../components/DepositModal';
@@ -59,7 +60,7 @@ export const DeliveryDashboardPage = () => {
     }
   };
 
-  const codLimit = 2000;
+  const codLimit = RIDER_COD_CASH_LIMIT;
   const isWalletWarning = debitWallet >= 1500;
   const isWalletBlocked = debitWallet >= codLimit;
 

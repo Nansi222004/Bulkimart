@@ -198,7 +198,7 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        <SellerPushControl />
+        {!(activeTab === 'orders' && orderDetailId) && <SellerPushControl />}
 
         {/* Tab content */}
         <div className="seller-tab-content-container">

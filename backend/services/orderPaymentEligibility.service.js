@@ -22,3 +22,23 @@ export const orderHistoryPaymentStages = () => [
   { $match: { '_historyPayment.checkoutAbandonedAt': null } },
   { $unset: '_historyPayment' },
 ];
+
+// The seller's order history: an online order reaches the seller only once its
+// payment was actually received, so a checkout the customer cancelled or that
+// failed at the gateway never appears there as a "cancelled" order. COD orders
+// and paid orders (including ones later refunded) still show.
+export const sellerHistoryPaymentStages = () => [
+  { $lookup: { from: 'payments', localField: 'paymentId', foreignField: '_id',
+    pipeline: [{ $project: { checkoutAbandonedAt: 1, status: 1, paidAt: 1 } }], as: '_sellerPayment' } },
+  { $match: { $or: [
+    { paymentMethod: 'cod' },
+    { $and: [
+      { '_sellerPayment.checkoutAbandonedAt': null },
+      { $or: [
+        { '_sellerPayment.status': { $in: ['paid', 'partial_refund', 'refunded'] } },
+        { '_sellerPayment.paidAt': { $ne: null } },
+      ] },
+    ] },
+  ] } },
+  { $unset: '_sellerPayment' },
+];

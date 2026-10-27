@@ -34,6 +34,9 @@
 .seller-order-page .seller-rider-heading p { font-size: 13px; color: var(--text-secondary); margin: 4px 0 0; }
 .seller-rider-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
 .seller-rider-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.seller-rider-card { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+.seller-rider-card[aria-pressed=true] { border: 2px solid var(--primary); background: var(--primary-light); box-shadow: 0 0 0 2px var(--primary-light); }
+.seller-rider-card[aria-pressed=true] .seller-rider-active { background: var(--primary); color: white; }
 .seller-rider-card > div { min-width: 0; flex: 1; }
 .seller-rider-card strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
 .seller-rider-card > div > span, .seller-rider-card small { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 3px; }

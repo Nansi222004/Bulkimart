@@ -1,6 +1,7 @@
 import { feedback as ui } from '../../../utils/feedback';
 import React from 'react';
 import { sellerPricingRows } from '../utils/sellerOrderAmounts';
+import { sellerTimeline } from '../utils/sellerTimeline';
 const money = value => value == null ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
 const date = value => value ? new Date(value).toLocaleString('en-IN') : 'Not recorded';
 const statusText = value => String(value || 'Not recorded').replaceAll('_', ' ').replace(/^./, first => first.toUpperCase());
@@ -54,6 +55,11 @@ export function orderDetailSections(order) {
       <div className="seller-detail-links">{link(shipment.trackingUrl, 'Track shipment')}{link(shipment.labelUrl, 'Download label')}{link(shipment.invoiceUrl, 'Download invoice')}</div>
       {shipment.lastError && <p role="alert">{shipment.lastError}</p>}
       {shipment.status === 'reconciliation_required' && <p>Contact platform support to reconcile this order with Shiprocket before retrying. Shipment creation is locked.</p>}</> : <p>No courier shipment created.</p>}</section>
-    <section className="seller-detail-timeline"><h2>Status timeline</h2><ol>{(order.timeline || []).map((event, index) => <li key={index}><strong>{statusText(event.status)}</strong><time>{date(event.timestamp)}</time>{event.note && <p>{event.note}</p>}</li>)}</ol>{!order.timeline?.length && <p>No status updates recorded yet.</p>}</section>
+    <section className="seller-detail-timeline"><h2>Status timeline</h2><ol>{sellerTimeline(order.timeline).map((event, index, all) => {
+      // A step that repeats the previous status (e.g. payment confirmed while the
+      // order is still placed) is titled by its note, not a second "Order placed".
+      const repeat = index > 0 && all[index - 1].status === event.status && event.note;
+      return <li key={index}><strong>{repeat ? event.note : statusText(event.status)}</strong><time>{date(event.timestamp)}</time>{event.note && !repeat && <p>{event.note}</p>}</li>;
+    })}</ol>{!order.timeline?.length && <p>No status updates recorded yet.</p>}</section>
   </div>;
 }

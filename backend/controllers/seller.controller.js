@@ -7,7 +7,7 @@ import { parseStoreProfile } from '../services/sellerProfile.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
 import { sellerOrderAmounts } from '../services/sellerOrderAmounts.service.js';
-import { eligiblePaymentStages, orderPaymentReady, orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
+import { eligiblePaymentStages, orderPaymentReady, sellerHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 import Delivery from '../models/Delivery.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
@@ -634,7 +634,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
 
   const actionableQueue = req.query.status === ORDER_STATUS.PLACED && !req.params.id;
   const [history] = await Order.aggregate([{ $match: filter },
-    ...(actionableQueue ? eligiblePaymentStages() : orderHistoryPaymentStages()),
+    ...(actionableQueue ? eligiblePaymentStages() : sellerHistoryPaymentStages()),
     { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);
   const orders = history?.rows || [];
   const total = history?.count?.[0]?.total || 0;
@@ -658,13 +658,15 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
   const deliveries = deliveryIds.length ? await Delivery.find({ _id: { $in: deliveryIds } }).populate({ path: 'partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } }).lean() : [];
   const deliveryMap = new Map(deliveries.map(d => [String(d._id), d]));
   const rows = orders.map((o) => {
+    const trip = deliveryMap.get(String(o.deliveryId));
+    const releasedDelivery = !o.deliveryPartnerId && trip?.status === 'rejected' && String(trip.orderId) === String(o._id);
     const mine = (o.items || []).filter((i) => String(i.sellerId) === String(seller._id));
     const subtotal = mine.reduce((sum, i) => sum + (i.price || 0) * (i.qty || 0), 0);
 
     return {
       _id: o._id,
       version: o.__v,
-      permittedActions: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? sellerOrderActions(o, o.paymentMethod === 'cod' || payments.get(String(o.paymentId))?.status === 'paid') : [],
+      permittedActions: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? sellerOrderActions(releasedDelivery ? { ...o, deliveryId: null } : o, o.paymentMethod === 'cod' || payments.get(String(o.paymentId))?.status === 'paid') : [],
       displayStatus: o.deliveryType !== 'shiprocket' && o.status === 'dispatched' ? (o.deliveryPartnerId ? 'Delivery assigned' : 'Awaiting rider acceptance') : o.status === 'preparing' && o.fulfillment?.readyAt ? 'Ready for pickup' : o.status,
       pricing: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? o.pricing : undefined,
       store: { name: seller.storeDetails?.name || seller.businessName, pickupAddress: seller.storeDetails, pickupLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation, pickupEnabled: seller.thirdPartyFulfillment?.enabled },

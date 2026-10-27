@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
-import { apiUrl } from '../../../utils/api';
 import { normalizeProduct } from '../hooks/useProducts';
 import { formatCurrency } from '../utils/helpers';
 
@@ -11,39 +10,20 @@ const WishlistPage = () => {
     addToCart,
     setSelectedProduct,
     setActiveNav,
-    refreshWishlist
+    refreshWishlist,
+    getWishlistItems,
+    wishlistLoading: loading,
   } = useUser();
 
-  const [allProducts, setAllProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'quick' | 'shop-all'
 
   useEffect(() => {
     refreshWishlist();
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(apiUrl('/api/products?limit=100'));
-        const body = await res.json().catch(() => ({}));
-        if (!cancelled) {
-          const rows = body.products || body.data || [];
-          setAllProducts(rows.map(normalizeProduct));
-        }
-      } catch (err) {
-        console.error('Error fetching products for wishlist:', err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [refreshWishlist]);
 
   // Filter products matching the user's wishlist Set
-  const savedProducts = allProducts.filter((p) => wishlist.has(p.id) || wishlist.has(p._id));
+  const savedProducts = getWishlistItems().map(item => ({ ...normalizeProduct(item), available: item.available }))
+    .filter(p => wishlist.has(String(p.id)));
 
   const quickProducts = savedProducts.filter((p) => p.type === 'grocery');
   const shopAllProducts = savedProducts.filter((p) => p.type !== 'grocery');
@@ -203,6 +183,7 @@ const WishlistPage = () => {
 
                   <button
                     className="wishlist-add-cart-btn"
+                    disabled={product.available === false}
                     onClick={(e) => {
                       e.stopPropagation();
                       addToCart(product);
@@ -212,7 +193,7 @@ const WishlistPage = () => {
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
-                    Add to Cart
+                    {product.available === false ? 'Unavailable' : 'Add to Cart'}
                   </button>
                 </div>
               </div>

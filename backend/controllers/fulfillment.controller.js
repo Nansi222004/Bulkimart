@@ -1,9 +1,11 @@
 import Order from '../models/Order.js';
+import mongoose from 'mongoose';
 import { storePickup, pickupLocationError } from '../services/storePickup.service.js';
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 import { orderPaymentReady as paymentIsReady } from '../services/orderPaymentEligibility.service.js';
 import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
+import Delivery from '../models/Delivery.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
@@ -13,6 +15,8 @@ import Snapshot from '../models/QuickCommerceFinancialSnapshot.js';
 import { requireVerifiedQuickCollection } from '../services/quickShiprocketCollection.service.js';
 import { riderIneligibility } from '../services/riderEligibility.service.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
+import { riderCodCashBalances, riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
+import { RIDER_COD_CASH_LIMIT } from '../shared/deliveryCash.mjs';
 import { pickupReadyForShipping, pickupStatus, pickupDefinition } from '../services/sellerPickupSync.service.js';
 import {
   getShiprocketCapabilities, verifyPickupLocation, checkServiceability, createShiprocketOrder,
@@ -23,12 +27,22 @@ import { calculateOptionB, getQuickCommerceConfig, validateServiceFeeConfigurati
 export const sellerAndOrder = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
-  const order = await Order.findById(req.params.id);
+  let order = await Order.findById(req.params.id);
   if (!order) throw httpError(404, 'Order not found');
   if (!order.items.some((item) => String(item.sellerId) === String(seller._id))) {
     throw httpError(403, 'You can only manage fulfillment for your own order');
   }
   if (!order.items.every((item) => String(item.sellerId) === String(seller._id))) throw httpError(409, 'This order contains multiple stores and needs platform support before fulfillment.');
+  // Earlier rider cancellations left this reference behind. Release only a
+  // matching rejected trip; a concurrent new assignment must win unchanged.
+  if (order.status === ORDER_STATUS.DISPATCHED && order.deliveryId && !order.deliveryPartnerId
+      && await Delivery.exists({ _id: order.deliveryId, orderId: order._id, status: 'rejected' })) {
+    const released = await Order.findOneAndUpdate({ _id: order._id, deliveryId: order.deliveryId, deliveryPartnerId: null, __v: order.__v }, {
+      $unset: { deliveryId: '', 'fulfillment.requestedRiderId': '' }, $set: { needsManualAssignment: true }, $inc: { __v: 1 },
+    }, { returnDocument: 'after' });
+    if (!released) throw httpError(409, 'Assignment changed. Refresh this order.');
+    order = released;
+  }
   return { seller, order };
 };
 
@@ -51,17 +65,21 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   const packageWeightKg = totalWeightKg(order);
   const onlineRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true }).populate('userId', 'name phone isActive roles').lean();
   const eligibleRiders = [];
+  const cashBalances = order.paymentMethod === 'cod' ? await riderCodCashBalances(onlineRiders.map(rider => rider._id)) : new Map();
   for (const rider of onlineRiders) {
-    if (!pickupPinned || riderIneligibility(rider, rider.userId, order, pickup)) continue;
-    if ((await canTakeAnother(rider._id)).ok) eligibleRiders.push({ name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? '••••••' + String(rider.userId.phone).slice(-4) : null, online: true, availability: 'On duty, capacity available' });
+    if (!pickupPinned || riderIneligibility(rider, rider.userId, { ...(order.toObject?.() || order), fulfillment: {} }, pickup)) continue;
+    if (order.paymentMethod === 'cod' && (cashBalances.get(String(rider._id)) || 0) >= RIDER_COD_CASH_LIMIT * 100) continue;
+    if (order.offerAttempts?.some(attempt => String(attempt.riderId) === String(rider._id) && attempt.status !== 'OFFERED')) continue;
+    if ((await canTakeAnother(rider._id)).ok) eligibleRiders.push({ id: rider._id, name: rider.userId.name || 'Delivery partner', contact: rider.userId.phone ? '••••••' + String(rider.userId.phone).slice(-4) : null, online: true, availability: 'On duty, capacity available' });
   }
   const manualRiderCount = eligibleRiders.length;
   const prepared = order.status === ORDER_STATUS.PREPARING && Boolean(order.fulfillment?.readyAt || order.fulfillment?.method || !order.fulfillment?.assignmentPolicy);
+  const manualPrepared = prepared || order.status === ORDER_STATUS.DISPATCHED && order.deliveryType !== 'shiprocket';
   const shipmentLocked = Boolean(order.shiprocket?.orderId || order.shiprocket?.shipmentId
     || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status));
   const accepted = order.vendorDecision?.status === 'accepted';
   const paymentVerified = await paymentIsReady(order);
-  const stateReason = !accepted ? 'Accept this order before arranging delivery.' : !prepared ? 'Start preparation and mark the parcel Ready for pickup before choosing delivery.' : !paymentVerified ? 'Payment must be verified before fulfillment.' : order.deliveryId || order.deliveryPartnerId ? 'A rider has already been assigned. Refresh the order to see the assignment.' : null;
+  const stateReason = !accepted ? 'Accept this order before arranging delivery.' : !manualPrepared ? 'Start preparation and mark the parcel Ready for pickup before choosing delivery.' : !paymentVerified ? 'Payment must be verified before fulfillment.' : order.deliveryId || order.deliveryPartnerId ? 'A rider has already been assigned. Refresh the order to see the assignment.' : null;
   const syncReady = pickupReadyForShipping(seller, req.user);
   const pickupLinked = Boolean(syncReady && seller.thirdPartyFulfillment?.enabled && seller.thirdPartyFulfillment?.shiprocketPickupLocation);
   let verifiedPickup = null;
@@ -122,12 +140,12 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   return ok(res, {
     orderId: order._id,
     channel: order.type,
-    stateReady: accepted && prepared && paymentVerified && !order.deliveryId && !order.deliveryPartnerId,
+    stateReady: accepted && manualPrepared && paymentVerified && !order.deliveryId && !order.deliveryPartnerId,
     stateReason,
     pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, pincode: pickup.pincode, phone: pickup.phone, registeredLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation },
     destination: order.shippingAddress,
     manual: {
-      available: pickupPinned && accepted && prepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked && !order.deliveryId && !order.deliveryPartnerId,
+      available: pickupPinned && accepted && manualPrepared && paymentVerified && manualRiderCount > 0 && !shipmentLocked && !order.deliveryId && !order.deliveryPartnerId,
       eligibleRiderCount: manualRiderCount,
       assignmentMode: 'rider_acceptance',
       riders: eligibleRiders.slice(0, 30),
@@ -176,23 +194,37 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
   const { seller, order } = await sellerAndOrder(req);
   if (!storePickup(seller)) throw pickupLocationError(seller);
   if (await Snapshot.exists({ orderId: order._id })) throw httpError(409, 'A Shiprocket fee obligation exists; reconcile it before switching delivery method');
-  if (req.body?.riderId || req.body?.partnerId) throw httpError(400, 'Riders accept eligible offers; sellers cannot choose a rider');
+  const riderId = req.body?.riderId;
+  if (riderId && !mongoose.isValidObjectId(riderId)) throw httpError(400, 'Select a valid delivery partner');
+  if (order.deliveryId || order.deliveryPartnerId) throw httpError(409, 'A delivery partner is already assigned. Refresh the order.');
   if (order.fulfillment?.assignmentPolicy && !order.fulfillment?.readyAt && !order.fulfillment?.method) throw httpError(409, 'Mark the parcel ready for pickup first');
-  if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) {
+  if (order.vendorDecision?.status !== 'accepted' || ![ORDER_STATUS.PREPARING, ORDER_STATUS.DISPATCHED].includes(order.status)) {
     throw httpError(409, 'Accept and prepare the order before selecting manual delivery');
   }
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
-  if (order.fulfillment?.method === 'manual' && !order.deliveryId) return ok(res, { deliveryType: order.deliveryType, fulfillment: order.fulfillment }, 'Manual delivery already selected');
+  if (riderId) {
+    const rider = await DeliveryPartner.findById(riderId).populate('userId', 'isActive roles');
+    if (!rider || riderIneligibility(rider, rider.userId, { ...(order.toObject?.() || order), fulfillment: {} }, storePickup(seller))
+        || !(await canTakeAnother(rider._id)).ok || !await riderCashAllowsOrder(rider._id, order)
+        || order.offerAttempts?.some(attempt => String(attempt.riderId) === String(riderId) && attempt.status !== 'OFFERED')) {
+      throw httpError(409, 'This delivery partner is no longer eligible. Refresh availability and select another partner.');
+    }
+  }
   const updated = await Order.findOneAndUpdate({
-    _id: order._id, status: ORDER_STATUS.PREPARING, 'vendorDecision.status': 'accepted',
+    _id: order._id, status: order.status, 'vendorDecision.status': 'accepted',
     __v: order.__v, 'fulfillment.method': order.fulfillment?.method || null,
     'shiprocket.orderId': null, 'shiprocket.shipmentId': null,
-    'shiprocket.status': { $nin: activeShipmentStates }, deliveryId: null,
+    'shiprocket.status': { $nin: activeShipmentStates }, deliveryId: null, deliveryPartnerId: null,
   }, { $set: {
     deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': 'seller',
     'fulfillment.selectedAt': new Date(), 'fulfillment.chargeStatus': 'not_applicable',
-  }, $push: { timeline: { status: order.status, timestamp: new Date(), note: 'Seller selected manual delivery; riders accept after the parcel is offered' } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
+    'fulfillment.requestedRiderId': riderId || null, needsManualAssignment: false,
+  }, $push: { timeline: { status: order.status, timestamp: new Date(), note: riderId ? 'Seller requested a delivery partner; awaiting rider acceptance' : 'Seller selected manual delivery; riders accept after the parcel is offered' } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
   if (!updated) throw httpError(409, 'Order changed or a courier shipment is already being set up. Refresh before choosing delivery.');
+  if (updated.status === ORDER_STATUS.DISPATCHED) {
+    const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
+    broadcastNewOrderToRiders(updated._id).catch(console.error);
+  }
   return ok(res, { deliveryType: updated.deliveryType, fulfillment: updated.fulfillment }, 'Manual Bulkimart delivery selected');
 });
 

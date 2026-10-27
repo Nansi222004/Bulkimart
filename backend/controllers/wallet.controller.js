@@ -13,11 +13,12 @@ import {
   getAdminWalletTransactions,
 } from "../services/wallet.service.js";
 import {
-  createPayment,
   getOrderStatus,
-  rupeesToPaise,
-  isConfigured,
 } from "../services/phonepe.service.js";
+import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSignature } from '../services/razorpay.service.js';
+import { getPaymentGateway } from '../config/runtime.js';
+import { toPaise } from '../utils/money.js';
+import { settleRazorpayWalletTopup } from '../services/walletTopup.service.js';
 import { PAYMENT_STATUS } from "../constants/enums.js";
 
 // ============================================================================
@@ -131,61 +132,41 @@ export const settleWalletTopupPayment = async ({
   }
 };
 
-// @desc    Initiate PhonePe payment for top-up
+// @desc    Initiate a Razorpay wallet top-up
 // @route   POST /api/wallet/topup/initiate
 // @access  Private (Customer)
 export const initiateWalletTopup = asyncHandler(async (req, res) => {
-  if (!isConfigured()) {
-    throw httpError(503, "Online payment gateway is not configured");
-  }
-
-  const { amount } = req.body;
-  const numAmount = Number(amount);
-
-  if (!Number.isFinite(numAmount) || numAmount < 1) {
-    throw httpError(400, "Top-up amount must be at least ₹1");
-  }
-  if (numAmount > 100000) {
-    throw httpError(400, "Maximum single top-up amount is ₹1,00,000");
-  }
-
-  const payment = await Payment.create({
-    userId: req.user._id,
-    amount: numAmount,
-    method: "online",
-    status: PAYMENT_STATUS.PENDING,
-    isWalletTopup: true,
+  if (getPaymentGateway() !== 'razorpay') throw httpError(503, 'Razorpay is not configured for wallet top-ups');
+  const amountPaise = toPaise(req.body.amount);
+  if (amountPaise < 100) throw httpError(400, 'Top-up amount must be at least ₹1');
+  const paymentId = new mongoose.Types.ObjectId();
+  const merchantOrderId = `TOPUP-${paymentId}`;
+  const gw = await createRazorpayOrder({ merchantOrderId, amountPaise, notes: { paymentId: String(paymentId), purpose: 'wallet_topup' } });
+  await Payment.create({
+    _id: paymentId, userId: req.user._id, amount: amountPaise / 100, method: 'online',
+    status: PAYMENT_STATUS.PENDING, isWalletTopup: true,
+    gateway: { provider: 'razorpay', merchantOrderId, orderId: gw.orderId, initiatedAt: new Date() },
   });
+  return created(res, {
+    orderId: String(paymentId), razorpayOrderId: gw.orderId, keyId: gw.keyId,
+    amountPaise, currency: 'INR', name: 'Bulkimart', description: 'Wallet top-up',
+    verificationPath: '/api/wallet/topup/verify',
+  }, 'Wallet top-up payment initiated');
+});
 
-  const merchantOrderId = `TOPUP-${payment._id}-A1`;
-  const base =
-    process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5050}`;
-  const redirectUrl = `${base}/api/wallet/topup/return/${merchantOrderId}`;
-
-  const gw = await createPayment({
-    merchantOrderId,
-    amountPaise: rupeesToPaise(numAmount),
-    redirectUrl,
-    message: `Bulkimart Wallet Top-up — ₹${numAmount}`,
-  });
-
-  payment.gateway = {
-    provider: "phonepe",
-    merchantOrderId,
-    orderId: gw.orderId,
-    initiatedAt: new Date(),
-  };
-  await payment.save();
-
-  return created(
-    res,
-    {
-      redirectUrl: gw.redirectUrl,
-      merchantOrderId,
-      amount: numAmount,
-    },
-    "PhonePe top-up payment initiated"
-  );
+export const verifyWalletTopup = asyncHandler(async (req, res) => {
+  const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  if (!mongoose.isValidObjectId(orderId)) throw httpError(400, 'Invalid top-up payment');
+  const payment = await Payment.findOne({ _id: orderId, userId: req.user._id, isWalletTopup: true, 'gateway.provider': 'razorpay' });
+  if (!payment) throw httpError(404, 'Top-up payment not found');
+  if (payment.gateway.orderId !== razorpay_order_id) throw httpError(400, 'Top-up order mismatch');
+  if (!verifyRazorpayPaymentSignature({ orderId: razorpay_order_id, paymentId: razorpay_payment_id, signature: razorpay_signature })) {
+    throw httpError(401, 'Payment verification failed');
+  }
+  const live = await getRazorpayPaymentStatus({ orderId: razorpay_order_id, paymentId: razorpay_payment_id });
+  const settled = await settleRazorpayWalletTopup({ payment, state: live.state, gatewayOrderId: live.orderId,
+    gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, currency: live.currency, paymentDetails: live.paymentDetails });
+  return ok(res, settled, settled.status === 'paid' ? 'Wallet top-up verified' : 'Payment has not been confirmed');
 });
 
 // @desc    PhonePe return handler for wallet top-up

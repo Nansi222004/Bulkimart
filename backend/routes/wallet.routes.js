@@ -4,6 +4,8 @@ import {
   getMyWallet,
   getMyWalletTransactions,
   devQuickTopup,
+  initiateWalletTopup,
+  verifyWalletTopup,
   adminGetOverview,
   adminGetUserWallets,
   adminGetUserWalletDetail,
@@ -19,6 +21,8 @@ const router = express.Router();
 // ============================================================================
 router.get("/", protect, requireCustomerSession, getMyWallet);
 router.get("/transactions", protect, requireCustomerSession, getMyWalletTransactions);
+router.post('/topup/initiate', protect, requireCustomerSession, initiateWalletTopup);
+router.post('/topup/verify', protect, requireCustomerSession, verifyWalletTopup);
 router.post("/dev-topup", protect, requireCustomerSession, devQuickTopup);
 
 // ============================================================================

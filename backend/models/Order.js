@@ -389,6 +389,7 @@ const orderSchema = new Schema(
     },
 
     fulfillment: {
+      requestedRiderId: { type: ObjectId, ref: 'DeliveryPartner' },
       readyAt: Date,
       assignmentPolicy: { type: String, enum: ['seller_after_acceptance'] },
       method: { type: String, enum: ["manual", "shiprocket", "third_party"] },

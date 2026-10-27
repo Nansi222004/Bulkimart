@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
+import { sellerTimeline } from '../utils/sellerTimeline';
 
 /**
  * Delivery Tracking.
@@ -396,7 +397,7 @@ export const TrackOrderTab = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filteredOrders.map((o) => {
             const open = openId === o._id;
-            const trail = [...(o.timeline || [])].reverse();
+            const trail = sellerTimeline(o.timeline).reverse();
 
             return (
               <div key={o._id} className="review-summary-card" style={{ backgroundColor: '#fff', border: '1.5px solid #f1f5f9', borderRadius: 14, padding: 14 }}>
@@ -439,9 +440,10 @@ export const TrackOrderTab = () => {
                             />
                             <div>
                               <div style={{ fontSize: 11, fontWeight: 800, color: i === 0 ? '#1d4ed8' : '#0f172a' }}>
-                                {STATUS_LABEL[t.status] || t.status}
+                                {/* Newest first: a step repeating the earlier one's status is named by its note. */}
+                                {t.note && trail[i + 1]?.status === t.status ? t.note : STATUS_LABEL[t.status] || t.status}
                               </div>
-                              {t.note && <div style={{ fontSize: 10, color: '#64748b' }}>{t.note}</div>}
+                              {t.note && trail[i + 1]?.status !== t.status && <div style={{ fontSize: 10, color: '#64748b' }}>{t.note}</div>}
                               <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700 }}>{fmt(t.timestamp)}</div>
                             </div>
                           </div>

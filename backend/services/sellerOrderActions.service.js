@@ -9,6 +9,9 @@ export function sellerOrderActions(order, paymentReady = true) {
   const transitions = vendorTransitions(order.deliveryType)[order.status] || [];
   const locked = shipmentLocked(order) || Boolean(order.deliveryId || order.deliveryPartnerId);
   if (!paymentReady) return [];
+  if (order.status === 'dispatched' && order.deliveryType !== 'shiprocket' && !order.deliveryPartnerId && !order.deliveryId) {
+    actions.push({ setup: true, label: 'Reassign delivery partner' });
+  }
   if (transitions.includes('confirmed')) actions.push({ to: 'confirmed', label: 'Accept order' });
   if (order.status === 'confirmed' && order.vendorDecision?.status !== 'accepted') actions.push({ to: 'confirmed', label: 'Accept order' });
   if (transitions.includes('preparing') && order.vendorDecision?.status === 'accepted' && paymentReady) actions.push({ to: 'preparing', label: 'Start preparing' });

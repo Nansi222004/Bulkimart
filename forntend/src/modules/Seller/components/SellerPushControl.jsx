@@ -38,6 +38,9 @@ export default function SellerPushControl({ register = initPushNotifications }) 
     return () => { alive.current = false; };
   }, [register]);
   const pending = state.status === 'pending';
+  // This browser or in-app view cannot receive push at all; a button and a
+  // warning would only be noise, since there is nothing the user can change.
+  if (state.status === 'unsupported') return null;
   return <section className="seller-push-control" aria-label="Order notification settings" aria-busy={pending}>
     {state.status === 'enabled'
       ? <span className="seller-push-enabled" role="status">Notifications enabled</span>

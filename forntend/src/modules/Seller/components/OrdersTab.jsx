@@ -99,6 +99,7 @@ export const OrdersTab = ({ detailPage = false }) => {
   const [fulfillmentOptions, setFulfillmentOptions] = useState(null);
   const [fulfillmentError, setFulfillmentError] = useState('');
   const [deliveryChoice, setDeliveryChoice] = useState(null);
+  const [selectedRiderId, setSelectedRiderId] = useState(null);
   const [packageSize, setPackageSize] = useState({ length: '', breadth: '', height: '' });
 
   const [searchQuery, setSearchQuery] = useState(orderListState?.search || '');
@@ -107,12 +108,16 @@ export const OrdersTab = ({ detailPage = false }) => {
     const generation = ++fulfillmentScope.current;
     if (!preserveChoice) {
       setDeliveryChoice(null);
+      setSelectedRiderId(order.fulfillment?.requestedRiderId || null);
       setPackageSize({ length: '', breadth: '', height: '' });
     }
     setFulfilling(order); setFulfillmentOptions(null); setFulfillmentError('');
     const result = await getFulfillmentOptions(order._id);
     if (generation !== fulfillmentScope.current) return;
-    if (result.ok) setFulfillmentOptions(result.data);
+    if (result.ok) {
+      setFulfillmentOptions(result.data);
+      setSelectedRiderId(current => result.data.manual?.riders?.some(rider => String(rider.id) === String(current) && rider.online) ? current : null);
+    }
     else setFulfillmentError(result.message);
   };
 
@@ -121,7 +126,7 @@ export const OrdersTab = ({ detailPage = false }) => {
     if (!detailPage || !selected || !actionsFor(selected).some(action => action.setup)) { setFulfilling(null); setFulfillmentOptions(null); return; }
     loadAvailability(selected);
     return () => { fulfillmentScope.current++; };
-  }, [detailPage, selected?._id, selected?.version]);
+  }, [detailPage, selected?._id, selected?.version, selected?.status, selected?.deliveryPartnerId, selected?.deliveryAssignment?.status]);
 
   const run = async (order, to, extra) => {
     setBusyId(order._id);
@@ -602,7 +607,7 @@ export const OrdersTab = ({ detailPage = false }) => {
             <h1>Order {selected.orderNo}</h1><p>Placed {fmt(selected.placedAt || selected.createdAt)}</p></div>
           <div className="seller-order-hero-meta"><span className="seller-order-status" style={{ background: PILL[selected.status]?.bg || '#f1f5f9', color: PILL[selected.status]?.fg || '#475569' }}>{LABEL[selected.displayStatus || selected.status] || String(selected.displayStatus || selected.status).replaceAll('_', ' ')}</span>
             <span>{selected.paymentMethod} · {selected.paymentStatus || 'Payment status unavailable'}</span></div>
-          <div className="seller-order-primary-actions">{actionsFor(selected).filter(action => !action.setup).map(action => <button type="button" key={action.label} disabled={busyId === selected._id || orderDetailLoading}
+          <div className="seller-order-primary-actions">{actionsFor(selected).filter(action => !action.setup || action.label === 'Reassign delivery partner').map(action => <button type="button" key={action.label} disabled={busyId === selected._id || orderDetailLoading}
             className="order-action-btn-sm" onClick={() => onAction(selected, action)}>{action.label}</button>)}</div>
         </header>}
       </>}
@@ -662,14 +667,14 @@ export const OrdersTab = ({ detailPage = false }) => {
             </div>
             {deliveryChoice === 'manual' && <div id="seller-manual-delivery" className="seller-delivery-panel" aria-label="Manual delivery">
               <div className="seller-rider-heading"><div><h3>Active delivery boys</h3><p>{fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders for this order</p></div><button type="button" className="order-action-btn-sm" onClick={() => loadAvailability(fulfilling, true)} disabled={Boolean(busyId)}>Refresh availability</button></div>
-              <div className="seller-rider-list">{fulfillmentOptions.manual?.riders?.filter(rider => rider.online === true).map((rider, index) => <article className="seller-rider-card" key={index}><span className="seller-rider-avatar" aria-hidden="true">{rider.name?.charAt(0)?.toUpperCase() || 'R'}</span><div><strong>{rider.name}</strong>{rider.contact && <span>{rider.contact}</span>}<small>{rider.availability}</small></div><span className="seller-rider-active">Active</span></article>)}</div>
+              <div className="seller-rider-list" role="group" aria-label="Available delivery partners">{fulfillmentOptions.manual?.riders?.filter(rider => rider.online === true).map((rider, index) => <button type="button" className="seller-rider-card" key={rider.id || index} aria-pressed={Boolean(rider.id && String(selectedRiderId) === String(rider.id))} disabled={Boolean(busyId) || !rider.id} onClick={() => setSelectedRiderId(rider.id)}><span className="seller-rider-avatar" aria-hidden="true">{rider.name?.charAt(0)?.toUpperCase() || 'R'}</span><div><strong>{rider.name}</strong>{rider.contact && <span>{rider.contact}</span>}<small>{rider.availability}</small></div><span className="seller-rider-active">{rider.id && String(selectedRiderId) === String(rider.id) ? '✓ Selected' : 'Active'}</span></button>)}</div>
               {!fulfillmentOptions.manual?.riders?.some(rider => rider.online === true) && <div className="seller-rider-empty"><strong>No active delivery boys available</strong><p>Refresh availability to check for on-duty riders with capacity and coverage for this pickup.</p></div>}
-              <p className="seller-delivery-help">Bulkimart riders accept offers in their delivery app. Confirm manual delivery, then use Offer to Bulkimart riders. A named rider is assigned when they accept.</p>
+              <p className="seller-delivery-help">Select a delivery partner to request them, or leave the choice open to eligible riders. Riders accept offers in their delivery app before they are assigned.</p>
             <button className="primary-onboarding-btn" style={{ width: '100%', marginTop: 12 }}
               disabled={!fulfillmentOptions.manual?.available || busyId === fulfilling._id}
               onClick={async () => {
                 setBusyId(fulfilling._id);
-                const result = await selectManualFulfillment(fulfilling._id);
+                const result = await selectManualFulfillment(fulfilling._id, selectedRiderId);
                 setBusyId(null); triggerToast?.(result.message);
                 if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
               }}>

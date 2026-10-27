@@ -8,6 +8,7 @@ import { httpError } from '../utils/response.js';
 import Order from '../models/Order.js';
 import { financeFlags } from './financeSafety.service.js';
 import { getFinancePolicy } from './financePolicy.service.js';
+import { riderCodCashBalances } from './riderCashEligibility.service.js';
 
 // COD cash the rider has collected but Bulkimart has not yet received. It is
 // customer money in the rider's hands, so no earnings are paid out against it.
@@ -32,8 +33,8 @@ export const riderFinancialSummary = async (partner) => {
   const { riderMinPayout, payoutSchedule, payoutWeekday } = await getFinancePolicy();
   if (partner.financialWorkflowVersion !== 2) return { verifiedPayable: 0, reportedCodOutstanding: 0, payoutActionsEnabled: false, historicalCashIncluded: false, minimumPayout: riderMinPayout, payoutSchedule, payoutWeekday };
   const ledger = await riderLedgerBalances(partner._id);
-  const cash = await Order.find({ deliveryPartnerId: partner._id, paymentMethod: 'cod', 'financialSnapshot.version': 2, 'codFinance.collectedPaise': { $gt: 0 } }).select('codFinance').lean();
-  const outstanding = cash.reduce((sum, order) => sum + (CASH_IN_HAND.includes(order.codFinance.status) ? Math.max(0, order.codFinance.collectedPaise - (order.codFinance.verifiedPaise || 0)) : 0), 0) / 100;
+  const cash = await riderCodCashBalances([partner._id]);
+  const outstanding = (cash.get(String(partner._id)) || 0) / 100;
   const verifiedPayable = Math.max(0, ledger.eligible) / 100;
   // Pre-ledger earnings still on the old counter; shown, never paid from here.
   const legacyUnverified = Math.max(0, Math.round((partner.earnings?.pending || 0) * 100) - Math.max(0, ledger.eligible)) / 100;

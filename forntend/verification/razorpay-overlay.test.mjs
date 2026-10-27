@@ -19,6 +19,18 @@ function fixture() {
   return { get options() { return options; }, events, get closes() { return closes; }, restore() { Object.assign(globalThis, previous); } };
 }
 const checkout = { orderId: 'fixture-order', keyId: 'fixture-key', razorpayOrderId: 'fixture-gateway-order', amountPaise: 10000, currency: 'INR' };
+
+test('wallet checkout sends signed results to the wallet verification endpoint', async () => {
+  const f = fixture(); let target, payload;
+  try {
+    globalThis.fetch = async (url, options) => { target = String(url); payload = JSON.parse(options.body); return { ok: true, json: async () => ({ data: { status: 'paid' } }) }; };
+    const pending = open({ ...checkout, verificationPath: '/api/wallet/topup/verify' }, {}); await Promise.resolve();
+    await f.options.handler({ razorpay_payment_id: 'pay_wallet', razorpay_signature: 'signed-result' });
+    assert.equal((await pending).verified, true);
+    assert.ok(target.endsWith('/api/wallet/topup/verify'));
+    assert.equal(payload.orderId, checkout.orderId); assert.equal(payload.razorpay_signature, 'signed-result');
+  } finally { f.restore(); }
+});
 test('provider dismissal during verification cannot replace a trusted paid result with cancellation', async () => {
   const f = fixture(); let respond;
   try {
