@@ -105,7 +105,7 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
         event: NOTIFICATION_EVENT.RETURN_PICKUP_NO_RIDER,
         title: 'No rider found for return pickup',
         message: `No delivery partner was found nearby for return ${ret.returnNumber}. You can try again from Returns.`,
-        metadata: { returnId: ret._id }, route: '/seller/returns',
+        metadata: { returnId: ret._id, returnNumber: ret.returnNumber }, route: `/seller/item-returns?return=${ret._id}`,
       }).catch(() => {});
     }
     return;
@@ -259,7 +259,7 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
     notifySeller(claimed.sellerId, {
       event: NOTIFICATION_EVENT.RETURN_PICKUP_ASSIGNED, title: 'Rider assigned for return pickup',
       message: `A rider accepted the pickup for return ${claimed.returnNumber}.`,
-      metadata: { returnId: claimed._id }, route: '/seller/returns',
+      metadata: { returnId: claimed._id, returnNumber: claimed.returnNumber }, route: `/seller/item-returns?return=${claimed._id}`,
     }).catch(() => {});
   }
   notifyUser(claimed.customerId, {
@@ -357,7 +357,7 @@ export const verifyReturnPickupOtp = async ({ returnId, partnerId, otp }) => {
     notifySeller(ret.sellerId, {
       event: NOTIFICATION_EVENT.RETURN_PICKED_UP, title: 'Return picked up',
       message: `The rider picked up ${ret.productName} for return ${ret.returnNumber} and is on the way.`,
-      metadata: { returnId: ret._id }, route: '/seller/returns',
+      metadata: { returnId: ret._id, returnNumber: ret.returnNumber }, route: `/seller/item-returns?return=${ret._id}`,
     }).catch(() => {});
   }
 

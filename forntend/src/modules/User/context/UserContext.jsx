@@ -467,6 +467,60 @@ export const UserProvider = ({ children }) => {
     }
   }, [restoredSession?.verified, currentUser?._id, currentUser?.id]);
 
+  /**
+   * Order tracking is an overlay, so it lives in the URL as `/orders/:id`
+   * while open — a refresh, shared link or back/forward then lands on the same
+   * order instead of falling back to the orders list. Closing returns to
+   * wherever tracking was opened from.
+   */
+  const orderIdFromPath = () => window.location.pathname.match(/^\/orders\/([a-f\d]{24})\/?$/i)?.[1] || null;
+  const orderReturnPath = useRef('/orders');
+  const [pendingOrderId, setPendingOrderId] = useState(orderIdFromPath);
+  const selectOrder = useCallback((order) => {
+    setPendingOrderId(null);
+    setSelectedOrder(order);
+    const id = order?._id;
+    if (id) {
+      const path = `/orders/${id}`;
+      if (window.location.pathname === path) return;
+      if (!orderIdFromPath()) orderReturnPath.current = window.location.pathname + window.location.search;
+      window.history.pushState(null, '', path);
+    } else if (orderIdFromPath()) {
+      window.history.replaceState(null, '', orderReturnPath.current || '/orders');
+      orderReturnPath.current = '/orders';
+    }
+  }, []);
+  // Back/forward across `/orders/:id`.
+  useEffect(() => {
+    const onPop = () => {
+      const id = orderIdFromPath();
+      if (!id) { setPendingOrderId(null); setSelectedOrder(null); return; }
+      setSelectedOrder(previous => String(previous?._id) === id ? previous : null);
+      setPendingOrderId(id);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  // Reopen the order named in the URL (after a refresh or back/forward).
+  useEffect(() => {
+    if (!pendingOrderId || !isSignedIn()) return;
+    const listed = orders.find(order => String(order._id) === pendingOrderId);
+    if (listed) { setSelectedOrder(listed); setPendingOrderId(null); return; }
+    const controller = new AbortController(), session = captureUserSession();
+    (async () => {
+      try {
+        // Older than the first page of the list — read it directly.
+        const res = await boundedFetch(apiUrl(`/api/orders/${pendingOrderId}`), { signal: controller.signal, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}` } });
+        const body = await res.json().catch(() => ({}));
+        if (controller.signal.aborted || !isCurrentUserSession(session)) return;
+        if (res.ok && body.data?._id) setSelectedOrder(body.data);
+        else if (window.location.pathname === `/orders/${pendingOrderId}`) window.history.replaceState(null, '', '/orders');
+        setPendingOrderId(null);
+      } catch { /* aborted or offline — the orders list still shows */ }
+    })();
+    return () => controller.abort();
+  }, [pendingOrderId, orders, currentUser?._id, currentUser?.id]);
+
   const orderViewActive = activeNav === 'orders' || Boolean(selectedOrder?._id);
   useEffect(() => {
     void fetchOrders();
@@ -1870,7 +1924,7 @@ export const UserProvider = ({ children }) => {
 
         // Orders
         orders, setOrders,
-        selectedOrder, setSelectedOrder,
+        selectedOrder, setSelectedOrder: selectOrder,
         selectedCampaignId, setSelectedCampaignId,
         activeRider,
         returnPickupOtp,

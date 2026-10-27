@@ -7,7 +7,8 @@ const sendBulkNotification = jest.fn(async () => ({ success: true }));
 const emitToSeller = jest.fn();
 jest.unstable_mockModule('../services/fcm.service.js', () => ({ sendPushNotification, sendBulkNotification }));
 jest.unstable_mockModule('../socket/rooms.js', () => ({ emitToSeller, emitToUser: jest.fn(), emitToRider: jest.fn(), emitToAdmins: jest.fn() }));
-const { createReturnRequest } = await import('../services/return.service.js');
+const { createReturnRequest, transitionReturnStatus } = await import('../services/return.service.js');
+const { listSellerReturns, getSellerReturn, sellerDecideReturnCtrl } = await import('../controllers/return.controller.js');
 const { default: User } = await import('../models/User.js');
 const { default: Seller } = await import('../models/Seller.js');
 const { default: Order } = await import('../models/Order.js');
@@ -73,4 +74,65 @@ test('a rejected request does not emit or push a seller return alert', async () 
   await Order.updateOne({ _id: order._id }, { $set: { status: 'placed' } });
   await expect(createReturnRequest(input())).rejects.toThrow(/not been delivered/); await flush();
   expect(await Notification.countDocuments()).toBe(0); expect(emitToSeller).not.toHaveBeenCalled(); expect(sendPushNotification).not.toHaveBeenCalled();
+});
+
+const call = (handler, req) => new Promise(resolve => {
+  const res = { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; resolve(this); return this; } };
+  handler(req, res, error => { res.statusCode = error.statusCode || error.status || 500; res.body = { message: error.message }; resolve(res); });
+});
+
+test('a seller can open the full return behind an alert, but never another seller\'s return', async () => {
+  const ret = await createReturnRequest({ ...input(), customerDescription: 'Pack arrived torn' }); await flush();
+  const mine = await call(getSellerReturn, { seller, user: sellerUser, params: { returnId: String(ret._id) } });
+  expect(mine.statusCode).toBe(200);
+  expect(mine.body.data).toMatchObject({ returnNumber: ret.returnNumber, customerDescription: 'Pack arrived torn', customerName: 'Fixture buyer', status: 'RETURN_REQUESTED' });
+  expect(mine.body.data.order).toMatchObject({ orderNo: order.orderNo, item: { name: 'Fixture item 0', qty: 2, price: 50, lineTotal: 100 } });
+  expect(mine.body.data.requestKey).toBeUndefined();
+  const foreign = await call(getSellerReturn, { seller: otherSeller, user: { _id: otherSeller.userId }, params: { returnId: String(ret._id) } });
+  expect(foreign.statusCode).toBe(404);
+});
+
+test('seller KPI totals are unfiltered while the list honours a status group', async () => {
+  const first = await createReturnRequest(input());
+  await createReturnRequest({ ...input(), requestKey: 'fixture-second' });
+  await transitionReturnStatus({ returnId: first._id, toStatus: 'UNDER_REVIEW', adminId: id() });
+  const res = await call(listSellerReturns, { seller, user: sellerUser, query: { status: 'UNDER_REVIEW,APPROVED' } });
+  expect(res.body.data).toHaveLength(1);
+  expect(res.body.meta.statusCounts).toEqual({ RETURN_REQUESTED: 1, UNDER_REVIEW: 1 });
+});
+
+test('approval and rejection reach the seller with seller wording and a link to that return', async () => {
+  const approved = await createReturnRequest(input());
+  await transitionReturnStatus({ returnId: approved._id, toStatus: 'UNDER_REVIEW', adminId: id() });
+  await transitionReturnStatus({ returnId: approved._id, toStatus: 'APPROVED', adminId: id() });
+  const rejected = await createReturnRequest({ ...input(), requestKey: 'fixture-rejected' });
+  await transitionReturnStatus({ returnId: rejected._id, toStatus: 'UNDER_REVIEW', adminId: id() });
+  await transitionReturnStatus({ returnId: rejected._id, toStatus: 'REJECTED', adminId: id(), rejectionReason: 'Outside policy' });
+  await flush();
+  const approval = await Notification.findOne({ userId: sellerUser._id, event: 'RETURN_APPROVED' }).lean();
+  expect(approval.route).toBe(`/seller/item-returns?return=${approved._id}`);
+  expect(approval.message).toMatch(/Choose a pickup method/);
+  const rejection = await Notification.findOne({ userId: sellerUser._id, event: 'RETURN_REJECTED' }).lean();
+  expect(rejection.route).toBe(`/seller/item-returns?return=${rejected._id}`);
+  expect(await Notification.countDocuments({ userId: sellerUser._id, event: 'RETURN_UNDER_REVIEW' })).toBe(0);
+});
+
+test('the owning seller approves or rejects a return; rejection releases the quantity and others cannot decide', async () => {
+  const approved = await createReturnRequest(input());
+  const foreign = await call(sellerDecideReturnCtrl, { seller: otherSeller, user: { _id: otherSeller.userId }, params: { returnId: String(approved._id) }, body: { decision: 'APPROVED' } });
+  expect(foreign.statusCode).toBe(404);
+  const ok = await call(sellerDecideReturnCtrl, { seller, user: sellerUser, params: { returnId: String(approved._id) }, body: { decision: 'APPROVED' } });
+  expect(ok.body.data.status).toBe('APPROVED');
+  const fresh = await Return.findById(approved._id).lean();
+  expect(fresh.history.map(h => [h.toStatus, h.changedByRole])).toEqual([['RETURN_REQUESTED', 'customer'], ['UNDER_REVIEW', 'seller'], ['APPROVED', 'seller']]);
+  expect((await call(sellerDecideReturnCtrl, { seller, user: sellerUser, params: { returnId: String(approved._id) }, body: { decision: 'REJECTED', rejectionReason: 'Too late' } })).statusCode).toBe(409);
+
+  const rejected = await createReturnRequest({ ...input(), requestKey: 'fixture-seller-reject' });
+  expect((await call(sellerDecideReturnCtrl, { seller, user: sellerUser, params: { returnId: String(rejected._id) }, body: { decision: 'REJECTED' } })).statusCode).toBe(400);
+  await call(sellerDecideReturnCtrl, { seller, user: sellerUser, params: { returnId: String(rejected._id) }, body: { decision: 'REJECTED', rejectionReason: 'Seal broken by customer' } });
+  expect(await Return.findById(rejected._id).lean()).toMatchObject({ status: 'REJECTED', rejectionReason: 'Seal broken by customer' });
+  expect((await Order.findById(order._id).lean()).items[0].returnedQty).toBe(1);
+  await flush();
+  expect(await Notification.countDocuments({ userId: buyer._id, event: { $in: ['RETURN_APPROVED', 'RETURN_REJECTED'] } })).toBe(2);
+  expect(await Notification.countDocuments({ userId: sellerUser._id, event: { $in: ['RETURN_APPROVED', 'RETURN_REJECTED'] } })).toBe(0);
 });

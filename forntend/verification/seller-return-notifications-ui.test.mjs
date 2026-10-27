@@ -108,3 +108,43 @@ test('background return push displays once and its click opens Return Requests, 
   assert.equal(self.notificationTarget({ audience: 'seller', event: 'RETURN_REQUESTED', returnId: '../private', route: 'https://attacker.invalid' }), '/seller/item-returns');
   assert.equal(self.notificationTarget({ audience: 'user', event: 'RETURN_REQUESTED', route: `/orders/${orderId}` }), `/orders/${orderId}`);
 });
+
+test('a return deep link opens that return in full, and KPI counts use server totals', async () => {
+  const h = hookHarness(Returns, {}, `/seller/item-returns?return=${id}`, context());
+  try {
+    await h.settle();
+    const list = h.requests.find(req => req.url.includes('/api/sellers/returns?'));
+    const detail = h.requests.find(req => req.url.endsWith(`/api/sellers/returns/${id}`));
+    assert.ok(list); assert.ok(detail, 'The linked return is fetched by id, not looked up in the first list page');
+    list.resolve({ data: [], meta: { statusCounts: { RETURN_REQUESTED: 2, UNDER_REVIEW: 1, REFUNDED: 4 } } });
+    detail.resolve({ data: { _id: id, returnNumber: 'RET-DETAIL', status: 'UNDER_REVIEW', productName: 'Amla', quantity: 1, reason: 'DAMAGED', order: { orderNo: 'ORD-1' }, history: [] } });
+    await h.settle();
+    const modal = h.find(node => node.props?.['aria-label'] === 'Return details'); assert.ok(modal);
+    assert.equal(h.find(node => node.props?.r, modal).props.r.returnNumber, 'RET-DETAIL');
+    assert.match(text(h.tree), /\b7\b/); assert.match(text(h.tree), /\b3\b/);
+    h.find(node => node.props?.['aria-label'] === 'Close return details').props.onClick(); await h.settle();
+    assert.equal(h.find(node => node.props?.['aria-label'] === 'Return details'), undefined);
+    assert.equal(window.location.search, '');
+    window.dispatchEvent(new CustomEvent('seller_open_return', { detail: { returnId: id } })); await h.settle();
+    assert.ok(h.requests.filter(req => req.url.endsWith(`/api/sellers/returns/${id}`)).length === 2, 'An already-open tab reacts to a notification click');
+  } finally { h.close(); }
+});
+
+test('a seller approves a requested return and must give a reason to reject one', async () => {
+  const h = hookHarness(Returns, {}, '/seller/item-returns', context());
+  try {
+    h.requests[0].resolve({ data: [{ _id: id, status: 'RETURN_REQUESTED', productName: 'Amla', returnNumber: 'RET-DECIDE', quantity: 1, pickup: { status: 'NOT_ASSIGNED' } }] }); await h.settle();
+    assert.doesNotMatch(text(h.tree), /Bulkimart is reviewing/);
+    const button = label => h.find(node => node.type === 'button' && text(node).trim() === label);
+    button('Reject').props.onClick(); await h.settle();
+    const before = h.requests.length; await button('Confirm rejection').props.onClick(); assert.equal(h.requests.length, before, 'No request without a reason');
+    button('Back').props.onClick(); await h.settle();
+    const pending = button('Approve return').props.onClick();
+    const post = h.requests.find(req => req.options.method === 'POST');
+    assert.match(post.url, new RegExp(`/api/sellers/returns/${id}/decision$`));
+    assert.deepEqual(JSON.parse(post.options.body), { decision: 'APPROVED', rejectionReason: '' });
+    post.resolve({ success: true, message: 'Return approved — choose a pickup method' }); await h.settle();
+    h.requests.at(-1).resolve({ data: [] }); await pending; await h.settle();
+    assert.match(text(h.tree), /choose a pickup method/);
+  } finally { h.close(); }
+});

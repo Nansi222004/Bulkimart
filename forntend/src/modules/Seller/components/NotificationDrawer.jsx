@@ -4,7 +4,7 @@ import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
 import { isRetiredSellerNotification } from '../utils/retiredFeatures';
 import { orderReference } from './SellerOrderAlerts';
-import { isSellerReturnNotification } from '../utils/returnNotification';
+import { isSellerReturnNotification, openSellerReturn } from '../utils/returnNotification';
 
 export const NotificationDrawer = ({ isOpen, onClose }) => {
   const { triggerToast, openSellerOrder, setActiveTab } = useSeller();
@@ -20,7 +20,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
       onClose();
       if (isSellerReturnNotification(notification)) {
         if (!notification.isRead) await markRead(notification._id);
-        setActiveTab('item-returns');
+        openSellerReturn(setActiveTab, notification);
         return;
       }
       const id = orderReference(notification);

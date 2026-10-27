@@ -4,6 +4,7 @@ import { useSeller } from '../context/SellerContext';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { socket } from '../../../utils/socket';
 import { isSellerReturnNotification } from '../utils/returnNotification';
+import ModalPortal from '../../../components/ModalPortal';
 
 /**
  * Seller returns and explicit pickup selection for the seller's own products.
@@ -26,9 +27,50 @@ const STATUS_LABEL = {
   AWAITING_RETURN: 'Awaiting Return', 
   RETURN_RECEIVED: 'Received', 
   REFUND_PENDING: 'Refund Pending',
-  REFUNDED: 'Refunded', 
-  REJECTED: 'Rejected', 
+  REFUND_FAILED: 'Refund Failed',
+  REFUNDED: 'Refunded',
+  REJECTED: 'Rejected',
   CANCELLED: 'Cancelled',
+};
+
+// Each KPI card counts, and filters to, the same group of statuses.
+const KPI_GROUPS = {
+  requested: ['RETURN_REQUESTED', 'UNDER_REVIEW'],
+  pickup: ['APPROVED', 'AWAITING_RETURN', 'RETURN_RECEIVED'],
+  refunded: ['REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED'],
+};
+const groupFilter = key => KPI_GROUPS[key].join(',');
+
+const RETURN_ID = /^[a-f\d]{24}$/i;
+const returnIdFromUrl = () => {
+  if (typeof window === 'undefined') return null;
+  const id = new URLSearchParams(window.location.search).get('return');
+  return RETURN_ID.test(id || '') ? id : null;
+};
+
+const formatDate = value => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+/** What happens next for this return, from the seller's point of view. */
+const nextStep = r => {
+  switch (r.status) {
+    case 'RETURN_REQUESTED':
+    case 'UNDER_REVIEW': return 'Review the reason and photos, then approve or reject this return.';
+    case 'APPROVED':
+    case 'AWAITING_RETURN':
+      if (r.pickup?.status === 'DELIVERED_TO_SELLER') return 'You confirmed receipt. Bulkimart will inspect the item and process the refund.';
+      if (r.pickup?.status === 'PICKED_UP') return 'The rider has collected the item. Mark it received once it reaches you.';
+      if (r.reverseBooking?.trackingState === 'DELIVERED') return 'The courier delivered the item. Mark it received once you have checked the package.';
+      if (r.pickup?.status === 'ASSIGNED') return 'A rider is on the way to collect the item from the customer.';
+      if (r.pickupMethod === 'SHIPROCKET') return 'Shiprocket reverse pickup is booked. Refresh courier tracking for the latest scan.';
+      if (r.pickupMethod === 'MANUAL') return 'Looking for a nearby rider. If none accepts, cancel the search and try again or use Shiprocket.';
+      return 'Choose a pickup method: a local rider (same city only) or Shiprocket reverse pickup.';
+    case 'RETURN_RECEIVED':
+    case 'REFUND_PENDING': return 'Inspection is complete. The customer refund is being processed.';
+    case 'REFUND_FAILED': return 'The refund attempt failed. Bulkimart will retry it.';
+    case 'REFUNDED': return 'The customer has been refunded. Your earning for this item is adjusted in Earnings.';
+    case 'REJECTED': return 'This return was rejected. No pickup is needed.';
+    default: return 'This return is closed.';
+  }
 };
 
 const STATUS_COLOR = {
@@ -52,18 +94,24 @@ export const SellerReturnsTab = () => {
   const [actionId, setActionId] = useState(null);
   const [toast, setToast] = useState('');
   const [pickupChoices, setPickupChoices] = useState({});
-  const alive = useRef(true), generation = useRef(0);
+  const [rejectReasons, setRejectReasons] = useState({});
+  const [rejectingId, setRejectingId] = useState(null);
+  const [statusCounts, setStatusCounts] = useState(null);
+  const [detailId, setDetailId] = useState(returnIdFromUrl);
+  const [detail, setDetail] = useState(null);
+  const [detailError, setDetailError] = useState('');
+  const alive = useRef(true), generation = useRef(0), detailGeneration = useRef(0);
 
   const load = useCallback(async (quiet = false) => {
     const sessionToken = token(), epoch = ++generation.current;
     if (!quiet) setLoading(true);
     const current = () => alive.current && epoch === generation.current && sessionToken === token();
     try {
-      const qs = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
+      const qs = `?limit=100${statusFilter !== 'all' ? `&status=${statusFilter}` : ''}`;
       const res = await boundedFetch(apiUrl(`/api/sellers/returns${qs}`), { headers: { Authorization: 'Bearer ' + sessionToken } });
       const body = await res.json();
       if (!res.ok) throw new Error(body.message || 'Could not load returns');
-      if (current()) setReturns(body.data || []);
+      if (current()) { setReturns(body.data || []); setStatusCounts(body.meta?.statusCounts || null); }
     } catch (err) {
       console.error(err);
     } finally {
@@ -84,6 +132,43 @@ export const SellerReturnsTab = () => {
     };
   }, [load]);
 
+  const loadDetail = useCallback(async (id) => {
+    const sessionToken = token(), epoch = ++detailGeneration.current;
+    const current = () => alive.current && epoch === detailGeneration.current && sessionToken === token();
+    setDetailError('');
+    try {
+      const res = await boundedFetch(apiUrl(`/api/sellers/returns/${id}`), { headers: { Authorization: 'Bearer ' + sessionToken } });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || 'Could not load this return');
+      if (current()) setDetail(body.data);
+    } catch (err) {
+      if (current()) setDetailError(err.message || 'Could not load this return');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!detailId) { setDetail(null); return; }
+    setDetail(null); void loadDetail(detailId);
+  }, [detailId, loadDetail]);
+
+  // A notification opened while this tab is already showing.
+  useEffect(() => {
+    const onOpen = event => { const id = event.detail?.returnId; if (RETURN_ID.test(id || '')) setDetailId(id); };
+    window.addEventListener('seller_open_return', onOpen);
+    return () => window.removeEventListener('seller_open_return', onOpen);
+  }, []);
+
+  const openDetail = id => {
+    setDetailId(id);
+    window.history.replaceState(null, '', `/seller/item-returns?return=${id}`);
+  };
+  const closeDetail = () => {
+    detailGeneration.current++; setDetailId(null); setDetailError('');
+    if (window.location.search) window.history.replaceState(null, '', '/seller/item-returns');
+  };
+  // After any pickup action, refresh both the list and an open detail.
+  const reloadAll = async () => { await load(); if (detailId) await loadDetail(detailId); };
+
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 4000); };
 
   const assignRider = async (id) => {
@@ -93,7 +178,7 @@ export const SellerReturnsTab = () => {
       const res = await fetch(apiUrl(`/api/sellers/returns/${id}/pickup`), { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ pickupMethod: pickupChoices[id] }) });
       const body = await res.json();
       showToast(res.ok ? (body.message || 'Pickup updated') : (body.message || 'Could not arrange pickup'));
-      await load();
+      await reloadAll();
     } catch { showToast('Could not confirm pickup; reload before retrying');
     } finally {
       setActionId(null);
@@ -106,7 +191,7 @@ export const SellerReturnsTab = () => {
       const res = await fetch(apiUrl(`/api/sellers/returns/${id}/pickup/${action}`), { method: 'POST', headers: authHeaders() });
       const body = await res.json();
       showToast(body.message || (res.ok ? 'Pickup updated' : 'Pickup needs review'));
-      await load();
+      await reloadAll();
     } catch { showToast('Could not update pickup; reload before retrying'); }
     finally { setActionId(null); }
   };
@@ -117,18 +202,23 @@ export const SellerReturnsTab = () => {
       const res = await fetch(apiUrl(`/api/sellers/returns/${id}/mark-received`), { method: 'POST', headers: authHeaders() });
       const body = await res.json();
       showToast(res.ok ? (body.message || 'Marked as received') : (body.message || 'Could not mark as received'));
-      await load();
+      await reloadAll();
     } catch { showToast('Could not confirm receipt; reload before retrying');
     } finally {
       setActionId(null);
     }
   };
 
-  // KPI Calculations with actual counts from returns data
-  const totalCount = returns.length;
-  const requestedCount = useMemo(() => returns.filter(r => ['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r.status)).length, [returns]);
-  const approvedCount = useMemo(() => returns.filter(r => ['APPROVED', 'AWAITING_RETURN', 'RETURN_RECEIVED'].includes(r.status)).length, [returns]);
-  const refundedCount = useMemo(() => returns.filter(r => ['REFUNDED', 'REFUND_PENDING'].includes(r.status)).length, [returns]);
+  // KPI counts come from the server's unfiltered per-status totals, so they
+  // don't shrink to the active filter or the first page. Older responses
+  // without them fall back to counting the loaded rows.
+  const countOf = useCallback(statuses => statusCounts
+    ? statuses.reduce((sum, s) => sum + (statusCounts[s] || 0), 0)
+    : returns.filter(r => statuses.includes(r.status)).length, [statusCounts, returns]);
+  const totalCount = statusCounts ? Object.values(statusCounts).reduce((a, b) => a + b, 0) : returns.length;
+  const requestedCount = countOf(KPI_GROUPS.requested);
+  const approvedCount = countOf(KPI_GROUPS.pickup);
+  const refundedCount = countOf(KPI_GROUPS.refunded);
 
   // Search filtered returns
   const filteredReturns = useMemo(() => {
@@ -142,6 +232,111 @@ export const SellerReturnsTab = () => {
       );
     });
   }, [returns, searchQuery]);
+
+  const decide = async (id, decision) => {
+    const rejectionReason = (rejectReasons[id] || '').trim();
+    if (decision === 'REJECTED' && rejectionReason.length < 3) { showToast('Enter a reason for rejecting this return'); return; }
+    setActionId(id);
+    try {
+      const res = await fetch(apiUrl(`/api/sellers/returns/${id}/decision`), { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, rejectionReason }) });
+      const body = await res.json();
+      showToast(body.message || (res.ok ? 'Return updated' : 'Could not update this return'));
+      if (res.ok) setRejectingId(null);
+      await reloadAll();
+    } catch { showToast('Could not save your decision; reload before retrying'); }
+    finally { setActionId(null); }
+  };
+
+  const decisionPanel = r => ['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r.status) && (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {rejectingId === r._id ? <>
+        <textarea aria-label="Rejection reason" rows={2} placeholder="Why are you rejecting this return? The customer will see this."
+          value={rejectReasons[r._id] || ''} onChange={e => setRejectReasons({ ...rejectReasons, [r._id]: e.target.value })}
+          style={{ width: '100%', boxSizing: 'border-box', border: '1.5px solid #e2e8f0', borderRadius: 8, padding: 8, fontSize: 12, fontFamily: 'inherit' }} />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button type="button" disabled={actionId === r._id} onClick={() => setRejectingId(null)}
+            style={{ border: '1.5px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Back</button>
+          <button type="button" disabled={actionId === r._id} onClick={() => decide(r._id, 'REJECTED')}
+            style={{ border: 'none', background: '#dc2626', color: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', opacity: actionId === r._id ? 0.6 : 1 }}>
+            {actionId === r._id ? 'Saving…' : 'Confirm rejection'}
+          </button>
+        </div>
+      </> : (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button type="button" disabled={actionId === r._id} onClick={() => setRejectingId(r._id)}
+            style={{ border: '1.5px solid #fecaca', background: '#fff', color: '#b91c1c', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Reject</button>
+          <button type="button" disabled={actionId === r._id} onClick={() => decide(r._id, 'APPROVED')}
+            style={{ border: 'none', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer', opacity: actionId === r._id ? 0.6 : 1 }}>
+            {actionId === r._id ? 'Saving…' : 'Approve return'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const pickupPanel = r => ['APPROVED', 'AWAITING_RETURN'].includes(r.status) && (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ fontSize: 11.5, color: '#475569', fontWeight: 600 }}>
+        <b>Pickup Logistics:</b> {r.pickupMethod === 'SHIPROCKET' ? (r.reverseBooking?.trackingState || r.reverseBooking?.state || 'Awaiting booking') : (PICKUP_LABEL[r.pickup?.status] || 'Choose a pickup method')}
+        {r.pickup?.partnerId?.userId?.name ? ` — ${r.pickup.partnerId.userId.name}` : ''}
+      </div>
+      {(!r.pickupMethod || ['failed', 'cancelled'].includes(r.reverseBooking?.state)) && ['NOT_ASSIGNED', 'CANCELLED'].includes(r.pickup?.status || 'NOT_ASSIGNED') && (
+        <>
+        <select aria-label="Pickup method" value={pickupChoices[r._id] || ''} onChange={e => setPickupChoices({ ...pickupChoices, [r._id]: e.target.value })}>
+          <option value="">Choose pickup method</option>
+          <option value="MANUAL">Manual Delivery / Local Rider</option>
+          <option value="SHIPROCKET">Shiprocket Reverse Pickup</option>
+        </select>
+        <button 
+          disabled={actionId === r._id || !pickupChoices[r._id]}
+          onClick={() => assignRider(r._id)}
+          style={{
+            border: 'none', 
+            background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 
+            color: '#fff', 
+            borderRadius: 8, 
+            padding: '7px 14px',
+            fontSize: 11, 
+            fontWeight: 800, 
+            cursor: actionId === r._id ? 'not-allowed' : 'pointer', 
+            opacity: actionId === r._id ? 0.6 : 1,
+            boxShadow: '0 2px 6px rgba(3, 105, 161, 0.2)'
+          }}
+        >
+          {actionId === r._id ? 'Booking…' : 'Confirm pickup method'}
+        </button>
+        </>
+      )}
+      {r.pickupMethod === 'SHIPROCKET' && <>
+        <span>{r.awbNumber ? `AWB: ${r.awbNumber}` : ''} {r.reverseBooking?.error}</span>
+        <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'refresh')}>Refresh courier tracking</button>
+        {r.reverseBooking?.state === 'booked' && (r.reverseBooking?.trackingRank || 0) < 2 && <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Request courier cancellation</button>}
+      </>}
+      {r.pickupMethod === 'MANUAL' && r.pickup?.status === 'NOT_ASSIGNED' && <>
+        <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Cancel rider search</button>
+      </>}
+      {(r.pickup?.status === 'PICKED_UP' || r.reverseBooking?.trackingState === 'DELIVERED' && r.pickup?.status !== 'DELIVERED_TO_SELLER') && (
+        <button 
+          disabled={actionId === r._id} 
+          onClick={() => markReceived(r._id)} 
+          style={{
+            border: 'none', 
+            background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', 
+            color: '#fff', 
+            borderRadius: 8, 
+            padding: '7px 14px',
+            fontSize: 11, 
+            fontWeight: 800, 
+            cursor: actionId === r._id ? 'not-allowed' : 'pointer', 
+            opacity: actionId === r._id ? 0.6 : 1,
+            boxShadow: '0 2px 6px rgba(16, 185, 129, 0.2)'
+          }}
+        >
+          {actionId === r._id ? 'Saving…' : 'Mark Received'}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div style={{ padding: '0 4px 40px 4px' }}>
@@ -212,7 +407,7 @@ export const SellerReturnsTab = () => {
             </span>
           </div>
           <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
-            Approval/refund is Admin-only — pickup logistics are yours.
+            You approve or reject returns and arrange pickup — refunds are processed by Bulkimart after inspection.
           </p>
         </div>
       </div>
@@ -286,7 +481,7 @@ export const SellerReturnsTab = () => {
           <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', fontFamily: "'Outfit', sans-serif" }}>{totalCount}</div>
         </div>
 
-        <div className="ret-kpi-card" onClick={() => setStatusFilter('RETURN_REQUESTED')}>
+        <div className="ret-kpi-card" onClick={() => setStatusFilter(groupFilter('requested'))}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>REQUESTED</span>
             <span style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>⏳</span>
@@ -294,7 +489,7 @@ export const SellerReturnsTab = () => {
           <div style={{ fontSize: 22, fontWeight: 900, color: '#b45309', fontFamily: "'Outfit', sans-serif" }}>{requestedCount}</div>
         </div>
 
-        <div className="ret-kpi-card" onClick={() => setStatusFilter('APPROVED')}>
+        <div className="ret-kpi-card" onClick={() => setStatusFilter(groupFilter('pickup'))}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>APPROVED / PICKUP</span>
             <span style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🚚</span>
@@ -302,7 +497,7 @@ export const SellerReturnsTab = () => {
           <div style={{ fontSize: 22, fontWeight: 900, color: '#1d4ed8', fontFamily: "'Outfit', sans-serif" }}>{approvedCount}</div>
         </div>
 
-        <div className="ret-kpi-card" onClick={() => setStatusFilter('REFUNDED')}>
+        <div className="ret-kpi-card" onClick={() => setStatusFilter(groupFilter('refunded'))}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>REFUNDED</span>
             <span style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>✅</span>
@@ -445,73 +640,145 @@ export const SellerReturnsTab = () => {
                   </div>
                 )}
 
-                {['APPROVED', 'AWAITING_RETURN'].includes(r.status) && (
-                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <div style={{ fontSize: 11.5, color: '#475569', fontWeight: 600 }}>
-                      <b>Pickup Logistics:</b> {r.pickupMethod === 'SHIPROCKET' ? (r.reverseBooking?.trackingState || r.reverseBooking?.state || 'Awaiting booking') : (PICKUP_LABEL[r.pickup?.status] || 'Choose a pickup method')}
-                      {r.pickup?.partnerId?.userId?.name ? ` — ${r.pickup.partnerId.userId.name}` : ''}
-                    </div>
-                    {(!r.pickupMethod || ['failed', 'cancelled'].includes(r.reverseBooking?.state)) && ['NOT_ASSIGNED', 'CANCELLED'].includes(r.pickup?.status || 'NOT_ASSIGNED') && (
-                      <>
-                      <select aria-label="Pickup method" value={pickupChoices[r._id] || ''} onChange={e => setPickupChoices({ ...pickupChoices, [r._id]: e.target.value })}>
-                        <option value="">Choose pickup method</option>
-                        <option value="MANUAL">Manual Delivery / Local Rider</option>
-                        <option value="SHIPROCKET">Shiprocket Reverse Pickup</option>
-                      </select>
-                      <button 
-                        disabled={actionId === r._id || !pickupChoices[r._id]}
-                        onClick={() => assignRider(r._id)}
-                        style={{
-                          border: 'none', 
-                          background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 
-                          color: '#fff', 
-                          borderRadius: 8, 
-                          padding: '7px 14px',
-                          fontSize: 11, 
-                          fontWeight: 800, 
-                          cursor: actionId === r._id ? 'not-allowed' : 'pointer', 
-                          opacity: actionId === r._id ? 0.6 : 1,
-                          boxShadow: '0 2px 6px rgba(3, 105, 161, 0.2)'
-                        }}
-                      >
-                        {actionId === r._id ? 'Booking…' : 'Confirm pickup method'}
-                      </button>
-                      </>
-                    )}
-                    {r.pickupMethod === 'SHIPROCKET' && <>
-                      <span>{r.awbNumber ? `AWB: ${r.awbNumber}` : ''} {r.reverseBooking?.error}</span>
-                      <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'refresh')}>Refresh courier tracking</button>
-                      {r.reverseBooking?.state === 'booked' && (r.reverseBooking?.trackingRank || 0) < 2 && <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Request courier cancellation</button>}
-                    </>}
-                    {r.pickupMethod === 'MANUAL' && r.pickup?.status === 'NOT_ASSIGNED' && <>
-                      <button disabled={actionId === r._id} onClick={() => courierAction(r._id, 'cancel')}>Cancel rider search</button>
-                    </>}
-                    {(r.pickup?.status === 'PICKED_UP' || r.reverseBooking?.trackingState === 'DELIVERED' && r.pickup?.status !== 'DELIVERED_TO_SELLER') && (
-                      <button 
-                        disabled={actionId === r._id} 
-                        onClick={() => markReceived(r._id)} 
-                        style={{
-                          border: 'none', 
-                          background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', 
-                          color: '#fff', 
-                          borderRadius: 8, 
-                          padding: '7px 14px',
-                          fontSize: 11, 
-                          fontWeight: 800, 
-                          cursor: actionId === r._id ? 'not-allowed' : 'pointer', 
-                          opacity: actionId === r._id ? 0.6 : 1,
-                          boxShadow: '0 2px 6px rgba(16, 185, 129, 0.2)'
-                        }}
-                      >
-                        {actionId === r._id ? 'Saving…' : 'Mark Received'}
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{nextStep(r)}</span>
+                  <button type="button" onClick={() => openDetail(r._id)}
+                    style={{ border: '1.5px solid #cbd5e1', background: '#fff', color: '#0f172a', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                    View details
+                  </button>
+                </div>
+
+                {decisionPanel(r)}
+                {pickupPanel(r)}
               </div>
             );
           })}
         </div>
+      )}
+
+      {detailId && (
+        <ModalPortal className="seller-modal-overlay" style={{ zIndex: 100 }} role="dialog" aria-modal="true" aria-label="Return details"
+          onClick={event => { if (event.target === event.currentTarget) closeDetail(); }}>
+          <div className="seller-modal-sheet" style={{ maxWidth: 560, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-sheet-header">
+              <h3>{detail?.returnNumber || 'Return details'}</h3>
+              <button type="button" aria-label="Close return details" onClick={closeDetail}>✕</button>
+            </div>
+            {detailError ? (
+              <div role="alert" style={{ fontSize: 12, color: '#991b1b' }}>
+                {detailError} <button type="button" onClick={() => loadDetail(detailId)}>Retry</button>
+              </div>
+            ) : !detail ? (
+              <p role="status" style={{ fontSize: 12, color: '#64748b' }}>Loading return…</p>
+            ) : (
+              <ReturnDetail r={detail} pickupPanel={pickupPanel} decisionPanel={decisionPanel} />
+            )}
+          </div>
+        </ModalPortal>
+      )}
+    </div>
+  );
+};
+
+const Row = ({ label, children }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '5px 0', borderBottom: '1px solid #f1f5f9' }}>
+    <span style={{ color: '#64748b', fontWeight: 600 }}>{label}</span>
+    <span style={{ color: '#0f172a', fontWeight: 700, textAlign: 'right' }}>{children ?? '—'}</span>
+  </div>
+);
+
+const Section = ({ title, children }) => (
+  <section style={{ marginTop: 14 }}>
+    <h4 style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>{title}</h4>
+    {children}
+  </section>
+);
+
+const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
+  const badge = STATUS_COLOR[r.status] || STATUS_COLOR.RETURN_REQUESTED;
+  const address = r.order?.pickupAddress;
+  const rider = r.pickup?.partnerId;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        {r.productImage
+          ? <img src={r.productImage} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', border: '1px solid #e2e8f0' }} />
+          : <div style={{ width: 56, height: 56, borderRadius: 10, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📦</div>}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{r.productName} × {r.quantity}</div>
+          <span style={{ display: 'inline-block', marginTop: 4, fontSize: 10.5, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: badge.bg, color: badge.fg }}>
+            {STATUS_LABEL[r.status] || r.status}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: '#f0f9ff', color: '#075985', fontSize: 12, fontWeight: 600 }}>
+        <b>Next step:</b> {nextStep(r)}
+      </div>
+      {decisionPanel(r)}
+
+      {r.rejectionReason && (
+        <div style={{ marginTop: 10, fontSize: 12, color: '#991b1b', background: '#fee2e2', padding: '8px 10px', borderRadius: 8 }}>
+          <b>Rejected:</b> {r.rejectionReason}
+        </div>
+      )}
+
+      <Section title="Customer's reason">
+        <Row label="Reason">{r.reason?.replace(/_/g, ' ')}</Row>
+        {r.customerDescription && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#334155' }}>{r.customerDescription}</p>}
+        {r.attachments?.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            {r.attachments.map(file => file.mimeType === 'application/pdf'
+              ? <a key={file.url} href={file.url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>{file.fileName || 'Attachment (PDF)'}</a>
+              : <a key={file.url} href={file.url} target="_blank" rel="noreferrer"><img src={file.url} alt={file.fileName || 'Return photo'} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0' }} /></a>)}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Order">
+        <Row label="Order">{r.order?.orderNo}</Row>
+        <Row label="Customer">{r.customerName}</Row>
+        <Row label="Delivered">{formatDate(r.order?.deliveredAt)}</Row>
+        <Row label="Unit price">{r.unitPriceSnapshot != null ? `₹${r.unitPriceSnapshot}` : null}</Row>
+        <Row label="Return window ends">{formatDate(r.returnEligibleUntilSnapshot)}</Row>
+        {address && <Row label="Pickup from">{[address.line1, address.line2, address.city, address.state, address.pincode].filter(Boolean).join(', ')}</Row>}
+      </Section>
+
+      <Section title="Pickup">
+        <Row label="Method">{r.pickupMethod === 'SHIPROCKET' ? 'Shiprocket reverse pickup' : r.pickupMethod === 'MANUAL' ? 'Local rider' : 'Not chosen yet'}</Row>
+        {r.pickupMethod === 'MANUAL' && <Row label="Rider status">{PICKUP_LABEL[r.pickup?.status] || r.pickup?.status}</Row>}
+        {rider?.userId?.name && <Row label="Rider">{rider.userId.name}{rider.userId.phone ? ` · ${rider.userId.phone}` : ''}{rider.vehicleNo ? ` · ${rider.vehicleNo}` : ''}</Row>}
+        {r.pickupMethod === 'SHIPROCKET' && <>
+          <Row label="Courier">{r.courierName}</Row>
+          <Row label="AWB">{r.awbNumber}</Row>
+          <Row label="Tracking">{r.reverseBooking?.trackingState || r.reverseBooking?.state}</Row>
+          {r.trackingUrl && <Row label="Track"><a href={r.trackingUrl} target="_blank" rel="noreferrer">Open tracking</a></Row>}
+        </>}
+        <Row label="Picked up">{formatDate(r.pickedUpAt)}</Row>
+        <Row label="You confirmed receipt">{formatDate(r.pickup?.sellerConfirmedReceivedAt)}</Row>
+        {pickupPanel(r)}
+      </Section>
+
+      {(r.refundStatus || r.refundAmount != null || r.restockDecision) && (
+        <Section title="Inspection & refund">
+          <Row label="Restock decision">{r.restockDecision?.replace(/_/g, ' ').toLowerCase()}</Row>
+          <Row label="Customer refund">{r.refundAmount != null ? `₹${r.refundAmount}` : null}</Row>
+          <Row label="Refund status">{r.refundStatus}</Row>
+          <Row label="Refunded on">{formatDate(r.refundedAt)}</Row>
+        </Section>
+      )}
+
+      {r.history?.length > 0 && (
+        <Section title="Timeline">
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155' }}>
+            {r.history.map((h, i) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                <b>{STATUS_LABEL[h.toStatus] || h.toStatus}</b>{h.comment ? ` — ${h.comment}` : ''}
+                <span style={{ color: '#94a3b8' }}> · {formatDate(h.timestamp)}</span>
+              </li>
+            ))}
+          </ol>
+        </Section>
       )}
     </div>
   );

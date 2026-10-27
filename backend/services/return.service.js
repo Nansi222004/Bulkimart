@@ -241,7 +241,7 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
     event: NOTIFICATION_EVENT.RETURN_REQUESTED,
     dedupeKey: `seller-return-requested:${created._id}:${created.sellerId}`,
     title: 'New return request',
-    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}`,
+    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}. Review it and approve or reject.`,
     metadata: { returnId: created._id, returnNumber: created.returnNumber, orderId: created.orderId },
     route: `/seller/item-returns?return=${created._id}`,
   }).catch(() => {});
@@ -258,6 +258,14 @@ const RETURN_NOTIFICATION_BY_STATUS = {
   [RETURN_STATUS.APPROVED]:        { event: NOTIFICATION_EVENT.RETURN_APPROVED,     title: 'Return approved',      message: (r) => `Your return ${r.returnNumber} has been approved.` },
   [RETURN_STATUS.REJECTED]:        { event: NOTIFICATION_EVENT.RETURN_REJECTED,     title: 'Return rejected',      message: (r) => `Your return ${r.returnNumber} was rejected: ${r.rejectionReason || ''}`.trim() },
   [RETURN_STATUS.RETURN_RECEIVED]: { event: NOTIFICATION_EVENT.RETURN_RECEIVED,     title: 'Return received',      message: (r) => `We've received your returned item for ${r.returnNumber}.` },
+};
+
+// The seller's side of the same transitions — what it means for them, not the
+// customer-facing "Your return..." copy above.
+const SELLER_RETURN_MESSAGE_BY_STATUS = {
+  [RETURN_STATUS.APPROVED]:        (r) => `Return ${r.returnNumber} (${r.productName} × ${r.quantity}) was approved. Choose a pickup method to collect it.`,
+  [RETURN_STATUS.REJECTED]:        (r) => `Return ${r.returnNumber} (${r.productName}) was rejected — no pickup is needed.`,
+  [RETURN_STATUS.RETURN_RECEIVED]: (r) => `Return ${r.returnNumber} passed inspection (${r.restockDecision === RESTOCK_DECISION.RESTOCKABLE ? 'restocked' : 'not restocked'}).`,
 };
 
 /**
@@ -353,19 +361,81 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
       metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
       route: `/orders/${updated.orderId}`,
     }).catch(() => {});
-    if (updated.sellerId && (toStatus === RETURN_STATUS.APPROVED || toStatus === RETURN_STATUS.RETURN_RECEIVED)) {
-      notifySeller(updated.sellerId, {
-        event: notif.event, title: notif.title, message: notif.message(updated),
-        metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
-        route: `/seller/returns`,
-      }).catch(() => {});
-    }
+  }
+  const sellerMessage = SELLER_RETURN_MESSAGE_BY_STATUS[toStatus];
+  if (notif && sellerMessage && updated.sellerId) {
+    notifySeller(updated.sellerId, {
+      event: notif.event, title: notif.title, message: sellerMessage(updated),
+      metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
+      route: `/seller/item-returns?return=${updated._id}`,
+    }).catch(() => {});
   }
 
   return updated;
 };
 
 const adminComment = (c) => typeof c === 'string' && c.trim().length > 0;
+
+/**
+ * The seller's own approve/reject decision on a return of their item. Same
+ * guards and side effects as the admin path (rejection reason, quantity
+ * release on REJECTED), but scoped to the owning seller and limited to the
+ * review decision — receipt/inspection and refunds stay with Admin. A request
+ * still in RETURN_REQUESTED passes through UNDER_REVIEW in the history so the
+ * audit trail keeps the same shape as an admin review.
+ */
+export const sellerDecideReturn = async ({ returnId, sellerId, sellerUserId, decision, rejectionReason, comment }) => {
+  if (![RETURN_STATUS.APPROVED, RETURN_STATUS.REJECTED].includes(decision)) throw httpError(400, 'decision must be APPROVED or REJECTED');
+  const reason = typeof rejectionReason === 'string' ? rejectionReason.trim() : '';
+  if (decision === RETURN_STATUS.REJECTED && reason.length < 3) throw httpError(400, 'A rejection reason is required');
+
+  const session = await mongoose.startSession();
+  let updated;
+  try {
+    await session.withTransaction(async () => {
+      const ret = await Return.findById(returnId).session(session);
+      // 404 on a mismatch — never confirms another seller's return exists.
+      if (!ret || String(ret.sellerId) !== String(sellerId)) throw httpError(404, 'Return not found', { code: 'RETURN_NOT_FOUND' });
+      if (![RETURN_STATUS.RETURN_REQUESTED, RETURN_STATUS.UNDER_REVIEW].includes(ret.status)) {
+        throw httpError(409, `This return is already ${ret.status.replace(/_/g, ' ').toLowerCase()}`, { code: 'INVALID_RETURN_STATUS_TRANSITION' });
+      }
+      const now = new Date();
+      const actor = { changedBy: sellerUserId, changedByModel: 'User', changedByRole: 'seller' };
+      if (ret.status === RETURN_STATUS.RETURN_REQUESTED) {
+        ret.history.push({ fromStatus: ret.status, toStatus: RETURN_STATUS.UNDER_REVIEW, ...actor, comment: 'Seller reviewed the request', timestamp: now });
+        ret.status = RETURN_STATUS.UNDER_REVIEW;
+      }
+      ret.reviewedAt ||= now;
+      ret.history.push({ fromStatus: ret.status, toStatus: decision, ...actor, comment: adminComment(comment) ? comment : (decision === RETURN_STATUS.REJECTED ? reason : 'Approved by seller'), timestamp: now });
+      ret.status = decision;
+      if (decision === RETURN_STATUS.APPROVED) ret.approvedAt = now;
+      else { ret.rejectedAt = now; ret.rejectionReason = reason; }
+      await ret.save({ session });
+
+      if (RETURN_QUANTITY_RELEASING_STATUSES.includes(decision)) {
+        await Order.updateOne({ _id: ret.orderId, 'items._id': ret.orderItemId }, { $inc: { 'items.$.returnedQty': -ret.quantity } }, { session });
+      }
+      updated = ret;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const notif = RETURN_NOTIFICATION_BY_STATUS[decision];
+  notifyUser(updated.customerId, {
+    event: notif.event, title: notif.title, message: notif.message(updated),
+    metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
+    route: `/orders/${updated.orderId}`,
+  }).catch(() => {});
+  notifyAllAdmins({
+    event: notif.event, title: decision === RETURN_STATUS.APPROVED ? 'Seller approved a return' : 'Seller rejected a return',
+    message: `${updated.returnNumber} — ${updated.productName} × ${updated.quantity}${decision === RETURN_STATUS.REJECTED ? `: ${updated.rejectionReason}` : ''}`,
+    metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
+    route: `/admin/returns/${updated._id}`,
+  }).catch(() => {});
+
+  return updated;
+};
 
 /* ============================================================================
  * REFUND CALCULATION (Phase 6 — the single source of truth)
@@ -681,6 +751,13 @@ const completeRefund = async (original, { refundReference, refundStatus, adminId
     message: `₹${ret.refundAmount} has been refunded for ${ret.returnNumber}.`,
     metadata: { returnId: ret._id, returnNumber: ret.returnNumber, refundAmount: ret.refundAmount },
     route: `/orders/${ret.orderId}`,
+  }).catch(() => {});
+  // The refund reduces the seller's earning for this item, so they hear about it.
+  if (ret.sellerId) notifySeller(ret.sellerId, {
+    event: NOTIFICATION_EVENT.REFUND_COMPLETED, title: 'Return refunded', dedupeKey: `seller-return-refunded:${ret._id}`,
+    message: `The customer was refunded ₹${ret.refundAmount} for ${ret.returnNumber}. Your earning for this item is adjusted in Earnings.`,
+    metadata: { returnId: ret._id, returnNumber: ret.returnNumber },
+    route: `/seller/item-returns?return=${ret._id}`,
   }).catch(() => {});
 
   return ret;

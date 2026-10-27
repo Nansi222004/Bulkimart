@@ -8,7 +8,7 @@ import { ok, created, paginated, getPagination, httpError } from '../utils/respo
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
 import {
   getReturnEligibility, createReturnRequest, transitionReturnStatus, calculateReturnRefund,
-  processReturnRefund, markCodRefundSettled,
+  processReturnRefund, markCodRefundSettled, sellerDecideReturn,
 } from '../services/return.service.js';
 import { arrangeReturnPickup, markReturnDeliveredToSeller } from '../services/returnPickup.service.js';
 import { bookReturnCourier, reconcileReturnCourier, cancelReturnCourier } from '../services/returnCourier.service.js';
@@ -194,21 +194,82 @@ export const getMyReturn = asyncHandler(async (req, res) => {
 // @desc    Returns for products this seller sold — read-only
 // @route   GET /api/sellers/returns
 // @access  Private/Seller (approved)
+// Internal bookkeeping a seller never needs (idempotency keys, provider
+// operation tokens, refund locks, rider offer lists).
+const SELLER_HIDDEN_FIELDS = '-requestKey -reverseBooking.operationToken -refundLockedAt -pickup.offerAttempts -zeroRefundEvidence';
+
 export const listSellerReturns = asyncHandler(async (req, res) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
 
   const { page, limit, skip } = getPagination(req.query);
   const filter = { sellerId: seller._id };
-  if (req.query.status && RETURN_STATUSES.includes(req.query.status)) filter.status = req.query.status;
+  // `status` may be one status or a comma-separated group (the KPI cards
+  // filter by group, e.g. REFUND_PENDING,REFUNDED).
+  const statuses = String(req.query.status || '').split(',').filter((s) => RETURN_STATUSES.includes(s));
+  if (statuses.length) filter.status = statuses.length === 1 ? statuses[0] : { $in: statuses };
 
-  const [rows, total] = await Promise.all([
-    Return.find(filter).sort({ requestedAt: -1 }).skip(skip).limit(limit)
+  const [rows, total, counts] = await Promise.all([
+    Return.find(filter).select(SELLER_HIDDEN_FIELDS).sort({ requestedAt: -1 }).skip(skip).limit(limit)
       .populate({ path: 'pickup.partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } })
       .lean(),
     Return.countDocuments(filter),
+    // Unfiltered per-status totals, so the KPI cards stay true whatever
+    // filter or page the list is showing.
+    Return.aggregate([{ $match: { sellerId: seller._id } }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
   ]);
-  return paginated(res, rows, { page, limit, total });
+  const statusCounts = Object.fromEntries(counts.map((row) => [row._id, row.count]));
+  return paginated(res, rows, { page, limit, total, statusCounts });
+});
+
+// @desc    One of this seller's returns, with the order context needed to act on it
+// @route   GET /api/sellers/returns/:returnId
+// @access  Private/Seller (approved)
+export const getSellerReturn = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  if (!mongoose.Types.ObjectId.isValid(req.params.returnId)) throw httpError(400, 'Invalid return id');
+
+  const ret = await Return.findOne({ _id: req.params.returnId, sellerId: seller._id })
+    .select(SELLER_HIDDEN_FIELDS)
+    .populate('customerId', 'name')
+    .populate({ path: 'pickup.partnerId', select: 'userId vehicleType vehicleNo', populate: { path: 'userId', select: 'name phone' } })
+    .populate('pickup.deliveryId', 'status startTime endTime')
+    .lean();
+  // 404 on a mismatch — never confirms another seller's return id exists.
+  if (!ret) throw httpError(404, 'Return not found');
+
+  const order = await Order.findById(ret.orderId).select('orderNo status paymentMethod deliveredAt items shippingAddress').lean();
+  const item = order?.items?.find((row) => String(row._id) === String(ret.orderItemId));
+  const address = order?.shippingAddress || {};
+
+  return ok(res, {
+    ...ret,
+    customerName: ret.customerId?.name,
+    customerId: undefined,
+    order: order && {
+      _id: order._id,
+      orderNo: order.orderNo,
+      status: order.status,
+      paymentMethod: order.paymentMethod,
+      deliveredAt: item?.deliveredAt || order.deliveredAt,
+      item: item && { name: item.name, qty: item.qty, price: item.price, lineTotal: item.price * item.qty },
+      // Pickup location only — the full contact stays with the rider/courier.
+      pickupAddress: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, pincode: address.pincode },
+    },
+  });
+});
+
+// @desc    Seller approves or rejects a return of their own item
+// @route   POST /api/sellers/returns/:returnId/decision  { decision: APPROVED|REJECTED, rejectionReason?, comment? }
+// @access  Private/Seller (approved)
+export const sellerDecideReturnCtrl = asyncHandler(async (req, res) => {
+  const seller = req.seller || await Seller.findOne({ userId: req.user._id });
+  if (!seller) throw httpError(404, 'Seller profile not found');
+  if (!mongoose.Types.ObjectId.isValid(req.params.returnId)) throw httpError(400, 'Invalid return id');
+  const { decision, rejectionReason, comment } = req.body;
+  const ret = await sellerDecideReturn({ returnId: req.params.returnId, sellerId: seller._id, sellerUserId: req.user._id, decision, rejectionReason, comment });
+  return ok(res, { returnId: ret._id, status: ret.status }, ret.status === RETURN_STATUS.APPROVED ? 'Return approved — choose a pickup method' : 'Return rejected');
 });
 
 /**

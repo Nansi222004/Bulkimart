@@ -119,9 +119,9 @@ export const applyReverseTracking = async ({ shipmentId, awb, statusId, status, 
     if (['COLLECTED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(state) && !ret.pickedUpAt) ret.pickedUpAt = new Date();
     if (state === 'DELIVERED') ret.reverseBooking.deliveredAt = new Date();
     await ret.save({ session });
-    return { matched: true, changed: true, sellerId: ret.sellerId, returnId: ret._id, delivered: state === 'DELIVERED' };
+    return { matched: true, changed: true, sellerId: ret.sellerId, returnId: ret._id, returnNumber: ret.returnNumber, delivered: state === 'DELIVERED' };
   });
-  if (result.delivered) notifySeller(result.sellerId, { event: NOTIFICATION_EVENT.RETURN_DELIVERED_TO_SELLER, title: 'Courier return delivered', message: 'Confirm physical receipt of the returned package before inspection.', route: '/seller/returns', metadata: { returnId: result.returnId } }).catch(() => {});
+  if (result.delivered) notifySeller(result.sellerId, { event: NOTIFICATION_EVENT.RETURN_DELIVERED_TO_SELLER, title: 'Courier return delivered', message: `Return ${result.returnNumber} was delivered by the courier. Confirm physical receipt before inspection.`, route: `/seller/item-returns?return=${result.returnId}`, metadata: { returnId: result.returnId, returnNumber: result.returnNumber } }).catch(() => {});
   return result;
 };
 

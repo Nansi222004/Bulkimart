@@ -19,7 +19,7 @@ import {
   getSellerFaqs,
   answerSellerFaq
 } from '../controllers/seller.controller.js';
-import { listSellerReturns, assignRiderForReturn, sellerConfirmReturnReceived, selectReturnPickup, refreshReturnCourier, cancelReturnPickup } from '../controllers/return.controller.js';
+import { listSellerReturns, getSellerReturn, sellerDecideReturnCtrl, assignRiderForReturn, sellerConfirmReturnReceived, selectReturnPickup, refreshReturnCourier, cancelReturnPickup } from '../controllers/return.controller.js';
 import {
   getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment,
 } from '../controllers/fulfillment.controller.js';
@@ -126,6 +126,8 @@ router.patch('/faqs/:faqId/answer', requireApprovedSeller, answerSellerFaq);
 
 // ---- Return & Refund — read-only visibility (Phase 4) -------------------
 router.get('/returns', requireApprovedSeller, listSellerReturns);
+router.get('/returns/:returnId', requireApprovedSeller, getSellerReturn);
+router.post('/returns/:returnId/decision', requireApprovedSeller, sellerDecideReturnCtrl);
 // Quick Commerce reverse pickup — Seller triggers/confirms these two steps;
 // every other transition stays Admin-only (services/return.service.js).
 router.post('/returns/:returnId/assign-rider', requireApprovedSeller, assignRiderForReturn);
