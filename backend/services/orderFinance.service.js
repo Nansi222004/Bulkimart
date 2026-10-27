@@ -207,7 +207,7 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
     notice = { orderId: order._id, orderNo: order.orderNo, partnerId: order.deliveryPartnerId, status: cash.status, amountPaise, expectedPaise };
     return cash;
   });
-  if (notice) notifyCodEvent(action, notice);
+  if (notice) await notifyCodEvent(action, notice);
   return result;
 };
 
@@ -216,15 +216,14 @@ const rupeeText = paise => `₹${(paise / 100).toFixed(2)}`;
 const notifyCodEvent = (action, { orderId, orderNo, partnerId, status, amountPaise, expectedPaise }) => {
   const metadata = { orderId, orderNo };
   if (action === 'remit') {
-    notifyAllAdmins({ event: NOTIFICATION_EVENT.COD_HANDOVER_REPORTED, title: 'Rider cash settlement request',
+    return notifyAllAdmins({ event: NOTIFICATION_EVENT.COD_HANDOVER_REPORTED, title: 'Rider cash settlement request',
       message: `${orderNo}: rider reports handing over ${rupeeText(amountPaise)}. Confirm when the cash is received.`,
       metadata, route: '/admin/finance-center?area=orders&view=cod' }).catch(() => {});
-    return;
   }
   const riderMessage = action === 'dispute' ? `Your cash report for ${orderNo} is under review. Bulkimart will contact you.`
     : status === 'discrepancy' ? `Bulkimart received ${rupeeText(amountPaise)} for ${orderNo}, but ${rupeeText(expectedPaise)} was due. Bulkimart will contact you.`
     : ['verify', 'writeoff'].includes(action) && ['verified', 'allocated'].includes(status) ? `Your COD cash for ${orderNo} is settled. Bulkimart confirmed receipt.` : null;
-  if (riderMessage && partnerId) notifyRider(partnerId, { event: NOTIFICATION_EVENT.COD_CASH_SETTLED,
+  if (riderMessage && partnerId) return notifyRider(partnerId, { event: NOTIFICATION_EVENT.COD_CASH_SETTLED,
     title: status === 'discrepancy' || action === 'dispute' ? 'COD cash needs attention' : 'COD cash settled',
     message: riderMessage, metadata, route: '/delivery/earnings' }).catch(() => {});
 };

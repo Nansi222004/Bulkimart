@@ -27,19 +27,33 @@ export default function OrderFinancialBreakdown({ orderId }) {
   }, [orderId, retry]);
   return <section className="seller-order-section" aria-label="Order financial breakdown"><h3>Your earnings from this order</h3>
     {error ? <p role="alert">{error} <button type="button" onClick={() => setRetry(retry + 1)}>Retry</button></p> : !record ? <p role="status">Loading financial records…</p> : <>
-      {record.merchandise ? <><p>Status: {{ held: 'Earned — on hold until the return window ends', eligible: 'Available to withdraw', reversed: 'Refunded to customer' }[record.financialPosting] || 'Not added yet — waiting for payment confirmation'}</p>
+      {record.merchandise ? <><p>Status: {{ held: 'Earned — on hold until the return window ends', eligible: 'Available to withdraw', reversed: 'Refunded to customer' }[record.financialPosting] || 'Not added yet — added once the order is delivered and payment is confirmed'}</p>
         {record.merchandise.lines.map(line => {
           const discount = Object.values(line.allocatedDiscounts).reduce((sum, value) => sum + (Number.isSafeInteger(value) ? value : 0), 0);
           const funded = record.merchandise.discountFunding === 'platform';
+          const rate = line.rule && (line.rule.method === 'fixed' ? `₹${line.rule.value} per item` : `${line.rule.value}%`);
           return <div key={line.itemId} style={{ padding: 12, borderBottom: '1px solid #cde9ed', overflowWrap: 'anywhere' }}>
-          <p>Item {line.itemId} · Item price {money(line.grossPaise)}</p>
-          {discount > 0 && <p>Coupon / coins on this item {money(discount)}{funded ? ' — paid by Bulkimart, not deducted from you' : ''} · Customer paid {money(line.eligiblePaise)}</p>}
-          {line.blocker && <p role="status">Held: {line.blocker}. No seller deduction is assumed.</p>}{line.rule ? <><p>Commission {money(line.commissionPaise)} · GST on commission {money(line.taxPaise)}{line.tcsPaise ? ` · TCS ${money(line.tcsPaise)}` : ''}{line.tdsPaise ? ` · TDS ${money(line.tdsPaise)}` : ''}</p><p><strong>You get {money(line.netPaise)}</strong></p><p>Rule {line.rule.version} · {line.rule.method === 'fixed' ? `₹${line.rule.value} per item` : `${line.rule.value}%`} · GST {line.rule.taxTreatment} {line.rule.taxRate}%</p></> : <p>Held: no commission rule was approved at checkout.</p>}
+          <p><strong>{line.itemName || 'Product'}</strong>{line.qty ? ` × ${line.qty}` : ''}</p>
+          <p>Item price: {money(line.grossPaise)}</p>
+          {discount > 0 && <p>Customer discount (coupon / coins): {money(discount)}{funded ? ' — paid by Bulkimart, not cut from your earnings' : ''}. Customer paid {money(line.eligiblePaise)} for this item.</p>}
+          {line.blocker && <p role="status">On hold: {line.blocker}. Nothing has been deducted from you.</p>}{line.rule ? <>
+            <p>Bulkimart commission ({rate}): −{money(line.commissionPaise)}</p>
+            {line.taxPaise > 0 && <p>GST on commission: −{money(line.taxPaise)}</p>}
+            {line.tcsPaise > 0 && <p>TCS withheld (claim in your GST return): −{money(line.tcsPaise)}</p>}
+            {line.tdsPaise > 0 && <p>TDS withheld (claim in your income-tax return): −{money(line.tdsPaise)}</p>}
+            <p><strong>You get {money(line.netPaise)}</strong></p></> : <p>On hold: commission for this item is still being confirmed. Nothing has been deducted from you.</p>}
         </div>; })}
-        <p>Customer delivery charge on the order: {money(record.merchandise.components.deliveryPaise)}. Shiprocket courier charges and fees are shown separately below.</p>
-      </> : <p>This historical order has no versioned commission snapshot. Its earnings are not recalculated or deducted.</p>}
-      {record.snapshot && <p>Courier freight {money(record.snapshot.quotedCourierFreight * 100)} · Seller freight share {money(record.snapshot.vendorFreightShare * 100)} · Shiprocket service fee {money(record.snapshot.serviceFee?.amount * 100)} · Fee tax {money(record.snapshot.serviceFee?.taxAmount * 100)}</p>}
-      {record.entries?.length > 0 && <details><summary>Ledger and transaction references</summary>{record.entries.map(entry => <p key={entry._id}>{entry.description} · {entry.account || 'seller_payable'} · {entry.bucket} · {entry.direction} ₹{entry.amount.toFixed(2)} · {entry.reference || entry.entryNo}</p>)}</details>}
+        {(() => {
+          // The customer's full payment, so the item amounts above are not
+          // mistaken for the order total shown elsewhere.
+          const { merchandisePaise = record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0), deliveryPaise = 0, sellerIncentivePaise = 0, tipPaise = 0, donationPaise = 0 } = record.merchandise.components;
+          const customerDeliveryPaise = deliveryPaise + sellerIncentivePaise;
+          const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise + donationPaise;
+          return <p><strong>Customer paid for the whole order: {money(totalPaise)}</strong> = items {money(merchandisePaise)} + delivery {money(customerDeliveryPaise)}{tipPaise ? ` + rider tip ${money(tipPaise)}` : ''}{donationPaise ? ` + donation ${money(donationPaise)}` : ''}. Your item earnings above are worked out on the items only.{record.snapshot ? ' Courier charges are shown below.' : ''}</p>;
+        })()}
+      </> : <p>This is an older order, so a per-item earnings breakdown is not available. Nothing has been recalculated or deducted.</p>}
+      {record.snapshot && <p>Courier charge {money(record.snapshot.quotedCourierFreight * 100)} · Your share of courier charge {money(record.snapshot.vendorFreightShare * 100)} · Shipping service fee {money(record.snapshot.serviceFee?.amount * 100)} · Tax on fee {money(record.snapshot.serviceFee?.taxAmount * 100)}</p>}
+      {record.entries?.length > 0 && <details><summary>Transaction history</summary>{record.entries.map(entry => <p key={entry._id}>{entry.description} · {entry.direction === 'credit' ? '+' : '−'}₹{entry.amount.toFixed(2)} · {{ held: 'on hold', eligible: 'available', reserved: 'requested for payout', settled: 'paid out' }[entry.bucket] || entry.bucket} · Ref {entry.reference || entry.entryNo}</p>)}</details>}
     </>}
   </section>;
 }

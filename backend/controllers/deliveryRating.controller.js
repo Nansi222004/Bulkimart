@@ -12,6 +12,7 @@ export const rateDeliveryPartner = asyncHandler(async (req, res) => {
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw fail(400, 'Choose a rating from 1 to 5 stars');
   const session = await mongoose.startSession();
   let customerRating;
+  let ratedPartnerId;
   try {
     await session.withTransaction(async () => {
       const order = await Order.findById(req.params.id).session(session).lean();
@@ -37,7 +38,12 @@ export const rateDeliveryPartner = asyncHandler(async (req, res) => {
         { $set: { rating: { $divide: ['$ratingTotal', '$ratingCount'] } } },
       ], { session, returnDocument: 'after', updatePipeline: true });
       if (!partner) throw fail(409, 'This delivery partner is unavailable for rating');
+      ratedPartnerId = partner._id;
     });
   } finally { await session.endSession(); }
+  try {
+    const { emitToRider } = await import('../socket/rooms.js');
+    emitToRider(String(ratedPartnerId), 'rider_rating_updated', { partnerId: String(ratedPartnerId) });
+  } catch { /* The rating is saved; a profile refresh also retrieves it. */ }
   return ok(res, customerRating, 'Delivery partner rated');
 });

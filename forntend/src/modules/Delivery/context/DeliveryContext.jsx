@@ -166,12 +166,12 @@ export const DeliveryProvider = ({ children }) => {
     if (riderProfile && riderProfile.status === 'approved') {
       initPushNotifications().catch(() => {});
     }
-  }, [riderProfile]);
+  }, [riderProfile?._id, riderProfile?.status]);
 
   // --- Socket.io for Rider ---
   useEffect(() => {
     const token = localStorage.getItem('deliveryToken');
-    if (token && riderProfile && riderProfile.status === 'approved' && isOnline) {
+    if (token && riderProfile && riderProfile.status === 'approved') {
       connectSocket(token, 'delivery', riderProfile._id);
     }
 
@@ -203,7 +203,7 @@ export const DeliveryProvider = ({ children }) => {
       socket.off('return_pickup_ping');
       disconnectSocket();
     };
-  }, [riderProfile, isOnline]);
+  }, [riderProfile?._id, riderProfile?.status]);
 
   /**
    * QUICK COMMERCE ONLY — the reverse pickup (customer -> rider -> seller)
@@ -997,10 +997,13 @@ export const DeliveryProvider = ({ children }) => {
    * The review screen has no other way to notice an admin decision, and an
    * approval must never be something this app grants itself.
    */
-  const refreshRiderStatus = async () => {
+  const refreshRiderStatus = useCallback(async () => {
+    const token = localStorage.getItem('deliveryToken');
+    if (!token) return { ok: false, message: 'Sign in to refresh your profile' };
     try {
-      const res = await fetch(apiUrl('/api/delivery/me'), { headers: authHeaders() });
+      const res = await boundedFetch(apiUrl('/api/delivery/me'), { headers: { Authorization: 'Bearer ' + token } });
       const body = await res.json().catch(() => ({}));
+      if (token !== localStorage.getItem('deliveryToken')) return { ok: false, message: 'Session changed' };
       if (!res.ok) return { ok: false, message: body.message || 'Could not check your status' };
 
       const d = body.data || {};
@@ -1018,7 +1021,31 @@ export const DeliveryProvider = ({ children }) => {
     } catch (err) {
       return { ok: false, message: err.message || 'Network error — is the server running?' };
     }
-  };
+  }, [hydrateEarnings]);
+
+  useEffect(() => {
+    if (!riderAuthed || riderStatus !== 'approved') return;
+    let busy = false;
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try { await refreshRiderStatus(); } finally { busy = false; }
+    };
+    const onNotification = notification => {
+      if (['COD_CASH_SETTLED', 'PAYOUT_COMPLETED', 'PAYOUT_REJECTED'].includes(notification?.event)) refresh();
+    };
+    const onPush = event => onNotification(event.detail);
+    socket.on('notification_new', onNotification);
+    socket.on('rider_rating_updated', refresh);
+    window.addEventListener('rider_notification', onPush);
+    window.addEventListener('focus', refresh);
+    const timer = setInterval(refresh, 30000);
+    return () => {
+      clearInterval(timer);
+      socket.off('notification_new', onNotification); socket.off('rider_rating_updated', refresh);
+      window.removeEventListener('focus', refresh); window.removeEventListener('rider_notification', onPush);
+    };
+  }, [riderAuthed, riderStatus, refreshRiderStatus]);
 
   const authHeaders = () => ({
     Authorization: 'Bearer ' + localStorage.getItem('deliveryToken'),

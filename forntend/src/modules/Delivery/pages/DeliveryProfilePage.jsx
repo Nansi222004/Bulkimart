@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { enterCustomerSession } from '../../../utils/userSession';
 import ServiceAreaEditor from '../components/ServiceAreaEditor';
+import { riderRatingSummary } from '../utils/riderRating';
 
 export const DeliveryProfilePage = () => {
   const ui = useFeedback();
@@ -11,6 +12,7 @@ export const DeliveryProfilePage = () => {
 
   const [locating, setLocating] = useState(false);  // button loading state
   const [switching, setSwitching] = useState(false);
+  const customerRating = riderRatingSummary(riderProfile);
 
   /**
    * Fetch device GPS → reverse-geocode with Google Maps → save to backend.
@@ -81,8 +83,9 @@ export const DeliveryProfilePage = () => {
         <p className="profile-partner-id">Partner ID: {riderProfile?._id ? `NHC-DEL-${riderProfile._id.slice(-5).toUpperCase()}` : 'NHC-DEL-40122'}</p>
         <div className="profile-stats-row">
           <div className="profile-stat-col">
-            <strong>{riderProfile?.rating ? `${riderProfile.rating} ⭐` : '5.0 ⭐'}</strong>
-            <span>Rating</span>
+            <strong>{customerRating.value}</strong>
+            <span>Customer rating</span>
+            <small>{customerRating.count}</small>
           </div>
           <div className="profile-stat-col" style={{ borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0' }}>
             <strong>{riderProfile?.totalDeliveries ?? earningsData.lifetime.trips}</strong>

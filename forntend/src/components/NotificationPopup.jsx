@@ -36,7 +36,7 @@ const timeLabel = (iso) => {
 
 const authHeaders = () => ({ Authorization: 'Bearer ' + getPortalToken() });
 
-export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, subscribePush = onForegroundMessage }) => {
+export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, audience, subscribePush = onForegroundMessage }) => {
   const [stack, setStack] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const timers = useRef({});
@@ -52,6 +52,8 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, sub
     const token = getPortalToken();
     const seen = new Set();
     const onNew = (payload) => {
+      if (!alive || token !== getPortalToken()) return;
+      if (audience === 'rider' && ['RIDER_PING', 'RETURN_PICKUP_OFFERED'].includes(payload?.event)) return;
       if (excludeSellerOrders && (payload?.event === 'ORDER_CREATED' || isRetiredSellerNotification(payload))) return;
       if (payload?._id) {
         if (seen.has(String(payload._id))) return;
@@ -74,8 +76,15 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, sub
     };
 
     socket.on('notification_new', onNew);
-    if (excludeSellerOrders) subscribePush(payload => {
+    if (excludeSellerOrders || audience === 'rider') subscribePush(payload => {
       const data = payload?.data;
+      if (audience === 'rider') {
+        if (!alive || token !== getPortalToken() || data?.audience !== 'rider') return;
+        onNew({ _id: data.notificationId, event: data.event, title: payload.notification?.title || data.title || 'Delivery update',
+          message: payload.notification?.body || data.body || '', route: data.route, metadata: { orderId: data.orderId } });
+        window.dispatchEvent(new CustomEvent('rider_notification', { detail: { event: data.event } }));
+        return;
+      }
       if (!alive || token !== getPortalToken() || data?.audience !== 'seller' || data.event !== 'RETURN_REQUESTED') return;
       const notification = { _id: data.notificationId, event: data.event, title: payload.notification?.title || data.title || 'New return request',
         message: payload.notification?.body || data.body || 'A customer requested a return.', route: data.route || '/seller/item-returns',
@@ -89,7 +98,7 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, sub
       Object.values(timers.current).forEach(clearTimeout);
       timers.current = {};
     };
-  }, [dismiss, excludeSellerOrders, subscribePush]);
+  }, [dismiss, excludeSellerOrders, audience, subscribePush]);
 
   const openNotification = async (n) => {
     dismiss(n.key);

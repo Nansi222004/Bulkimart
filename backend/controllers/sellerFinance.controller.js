@@ -76,13 +76,16 @@ export const listSellerLedger = asyncHandler(async (req, res) => {
 export const getSellerOrderFinance = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
   const order = await Order.findOne({ _id: req.params.id, 'items.sellerId': seller._id })
-    .select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot financialPosting').lean();
+    .select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot financialPosting items._id items.name').lean();
   if (!order) throw httpError(404, 'Order not found');
   const [snapshot, entries] = await Promise.all([
     QuickCommerceFinancialSnapshot.findOne({ orderId: order._id, sellerId: seller._id }).lean(),
     SellerLedgerEntry.find({ orderId: order._id, sellerId: seller._id }).sort({ createdAt: 1 }).lean(),
   ]);
-  const merchandise = order.financialSnapshot ? { ...order.financialSnapshot, lines: order.financialSnapshot.lines.filter(line => String(line.sellerId) === String(seller._id)) } : null;
+  // The product name lets the seller read each line without matching item ids.
+  const itemNames = new Map((order.items || []).map(item => [String(item._id), item.name]));
+  const merchandise = order.financialSnapshot ? { ...order.financialSnapshot, lines: order.financialSnapshot.lines
+    .filter(line => String(line.sellerId) === String(seller._id)).map(line => ({ ...line, itemName: itemNames.get(String(line.itemId)) || null })) } : null;
   return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, merchandise, financialPosting: order.financialPosting, entries });
 });
 

@@ -223,14 +223,21 @@ test('a rider cannot report handing over more cash than they collected', async (
 });
 test('a handover report alerts admins and a confirmed receipt tells the rider', async () => {
   const { default: Notification } = await import('../models/Notification.js');
-  const settle = () => new Promise(resolve => setTimeout(resolve, 200));
-  enable(); await cod('collect'); await cod('remit'); await settle();
+  enable(); await cod('collect'); await cod('remit');
   const alert = await Notification.findOne({ event: 'COD_HANDOVER_REPORTED' }).lean();
   expect(alert).toMatchObject({ title: 'Rider cash settlement request', route: '/admin/finance-center?area=orders&view=cod' });
   expect(await Notification.countDocuments({ userId: rider._id, event: 'COD_CASH_SETTLED' })).toBe(0);
-  await cod('verify'); await settle();
+  await cod('verify');
   expect(await Notification.findOne({ userId: rider._id, event: 'COD_CASH_SETTLED' }).lean()).toMatchObject({ title: 'COD cash settled', route: '/delivery/earnings' });
   expect((await Order.findById(order._id).lean()).codFinance.updatedAt).toBeInstanceOf(Date);
+  await cod('verify');
+  expect(await Notification.countDocuments({ userId: rider._id, event: 'COD_CASH_SETTLED' })).toBe(1);
+  await Notification.create({ userId: rider._id, type: 'order', event: 'ORDER_CREATED', title: 'Customer order', message: 'Customer account only', route: '/orders' });
+  const { getMyNotifications } = await import('../controllers/notification.controller.js');
+  const inbox = await new Promise((resolve, reject) => getMyNotifications({ user: rider, tokenRole: 'delivery', query: {} }, {
+    status() { return this; }, json(body) { resolve(body); },
+  }, reject));
+  expect(inbox.data).toHaveLength(1); expect(inbox.data[0].event).toBe('COD_CASH_SETTLED');
 });
 test('the admin COD list returns pending handovers, including when filtered by rider', async () => {
   enable(); await cod('collect'); await cod('remit');
@@ -291,6 +298,8 @@ test('rider payout concurrent requests reserve once; paid requires evidence and 
   const input={verified:true,transactionRef:'BANK-TEST',reason:'Verified synthetic bank statement'};
   await Promise.all([resolveVerifiedRiderPayout({payoutId,actorId:admin._id,complete:true,input}),resolveVerifiedRiderPayout({payoutId,actorId:admin._id,complete:true,input})]);
   expect((await Partner.findById(partner._id)).earnings).toMatchObject({pending:100,reserved:0,paid:300});
+  const { default: Notification } = await import('../models/Notification.js');
+  expect(await Notification.find({ userId: rider._id, event: 'PAYOUT_COMPLETED' }).lean()).toEqual([expect.objectContaining({ title: 'Payout settled', route: '/delivery/earnings' })]);
 });
 test('rider cannot withdraw unverified legacy pending balance or exceed verified amount', async () => {
   enable(); await Partner.updateOne({_id:partner._id},{$set:{'earnings.pending':1000}});

@@ -9,6 +9,7 @@ import Order from '../models/Order.js';
 import { financeFlags } from './financeSafety.service.js';
 import { getFinancePolicy } from './financePolicy.service.js';
 import { riderCodCashBalances } from './riderCashEligibility.service.js';
+import { NOTIFICATION_EVENT, notifyRider } from './notification.service.js';
 
 // COD cash the rider has collected but Bulkimart has not yet received. It is
 // customer money in the rider's hands, so no earnings are paid out against it.
@@ -83,7 +84,9 @@ export const resolveVerifiedRiderPayout = async ({ payoutId, actorId, complete, 
   const reference = String(input.transactionRef || '').trim();
   const reason = String(input.reason || '').trim();
   if (reason.length < 5 || reason.length > 1000 || complete && (input.verified !== true || reference.length < 4 || reference.length > 200)) throw httpError(400, 'Verified transfer reference and reconciliation reason are required to mark paid');
-  return financialTransaction(async session => {
+  let resolved = false;
+  const result = await financialTransaction(async session => {
+    resolved = false; // a retried attempt starts clean
     const payout = await DeliveryPayout.findById(payoutId).session(session);
     if (!payout || payout.financeVersion !== 2) throw httpError(409, 'Legacy payout requires separate reconciliation; no verified reservation');
     const target = complete ? 'completed' : 'rejected';
@@ -107,6 +110,15 @@ export const resolveVerifiedRiderPayout = async ({ payoutId, actorId, complete, 
       type: 'payout_settlement', direction, bucket, amount: payout.amount, reference,
       description: `Rider payout ${target}: ${reason}`, postedBy: actorId, postedByRole: 'admin', metadata: { source: 'order-finance-v2', payoutId: String(payout._id) },
     }, { session });
+    resolved = true;
     return payout;
   });
+  // After commit, and only for a real transition: a replayed request must not notify twice.
+  if (resolved) {
+    const amountText = `₹${Number(result.amount).toFixed(2)}`;
+    await notifyRider(result.partnerId, complete
+      ? { event: NOTIFICATION_EVENT.PAYOUT_COMPLETED, title: 'Payout settled', message: `${amountText} has been sent to your account. Ref: ${reference}.`, route: '/delivery/earnings' }
+      : { event: NOTIFICATION_EVENT.PAYOUT_REJECTED, title: 'Payout request returned', message: `Your ${amountText} payout was not processed: ${reason}. The amount is back in your available balance.`, route: '/delivery/earnings' }).catch(() => {});
+  }
+  return result;
 };

@@ -11,6 +11,7 @@ import { DELIVERY_LABEL } from '../utils/deliveryLabel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import CouponThresholdProgress from '../components/CouponThresholdProgress';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { paymentSummary } from '../utils/paymentSummary';
 import '../components/CartCheckout.css';
 
@@ -20,6 +21,8 @@ const CheckoutPage = () => {
     selectedAddressId,
     setSelectedAddressId,
     addAddress,
+    updateAddress,
+    deleteAddress,
     uploadLandmarkImage,
     getCartItems,
     placeOrder,
@@ -30,6 +33,7 @@ const CheckoutPage = () => {
     setActiveNav,
     setSelectedOrder,
     getDeliveryPoint,
+    getPricingPoint,
     serverCart,
     cartChannel,
     deliveryMode,
@@ -51,6 +55,7 @@ const CheckoutPage = () => {
     switchCartChannel,
   } = useUser();
   const navigate = usePromotionNavigation();
+  const ui = useFeedback();
 
   useEffect(() => {
     fetchWalletBalance();
@@ -71,7 +76,7 @@ const CheckoutPage = () => {
    * covers all of them. A single-group basket keeps the existing screen exactly
    * as it was — which is every order placed up to now.
    */
-  const unified = useUnifiedCart(getDeliveryPoint(), couponCode, 'basket');
+  const unified = useUnifiedCart((getPricingPoint || getDeliveryPoint)(), couponCode, 'basket');
   const groups = unified.data?.groups || [];
   const basketItems = unified.data ? unified.basketItems : (serverCart?.items || []);
   const isDigitalCart = basketItems.length > 0 && basketItems.every(item => item.fulfillmentType === 'digital');
@@ -145,17 +150,23 @@ const CheckoutPage = () => {
   const tipAmount = canTip ? (tipChip ?? (isCustomTip ? validCustomTip : 0)) : 0;
   const tipOptions = Array.isArray(tipSetting?.options) ? tipSetting.options : [];
 
-  const handleApplyCoupon = async (e) => {
-    e.preventDefault();
-    if (!couponInput.trim() || applying) return;
-
+  // The typed code, an offer card and a quick chip all apply through here, so
+  // a coupon removed earlier can be re-applied with one tap from any of them.
+  const applyCouponCode = async (code) => {
+    if (!code || applying) return;
     setApplying(true);
-    const res = await applyCoupon(couponInput.trim());
+    setCouponMessage(null);
+    const res = await applyCoupon(code);
     setApplying(false);
 
     setCouponMessage(res.message);
     setCouponMessageType(res.success ? 'success' : 'error');
-    if (res.success) setCouponInput('');
+    if (res.success) { setCouponInput(''); setShowOffers(false); }
+  };
+
+  const handleApplyCoupon = (e) => {
+    e.preventDefault();
+    applyCouponCode(couponInput.trim());
   };
 
   const shopMoreForCoupon = offer => {
@@ -172,6 +183,8 @@ const CheckoutPage = () => {
   const [pincode, setPincode] = useState('');
   const [addressType, setAddressType] = useState('Home');
   const [addressFormError, setAddressFormError] = useState('');
+  // Set while the form edits a saved address instead of adding a new one.
+  const [editingAddressId, setEditingAddressId] = useState(null);
 
   const customerName = (currentUser?.name || '').trim();
   const customerPhone = (currentUser?.phone || '').trim();
@@ -344,7 +357,7 @@ const CheckoutPage = () => {
       return;
     }
     
-    const res = await addAddress({
+    const details = {
       name: customerName,
       phone: customerPhone,
       line1: house,
@@ -353,27 +366,60 @@ const CheckoutPage = () => {
       state: 'Madhya Pradesh',
       pincode,
       // Undefined rather than 0 when unknown: 0,0 is a real place in the
-      // Atlantic, and a rider sent there would have no way to tell.
+      // Atlantic, and a rider sent there would have no way to tell. On an
+      // edit, undefined also keeps the pin already saved on the address.
       lat: coords?.lat,
       lng: coords?.lng,
       label: addressType,
       landmarkImage: landmarkImgUrl || null,
-    });
-    
+    };
+    const res = editingAddressId ? await updateAddress(editingAddressId, details) : await addAddress(details);
+
     if (res && res.ok === false) {
       setAddressFormError(res.message || 'Could not save the address');
       return;
     }
 
+    if (editingAddressId) setSelectedAddressId(editingAddressId);
+    closeAddressForm();
+  };
+
+  const closeAddressForm = () => {
     setShowAddressForm(false);
+    setEditingAddressId(null);
     setHouse('');
     setStreet('');
     setCity('');
     setPincode('');
+    setAddressType('Home');
     setCoords(null);
     setLandmarkImgUrl('');
     setAddressFormError('');
+    setLocationError(null);
   };
+
+  const startEditAddress = (addr) => {
+    setEditingAddressId(addr._id || addr.id);
+    setHouse(addr.line1 || addr.house || '');
+    setStreet(addr.line2 || addr.street || '');
+    setCity(addr.city || '');
+    setPincode(addr.pincode || '');
+    setAddressType(addr.label || 'Home');
+    setCoords(null);
+    setLandmarkImgUrl(addr.landmarkImage || '');
+    setAddressFormError('');
+    setShowAddressForm(true);
+  };
+
+  const confirmDeleteAddress = (addrId) => ui.perform(
+    { title: 'Delete this address?', message: 'Remove this saved address from your account?', confirmLabel: 'Delete', destructive: true },
+    async () => {
+      const res = await deleteAddress(addrId);
+      if (res && res.ok === false) ui.notify(res.message || 'Failed to delete address');
+      else if (String(editingAddressId) === String(addrId)) closeAddressForm();
+      return res;
+    },
+  );
 
   const [, refreshCommittedReference] = useState(0);
   const recoveryCustomerId = currentUser?._id || currentUser?.id;
@@ -774,13 +820,6 @@ const CheckoutPage = () => {
 
   return (
     <div className="checkout-page-container" style={{ fontFamily: "'Outfit', sans-serif" }}>
-      {committedCheckouts(recoveryCustomerId).some(reference => reference.deferred) && (
-        <div className="profile-menu-card" style={{ margin: 16, padding: 16 }}>
-          <p>Your earlier orders are saved. Review or resume their payments in My Orders.</p>
-          <button type="button" className="cart-secondary-btn" onClick={() => setActiveNav('orders')}>View My Orders</button>
-        </div>
-      )}
-      
       {/* Loading Overlay */}
       {isOrdering && (
         <ModalPortal style={{
@@ -830,7 +869,8 @@ const CheckoutPage = () => {
             <h2 className="checkout-section-title">Delivery address</h2>
             
             <button 
-              onClick={() => setShowAddressForm(!showAddressForm)}
+              type="button"
+              onClick={() => showAddressForm ? closeAddressForm() : setShowAddressForm(true)}
               style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}
             >
               {showAddressForm ? 'Cancel' : '+ Add New'}
@@ -966,7 +1006,7 @@ const CheckoutPage = () => {
               </div>
 
               <button type="submit" className="checkout-save-address-btn">
-                Save & Select Address
+                {editingAddressId ? 'Update & Select Address' : 'Save & Select Address'}
               </button>
             </form>
           ) : null}
@@ -1025,6 +1065,18 @@ const CheckoutPage = () => {
                         <span style={{ fontSize: '11px', color: '#15803d', fontWeight: '700' }}>📸 Landmark Photo Attached</span>
                       </div>
                     )}
+                    <div className="checkout-address-actions" style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+                      <button type="button" aria-label={`Edit ${addr.label || 'Home'} address`}
+                        onClick={(e) => { e.preventDefault(); startEditAddress(addr); }}
+                        style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                        Edit
+                      </button>
+                      <button type="button" aria-label={`Delete ${addr.label || 'Home'} address`}
+                        onClick={(e) => { e.preventDefault(); confirmDeleteAddress(addrId); }}
+                        style={{ background: 'none', border: 'none', padding: 0, color: '#ef4444', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </label>
               );
@@ -1204,6 +1256,7 @@ const CheckoutPage = () => {
               />
               <button
                 type="submit"
+                disabled={applying}
                 style={{
                   padding: '10px 20px',
                   background: 'var(--primary)',
@@ -1252,12 +1305,8 @@ const CheckoutPage = () => {
                         {c.applicable ? (
                           <button
                             type="button"
-                            onClick={async () => {
-                              const r = await applyCoupon(c.code);
-                              setCouponMessage(r.message);
-                              setCouponMessageType(r.success ? 'success' : 'error');
-                              if (r.success) setShowOffers(false);
-                            }}
+                            disabled={applying}
+                            onClick={() => applyCouponCode(c.code)}
                             style={{
                               padding: '6px 14px', background: 'var(--primary)', color: '#fff', border: 'none',
                               borderRadius: 6, fontWeight: 700, fontSize: 11.5, cursor: 'pointer'
@@ -1299,15 +1348,17 @@ const CheckoutPage = () => {
             </div>
           )}
 
-          {availableCoupons.length > 0 && (
+          {!appliedCoupon && availableCoupons.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginTop: 12, overflowX: 'auto', paddingBottom: 4 }}>
               {availableCoupons.map(coupon => (
                 <button
                   key={coupon.code}
                   type="button"
+                  disabled={applying}
+                  aria-label={`Apply coupon ${coupon.code}`}
                   onClick={() => {
                     setCouponInput(coupon.code);
-                    setCouponMessage(null);
+                    applyCouponCode(coupon.code);
                   }}
                   style={{
                     padding: '4px 10px',

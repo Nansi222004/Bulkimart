@@ -11,11 +11,11 @@ import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import '../components/CartCheckout.css';
 
 export default function CartPage() {
-  const { getDeliveryPoint, setActiveNav, refreshCart, addToWishlist,
+  const { getDeliveryPoint, getPricingPoint, setActiveNav, refreshCart, addToWishlist,
     couponCode, appliedCoupon, availableCoupons, removeCoupon, couponNotice, serverCart, cartChannel, switchCartChannel,
     cartLoading, useCoinsSelected } = useUser();
   const navigate = usePromotionNavigation();
-  const basket = useUnifiedCart(getDeliveryPoint?.(), couponCode, 'basket');
+  const basket = useUnifiedCart((getPricingPoint || getDeliveryPoint)?.(), couponCode, 'basket');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const lock = useRef(false);
   const focusedWholesale = useRef(false);

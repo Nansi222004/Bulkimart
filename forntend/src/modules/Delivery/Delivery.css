@@ -552,6 +552,8 @@
 
 .delivery-dashboard-header {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   align-items: center;
   padding: 4px 0 16px 0;
@@ -598,6 +600,8 @@
 
 .delivery-header-profile {
   display: flex;
+  min-width: 0;
+  flex: 1;
   align-items: center;
   gap: 10px;
 }
@@ -617,9 +621,27 @@
 
 .delivery-driver-info {
   display: flex;
+  min-width: 0;
+  overflow-wrap: anywhere;
   flex-direction: column;
   text-align: left;
 }
+
+.delivery-rating-card { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 14px 16px; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.delivery-rating-card > span { flex: 1; font-size: 13px; font-weight: 700; color: #475569; }
+.delivery-rating-card strong { font-size: 16px; color: #0f172a; }
+.delivery-rating-card small { width: 100%; color: #64748b; font-size: 12px; }
+.delivery-notification-toolbar { display: flex; justify-content: flex-end; flex: none; padding: 6px 16px; background: white; }
+.delivery-notification-toolbar button { display: flex; align-items: center; gap: 6px; min-height: 40px; border: 0; border-radius: 8px; padding: 6px 10px; background: #f1f5f9; color: #334155; font: inherit; font-size: 12px; cursor: pointer; }
+.delivery-notification-toolbar button > span { padding: 2px 6px; border-radius: 12px; background: #b91c1c; color: white; }
+.delivery-notifications-overlay { display: flex; align-items: center; justify-content: center; background: #0f172a66; }
+.delivery-notifications-sheet { width: 100%; max-width: 480px; padding: 20px; border-radius: 16px; background: white; color: #0f172a; }
+.delivery-notifications-sheet header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.delivery-notifications-sheet h2 { font-size: 18px; }
+.delivery-notifications-sheet header button { min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; cursor: pointer; }
+.delivery-notification-item { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 16px 0; text-align: left; background: white; border: 0; border-bottom: 1px solid #e2e8f0; color: #334155; font: inherit; font-size: 13px; cursor: pointer; }
+.delivery-notification-item strong { color: #0f172a; }
+.delivery-notification-item time { font-size: 11px; color: #64748b; }
 
 .delivery-driver-name {
   font-size: 13.5px;

@@ -253,6 +253,13 @@ export const resolveShippingAddress = async ({ user, addressId, shippingAddress 
 
     if (hit.ok) {
       address = { ...address, lat: hit.lat, lng: hit.lng, locationSource: 'geocoded', geocodePrecision: hit.precision };
+      // Keep the point on the saved address, so the next cart quote prices
+      // delivery from the same place this order does.
+      if (cleanAddressId && user?._id) {
+        await User.updateOne({ _id: user._id, addresses: { $elemMatch: { _id: cleanAddressId, lat: null } } },
+          { $set: { 'addresses.$.lat': hit.lat, 'addresses.$.lng': hit.lng, 'addresses.$.locationSource': 'geocoded' } })
+          .catch(err => console.warn('[CHECKOUT] could not save address pin:', err.message));
+      }
       if (hit.precision !== 'ROOFTOP' && hit.precision !== 'RANGE_INTERPOLATED') {
         // Log only the precision and pincode — never the full matched address
         // or line1 — to avoid exposing customer details in routine logs.

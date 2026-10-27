@@ -197,7 +197,7 @@ test('actual payout handler suppresses double clicks and reuses the request key 
 test('discount funding blocker is a visible hold rather than invented zero net or malformed response', async () => {
   const h = hookHarness(Seller,{orderId:'discount-held'},'/seller/orders');
   try {
-    h.requests[0].resolve({success:true,data:{entries:[],merchandise:{currency:'INR',state:'held_discount_policy',components:{deliveryPaise:0},lines:[{itemId:'line',grossPaise:10000,eligiblePaise:9000,allocatedDiscounts:{couponDiscount:1000},rule:{version:'fixture'},blocker:'Discount funding policy is not approved'}]}}});
+    h.requests[0].resolve({success:true,data:{entries:[],merchandise:{currency:'INR',state:'held_discount_policy',components:{deliveryPaise:0},lines:[{itemId:'line',itemName:'Amla',qty:1,grossPaise:10000,eligiblePaise:9000,allocatedDiscounts:{couponDiscount:1000},rule:{version:'fixture'},blocker:'Discount funding policy is not approved'}]}}});
     await h.settle(); assert.match(body(h),/Discount funding policy is not approved/); assert.doesNotMatch(body(h),/financial data is incomplete/);
   } finally { h.close(); }
 });
@@ -403,17 +403,17 @@ test('orders the automatic process could not finish show the reason and a manual
     assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Add earnings now').props.disabled, false);
   } finally { h.close(); }
 });
-test('seller per-order view renders frozen commission version and fees separately', async () => {
+test('seller per-order view shows product name and plain-language commission, never internal rule ids', async () => {
   const h = hookHarness(Seller,{orderId:'fixture'},'/seller/orders/fixture'); try {
-    h.requests[0].resolve({data:{merchandise:{currency:'INR',components:{deliveryPaise:2000},lines:[{itemId:'line',grossPaise:10000,eligiblePaise:9000,allocatedDiscounts:{couponDiscount:1000},rule:{version:'FROZEN-V1',method:'percentage',value:10,taxTreatment:'exempt',taxRate:0},commissionPaise:900,taxPaise:0,netPaise:8100}]},financialPosting:'held',snapshot:null,entries:[]}});
-    await h.settle(); assert.match(body(h),/FROZEN-V1/); assert.match(body(h),/₹81.00/); assert.match(body(h),/₹20.00/);
+    h.requests[0].resolve({data:{merchandise:{currency:'INR',components:{deliveryPaise:2000},lines:[{itemId:'line',itemName:'Amla',qty:1,grossPaise:10000,eligiblePaise:9000,allocatedDiscounts:{couponDiscount:1000},rule:{version:'FROZEN-V1',method:'percentage',value:10,taxTreatment:'exempt',taxRate:0},commissionPaise:900,taxPaise:0,netPaise:8100}]},financialPosting:'held',snapshot:null,entries:[]}});
+    await h.settle(); assert.doesNotMatch(body(h),/FROZEN-V1|Item line/); assert.match(body(h),/Amla/); assert.match(body(h),/Bulkimart commission/); assert.match(body(h),/"10%"/); assert.match(body(h),/₹81.00/); assert.match(body(h),/₹20.00/); assert.match(body(h),/Customer paid for the whole order/); assert.match(body(h),/₹110.00/);
     assert.match(h.requests[0].url,/financial-breakdown/); assert.equal(h.requests.filter(row=>row.options.method==='POST').length,0);
   } finally { h.close(); }
 });
 test('seller historical order never invents a commission and supports a failed-read retry', async () => {
   const h=hookHarness(Seller,{orderId:'fixture'},'/seller/orders/fixture');try{
     h.requests[0].resolve({message:'Temporarily unavailable'},503);await h.settle();assert.match(body(h),/Temporarily unavailable/);
-    h.click('Retry');h.requests[1].resolve({data:{merchandise:null,snapshot:null,entries:[]}});await h.settle();assert.match(body(h),/no versioned commission snapshot/);
+    h.click('Retry');h.requests[1].resolve({data:{merchandise:null,snapshot:null,entries:[]}});await h.settle();assert.match(body(h),/per-item earnings breakdown is not available/);
   }finally{h.close();}
 });
 
@@ -423,7 +423,7 @@ for (const data of [undefined, {}, { entries: [], merchandise: { lines: null } }
     try {
       h.requests[0].resolve({ data }); await h.settle();
       assert.match(body(h), /Order financial data is incomplete/);
-      assert.doesNotMatch(body(h), /₹0\.00|no versioned commission snapshot|Loading financial records/);
+      assert.doesNotMatch(body(h), /₹0\.00|per-item earnings breakdown is not available|Loading financial records/);
       assert.ok(h.find(n => n.type === 'button' && n.props.children === 'Retry'));
     } finally { h.close(); }
   });

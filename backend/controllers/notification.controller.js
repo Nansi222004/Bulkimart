@@ -19,6 +19,7 @@ const RETIRED_EVENT_TYPES = [
 const visibleNotifications = req => ({
   userId: req.user._id,
   event: { $nin: RETIRED_EVENT_TYPES },
+  ...(req.tokenRole === 'delivery' ? { route: /^\/delivery(?:\/|$)/ } : {}),
   ...(req.tokenRole === 'seller' ? { $nor: [
     { event: { $in: ['CAMPAIGN_UPDATE', 'SELLER_PROMOTION_UPDATE'] } },
     { type: 'promotion' },

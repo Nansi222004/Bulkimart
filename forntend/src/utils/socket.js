@@ -11,15 +11,26 @@ const socketUrl = resolveSocketOrigin();
 
 
 
+// Keep retrying while signed in: a fixed attempt limit left the app without
+// live updates for good after any outage longer than a few seconds, such as a
+// server restart, until the page was reloaded.
 export const socket = io(socketUrl, {
   autoConnect: false,
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
+  reconnectionDelayMax: 10000,
   withCredentials: true,
 });
 
 let identity = null;
+// A device back online, or a tab brought back to the front, reconnects now
+// rather than waiting out the retry delay.
+const resume = () => { if (identity && !socket.connected && !socket.active) socket.connect(); };
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', resume);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resume(); });
+}
 let transportIdentity = null;
 let disposal;
 // Each Engine.IO connection has fresh room membership, including reconnects.

@@ -875,6 +875,11 @@ export const UserProvider = ({ children }) => {
   const refreshCartSummaryRef = useRef(refreshCartSummary);
   useEffect(() => { refreshCartSummaryRef.current = refreshCartSummary; }, [refreshCartSummary]);
 
+  // The selected address's pin, so the cart re-prices when that address is
+  // loaded or located, not only when a different address is picked.
+  const pricingAddress = savedAddresses.find((a) => String(a._id) === String(selectedAddressId))
+    || savedAddresses.find((a) => a.isDefault) || savedAddresses[0];
+  const pricingPinKey = pricingAddress ? `${pricingAddress._id}:${pricingAddress.lat ?? ''},${pricingAddress.lng ?? ''}` : '';
   const refreshCart = useCallback(async (channel, coupon, mode) => {
     const request = ++cartRequest.current;
     const ch = channel || cartChannel;
@@ -899,7 +904,7 @@ export const UserProvider = ({ children }) => {
       // The aggregate cart presents unavailable lines for explicit review/removal.
       if (['/cart', '/checkout', '/wholesale/cart'].includes(window.location.pathname)) qs.set('preserveUnavailable', 'true');
       if (cp) qs.set('coupon', cp);
-      const point = getDeliveryPoint();
+      const point = getPricingPoint();
       if (point) { qs.set('lat', String(point.lat)); qs.set('lng', String(point.lng)); }
       if (wantMode) qs.set('deliveryMode', wantMode);
       if (useCoinsSelected) qs.set('useCoins', 'true');
@@ -950,7 +955,7 @@ export const UserProvider = ({ children }) => {
     // adding a useCallback to another's dep array rebuilds the outer one
     // every time the inner rebuilds, which was the original loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartChannel, couponCode, deliveryMode, selectedAddressId, useCoinsSelected]);
+  }, [cartChannel, couponCode, deliveryMode, selectedAddressId, pricingPinKey, useCoinsSelected]);
 
   /** Toggling re-fetches the cart so the discount shown is always server-calculated, never guessed client-side. */
   const toggleUseCoins = (next) => setUseCoinsSelected(Boolean(next));
@@ -1506,6 +1511,21 @@ export const UserProvider = ({ children }) => {
     return { lat: addr.lat, lng: addr.lng };
   };
 
+  /**
+   * The point a delivery charge is quoted against.
+   *
+   * Unlike getDeliveryPoint, a selected address never borrows the device's
+   * browsing location: the order is priced from the address itself, so the
+   * quote must be too, or the customer is shown one charge and billed another.
+   * An address the server could not locate is quoted the flat fee, exactly as
+   * its order will be.
+   */
+  const getPricingPoint = () => {
+    const addr = getSelectedAddress();
+    if (!addr) return readBrowsingLocation()?.coords || null;
+    return addr.lat != null && addr.lng != null ? { lat: addr.lat, lng: addr.lng } : null;
+  };
+
   const getSelectedAddress = () =>
     savedAddresses.find((a) => String(a._id) === String(selectedAddressId))
     || savedAddresses.find((a) => a.isDefault)
@@ -1917,7 +1937,7 @@ export const UserProvider = ({ children }) => {
         // Addresses
         savedAddresses, selectedAddressId, setSelectedAddressId,
         addAddress, updateAddress, deleteAddress, setDefaultAddress, uploadLandmarkImage,
-        getSelectedAddress, getDeliveryPoint, getLocationDisplayName, refreshAddresses,
+        getSelectedAddress, getDeliveryPoint, getPricingPoint, getLocationDisplayName, refreshAddresses,
 
         // Wallet Balance
         walletBalance, setWalletBalance, fetchWalletBalance,

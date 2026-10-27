@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { registerPushToken } from '../services/notification.service.js';
+import { geocodeAddressPin, pinSavedAddresses } from '../services/addressPin.service.js';
 
 const normalizeAddressPart = (value) => String(value ?? '')
   .trim()
@@ -75,6 +76,8 @@ export const updateProfile = asyncHandler(async (req, res) => {
 // @access  Private
 export const getAddresses = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id, 'addresses');
+  // Addresses saved before pinning existed get their point now, once.
+  if (user) await pinSavedAddresses(user).catch(err => console.warn('[ADDRESS] pin backfill failed:', err.message));
   const list = user?.addresses || [];
 
   // Default first, so the checkout screen can pick list[0] and be right.
@@ -173,6 +176,7 @@ export const addAddress = asyncHandler(async (req, res) => {
     newAddress.isDefault = true;
   }
 
+  if (newAddress.lat == null || newAddress.lng == null) Object.assign(newAddress, await geocodeAddressPin(newAddress).catch(() => null) || {});
   user.addresses.push(newAddress);
   await user.save();
 
@@ -220,6 +224,7 @@ export const updateAddress = asyncHandler(async (req, res) => {
     address.phone = profilePhone;
   }
 
+  const textBefore = [address.line1, address.line2, address.city, address.state, address.pincode].join('|');
   if (line1) address.line1 = line1;
   if (line2 !== undefined) address.line2 = line2;
   if (city) address.city = city;
@@ -227,11 +232,17 @@ export const updateAddress = asyncHandler(async (req, res) => {
   if (pincode) address.pincode = pincode;
   if (lat !== undefined) address.lat = lat;
   if (lng !== undefined) address.lng = lng;
+  // New text without a new point: the old pin now marks the wrong place, so
+  // locate the new text the same way checkout would.
+  if (lat === undefined && lng === undefined && textBefore !== [address.line1, address.line2, address.city, address.state, address.pincode].join('|')) {
+    const pin = await geocodeAddressPin(address).catch(() => null);
+    address.lat = pin?.lat; address.lng = pin?.lng; address.locationSource = pin ? pin.locationSource : undefined;
+  }
   if (placeName !== undefined) address.placeName = placeName;
   if (landmarkImage !== undefined) address.landmarkImage = landmarkImage;
   // Recorded alongside the pin: a GPS reading and a geocoded guess are not
   // the same claim, and a rider standing in the wrong street deserves to know.
-  if (locationSource) address.locationSource = locationSource;
+  if (locationSource && lat !== undefined) address.locationSource = locationSource;
 
   if (isDefault) {
     user.addresses.forEach(addr => addr.isDefault = false);

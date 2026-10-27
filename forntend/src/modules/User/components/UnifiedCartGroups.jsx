@@ -43,8 +43,8 @@ const ModeButton = ({ active, busy, onClick, label }) => (
 );
 
 export const UnifiedCartGroups = ({ selectable = false, onChange }) => {
-  const { getDeliveryPoint } = useUser();
-  const { data, loading, setGroupMode } = useUnifiedCart(getDeliveryPoint());
+  const { getDeliveryPoint, getPricingPoint } = useUser();
+  const { data, loading, setGroupMode } = useUnifiedCart((getPricingPoint || getDeliveryPoint)());
   const [busy, setBusy] = React.useState(null);
   const [err, setErr] = React.useState('');
 

@@ -35,6 +35,12 @@ test('the owner rates a completed delivery once and tracking restores the saved 
   expect(response.body.data.rating).toBe(4);
   expect((await Delivery.findById(deliveryId)).customerRating.rating).toBe(4);
   expect(await DeliveryPartner.findById(partnerId).lean()).toMatchObject({ rating: 4, ratingCount: 1, ratingTotal: 4 });
+  const { getMyProfile } = await import('../controllers/deliveryPartner.controller.js');
+  const partner = await DeliveryPartner.findById(partnerId);
+  const profile = await new Promise((resolve, reject) => getMyProfile({ user: { _id: partner.userId, name: 'Fixture rider' } }, {
+    status() { return this; }, json(body) { resolve(body); },
+  }, reject));
+  expect(profile.data).toMatchObject({ rating: 4, ratingCount: 1 });
   const tracking = await request(app).get(`/api/orders/${orderId}/track`).set('Authorization', token).expect(200);
   expect(tracking.body.data.deliveryRating).toMatchObject({ eligible: true, rating: 4 });
   await rate(1).expect(409);

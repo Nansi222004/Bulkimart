@@ -11,6 +11,7 @@ import DeliveryProfilePage from '../pages/DeliveryProfilePage';
 import DeliverySupportPage from '../pages/DeliverySupportPage';
 import ParcelOperations from '../../../components/parcels/ParcelOperations';
 import DeliveryNavbar from '../components/DeliveryNavbar';
+import DeliveryNotifications from '../components/DeliveryNotifications';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
 import { DELIVERY_SESSION_CHANGED } from '../../../utils/deliverySession';
@@ -130,6 +131,9 @@ const DeliveryRoutesContent = () => {
     <div className="delivery-app-container">
       {/* Toast Alert popups */}
       {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
+      <DeliveryNotifications onNavigate={route => {
+        window.history.pushState(null, '', route); setCurrentPath(route.split(/[?#]/)[0]);
+      }} />
 
       {/* Fixed title bar for the secondary tabs; Duty and an active trip carry their own. */}
       {!activeOrder && PAGE_TITLES[activeTab] && (
