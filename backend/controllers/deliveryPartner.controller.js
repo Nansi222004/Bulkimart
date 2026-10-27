@@ -2109,8 +2109,9 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
             ? Object.keys(DELIVERY_TYPE_BY_STATUS).find((k) => DELIVERY_TYPE_BY_STATUS[k] === wantedType)
             : { $in: Object.keys(DELIVERY_TYPE_BY_STATUS) },
         })
-          .select('orderId status endTime updatedAt partnerEarnings partnerTip')
+          .select('orderId returnId direction status endTime updatedAt partnerEarnings partnerTip')
           .populate('orderId', 'orderNo')
+          .populate('returnId', 'returnNumber')
           .lean()
       : [],
   ]);
@@ -2127,14 +2128,18 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
     };
   });
 
+  // A return pickup belongs to a Return, not an Order, and is listed under its
+  // return number; a record whose order or return no longer exists is skipped.
   const deliveryItems = deliveries
-    .filter((d) => d.orderId) // an order deleted out from under a delivery is not shown as history for one that no longer exists
+    .filter((d) => d.direction === 'return_pickup' ? d.returnId : d.orderId)
     .map((d) => {
       const type = DELIVERY_TYPE_BY_STATUS[d.status];
+      const isReturn = d.direction === 'return_pickup';
       const item = {
         id: String(d._id),
-        orderId: String(d.orderId._id),
-        orderNo: d.orderId.orderNo,
+        orderId: String(isReturn ? d.returnId._id : d.orderId._id),
+        orderNo: isReturn ? d.returnId.returnNumber : d.orderId.orderNo,
+        ...(isReturn ? { kind: 'return_pickup' } : {}),
         type,
         timestamp: (type === 'DELIVERED' ? d.endTime : null) || d.updatedAt,
       };
@@ -2179,8 +2184,9 @@ export const getEarningsSummary = asyncHandler(async (req, res) => {
   const weekStart = new Date(todayStart.getTime() - weekdayIndex * DAY_MS);
 
   const deliveries = await Delivery.find({ partnerId: req.partner._id, status: 'delivered', endTime: { $gte: weekStart, $lte: now } })
-    .select('orderId direction endTime partnerEarnings partnerTip')
+    .select('orderId returnId direction endTime partnerEarnings partnerTip')
     .populate('orderId', 'orderNo paymentMethod pricing.totalAmount')
+    .populate('returnId', 'returnNumber')
     .sort({ endTime: -1 })
     .lean();
 
@@ -2201,7 +2207,7 @@ export const getEarningsSummary = asyncHandler(async (req, res) => {
         id: String(delivery._id),
         type: delivery.direction === 'return_pickup' ? 'Return pickup' : 'Delivery',
         completedAt: delivery.endTime,
-        orderId: order.orderNo || '—',
+        orderId: delivery.direction === 'return_pickup' ? delivery.returnId?.returnNumber || '—' : order.orderNo || '—',
         amount: amountPaise / 100,
         tip: tipPaise / 100,
         isCod,

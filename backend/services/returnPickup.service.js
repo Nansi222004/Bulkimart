@@ -120,6 +120,8 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
     pickupAddress: order.shippingAddress,
     dropAddress: seller.storeDetails,
     sellerName: seller.businessName || seller.storeDetails?.name,
+    // Customer to seller: the leg the rider carries the item.
+    routeDistanceKm: distanceKm(order.shippingAddress, seller.storeDetails),
   };
 
   for (const r of riders) {
@@ -421,7 +423,10 @@ export const markReturnDeliveredToSeller = async ({ returnId, sellerId }) => {
       if (!delivery) throw httpError(409, 'Verified pickup trip is required');
       if (delivery.status === 'delivered') throw httpError(409, 'Historical receipt/earnings require reconciliation');
       const amount = riderPayout(delivery.route?.distanceKm, { mode: payoutModeOf({ type: 'grocery' }), rates: delivery.ratesUsed }).total;
-      if (!Number.isFinite(amount) || amount < 0 || !delivery.ratesUsed?.rateId) throw httpError(409, 'Verified rider rates are required');
+      // Paid from the rates frozen when the rider accepted (or the live card for an
+      // older trip without a snapshot). A missing rate id must not block the
+      // seller's receipt or the rider's pay, matching forward deliveries.
+      if (!Number.isFinite(amount) || amount < 0) throw httpError(409, 'Rider pay could not be calculated for this pickup');
       delivery.status = 'delivered'; delivery.endTime = new Date(); delivery.partnerEarnings = amount;
       const rider = await DeliveryPartner.findById(delivery.partnerId).session(session);
       if (!rider) throw httpError(409, 'Assigned rider is missing');

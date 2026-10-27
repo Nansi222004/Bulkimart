@@ -241,6 +241,11 @@ test('the admin COD list returns pending handovers, including when filtered by r
     expect(list.body.data[0].codFinance.events.at(-1)).toMatchObject({ action: 'remit' });
   }
 });
+test('confirming COD cash after an early wallet refund keeps the refund state', async () => {
+  enable(); await Payment.updateOne({ _id: payment._id }, { $set: { 'refund.totalRefundedAmount': 40 } });
+  await cod('collect'); await cod('remit'); await cod('verify');
+  expect((await Payment.findById(payment._id)).status).toBe('partial_refund');
+});
 test('cash reporter cannot self-verify and a failed delivery cannot collect', async () => {
   enable(); await cod('collect'); await cod('remit');
   await expect(recordCodEvent({ orderId: order._id, actorId: rider._id, action:'verify', input:{ amount:100, reference:'SELF', reason:'Fixture evidence' } })).rejects.toMatchObject({status:403});

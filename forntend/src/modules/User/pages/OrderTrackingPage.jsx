@@ -191,6 +191,35 @@ export const OrderTrackingPage = () => {
   }, [selectedOrder?._id, selectedOrder?.status]);
 
   /**
+   * Keep return statuses live while this order is open: a review, approval,
+   * pickup or refund arrives as a notification for this order's return, and
+   * the page refreshes from the server instead of waiting for a re-open.
+   */
+  useEffect(() => {
+    if (!selectedOrder?._id || selectedOrder.status !== 'delivered') return;
+    const refresh = async () => {
+      const grouped = await refreshReturnData();
+      setViewingReturn(current => current ? (Object.values(grouped || {}).flat().find(r => r._id === current._id) || current) : current);
+    };
+    const onNotification = notification => {
+      const forThisOrder = String(notification?.route || '').includes(String(selectedOrder._id));
+      if (/^(RETURN_|REFUND_)/.test(notification?.event || '') && (forThisOrder || notification?.metadata?.returnId)) refresh();
+    };
+    const onFocus = () => { if (document.visibilityState !== 'hidden') refresh(); };
+    socket.on('notification_new', onNotification);
+    socket.on('return_pickup_assigned', refresh);
+    socket.on('connect', refresh);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      socket.off('notification_new', onNotification);
+      socket.off('return_pickup_assigned', refresh);
+      socket.off('connect', refresh);
+      window.removeEventListener('focus', onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrder?._id, selectedOrder?.status]);
+
+  /**
    * While the return detail modal is open and its pickup is still ASSIGNED
    * (waiting on the OTP handover), keep polling — same fallback reasoning
    * as the refresh-on-open above, but for an OTP the rider generates AFTER

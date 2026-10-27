@@ -622,6 +622,11 @@ export const SellerReturnsTab = () => {
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
                       {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt).toLocaleDateString('en-IN')}
                     </div>
+                    {r.customerDescription && (
+                      <div className="seller-return-description" style={{ fontSize: 12, color: '#334155', marginTop: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, overflowWrap: 'anywhere' }}>
+                        “{r.customerDescription}”
+                      </div>
+                    )}
                   </div>
                   <span style={{ fontSize: 10.5, fontWeight: 800, padding: '4px 12px', borderRadius: 20, background: badge.bg, color: badge.fg }}>
                     {STATUS_LABEL[r.status] || r.status}

@@ -108,7 +108,11 @@ const markCodPaymentIfSettled = async (order, expectedPaise, session) => {
   const settled = sibling => ['verified', 'allocated'].includes(sibling.codFinance?.status);
   const paidPaise = siblings.reduce((sum, sibling) => sum + (String(sibling._id) === String(order._id) ? expectedPaise : settled(sibling) ? codSettledPaise(sibling.codFinance) : 0), 0);
   if (paidPaise === moneyPaise(payment.amount) && siblings.every(sibling => String(sibling._id) === String(order._id) || settled(sibling))) {
-    payment.status = 'paid'; payment.paidAt = new Date(); await payment.save({ session });
+    // A return already refunded to the wallet while the cash was unconfirmed
+    // keeps its refund state rather than being overwritten as fully paid.
+    const refundedPaise = moneyPaise(payment.refund?.totalRefundedAmount || 0);
+    payment.status = !refundedPaise ? 'paid' : refundedPaise === moneyPaise(payment.amount) ? 'refunded' : 'partial_refund';
+    payment.paidAt = new Date(); await payment.save({ session });
   }
 };
 

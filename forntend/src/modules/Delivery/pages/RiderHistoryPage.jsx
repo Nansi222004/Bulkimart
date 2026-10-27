@@ -96,7 +96,7 @@ export const RiderHistoryPage = () => {
                     <span className="txn-icon">{meta.icon}</span>
                     <div className="txn-meta">
                       <span className="txn-title">{meta.label}</span>
-                      <span className="txn-time">{formatDateTime(item.timestamp)} • Order {item.orderNo}</span>
+                      <span className="txn-time">{formatDateTime(item.timestamp)} • {item.kind === 'return_pickup' ? 'Return pickup' : 'Order'} {item.orderNo}</span>
                     </div>
                   </div>
                   <div className="txn-right">

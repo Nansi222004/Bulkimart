@@ -7,6 +7,7 @@ import {
   updateReturnPickupLocation, updateReturnPickupStage,
 } from '../services/returnPickup.service.js';
 import { RETURN_PICKUP_STATUS, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
+import { distanceKm } from '../utils/geo.js';
 
 /**
  * QUICK COMMERCE ONLY — rider-facing reverse-pickup endpoints, the
@@ -37,7 +38,26 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
       .lean(),
   ]);
 
-  return ok(res, { pending, active: mine }, 'Return pickups');
+  // Completed pickups this rider delivered back to a seller, newest first, with
+  // what the trip earned.
+  const history = await Return.find({ 'pickup.partnerId': partnerId, 'pickup.status': RETURN_PICKUP_STATUS.DELIVERED_TO_SELLER })
+    .select('returnNumber productName productImage quantity sellerId orderId pickup pickedUpAt updatedAt')
+    .sort({ 'pickup.sellerConfirmedReceivedAt': -1, updatedAt: -1 }).limit(30)
+    .populate('orderId', 'shippingAddress')
+    .populate('sellerId', 'storeDetails businessName')
+    .populate('pickup.deliveryId', 'status partnerEarnings endTime route')
+    .lean();
+
+  // Distances the rider needs to judge an offer: from where they are to the
+  // customer, and from the customer to the seller.
+  const riderAt = req.partner.currentLocation?.lat !== undefined ? req.partner.currentLocation : req.partner.baseLocation;
+  const withDistances = (row) => {
+    const pickupAt = row.orderId?.shippingAddress, dropAt = row.sellerId?.storeDetails;
+    const toCustomer = distanceKm(riderAt, pickupAt), toSeller = distanceKm(pickupAt, dropAt);
+    return { ...row, pickupDistanceKm: Number.isFinite(toCustomer) ? toCustomer : undefined, routeDistanceKm: Number.isFinite(toSeller) ? toSeller : undefined };
+  };
+
+  return ok(res, { pending: pending.map(withDistances), active: mine.map(withDistances), history }, 'Return pickups');
 });
 
 // @desc    Accept an offered return pickup

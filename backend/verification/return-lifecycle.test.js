@@ -158,6 +158,24 @@ describe('COD wallet', () => {
     await expect(processReturnRefund({ returnId: ret._id, adminId })).rejects.toThrow();
     expect(await WalletLedger.countDocuments()).toBe(0);
   });
+  test('a recorded customer cash collection allows the wallet refund before the rider handover is confirmed', async () => {
+    await Payment.updateOne({ _id: payment._id }, { $set: { status: 'pending' } });
+    await Order.updateOne({ _id: order._id }, { $set: { codFinance: { status: 'remittance_reported', collectedPaise: 10000, events: [] } } });
+    const ret = await makeReturn(inspected);
+    await processReturnRefund({ returnId: ret._id, adminId });
+    expect(await Return.findById(ret._id)).toMatchObject({ status: 'REFUNDED', refundDestination: 'wallet' });
+    expect((await User.findById(user._id)).wallet.balance).toBe(50);
+    const fresh = await Payment.findById(payment._id);
+    expect(fresh.status).toBe('pending'); // cash not yet confirmed: never shown as paid early
+    expect(fresh.refund.totalRefundedAmount).toBe(50);
+  });
+  test('a refund larger than the cash the customer paid is refused', async () => {
+    await Payment.updateOne({ _id: payment._id }, { $set: { status: 'pending' } });
+    await Order.updateOne({ _id: order._id }, { $set: { codFinance: { status: 'collected', collectedPaise: 2000, events: [] } } });
+    const ret = await makeReturn(inspected);
+    await expect(processReturnRefund({ returnId: ret._id, adminId })).rejects.toThrow(/cash the customer paid/);
+    expect(await WalletLedger.countDocuments()).toBe(0);
+  });
 });
 
 describe('Shiprocket reverse pickup', () => {

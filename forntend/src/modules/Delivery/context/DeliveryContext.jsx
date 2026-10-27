@@ -232,16 +232,20 @@ export const DeliveryProvider = ({ children }) => {
       const res = await fetch(apiUrl('/api/delivery/return-pickups'), { headers: authHeaders() });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return;
-      const data = body.data || { pending: [], active: [] };
+      const data = { pending: [], active: [], history: [], ...(body.data || {}) };
       setReturnPickups(data);
       setReturnPickupPingOffer((curr) => {
         if (data.pending.length === 0) return null;
         const stillOffered = curr && data.pending.some((r) => String(r._id) === String(curr.returnId));
         if (stillOffered) return curr;
         const first = data.pending[0];
+        // Same shape as the socket offer, so the popup shows the route either way.
         return first ? {
           returnId: String(first._id), returnNumber: first.returnNumber,
           productName: first.productName, productImage: first.productImage, quantity: first.quantity,
+          pickupAddress: first.orderId?.shippingAddress, dropAddress: first.sellerId?.storeDetails,
+          sellerName: first.sellerId?.businessName || first.sellerId?.storeDetails?.name,
+          pickupDistanceKm: first.pickupDistanceKm, routeDistanceKm: first.routeDistanceKm,
         } : null;
       });
     } catch { /* leave whatever was already loaded */ }

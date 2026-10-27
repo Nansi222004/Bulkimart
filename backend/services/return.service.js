@@ -698,7 +698,17 @@ const creditReturnWallet = async (ret, order) => financialTransaction(async sess
     return prior;
   }
   if (payment.method === PAYMENT_METHOD.WALLET && ![PAYMENT_STATUS.PAID, PAYMENT_STATUS.PARTIAL_REFUND].includes(payment.status)) throw httpError(409, 'Wallet payment is not refundable');
-  if (payment.method === PAYMENT_METHOD.COD && !['paid', 'partial_refund'].includes(payment.status)) throw httpError(409, 'COD collection must be confirmed before wallet refund');
+  // The customer has paid once the rider records collecting their cash; the
+  // rider's later handover to Bulkimart is an internal step and must not hold
+  // the customer's refund. Until that cash is confirmed the payment stays
+  // pending (its refund is still recorded), so it is never shown as paid early.
+  const cashConfirmed = payment.method !== PAYMENT_METHOD.COD || ['paid', 'partial_refund'].includes(payment.status);
+  if (!cashConfirmed) {
+    const cash = (await Order.findById(order._id).select('codFinance').session(session).lean())?.codFinance;
+    const collected = ['collected', 'remittance_reported', 'verified', 'allocated', 'discrepancy', 'disputed'].includes(cash?.status) ? cash.collectedPaise || 0 : 0;
+    if (!collected) throw httpError(409, 'The rider has not recorded collecting this COD payment yet. Record the cash collection (Finance Center → COD cash) before refunding.');
+    if (moneyPaise(ret.refundAmount) > collected) throw httpError(409, 'Refund exceeds the cash the customer paid');
+  }
   const refunded = moneyPaise(payment.refund?.totalRefundedAmount || 0) + moneyPaise(ret.refundAmount);
   if (refunded > moneyPaise(payment.amount)) throw httpError(409, 'Refund exceeds original payment');
   const result = await refundToWallet({ userId: ret.customerId, amount: ret.refundAmount, reason: `Refund for ${ret.returnNumber}`, referenceType: WALLET_REFERENCE_TYPE.RETURN, referenceId: String(ret._id), idempotencyKey: key, session });
@@ -707,7 +717,7 @@ const creditReturnWallet = async (ret, order) => financialTransaction(async sess
   payment.refund.amount = ret.refundAmount;
   payment.refund.status = 'processed';
   payment.refund.processedAt = new Date();
-  payment.status = refunded === moneyPaise(payment.amount) ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
+  if (cashConfirmed) payment.status = refunded === moneyPaise(payment.amount) ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIAL_REFUND;
   await payment.save({ session });
   await Return.updateOne({ _id: ret._id }, { $set: { refundDestination: 'wallet', refundReference: result.transaction.transactionId } }, { session });
   return result.transaction;

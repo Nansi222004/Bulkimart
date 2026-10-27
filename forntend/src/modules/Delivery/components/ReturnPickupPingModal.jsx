@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 
 const PING_WINDOW_SECONDS = 60; // same offer window as OrderPingModal — no server-provided expiry to prefer yet
 
+const km = value => Number.isFinite(Number(value)) && value !== null && value !== '' ? `${Number(value).toFixed(1)} km` : '—';
+const addressText = address => !address ? '' : typeof address === 'string' ? address
+  : [address.line1, address.line2, address.address, address.landmark, address.city, address.pincode].filter(Boolean).join(', ');
+
 /**
  * QUICK COMMERCE ONLY — the reverse-pickup counterpart to OrderPingModal,
  * same shape/behavior (countdown, accept/decline, expiry) against a
@@ -57,9 +61,13 @@ export const ReturnPickupPingModal = ({ offer, onAccept, onDecline, onExpire }) 
           </div>
           <div className="ping-detail-item">
             <span>Distance to customer</span>
-            <strong>{typeof offer.pickupDistanceKm === 'number' ? `${offer.pickupDistanceKm.toFixed(1)} km` : '—'}</strong>
+            <strong>{km(offer.pickupDistanceKm)}</strong>
           </div>
           <div className="ping-detail-item">
+            <span>Customer to seller</span>
+            <strong>{km(offer.routeDistanceKm)}</strong>
+          </div>
+          <div className="ping-detail-item" style={{ gridColumn: '1 / -1' }}>
             <span>Return ID</span>
             <strong>{offer.returnNumber || offer.returnId}</strong>
           </div>
@@ -69,9 +77,9 @@ export const ReturnPickupPingModal = ({ offer, onAccept, onDecline, onExpire }) 
           <div className="ping-address-row">
             <span className="address-marker red">🏠</span>
             <div className="address-meta">
-              <strong>Pickup: Customer</strong>
+              <strong>Pickup: {offer.pickupAddress?.name || 'Customer'}</strong>
               <span className="address-text" style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                {offer.pickupAddress?.line1 || offer.pickupAddress?.address || '—'}
+                {addressText(offer.pickupAddress) || 'Address shared after you accept'}
               </span>
             </div>
           </div>
@@ -80,7 +88,7 @@ export const ReturnPickupPingModal = ({ offer, onAccept, onDecline, onExpire }) 
             <div className="address-meta">
               <strong>Drop: {offer.sellerName || 'Seller'}</strong>
               <span className="address-text" style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                {offer.dropAddress?.address || offer.dropAddress?.name || '—'}
+                {addressText(offer.dropAddress) || offer.dropAddress?.name || '—'}
               </span>
             </div>
           </div>
