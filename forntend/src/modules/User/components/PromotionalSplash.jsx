@@ -5,6 +5,16 @@ import { useUser } from '../context/UserContext';
 import { eligibleSplash, markSplash, themeStyle } from '../../../utils/storefront';
 import SplashCard from './SplashCard';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
+
+// "Once per launch" must outlive this component: signing in or out remounts
+// the whole customer tree (CustomerSessionGate keys it by session), which used
+// to reset a ref and show the splash again. The window object lives exactly as
+// long as one app launch, so the guard sits there.
+const LAUNCH_GUARD = '__bulkimartSplashShown';
+const splashKey = splash => `${splash.id}:${splash.revision}`;
+const shownThisLaunch = splash => Boolean(splash) && Boolean(window[LAUNCH_GUARD]?.has(splashKey(splash)));
+const rememberLaunch = splash => { (window[LAUNCH_GUARD] ||= new Set()).add(splashKey(splash)); };
+
 export default function PromotionalSplash({ children }) {
   const { splash, now, device, theme, loading, version } = useStorefront();
   const { activeNav, selectedProduct, selectedCampaignId, productDetailLoading, productDetailError, selectedOrder, reviewProductId } = useUser();
@@ -19,8 +29,8 @@ export default function PromotionalSplash({ children }) {
     if (!homeLaunch || document.querySelector('[role="dialog"], [role="alertdialog"]')) { setLaunchChecked(true); return; }
     let session, local;
     try { session = window.sessionStorage; local = window.localStorage; } catch { /* private browsing can deny storage entirely */ }
-    const storage = { now, session, local, consumed: consumed.current };
-    if (eligibleSplash(splash, storage)) { consumed.current = true; markSplash(splash, storage); setOpen(splash); }
+    const storage = { now, session, local, consumed: consumed.current || shownThisLaunch(splash) };
+    if (eligibleSplash(splash, storage)) { consumed.current = true; rememberLaunch(splash); markSplash(splash, storage); setOpen(splash); }
     setLaunchChecked(true);
   }, [splash, now, homeLaunch, launchChecked, loading, version]);
   useEffect(() => {

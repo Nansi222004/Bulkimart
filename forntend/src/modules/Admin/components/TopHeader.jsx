@@ -168,7 +168,7 @@ export const TopHeader = ({ onLogout }) => {
       </div>
 
       {/* 5 CORE SECTIONS TOP TAB NAVIGATION BAR */}
-      <div style={{
+      <div className="sa-section-tabs" style={{
         display: 'flex',
         gap: 8,
         padding: '10px 24px',

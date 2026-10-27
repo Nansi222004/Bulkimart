@@ -28,8 +28,7 @@ export const ReturnPickupsPage = () => {
   const active = returnPickups?.active || [];
 
   return (
-    <div style={{ padding: 16, paddingBottom: 90 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 900, margin: '0 0 12px' }}>Return Pickups</h2>
+    <div>
 
       <h3 style={{ fontSize: 12.5, fontWeight: 800, color: '#64748b', margin: '0 0 8px' }}>New requests</h3>
       {pending.length === 0 ? (

@@ -6209,3 +6209,63 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
   .search-page-header { gap: 4px; padding-inline: 4px; }
   .search-page-input-wrap { padding-inline: 8px; gap: 4px; }
 }
+
+/* ---------------------------------------------------------------------------
+   Native-app fixed headers. Each page's top bar stays put while its content
+   scrolls. Layout and behaviour are otherwise unchanged.
+   --------------------------------------------------------------------------- */
+
+/* Storefront header: brand and mode rows scroll away, search and category tabs
+   stay pinned (UnifiedHeader measures --header-collapse). */
+.user-main-content > .unified-header-container {
+  position: sticky;
+  top: calc(-1 * var(--header-collapse, 0px));
+  z-index: 30;
+}
+
+/* Page title bars that live inside the main scroll area. */
+.checkout-page-container .checkout-header,
+.search-page-header,
+.wholesale-page > .wholesale-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.search-page-header { background-color: var(--bg-page, #fff); }
+
+/* The all-categories page scrolls itself; its title and search stay on top. */
+@media (max-width: 1024px) {
+  .all-categories-page > .all-categories-header {
+    position: sticky;
+    top: -8px;
+    z-index: 30;
+    margin: -20px -18px 12px;
+    padding: 20px 18px 12px;
+    background: var(--surface-background);
+  }
+}
+
+/* Account: the title bar is pinned; the profile card below it scrolls. */
+.profile-page-container > .profile-appbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: -16px -16px 0;
+  padding: max(12px, var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px))) 20px 12px;
+  background: var(--brand-primary-dark);
+}
+.profile-page-container > .profile-appbar + .profile-header-gradient {
+  margin-top: 0;
+  padding-top: 16px;
+  background: linear-gradient(180deg, var(--brand-primary-dark) 0%, var(--brand-primary) 100%);
+}
+
+/* My Orders: only the order list scrolls (its intended design); the title,
+   search and filters stay in place. */
+.user-main-content.page-orders { overflow: hidden; }
+.user-main-content.page-orders > .orders-page-container { flex: 1; min-height: 0; height: auto; }
+
+/* E-books shares the orders card but has no inner list, so its title sticks. */
+.user-main-content.page-ebooks .orders-page-container { overflow: visible; }
+.user-main-content.page-ebooks .orders-header-row { position: sticky; top: 0; z-index: 20; }
+.user-main-content.page-orders .orders-scroll-content { padding-bottom: 16px; }

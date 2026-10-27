@@ -2366,3 +2366,44 @@ input[type="checkbox"] { accent-color: #08b9e8; }
 .delivery-main-viewport { scroll-padding-block: 20px 100px; }
 .delivery-onboarding-viewport { padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)); }
 .delivery-app-container :is(.delivery-primary-btn, .delivery-save-btn, .delivery-accept-btn, .delivery-cashout-btn, .delivery-filter-pill-btn, .delivery-settle-btn) { min-height: 44px; }
+
+/* ---------------------------------------------------------------------------
+   Native-app fixed headers. The secondary tabs get a title bar outside the
+   scroll area; the Duty screen's own header sticks to the top.
+   --------------------------------------------------------------------------- */
+.delivery-page-appbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 16px 8px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  box-sizing: border-box;
+  z-index: 20;
+}
+.delivery-page-appbar h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.delivery-main-viewport .delivery-dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: -16px -16px 16px;
+  padding: 12px 16px;
+  background-color: #f7fafc;
+}
+
+/* Filter pills keep whole words; a long set scrolls sideways instead of
+   breaking labels mid-word ("Delive-red"). */
+.delivery-earnings-filter-pill-row { overflow-x: auto; scrollbar-width: none; }
+.delivery-earnings-filter-pill-row::-webkit-scrollbar { display: none; }
+.delivery-filter-pill-btn { flex: 1 0 auto; white-space: nowrap; padding-inline: 12px; }
+/* Bottom-nav labels stay on one line on narrow phones ("Earnings", not "Earning/s"). */
+.delivery-navbar-bottom .nav-label { white-space: nowrap; }
+.delivery-navbar-bottom .delivery-nav-item { min-width: 0; }

@@ -660,3 +660,17 @@ test('wholesale section reads real catalog, supports retry, and hides an empty c
   const empty = browserHarness(Section, { section }, { activeMode: 'shop-all', now: Date.now() });
   try { empty.requests[0].resolve({ data: [] }); await empty.settle(); assert.equal(empty.tree, null); } finally { empty.close(); }
 });
+test('a launch splash does not return when sign-in remounts the storefront in the same launch', () => {
+  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const first = browserHarness(Splash, {}, context); let guard;
+  try { assert.ok(first.tree, 'Shown on launch'); guard = window.__bulkimartSplashShown; assert.ok(guard); } finally { first.close(); }
+  // CustomerSessionGate remounts the tree after login; the page (window) is the same launch.
+  // The harness builds a fresh window per mount; carry the guard into it as the real page would.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window'); let current = globalThis.window;
+  Object.defineProperty(globalThis, 'window', { configurable: true, get: () => current, set: value => { if (value && typeof value === 'object') value.__bulkimartSplashShown = guard; current = value; } });
+  let remount;
+  try { remount = browserHarness(Splash, {}, context); assert.equal(remount.find(n => n.props?.className === 'sf-splash'), undefined); assert.notEqual(remount.tree?.props?.className, 'sf-splash'); }
+  finally { remount?.close(); Object.defineProperty(globalThis, 'window', descriptor || { configurable: true, writable: true, value: current }); }
+  const nextLaunch = browserHarness(Splash, {}, context);
+  try { assert.ok(nextLaunch.find(n => n.props?.className === 'sf-splash') || nextLaunch.tree?.props?.className === 'sf-splash', 'A new launch still shows it'); } finally { nextLaunch.close(); }
+});

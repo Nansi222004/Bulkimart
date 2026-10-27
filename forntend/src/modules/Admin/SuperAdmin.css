@@ -884,3 +884,25 @@
 @media (max-width: 768px), (pointer: coarse) {
   .sa-layout-container :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea), .admin-auth-page :is(input,select,textarea) { font-size: 16px !important; min-width: 0; max-width: 100%; }
 }
+
+/* ---------------------------------------------------------------------------
+   Admin on phones: a compact two-row header (title + actions, then search)
+   that stays above the scrolling workspace, and evenly sized filter controls.
+   --------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .sa-header { position: sticky; top: 0; z-index: 40; flex-wrap: wrap; row-gap: 8px; }
+  .sa-header-left { flex: 1 1 0; min-width: 0; }
+  .sa-header-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+  .sa-header-right { flex: none; flex-wrap: nowrap; }
+  .sa-header-divider, .sa-user-name { display: none; }
+  .sa-search-wrapper { order: 3; flex: 1 0 100%; margin-top: 0; }
+  /* Toolbars of inputs and selects share the row evenly instead of
+     shrinking to their content. */
+  .sa-workspace div:has(> select, > input:not([type=checkbox]):not([type=radio])) > :is(select, input:not([type=checkbox]):not([type=radio])) { flex: 1 1 140px; }
+}
+@media (max-width: 767px) {
+  /* Section shortcuts stay on one swipeable line. */
+  .sa-section-tabs { flex-wrap: nowrap !important; padding: 8px 12px !important; scrollbar-width: none; }
+  .sa-section-tabs::-webkit-scrollbar { display: none; }
+  .sa-section-tabs > button { flex: none; white-space: nowrap; }
+}

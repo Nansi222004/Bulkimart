@@ -8,8 +8,9 @@ import { hint, label, COD_STATUS, POSTING, BUCKET, ACCOUNT, EXCEPTION } from './
 const rupees = paise => typeof paise === 'number' && Number.isFinite(paise) ? `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
 const empty = { channel: 'ecommerce', vendorType: 'general', method: 'percentage', value: '', minimum: '', maximum: '',
   categoryId: '', productId: '', taxTreatment: '', taxRate: '', isActive: true, reason: '' };
-const CHANNEL_NAMES = { ecommerce: 'E-Commerce', quick: 'Quick Commerce', wholesale: 'Wholesale' };
-const VENDOR_NAMES = { general: 'General sellers', shg: 'SHG sellers' };
+const CHANNEL_NAMES = { ecommerce: 'E-Commerce', quick: 'Quick Commerce', wholesale: 'Wholesale', all: 'All channels' };
+const ALL_CHANNELS = ['ecommerce', 'quick', 'wholesale'];
+const VENDOR_NAMES = { general: 'General sellers' };
 const sameScope = (rule, scope) => rule.channel === scope.channel && rule.vendorType === scope.vendorType
   && String(rule.categoryId || '') === String(scope.categoryId || '') && String(rule.productId || '') === String(scope.productId || '');
 const rateText = rule => rule.method === 'fixed' ? `₹${rule.value} per item` : `${rule.value}%`;
@@ -98,15 +99,19 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
         minimum: draft.minimum === '' ? null : Number(draft.minimum), maximum: draft.maximum === '' ? null : Number(draft.maximum),
         // The rule being replaced; the server refuses the save if someone changed it meanwhile.
         supersedes: currentRule?._id || null,
+        // "All channels" saves one channel-wide rule per channel in a single transaction.
+        ...(draft.channel === 'all' ? { categoryId: '', productId: '', supersedesByChannel: Object.fromEntries(ALL_CHANNELS.map((channel, i) => [channel, allChannelRules[i]?._id || null])) } : {}),
         base: 'eligible_item_subtotal', fixedScope: 'order_item' });
       setReview(false);
     });
   };
   const currentRule = current.find(rule => sameScope(rule, draft));
+  const allChannelRules = ALL_CHANNELS.map(channel => current.find(rule => sameScope(rule, { ...draft, channel, categoryId: '', productId: '' })));
+  const allChannelSummary = ALL_CHANNELS.map((channel, i) => `${CHANNEL_NAMES[channel]}: ${allChannelRules[i] ? `${rateText(allChannelRules[i])}${allChannelRules[i].isActive ? '' : ' (off)'}` : 'no rule'}`).join(' · ');
   // A scope change loads that scope's current rule; a half-typed ID just updates the field.
   const changeScope = changes => {
     setReview(false);
-    const next = { ...draft, ...changes };
+    const next = { ...draft, ...changes, ...(changes.channel === 'all' ? { categoryId: '', productId: '' } : {}) };
     if ([next.categoryId, next.productId].every(value => !value || /^[a-f\d]{24}$/i.test(value))) setDraft(draftFor(next, current));
     else setDraft(next);
   };
@@ -143,14 +148,15 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     {!hideNavigation && <nav aria-label="Finance views">{[['commissions','Commission'],['orders','All orders'],['cod','COD cash'],['ledger','Ledger & checks'],['payouts','Rider payouts']].map(([value, text]) => <button type="button" aria-pressed={tab === value} key={value} onClick={() => changeTab(value)}>{text}</button>)}</nav>}
     {message && <p role="status" className="finance-notice">{message}</p>}
     {tab === 'commissions' ? <>
-      {review ? <FinanceReview title={draft.isActive ? 'Review commission rule (switched on)' : 'Review commission rule (switched off)'} values={{Channel: draft.channel, Vendor: draft.vendorType, Method: draft.method, Value: `${draft.value} ${draft.method === 'fixed' ? '₹ per item' : '%'}`, Minimum: draft.minimum || 'None', Maximum: draft.maximum || 'None', GST: `${draft.taxTreatment || 'inclusive'} ${draft.taxRate || 0}%`, Replaces: currentRule ? `${rateText(currentRule)} (${currentRule.isActive ? 'on' : 'off'})` : 'Nothing — first rule for this scope', Category: draft.categoryId || 'All', Product: draft.productId || 'All', Status: draft.isActive ? 'On — new orders use it as soon as you save' : 'Off — new orders in this scope stop using it as soon as you save', Reason: draft.reason}} busy={busy} onConfirm={() => saveRule({preventDefault(){}})} onCancel={() => setReview(false)} /> : <form onSubmit={saveRule} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} className="finance-panel">
-        <h3>{currentRule ? 'Edit current commission rule' : 'Create commission rule'}</h3>
-        <p className="finance-muted">{currentRule
+      {review ? <FinanceReview title={draft.isActive ? 'Review commission rule (switched on)' : 'Review commission rule (switched off)'} values={{Channel: CHANNEL_NAMES[draft.channel], Vendor: draft.vendorType, Method: draft.method, Value: `${draft.value} ${draft.method === 'fixed' ? '₹ per item' : '%'}`, Minimum: draft.minimum || 'None', Maximum: draft.maximum || 'None', GST: `${draft.taxTreatment || 'inclusive'} ${draft.taxRate || 0}%`, Replaces: draft.channel === 'all' ? allChannelSummary : currentRule ? `${rateText(currentRule)} (${currentRule.isActive ? 'on' : 'off'})` : 'Nothing — first rule for this scope', Category: draft.categoryId || 'All', Product: draft.productId || 'All', Status: draft.isActive ? 'On — new orders use it as soon as you save' : 'Off — new orders in this scope stop using it as soon as you save', Reason: draft.reason}} busy={busy} onConfirm={() => saveRule({preventDefault(){}})} onCancel={() => setReview(false)} /> : <form onSubmit={saveRule} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} className="finance-panel">
+        <h3>{draft.channel === 'all' ? 'Set commission for all channels' : currentRule ? 'Edit current commission rule' : 'Create commission rule'}</h3>
+        <p className="finance-muted">{draft.channel === 'all'
+          ? `Saves the same rule for E-Commerce, Quick Commerce and Wholesale in one step — all three change together or none do. Current: ${allChannelSummary}. Past orders keep the rate they were placed with.`
+          : currentRule
           ? `${CHANNEL_NAMES[draft.channel]} · ${VENDOR_NAMES[draft.vendorType]}${draft.productId ? ' · this product' : draft.categoryId ? ' · this category' : ''} currently uses ${rateText(currentRule)} (${currentRule.isActive ? 'on' : 'off'}). Saving replaces it for new orders straight away; past orders keep the rate they were placed with.`
           : `${CHANNEL_NAMES[draft.channel]} · ${VENDOR_NAMES[draft.vendorType]} has no rule for this scope yet. Saving creates it for new orders straight away.`}</p>
         <div className="finance-grid">
-          <label>Channel<select value={draft.channel} onChange={e => changeScope({ channel: e.target.value })}><option value="ecommerce">E-Commerce</option><option value="quick">Quick Commerce</option><option value="wholesale">Wholesale</option></select>{hint('Store channel this commission applies to.')}</label>
-          <label>Vendor type<select value={draft.vendorType} onChange={e => changeScope({ vendorType: e.target.value })}><option value="general">General</option><option value="shg">SHG</option></select>{hint('General sellers or self-help groups.')}</label>
+          <label>Channel<select value={draft.channel} onChange={e => changeScope({ channel: e.target.value })}><option value="ecommerce">E-Commerce</option><option value="quick">Quick Commerce</option><option value="wholesale">Wholesale</option><option value="all">All channels</option></select>{hint('Store channel this commission applies to. Choose All channels to set one rate everywhere.')}</label>
           <label>Commission method<select value={draft.method} onChange={e => setDraft({ ...draft, method: e.target.value })}><option value="percentage">Percentage (%)</option><option value="fixed">Fixed (₹ per item)</option></select>{hint(draft.method === 'fixed' ? 'Fixed fee per item line.' : 'Percentage of item sale price.')}</label>
           <label>Commission value<input type="number" min="0" step="0.01" max={draft.method === 'percentage' ? 100 : undefined} required value={draft.value} onChange={e => setDraft({ ...draft, value: e.target.value })} placeholder="e.g. 10" />{hint(draft.method === 'fixed' ? '₹ kept per item line.' : 'Percentage kept from each sale.', draft.method === 'fixed' ? '15 → ₹15 per item' : '10 → 10% commission')}</label>
           <label>Change reason<input required minLength={5} maxLength={500} value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} placeholder="Why the rate is changing" />{hint('Required. Kept in the change history.', 'Annual rate review')}</label>
@@ -160,7 +166,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
           <label>GST rate on commission (%)<input type="number" min="0" max="100" step="0.01" value={draft.taxRate} onChange={e => setDraft({...draft,taxRate:e.target.value})} placeholder="0" />{hint('Standard GST rate (usually 18%, or 0 for exempt).', '18')}</label>
           <label>Minimum commission (₹, optional)<input type="number" min="0" step="0.01" value={draft.minimum} onChange={e => setDraft({...draft,minimum:e.target.value})} />{hint('Never charge less than this per item line.', '5')}</label>
           <label>Maximum commission (₹, optional)<input type="number" min="0" step="0.01" value={draft.maximum} onChange={e => setDraft({...draft,maximum:e.target.value})} />{hint('Never charge more than this per item line.', '200')}</label>
-          {['categoryId','productId'].map(key => <label key={key}>{key === 'categoryId' ? 'Only for category ID (optional)' : 'Only for product ID (optional)'}<input value={draft[key]} pattern="[a-fA-F0-9]{24}" onChange={e => changeScope({ [key]: e.target.value.trim() })} placeholder="24-character ID" />{hint(key === 'categoryId' ? 'Paste a category ID to give that category its own rate.' : 'Paste a product ID to give one product its own rate.')}</label>)}
+          {['categoryId','productId'].map(key => <label key={key}>{key === 'categoryId' ? 'Only for category ID (optional)' : 'Only for product ID (optional)'}<input value={draft[key]} disabled={draft.channel === 'all'} pattern="[a-fA-F0-9]{24}" onChange={e => changeScope({ [key]: e.target.value.trim() })} placeholder="24-character ID" />{hint(key === 'categoryId' ? 'Paste a category ID to give that category its own rate.' : 'Paste a product ID to give one product its own rate.')}</label>)}
         </div></details>
         <label className="finance-check"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} />Switch this rule on</label>
         {hint(draft.isActive ? 'New orders in this scope use this rate as soon as you save.' : 'Switched off: new orders fall back to the broader rule, or are held if there is none.')}
@@ -168,9 +174,9 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
       </form>}
       <CommissionSimulation rule={draft} />
       <div className="finance-panel"><h3>Which rule applies</h3><p className="finance-muted">The rule each channel uses for new orders. A product rule beats a category rule, which beats the channel rule.</p>
-        <div className="finance-table" role="region" tabIndex={0} aria-label="Commission coverage"><table><thead><tr>{['Channel', 'Vendors', 'Current rule', 'Overrides', ''].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        <div className="finance-table" role="region" tabIndex={0} aria-label="Commission coverage"><table><thead><tr>{['Channel', 'Current rule', 'Overrides', ''].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
           {coverage.map(row => { const rule = current.find(item => String(item._id) === String(row.ruleId)); return <tr key={`${row.channel}:${row.vendorType}`}>
-            <td>{CHANNEL_NAMES[row.channel]}</td><td>{VENDOR_NAMES[row.vendorType]}</td>
+            <td>{CHANNEL_NAMES[row.channel]}</td>
             <td>{!rule ? 'No rule — new orders are held' : row.active ? rateText(rule) : `${rateText(rule)} (switched off — new orders are held)`}</td>
             <td>{row.overrides || '—'}</td>
             <td><button type="button" onClick={() => changeScope({ channel: row.channel, vendorType: row.vendorType, categoryId: '', productId: '' })}>Edit</button></td>

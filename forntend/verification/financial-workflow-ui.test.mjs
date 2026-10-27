@@ -338,7 +338,7 @@ test('commission editor starts without invented rates and never posts on load', 
     h.requests[0].resolve(config(false)); await h.settle();
     assert.equal(field(h, 'Commission value').props.value, ''); assert.equal(field(h, 'GST rate on commission (%)').props.value, '');
     assert.match(body(h), /Money actions are switched off on the server/); assert.equal(h.requests.filter(row => row.options.method === 'POST').length, 0);
-    for (const label of ['Channel', 'Vendor type', 'Commission method', 'Commission value', 'GST treatment', 'Change reason'])
+    for (const label of ['Channel', 'Commission method', 'Commission value', 'GST treatment', 'Change reason'])
       assert.ok([field(h, label) && h.find(n => n.type === 'label' && [n.props.children].flat().includes(label)).props.children].flat().some(child => child?.props?.className === 'finance-hint'), `Missing help text: ${label}`);
   } finally { h.close(); }
 });
@@ -356,6 +356,19 @@ test('commission form saves explicit version data and displays backend validatio
     assert.equal(payload.base, 'eligible_item_subtotal'); assert.equal(payload.fixedScope, 'order_item'); assert.equal(payload.supersedes, null);
     pending.resolve({ message: 'Commission changed; refresh before saving' },409); await h.settle();
     assert.match(body(h), /Commission changed/); assert.equal(field(h, 'Commission value').props.value, '10');
+  } finally { h.close(); }
+});
+test('"All channels" posts one save naming the rule each channel replaces', async () => {
+  const h = hookHarness(Admin); try {
+    const ecommerceRule = { _id: '507f1f77bcf86cd799439091', channel: 'ecommerce', vendorType: 'general', categoryId: null, productId: null, method: 'percentage', value: 7, isActive: true };
+    h.requests[0].resolve({ data: { rules: [], current: [ecommerceRule], flags: flags(false) } }); await h.settle();
+    change(h, 'Channel', 'all'); change(h, 'Commission value', '10'); change(h, 'Change reason', 'Flat 10% commission');
+    assert.match(body(h), /Set commission for all channels/); assert.match(body(h), /E-Commerce: 7%/);
+    h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
+    h.find(node => node.type?.name === 'FinanceReview').props.onConfirm(); h.flush();
+    const payload = JSON.parse(h.requests.find(row => row.options.method === 'POST').options.body);
+    assert.equal(payload.channel, 'all'); assert.equal(payload.value, 10); assert.equal(payload.categoryId, '');
+    assert.deepEqual(payload.supersedesByChannel, { ecommerce: ecommerceRule._id, quick: null, wholesale: null });
   } finally { h.close(); }
 });
 test('COD actions remain disabled until server release gates are satisfied', async () => {

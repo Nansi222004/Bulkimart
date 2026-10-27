@@ -53,9 +53,6 @@ export const RiderHistoryPage = () => {
 
   return (
     <div className="delivery-earnings-wrapper">
-      <div className="delivery-card">
-        <span className="delivery-card-title">Trip History</span>
-      </div>
 
       {/* Status filter — same pill row pattern as the Earnings period toggle */}
       <div className="delivery-earnings-filter-pill-row">

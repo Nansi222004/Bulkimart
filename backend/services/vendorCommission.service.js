@@ -16,7 +16,10 @@ const id = (value, name) => {
 
 export const validateCommissionRule = (input) => {
   const out = {};
-  if (!['general', 'shg'].includes(input.vendorType)) throw httpError(400, 'Vendor type is required');
+  // SHG selling is retired; its vendor type stays in the schema only so old
+  // audit records still load.
+  if (input.vendorType === 'shg') throw httpError(400, 'SHG sellers are retired; commission applies to general sellers only');
+  if (input.vendorType !== 'general') throw httpError(400, 'Vendor type is required');
   if (!['ecommerce', 'quick', 'wholesale'].includes(input.channel)) throw httpError(400, 'Commission channel is required');
   if (!['fixed', 'percentage'].includes(input.method)) throw httpError(400, 'Commission method is required');
   if (input.base !== 'eligible_item_subtotal' || input.fixedScope !== 'order_item') throw httpError(400, 'Explicit eligible subtotal base and order-item scope are required');
@@ -46,36 +49,60 @@ export const validateCommissionRule = (input) => {
  * `supersedes` must name the rule the admin was editing (empty for a new
  * scope), which rejects stale or concurrent edits.
  */
-export const saveCommissionVersion = async (input, adminId) => {
-  const rule = validateCommissionRule(input);
+// One scope's replacement, inside the caller's transaction.
+const saveScope = async (rule, supersedes, adminId, session) => {
   const key = commissionScopeKey(rule);
+  const current = await CommissionCurrent.findById(key).session(session);
+  if (String(current?.ruleId || '') !== String(supersedes || '')) throw httpError(409, 'Commission changed; refresh before saving');
+  if (rule.productId && !await Product.exists({ _id: rule.productId }).session(session)) throw httpError(400, 'Product does not exist');
+  if (rule.categoryId) {
+    const { default: Category } = await import('../models/Category.js');
+    if (!await Category.exists({ _id: rule.categoryId }).session(session)) throw httpError(400, 'Category does not exist');
+  }
+  const [saved] = await Commission.create([{ ...rule, effectiveDate: new Date(), financeVersion: 2, version: crypto.randomUUID(),
+    createdBy: adminId, supersedes: current?.ruleId }], { session });
+  const revision = (current?.revision || 0) + 1;
+  if (current) {
+    const moved = await CommissionCurrent.updateOne({ _id: key, revision: current.revision }, { $set: { ruleId: saved._id, revision, updatedBy: adminId } }, { session });
+    if (!moved.matchedCount) throw httpError(409, 'Commission changed; refresh before saving');
+  } else {
+    await CommissionCurrent.create([{ _id: key, channel: rule.channel, vendorType: rule.vendorType, categoryId: rule.categoryId,
+      productId: rule.productId, ruleId: saved._id, revision, updatedBy: adminId }], { session });
+  }
+  return saved;
+};
+
+const inCommissionTransaction = async (work) => {
   const { financialTransaction } = await import('./financeSafety.service.js');
   try {
-    return await financialTransaction(async session => {
-      const current = await CommissionCurrent.findById(key).session(session);
-      if (String(current?.ruleId || '') !== String(input.supersedes || '')) throw httpError(409, 'Commission changed; refresh before saving');
-      if (rule.productId && !await Product.exists({ _id: rule.productId }).session(session)) throw httpError(400, 'Product does not exist');
-      if (rule.categoryId) {
-        const { default: Category } = await import('../models/Category.js');
-        if (!await Category.exists({ _id: rule.categoryId }).session(session)) throw httpError(400, 'Category does not exist');
-      }
-      const [saved] = await Commission.create([{ ...rule, effectiveDate: new Date(), financeVersion: 2, version: crypto.randomUUID(),
-        createdBy: adminId, supersedes: current?.ruleId }], { session });
-      const revision = (current?.revision || 0) + 1;
-      if (current) {
-        const moved = await CommissionCurrent.updateOne({ _id: key, revision: current.revision }, { $set: { ruleId: saved._id, revision, updatedBy: adminId } }, { session });
-        if (!moved.matchedCount) throw httpError(409, 'Commission changed; refresh before saving');
-      } else {
-        await CommissionCurrent.create([{ _id: key, channel: rule.channel, vendorType: rule.vendorType, categoryId: rule.categoryId,
-          productId: rule.productId, ruleId: saved._id, revision, updatedBy: adminId }], { session });
-      }
-      return saved;
-    });
+    return await financialTransaction(work);
   } catch (error) {
     // Two admins creating the first rule for one scope collide on the pointer key.
     if (error?.code === 11000) throw httpError(409, 'Commission changed; refresh before saving');
     throw error;
   }
+};
+
+export const saveCommissionVersion = async (input, adminId) => {
+  const rule = validateCommissionRule(input);
+  return inCommissionTransaction(session => saveScope(rule, input.supersedes, adminId, session));
+};
+
+/**
+ * The same channel-wide rule for every channel, saved together: either every
+ * channel moves to the new rate or none does. `supersedesByChannel` names the
+ * rule the admin saw for each channel (null where there was none). Category
+ * and product overrides are channel-specific, so they are set per channel.
+ */
+export const saveCommissionForAllChannels = async (input, adminId) => {
+  if (input.categoryId || input.productId) throw httpError(400, 'Category and product overrides are set one channel at a time');
+  const supersedes = input.supersedesByChannel || {};
+  const rules = COMMISSION_CHANNELS.map(channel => validateCommissionRule({ ...input, channel }));
+  return inCommissionTransaction(async session => {
+    const saved = [];
+    for (const rule of rules) saved.push(await saveScope(rule, supersedes[rule.channel], adminId, session));
+    return saved;
+  });
 };
 
 // Current rules for one channel, as rule documents carrying their scope.
@@ -98,7 +125,7 @@ export const resolveCommissionRule = (rules, { vendorType, productId, categoryId
   .sort((a, b) => (Number(Boolean(b.productId)) * 2 + Number(Boolean(b.categoryId))) - (Number(Boolean(a.productId)) * 2 + Number(Boolean(a.categoryId))))[0] || null;
 
 export const COMMISSION_CHANNELS = ['ecommerce', 'quick', 'wholesale'];
-export const COMMISSION_VENDOR_TYPES = ['general', 'shg'];
+export const COMMISSION_VENDOR_TYPES = ['general'];
 
 /** Every current rule, plus which rule covers each channel and vendor type by default. */
 export const describeCurrentCommissionRules = async () => {

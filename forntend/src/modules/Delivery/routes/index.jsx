@@ -15,6 +15,8 @@ import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
 import '../Delivery.css';
 import { DELIVERY_SESSION_CHANGED } from '../../../utils/deliverySession';
 
+const PAGE_TITLES = { earnings: 'Earnings', history: 'Trip History', returns: 'Return Pickups', profile: 'My Profile', support: 'Help & Support' };
+
 const DeliveryRoutesContent = () => {
   const {
     isOnboarded, riderAuthed, bootstrapping, activeOrder, toastMessage, sessionError, retrySession,
@@ -128,6 +130,11 @@ const DeliveryRoutesContent = () => {
     <div className="delivery-app-container">
       {/* Toast Alert popups */}
       {toastMessage && <div className="delivery-toast-banner">{toastMessage}</div>}
+
+      {/* Fixed title bar for the secondary tabs; Duty and an active trip carry their own. */}
+      {!activeOrder && PAGE_TITLES[activeTab] && (
+        <header className="delivery-page-appbar"><h1>{PAGE_TITLES[activeTab]}</h1></header>
+      )}
 
       {/* Main content scroll container */}
       <div className="delivery-main-viewport">

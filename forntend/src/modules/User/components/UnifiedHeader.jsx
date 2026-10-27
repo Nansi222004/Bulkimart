@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { House, MessageCircle, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../../../utils/useNotifications';
@@ -25,6 +25,19 @@ const UnifiedHeader = () => {
   const wishlistCount = wishlist?.size || 0;
   const [showNotifications, setShowNotifications] = useState(false);
   const { unreadCount } = useNotifications({ autoFetch: false });
+
+  // The header is sticky with a negative top equal to its brand and mode rows,
+  // so those scroll away and the search bar and category tabs stay pinned.
+  const headerRef = useRef(null);
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header || typeof ResizeObserver === 'undefined') return;
+    const rows = [...header.querySelectorAll(':scope > .header-primary-row, :scope > .header-switcher-bar')];
+    const update = () => header.style.setProperty('--header-collapse', `${rows.reduce((sum, row) => sum + row.offsetHeight, 0)}px`);
+    const observer = new ResizeObserver(update);
+    rows.forEach(row => observer.observe(row)); update();
+    return () => observer.disconnect();
+  }, []);
 
   // Admin-selected category tabs share this row with application shortcuts.
   const currentSubNavItems = [
@@ -80,7 +93,7 @@ const UnifiedHeader = () => {
   );
 
   return (
-    <div className={`unified-header-container mode-${activeMode}`}>
+    <div ref={headerRef} className={`unified-header-container mode-${activeMode}`}>
       <div className="header-primary-row">
         <div className="header-brand-location">
           <div className="header-brand-identity" aria-label="Bulkimart — Sabse Smart Bulkimart">

@@ -10,7 +10,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated } from '../utils/response.js';
 import { financeFlags } from '../services/financeSafety.service.js';
 import { financialReconciliation } from '../services/financialReconciliation.service.js';
-import { saveCommissionVersion, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
+import { saveCommissionVersion, saveCommissionForAllChannels, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
 import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
 import { getFinancePolicy, saveFinancePolicy } from '../services/financePolicy.service.js';
 import { taxReport, journal, trialBalance, toCsv, rupees } from '../services/financeReports.service.js';
@@ -27,7 +27,9 @@ export const getCommissionConfiguration = asyncHandler(async (req, res) => {
   ]);
   return ok(res, { rules, current, coverage, flags: financeFlags(), historicalRulesApplied: false });
 });
-export const createCommissionConfiguration = asyncHandler(async (req, res) => ok(res, await saveCommissionVersion(req.body, req.user._id), 'Commission version saved; live financial operations use separate release gates'));
+export const createCommissionConfiguration = asyncHandler(async (req, res) => req.body?.channel === 'all'
+  ? ok(res, await saveCommissionForAllChannels(req.body, req.user._id), 'Commission saved for every channel; live financial operations use separate release gates')
+  : ok(res, await saveCommissionVersion(req.body, req.user._id), 'Commission version saved; live financial operations use separate release gates'));
 
 const filters = (req, rider = false) => {
   const match = { 'financialSnapshot.version': 2 };

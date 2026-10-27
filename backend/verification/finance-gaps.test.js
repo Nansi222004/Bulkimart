@@ -114,6 +114,23 @@ describe('commission current rule', () => {
     expect((await buildOrderFinancialSnapshot(shg)).state).toBe('held_missing_rule');
   });
 
+  test('"All channels" sets one rate for every channel together, or none on a stale edit', async () => {
+    const all = (changes = {}) => request(app).post('/api/admin/finance/commissions').set('Authorization', bearer(admin)).send(rule({ channel: 'all', value: 10, reason: 'Flat 10% commission', ...changes }));
+    await saveCommissionVersion(rule({ channel: 'ecommerce', value: 7 }), admin._id);
+    // The admin did not see the existing E-Commerce rule, so nothing may change anywhere.
+    expect((await all({ supersedesByChannel: {} })).status).toBe(409);
+    expect(await CommissionCurrent.countDocuments()).toBe(1);
+    const ecommerce = await CommissionCurrent.findOne({ channel: 'ecommerce' });
+    expect((await all({ supersedesByChannel: { ecommerce: String(ecommerce.ruleId) } })).status).toBe(200);
+    const listed = await request(app).get('/api/admin/finance/commissions').set('Authorization', bearer(admin));
+    expect(listed.body.data.coverage.map(row => [row.channel, row.vendorType, row.active])).toEqual([['ecommerce', 'general', true], ['quick', 'general', true], ['wholesale', 'general', true]]);
+    expect(listed.body.data.current.map(row => row.value)).toEqual([10, 10, 10]);
+    const order = await quickOrder();
+    expect((await buildOrderFinancialSnapshot(order)).lines[0].commissionPaise).toBe(1000);
+    expect((await all({ categoryId: String(new mongoose.Types.ObjectId()) })).status).toBe(400);
+    expect((await request(app).post('/api/admin/finance/commissions').set('Authorization', bearer(admin)).send(rule({ vendorType: 'shg' }))).status).toBe(400);
+  });
+
   test('switching the current rule off holds new orders; a switched-off override falls back to the channel rule', async () => {
     await saveCommissionVersion(rule({ value: 10 }), admin._id);
     await saveCommissionVersion(rule({ productId: String(product._id), value: 12 }), admin._id);

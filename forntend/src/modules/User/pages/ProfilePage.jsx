@@ -1606,17 +1606,18 @@ const ProfilePage = () => {
         onChange={handleAvatarFileChange}
       />
 
-      {/* Bulkimart account header */}
+      {/* Bulkimart account header — the title bar sits outside the gradient
+          card so it can stay pinned while the page scrolls. */}
+      <div className="profile-header-top profile-appbar">
+        <button className="back-arrow-white" onClick={() => setActiveNav('home')} aria-label="Go to Home">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <h2 className="profile-title">Account</h2>
+        <div style={{ width: 24 }}></div> {/* Balance layout */}
+      </div>
       <div className="profile-header-gradient">
-        <div className="profile-header-top">
-          <button className="back-arrow-white" onClick={() => setActiveNav('home')} aria-label="Go to Home">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
-          <h2 className="profile-title">Account</h2>
-          <div style={{ width: 24 }}></div> {/* Balance layout */}
-        </div>
 
         {/* User Card info inside Header */}
         <div className="profile-user-card">
