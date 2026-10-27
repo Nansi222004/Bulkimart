@@ -1,14 +1,93 @@
 import React, { useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { useLiveDispatch, STAGE_LABELS, formatClock } from '../utils/liveDispatch';
 
 /**
- * Fleet dashboard — live from GET /api/admin/delivery-partners/stats.
+ * Fleet dashboard — roster from GET /api/admin/delivery-partners/stats, live
+ * dispatch from GET /api/admin/delivery-live.
  *
- * Everything here is a real count. Where the backend has nothing to count yet —
- * live dispatch, SLA timers, completed-today — the panel says so instead of
- * printing a number. An invented figure on an operations screen is worse than a
- * blank one: it gets acted on.
+ * Everything here is a real count. An invented figure on an operations screen
+ * is worse than a blank one: it gets acted on.
  */
+
+const DispatchStat = ({ label, value, hint, tone = '#0f172a', onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={!onClick}
+    style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#ffffff', cursor: onClick ? 'pointer' : 'default', font: 'inherit' }}
+  >
+    <span style={{ display: 'block', fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ display: 'block', fontSize: 20, fontWeight: 900, color: tone, margin: '2px 0' }}>{value}</span>
+    {hint && <span style={{ display: 'block', fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>{hint}</span>}
+  </button>
+);
+
+export const LiveDispatchPanel = ({ setActiveTab }) => {
+  const { data, loading, error, reload } = useLiveDispatch();
+  const s = data?.summary;
+  const pct = (value) => (value === null || value === undefined ? '—' : `${value}%`);
+
+  return (
+    <div style={{ padding: 20, borderRadius: 12, backgroundColor: '#ffffff', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>Live Dispatch</h3>
+          <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>
+            {data ? `Updated ${formatClock(data.asOf)} · refreshes every 30s` : 'Live trips and riders on shift'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('delivery-active-ops')}
+          style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}
+        >
+          Active Deliveries →
+        </button>
+      </div>
+
+      {error && (
+        <div role="alert" style={{ padding: '8px 12px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 12, fontWeight: 700, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <span>{error}</span>
+          <button type="button" onClick={reload} style={{ background: 'none', border: 'none', color: '#b91c1c', fontWeight: 800, cursor: 'pointer' }}>Retry</button>
+        </div>
+      )}
+
+      {!s ? (
+        !error && <div style={{ fontSize: 12, color: '#64748b' }}>{loading ? 'Loading…' : 'No data'}</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+            <DispatchStat label="Active trips" value={s.activeTrips} hint={`${s.prePickup} before pickup · ${s.onTheRoad} on the road`} onClick={() => setActiveTab('delivery-active-ops')} />
+            <DispatchStat
+              label="Awaiting rider"
+              value={s.awaitingRider}
+              hint={s.needsManualAssignment ? `${s.needsManualAssignment} need manual assignment` : 'Paid orders ready to go'}
+              tone={s.awaitingRider ? '#d48806' : '#0f172a'}
+              onClick={() => setActiveTab('delivery-assignment')}
+            />
+            <DispatchStat label="Past ETA" value={s.overEta} hint="Picked up longer than the trip estimate" tone={s.overEta ? '#dc2626' : '#0f172a'} onClick={() => setActiveTab('delivery-tracking')} />
+            <DispatchStat label="Riders free" value={s.ridersFree} hint={`${s.ridersOnline} online · ${s.ridersBusy} on a trip`} tone="#16a34a" onClick={() => setActiveTab('delivery-active')} />
+            <DispatchStat label="Delivered today" value={s.deliveredToday} hint={`${s.failedToday} failed · ${pct(s.todaySuccessRate)} success`} onClick={() => setActiveTab('delivery-history')} />
+          </div>
+
+          {s.activeTrips > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {Object.entries(s.byStage).filter(([, count]) => count > 0).map(([stage, count]) => (
+                <span key={stage} style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: '#f1f5f9', color: '#334155' }}>
+                  {STAGE_LABELS[stage] || stage}: {count}
+                </span>
+              ))}
+            </div>
+          )}
+          <p style={{ margin: 0, fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+            Covers rider trips for orders, return pickups and subscriptions. Courier (Shiprocket) shipments and parcel bookings have their own screens. “Today” is the IST calendar day.
+          </p>
+        </>
+      )}
+    </div>
+  );
+};
 
 const Kpi = ({ label, value, hint, tone = 'plain', onClick }) => {
   const tones = {
@@ -190,19 +269,7 @@ export const DeliveryDashboardTab = () => {
           )}
         </div>
 
-        {/* Deliberately empty rather than invented. */}
-        <div style={{ padding: 20, borderRadius: 12, backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#475569' }}>Live Dispatch</h3>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-            Active deliveries, unassigned orders, SLA timers and completed-today
-            counts are not tracked yet — order-to-rider assignment has not been
-            built, so there is nothing real to show here.
-          </p>
-          <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>
-            This panel stays blank on purpose. A made-up number on an operations
-            screen is worse than none, because someone acts on it.
-          </p>
-        </div>
+        <LiveDispatchPanel setActiveTab={setActiveTab} />
 
       </div>
     </div>

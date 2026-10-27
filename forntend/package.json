@@ -14,6 +14,8 @@
     "test:sticky-headers": "npm run build && node verification/sticky-header-gap-browser.mjs",
     "test:delivery-returns": "node --test verification/delivery-returns-history-ui.test.mjs",
     "test:delivery-returns-browser": "npm run build && node verification/delivery-returns-browser.mjs",
+    "test:reports": "node --test verification/admin-reports-ui.test.mjs",
+    "test:categories-browser": "npm run build && node verification/categories-browser.mjs",
     "test:financial-workflow": "node --test verification/financial-workflow-ui.test.mjs",
     "test:financial-browser": "node verification/financial-workflow-browser.mjs",
     "test:payment-overlays": "node --test verification/razorpay-overlay.test.mjs verification/payment-ui.test.mjs",

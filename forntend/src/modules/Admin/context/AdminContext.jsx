@@ -804,12 +804,12 @@ export const AdminProvider = ({ children }) => {
    * under Consumer Users silently hardcoded `type: 'ecommerce'` and never
    * showed a single Quick Commerce order.
    */
-  const fetchCustomerOrders = useCallback(async ({ userId, type, status, search, page = 1, limit = 20 } = {}) => {
+  const fetchCustomerOrders = useCallback(async ({ userId, type, salesChannel, status, search, page = 1, limit = 20 } = {}) => {
     const request = ++customerOrdersRequest.current;
     setCustomerOrdersLoading(true);
     setCustomerOrdersError('');
     try {
-      const { data, meta } = await adminGet(`/consumers/orders${qs({ userId, type, status, search, page, limit })}`);
+      const { data, meta } = await adminGet(`/consumers/orders${qs({ userId, type, salesChannel, status, search, page, limit })}`);
       if (request !== customerOrdersRequest.current) return;
       setCustomerOrders(data || []);
       setCustomerOrdersMeta(meta || { page: 1, limit, total: 0, pages: 0 });

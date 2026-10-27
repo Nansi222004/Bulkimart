@@ -130,3 +130,32 @@ test('category links restore their own storefront instead of using the previousl
     finally { h.close(); }
   }
 });
+
+// Own ids: product reads are shared for 15 s, so reusing the tree above would hit its cache.
+const pageLeaf = { ...leaf, _id: 'page-leaf' }, pageMain = { ...main, _id: 'page-main', children: [pageLeaf] }, pageRoot = { ...root, _id: 'page-root', children: [pageMain] };
+test('categories grid opens each category as its own products page and back steps up to the grid', async () => {
+  const chosen = [], context = { activeMode: 'quick', setSelectedCategoryFilter: value => chosen.push(value), setSelectedProduct() {}, addToCart() {} };
+  const h = hookHarness(Categories, {}, '/categories', context);
+  try {
+    treeRequest(h).resolve([pageRoot]); await h.settle();
+    assert.ok(h.find(node => node.props?.className === 'all-categories-grid'));
+    assert.equal(h.requests.some(request => request.url.includes('/products?')), false, 'grid lists categories only');
+    h.find(node => node.props?.className === 'all-category-main').props.onClick(); h.flush();
+    assert.equal(window.location.pathname, '/categories/grocery--fresh');
+    assert.equal(h.find(node => node.props?.className === 'all-categories-grid'), undefined, 'grid is replaced by the category page');
+    assert.match(text(h.find(node => node.type === 'h1')), /Fresh/);
+    button(h, 'Fruit').props.onClick(); h.flush(); await h.settle();
+    assert.equal(window.location.pathname, '/categories/grocery--fresh--fruit'); assert.match(text(h.find(node => node.type === 'h1')), /Fruit/);
+    h.requests.filter(request => request.url.includes('/products?')).at(-1).resolve({ products: [{ _id: 'p1', name: 'Amla product', price: 500, images: [], type: 'grocery' }] }); await h.settle();
+    assert.match(text(h.tree), /1\s+product\b/); assert.match(text(h.tree), /Amla product/);
+    // The harness history has no back(); a deep link steps to the parent, then the grid.
+    window.history.replaceState(null, '', '/categories/grocery--fresh--fruit');
+    const back = () => h.find(node => node.props?.className === 'category-detail-back');
+    assert.equal(back().props['aria-label'], 'Back to Fresh');
+    back().props.onClick(); h.flush();
+    assert.equal(window.location.pathname, '/categories/grocery--fresh'); assert.match(text(h.find(node => node.type === 'h1')), /Fresh/);
+    back().props.onClick(); h.flush();
+    assert.equal(window.location.pathname, '/categories'); assert.ok(h.find(node => node.props?.className === 'all-categories-grid'));
+    assert.equal(chosen.at(-1), null);
+  } finally { h.close(); }
+});

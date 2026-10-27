@@ -62,12 +62,16 @@ export const DeliveryZonesTab = () => {
       z.riders, z.activeRiders, z.radiusKm ?? '', z.status,
     ]);
     // Quote every field — a store or city name containing a comma would
-    // otherwise shift every column after it by one.
+    // otherwise shift every column after it by one. Store names are typed by
+    // sellers, so a leading = + - @ is written as text, never run as a formula.
     const csv = [header, ...lines]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+      .map((row) => row.map((cell) => {
+        const text = String(cell);
+        return `"${(/^[=+\-@\t\r]/.test(text) ? `'${text}` : text).replace(/"/g, '""')}"`;
+      }).join(','))
+      .join('\r\n');
 
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const url = URL.createObjectURL(new Blob([`﻿${csv}\r\n`], { type: 'text/csv;charset=utf-8;' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = `delivery-hub-zones-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -93,7 +97,7 @@ export const DeliveryZonesTab = () => {
             )}
           </div>
           <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>
-            Serviceable pincodes riders have signed up to cover, with the stores inside each one.
+            Pincodes riders have signed up to cover, plus approved-store pincodes no rider covers yet (Inactive).
             {deliveryZones?.defaultRadiusKm
               ? ` Riders without their own limit are dispatched up to ${deliveryZones.defaultRadiusKm} km.`
               : ''}
@@ -183,7 +187,7 @@ export const DeliveryZonesTab = () => {
                   <td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: 'var(--sa-text-muted)', fontSize: 12 }}>
                     {search || stateFilter || cityFilter || statusFilter !== 'All'
                       ? 'No zones match these filters.'
-                      : 'No serviceable pincodes yet — a zone appears here once an approved rider lists it during onboarding.'}
+                      : 'No zones yet — a pincode appears here once an approved rider lists it or an approved store is located in it.'}
                   </td>
                 </tr>
               ) : (
@@ -209,7 +213,7 @@ export const DeliveryZonesTab = () => {
                       {z.activeRiders}
                     </td>
                     <td style={{ padding: '12px 16px', color: z.radiusKm === null ? 'var(--sa-text-muted)' : 'var(--sa-text-secondary)' }}>
-                      {z.radiusKm === null ? 'Platform default' : `${z.radiusKm} km`}
+                      {z.riders === 0 ? '—' : z.radiusKm === null ? 'Platform default' : `${z.radiusKm} km`}
                     </td>
                     <td style={{ padding: '12px 16px' }}><StatusPill value={z.status} /></td>
                   </tr>

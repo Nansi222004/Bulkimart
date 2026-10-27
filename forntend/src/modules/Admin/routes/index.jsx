@@ -18,6 +18,7 @@ import TicketsTab from '../components/TicketsTab';
 import CategoriesTab from '../components/CategoriesTab';
 import CouponsTab from '../components/CouponsTab';
 import SectionModuleTab from '../components/SectionModuleTab';
+import ReportsTab from '../components/ReportsTab';
 import CustomerActivityLogTab from '../components/CustomerActivityLogTab';
 import ConsumerOrdersTab from '../components/ConsumerOrdersTab';
 import ConsumerDashboardTab from '../components/ConsumerDashboardTab';
@@ -128,6 +129,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'vendor-payouts':    return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'quick-third-party-settings': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tickets':           return <TicketsTab />;
+      case 'reports':           return <ReportsTab />;
       default:                  return <SectionModuleTab moduleId={activeTab} />;
     }
   };

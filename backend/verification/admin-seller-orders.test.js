@@ -80,3 +80,14 @@ test('seller and order details require an authenticated admin', async () => {
   await request(app).get(`/api/admin/sellers/${sellerId}`).expect(401);
   await request(app).get('/api/admin/consumers/orders?type=grocery').expect(401);
 });
+
+test('order lists separate wholesale from retail; legacy orders without a channel stay retail', async () => {
+  const base = { userId: customerId, type: 'ecommerce', status: 'placed', paymentMethod: 'cod', createdAt: new Date(), updatedAt: new Date(), items: [{ _id: id(), productId: id(), sellerId, name: 'Case', price: 900, qty: 10 }], pricing: { totalAmount: 9000 } };
+  await Order.collection.insertMany([{ ...base, _id: id(), orderNo: 'ORD-WHOLESALE', salesChannel: 'wholesale' }, { ...base, _id: id(), orderNo: 'ORD-ECOM-RETAIL', salesChannel: 'retail' }, { ...base, _id: id(), orderNo: 'ORD-ECOM-LEGACY' }]);
+  const list = async query => (await request(app).get(`/api/admin/consumers/orders?${query}`).set('Authorization', token).expect(200)).body.data.map(order => order.orderNo).sort();
+  expect(await list('salesChannel=wholesale')).toEqual(['ORD-WHOLESALE']);
+  expect(await list('type=ecommerce&salesChannel=retail')).toEqual(['ORD-ECOM-LEGACY', 'ORD-ECOM-RETAIL']);
+  expect(await list('type=grocery&salesChannel=retail')).toEqual(['ORD-CANCELLED', 'ORD-MULTISTORE', 'ORD-OTHER', 'ORD-PENDING', 'ORD-QCOM-FIXTURE']);
+  expect(await list('type=ecommerce')).toEqual(['ORD-ECOM-LEGACY', 'ORD-ECOM-RETAIL', 'ORD-WHOLESALE']);
+  await request(app).get('/api/admin/consumers/orders?salesChannel=bulk').set('Authorization', token).expect(400);
+});

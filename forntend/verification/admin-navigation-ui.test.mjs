@@ -57,3 +57,12 @@ test('shared header names the actual module instead of always showing Dashboard'
     }
   } finally { if (previous) globalThis.document = previous; else delete globalThis.document; }
 });
+test('Reports shows only its own report tabs, not a second copy of the section strip', () => {
+  const previous = globalThis.document; globalThis.document = new EventTarget();
+  try {
+    for (const [activeTab, shown] of [['reports', false], ['overview', true], ['delivery-dashboard', true]]) {
+      const h = hookHarness(Header, {}, '/admin', { activeTab, setActiveTab() {} }, storage);
+      try { assert.equal(Boolean(h.find(n => n.props?.className === 'sa-section-tabs')), shown, activeTab); } finally { h.close(); }
+    }
+  } finally { if (previous) globalThis.document = previous; else delete globalThis.document; }
+});

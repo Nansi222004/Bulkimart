@@ -7,7 +7,7 @@ const pageTitles = {
   overview: 'Dashboard', dashboard: 'Dashboard', reports: 'Reports',
   'user-dashboard': 'Consumer Users', 'vendor-dashboard': 'Sellers / Vendors',
   'delivery-dashboard': 'Delivery Partners', 'storefront-studio': 'Storefront Studio',
-  'ecom-orders': 'E-Commerce Orders', 'qcom-orders': 'Quick Commerce Orders',
+  'ecom-orders': 'E-Commerce Orders', 'qcom-orders': 'Quick Commerce Orders', 'wholesale-orders': 'Wholesale Orders',
   'user-wallets': 'Real Money Wallets', 'seller-kyc': 'Seller KYC',
   'gst-assistance': 'GST Registration Assistance', 'finance-center': 'Finance Center',
   'categories-all': 'All Categories', 'categories-header': 'Header Categories',
@@ -167,8 +167,9 @@ export const TopHeader = ({ onLogout }) => {
         </div>
       </div>
 
-      {/* 5 CORE SECTIONS TOP TAB NAVIGATION BAR */}
-      <div className="sa-section-tabs" style={{
+      {/* 5 CORE SECTIONS TOP TAB NAVIGATION BAR — hidden on Reports, whose own
+          report tabs carry the same four names and would read as a second filter row. */}
+      {activeTab !== 'reports' && <div className="sa-section-tabs" style={{
         display: 'flex',
         gap: 8,
         padding: '10px 24px',
@@ -185,7 +186,7 @@ export const TopHeader = ({ onLogout }) => {
         ].map(tab => {
           let isActive = activeTab === tab.id;
           if (tab.id === 'overview') {
-            isActive = activeTab === 'overview' || activeTab === 'dashboard' || activeTab === 'reports';
+            isActive = activeTab === 'overview' || activeTab === 'dashboard';
           } else if (tab.id === 'users') {
             isActive = activeTab === 'user-dashboard' || activeTab.startsWith('users-') || activeTab === 'user-activity' || activeTab === 'user-orders' || activeTab === 'user-subscriptions' || activeTab === 'user-reviews';
           } else if (tab.id === 'sellers') {
@@ -216,7 +217,7 @@ export const TopHeader = ({ onLogout }) => {
             </button>
           );
         })}
-      </div>
+      </div>}
 
     </div>
   );

@@ -18,12 +18,21 @@ const branchMatches = (category, query) => {
   return (category.children || []).some((child) => branchMatches(child, query));
 };
 
+// Parent of a category inside the tree, for the category page's back step and eyebrow.
+const parentOf = (nodes, id, parent = null) => {
+  for (const category of nodes || []) {
+    if (category._id === id) return parent;
+    const found = parentOf(category.children, id, category);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+
 const CategoriesPage = () => {
   const { activeMode, setActiveMode, addToCart, setSelectedProduct, selectedCategoryFilter, setSelectedCategoryFilter } = useUser();
   const channel = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const { tree, loading, error, retry } = useCategoryTree(channel);
   const [query, setQuery] = useState('');
-  const [expandedId, setExpandedId] = useState(null);
   const [selected, setSelected] = useState(null);
   const categoryIds = selected ? descendantIds(selected).join(',') : null;
   const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({
@@ -36,7 +45,6 @@ const CategoriesPage = () => {
   }, [tree, query]);
 
   useEffect(() => {
-    setExpandedId(null);
     setSelected(null);
   }, [channel]);
 
@@ -45,28 +53,69 @@ const CategoriesPage = () => {
     const find = nodes => { for (const category of nodes || []) { if (category.slug === slug || String(category._id) === slug) return category; const child = find(category.children); if (child) return child; } return null; };
     const category = slug ? find(tree) : null;
     setSelected(category);
-    setExpandedId(category?._id || null);
   }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, channel]);
 
-  const chooseCategory = (category) => {
+  // Each category is its own page (/categories/<slug>); the grid stays a grid.
+  const openCategory = (category) => {
     setSelectedCategoryFilter(category);
     setSelected(category);
-    setExpandedId((value) => value === category._id ? null : category._id);
     const path = `/categories/${category.slug || category._id}`;
-    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+    if (window.location.pathname !== path) window.history.pushState({ fromCategories: true }, '', path);
+  };
+  const parent = selected ? parentOf(tree, selected._id) : null;
+  const shownParent = parent && !parent.isSystem ? parent : null;
+  // Back follows how the shopper arrived; a deep link steps up to the parent, then the grid.
+  const closeCategory = () => {
+    if (window.history.state?.fromCategories) { window.history.back(); return; }
+    if (shownParent) { setSelectedCategoryFilter(shownParent); setSelected(shownParent); window.history.replaceState(null, '', `/categories/${shownParent.slug || shownParent._id}`); return; }
+    setSelected(null); setSelectedCategoryFilter(null);
+    window.history.replaceState(null, '', '/categories');
   };
 
-  const isExpanded = category => descendantIds(category).includes(expandedId);
-  const renderChildren = category => isExpanded(category) && category.children?.length > 0 && (
-    <div className="all-subcategory-list">
-      {category.children.map(child => <div className="all-subcategory-branch" key={child._id}>
-        <button type="button" aria-pressed={selected?._id === child._id}
-          aria-expanded={child.children?.length ? isExpanded(child) : undefined} onClick={() => chooseCategory(child)}>
-          <CategoryArtwork category={child} /><span>{child.name}</span>
+  if (selected) return (
+    <section className="all-categories-page category-detail-page" aria-labelledby="category-detail-title">
+      <header className="category-detail-header">
+        <button type="button" className="category-detail-back" aria-label={`Back to ${shownParent ? shownParent.name : 'all categories'}`} onClick={closeCategory}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
         </button>
-        {renderChildren(child)}
-      </div>)}
-    </div>
+        <div>
+          <p className="all-categories-eyebrow">{shownParent ? shownParent.name : 'Categories'}</p>
+          <h1 id="category-detail-title">{selected.name}</h1>
+        </div>
+      </header>
+      {selected.children?.length > 0 && (
+        <nav className="category-detail-chips" aria-label={`Subcategories of ${selected.name}`}>
+          {selected.children.map(child => (
+            <button type="button" key={child._id} onClick={() => openCategory(child)}><CategoryArtwork category={child} /><span>{child.name}</span></button>
+          ))}
+        </nav>
+      )}
+      <section className="category-results-section" aria-label={`Products in ${selected.name}`}>
+        {!productsLoading && !productsError && products.length > 0 && <p className="category-detail-count">{products.length} {products.length === 1 ? 'product' : 'products'}</p>}
+        <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} organicProducts={products} ready={!productsLoading && !productsError} />
+        {productsLoading ? (
+          <div className="category-products-grid">{Array.from({ length: 4 }, (_, index) => <div className="category-result-card skeleton" key={index} />)}</div>
+        ) : productsError ? (
+          <div className="all-categories-state compact" role="alert"><span>{productsError}</span><button type="button" onClick={retryProducts}>Retry</button></div>
+        ) : products.length === 0 ? (
+          <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
+        ) : (
+          <div className="category-products-grid">
+            {products.map((product) => (
+              <article className="category-result-card" key={product._id}>
+                <button type="button" className="category-result-open" onClick={() => setSelectedProduct(product)}>
+                  <img src={product.images?.[0] || ''} alt={product.name} loading="lazy" />
+                  <strong>{product.name}</strong>
+                  <span>{formatCurrency(product.price)}</span>
+                </button>
+                <WishlistHeartButton productId={product._id} size={14} />
+                <button type="button" className="category-result-add" onClick={() => addToCart(product)}>Add</button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </section>
   );
 
   return (
@@ -107,8 +156,8 @@ const CategoriesPage = () => {
       ) : (
         <div className="all-categories-grid">
           {roots.map((category) => (
-            <article key={category._id} className={`all-category-card ${selected?._id === category._id ? 'selected' : ''}`}>
-              <button type="button" className="all-category-main" aria-expanded={category.children?.length ? isExpanded(category) : undefined} onClick={() => chooseCategory(category)}>
+            <article key={category._id} className="all-category-card">
+              <button type="button" className="all-category-main" onClick={() => openCategory(category)}>
                 <span className="all-category-art"><CategoryArtwork category={category} /></span>
                 <span className="all-category-copy">
                   <strong>{category.name}</strong>
@@ -116,42 +165,11 @@ const CategoriesPage = () => {
                 </span>
                 <span className="all-category-arrow" aria-hidden="true">›</span>
               </button>
-              {renderChildren(category)}
             </article>
           ))}
         </div>
       )}
 
-      {selected && (
-        <section className="category-results-section">
-          <div className="category-results-heading">
-            <div><span>Products in</span><h2>{selected.name}</h2></div>
-            <button type="button" onClick={() => { setSelected(null); setSelectedCategoryFilter(null); }}>Close</button>
-          </div>
-          <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} organicProducts={products} ready={!productsLoading && !productsError} />
-          {productsLoading ? (
-            <div className="category-products-grid">{Array.from({ length: 4 }, (_, index) => <div className="category-result-card skeleton" key={index} />)}</div>
-          ) : productsError ? (
-            <div className="all-categories-state compact" role="alert"><span>{productsError}</span><button type="button" onClick={retryProducts}>Retry</button></div>
-          ) : products.length === 0 ? (
-            <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
-          ) : (
-            <div className="category-products-grid">
-              {products.map((product) => (
-                <article className="category-result-card" key={product._id}>
-                  <button type="button" className="category-result-open" onClick={() => setSelectedProduct(product)}>
-                    <img src={product.images?.[0] || ''} alt={product.name} loading="lazy" />
-                    <strong>{product.name}</strong>
-                    <span>{formatCurrency(product.price)}</span>
-                  </button>
-                  <WishlistHeartButton productId={product._id} size={14} />
-                  <button type="button" className="category-result-add" onClick={() => addToCart(product)}>Add</button>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
     </section>
   );
 };

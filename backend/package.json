@@ -13,6 +13,7 @@
     "image-search:index": "node scripts/imageSearchIndex.mjs",
     "test:rider-service-area": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/rider-service-area.test.js",
     "test:parcel": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/parcel-delivery.test.js verification/parcel-routing.test.js verification/parcel-shopping-capacity.test.js",
+    "test:reports": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/admin-reports.test.js",
     "test:storefront": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/storefront.test.js",
     "test:financial-workflow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/financial-workflow.test.js",
     "test:payment-notifications": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/payment-notifications.test.js",

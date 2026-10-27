@@ -24,7 +24,7 @@ function fixture(orders, loading = false) {
 test('the table and details use the saved order number and pricing total rather than database ID or payment total', () => {
   const { h, loads } = fixture([order({ deliveryType: 'shiprocket', shiprocket: { courier: 'Delhivery', awb: 'AWB-FIXTURE' } })]);
   try {
-    assert.deepEqual(loads, [{ type: 'ecommerce' }]);
+    assert.deepEqual(loads, [{ type: 'ecommerce', salesChannel: 'retail' }]);
     assert.match(text(h.tree), /ORD-20261026-ABC123/); assert.match(text(h.tree), /₹1,250.5/);
     assert.doesNotMatch(text(h.tree), /database-id-fixture|₹0\b/); assert.match(text(h.tree), /Delhivery.*AWB-FIXTURE/);
     h.click('View Details'); const sheet = h.find(n => n.props?.className === 'admin-modal-sheet');
@@ -76,4 +76,19 @@ test('search and order status filters match the corrected display fields', () =>
 test('loading orders is not reported as an empty order history', () => {
   const { h } = fixture([], true);
   try { assert.match(text(h.tree), /Loading orders/); assert.doesNotMatch(text(h.tree), /No matching records/); } finally { h.close(); }
+});
+
+test('Wholesale Orders lists only wholesale orders and refreshes with the same channel filter', () => {
+  const loads = [];
+  const h = hookHarness(Page, { moduleId: 'wholesale-orders' }, '/admin/wholesale-orders', {
+    customerOrders: [order({ orderNo: 'ORD-WHOLESALE-1', salesChannel: 'wholesale' }), order({ orderNo: 'ORD-RETAIL-1', salesChannel: 'retail' })],
+    customerOrdersLoading: false, fetchCustomerOrders: filters => loads.push(filters), triggerToast() {},
+  });
+  try {
+    assert.deepEqual(loads, [{ salesChannel: 'wholesale' }]);
+    assert.match(text(h.tree), /Wholesale Orders/);
+    assert.match(text(h.tree), /ORD-WHOLESALE-1/); assert.doesNotMatch(text(h.tree), /ORD-RETAIL-1/);
+    h.click('Refresh'); assert.deepEqual(loads.at(-1), { salesChannel: 'wholesale' });
+    assert.equal(h.find(n => n.type === 'button' && /Add New Entry|Export CSV/.test(text(n))), undefined, 'no placeholder actions on order lists');
+  } finally { h.close(); }
 });

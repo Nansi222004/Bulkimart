@@ -2,6 +2,12 @@ import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { ecommerceOrderRow } from '../utils/ecommerceOrderDisplay';
+// Each order list is one sales channel; wholesale orders no longer appear under E-Commerce.
+const ORDER_QUERIES = {
+  'ecom-orders': { type: 'ecommerce', salesChannel: 'retail' },
+  'qcom-orders': { type: 'grocery', salesChannel: 'retail' },
+  'wholesale-orders': { salesChannel: 'wholesale' },
+};
 import { quickCommerceOrderRow } from '../utils/quickCommerceOrderDisplay';
 import QuickCommerceOrderDetails from './QuickCommerceOrderDetails';
 
@@ -14,7 +20,7 @@ export const SectionModuleTab = ({ moduleId }) => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedRow, setSelectedRow] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const isOrderModule = moduleId === 'ecom-orders' || moduleId === 'qcom-orders';
+  const isOrderModule = Boolean(ORDER_QUERIES[moduleId]);
 
   useEffect(() => { setSelectedRow(null); setSelectedOrder(null); }, [moduleId]);
 
@@ -26,7 +32,7 @@ export const SectionModuleTab = ({ moduleId }) => {
 
   useEffect(() => {
     if (!isOrderModule) return;
-    const refreshOrders = () => fetchCustomerOrders({ type: moduleId === 'qcom-orders' ? 'grocery' : 'ecommerce' });
+    const refreshOrders = () => fetchCustomerOrders(ORDER_QUERIES[moduleId]);
     refreshOrders();
     window.addEventListener('focus', refreshOrders);
     return () => window.removeEventListener('focus', refreshOrders);
@@ -152,6 +158,14 @@ export const SectionModuleTab = ({ moduleId }) => {
       data: moduleId === 'ecom-orders' ? customerOrders.map(ecommerceOrderRow) : []
     },
 
+    'wholesale-orders': {
+      title: 'Wholesale Orders',
+      desc: 'Business bulk orders placed through ShopAll Wholesale at tiered prices.',
+      columns: ['Order ID', 'Customer', 'Items', 'Total Amount', 'Courier Partner', 'Tracking #', 'Status'],
+      data: moduleId === 'wholesale-orders' ? customerOrders.filter(o => o.salesChannel === 'wholesale').map(ecommerceOrderRow) : []
+    },
+
+
     'qcom-orders': {
       title: 'Quick Commerce Express Orders',
       desc: '30-minute instant delivery orders served by local dark store hubs.',
@@ -185,14 +199,8 @@ export const SectionModuleTab = ({ moduleId }) => {
       desc: 'System parameters, commission percentages, and payment gateway keys.',
       columns: ['Config Key', 'Parameter Name', 'Category', 'Current Value', 'Last Modified', 'Action'],
       data: []
-    },
-
-    'reports': {
-      title: 'Platform Analytics & Reports',
-      desc: 'Download exportable CSV and PDF performance auditing statements.',
-      columns: ['Report Code', 'Report Description', 'Data Range', 'Format', 'Generated Date', 'Status'],
-      data: []
     }
+    // 'reports' is a real screen now (ReportsTab), routed before this fallback.
   };
 
   const currentConfig = moduleConfigs[moduleId] || {
@@ -225,7 +233,7 @@ export const SectionModuleTab = ({ moduleId }) => {
           <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--sa-text-secondary)' }}>{currentConfig.desc}</p>
         </div>
 
-        {moduleId === 'qcom-orders' && <button type="button" className="sa-btn-primary" disabled={customerOrdersLoading} onClick={() => fetchCustomerOrders({ type: 'grocery' })}>Refresh</button>}
+        {isOrderModule && <button type="button" className="sa-btn-primary" disabled={customerOrdersLoading} onClick={() => fetchCustomerOrders(ORDER_QUERIES[moduleId])}>Refresh</button>}
         {!isOrderModule && <div style={{ display: 'flex', gap: 10 }}>
           <button className="sa-btn-primary" onClick={() => triggerToast(`Add item form opened for ${currentConfig.title}...`)}>
             + Add New Entry
@@ -331,7 +339,7 @@ export const SectionModuleTab = ({ moduleId }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {moduleId === 'qcom-orders' && selectedOrder ? <QuickCommerceOrderDetails order={selectedOrder} /> : Object.keys(selectedRow).map((key, index) => (
                 <div key={key} className="admin-item-row" style={{ padding: '4px 0' }}>
-                  <span className="admin-item-label" style={{ textTransform: 'capitalize' }}>{moduleId === 'ecom-orders' ? currentConfig.columns[index] : key}</span>
+                  <span className="admin-item-label" style={{ textTransform: 'capitalize' }}>{moduleId === 'ecom-orders' || moduleId === 'wholesale-orders' ? currentConfig.columns[index] : key}</span>
                   <span className="admin-item-value" style={{ fontWeight: 800 }}>{String(selectedRow[key])}</span>
                 </div>
               ))}

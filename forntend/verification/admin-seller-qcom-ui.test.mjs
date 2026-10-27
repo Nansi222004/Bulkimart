@@ -30,7 +30,7 @@ function fixture(overrides = {}) {
 test('Quick Commerce uses the saved order number and total with real store and rider names', () => {
   const { h, calls } = fixture();
   try {
-    assert.deepEqual(calls, [{ type: 'grocery' }]);
+    assert.deepEqual(calls, [{ type: 'grocery', salesChannel: 'retail' }]);
     for (const value of ['ORD-QCOM-REAL', '₹440', 'Fixture Store', 'Fixture Rider']) assert.ok(text(h.tree).includes(value), value);
     assert.doesNotMatch(text(h.tree), /507f1f77bcf86cd799439011|₹9,999|Add New Entry|Export CSV/);
     h.click('Refresh'); assert.equal(calls.length, 2);

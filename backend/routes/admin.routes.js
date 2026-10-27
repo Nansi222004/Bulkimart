@@ -1,6 +1,7 @@
 import { previewRefundCompensation } from '../controllers/financeWorkflow.controller.js';
 import { getHistoricalExceptions } from '../controllers/financeWorkflow.controller.js';
 import { requireFinancePermission } from '../middlewares/financePermission.middleware.js';
+import { getReport, exportAdminReport } from '../controllers/adminReports.controller.js';
 import { getDashboardFinancialMetrics, getDashboardOrderAnalytics } from '../controllers/adminDashboardMetrics.controller.js';
 import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFinance.controller.js';
 import express from 'express';
@@ -32,7 +33,6 @@ import {
   getTickets, resolveTicket, getTicketDetailAdmin, replyToTicket, addInternalNote,
   assignTicket, changeTicketStatus,
   getAdminNotifications, getAdminUnreadCount, markAdminNotificationRead, markAllAdminNotificationsRead,
-  getDeliveryHistory,
   listRiderPayouts, settleRiderPayout,
   listDeliveryPayoutRequests, completeDeliveryPayoutRequest, rejectDeliveryPayoutRequest,
 } from '../controllers/admin.controller.js';
@@ -63,6 +63,7 @@ import {
   deleteCustomerAccount, deleteSellerAccount, deleteDeliveryAccount,
 } from '../controllers/accountManagement.controller.js';
 import { getManualAssignmentQueue, assignDeliveryPartner, setStorePickupLocation } from '../controllers/deliveryAssignment.controller.js';
+import { getLiveDispatch, getDeliveryHistory, exportDeliveryHistory } from '../controllers/adminDeliveryOps.controller.js';
 import {
   getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
   listQuickShiprocketFeesAdmin,
@@ -78,7 +79,7 @@ router.use(protect, requireAdmin);
 router.use('/campaigns', marketingPermission);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
-  if (/^\/(finance(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
+  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
   next();
 });
 router.patch('/vendor-payouts/:id/beneficiary-review', verifySellerPayoutBeneficiaryAdmin);
@@ -91,6 +92,12 @@ router.get('/finance/reconciliation', getFinancialExceptions);
 router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
 router.post('/finance/orders/:id/cod/dispute', disputeCod);
 router.post('/finance/orders/:id/cod/writeoff', writeOffCodShortage);
+// Reports: read-only, period-scoped; financial and personal data, so manage_finance (gate above).
+router.get('/reports/overview', getReport('overview'));
+router.get('/reports/customers', getReport('customers'));
+router.get('/reports/vendors', getReport('vendors'));
+router.get('/reports/delivery', getReport('delivery'));
+router.get('/reports/export', exportAdminReport);
 router.get('/finance/overview', getFinanceOverview);
 router.get('/finance/policy', getFinancePolicySettings);
 router.put('/finance/policy', saveFinancePolicySettings);
@@ -167,6 +174,8 @@ router.get('/delivery-partners', listDeliveryPartners);
 // swallow "stats" and try to look it up as an ObjectId.
 router.get('/delivery-partners/stats', deliveryFleetStats);
 router.get('/delivery-assignments', getManualAssignmentQueue);
+// Live trips, riders on shift and today's outcomes (Live Dispatch, Active Deliveries, Tracking).
+router.get('/delivery-live', getLiveDispatch);
 router.get('/shiprocket/environment', (_req, res) => res.json({ success: true, data: getShiprocketCapabilities() }));
 router.post('/delivery-assignments/:id', assignDeliveryPartner);
 router.patch('/sellers/:id/pickup-location', setStorePickupLocation);
@@ -216,6 +225,7 @@ router.get('/delivery-zones', listDeliveryZones);
 
 // ---- delivery history (Completed Deliveries) --------------------------------
 router.get('/delivery-history', getDeliveryHistory);
+router.get('/delivery-history/export', exportDeliveryHistory);
 
 // ---- rider payouts (Earnings & Payouts) --------------------------------------
 router.get('/rider-payouts', listRiderPayouts);

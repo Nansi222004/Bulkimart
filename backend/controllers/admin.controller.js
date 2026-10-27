@@ -1668,13 +1668,18 @@ export const getCustomerActivityLog = asyncHandler(async (req, res) => {
  * always current as new orders come in, one paginated query at a time.
  */
 export const getCustomerOrders = asyncHandler(async (req, res) => {
-  const { userId, type, status, search } = req.query;
+  const { userId, type, status, search, salesChannel } = req.query;
+  // Wholesale has its own admin list; retail lists exclude it. Orders saved
+  // before salesChannel existed are retail (the schema default).
+  if (salesChannel !== undefined && !['retail', 'wholesale'].includes(salesChannel)) throw httpError(400, 'Sales channel must be retail or wholesale');
   const { page, limit, skip } = getPagination(req.query);
 
   const filter = {};
   if (userId) filter.userId = userId;
   if (type) filter.type = type;
   if (status) filter.status = status;
+  if (salesChannel === 'wholesale') filter.salesChannel = 'wholesale';
+  else if (salesChannel === 'retail') filter.salesChannel = { $ne: 'wholesale' };
 
   if (search) {
     const rx = new RegExp(escapeRegexForUserFilter(search), 'i');
@@ -2142,48 +2147,7 @@ export const resolveTicket = asyncHandler(async (req, res) => {
   return ok(res, ticket, 'Ticket resolved');
 });
 
-/* ============================================================================
- * DELIVERY HISTORY — Delivery Fleet › Completed Deliveries
- * ========================================================================== */
-
-// @desc    Finished trips (delivered/failed), newest first
-// @route   GET /api/admin/delivery-history?status=&search=
-// @access  Private/Admin
-export const getDeliveryHistory = asyncHandler(async (req, res) => {
-  const { status, search } = req.query;
-  const { page, limit, skip } = getPagination(req.query);
-
-  const filter = { status: { $in: ['delivered', 'failed'] } };
-  if (status && status !== 'all') filter.status = status;
-
-  let deliveries = await Delivery.find(filter)
-    .sort({ endTime: -1, updatedAt: -1 })
-    .skip(skip)
-    .limit(limit)
-    .populate({ path: 'partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } })
-    .populate({ path: 'orderId', select: 'orderNo userId', populate: { path: 'userId', select: 'name phone' } })
-    .lean();
-  let total = await Delivery.countDocuments(filter);
-
-  let rows = deliveries.map((d) => ({
-    id: d.orderId?.orderNo || (d.subscriptionId ? `SUB-${String(d.subscriptionId).slice(-6).toUpperCase()}` : String(d._id).slice(-8).toUpperCase()),
-    partner: d.partnerId?.userId?.name || d.partnerId?.userId?.phone || 'Rider',
-    customer: d.orderId?.userId?.name || d.orderId?.userId?.phone || 'Customer',
-    deliveredAt: d.endTime || d.updatedAt,
-    durationMin: d.startTime && d.endTime ? Math.round((new Date(d.endTime) - new Date(d.startTime)) / 60000) : null,
-    otpVerified: d.otpVerified,
-    status: d.status,
-  }));
-
-  // Search runs after the DB fetch — it's over resolved names (partner/
-  // customer/order ref), not raw fields Mongo can filter on directly.
-  if (search) {
-    const rx = new RegExp(search, 'i');
-    rows = rows.filter((r) => rx.test(r.id) || rx.test(r.partner) || rx.test(r.customer));
-  }
-
-  return paginated(res, rows, { page, limit, total });
-});
+// Delivery history (Completed Deliveries) lives in adminDeliveryOps.controller.js.
 
 /* ============================================================================
  * VENDOR ECOSYSTEM DASHBOARD — General Vendors › Dashboard
@@ -2394,7 +2358,8 @@ export const listDeliveryZones = asyncHandler(async (req, res) => {
     DeliveryPartner.find({ status: VENDOR_STATUS.APPROVED })
       .select('zones baseLocation deliveryRadiusKm isAvailable')
       .lean(),
-    Seller.find({ 'storeDetails.pincode': { $exists: true, $ne: null } })
+    // Only approved stores dispatch orders; a rejected or suspended shop is not coverage demand.
+    Seller.find({ status: VENDOR_STATUS.APPROVED, 'storeDetails.pincode': { $exists: true, $nin: [null, ''] } })
       .select('storeDetails.name storeDetails.pincode storeDetails.city storeDetails.state')
       .lean(),
     getRadiusSetting(),
@@ -2448,6 +2413,10 @@ export const listDeliveryZones = asyncHandler(async (req, res) => {
       if (Number.isFinite(partner.deliveryRadiusKm)) zone.radii.push(partner.deliveryRadiusKm);
     }
   }
+  // A store pincode no rider has declared is a coverage gap; it is the "Inactive" zone.
+  for (const pincode of storesByPincode.keys()) {
+    if (!zones.has(pincode)) zones.set(pincode, { pincode, riders: 0, availableRiders: 0, radii: [] });
+  }
 
   let rows = [...zones.values()].map((zone) => {
     const place = placeByPincode.get(zone.pincode) || {};
@@ -2486,7 +2455,7 @@ export const listDeliveryZones = asyncHandler(async (req, res) => {
   if (city) rows = rows.filter((r) => r.city === city);
   if (status && status !== 'All') rows = rows.filter((r) => r.status === status);
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegexForUserFilter(search), 'i');
     rows = rows.filter((r) => rx.test(r.zoneCode) || rx.test(r.zoneName || '') || rx.test(r.city || '') || rx.test(r.state || ''));
   }
 
