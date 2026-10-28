@@ -7,6 +7,8 @@ import { reconcileCreationAttempt, processRefundObligation, reconcileRefundEvent
 import { requireParcelGateway, failParcel, integer, boundedText } from './parcelPolicy.service.js';
 import { ownedParcel, parcelKey, parcelEvent, postParcel, touchParcel } from './parcelWorkflow.service.js';
 import { notifyParcel, assignParcel, dispatchReady } from './parcelAssignment.service.js';
+import { creditWallet } from './wallet.service.js';
+import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 export async function initiateParcelPayment(id,customerId,input,key) {
   requireParcelGateway(); parcelKey(key);
   const prepared = await financialTransaction(async session => {
@@ -78,7 +80,7 @@ export async function verifyParcelPayment(id,customerId,input,poll=false) {
 }
 export async function approveParcelRefund(b,input,actor,session) {
   requireParcelGateway('refunds');
-  if (b.paymentMethod !== 'online' || b.status !== 'cancelled' || b.finance.earningPosted || b.finance.dispute || b.finance.gatewayDisputes?.length) failParcel('Refund requires a cancelled booking and a reviewed unallocated online capture',409);
+  if (b.paymentMethod !== 'online' || b.status !== 'cancelled' || b.finance.earningPosted || b.finance.dispute || b.finance.gatewayDisputes?.length || b.finance.walletRefund) failParcel('Refund requires a cancelled booking and a reviewed unallocated online capture',409);
   const p = await Payment.findById(b.paymentId).session(session), capture = p?.captures.find(c=>c.disposition==='settled');
   if (!capture) failParcel('Verified captured payment required',409);
   const amount = integer(input.amountPaise,'refund amount',1), allocated = p.refundObligations.reduce((n,r)=>n+r.amountPaise,0);
@@ -87,6 +89,37 @@ export async function approveParcelRefund(b,input,actor,session) {
   p.refundObligations.push({key,gatewayOrderId:capture.gatewayOrderId,gatewayPaymentId:capture.gatewayPaymentId,amountPaise:amount,currency:'INR',reason,status:'pending',createdAt:new Date()});
   b.finance.refundStatus='approved'; b.finance.held=true;
   parcelEvent(b,actor,'refund_approved',b.status,reason); await p.save({session});
+}
+// Money the company holds for a cancelled booking that has not been refunded in any way yet:
+// a settled online capture, or cash the rider has already deposited. Cash still with the rider
+// is not refundable until its deposit is confirmed.
+async function parcelRefundableCollection(b,session) {
+  if (b.status !== 'cancelled' || b.finance.earningPosted || b.finance.dispute || b.finance.gatewayDisputes?.length || b.finance.refundedPaise > 0 || b.finance.cashRefund || b.finance.walletRefund) return 0;
+  if (b.paymentMethod === 'pay_driver') return b.cash.status === 'reconciled' ? b.cash.amountPaise : 0;
+  const p = b.paymentId && await Payment.findById(b.paymentId).session(session);
+  if (!p || p.refundObligations.length || p.captures.some(c=>c.disposition !== 'settled')) return 0;
+  return p.captures.reduce((n,c)=>n+c.amountPaise,0);
+}
+// Refunds a cancelled booking to the customer's Bulkimart wallet, once per booking.
+export async function refundParcelToWallet(b,{amountPaise,actor,reason=''},session) {
+  const collected = await parcelRefundableCollection(b,session);
+  if (!collected) failParcel('This booking has no unrefunded payment that can be returned to the wallet',409);
+  const amount = amountPaise === undefined ? collected : integer(amountPaise,'refund amount',1);
+  if (amount > collected) failParcel('Refund exceeds the amount paid',409);
+  const ref = `#${String(b.reference || b._id).slice(-6).toUpperCase()}`;
+  const credit = await creditWallet({ userId:b.customerId, amount:amount/100, type:WALLET_TRANSACTION_TYPE.CANCELLATION_REFUND, referenceType:WALLET_REFERENCE_TYPE.PARCEL, referenceId:b._id,
+    description:`Refund for cancelled parcel ${ref}`, idempotencyKey:`PARCEL_WALLET_REFUND:${b._id}`, session,
+    ...(actor.type === 'admin' ? { createdBy:actor.id, createdByModel:'Admin' } : {}), metadata:{ parcelDeliveryId:String(b._id) } });
+  await postParcel(b,'wallet-refund','parcel_collections','debit',amount,session);
+  b.finance.refundedPaise = amount; b.finance.refundStatus = 'confirmed';
+  b.finance.walletRefund = { amountPaise:amount, transactionId:credit.transaction?.transactionId, at:new Date() };
+  if (b.paymentMethod === 'pay_driver') b.cash.status = 'refunded_to_wallet';
+  parcelEvent(b,actor,'refund_to_wallet',b.status,reason);
+}
+// Customer cancellations are refunded in full automatically as soon as the money is held.
+export async function autoRefundParcelToWallet(b,actor,session) {
+  if (b.cancellation?.status !== 'approved' || b.cancellation.refundTo === 'original' || !await parcelRefundableCollection(b,session)) return;
+  await refundParcelToWallet(b,{actor,reason:'Automatic refund for an approved cancellation'},session);
 }
 export async function syncParcelRefunds(paymentId) {
   return financialTransaction(async session => {

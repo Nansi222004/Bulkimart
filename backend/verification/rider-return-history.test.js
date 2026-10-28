@@ -68,3 +68,30 @@ test('rider history and today\'s earnings include return pickups under their ret
   const summary = await call(getEarningsSummary, { partner, query: {} });
   expect(summary.data.daily.breakdown).toEqual([expect.objectContaining({ type: 'Return pickup', orderId: done.returnNumber, amount: 40 })]);
 });
+
+test('parcel jobs appear in rider history and earnings: delivered pay, failed jobs and declined or expired offers', async () => {
+  const { default: Parcel } = await import('../models/ParcelDelivery.js');
+  const now = new Date(), other = id();
+  const parcel = (status, extra = {}) => ({ _id: id(), reference: `PD-${Math.random().toString(16).slice(2, 10).toUpperCase()}`, status, partnerId: partner._id, paymentMethod: 'online',
+    pricing: { driverPaise: 1020, totalPaise: 2040 }, cash: { status: 'not_applicable', amountPaise: 0 }, assignment: { attempts: [] }, createdAt: now, updatedAt: now, ...extra });
+  const delivered = parcel('delivered', { proof: { delivery: { verifiedAt: now } } });
+  const cash = parcel('delivered', { paymentMethod: 'pay_driver', cash: { status: 'collected_unreconciled', amountPaise: 2040 }, proof: { delivery: { verifiedAt: now } } });
+  const failed = parcel('delivery_failed', { exception: { reason: 'invalid_address', at: now } });
+  const declined = parcel('searching_for_driver', { partnerId: other, assignment: { attempts: [{ partnerId: partner._id, token: 't1', outcome: 'rejected', resolvedAt: now }, { partnerId: partner._id, token: 't2', outcome: 'timeout', expiresAt: now }] } });
+  const someoneElse = parcel('delivered', { partnerId: other, proof: { delivery: { verifiedAt: now } } });
+  await Parcel.collection.insertMany([delivered, cash, failed, declined, someoneElse]);
+
+  const history = (await call(getRiderHistory, { partner, query: {} })).data.filter(item => item.kind === 'parcel');
+  const types = history.map(item => item.type).sort();
+  expect(types).toEqual(['DECLINED_BY_RIDER', 'DELIVERED', 'DELIVERED', 'FAILED', 'OFFER_EXPIRED']);
+  expect(history.find(item => item.orderId === String(delivered._id))).toMatchObject({ type: 'DELIVERED', amount: 10.2, orderNo: `#${delivered.reference.slice(-6)}` });
+  expect(history.some(item => item.orderId === String(someoneElse._id))).toBe(false);
+  expect((await call(getRiderHistory, { partner, query: { type: 'FAILED' } })).data.map(item => item.orderId)).toEqual([String(failed._id)]);
+
+  const summary = (await call(getEarningsSummary, { partner, query: {} })).data;
+  expect(summary.daily).toMatchObject({ trips: 2, total: 20.4 });
+  expect(summary.daily.breakdown.map(trip => trip.type)).toEqual(['Parcel delivery', 'Parcel delivery']);
+  expect(summary.daily.breakdown.find(trip => trip.id === String(cash._id))).toMatchObject({ isCod: true, codAmount: 20.4 });
+  expect(summary.weekly).toMatchObject({ trips: 2, total: 20.4 });
+  expect(summary.parcels).toEqual({ weekTotal: 20.4, lifetimeTrips: 2, lifetimeTotal: 20.4 });
+});

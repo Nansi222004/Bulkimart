@@ -24,7 +24,15 @@ export const EarningsPage = () => {
 
   const hasPendingRequest = payoutHistory.some((p) => p.status === 'pending');
 
-  const data = earningsData[period];
+  // Today's and this week's totals already include parcel jobs from the server; the lifetime
+  // figure comes from the partner record, which counts shopping trips only, so parcels are added here.
+  const parcels = earningsData.parcels;
+  const base = earningsData[period];
+  const data = period === 'lifetime' && parcels
+    ? { ...base, total: Math.round((base.total + parcels.lifetimeTotal) * 100) / 100, trips: base.trips + parcels.lifetimeTrips }
+    : base;
+  const parcelPeriodTotal = !parcels ? 0 : period === 'lifetime' ? parcels.lifetimeTotal : period === 'weekly' ? parcels.weekTotal
+    : (data.breakdown || []).filter((trip) => trip.type === 'Parcel delivery').reduce((n, trip) => n + trip.amount, 0);
 
   /**
    * A figure we cannot vouch for is shown as a dash, never as ₹0. `lifetime`
@@ -150,6 +158,19 @@ export const EarningsPage = () => {
           </div>
         )}
 
+        {data.available && parcelPeriodTotal > 0 && (
+          <div className="delivery-tips-summary-row">
+            <div className="delivery-tips-summary-left">
+              <span className="delivery-tips-icon">📦</span>
+              <div className="delivery-tips-meta">
+                <span className="delivery-tips-title">Parcel deliveries</span>
+                <span className="delivery-tips-sub">Included in Total Pay · paid out after the delivery is reviewed</span>
+              </div>
+            </div>
+            <span className="delivery-tips-amount">₹{Math.round(parcelPeriodTotal * 100) / 100}</span>
+          </div>
+        )}
+
         {!data.available && (
           <p className="delivery-payout-footer-label">
             {period === 'daily'
@@ -188,10 +209,10 @@ export const EarningsPage = () => {
             {data.breakdown.map(txn => (
               <div key={txn.id} className="delivery-txn-row">
                 <div className="txn-left">
-                  <span className="txn-icon">🏍️</span>
+                  <span className="txn-icon">{txn.type === 'Parcel delivery' ? '📦' : '🏍️'}</span>
                   <div className="txn-meta">
                     <span className="txn-title">{txn.type}</span>
-                    <span className="txn-time">{txn.time} • Order {txn.orderId}</span>
+                    <span className="txn-time">{txn.time} • {txn.type === 'Parcel delivery' ? 'Parcel' : 'Order'} {txn.orderId}</span>
                   </div>
                 </div>
                 <div className="txn-right">

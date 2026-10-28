@@ -1,6 +1,7 @@
 import { clearPortalRequests } from './portalRequests';
 import { clearDeliveryRegistrationDrafts } from './deliveryRegistrationDraft';
 import { bindSessionBackend, clearSessionBackend } from './sessionBackend';
+import { disablePushSession } from './pushSessionState';
 export const DELIVERY_SESSION_CHANGED = 'bulkimart:delivery-session-changed';
 let revision = 0;
 // Registration can continue within this app session, but a reload/reopen
@@ -10,6 +11,7 @@ export const hasActiveDeliveryRegistration = token => Boolean(token && token ===
 export const captureDeliverySession = () => ({ token: localStorage.getItem('deliveryToken'), revision });
 export const isCurrentDeliverySession = snapshot => snapshot.token === localStorage.getItem('deliveryToken') && snapshot.revision === revision;
 export function clearDeliverySession(notify = true) {
+  void disablePushSession('delivery');
   revision++;
   registrationToken = null;
   clearPortalRequests('delivery');

@@ -100,10 +100,10 @@ export const RiderHistoryPage = () => {
               return (
                 <div key={item.id} className="delivery-txn-row">
                   <div className="txn-left">
-                    <span className="txn-icon">{meta.icon}</span>
+                    <span className="txn-icon">{item.kind === 'parcel' && item.type === 'DELIVERED' ? '📦' : meta.icon}</span>
                     <div className="txn-meta">
                       <span className="txn-title">{meta.label}</span>
-                      <span className="txn-time">{formatDateTime(item.timestamp)} • {item.kind === 'return_pickup' ? 'Return pickup' : 'Order'} {item.orderNo}</span>
+                      <span className="txn-time">{formatDateTime(item.timestamp)} • {item.kind === 'return_pickup' ? 'Return pickup' : item.kind === 'parcel' ? 'Parcel' : 'Order'} {item.orderNo}</span>
                     </div>
                   </div>
                   <div className="txn-right">

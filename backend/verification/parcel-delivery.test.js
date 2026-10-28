@@ -262,7 +262,7 @@ test('pickup collection cancellation uses evidence and existing held-cash revers
 test('cash reconciliation needs finance permission, exact amount and deposit evidence',async()=>{const b=await booking();await toDrop(b);await dact(b,'collect_cash',{amountPaise:2040});const d=await adminDetail(b._id);await auth(request(app).post(`/a/bookings/${b._id}/actions`),ops,'admin').send({action:'reconcile_cash',version:d.version,amountPaise:2040,reason:'Fixture',evidence:'Fixture bank'}).expect(403);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'reconcile_cash',version:d.version,amountPaise:2040,reason:'Fixture'}).expect(400);await aact(b,'reconcile_cash',{amountPaise:2040,evidence:'SYNTHETIC BANK DEPOSIT'});expect((await adminDetail(b._id)).cash.status).toBe('reconciled');expect(await Ledger.countDocuments({parcelDeliveryId:b._id,account:'parcel_collections',direction:'credit'})).toBe(1);});
 test('cancellation pauses offers, is auditable, and releases driver only on approval',async()=>{const b=await booking(),d=await driverDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Fixture request'}).expect(200);await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'accept',version:d.version,token:d.offer.token}).expect(409);await aact(b,'approve_cancellation');expect((await Partner.findById(partner._id)).isAvailable).toBe(true);expect((await adminDetail(b._id)).status).toBe('cancelled');});
 test('failed delivery and refusal retain custody until explicit admin evidence',async()=>{const b=await booking();await toDrop(b);await dact(b,'exception',{reason:'recipient_refusal'});expect((await Partner.findById(partner._id)).isAvailable).toBe(false);const d=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'resolve_exception',version:d.version,reason:'Reviewed'}).expect(400);await aact(b,'resolve_exception',{custodyEvidence:'SYNTHETIC RETURN RECEIPT'});expect((await Partner.findById(partner._id)).isAvailable).toBe(true);});
-test('approved online refunds use shared recovery and compensating ledger entries idempotently',async()=>{const b=await paid(),d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic cancellation'}).expect(200);await aact(b,'approve_cancellation');await aact(b,'approve_refund',{amountPaise:2040});let a=await adminDetail(b._id),key=a.payment.refundObligations[0].key;await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);a=await adminDetail(b._id);expect(a.refund.refundedPaise).toBe(2040);expect(sdk.payments.refund).toHaveBeenCalledTimes(1);expect(a.ledger.filter(x=>x.direction==='debit'&&x.account==='parcel_collections')).toHaveLength(1);});
+test('approved online refunds use shared recovery and compensating ledger entries idempotently',async()=>{const b=await paid(),d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic cancellation'}).expect(200);await aact(b,'approve_cancellation',{refundTo:'original'});await aact(b,'approve_refund',{amountPaise:2040});let a=await adminDetail(b._id),key=a.payment.refundObligations[0].key;await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);a=await adminDetail(b._id);expect(a.refund.refundedPaise).toBe(2040);expect(sdk.payments.refund).toHaveBeenCalledTimes(1);expect(a.ledger.filter(x=>x.direction==='debit'&&x.account==='parcel_collections')).toHaveLength(1);});
 test('financial ledger parcel identity participates in replay validation and remains append-only',async()=>{const b=await paid(),entries=await Ledger.find({parcelDeliveryId:b._id});expect(entries).toHaveLength(1);await expect(Ledger.updateOne({_id:entries[0]._id},{$set:{amount:1}})).rejects.toThrow(/append-only/);});
 test('notifications contain no contacts or addresses and failure cannot undo acceptance',async()=>{notify.mockRejectedValue(new Error('Synthetic notification outage'));const b=await booking();expect(b.status).toBe('searching_for_driver');for(const args of notify.mock.calls)expect(JSON.stringify(args)).not.toMatch(/Private pickup|9876500011/);});
 test('new parcel models cannot automatically create production collections or indexes',()=>{for(const m of [Parcel,Quote,Policy]){expect(m.schema.options.autoIndex).toBe(false);expect(m.schema.options.autoCreate).toBe(false);}});
@@ -310,7 +310,7 @@ test('an additional verified capture is held and cannot dispatch or double-post 
   expect(await Ledger.countDocuments({parcelDeliveryId:b._id,account:'parcel_collections'})).toBe(2);
 });
 test('cumulative refund approvals cannot exceed the original verified capture',async()=>{
-  const b=await paid(),d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic cancellation'}).expect(200);await aact(b,'approve_cancellation');await aact(b,'approve_refund',{amountPaise:2040});
+  const b=await paid(),d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic cancellation'}).expect(200);await aact(b,'approve_cancellation',{refundTo:'original'});await aact(b,'approve_refund',{amountPaise:2040});
   const fresh=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'approve_refund',version:fresh.version,reason:'Excess refund fixture',amountPaise:1}).expect(409);
 });
 test('parcel ledger replay refuses a different parcel reference for the same financial event',async()=>{
@@ -326,11 +326,6 @@ test('a single late capture on a cancelled booking requires explicit finance all
   const held=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'approve_refund',version:held.version,reason:'Blocked before allocation',amountPaise:2040}).expect(409);
   await aact(b,'allocate_cancelled_capture');await aact(b,'approve_refund',{amountPaise:2040});
   const fresh=await adminDetail(b._id);expect(fresh.status).toBe('cancelled');expect(fresh.payment.refundObligations).toHaveLength(1);
-});
-test('cancelling a failed delivery after pickup still requires custody evidence',async()=>{
-  const b=await booking();await toDrop(b);await dact(b,'exception',{reason:'recipient_refusal'});const d=await adminDetail(b._id);
-  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic cancellation of failed trip'}).expect(200);
-  const review=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'approve_cancellation',version:review.version,reason:'Missing custody evidence'}).expect(409);
 });
 
 test('readiness: refunds cannot be approved during cancellation review and then resume delivery',async()=>{
@@ -533,7 +528,7 @@ test('readiness: a signed late event recovers an uncertain initialization using 
 });
 test('readiness: uncertain refund retries require reconciliation and issue no second provider request',async()=>{
   const b=await paid(),d=await adminDetail(b._id);
-  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Refund transport test'}).expect(200);await aact(b,'approve_cancellation');await aact(b,'approve_refund',{amountPaise:2040});
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Refund transport test'}).expect(200);await aact(b,'approve_cancellation',{refundTo:'original'});await aact(b,'approve_refund',{amountPaise:2040});
   const key=(await adminDetail(b._id)).payment.refundObligations[0].key;refundUnknown=true;
   await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);expect((await adminDetail(b._id)).refund.refundedPaise).toBe(0);
   refundUnknown=false;await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(409);
@@ -558,4 +553,89 @@ test('readiness: parcel payments and ledger replays reject incompatible shopping
   const b=await paid(),entry=await Ledger.findOne({parcelDeliveryId:b._id}),{postLedgerEntry}=await import('../services/sellerLedger.service.js');
   await expect(postLedgerEntry({...entry.toObject(),currency:'USD'})).rejects.toThrow(/currency/);
   await expect(Ledger.create({entryNo:crypto.randomUUID(),idempotencyKey:crypto.randomUUID(),parcelDeliveryId:b._id,partnerId:partner._id,account:'parcel_driver_payable',type:'adjustment',direction:'credit',bucket:'eligible',amount:1,description:'Unapproved release'})).rejects.toThrow(/held/);
+});
+const reviewAlerts=id=>notify.mock.calls.map(([opts])=>opts).filter(opts=>opts?.route===`/admin/parcel-delivery?parcel=${id}`);
+test('a rider help request alerts admins once with a link to the paused booking and joins the review queue',async()=>{
+  const b=await booking();await toDrop(b);notify.mockClear();
+  await dact(b,'exception',{reason:'unreachable_recipient'});
+  const [alert,...extra]=reviewAlerts(b._id);
+  expect(extra).toEqual([]);expect(alert).toMatchObject({event:'PARCEL_UPDATED',metadata:{parcelDeliveryId:String(b._id)}});
+  expect(alert.title).toMatch(/^Parcel #[A-Z0-9]{6} needs help$/);expect(alert.message).toMatch(/contact person is not answering.*paused/);
+  expect(JSON.stringify(alert)).not.toMatch(/Synthetic|address|phone|code/i);
+  const queue=(await adm(request(app).get('/a/bookings?status=needs_review')).expect(200)).body;
+  expect(queue.data.map(r=>String(r._id))).toEqual([String(b._id)]);expect(queue.meta.total).toBe(1);
+  await aact(b,'retry_exception');
+  expect(reviewAlerts(b._id)).toHaveLength(1);
+  expect((await adm(request(app).get('/a/bookings?status=needs_review')).expect(200)).body.meta.total).toBe(0);
+});
+test('a customer cancellation request alerts admins; customers cannot use the admin review filter',async()=>{
+  const b=await booking();await atPickup(b);notify.mockClear();
+  const d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Synthetic change of plans'}).expect(200);
+  const alerts=reviewAlerts(b._id);
+  expect(alerts).toHaveLength(1);expect(alerts[0].title).toMatch(/cancellation requested$/);expect(alerts[0].message).not.toMatch(/Synthetic change of plans/);
+  expect((await adm(request(app).get('/a/bookings?status=needs_review')).expect(200)).body.meta.total).toBe(1);
+  expect((await auth(request(app).get('/c/bookings?status=needs_review')).expect(200)).body.meta.total).toBe(0);
+});
+test('customers can cancel until the rider collects the parcel; after pickup the option disappears and the server refuses',async()=>{
+  const view=async b=>(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  const b=await booking();expect((await view(b)).canCancel).toBe(true);await atPickup(b);expect((await view(b)).canCancel).toBe(true);
+  await dact(b,'pickup_code');
+  await dact(b,'verify_pickup',{code:(await view(b)).pickupCode});
+  for (const step of [null,'in_transit','arrived_at_dropoff']) {
+    if (step) await dact(b,step);
+    const d=await view(b);expect(d.canCancel).toBe(false);
+    const r=await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Too late'}).expect(409);
+    expect(r.body.message).toMatch(/picked up and can no longer be cancelled/);
+  }
+  // A failed delivery after pickup stays with the admin review (continue or close with custody evidence).
+  await dact(b,'exception',{reason:'recipient_refusal'});
+  const failed=await view(b);expect(failed.canCancel).toBe(false);
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:failed.version,reason:'Too late'}).expect(409);
+  expect((await adminDetail(b._id)).status).toBe('delivery_failed');
+});
+const walletOf=async()=>{const {default:WalletLedger}=await import('../models/WalletLedger.js');return {balance:(await User.findById(customer._id)).wallet?.balance||0,entries:await WalletLedger.find({userId:customer._id}).lean()};};
+test('an approved online cancellation is refunded to the customer wallet once, with the parcel ledger reversed',async()=>{
+  const b=await paid(),d=await adminDetail(b._id);
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Plans changed'}).expect(200);
+  await aact(b,'approve_cancellation');
+  const {balance,entries}=await walletOf();
+  expect(balance).toBe(20.4);expect(entries).toHaveLength(1);expect(entries[0]).toMatchObject({type:'CANCELLATION_REFUND',referenceType:'PARCEL',referenceId:String(b._id),direction:'credit',amount:20.4});
+  const done=await adminDetail(b._id);expect(done.finance).toMatchObject({refundedPaise:2040,refundStatus:'confirmed'});
+  expect(done.ledger.filter(e=>e.account==='parcel_collections').reduce((n,e)=>n+(e.direction==='credit'?1:-1)*e.amount,0)).toBe(0);
+  expect((await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data.refund).toEqual({status:'confirmed',refundedPaise:2040,toWallet:true});
+  // No second refund by any route.
+  for(const [action,extra] of [['refund_to_wallet',{}],['approve_refund',{amountPaise:2040}]]){const v=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action,version:v.version,reason:'Again',...extra}).expect(409);}
+  expect((await walletOf()).balance).toBe(20.4);
+});
+test('cash collected before cancellation reaches the wallet once the rider deposit is confirmed',async()=>{
+  const {b}=await cashChoice();await atPickup(b);await dact(b,'collect_cash',{amountPaise:2040});
+  const d=await adminDetail(b._id);await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Plans changed'}).expect(200);
+  await aact(b,'approve_cancellation');
+  expect((await walletOf()).balance).toBe(0);
+  await aact(b,'reconcile_cash',{amountPaise:2040,evidence:'SYNTHETIC DEPOSIT SLIP'});
+  expect((await walletOf()).balance).toBe(20.4);
+  const done=await adminDetail(b._id);expect(done.cash.status).toBe('refunded_to_wallet');
+  const v=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'cash_refund_evidence',version:v.version,reason:'Again',amountPaise:2040,evidence:'X'}).expect(409);
+});
+test('admins can choose the original payment method, or refund a closed delivery to the wallet manually',async()=>{
+  const b=await paid(),d=await adminDetail(b._id);
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Plans changed'}).expect(200);
+  await aact(b,'approve_cancellation',{refundTo:'original'});
+  expect((await walletOf()).balance).toBe(0);
+  const v=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'refund_to_wallet',version:v.version,reason:'Partial goodwill',amountPaise:5000}).expect(409);
+  await aact(b,'refund_to_wallet',{amountPaise:1000});
+  expect((await walletOf()).balance).toBe(10);
+  const w=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/actions`)).send({action:'approve_cancellation',version:w.version,reason:'x',refundTo:'bank'}).expect(409);
+});
+test('the customer sees the assigned delivery partner, with contact details only while the delivery is under way',async()=>{
+  await User.updateOne({_id:driver._id},{name:'Ravi Rider'});await Partner.updateOne({_id:partner._id},{vehicleType:'bike',vehicleNo:'KA01AB1234',rating:4.8,ratingCount:12});
+  const b=await booking(),view=async()=>(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  expect((await view()).partner).toBeUndefined();
+  await accept(b);
+  expect((await view()).partner).toEqual({name:'Ravi Rider',vehicleType:'bike',rating:4.8,phone:'9876500013',vehicleNo:'KA01AB1234'});
+  for(const step of ['driver_arriving','arrived_at_pickup','pickup_code'])await dact(b,step);await dact(b,'verify_pickup',{code:(await view()).pickupCode});
+  await dact(b,'in_transit');expect((await view()).partner.phone).toBe('9876500013');await dact(b,'arrived_at_dropoff');await dact(b,'delivery_code');
+  await dact(b,'collect_cash',{amountPaise:2040});await dact(b,'verify_delivery',{code:(await view()).deliveryCode});
+  expect((await view()).partner).toEqual({name:'Ravi Rider',vehicleType:'bike',rating:4.8});
+  expect(JSON.stringify((await auth(request(app).get('/c/bookings')).expect(200)).body.data)).not.toMatch(/Ravi Rider|9876500013/);
 });

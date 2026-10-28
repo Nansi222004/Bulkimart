@@ -10,6 +10,9 @@ import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// Customers may cancel only until the rider has collected the parcel. After pickup,
+// problems go through the rider's help request and the admin review queue instead.
+export const parcelCustomerCanCancel = b => !['delivered','cancelled','cancellation_review','picked_up','in_transit','arrived_at_dropoff'].includes(b.status) && !b.proof?.pickup?.verifiedAt;
 export const parcelKey = key => { if (typeof key !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(key)) failParcel('Valid idempotency key required'); return key; };
 export function parcelEvent(b, actor, action, status = b.status, reason = '') {
   b.status = status; b.history.push({ status, action, actorId: actor.id, actorType: actor.type, at: new Date(), reason });
@@ -78,6 +81,7 @@ export function parcelDTO(b, mode = 'customer', partnerId) {
   return { ...summary, details:mode === 'driver' && terminal ? { category:v.details.category } : v.details, terms:v.pricing.policy.terms, pricing:mode === 'admin'?v.pricing:undefined,
     route:mode === 'customer'?{ distanceMetres:v.pricing.distanceMetres, ...(v.pricing.routeProvider ? { provider:v.pricing.routeProvider } : {}) }:undefined,
     service:mode === 'customer'?{ id:'parcel', name:'Doorstep delivery' }:undefined,
+    canCancel:mode === 'customer'?parcelCustomerCanCancel(v):undefined,
     assignment:mode === 'admin'?v.assignment:undefined, partnerId:v.partnerId, history:h, cash:{ status:v.cash.status, amountPaise:v.cash.amountPaise },
     finance:mode === 'admin'?{...v.finance,settlementBlockers:parcelSettlementBlockers(v)}: mode === 'driver'?{ earningPaise:v.pricing.driverPaise, held:v.finance.held, payoutStatus:'not_released' }:undefined,
     pickupCode:mode === 'customer' && v.status === 'arrived_at_pickup' && !parcelOperationalHold(v) && v.proof.pickup && new Date(v.proof.pickup.expiresAt)>new Date() && !v.proof.pickup.verifiedAt ? v.proof.pickup.code:undefined,
@@ -85,7 +89,7 @@ export function parcelDTO(b, mode = 'customer', partnerId) {
     proof:mode === 'admin'?{ pickupVerifiedAt:v.proof.pickup?.verifiedAt,deliveryVerifiedAt:v.proof.delivery?.verifiedAt }:undefined,
     cancellation:mode === 'admin'?v.cancellation:v.cancellation?{ status:v.cancellation.status }:undefined,
     exception:mode === 'admin'?v.exception:v.exception?{ reason:v.exception.reason }:undefined,
-    refund: { status:v.finance.refundStatus || 'none', refundedPaise:v.finance.refundedPaise || 0 } };
+    refund: { status:v.finance.refundStatus || 'none', refundedPaise:v.finance.refundedPaise || 0, ...(v.finance.walletRefund?{ toWallet:true }:{}) } };
 }
 export async function releaseParcelRider(b,session) {
   const rider = b.partnerId || b.assignment.offer?.partnerId;
@@ -101,7 +105,7 @@ export async function parcelCustomerCancel(id, customerId, input) {
   requireParcel('booking');
   return financialTransaction(async session => {
     const b = await ownedParcel(id,customerId,session); parcelVersion(b,input.version);
-    if (['delivered','cancelled','cancellation_review'].includes(b.status)) failParcel('Cancellation is unavailable',409);
+    if (!parcelCustomerCanCancel(b)) failParcel(b.proof?.pickup?.verifiedAt ? 'The parcel has been picked up and can no longer be cancelled' : 'Cancellation is unavailable',409);
     b.cancellation = { status:'requested', priorState:b.status, reason:boundedText(input.reason,'Cancellation reason'), requestedAt:new Date() };
     parcelEvent(b,{ id:customerId,type:'customer' },'cancellation_requested','cancellation_review');
     touchParcel(b); await b.save({ session }); return b;

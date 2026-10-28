@@ -33,6 +33,14 @@ test('reports real Firebase send success only after the SDK resolves', async () 
     .resolves.toEqual({ success: true, response: 'firebase-message-id' });
 });
 
+test.each(['user', 'rider', 'seller', 'admin'])('%s web pushes cannot bypass the worker logout check through automatic display', async audience => {
+  send.mockResolvedValue('message-fixture');
+  await sendPushNotification('web-fixture', { web: true, title: 'Update', body: 'Fixture', image: 'https://fixture.invalid/image.webp', data: { audience, recipientId: 'account-fixture', event: 'SYSTEM' } });
+  const message = send.mock.calls[0][0];
+  expect(message.notification).toBeUndefined();
+  expect(message.data).toMatchObject({ audience, recipientId: 'account-fixture', title: 'Update', body: 'Fixture', image: 'https://fixture.invalid/image.webp' });
+});
+
 test('does not report fake success when Firebase rejects a send', async () => {
   send.mockRejectedValue(Object.assign(new Error('token rejected'), {
     code: 'messaging/registration-token-not-registered',

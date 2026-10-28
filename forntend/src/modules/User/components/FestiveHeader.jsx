@@ -1,5 +1,5 @@
 import React from 'react';
-import Celebration, { DecorationToggle } from './Celebration';
+import Celebration from './Celebration';
 import { useStorefront } from '../context/StorefrontContext';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { DEFAULT_HEADER, DEFAULT_COUNTDOWN, countdownState, countdownParts, headerDestination } from '../../../utils/storefront';
@@ -36,7 +36,6 @@ export function FestiveHeader({ header, effect, now, preview = false, onNavigate
       </div>
       {header.image && <img className="sf-festive-art" src={header.image} alt="" />}
     </div>
-    {!preview && effect && <DecorationToggle />}
   </section>;
 }
 

@@ -347,7 +347,7 @@ export const updateFCMToken = asyncHandler(async (req, res) => {
     throw new Error('Please provide an FCM token');
   }
 
-  await registerPushToken(req.user._id, fcmToken);
+  await registerPushToken(req.user._id, fcmToken, undefined, req.tokenRole || 'buyer');
 
   res.status(200).json({
     success: true,

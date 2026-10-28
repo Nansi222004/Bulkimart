@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import Parcel from '../models/ParcelDelivery.js';
+import Parcel, { PARCEL_REVIEW_STATES } from '../models/ParcelDelivery.js';
 import Partner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
 import Order from '../models/Order.js';
@@ -47,7 +47,18 @@ export async function notifyParcel(b) {
   const recipients = new Set([...parcelOfferRecipients(b.assignment.offer), ...b.assignment.attempts.map(a=>String(a.partnerId)), ...(b.partnerId?[String(b.partnerId)]:[])]);
   for (const rider of recipients) jobs.push(notifyRider(rider,{...opts,dedupeKey:`PARCEL:${b._id}:${b.__v}:${rider}`,route:'/delivery/parcels'}));
   if (b.status === 'needs_admin_assignment') jobs.push(notifyAllAdmins({...opts,route:'/admin/parcel-delivery'}));
+  const review = parcelReviewAlert(b);
+  if (review) jobs.push(notifyAllAdmins({ event:'PARCEL_UPDATED', ...review, metadata:{ parcelDeliveryId:String(b._id) }, route:`/admin/parcel-delivery?parcel=${b._id}` }));
   await Promise.allSettled(jobs);
+}
+const RIDER_PROBLEMS = { unreachable_recipient:'the contact person is not answering', invalid_address:'they cannot find the address', prohibited_parcel:'the parcel contains an item that is not allowed', recipient_refusal:'the recipient does not want the parcel', payment_refusal:'the cash payment was refused', operational_failure:'of another pickup or delivery problem' };
+// Admins are alerted once, by the event that paused the booking, not by later updates while it waits for review.
+export function parcelReviewAlert(b) {
+  const last = b.history?.at(-1), ref = `Parcel #${String(b.reference || b._id).slice(-6).toUpperCase()}`;
+  if (!PARCEL_REVIEW_STATES.includes(b.status) || last?.status !== b.status) return null;
+  if (last.action === 'exception') return { title:`${ref} needs help`, message:`The delivery partner asked for help because ${RIDER_PROBLEMS[b.exception?.reason] || 'of a delivery problem'}. The delivery is paused until you continue it or close it.` };
+  if (last.action === 'cancellation_requested') return { title:`${ref} cancellation requested`, message:'The customer asked to cancel. The delivery is paused until you approve or decline the request.' };
+  return null;
 }
 export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
   requireParcel(partnerId?'admin_fallback':'auto_assignment');

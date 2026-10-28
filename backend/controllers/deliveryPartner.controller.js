@@ -5,6 +5,7 @@ import DeliveryPartner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
 import Order from '../models/Order.js';
 import Delivery from '../models/Delivery.js';
+import Parcel from '../models/ParcelDelivery.js';
 import Seller from '../models/Seller.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
@@ -2197,7 +2198,12 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
       return item;
     });
 
-  const all = [...offerItems, ...deliveryItems].sort(
+  const parcelItems = (await Parcel.find({ $or: [{ partnerId: partner._id }, { 'assignment.attempts.partnerId': partner._id }] })
+    .select('reference status partnerId pricing.driverPaise proof.delivery.verifiedAt exception assignment.attempts updatedAt').lean())
+    .flatMap((b) => parcelHistoryItems(b, partner._id))
+    .filter((item) => !wantedType || item.type === wantedType);
+
+  const all = [...offerItems, ...deliveryItems, ...parcelItems].sort(
     (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
   );
 
@@ -2206,6 +2212,18 @@ export const getRiderHistory = asyncHandler(async (req, res) => {
 
   return paginated(res, page_, { page, limit, total });
 });
+
+// A parcel job in the rider's history: its outcome for this rider plus any offer they declined or let expire.
+const parcelNumber = (b) => `#${String(b.reference || b._id).slice(-6).toUpperCase()}`;
+function parcelHistoryItems(b, partnerId) {
+  const mine = String(b.partnerId || '') === String(partnerId), base = { orderId: String(b._id), orderNo: parcelNumber(b), kind: 'parcel' };
+  const offers = (b.assignment?.attempts || []).filter((a) => String(a.partnerId) === String(partnerId) && ['rejected', 'timeout'].includes(a.outcome))
+    .map((a) => ({ ...base, id: `${b._id}:${a.token}`, type: a.outcome === 'rejected' ? 'DECLINED_BY_RIDER' : 'OFFER_EXPIRED', timestamp: a.resolvedAt || a.expiresAt || a.offeredAt }));
+  if (!mine) return offers;
+  if (b.status === 'delivered') return [...offers, { ...base, id: String(b._id), type: 'DELIVERED', timestamp: b.proof?.delivery?.verifiedAt || b.updatedAt, amount: (b.pricing?.driverPaise || 0) / 100 }];
+  if (b.status === 'delivery_failed' || (b.status === 'cancelled' && b.exception)) return [...offers, { ...base, id: String(b._id), type: 'FAILED', timestamp: b.exception?.at || b.updatedAt }];
+  return offers;
+}
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -2261,8 +2279,30 @@ export const getEarningsSummary = asyncHandler(async (req, res) => {
     }
   }
 
+  // Parcel jobs pay the rider's fixed earning at delivery. They count towards the same totals; the
+  // parcel figures are also returned on their own because parcel pay is released after review.
+  const [weekParcels, [lifetimeParcels = { trips: 0, paise: 0 }]] = await Promise.all([
+    Parcel.find({ partnerId: req.partner._id, status: 'delivered', 'proof.delivery.verifiedAt': { $gte: weekStart, $lte: now } })
+      .select('reference pricing.driverPaise proof.delivery.verifiedAt paymentMethod cash').sort({ 'proof.delivery.verifiedAt': -1 }).lean(),
+    Parcel.aggregate([{ $match: { partnerId: req.partner._id, status: 'delivered' } }, { $group: { _id: null, trips: { $sum: 1 }, paise: { $sum: '$pricing.driverPaise' } } }]),
+  ]);
+  let weekParcelPaise = 0;
+  for (const parcel of weekParcels) {
+    const amountPaise = parcel.pricing?.driverPaise || 0, completedAt = parcel.proof.delivery.verifiedAt;
+    const dayIndex = Math.floor((istDayStart(completedAt).getTime() - weekStart.getTime()) / DAY_MS);
+    weekly.trips += 1; weekly.totalPaise += amountPaise; weekParcelPaise += amountPaise;
+    if (dayIndex >= 0 && dayIndex < 7) weekly.dayPaise[dayIndex] += amountPaise;
+    if (completedAt >= todayStart) {
+      const cash = parcel.paymentMethod === 'pay_driver' && parcel.cash?.amountPaise > 0;
+      daily.trips += 1; daily.totalPaise += amountPaise;
+      daily.breakdown.push({ id: String(parcel._id), type: 'Parcel delivery', completedAt, orderId: parcelNumber(parcel), amount: amountPaise / 100, tip: 0, isCod: cash, codAmount: cash ? parcel.cash.amountPaise / 100 : 0 });
+    }
+  }
+  daily.breakdown.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+
   return ok(res, {
     timezone: 'Asia/Kolkata',
+    parcels: { weekTotal: weekParcelPaise / 100, lifetimeTrips: lifetimeParcels.trips, lifetimeTotal: lifetimeParcels.paise / 100 },
     daily: { date: todayStart, trips: daily.trips, total: daily.totalPaise / 100, tips: daily.tipsPaise / 100, breakdown: daily.breakdown },
     weekly: { weekStart, trips: weekly.trips, total: weekly.totalPaise / 100, tips: weekly.tipsPaise / 100,
       days: WEEKDAY_LABELS.map((day, index) => ({ day, amount: weekly.dayPaise[index] / 100 })) },

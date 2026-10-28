@@ -165,11 +165,13 @@ export const pushToUser = async (userId, { title, message, data, image }) => {
     const user = await User.findById(userId).select('pushTokens fcmToken fcmPlatform');
     if (!user) return;
 
-    let tokens = [...new Set((user.pushTokens || []).filter((t) => t.active).map((t) => t.token))];
-    if (tokens.length === 0 && user.fcmToken) tokens = [user.fcmToken];
+    const role = { user: 'buyer', buyer: 'buyer', customer: 'buyer', seller: 'seller', rider: 'delivery', delivery: 'delivery' }[data?.audience];
+    let tokens = [...new Set((user.pushTokens || []).filter(t => t.active
+      && (!Array.isArray(t.sessionRoles) || t.sessionRoles.includes(role))).map(t => t.token))];
+    if (tokens.length === 0 && user.fcmToken && !user.pushTokens?.some(t => t.token === user.fcmToken)) tokens = [user.fcmToken];
     if (tokens.length === 0) return;
 
-    const fcmData = stringifyData(data);
+    const fcmData = stringifyData({ ...data, recipientId: String(userId) });
 
     for (const web of [true, false]) {
       const group = tokens.filter(token => (user.pushTokens?.find(t => t.token === token)?.platform === 'web' || (!user.pushTokens?.length && user.fcmPlatform === 'web')) === web);
@@ -299,7 +301,7 @@ export const notifyAllAdmins = async (opts = {}) => {
  * (legacy) and `POST /api/notifications/tokens` (canonical) both call this
  * instead of each upserting the User document themselves.
  */
-export const registerPushToken = async (userId, token, platform) => {
+export const registerPushToken = async (userId, token, platform, sessionRole) => {
   const tokenPlatform = platform === 'web' ? 'web' : 'app';
 
   // One browser/app installation must belong to only the currently signed-in
@@ -322,8 +324,9 @@ export const registerPushToken = async (userId, token, platform) => {
     existing.active = true;
     existing.platform = tokenPlatform;
     existing.lastUsedAt = new Date();
+    if (sessionRole) existing.sessionRoles = [...new Set([...(existing.sessionRoles || []), sessionRole])];
   } else {
-    user.pushTokens.push({ token, platform: tokenPlatform, active: true, lastUsedAt: new Date() });
+    user.pushTokens.push({ token, platform: tokenPlatform, active: true, lastUsedAt: new Date(), ...(sessionRole ? { sessionRoles: [sessionRole] } : {}) });
   }
   user.fcmToken = token;
   user.fcmPlatform = tokenPlatform;
@@ -332,12 +335,18 @@ export const registerPushToken = async (userId, token, platform) => {
 };
 
 /** Remove one device's token — logout for that device, other devices unaffected. */
-export const removePushToken = async (userId, token) => {
-  const user = await User.findById(userId);
-  if (!user) return;
-  user.pushTokens = user.pushTokens.filter((t) => t.token !== token);
-  if (user.fcmToken === token) user.fcmToken = undefined;
-  await user.save();
+export const removePushToken = async (userId, token, sessionRole) => {
+  // Atomic updates avoid restoring tokens from a stale document while a
+  // different device signs in or out at the same time.
+  if (sessionRole) {
+    await User.updateOne({ _id: userId }, { $pull: { 'pushTokens.$[device].sessionRoles': sessionRole } }, { arrayFilters: [{ 'device.token': token }] });
+    await User.updateOne({ _id: userId }, { $pull: { pushTokens: { token, $or: [
+      { sessionRoles: { $exists: false } }, { sessionRoles: { $size: 0 } },
+    ] } } });
+  } else {
+    await User.updateOne({ _id: userId }, { $pull: { pushTokens: { token } } });
+  }
+  await User.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '', fcmPlatform: '' } });
 };
 
 export const notifyUser = (userId, opts) => notifyCore(userId, 'user', userId, opts);

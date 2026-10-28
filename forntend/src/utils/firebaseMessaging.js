@@ -10,6 +10,7 @@ import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messagi
 import { apiUrl } from './api';
 import { createPushRegistration } from './pushRegistration';
 import { boundedFetch } from './portalRequests';
+import { enablePushSession, disablePushSession, getPushSession, notificationScope, pushSessionRevision } from './pushSessionState';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -42,7 +43,9 @@ const getMessagingInstance = async () => {
 };
 
 export const registerTokenWithBackend = async (token, authToken = getPortalToken(), { signal, isCurrent = () => true, scope = portalScope() } = {}) => {
-  if (!authToken || !token || !isCurrent() || authToken !== getPortalToken(scope)) return;
+  const revision = pushSessionRevision(scope);
+  const current = () => isCurrent() && revision === pushSessionRevision(scope) && authToken === getPortalToken(scope);
+  if (!authToken || !token || !current()) return;
   try {
     // Validate against this backend before sending a device token. This also
     // catches legacy sessions copied from localhost or another deployment.
@@ -52,17 +55,19 @@ export const registerTokenWithBackend = async (token, authToken = getPortalToken
     if (!identityResponse.ok) return;
     const identity = await identityResponse.json();
     const expectedRole = scope === 'customer' ? 'buyer' : scope;
-    if (!identity.success || identity.userType !== 'user' || identity.sessionRole !== expectedRole || !identity.profile?._id || !isCurrent() || authToken !== getPortalToken(scope)) return;
+    if (!identity.success || identity.userType !== 'user' || identity.sessionRole !== expectedRole || !identity.profile?._id || !current()) return;
     const response = await boundedFetch(apiUrl('/api/notifications/tokens'), {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ token, platform: 'web' }),
     });
     if (!response.ok) throw new Error('Backend rejected the push token');
-    if (!isCurrent() || authToken !== getPortalToken(scope)) {
-      await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), { method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` } }).catch(() => {});
+    if (!current()) {
+      await boundedFetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), { method: 'DELETE', keepalive: true, headers: { Authorization: `Bearer ${authToken}` } }, 5000).catch(() => {});
       return false;
     }
+    if (!await enablePushSession(scope, identity.profile._id, token, current)) return false;
+    if (!current()) return false;
     localStorage.setItem(pushTokenKey(scope), token);
     return true;
   } catch {
@@ -78,8 +83,9 @@ export const registerTokenWithBackend = async (token, authToken = getPortalToken
 const registrations = new Map();
 const getRegistration = (scope) => {
 if (!registrations.has(scope)) registrations.set(scope, createPushRegistration({
-  getSession: () => typeof localStorage === 'undefined' ? null : getPortalToken(scope),
-  perform: async ({ requestPermission = false } = {}, { session: authToken, signal, isCurrent }) => {
+  getSession: () => typeof localStorage === 'undefined' ? null : JSON.stringify([getPortalToken(scope), pushSessionRevision(scope)]),
+  perform: async ({ requestPermission = false } = {}, { signal, isCurrent }) => {
+    const authToken = getPortalToken(scope);
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) return { status: 'unsupported' };
     if (Notification.permission === 'denied') return { status: 'denied' };
     if (!VAPID_KEY || !hasFirebaseWebConfig) return { status: 'unconfigured' };
@@ -111,33 +117,71 @@ if (!registrations.has(scope)) registrations.set(scope, createPushRegistration({
 }));
 return registrations.get(scope);
 };
-export const initPushNotifications = options => {
-  const registration = getRegistration(portalScope());
+export const initPushNotifications = (options, scope = portalScope()) => {
+  const registration = getRegistration(scope);
   if (typeof Notification !== 'undefined' && Notification.permission === 'denied') registration.reset();
   return registration.run(options);
 };
 
 /** Deactivate this device on logout and invalidate any pending registration. */
-export const deregisterPushToken = async () => {
-  const scope = portalScope();
+export const deregisterPushToken = async (scope = portalScope()) => {
   getRegistration(scope).reset();
   const authToken = getPortalToken(scope);
   const token = localStorage.getItem(pushTokenKey(scope));
-  if (!authToken || !token) return;
-  try {
-    const response = await fetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), {
-      method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` },
+  const localCleanup = disablePushSession(scope);
+  localStorage.removeItem(pushTokenKey(scope));
+  const unsubscribe = async (force = false) => {
+    await localCleanup;
+    // A shared subscription remains for other active portals. With no active
+    // portal, unsubscribe locally too, including when the API is unreachable.
+    const active = () => ['customer', 'seller', 'delivery', 'admin'].some(other => getPortalToken(other) && getPushSession(other));
+    const changed = () => getPortalToken(scope) && getPortalToken(scope) !== authToken;
+    const replaced = () => force && ['customer', 'seller', 'delivery', 'admin'].some(other => {
+      const session = getPushSession(other);
+      return getPortalToken(other) && session && session.token !== token;
     });
+    if ((!force && active()) || changed() || replaced() || typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistration) return;
+    const worker = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    const subscription = await worker?.pushManager?.getSubscription();
+    if ((force || !active()) && !changed() && !replaced()) await subscription?.unsubscribe();
+  };
+  const subscriptionCleanup = unsubscribe().catch(() => {});
+  if (!authToken || !token) { await subscriptionCleanup; return; }
+  try {
+    const response = await boundedFetch(apiUrl(`/api/notifications/tokens/${encodeURIComponent(token)}`), {
+      method: 'DELETE', keepalive: true, headers: { Authorization: `Bearer ${authToken}` },
+    }, 5000);
     if (!response.ok) throw new Error('Backend rejected push-token removal');
   } catch {
     console.error('[PUSH] token removal failed (non-fatal)');
-  } finally { localStorage.removeItem(pushTokenKey(scope)); }
+    // A still-shared endpoint could otherwise cause generic browser alerts
+    // for this logged-out role. Revoke it locally and restore only the roles
+    // still signed in, using fresh subscriptions and server authentication.
+    await subscriptionCleanup;
+    const activeScopes = () => ['customer', 'seller', 'delivery'].filter(other => other !== scope && getPortalToken(other) && getPushSession(other));
+    if (activeScopes().length) {
+      await unsubscribe(true).catch(() => {});
+      const restore = () => { for (const other of activeScopes()) {
+        getRegistration(other).reset();
+        void initPushNotifications({ requestPermission: false }, other).catch(() => {});
+      } };
+      if (typeof window !== 'undefined') window.addEventListener?.('online', restore, { once: true });
+      if (typeof navigator !== 'undefined' && navigator.onLine !== false) restore();
+    }
+  } finally { await subscriptionCleanup; }
 };
 
 /** Foreground pushes update UI only; notification persistence is server-side. */
 export const onForegroundMessage = async callback => {
+  const scope = portalScope(), authToken = getPortalToken(scope);
+  if (!authToken) return () => {};
   if (!hasFirebaseWebConfig) return () => {};
   const messaging = await getMessagingInstance();
   if (!messaging) return () => {};
-  return onMessage(messaging, payload => callback(payload));
+  return onMessage(messaging, payload => {
+    const session = getPushSession(scope);
+    if (authToken !== getPortalToken(scope) || !session
+      || notificationScope(payload.data) !== scope || payload.data?.recipientId !== session.recipientId) return;
+    callback(payload);
+  });
 };

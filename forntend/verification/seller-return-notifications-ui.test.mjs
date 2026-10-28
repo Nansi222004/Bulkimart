@@ -2,6 +2,7 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { pushCacheFixture } from './push-cache-fixture.mjs';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
 
@@ -96,10 +97,11 @@ test('background return push displays once and its click opens Return Requests, 
   const handlers = {}, shown = [], opened = []; let background;
   const self = { location: new URL('https://fixture.invalid/firebase-messaging-sw.js'), addEventListener: (name, fn) => { handlers[name] = fn; },
     registration: { showNotification: async (title, options) => { shown.push({ title, options }); } }, clients: { matchAll: async () => [], openWindow: async route => { opened.push(route); } } };
-  const sandbox = vm.createContext({ self, URL, URLSearchParams, firebase: { initializeApp() {}, messaging: () => ({ onBackgroundMessage: fn => { background = fn; } }) },
+  const { caches } = pushCacheFixture({ seller: { recipientId: id } });
+  const sandbox = vm.createContext({ self, caches, URL, URLSearchParams, firebase: { initializeApp() {}, messaging: () => ({ onBackgroundMessage: fn => { background = fn; } }) },
     importScripts: path => { if (path.startsWith('/')) vm.runInContext(routing, sandbox); } });
   vm.runInContext(worker, sandbox);
-  const data = { audience: 'seller', event: 'RETURN_REQUESTED', returnId: id, orderId, notificationId, route: notice.route, title: notice.title, body: notice.message };
+  const data = { recipientId: id, audience: 'seller', event: 'RETURN_REQUESTED', returnId: id, orderId, notificationId, route: notice.route, title: notice.title, body: notice.message };
   await background({ data }); await background({ data, notification: { title: 'Automatic SDK notification' } }); assert.equal(shown.length, 1);
   let click;
   handlers.notificationclick({ notification: { data, close() {} }, stopImmediatePropagation() {}, waitUntil: promise => { click = promise; } }); await click;

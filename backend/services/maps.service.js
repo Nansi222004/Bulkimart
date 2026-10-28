@@ -1,5 +1,6 @@
 // Google Maps API Service. Mock results require an authorized mock runtime.
 import { isMockIntegrationEnabled } from '../config/runtime.js';
+import { distanceKm, etaMinutes } from '../utils/geo.js';
 
 export const geocodeAddress = async (address) => {
   if (isMockIntegrationEnabled('MAPS_MODE')) {
@@ -15,9 +16,11 @@ export const getRoute = async (origin, destination) => {
     if (typeof point?.lat !== 'number' || typeof point?.lng !== 'number' || !Number.isFinite(point.lat) || !Number.isFinite(point.lng) || Math.abs(point.lat) > 90 || Math.abs(point.lng) > 180) throw new Error('Valid route coordinates required');
   }
   if (isMockIntegrationEnabled('MAPS_MODE')) {
+    // Simulated road route from the real pins: straight line × 1.3 for road bends, at city two-wheeler pace.
+    const roadKm = Math.max(0.1, Number(((distanceKm(origin, destination) || 0) * 1.3).toFixed(2)));
     return {
-      distanceKm: 5.2,
-      durationMin: 18,
+      distanceKm: roadKm,
+      durationMin: etaMinutes(roadKm),
       polyline: null,
       provider: 'mock'
     };

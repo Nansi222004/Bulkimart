@@ -52,7 +52,7 @@ export const NotificationPopup = ({ onNavigate, excludeSellerOrders = false, exc
     const token = getPortalToken();
     const seen = new Set();
     const onNew = (payload) => {
-      if (!alive || token !== getPortalToken()) return;
+      if (!alive || !token || token !== getPortalToken()) return;
       if (excludeSellerReturns && payload?.event === 'RETURN_REQUESTED') return;
       if (audience === 'rider' && ['RIDER_PING', 'RETURN_PICKUP_OFFERED'].includes(payload?.event)) return;
       if (excludeSellerOrders && (payload?.event === 'ORDER_CREATED' || isRetiredSellerNotification(payload))) return;

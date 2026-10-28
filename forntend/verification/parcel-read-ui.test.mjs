@@ -121,3 +121,27 @@ test('parcel card offers a usable service link while booking is disabled',async(
     assert.equal(h.requests.length,1);assert.ok(has(h,'currently unavailable'));
   }finally{h.close();}
 });
+test('the cancel option follows the server and disappears once the parcel is picked up',async()=>{
+  const summary=h=>h.find(n=>n.type==='summary'&&[n.props.children].flat().includes('Cancel this booking'));
+  for(const [status,canCancel] of [['driver_assigned',true],['arrived_at_pickup',true],['picked_up',false],['in_transit',false],['arrived_at_dropoff',false]]){
+    const h=hookHarness(Parcel,{},track);
+    try{
+      await reply(h,{...booking,status,canCancel,version:1});
+      assert.equal(!!summary(h),canCancel,`${status}: cancel option ${canCancel?'shown':'hidden'}`);
+      assert.equal(!!has(h,'can no longer be cancelled'),!canCancel,`${status}: picked-up note`);
+    }finally{h.close();}
+  }
+});
+test('tracking shows the delivery partner, a wallet refund and a live update time',async()=>{
+  const partner={name:'Ravi Rider',vehicleType:'bike',vehicleNo:'KA01AB1234',rating:4.8,phone:'9876500013'};
+  const h=hookHarness(Parcel,{},track);
+  try{
+    await reply(h,{...booking,status:'in_transit',partner});
+    const output=renderToStaticMarkup(h.find(n=>n.type===Status)&&React.createElement(Status,h.find(n=>n.type===Status).props));
+    for(const text of ['Your delivery partner','Ravi Rider','Bike · KA01AB1234 · ★ 4.8','href="tel:9876500013"'])assert.ok(output.includes(text),text);
+    assert.ok(has(h,'Live · updated'),'Live update time is shown');
+    h.click('Refresh status');await reply(h,{...booking,status:'cancelled',partner:undefined,refund:{status:'confirmed',refundedPaise:2040,toWallet:true}});
+    const cancelled=renderToStaticMarkup(React.createElement(Status,h.find(n=>n.type===Status).props));
+    assert.ok(cancelled.includes('refunded to your Bulkimart wallet'));assert.ok(cancelled.includes('₹20.40'));assert.ok(!cancelled.includes('Ravi Rider'));
+  }finally{h.close();}
+});

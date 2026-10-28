@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import Parcel from '../models/ParcelDelivery.js';
+import Parcel, { PARCEL_REVIEW_STATES } from '../models/ParcelDelivery.js';
 import Quote from '../models/ParcelQuote.js';
 import Policy from '../models/ParcelPolicy.js';
 import Partner from '../models/DeliveryPartner.js';
@@ -13,7 +13,7 @@ import { parcelFlags, productionParcel, requireParcel, parcelPermission, validat
 import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
 import { assignParcel, respondParcelOffer, notifyParcel, parcelRiderIneligibility } from '../services/parcelAssignment.service.js';
 import { parcelOfferFilter } from '../services/parcelOffers.js';
-import { initiateParcelPayment, verifyParcelPayment, approveParcelRefund, executeParcelRefund } from '../services/parcelPayment.service.js';
+import { initiateParcelPayment, verifyParcelPayment, approveParcelRefund, executeParcelRefund, refundParcelToWallet, autoRefundParcelToWallet } from '../services/parcelPayment.service.js';
 import { reconcileCreationAttempt } from '../services/paymentRecovery.service.js';
 export const capabilities = (_req,res) => ok(res,{...parcelFlags(),productionBlocked:productionParcel()});
 const canReadFinance = req => req.userType==='admin' && (req.user.role==='superAdmin' || req.user.permissions?.includes('manage_finance'));
@@ -22,6 +22,15 @@ async function driverSummaries(ids) {
   const users=await User.find({_id:{$in:partners.map(p=>p.userId)}}).select('name').lean();
   const names=new Map(users.map(u=>[String(u._id),u.name]));
   return partners.map(p=>({_id:p._id,name:names.get(String(p.userId))||'Delivery partner '+String(p._id).slice(-4).toUpperCase(),zones:p.zones,vehicleType:p.vehicleType}));
+}
+// The assigned rider as the customer sees them. Phone and vehicle number only while the delivery is under way.
+const RIDER_CONTACT_STATES=['driver_assigned','driver_arriving','arrived_at_pickup','picked_up','in_transit','arrived_at_dropoff'];
+async function customerPartnerView(b) {
+  const active=RIDER_CONTACT_STATES.includes(b.status);
+  if(!b.partnerId || (!active && b.status!=='delivered')) return undefined;
+  const p=await Partner.findById(b.partnerId).select('userId vehicleType vehicleNo rating ratingCount').lean(); if(!p) return undefined;
+  const u=await User.findById(p.userId).select('name phone avatar').lean();
+  return { name:u?.name||'Your delivery partner', vehicleType:p.vehicleType, ...(p.ratingCount>0?{rating:p.rating}:{}), ...(u?.avatar?{avatar:u.avatar}:{}), ...(active?{phone:u?.phone,vehicleNo:p.vehicleNo}:{}) };
 }
 const dtoFor = (req,b) => {
   const dto=parcelDTO(b,req.parcelMode,req.parcelPartner?._id);
@@ -49,7 +58,9 @@ export async function book(req,res) {
 export async function list(req,res) {
   const {page,limit,skip}=getPagination(req.query);
   const filter=req.parcelMode==='customer'?{customerId:req.user._id}:req.parcelMode==='driver'?{$or:[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)]}:{};
-  if(req.query.status) filter.status=String(req.query.status);
+  // `needs_review` is the admin queue: rider help requests and customer cancellation requests.
+  if(req.parcelMode==='admin' && req.query.status==='needs_review') filter.status={$in:PARCEL_REVIEW_STATES};
+  else if(req.query.status) filter.status=String(req.query.status);
   if(req.parcelMode==='admin' && req.query.reference) filter.reference=String(req.query.reference).slice(0,64);
   const rows=await Parcel.find(filter).sort({createdAt:-1}).skip(skip).limit(limit);
   const total=await Parcel.countDocuments(filter);
@@ -61,6 +72,7 @@ export async function detail(req,res) {
   if(req.parcelMode==='driver') filter.$or=[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)];
   const b=await Parcel.findOne(filter); if(!b) failParcel('Booking not found',404);
   const dto=dtoFor(req,b);
+  if(req.parcelMode==='customer') dto.partner=await customerPartnerView(b);
   if(req.parcelMode==='admin') dto.drivers=await driverSummaries([b.partnerId,...(b.assignment.attempts||[]).map(a=>a.partnerId)]);
   if(req.parcelMode==='admin' && canReadFinance(req)) {
     dto.ledger=await Ledger.find({parcelDeliveryId:b._id}).sort({createdAt:1}).lean();
@@ -110,7 +122,7 @@ export async function assign(req,res) {
 export async function adminAction(req,res) {
   requireParcel('fulfilment');
   const action=req.body.action;
-  const financial=['reconcile_cash','bank_reconciled','approve_refund','cash_refund_evidence','allocate_cancelled_capture'];
+  const financial=['reconcile_cash','bank_reconciled','approve_refund','cash_refund_evidence','allocate_cancelled_capture','refund_to_wallet'];
   if(financial.includes(action)) parcelPermission(req,'manage_finance');
   const b=await financialTransaction(async session=>{
     const b=await Parcel.findById(req.params.id).session(session); if(!b) failParcel('Booking not found',404);
@@ -123,6 +135,11 @@ export async function adminAction(req,res) {
       b.cancellation.status='approved'; b.finance.held=true; await releaseParcelRider(b,session); delete b.assignment.offer;
       for(const attempt of b.assignment.attempts) if(attempt.outcome==='offered'){attempt.outcome='cancelled';attempt.resolvedAt=new Date();}
       parcelEvent(b,actor,action,'cancelled',reason);
+      // Money already held (online capture or deposited cash) goes straight back to the customer's wallet,
+      // unless the admin chose to refund the original payment method (Razorpay refund or cash handed back).
+      if(req.body.refundTo!==undefined && !['wallet','original'].includes(req.body.refundTo)) failParcel('Choose wallet or original payment method for the refund');
+      b.cancellation.refundTo=req.body.refundTo||'wallet';
+      await autoRefundParcelToWallet(b,{type:'system'},session);
     } else if(action==='reject_cancellation') {
       if(b.status!=='cancellation_review') failParcel('Cancellation review required',409);
       if(parcelOperationalHold(b)) failParcel('Financial review prevents resuming delivery',409);
@@ -149,6 +166,8 @@ export async function adminAction(req,res) {
       await postParcel(b,'cash-deposit','parcel_cash_custody','debit',b.cash.amountPaise,session);
       await postParcel(b,'cash-deposit-verified','parcel_collections','credit',b.cash.amountPaise,session);
       b.paymentStatus='cash_reconciled'; parcelEvent(b,actor,action,b.status,reason);
+      // Cash for a booking the customer cancelled is refunded to their wallet once it is deposited.
+      await autoRefundParcelToWallet(b,{type:'system'},session);
     } else if(action==='allocate_cancelled_capture') {
       if(b.status!=='cancelled' || b.paymentMethod!=='online' || b.finance.earningPosted || !b.finance.dispute || b.finance.gatewayDisputes?.length) failParcel('Reviewed cancelled online capture without gateway disputes required',409);
       const p=await Payment.findById(b.paymentId).session(session);
@@ -159,8 +178,9 @@ export async function adminAction(req,res) {
       if(b.paymentMethod!=='online' || b.paymentStatus!=='paid' || b.finance.bankEvidence || req.body.amountPaise!==b.pricing.totalPaise) failParcel('Unreconciled captured payment required',409);
       b.finance.bankEvidence={reference:boundedText(req.body.evidence,'Bank settlement evidence'),by:String(req.user._id),at:new Date(),amountPaise:req.body.amountPaise}; parcelEvent(b,actor,action,b.status,reason);
     } else if(action==='approve_refund') await approveParcelRefund(b,req.body,actor,session);
+    else if(action==='refund_to_wallet') await refundParcelToWallet(b,{amountPaise:req.body.amountPaise,actor,reason},session);
     else if(action==='cash_refund_evidence') {
-      if(b.paymentMethod!=='pay_driver' || b.status!=='cancelled' || b.finance.earningPosted || !b.cash.collectedAt || b.finance.cashRefund || req.body.amountPaise!==b.cash.amountPaise) failParcel('Reviewed unallocated cash refund evidence required',409);
+      if(b.paymentMethod!=='pay_driver' || b.status!=='cancelled' || b.finance.earningPosted || !b.cash.collectedAt || b.finance.cashRefund || b.finance.walletRefund || req.body.amountPaise!==b.cash.amountPaise) failParcel('Reviewed unallocated cash refund evidence required',409);
       b.finance.cashRefund={reference:boundedText(req.body.evidence,'Customer cash refund evidence'),by:String(req.user._id),at:new Date(),amountPaise:b.cash.amountPaise};
       await postParcel(b,'cash-refund-evidence',b.cash.status==='reconciled'?'parcel_collections':'parcel_cash_custody','debit',b.cash.amountPaise,session);
       b.finance.refundedPaise=b.cash.amountPaise; b.finance.refundStatus='confirmed'; b.cash.status='refunded_with_evidence'; parcelEvent(b,actor,action,b.status,reason);

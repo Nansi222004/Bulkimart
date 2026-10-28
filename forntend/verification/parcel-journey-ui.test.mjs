@@ -2,10 +2,10 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './componentHarness.mjs';
-let vite, Flow, Picker, Map, domain, Price;
+let vite, Flow, Picker, Map, domain, Price, Terms;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
-  ({ default: Flow, ParcelPriceSummary: Price } = await vite.ssrLoadModule('/src/components/parcels/ParcelBookingFlow.jsx'));
+  ({ default: Flow, ParcelPriceSummary: Price, ParcelTermsDialog: Terms } = await vite.ssrLoadModule('/src/components/parcels/ParcelBookingFlow.jsx'));
   Picker = (await vite.ssrLoadModule('/src/components/parcels/ParcelLocationPicker.jsx')).default;
   Map = (await vite.ssrLoadModule('/src/components/parcels/ParcelMap.jsx')).default;
   domain = await vite.ssrLoadModule('/src/components/parcels/parcelJourney.js');
@@ -334,4 +334,34 @@ test('Places autocomplete debounces, resolves a selected place and ignores late 
     h.find(n => n.type === 'input').props.onKeyDown({ key: 'Escape' }); h.flush(); assert.equal(h.tree.props['aria-busy'], false);
     finish({ suggestions: [] }); await h.settle(); assert.equal(h.find(n => n.props?.role === 'listbox'), undefined);
   } finally { h.close(); }
+});
+test('Edit opens the location picker inside the card that was tapped, and Done closes it', () => {
+  const h = flow();
+  try {
+    locations(h);
+    const card = kind => h.find(n => n.type === 'article' && n.props.className?.startsWith('parcel-location-card ' + kind));
+    const picker = kind => [card(kind).props.children].flat(Infinity).some(function has(n) { return n && typeof n === 'object' && (n.type === Picker || [n.props?.children].flat(Infinity).some(has)); });
+    assert.equal(picker('pickup'), false); assert.equal(picker('dropoff'), false);
+    h.find(n => n.type === 'button' && n.props['aria-expanded'] === false && n.props.children === 'Edit').props.onClick(); h.flush();
+    assert.equal(picker('pickup'), true, 'Picker opens inside the pickup card'); assert.equal(picker('dropoff'), false);
+    assert.match(card('pickup').props.className, /editing/);
+    h.find(n => n.type === 'button' && n.props.children === 'Done').props.onClick(); h.flush();
+    assert.equal(picker('pickup'), false, 'Done closes it');
+  } finally { h.close(); }
+});
+test('the cancellation terms open from the review checkbox without ticking it', async () => {
+  const h = flow();
+  try {
+    await review(h);
+    const box = () => h.find(n => n.props?.type === 'checkbox');
+    box().props.onChange({ target: { checked: false } }); h.flush();
+    let stopped = 0;
+    h.find(n => n.props?.className === 'parcel-terms-link').props.onClick({ preventDefault() { stopped++; }, stopPropagation() { stopped++; } }); h.flush();
+    assert.equal(stopped, 2, 'Opening the terms does not toggle the checkbox'); assert.equal(box().props.checked, false);
+    const dialog = h.find(n => n.type === Terms);
+    assert.ok(dialog, 'Terms dialog is shown'); assert.equal(dialog.props.terms, quote(300).terms);
+    dialog.props.onClose(); h.flush(); assert.equal(h.find(n => n.type === Terms), undefined);
+  } finally { h.close(); }
+  const t = hookHarness(Terms, { terms: 'Policy text', policy, onClose() {} });
+  try { const all = text(t); for (const words of ['Policy text', 'until the delivery partner picks up your parcel', 'refunded to your Bulkimart wallet', 'dangerous goods']) assert.ok(all.includes(words), words); } finally { t.close(); }
 });

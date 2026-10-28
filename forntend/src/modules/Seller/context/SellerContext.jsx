@@ -1226,6 +1226,7 @@ export const SellerProvider = ({ children }) => {
       // account it belongs to no longer exists (e.g. the database was re-seeded).
       // Clear the dead session rather than leaving the user stuck on an error.
       if (res.status === 401) {
+        deregisterPushToken('seller').catch(() => {});
         localStorage.removeItem('sellerToken');
         localStorage.removeItem('sellerUserProfile');
         throw new Error('Your session has expired. Please log in again with your mobile number, then re-open Become a Seller.');
@@ -1595,14 +1596,14 @@ export const SellerProvider = ({ children }) => {
     detailGeneration.current++;
     setSelectedOrder(null);
     disconnectSocket();
-    await deregisterPushToken().catch(() => {});
+    await deregisterPushToken('seller').catch(() => {});
     try {
       const token = localStorage.getItem('sellerToken');
       if (token) {
-        await fetch(apiUrl('/api/auth/logout'), {
+        await boundedFetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => {});
+        }, 5000).catch(() => {});
       }
     } finally {
       clearSellerDraft(getBrowserStorage(), draftKey);

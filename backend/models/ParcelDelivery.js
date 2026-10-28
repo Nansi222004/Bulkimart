@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 export const PARCEL_STATES = ['payment_pending', 'payment_failed', 'searching_for_driver', 'needs_admin_assignment', 'driver_assigned', 'driver_arriving', 'arrived_at_pickup', 'picked_up', 'in_transit', 'arrived_at_dropoff', 'delivered', 'cancellation_review', 'cancelled', 'delivery_failed'];
+// Bookings paused until an admin decides: a rider asked for help or the customer asked to cancel.
+export const PARCEL_REVIEW_STATES = ['delivery_failed', 'cancellation_review'];
 const schema = new mongoose.Schema({
   reference: { type: String, required: true },
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

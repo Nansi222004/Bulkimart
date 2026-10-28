@@ -199,8 +199,6 @@
 .sf-festive-countdown time{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 .sf-festive-countdown b{display:inline-block;min-width:1.7em;padding:2px 3px;border-radius:6px;background:var(--sf-festive-text);color:var(--sf-festive-bg);text-align:center}
 /* The opt-out control lives inside the decorated box it controls, never over the page. */
-.sf-decoration-toggle{position:absolute;right:10px;top:10px;z-index:3;padding:6px 10px;min-height:32px;border:1px solid #706b68;border-radius:8px;background:#fff;color:#252525;font-size:11px;cursor:pointer}
-.sf-festive>.sf-decoration-toggle{top:auto;bottom:8px}
 /* The header effect sits under the header content: behind the logo, tabs and search bar, above the header background.
    The rows share the header colour, so they turn transparent while an effect is mounted and the container paints it. */
 .header-celebration{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}

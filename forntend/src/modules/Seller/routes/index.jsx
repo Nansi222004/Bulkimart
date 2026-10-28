@@ -1,4 +1,4 @@
-import { portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
+import { boundedFetch, portalRequest, clearPortalRequests } from '../../../utils/portalRequests';
 import React, { useCallback, useEffect, useState } from 'react';
 import { SellerProvider, useSeller } from '../context/SellerContext';
 import DashboardPage from '../pages/DashboardPage';
@@ -9,6 +9,8 @@ import SellerStatusGate from '../components/SellerStatusGate';
 import { clearSellerDraft, getSellerDraftKey } from '../utils/onboardingDraft';
 import { apiUrl } from '../../../utils/api';
 import { SELLER_SESSION_CHANGED } from '../../../utils/portalSession';
+import { deregisterPushToken } from '../../../utils/firebaseMessaging';
+import { disconnectSocket } from '../../../utils/socket';
 import '../Seller.css';
 
 /**
@@ -63,6 +65,7 @@ const SellerRoutesContent = () => {
 
       // Dead session — expired token, or the account no longer exists.
       if (res.status === 401) {
+        deregisterPushToken('seller').catch(() => {});
         localStorage.removeItem('sellerToken');
         localStorage.removeItem('sellerUserProfile');
         setState(SIGNED_OUT);
@@ -114,14 +117,16 @@ const SellerRoutesContent = () => {
   }, [loadStatus]);
 
   const signOut = async () => {
+    disconnectSocket();
     clearSellerDraft(window.localStorage, getSellerDraftKey(userProfile?._id || userProfile?.id || userProfile?.userId));
+    await deregisterPushToken('seller').catch(() => {});
     try {
       const token = localStorage.getItem('sellerToken');
       if (token) {
-        await fetch(apiUrl('/api/auth/logout'), {
+        await boundedFetch(apiUrl('/api/auth/logout'), {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => {});
+        }, 5000).catch(() => {});
       }
     } finally {
       clearPortalRequests('seller'); localStorage.removeItem('sellerToken');

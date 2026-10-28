@@ -97,3 +97,21 @@ test('pickup detail shows both stops and requires the 4-digit code before confir
     assert.equal(h.find(n => n.type === 'input'), undefined); assert.match(text(h.tree), /drop this off with\s+Always/);
   } finally { h.close(); }
 });
+
+test('parcel jobs read as parcels in trip history and their pay is shown in earnings', async () => {
+  const context = { triggerToast() {}, fetchRiderHistory: async () => ({ data: [{ id: 'p1', type: 'DELIVERED', kind: 'parcel', orderNo: '#ABC123', timestamp: '2026-10-27T10:00:00Z', amount: 10.2 }] }) };
+  const h = hookHarness(History, {}, '/delivery/history', context);
+  try { await h.settle(); const out = text(h.tree); assert.match(out, /Parcel\s+#ABC123/); assert.match(out, /₹\s*10\.2/); assert.doesNotMatch(out, /Order\s+#ABC123/); } finally { h.close(); }
+
+  const Earnings = (await vite.ssrLoadModule('/src/modules/Delivery/pages/EarningsPage.jsx')).EarningsPage;
+  const slice = (extra) => ({ trips: 0, total: 0, tips: 0, breakdown: [], days: [], available: true, ...extra });
+  const earnings = { payoutBalance: 0, payoutHistory: [], payoutActionsEnabled: false, fetchPayoutHistory() {}, debitWallet: 0, riderProfile: {},
+    earningsData: { daily: slice({ trips: 1, total: 10.2, breakdown: [{ id: 'p1', type: 'Parcel delivery', time: '10:00 am', orderId: '#ABC123', amount: 10.2, tip: 0 }] }), weekly: slice({ trips: 1, total: 10.2 }), lifetime: slice({ trips: 4, total: 100 }),
+      parcels: { weekTotal: 10.2, lifetimeTrips: 2, lifetimeTotal: 20.4 } } };
+  const e = hookHarness(Earnings, {}, '/delivery/earnings', earnings);
+  try {
+    let out = text(e.tree); assert.match(out, /Parcel deliveries/); assert.match(out, /Parcel\s+#ABC123/);
+    e.find(n => n.type === 'button' && n.props.children === 'Lifetime').props.onClick(); e.flush();
+    out = text(e.tree); assert.match(out, /₹\s*120\.4/, 'Lifetime total adds parcel pay'); assert.match(out, /\b6\b/, 'Lifetime trips add parcel jobs');
+  } finally { e.close(); }
+});

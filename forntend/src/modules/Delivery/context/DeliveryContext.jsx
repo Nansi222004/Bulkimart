@@ -756,7 +756,7 @@ export const DeliveryProvider = ({ children }) => {
         const res = await boundedFetch(apiUrl('/api/delivery/earnings/summary'), { headers: { Authorization: `Bearer ${token}` } });
         const body = await res.json().catch(() => ({}));
         if (cancelled || !res.ok || token !== localStorage.getItem('deliveryToken')) return;
-        const { daily, weekly } = body.data || {};
+        const { daily, weekly, parcels } = body.data || {};
         setEarningsData((prev) => ({
           ...prev,
           daily: daily ? {
@@ -767,6 +767,8 @@ export const DeliveryProvider = ({ children }) => {
             })),
           } : prev.daily,
           weekly: weekly ? { ...prev.weekly, trips: weekly.trips, total: weekly.total, tips: weekly.tips, days: weekly.days, available: true } : prev.weekly,
+          // Parcel pay is not part of the partner's lifetime counters; the Earnings screen adds it.
+          parcels: parcels ? { weekTotal: Number(parcels.weekTotal) || 0, lifetimeTrips: Number(parcels.lifetimeTrips) || 0, lifetimeTotal: Number(parcels.lifetimeTotal) || 0 } : prev.parcels,
         }));
       } catch { /* Keep the dash; the next profile refresh retries. */ }
     })();
@@ -1161,11 +1163,11 @@ export const DeliveryProvider = ({ children }) => {
     } catch (err) { return { ok: false, message: err.message || 'Could not save your service area. Please retry.' }; }
   };
 
-  const logoutDelivery = () => {
+  const logoutDelivery = async () => {
     setIsOnboarded(false);
     localStorage.removeItem('delivery_onboarded');
     stopRing();
-    deregisterPushToken().catch(() => {});
+    const pushCleanup = deregisterPushToken('delivery').catch(() => {});
 
     // The session has to go too. Clearing only the onboarding flag left the
     // token in place, so the next person to open the app landed straight back
@@ -1192,6 +1194,7 @@ export const DeliveryProvider = ({ children }) => {
     setActiveOrder(null);
     window.history.pushState(null, '', '/delivery/onboarding');
     triggerToast('Logged out of Delivery Panel.');
+    await pushCleanup;
   };
 
   const settleDebitWallet = () => {

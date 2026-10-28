@@ -1,5 +1,6 @@
 import { apiUrl } from './api';
 import { boundedFetch, clearPortalRequests } from './portalRequests';
+import { disablePushSession } from './pushSessionState';
 
 /**
  * Thin client for the /api/admin surface.
@@ -30,6 +31,7 @@ const handle = async (response) => {
   const body = await response.json().catch(() => ({}));
 
   if (response.status === 401) {
+    void disablePushSession('admin');
     clearPortalRequests('admin');
     // token expired or invalid — force a re-login
     localStorage.removeItem('adminToken');
@@ -66,6 +68,7 @@ export const adminGetBlob = async (path) => {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     if (response.status === 401) {
+      void disablePushSession('admin');
       localStorage.removeItem('adminToken');
       localStorage.removeItem('adminUser');
     }

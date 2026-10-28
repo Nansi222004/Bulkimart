@@ -50,11 +50,11 @@ const MEASURE = `(() => {
   const visibleSearch = [...document.querySelectorAll('.search-bar-pill')].find(e => e.getBoundingClientRect().width > 0);
   const searchHit = visibleSearch ? (() => { const b = visibleSearch.getBoundingClientRect(), hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); window.__searchProbe = { rect: [b.x, b.y, b.width, b.height], hit: hit && (hit.tagName + '.' + hit.className), parent: visibleSearch.parentElement.className }; return visibleSearch.contains(hit); })() : null;
   const out = { festive: r(f), canvas: c ? r(c) : null, canvasCount: document.querySelectorAll('canvas.sf-celebration').length,
-    fixedDecor: [...document.querySelectorAll('canvas, .sf-decoration-toggle, .sf-festive *')].filter(e => getComputedStyle(e).position === 'fixed').length,
+    fixedDecor: [...document.querySelectorAll('canvas, .sf-festive *')].filter(e => getComputedStyle(e).position === 'fixed').length,
     position: c && getComputedStyle(c).position, pointer: c && getComputedStyle(c).pointerEvents, overflow: getComputedStyle(f).overflow,
     pixels: c ? (() => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; })() : 0,
     scrollWidth: document.documentElement.scrollWidth, innerWidth, searchHit, countdown: f.querySelector('.sf-festive-countdown')?.textContent || '', title: f.querySelector('h2')?.textContent };
-  out.ctaHit = at(f.querySelector('.sf-cta')); out.toggleHit = at(f.querySelector('.sf-decoration-toggle'));
+  out.ctaHit = at(f.querySelector('.sf-cta')); out.toggles = document.querySelectorAll('.sf-decoration-toggle').length;
   const below = document.querySelector('.sf-hero, .sf-hero-default, .quick-actions-container, .popular-categories-container');
   out.belowHit = below ? at(below) : null; out.belowHasCanvas = !!below?.querySelector('canvas');
   const nav = [...document.querySelectorAll('.bottom-nav-bar, .bottom-nav')].find(e => e.getBoundingClientRect().height > 0);
@@ -72,7 +72,7 @@ function assertBounded(m, label) {
   assert.ok(m.scrollWidth <= m.innerWidth, `${label}: no horizontal overflow (${m.scrollWidth} > ${m.innerWidth})`);
   if (m.searchHit !== null) assert.equal(m.searchHit, true, `${label}: search bar receives pointer input ${JSON.stringify(m.searchProbe)}`);
   assert.equal(m.ctaHit, true, `${label}: festive CTA receives pointer input above the animation`);
-  assert.equal(m.toggleHit, true, `${label}: opt-out control is clickable`);
+  assert.equal(m.toggles, 0, `${label}: no customer turn-off button`);
   if (m.belowHit !== null) { assert.equal(m.belowHit, true, `${label}: content below the header is unobstructed`); assert.equal(m.belowHasCanvas, false); }
   if (m.navVisible !== undefined) { assert.equal(m.navVisible, true, `${label}: bottom navigation visible`); assert.equal(m.navHit, true, `${label}: bottom navigation clickable`); }
 }
@@ -154,14 +154,12 @@ try {
   await waitFor('/Ends in/.test(document.querySelector(".sf-festive-countdown")?.textContent||"")', 'short sale running'); await delay(4500);
   await waitFor('/Sale ended/.test(document.querySelector(".sf-festive-countdown")?.textContent||"")', 'expired countdown shows fallback text');
   checks.push('countdown: "Starts in" before, "Ends in" during, configured fallback after expiry (live clock, no negative values)');
-  // 4. Customer controls: opt-out, reduced motion, disabling the animation, draft isolation, pause.
-  await evaluate('document.querySelector(".sf-festive .sf-decoration-toggle").click()'); await waitFor('!document.querySelector("canvas.sf-celebration")', 'opt-out removes canvas');
-  await evaluate('document.querySelector(".sf-festive .sf-decoration-toggle").click()'); await waitFor('!!document.querySelector(".sf-festive canvas.sf-celebration")', 'opt-in restores canvas');
+  // 4. Reduced motion, disabling the animation, draft isolation, pause.
   await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }); await waitFor('!document.querySelector("canvas.sf-celebration")', 'reduced motion hides animation');
   await publishTheme({ header: header(), animation: effect('fireworks', { reducedMotion: 'static' }) }); await refresh();
   await waitFor('!!document.querySelector(".sf-festive canvas.sf-celebration")', 'static fallback renders'); assert.ok(await pixelsDrawn() > 0, 'static frame drawn');
   await command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
-  checks.push('opt-out toggle inside header, reduced motion hides by default and shows a still frame when configured');
+  checks.push('no customer opt-out button, reduced motion hides by default and shows a still frame when configured');
   await publishTheme({ header: header(), animation: effect('lights', { enabled: false }) }); await refresh();
   await waitFor('!!document.querySelector(".sf-festive")&&!document.querySelector("canvas.sf-celebration")', 'disabled animation keeps header without canvas');
   checks.push('disabling the animation removes all decorative canvases and keeps the header');

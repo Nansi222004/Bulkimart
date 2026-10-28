@@ -6,7 +6,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import { useStorefront } from '../context/StorefrontContext';
 import { countdown } from '../../../utils/storefront';
 import { MerchandisingCard } from '../components/StorefrontSections';
-import Celebration, { DecorationToggle } from '../components/Celebration';
+import Celebration from '../components/Celebration';
 
 /**
  * Where a Campaign banner lands. Reads only the public, already-filtered
@@ -78,14 +78,14 @@ const CampaignLandingPage = () => {
           {campaign.bannerImage ? (
             <div style={{ position: 'relative', margin: '16px 16px 12px', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
               <img src={campaign.bannerImage} alt={campaign.name} style={{ width: '100%', height: 'auto', aspectRatio: '2.6 / 1', objectFit: 'cover', display: 'block' }} />
-              <Celebration effect={effect} now={now} />{effect && <DecorationToggle />}
+              <Celebration effect={effect} now={now} />
             </div>
           ) : (
             <div style={{
               position: 'relative', overflow: 'hidden', margin: 16, padding: 18, borderRadius: 16, color: '#fff',
               background: 'linear-gradient(135deg, #b91c1c 0%, #ef4444 100%)',
             }}>
-              <Celebration effect={effect} now={now} />{effect && <DecorationToggle />}
+              <Celebration effect={effect} now={now} />
               <div style={{ position: 'relative', zIndex: 2 }}>
               <p style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{campaign.name}</p>
               {campaign.description && <p style={{ margin: '6px 0 0', fontSize: 12.5, opacity: 0.9 }}>{campaign.description}</p>}

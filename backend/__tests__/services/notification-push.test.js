@@ -43,14 +43,16 @@ test('token registration removes the same device from other accounts before savi
 });
 
 test('logout removes only the current device token', async () => {
-  selectedUser = {
-    fcmToken: 'device-a',
-    pushTokens: [{ token: 'device-a' }, { token: 'device-b' }],
-    save: jest.fn(async () => {}),
-  };
   await removePushToken('current-user', 'device-a');
-  expect(selectedUser.pushTokens).toEqual([{ token: 'device-b' }]);
-  expect(selectedUser.fcmToken).toBeUndefined();
+  expect(updateOne).toHaveBeenCalledWith({ _id: 'current-user' }, { $pull: { pushTokens: { token: 'device-a' } } });
+  expect(updateOne).toHaveBeenCalledWith({ _id: 'current-user', fcmToken: 'device-a' }, { $unset: { fcmToken: '', fcmPlatform: '' } });
+  expect(User.findById).not.toHaveBeenCalled();
+});
+
+test('an inactive device is never revived through the legacy token fallback', async () => {
+  selectedUser = { fcmToken: 'logged-out-device', pushTokens: [{ token: 'logged-out-device', active: false }] };
+  await pushToUser('current-user', { title: 'Order', message: 'Updated' });
+  expect(sendPushNotification).not.toHaveBeenCalled(); expect(sendBulkNotification).not.toHaveBeenCalled();
 });
 
 test('an invalid Firebase token is deactivated without logging or retrying fake success', async () => {
@@ -78,5 +80,6 @@ test('seller-order pushes deduplicate device tokens and keep web/app transport p
   expect(sendPushNotification).toHaveBeenCalledTimes(2);
   expect(sendPushNotification).toHaveBeenCalledWith('browser-token', expect.objectContaining({ web: true }));
   expect(sendPushNotification).toHaveBeenCalledWith('app-token', expect.objectContaining({ web: false }));
+  for (const [, payload] of sendPushNotification.mock.calls) expect(payload.data.recipientId).toBe('current-user');
 });
 

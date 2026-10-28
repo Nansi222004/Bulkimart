@@ -15,11 +15,12 @@ const findById = jest.fn();
 const partner = jest.fn();
 const verifyOTP = jest.fn();
 const registerPushToken = jest.fn();
+const removePushToken = jest.fn();
 jest.unstable_mockModule('../models/User.js', () => ({ default: { findOne, findById } }));
 jest.unstable_mockModule('../models/Admin.js', () => ({ default: { findById } }));
 jest.unstable_mockModule('../models/DeliveryPartner.js', () => ({ default: { findOne: partner } }));
 jest.unstable_mockModule('../services/sms.service.js', () => ({ sendOTP: jest.fn(), verifyOTP }));
-jest.unstable_mockModule('../services/notification.service.js', () => ({ registerPushToken, removePushToken: jest.fn() }));
+jest.unstable_mockModule('../services/notification.service.js', () => ({ registerPushToken, removePushToken }));
 const { verifyDeliveryOTP } = await import('../controllers/auth.controller.js');
 const { protect, requireSellerSession } = await import('../middlewares/auth.middleware.js');
 const { errorHandler } = await import('../middlewares/error.middleware.js');
@@ -52,7 +53,7 @@ test('real delivery login JWT is accepted unchanged by notification authenticati
   expect(jwt.decode(login.body.token, { complete: true }).header.alg).toBe('HS256');
   expect(claims.exp - claims.iat).toBe(30 * 86400);
   await post(login.body.token).expect(200);
-  expect(registerPushToken).toHaveBeenCalledWith(id, 'fixture-fcm-device-token', 'app');
+  expect(registerPushToken).toHaveBeenCalledWith(id, 'fixture-fcm-device-token', 'app', 'delivery');
 });
 
 test.each([
@@ -88,6 +89,18 @@ test.each(['buyer', 'seller', 'delivery', undefined])('existing %s sessions rema
   await post(signSessionToken({ id, type: 'user', ...(role ? { role } : {}) })).expect(200);
 });
 test('existing admin sessions remain accepted', async () => { await post(signSessionToken({ id, type: 'admin' })).expect(200); });
+
+test.each(['buyer', 'seller', 'delivery'])('%s logout can remove only its authenticated account device token', async role => {
+  const credential = signSessionToken({ id, type: 'user', role });
+  await request(app).delete('/api/notifications/tokens/device-fixture')
+    .set('Authorization', `Bearer ${credential}`).expect(200);
+  expect(removePushToken).toHaveBeenCalledWith(id, 'device-fixture', role);
+});
+
+test('unauthenticated push cleanup cannot remove another account device token', async () => {
+  await request(app).delete('/api/notifications/tokens/device-fixture').expect(401);
+  expect(removePushToken).not.toHaveBeenCalled();
+});
 test('deleted and inactive accounts cannot register an FCM token', async () => {
   findById.mockReturnValue({ select: async () => null });
   const missing = await post(signSessionToken({ id, type: 'user', role: 'delivery' })).expect(401);

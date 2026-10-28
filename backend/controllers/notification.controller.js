@@ -55,7 +55,7 @@ export const saveFcmToken = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Please provide a push token");
   }
-  const tokenPlatform = await registerPushToken(req.user._id, token, platform);
+  const tokenPlatform = await registerPushToken(req.user._id, token, platform, req.tokenRole || (req.userType === 'user' ? 'buyer' : undefined));
   ok(res, { platform: tokenPlatform }, "Push token saved");
 });
 
@@ -64,7 +64,7 @@ export const saveFcmToken = asyncHandler(async (req, res) => {
 // @route   DELETE /api/notifications/tokens/:token
 // @access  Private
 export const deleteFcmToken = asyncHandler(async (req, res) => {
-  await removePushToken(req.user._id, req.params.token);
+  await removePushToken(req.user._id, req.params.token, req.tokenRole || (req.userType === 'user' ? 'buyer' : undefined));
   ok(res, {}, "Push token removed");
 });
 

@@ -133,7 +133,8 @@ try {
   checked('Route/service screen fits 320/390/768/1440px with touch-sized booking actions');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await click('Review fare · ₹24.63'); await waitText('Review your booking');
-  assert.equal(await evaluate('(()=>{const r=document.querySelector(".parcel-primary").getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight-50})()'), true, 'Fare review action stays visible above bottom navigation');
+  // The action bar sits in the page flow after the form: it never floats over the fields above it.
+  assert.equal(await evaluate('(()=>{const bar=document.querySelector(".parcel-sticky-action"),form=document.querySelector("#parcel-booking-review");bar.scrollIntoView({block:"end"});const b=bar.getBoundingClientRect(),f=form.getBoundingClientRect();return getComputedStyle(bar).position==="static"&&b.top>=f.bottom-1&&b.bottom<=innerHeight+1})()'), true, 'Booking action is part of the page and does not cover the review form');
   await evaluate('document.querySelector("input[value=pay_driver]").click()');
   await waitFor('!!document.querySelector("input[name=cashCollectionPoint][value=pickup]")');
   for (const width of [320,390,768,1440]) {

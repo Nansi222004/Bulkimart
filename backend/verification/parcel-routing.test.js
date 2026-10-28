@@ -63,7 +63,10 @@ test('provider timeout and invalid coordinates fail without leaking request deta
   fetch.mockClear();await expect(getRoute({lat:91,lng:77},{lat:13,lng:77})).rejects.toThrow('Valid route coordinates required');expect(fetch).not.toHaveBeenCalled();
 });
 test('actual mock road route is explicitly limited to the isolated test runtime',async()=>{
-  process.env.MAPS_MODE='mock';expect((await getRoute({lat:12.97,lng:77.59},{lat:12.98,lng:77.60})).distanceKm).toBe(5.2);
+  process.env.MAPS_MODE='mock';
+  // The simulated route follows the real pins: about 1.55 km straight line × 1.3 for road bends.
+  const near=await getRoute({lat:12.97,lng:77.59},{lat:12.98,lng:77.60}),far=await getRoute({lat:12.97,lng:77.59},{lat:13.07,lng:77.70});
+  expect(near).toMatchObject({distanceKm:2.02,durationMin:7,provider:'mock'});expect(far.distanceKm).toBeGreaterThan(near.distanceKm*5);expect(far.durationMin).toBeGreaterThan(near.durationMin);
 });
 test.each(['production','prod','deployment-production',' PRODUCTION '])('production alias %s blocks every parcel operation even with all flags true',env=>{
   for(const k of Object.keys(parcelFlags()))process.env[`PARCEL_DELIVERY_${k.toUpperCase()}_ENABLED`]='true';

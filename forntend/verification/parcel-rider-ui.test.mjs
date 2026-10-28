@@ -33,3 +33,10 @@ test('customer and rider history groups repeated matching attempts and hides cod
   const updates=summarize(events);assert.equal(updates.filter(e=>e.title==='Finding a delivery partner').length,1);assert.equal(updates.length,6);assert.ok(updates.some(e=>e.title==='Payment confirmed'));assert.ok(!updates.some(e=>e.title==='Payment started'));assert.equal(updates.at(-1).title,'Arrived at pickup');
   const output=renderToStaticMarkup(React.createElement(Updates,{events}));assert.ok(output.includes('Earlier updates (2)'));assert.ok(output.includes('Most recent first'));assert.ok(!output.includes('Complete your payment'));assert.ok(!output.includes('pickup_code'));
 });
+test('the sender’s pickup note and parcel contents are shown on the assigned task',async()=>{
+  const withNote={...booking,details:{...booking.details,category:'test_documents',description:'Two signed contracts',weightKg:1.5,dimensions:[30,20,2],instructions:'Ring the bell twice — gate code 4512'}};
+  const h=hookHarness(Operations,{},'/delivery/parcels?parcel='+id);
+  try{await reply(h,withNote);const output=renderToStaticMarkup(h.tree);for(const text of ['Pickup note from the sender','Ring the bell twice — gate code 4512','Two signed contracts','test documents','1.5 kg · 30 × 20 × 2 cm'])assert.ok(output.includes(text),text);}finally{h.close();}
+  const plain=hookHarness(Operations,{},'/delivery/parcels?parcel='+id);
+  try{await reply(plain,booking);assert.ok(renderToStaticMarkup(plain.tree).includes('No pickup note was added.'));}finally{plain.close();}
+});

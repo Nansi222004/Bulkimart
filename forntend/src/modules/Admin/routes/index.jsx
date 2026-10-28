@@ -3,6 +3,8 @@ import GstAssistance from '../../../components/gst/GstAssistance';
 import ParcelOperations from '../../../components/parcels/ParcelOperations';
 import AdminSessionGate from '../../../components/AdminSessionGate';
 import { clearPortalRequests } from '../../../utils/portalRequests';
+import { deregisterPushToken } from '../../../utils/firebaseMessaging';
+import { disconnectSocket } from '../../../utils/socket';
 import AdminProductDetailsPage from '../pages/AdminProductDetailsPage';
 import AdminServicesWorkspace from '../../../components/services/LegalAdminWorkspace';
 import { AdminProvider, useAdmin } from '../context/AdminContext';
@@ -172,7 +174,12 @@ export const AdminRoutes = () => {
     window.addEventListener('storage', changed); window.addEventListener('bulkimart:admin-session-changed', changed);
     return () => { window.removeEventListener('storage', changed); window.removeEventListener('bulkimart:admin-session-changed', changed); };
   }, []);
-  const logout = () => { clearPortalRequests('admin'); localStorage.removeItem('adminToken'); localStorage.removeItem('adminUser'); setToken(null); };
+  const logout = async () => {
+    const pushCleanup = deregisterPushToken('admin').catch(() => {});
+    disconnectSocket();
+    clearPortalRequests('admin'); localStorage.removeItem('adminToken'); localStorage.removeItem('adminUser'); setToken(null);
+    await pushCleanup;
+  };
   return (
     <>
       {!token ? (

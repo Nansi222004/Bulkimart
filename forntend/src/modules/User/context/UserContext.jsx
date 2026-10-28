@@ -770,14 +770,15 @@ export const UserProvider = ({ children }) => {
     if (!restoredSession) fetchProfile();
   }, [fetchProfile]);
 
-  const logoutUser = () => {
-    deregisterPushToken().catch(() => {});
+  const logoutUser = async () => {
+    const pushCleanup = deregisterPushToken('customer').catch(() => {});
     clearUserSession();
     setCurrentUser(null);
     setActiveNav('home');
     disconnectSocket();
     setWishlist(new Set());
     setWishlistItems([]);
+    await pushCleanup;
   };
 
   // ========================
@@ -911,6 +912,7 @@ export const UserProvider = ({ children }) => {
 
       const res = await fetch(apiUrl(`/api/cart?${qs}`), { headers: authHeaders(false) });
       if (res.status === 401) {
+        deregisterPushToken('customer').catch(() => {});
         localStorage.removeItem('userToken');
         localStorage.removeItem('userProfile');
         setServerCart({ ...EMPTY_CART, channel: ch });

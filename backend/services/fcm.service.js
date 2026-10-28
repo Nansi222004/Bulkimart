@@ -3,10 +3,11 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { getFirebaseApp } from '../config/firebaseAdmin.js';
 import { isMockIntegrationEnabled } from '../config/runtime.js';
 
-// Data-only for seller orders: the service worker owns display/tagging.
-// Sending both notification + manual showNotification creates two OS alerts.
-export const pushMessage = ({ title, body, data, image, web }) => web && data?.audience === 'seller' && data.event === 'ORDER_CREATED'
-  ? { data: { ...data, title, body }, webpush: { headers: { Topic: `order-${data.orderId}` } } }
+// Web display belongs to the worker so it can enforce logout before showing
+// anything. Firebase's automatic notification payload bypasses that check.
+export const pushMessage = ({ title, body, data, image, web }) => web
+  ? { data: { ...data, title, body, ...(image ? { image } : {}) },
+    ...(data?.audience === 'seller' && data.event === 'ORDER_CREATED' ? { webpush: { headers: { Topic: `order-${data.orderId}` } } } : {}) }
   : { notification: { title, body, ...(image ? { image } : {}) }, data };
 
 export const sendPushNotification = async (fcmToken, { title, body, data = {}, image, web = false }) => {

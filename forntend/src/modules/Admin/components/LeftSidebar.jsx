@@ -1,7 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
+import { parcelRequest } from '../../../components/parcels/parcelApi';
 import BrandLogo from '../../../components/BrandLogo';
 import { useAdvertisingNavigation } from '../../../components/advertising/useAdvertisingNavigation';
+
+// Paused parcel bookings waiting for an admin (rider help or cancellation requests).
+// Refreshed every minute and right after an admin acts on one; failures keep the last count.
+function useParcelReviewCount(enabled) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let alive = true;
+    const load = () => parcelRequest('admin', '/bookings?status=needs_review&limit=1').then(result => { if (alive) setCount(Number(result.meta?.total) || 0); }).catch(() => {});
+    load();
+    const timer = setInterval(load, 60000);
+    window.addEventListener('parcel-review-changed', load);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('parcel-review-changed', load); };
+  }, [enabled]);
+  return count;
+}
 
 export const LeftSidebar = ({ collapsed, setCollapsed }) => {
   const advertisingEnabled = useAdvertisingNavigation(true);
@@ -250,6 +267,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
   const sectionLinks = sectionParent ? filteredNavGroups.flatMap(group => group.links).filter(link => !financeTabs.includes(link.id) && !['user-dashboard', 'vendor-dashboard', 'delivery-dashboard', 'delivery-zones'].includes(link.id)) : [];
   const sharedNavGroups = navGroups.map(group => ({ ...group, links: group.links.filter(link => !financeTabs.includes(link.id)) })).filter(group => group.links.length);
   sharedNavGroups.push({title:'FINANCE',links:[{id:'finance-center',label:'Finance Center',icon:<span aria-hidden="true">₹</span>}]});
+  const parcelReviews = useParcelReviewCount(sharedNavGroups.some(group => group.links.some(link => link.id === 'parcel-delivery')));
 
   return (
     <div className={`sa-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -355,6 +373,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
                 >
                   {link.icon}
                   <span>{link.label}</span>
+                  {link.id === 'parcel-delivery' && parcelReviews > 0 && <b className="sa-nav-badge" aria-label={`${parcelReviews} paused ${parcelReviews === 1 ? 'booking needs' : 'bookings need'} review`}>{parcelReviews > 99 ? '99+' : parcelReviews}</b>}
                 </button>
                 {link.id === sectionParent && !collapsed && <div className="sa-nav-sub-links-container" role="group" aria-label={`${link.label} pages`} style={{ paddingLeft: 12 }}>
                   {sectionLinks.map(sub => <button key={sub.id} className={`sa-nav-link sa-nav-sub-link ${activeTab === sub.id ? 'active' : ''}`} aria-current={activeTab === sub.id ? 'page' : undefined} title={sub.label} onClick={() => handleNavClick(sub.id, sub.label)}>{sub.icon}<span>{sub.label}</span></button>)}

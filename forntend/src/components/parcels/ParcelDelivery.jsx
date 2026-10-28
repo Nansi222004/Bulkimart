@@ -46,20 +46,24 @@ export default function ParcelDelivery() {
   const track=/^\/parcel-delivery\/track\/([a-f\d]{24})$/i.exec(routePath)?.[1],history=routePath==='/parcel-delivery/history';
   const invalid=!track&&!history&&!['/parcel-delivery','/parcel-delivery/book'].includes(routePath);
   const readKey=routePath+':'+(history?page:1);
-  const [readError,setReadError]=useState(''),[loadedKey,setLoadedKey]=useState('');
+  const [readError,setReadError]=useState(''),[loadedKey,setLoadedKey]=useState(''),[updatedAt,setUpdatedAt]=useState(null);
   const nav=p=>{window.history.pushState(null,'',p);setPath(p);};
   const trackingBusy=useRef(false);trackingBusy.current=busy||checkoutActive;
+  // Tracking and history stay live: every parcel update, a 10s poll, and whenever the app returns to the foreground or reconnects.
   useEffect(()=>{
-    if(!track)return;
-    const update=()=>{if(!trackingBusy.current)refresh(x=>x+1);};
-    const notification=n=>{if(n?.event==='PARCEL_UPDATED'&&n.metadata?.parcelDeliveryId===track)update();};
-    socket.on('notification_new',notification);
+    if(!track&&!history)return;
+    const update=()=>{if(!trackingBusy.current&&document.visibilityState!=='hidden')refresh(x=>x+1);};
+    const notification=n=>{if(n?.event==='PARCEL_UPDATED'&&(history||String(n.metadata?.parcelDeliveryId)===track))update();};
+    const visible=()=>{if(document.visibilityState==='visible')update();};
+    socket.on('notification_new',notification);socket.on('connect',update);
+    document.addEventListener?.('visibilitychange',visible);window.addEventListener('focus',update);window.addEventListener('online',update);
     const timer=setInterval(update,10000);
-    return()=>{clearInterval(timer);socket.off('notification_new',notification);};
-  },[track]);
+    return()=>{clearInterval(timer);socket.off('notification_new',notification);socket.off('connect',update);document.removeEventListener?.('visibilitychange',visible);window.removeEventListener('focus',update);window.removeEventListener('online',update);};
+  },[track,history]);
   useEffect(()=>{const f=()=>setPath(window.location.pathname);window.addEventListener('popstate',f);window.addEventListener('app:locationchange',f);return()=>{window.removeEventListener('popstate',f);window.removeEventListener('app:locationchange',f);};},[]);
   useEffect(()=>{
-    const c=new AbortController();setLoading(!track||loadedKey!==readKey);setReadError('');setError('');
+    // A background refresh of an already-loaded tracking or history page keeps the content on screen.
+    const c=new AbortController();setLoading(track||history?loadedKey!==readKey:true);setReadError('');setError('');
     if(invalid){setLoading(false);return()=>c.abort();}
     async function load(){
       if(track||history){
@@ -83,7 +87,7 @@ export default function ParcelDelivery() {
         if(c.signal.aborted)return;
         setPolicy(p?.data&&Array.isArray(p.data.areas)&&Array.isArray(p.data.categories)&&Array.isArray(p.data.prohibitedItems)?p.data:null);
       }
-      setLoadedKey(readKey);
+      setLoadedKey(readKey);if(track||history)setUpdatedAt(new Date());
     }
     load().catch(e=>{if(!c.signal.aborted)setReadError(e.message);}).finally(()=>{if(!c.signal.aborted)setLoading(false);});
     return()=>c.abort();
@@ -109,10 +113,12 @@ export default function ParcelDelivery() {
   if(readError)return shell(<section className="parcel-card"><h2>{track?'Unable to load parcel tracking':history?'Unable to load parcel history':'Unable to load parcel delivery'}</h2><p role="alert" className="parcel-error">{readError}</p>{retryRead}{history&&loadedKey===readKey&&rows.length>0&&<><p>Previously loaded deliveries. Refresh failed; statuses may be outdated.</p>{rows.map(b=><button type="button" className="parcel-row" key={b._id} onClick={()=>nav('/parcel-delivery/track/'+b._id)}><span className="parcel-row-text">{b.reference} · {parcelCustomerStatus(b.status)} · {money(b.feePaise)}</span><span className="parcel-row-arrow" aria-hidden="true">→</span></button>)}</>}</section>);
   if(track&&(loadedKey!==readKey||!booking))return shell(<section className="parcel-card"><h2>Parcel tracking unavailable</h2><p>This booking is unavailable or could not be found for your account.</p>{retryRead}</section>);
   return <section className="parcel-workspace customer-service-page">{(track||history||!parcelBookingReady(flags,policy))&&<CustomerServiceHeading parcel><p>Your parcel, collected and delivered by a Bulkimart delivery partner.</p></CustomerServiceHeading>}<nav className={track||history?'parcel-nav':'parcel-nav parcel-nav-booking'} aria-label="Parcel navigation">{(track||history)&&<button type="button" className="parcel-nav-btn" onClick={()=>nav('/parcel-delivery/book')}>New booking</button>}<button type="button" className={'parcel-nav-btn '+(history?'active':'')} onClick={()=>nav('/parcel-delivery/history')}>Delivery history</button>{(track||history)&&<button type="button" className="parcel-nav-refresh" disabled={busy} onClick={()=>refresh(x=>x+1)}>Refresh status</button>}</nav>
+    {(track||history)&&updatedAt&&<p className="parcel-live-status" aria-live="off"><span aria-hidden="true"/>Live · updated {updatedAt.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit',second:'2-digit'})}</p>}
     {error&&<p role="alert" className="parcel-error">{error}</p>}{notice&&<p role="status">{notice}</p>}{loading?<p role="status">Loading parcel delivery…</p>:!track&&!history&&!parcelBookingReady(flags,policy)?<section className="parcel-card customer-service-state"><h2>Parcel booking is currently unavailable</h2><p role="status">We’re not accepting new parcel deliveries right now. Please check back later.</p><p>You can still view and track your existing deliveries from Delivery history.</p><button onClick={()=>refresh(x=>x+1)}>Check availability</button><a className="customer-service-action" href="/grocery-home">Back to shopping</a></section>:track&&booking?<>
       <ParcelCustomerStatus booking={booking} justBooked={justBooked===track}/><ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route}/>
       {booking.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(booking.status)&&<section className="parcel-card"><p>{busy?"Opening secure Razorpay checkout…":"Complete your payment securely with Razorpay."}</p><button disabled={busy} onClick={()=>payOnline(booking)}>{busy?"Payment in progress…":"Pay "+money(booking.feePaise)+" online"}</button><button disabled={busy} onClick={()=>action('payment-status',{})}>Check payment status</button></section>}
-      {!['cancelled','delivered','cancellation_review'].includes(booking.status)&&<details className="parcel-card"><summary>Cancel this booking</summary><form onSubmit={e=>{e.preventDefault();action('cancellation',{version:booking.version,reason:new FormData(e.currentTarget).get('reason')});}}><label>Cancellation reason<input name="reason" required maxLength={500}/></label><p>Cancellation and any refund are reviewed under the accepted terms.</p><button disabled={busy}>Request cancellation review</button></form></details>}<details className="parcel-card"><summary>Delivery updates</summary><ParcelTimeline events={booking.history}/></details>
+      {['picked_up','in_transit','arrived_at_dropoff'].includes(booking.status)&&!booking.canCancel&&<p className="parcel-card parcel-cancel-closed">Your parcel has been picked up, so this booking can no longer be cancelled.</p>}
+      {booking.canCancel&&<details className="parcel-card"><summary>Cancel this booking</summary><form onSubmit={e=>{e.preventDefault();action('cancellation',{version:booking.version,reason:new FormData(e.currentTarget).get('reason')});}}><label>Cancellation reason<input name="reason" required maxLength={500}/></label><p>Cancellation and any refund are reviewed under the accepted terms.</p><button disabled={busy}>Request cancellation review</button></form></details>}<details className="parcel-card"><summary>Delivery updates</summary><ParcelTimeline events={booking.history}/></details>
     </>:history?<section className="parcel-card"><h2>Your parcel deliveries</h2>{!rows.length?<div className="parcel-empty-state"><div className="parcel-empty-icon" aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div><p className="parcel-empty-title">No parcel bookings yet.</p><p className="parcel-empty-subtitle">When you book a parcel pickup or delivery, its status and tracking will appear here.</p><button type="button" className="parcel-btn-book-now" onClick={()=>nav('/parcel-delivery/book')}>Book a parcel →</button></div>:<>{rows.map(b=><button type="button" className="parcel-row" key={b._id} onClick={()=>nav(`/parcel-delivery/track/${b._id}`)}><span className="parcel-row-text">{b.reference} · {parcelCustomerStatus(b.status)} · {money(b.feePaise)}</span><span className="parcel-row-arrow" aria-hidden="true">→</span></button>)}{meta.pages>1&&<nav className="customer-service-pagination" aria-label="Pagination"><button type="button" disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span> Page {page} </span><button type="button" disabled={page>=meta.pages} onClick={()=>setPage(x=>x+1)}>Next</button></nav>}</>}</section>:<>
       <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} profile={session?.profile} onBooked={b=>{setBooking(b);setJustBooked(b.paymentMethod==='online'?false:b._id);nav('/parcel-delivery/track/'+b._id);if(b.paymentMethod==='online')void payOnline(b);}}/>
     </>}

@@ -4,13 +4,13 @@ import { createElement } from 'react';
 import { createServer } from 'vite';
 import { hookHarness, registerFeedback } from '../tests/service-hookHarness.mjs';
 import { DEFAULT_EFFECT } from '../../backend/shared/celebration.mjs';
-let Celebration, DecorationToggle, EffectFields, MediaFields, Festive, HeaderFields, LAYER;
+let Celebration, EffectFields, MediaFields, Festive, HeaderFields, LAYER;
 let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   policy = await vite.ssrLoadModule('/src/utils/storefront.js');
   registerFeedback((await vite.ssrLoadModule('/src/utils/feedback.js')).feedback);
-  ({ default: Celebration, DecorationToggle, LAYER_STYLE: LAYER } = await vite.ssrLoadModule('/src/modules/User/components/Celebration.jsx'));
+  ({ default: Celebration, LAYER_STYLE: LAYER } = await vite.ssrLoadModule('/src/modules/User/components/Celebration.jsx'));
   Festive = await vite.ssrLoadModule('/src/modules/User/components/FestiveHeader.jsx');
   HeaderFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontHeaderFields.jsx')).default;
   EffectFields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontEffectFields.jsx')).default;
@@ -169,19 +169,17 @@ test('hero video and effect preview stay local; draft upload is always Studio-on
     assert.equal(postRequests(h).length, 2);
   } finally { h.close(); }
 });
-test('decoration preference disables every overlay without publishing; reduced motion and expiry suppress canvas', () => {
+test('a published effect always plays with no customer opt-out; reduced motion and expiry suppress canvas', () => {
   for (const [effect, reduced] of [[{ ...DEFAULT_EFFECT, enabled: true }, true], [{ ...DEFAULT_EFFECT, enabled: false }, false], [{ ...DEFAULT_EFFECT, enabled: true, endAt: new Date(Date.now() - 1).toISOString() }, false]]) {
     const h = browserHarness(Celebration, { effect }, {}, reduced); try { assert.equal(h.tree, null); } finally { h.close(); }
   }
   const h = browserHarness(Celebration, { effect: { ...DEFAULT_EFFECT, enabled: true } }, {});
   try {
+    // An opt-out stored by an earlier version is ignored.
+    localStorage.setItem('bulkimart:decorations-disabled', '1'); window.dispatchEvent(new CustomEvent('bulkimart:decorations', { detail: true })); h.rerender();
     assert.equal(h.tree.type, 'canvas'); assert.equal(h.tree.props.style.pointerEvents, 'none');
-    window.dispatchEvent(new CustomEvent('bulkimart:decorations', { detail: true })); h.flush(); assert.equal(h.tree, null);
-    window.dispatchEvent(new CustomEvent('bulkimart:decorations', { detail: false })); h.flush(); assert.equal(h.tree.type, 'canvas');
     assert.equal(h.requests.length, 0);
   } finally { h.close(); }
-  const toggle = browserHarness(DecorationToggle, {}, {});
-  try { toggle.click('Turn off celebrations'); assert.equal(localStorage.getItem('bulkimart:decorations-disabled'), '1'); assert.equal(toggle.tree.props['aria-pressed'], true); } finally { toggle.close(); }
 });
 test('responsive video selects the mobile source, honors playback settings, and retains image compatibility', () => {
   const props = { banner: { ...banner, mediaType: 'video', video: 'https://fixture.test/wide.mp4', mobileVideo: 'https://fixture.test/mobile.webm', mobileImage: 'https://fixture.test/mobile.webp', loop: false, autoplay: false }, device: 'mobile' };
@@ -699,10 +697,10 @@ test('boundary: the storefront provider exposes the page effect but mounts no ov
     h.requests[0].resolve({ data: { version: 'fx', animations: [liveEffect], theme: { id: 'published', tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }, banners: [], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() } });
     await h.settle();
     assert.equal(h.tree.props.value.effect.preset, 'lights');
-    assert.equal(h.find(n => n.type === Celebration || n.type === 'canvas' || n.type === DecorationToggle), undefined);
+    assert.equal(h.find(n => n.type === Celebration || n.type === 'canvas'), undefined);
   } finally { h.close(); }
 });
-test('festive header renders copy, CTA, bounded animation and an in-header opt-out', () => {
+test('festive header renders copy, CTA and a bounded animation with no customer opt-out', () => {
   let destination;
   const props = { header: festiveHeader({ height: 220, background: '#123b5c', text: '#ffffff' }), effect: liveEffect, now: Date.now(), onNavigate: d => { destination = d; } };
   const h = browserHarness(Festive.FestiveHeader, props, {});
@@ -710,12 +708,11 @@ test('festive header renders copy, CTA, bounded animation and an in-header opt-o
     assert.equal(h.tree.type, 'section'); assert.equal(h.tree.props.className, 'sf-festive');
     assert.equal(h.tree.props.style['--sf-festive-height'], '220px'); assert.equal(h.tree.props.style['--sf-festive-bg'], '#123b5c');
     assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'lights');
-    assert.ok(h.find(n => n.type === DecorationToggle));
+    assert.equal(h.find(n => n.type === 'button' && /celebration/i.test(text(n))), undefined, 'No turn-off button');
     assert.match(text(h.tree), /Festive Sale/); assert.match(text(h.tree), /Lights, gifts and more/);
     h.find(n => n.type === 'button' && n.props.className === 'sf-cta').props.onClick(); assert.deepEqual(destination, { type: 'NAV', id: 'categories' });
     props.effect = null; props.header = festiveHeader({ target: 'none', cta: '' }); h.rerender();
-    assert.equal(h.find(n => n.type === DecorationToggle), undefined); assert.equal(h.find(n => n.props?.className === 'sf-cta'), undefined);
-    props.preview = true; props.effect = liveEffect; h.rerender(); assert.equal(h.find(n => n.type === DecorationToggle), undefined, 'Preview has no customer opt-out');
+    assert.equal(h.find(n => n.props?.className === 'sf-cta'), undefined);
   } finally { h.close(); }
 });
 test('countdown follows persisted sale dates before, during and after the sale and never goes negative', () => {
@@ -740,9 +737,9 @@ test('the page effect is hosted once: by the festive header when published, othe
   try {
     const art = h.find(n => n.props?.className === 'sf-hero-art');
     assert.equal(art.props.children.find(n => n?.type === Celebration).props.effect, undefined, 'The hero never draws the page effect');
-    assert.ok(h.find(n => n.type === DecorationToggle), 'The hero keeps the opt-out for the header effect');
+    assert.equal(h.find(n => n.type === 'button' && /celebration/i.test(text(n))), undefined, 'The hero has no turn-off button');
     context.theme = { tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }; h.rerender();
-    assert.equal(h.find(n => n.type === DecorationToggle), undefined, 'Festive header owns the page effect and its opt-out');
+    assert.equal(h.find(n => n.type === Celebration).props.effect, undefined, 'Festive header owns the page effect');
     context.banners = [{ ...banner, animation: { ...liveEffect, preset: 'petals', scope: 'banner' } }]; h.rerender();
     assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'petals', 'Banner-scoped effects stay on their banner');
   } finally { h.close(); }

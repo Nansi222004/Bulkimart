@@ -22,6 +22,7 @@ export const WALLET_REFERENCE_TYPE = {
   ADMIN: "ADMIN",
   SYSTEM: "SYSTEM",
   TOPUP: "TOPUP",
+  PARCEL: "PARCEL",
 };
 
 export const WALLET_REFERENCE_TYPES = Object.values(WALLET_REFERENCE_TYPE);

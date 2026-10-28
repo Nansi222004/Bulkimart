@@ -21,6 +21,11 @@ export function createAdminNotificationOpener() {
         actions.setTab('services'); actions.close();
         window.history.replaceState(null, '', n.route);
         window.dispatchEvent(new Event('legal-request-open'));
+      } else if (/^\/admin\/parcel-delivery(\?parcel=[a-f\d]{24})?$/i.test(n.route || '')) {
+        // Parcel alerts open the booking; the panel reads the id from the URL.
+        actions.setTab('parcel-delivery'); actions.close();
+        window.history.replaceState(null, '', n.route);
+        window.dispatchEvent(new Event('parcel-booking-open'));
       } else if (n.metadata?.applicationId || n.route === '/admin/services') {
         const id = serviceApplicationId(n.metadata?.applicationId);
         actions.setTab('services'); actions.close();
