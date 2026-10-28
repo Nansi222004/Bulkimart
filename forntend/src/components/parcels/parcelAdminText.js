@@ -24,7 +24,7 @@ export function adminUnavailableReason(partner) {
     busy_with_delivery:'Already carrying a delivery or return pickup.',
     outside_pickup_radius:`Outside this booking’s ${partner.assignmentRadiusKm} km pickup search area.`,
     outside_rider_radius:'This pickup is outside the distance the partner is willing to travel.',
-    zones_mismatch:'The partner’s delivery pincodes do not include both pickup and delivery.',
+    zones_mismatch:'Neither the pickup nor the drop pincode is in the partner’s service area, and the drop is beyond their service radius.',
     account_unavailable:'The rider account is inactive or does not have delivery access.',
     approval_required:'The rider account needs approval before receiving pickup requests.',
     tasks_disabled:'The partner cannot take another task under the current delivery settings.',

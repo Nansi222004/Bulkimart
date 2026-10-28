@@ -10,7 +10,7 @@ assert.ok(exe, 'Chrome or Edge is required');
 const temp = await mkdtemp(join(tmpdir(), 'bulkimart-legal-browser-')), profile = join(temp, 'profile'); await mkdir(profile);
 const screenshots = resolve('../test-artifacts/services-ui'); await mkdir(screenshots, { recursive: true });
 const id = '507f1f77bcf86cd799439022', serviceId = '507f1f77bcf86cd799439023';
-const s = { _id: serviceId, version: 1, name: 'Fixture Legal Service', description: 'Synthetic service for private intake testing only.', instructions: 'Provide only the information needed.', formVersion: 1, fields: [{ id: 'name', label: 'Required name', type: 'text', required: true }], startingPrice: { amount: 250, currency: 'INR' } };
+const s = { _id: serviceId, version: 1, name: 'Fixture Legal Service', description: 'Synthetic service for private intake testing only.', instructions: 'Provide only the information needed.', formVersion: 1, fields: [{ id: 'name', label: 'Required name', type: 'text', required: true, help: 'Use the name on your document.' }, { id: 'date', label: 'Preferred date', type: 'date', help: 'Choose a date for this request.' }, { id: 'details', label: 'Additional details', type: 'textarea', help: 'Describe the help you need.' }], startingPrice: { amount: 250, currency: 'INR' } };
 // Fixed-price services are paid at submission: an application is "Payment pending" until its fee is verified.
 const fee = (amountPaise, paid) => ({ version: 1, amountPaise, currency: 'INR', status: paid ? 'paid' : 'unpaid', terms: 'Synthetic fee and wallet refund terms', ...(paid ? { paymentId: true } : {}) });
 const adminApp = { _id: id, __v: 1, applicantType: 'customer', service: serviceId, user: '507f1f77bcf86cd799439099', snapshot: { name: s.name, fields: s.fields, pricing: { mode: 'fixed', amount: 250, currency: 'INR' } }, answers: { name: 'Private fixture' }, files: [], events: [], status: 'submitted', createdAt: '2026-10-22T00:00:00Z', billing: fee(25000, true) };
@@ -32,7 +32,11 @@ const vite = await createServer({ define: { 'import.meta.env.VITE_API_BASE_URL':
         res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(data ? { success: true, data } : { success: false, message: 'Browser fixture blocks unrecognized writes' }));
       }
       let data = [], meta = { total: 1, page: 1, limit: 20 };
-      if (p === '/api/customer-services') data = [s];
+      if (p === '/api/customer-services') {
+        // Ensure each typed character spans a real loading state.
+        if (new URL(req.url, 'http://fixture').searchParams.get('q')) await new Promise(resolve => setTimeout(resolve, 80));
+        data = [s];
+      }
       else if (p === `/api/customer-services/catalogue/${serviceId}`) data = s;
       else if (p === '/api/customer-services/applications') data = [customerView()];
       else if (p.startsWith('/api/customer-services/applications/')) data = customerView();
@@ -71,6 +75,7 @@ try {
     }
   });
   await command('Page.enable'); await command('Runtime.enable'); await command('Network.enable'); await command('Network.setBlockedURLs', { urls: ['https://*', 'http://api.*'] });
+  await command('Emulation.setFocusEmulationEnabled', { enabled: true }); await command('Page.bringToFront');
   await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   for (const width of [320, 375, 430, 768, 1440]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 });
@@ -83,6 +88,27 @@ try {
         await evaluate('document.querySelector("#legal-service-search").focus()');
         const search = await evaluate(`(() => { const input=document.querySelector('#legal-service-search'), label=document.querySelector('label[for="legal-service-search"]'), hint=document.querySelector('#legal-service-search-hint'), card=document.querySelector('.legal-grid'); const i=input.getBoundingClientRect(), l=label.getBoundingClientRect(), h=hint.getBoundingClientRect(), c=card.getBoundingClientRect(), style=getComputedStyle(input), ring=parseFloat(style.outlineWidth)+Math.max(0,parseFloat(style.outlineOffset));return {above:i.top-ring-l.bottom,below:h.top-i.bottom-ring,card:c.top-h.bottom,focus:document.activeElement===input}; })()`);
         assert.equal(search.focus, true); assert.ok(search.above >= 4 && search.below >= 4 && search.card >= 12, JSON.stringify({ width, search }));
+        await evaluate("void(window.originalLegalSearch=document.querySelector('#legal-service-search'))");
+        let typed = '';
+        for (const character of 'legal') {
+          typed += character;
+          await command('Input.insertText', { text: character });
+          await sleep(120);
+          const focus = await evaluate("(()=>{const input=document.querySelector('#legal-service-search');return {same:input===window.originalLegalSearch,focused:document.activeElement===input,value:input?.value};})()");
+          assert.deepEqual(focus, { same: true, focused: true, value: typed }, `Search retains focus after ${typed} at ${width}px`);
+        }
+        await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+        await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+        await sleep(120);
+        assert.equal(await evaluate("document.activeElement===window.originalLegalSearch&&window.originalLegalSearch.value==='lega'"), true);
+      }
+      if (url === `/legal-services/${serviceId}`) {
+        for (const field of ['name', 'date', 'details']) {
+          await evaluate(`document.querySelector('#service-field-${field}').focus()`);
+          const spacing = await evaluate(`(()=>{const input=document.querySelector('#service-field-${field}'),label=document.querySelector('label[for="service-field-${field}"]'),help=document.querySelector('#service-field-${field}-help'),style=getComputedStyle(input),ring=parseFloat(style.outlineWidth)+Math.max(0,parseFloat(style.outlineOffset)),r=input.getBoundingClientRect();return {above:r.top-ring-label.getBoundingClientRect().bottom,below:help.getBoundingClientRect().top-r.bottom-ring,visible:input.matches(':focus-visible')};})()`);
+          assert.ok(spacing.visible && spacing.above >= 4 && spacing.below >= 4, JSON.stringify({ width, field, spacing }));
+        }
+        if (width === 375) await writeFile(join(screenshots, 'legal-form-focus-375.png'), Buffer.from((await command('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
       }
       if (url.startsWith('/legal-services/requests/') || url.includes('legalRequest=')) {
         const reference = await evaluate(`(() => { const r=document.querySelector('.service-reference');return {text:r?.textContent,title:r?.title};})()`);

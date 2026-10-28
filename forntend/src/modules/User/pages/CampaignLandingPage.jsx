@@ -16,7 +16,7 @@ import Celebration from '../components/Celebration';
 const CampaignLandingPage = () => {
   // Campaign-page effects stay inside the deal hero below.
   const { now, effect } = useStorefront();
-  const { selectedCampaignId, setSelectedCampaignId, addToCart, setSelectedProduct } = useUser();
+  const { selectedCampaignId, setSelectedCampaignId, setSelectedCategoryFilter, setActiveMode } = useUser();
 
   const [campaign, setCampaign] = useState(null);
   const [products, setProducts] = useState([]);
@@ -52,6 +52,15 @@ const CampaignLandingPage = () => {
   }, [selectedCampaignId]);
 
   if (!selectedCampaignId) return null;
+  // A category deal links to its category, opened in that category's own storefront.
+  const target = campaign?.targetCategory;
+  const shopCategory = () => {
+    setSelectedCampaignId(null);
+    if (target.type) setActiveMode(target.type === 'grocery' ? 'quick' : 'shop-all');
+    setSelectedCategoryFilter({ _id: target.id, slug: target.slug, name: target.name });
+  };
+  const shopButton = target && <button type="button" className="sf-deal-shop" onClick={shopCategory}>Shop {target.name} →</button>;
+  const day = date => new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 
   return (
     <div className="product-detail-page">
@@ -74,35 +83,29 @@ const CampaignLandingPage = () => {
         </div>
       ) : (
         <>
-          <p style={{ padding: '12px 16px' }}>Ends in <time className="sf-countdown">{countdown(campaign.endAt, now)}</time></p>
-          {campaign.bannerImage ? (
-            <div style={{ position: 'relative', margin: '16px 16px 12px', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-              <img src={campaign.bannerImage} alt={campaign.name} style={{ width: '100%', height: 'auto', aspectRatio: '2.6 / 1', objectFit: 'cover', display: 'block' }} />
+          {/* The banner image, when there is one, then the deal details: shown in both cases. */}
+          {campaign.bannerImage && (
+            <div className="sf-deal-banner">
+              <img src={campaign.bannerImage} alt={campaign.name} />
               <Celebration effect={effect} now={now} />
-            </div>
-          ) : (
-            <div style={{
-              position: 'relative', overflow: 'hidden', margin: 16, padding: 18, borderRadius: 16, color: '#fff',
-              background: 'linear-gradient(135deg, #b91c1c 0%, #ef4444 100%)',
-            }}>
-              <Celebration effect={effect} now={now} />
-              <div style={{ position: 'relative', zIndex: 2 }}>
-              <p style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>{campaign.name}</p>
-              {campaign.description && <p style={{ margin: '6px 0 0', fontSize: 12.5, opacity: 0.9 }}>{campaign.description}</p>}
-              <p style={{ margin: '10px 0 0', fontSize: 22, fontWeight: 900 }}>{campaign.discountValue}% OFF</p>
-              <p style={{ margin: '4px 0 0', fontSize: 11, opacity: 0.85 }}>
-                {new Date(campaign.startAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                {' → '}
-                {new Date(campaign.endAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </p>
-              </div>
             </div>
           )}
+          <div className="sf-deal-details">
+            {!campaign.bannerImage && <Celebration effect={effect} now={now} />}
+            <div className="sf-deal-details-copy">
+              <p className="sf-deal-name">{campaign.name}</p>
+              {campaign.description && <p className="sf-deal-description">{campaign.description}</p>}
+              {Number(campaign.discountValue) > 0 && <p className="sf-deal-discount">{campaign.discountValue}% OFF</p>}
+              <p className="sf-deal-dates">{day(campaign.startAt)} → {day(campaign.endAt)} · Ends in <time className="sf-countdown">{countdown(campaign.endAt, now)}</time></p>
+              {shopButton}
+            </div>
+          </div>
 
           {products.length === 0 ? (
-            <p style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: 13 }}>
-              No products are participating in this deal yet.
-            </p>
+            <div style={{ textAlign: 'center', padding: '32px 20px', color: '#94a3b8', fontSize: 13 }}>
+              <p style={{ margin: '0 0 12px' }}>No products are participating in this deal yet.</p>
+              {shopButton}
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, padding: '4px 16px 24px' }}>
               {products.map(p => <MerchandisingCard key={p.id} product={p} deal />)}

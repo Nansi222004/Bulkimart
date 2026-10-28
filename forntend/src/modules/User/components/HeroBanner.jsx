@@ -20,7 +20,8 @@ export default function HeroBanner() {
   </section>;
   const go = () => { fetch(apiUrl(`/api/banners/${banner.id}/click`), { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
   return <section className="sf-hero" aria-roledescription="carousel" aria-label="Featured promotions" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocusCapture={() => setHover(true)} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setHover(false); }}>
-    <div className="sf-hero-art"><StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} /><Celebration effect={paused ? null : heroEffect} now={now} /></div>
+    {/* Tapping the picture opens the promotion too; the button below stays the keyboard route. Video controls keep working. */}
+    <div className={`sf-hero-art${banner.destination.type !== 'NONE' ? ' sf-hero-art--link' : ''}`} onClick={banner.destination.type !== 'NONE' ? e => { if (e.target.tagName !== 'VIDEO') go(); } : undefined}><StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} /><Celebration effect={paused ? null : heroEffect} now={now} /></div>
     <div className="sf-hero-copy"><span className="sf-eyebrow">DISCOVER SOMETHING GOOD</span><h2>{banner.title}</h2>{banner.subtitle && <p>{banner.subtitle}</p>}
       {banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={go}>{banner.cta || 'Explore now'} <span aria-hidden="true">→</span></button>}
     </div>

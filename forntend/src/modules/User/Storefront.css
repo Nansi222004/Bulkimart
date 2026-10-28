@@ -219,3 +219,15 @@
   .sf-splash .sf-splash-card>img,.sf-splash .sf-splash-card>video{position:static;width:auto;max-width:100%;height:auto;max-height:86vh;object-fit:contain}
   .sf-splash .sf-splash-card>.sf-media-fallback{position:static;width:min(560px,90vw);height:min(420px,70vh)}
 }
+/* Campaign (deal) page: banner image, then the details and a link to the deal's category */
+.sf-deal-banner{position:relative;margin:16px 16px 0;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.sf-deal-banner img{display:block;width:100%;height:auto;aspect-ratio:2.6/1;object-fit:cover}
+.sf-deal-details{position:relative;overflow:hidden;margin:12px 16px 16px;padding:18px;border-radius:16px;color:#fff;background:linear-gradient(135deg,#b91c1c 0%,#ef4444 100%)}
+.sf-deal-details-copy{position:relative;z-index:2}
+.sf-deal-name{margin:0;font-size:18px;font-weight:900}
+.sf-deal-description{margin:6px 0 0;font-size:13px;line-height:1.5;opacity:.92;overflow-wrap:anywhere}
+.sf-deal-discount{margin:10px 0 0;font-size:22px;font-weight:900}
+.sf-deal-dates{margin:4px 0 0;font-size:12px;opacity:.88}
+.sf-deal-shop{margin-top:14px;min-height:40px;padding:0 18px;border:0;border-radius:999px;background:#fff;color:#b91c1c;font-size:13px;font-weight:800;cursor:pointer}
+.sf-deal-shop:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.sf-hero-art--link{cursor:pointer}

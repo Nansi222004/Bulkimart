@@ -249,10 +249,21 @@ export const updateCampaign = asyncHandler(async (req, res) => {
     bannerImage = await uploadToCloudinary(req.file.buffer, 'campaigns');
   }
 
-  const changingCoreTerms = [targetType, targetCategory, targetProducts, discountValue, startAt, endAt]
-    .some((v) => v !== undefined);
-  if (changingCoreTerms && (lifecycle === 'ACTIVE' || lifecycle === 'EXPIRED')) {
-    throw httpError(400, 'This campaign is already live — disable it and create a new one instead of changing its terms.');
+  // Sellers joined a live deal on its terms, so those cannot change. The edit form sends every
+  // field, so only a value that actually differs counts; the name, description, banner and
+  // on/off switch stay editable. Dates compare to the minute, as the form enters them.
+  const minute = value => { const t = new Date(value).getTime(); return Number.isFinite(t) ? Math.floor(t / 60000) : null; };
+  const ids = list => (Array.isArray(list) ? list : [list]).filter(Boolean).map(String).sort().join(',');
+  const changedTerms = [
+    targetType !== undefined && targetType !== campaign.targetType && 'target type',
+    targetCategory !== undefined && String(targetCategory || '') !== String(campaign.targetCategory || '') && 'category',
+    targetProducts !== undefined && ids(targetProducts) !== ids(campaign.targetProducts) && 'products',
+    discountValue !== undefined && Number(discountValue) !== Number(campaign.discountValue) && 'discount',
+    startAt !== undefined && minute(startAt) !== minute(campaign.startAt) && 'start time',
+    endAt !== undefined && minute(endAt) !== minute(campaign.endAt) && 'end time',
+  ].filter(Boolean);
+  if (changedTerms.length && (lifecycle === 'ACTIVE' || lifecycle === 'EXPIRED')) {
+    throw httpError(400, `This campaign is already live, so its ${changedTerms.join(', ')} cannot change. You can still edit the name, description and banner, or turn it off and create a new campaign.`);
   }
 
   const draft = isDraft !== undefined ? (isDraft === true || isDraft === 'true') : campaign.isDraft;
@@ -282,8 +293,8 @@ export const updateCampaign = asyncHandler(async (req, res) => {
   if (targetCategory !== undefined) campaign.targetCategory = nextTargetType === 'CATEGORY' ? targetCategory : undefined;
   if (targetProducts !== undefined) campaign.targetProducts = nextTargetType === 'PRODUCTS' ? targetProducts : undefined;
   if (discountValue !== undefined) campaign.discountValue = Number(discountValue);
-  if (startAt !== undefined) campaign.startAt = new Date(startAt);
-  if (endAt !== undefined) campaign.endAt = new Date(endAt);
+  if (startAt !== undefined && minute(startAt) !== minute(campaign.startAt)) campaign.startAt = new Date(startAt);
+  if (endAt !== undefined && minute(endAt) !== minute(campaign.endAt)) campaign.endAt = new Date(endAt);
   if (isEnabled !== undefined) campaign.isEnabled = isEnabled === true || isEnabled === 'true';
   if (isDraft !== undefined) campaign.isDraft = draft;
   campaign.updatedBy = req.user?._id;
@@ -329,27 +340,27 @@ export const getActiveCampaignsPublic = asyncHandler(async (req, res) => {
   const now = new Date();
   const campaigns = await Campaign.find({
     isDraft: { $ne: true }, isEnabled: true, startAt: { $lte: now }, endAt: { $gt: now },
-  }).populate('targetCategory', 'name slug').sort({ startAt: -1 }).lean();
+  }).populate('targetCategory', 'name slug type').sort({ startAt: -1 }).lean();
 
   return ok(res, campaigns.map((c) => ({
     id: c._id, name: c.name, description: c.description, bannerImage: c.bannerImage,
     discountType: c.discountType, discountValue: c.discountValue,
     startAt: c.startAt, endAt: c.endAt,
     targetType: c.targetType,
-    targetCategory: c.targetCategory ? { slug: c.targetCategory.slug, name: c.targetCategory.name } : undefined,
+    targetCategory: c.targetCategory ? { id: c.targetCategory._id, slug: c.targetCategory.slug, name: c.targetCategory.name, type: c.targetCategory.type } : undefined,
   })), 'Active campaigns');
 });
 
 /** @route GET /api/campaigns/:id */
 export const getCampaignPublic = asyncHandler(async (req, res) => {
-  const c = await Campaign.findById(req.params.id).populate('targetCategory', 'name slug').lean();
+  const c = await Campaign.findById(req.params.id).populate('targetCategory', 'name slug type').lean();
   if (!c || !isCampaignEffectivelyActive(c)) throw httpError(404, 'This campaign is not available');
 
   return ok(res, {
     id: c._id, name: c.name, description: c.description, bannerImage: c.bannerImage,
     discountType: c.discountType, discountValue: c.discountValue,
     startAt: c.startAt, endAt: c.endAt, targetType: c.targetType,
-    targetCategory: c.targetCategory ? { slug: c.targetCategory.slug, name: c.targetCategory.name } : undefined,
+    targetCategory: c.targetCategory ? { id: c.targetCategory._id, slug: c.targetCategory.slug, name: c.targetCategory.name, type: c.targetCategory.type } : undefined,
   }, 'Campaign');
 });
 

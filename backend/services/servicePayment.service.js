@@ -118,7 +118,7 @@ export async function settleServicePayment(paymentId, live) {
     return bill.status;
   });
   if (submitted) await notifyAllAdmins({ event: 'SYSTEM', title: 'New paid service application', message: `${submitted.snapshot.name}: service fee paid and application submitted`,
-    metadata: { applicationId: String(submitted._id) }, route: `/admin/services?application=${submitted._id}` }).catch(() => {});
+    metadata: { applicationId: String(submitted._id) }, route: `/admin/services?${submitted.applicantType === 'customer' ? 'legalRequest' : 'application'}=${submitted._id}` }).catch(() => {});
   return status;
 }
 

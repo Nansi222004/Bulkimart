@@ -4,7 +4,7 @@ import { productView } from '../utils/productView';
 import { isRetiredAdminTab } from '../utils/retiredFeatures';
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { adminGet, adminPatch, adminPost, adminDelete, qs } from '../../../utils/adminApi';
-import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
+import useAdminNotifications from '../hooks/useAdminNotifications';
 
 const AdminContext = createContext();
 
@@ -93,60 +93,8 @@ export const AdminProvider = ({ children }) => {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [ticketReply, setTicketReply] = useState('');
 
-  // Admin's own notification inbox (GET /api/admin/notifications) — the
-  // panel's real-time channel, previously just a toast-triggering button.
-  const [adminNotifications, setAdminNotifications] = useState([]);
-  const [adminUnreadCount, setAdminUnreadCount] = useState(0);
-  const [adminNotifLoading, setAdminNotifLoading] = useState(false);
-
-  const fetchAdminNotifications = useCallback(async () => {
-    setAdminNotifLoading(true);
-    try {
-      const { data } = await adminGet('/notifications?limit=30');
-      setAdminNotifications(data || []);
-    } catch (err) {
-      console.error('[ADMIN] fetch notifications failed:', err.message);
-    } finally {
-      setAdminNotifLoading(false);
-    }
-  }, []);
-
-  const fetchAdminUnreadCount = useCallback(async () => {
-    try {
-      const { data } = await adminGet('/notifications/unread-count');
-      setAdminUnreadCount(data?.count || 0);
-    } catch (err) {
-      console.error('[ADMIN] fetch unread count failed:', err.message);
-    }
-  }, []);
-
-  const markAdminNotificationRead = useCallback(async (id) => {
-    setAdminNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
-    setAdminUnreadCount((c) => Math.max(0, c - 1));
-    try {
-      await adminPatch(`/notifications/${id}/read`, {});
-    } catch (err) {
-      console.error('[ADMIN] mark-read failed:', err.message);
-    }
-  }, []);
-
-  // Connects once an admin token exists — Admin previously had no socket
-  // connection at all (a pure HTTP-polling dashboard); this is the
-  // smallest addition that gives it a live "something changed" signal,
-  // same pattern every other role's context already uses.
-  useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) return;
-    connectSocket(token, 'admin');
-    fetchAdminUnreadCount();
-
-    const onNew = () => setAdminUnreadCount((c) => c + 1);
-    socket.on('notification_new', onNew);
-    return () => {
-      socket.off('notification_new', onNew);
-      disconnectSocket();
-    };
-  }, [fetchAdminUnreadCount]);
+  const { adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
+    fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead } = useAdminNotifications();
 
   // Toast Trigger Helper
   const triggerToast = (message, options) => ui.notify(message, options);
@@ -1260,7 +1208,7 @@ export const AdminProvider = ({ children }) => {
       setSelectedProduct,
       selectedPayout,
       setSelectedPayout,
-      adminNotifications, adminUnreadCount, adminNotifLoading,
+      adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
       fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead,
       selectedTicket,
       setSelectedTicket,

@@ -30,7 +30,14 @@ export async function parcelRiderIneligibility(p,b,session,reserved = false) {
   if (age < -60000) return 'location_clock_invalid';
   if (km > c.assignmentRadiusKm) return 'outside_pickup_radius';
   if (p.deliveryRadiusKm != null && km > p.deliveryRadiusKm) return 'outside_rider_radius';
-  if (p.zones?.length && (!p.zones.includes(b.details.pickup.pincode) || !p.zones.includes(b.details.dropoff.pincode))) return 'zones_mismatch';
+  // Service area: as for shop orders, the rider covers the parcel when its pickup OR drop pincode
+  // is one of theirs. A drop in a neighbouring pincode still counts when it lies within the
+  // rider's own service radius (e.g. 10 km), so a short trip across a pincode line is not lost.
+  const zones = (p.zones || []).map(String);
+  if (zones.length && !zones.includes(String(b.details.pickup.pincode)) && !zones.includes(String(b.details.dropoff.pincode))) {
+    const dropKm = distanceKm(origin, b.details.dropoff);
+    if (p.deliveryRadiusKm == null || dropKm === undefined || dropKm > p.deliveryRadiusKm) return 'zones_mismatch';
+  }
   const orders = await Order.countDocuments({deliveryPartnerId:p._id,status:{$nin:['delivered','cancelled','returned','refunded']}}).session(session);
   const returns = await Delivery.countDocuments({partnerId:p._id,direction:'return_pickup',status:{$nin:['rejected','delivered','failed']}}).session(session);
   const pendingReturn = await Return.exists({'pickup.partnerId':p._id,'pickup.status':{$in:[RETURN_PICKUP_STATUS.ASSIGNED,RETURN_PICKUP_STATUS.PICKED_UP]}}).session(session);

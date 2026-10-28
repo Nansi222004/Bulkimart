@@ -2,6 +2,7 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useRef, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { createAdminNotificationOpener } from '../utils/serviceNotifications';
+import { adminGet } from '../../../utils/adminApi';
 
 const pageTitles = {
   overview: 'Dashboard', dashboard: 'Dashboard', reports: 'Reports',
@@ -27,7 +28,7 @@ export const TopHeader = ({ onLogout }) => {
   const ui = useFeedback();
   const {
     triggerToast, activeTab, setActiveTab,
-    adminNotifications, adminUnreadCount, adminNotifLoading,
+    adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
     fetchAdminNotifications, markAdminNotificationRead,
     openTicketDetail,
   } = useAdmin();
@@ -52,6 +53,7 @@ export const TopHeader = ({ onLogout }) => {
   const handleOpenNotification = n => notificationOpener.current(n, {
     markRead: markAdminNotificationRead, setTab: setActiveTab,
     close: () => setShowNotifPanel(false), openTicket: openTicketDetail, toast: triggerToast,
+    resolveServiceType: async id => (await adminGet(`/services/applications/${encodeURIComponent(id)}`)).data?.applicantType,
     openService: id => {
       window.history.pushState(null, '', `/admin/services?application=${encodeURIComponent(id)}`);
       window.dispatchEvent(new Event('service-application-open'));
@@ -109,9 +111,10 @@ export const TopHeader = ({ onLogout }) => {
                   Notifications {adminUnreadCount > 0 && <span style={{ color: '#dc2626' }}>({adminUnreadCount})</span>}
                 </div>
                 <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {adminNotifError && <div role="alert" style={{ padding: 14, color: '#991b1b' }}>{adminNotifError} <button type="button" onClick={() => fetchAdminNotifications()}>Retry notifications</button></div>}
                   {adminNotifLoading ? (
                     <div style={{ padding: 20, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>Loading…</div>
-                  ) : adminNotifications.length === 0 ? (
+                  ) : adminNotifications.length === 0 ? adminNotifError ? null : (
                     <div style={{ padding: 20, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>No notifications yet</div>
                   ) : adminNotifications.map((n) => (
                     <div

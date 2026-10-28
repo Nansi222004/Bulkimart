@@ -86,7 +86,7 @@ const STATUS_WORDS = { submitted: 'submitted', under_review: 'is being reviewed'
 async function notify(application, isAdmin, action) {
   const name = application.snapshot?.name || 'Service';
   const opts = { event: 'SYSTEM', title: 'Service application update', message: `${name} ${isAdmin ? STATUS_WORDS[action] || action.replaceAll('_', ' ') : action.replaceAll('_', ' ')}`, metadata: { applicationId: String(application._id) },
-    route: !isAdmin ? `/admin/services?application=${application._id}` : application.applicantType === 'customer' ? `/legal-services/requests/${application._id}` : '/seller/services' };
+    route: !isAdmin ? `/admin/services?${application.applicantType === 'customer' ? 'legalRequest' : 'application'}=${application._id}` : application.applicantType === 'customer' ? `/legal-services/requests/${application._id}` : '/seller/services' };
   if (!isAdmin) await notifyAllAdmins(opts);
   else if (application.applicantType === 'customer') await notifyUser(String(application.user), opts);
   else await notifySeller(application.vendor, opts);

@@ -639,3 +639,15 @@ test('the customer sees the assigned delivery partner, with contact details only
   expect((await view()).partner).toEqual({name:'Ravi Rider',vehicleType:'bike',rating:4.8});
   expect(JSON.stringify((await auth(request(app).get('/c/bookings')).expect(200)).body.data)).not.toMatch(/Ravi Rider|9876500013/);
 });
+test('a rider gets a parcel when its pickup or drop pincode is theirs, or the drop is within their service radius', async () => {
+  const { parcelRiderIneligibility } = await import('../services/parcelAssignment.service.js');
+  const booking = (pickupPin, dropPin, drop = { lat: 12.99, lng: 77.6 }) => ({ _id: new mongoose.Types.ObjectId(),
+    pricing: { policy: { locationMaxAgeSeconds: 600, assignmentRadiusKm: 20, maxActiveTasks: 1 } },
+    details: { pickup: { lat: 12.971, lng: 77.59, pincode: pickupPin }, dropoff: { ...drop, pincode: dropPin } } });
+  await Partner.updateOne({ _id: partner._id }, { $set: { zones: ['560001'], deliveryRadiusKm: 10, currentLocation: { lat: 12.97, lng: 77.59, updatedAt: new Date() } } });
+  const rider = await Partner.findById(partner._id);
+  expect(await parcelRiderIneligibility(rider, booking('560001', '560099'))).toBeNull(); // pickup pincode is the rider's; drop ~3 km away elsewhere
+  expect(await parcelRiderIneligibility(rider, booking('560050', '560001'))).toBeNull(); // only the drop pincode is the rider's
+  expect(await parcelRiderIneligibility(rider, booking('560050', '560099'))).toBeNull(); // neither, but the drop is within 10 km
+  expect(await parcelRiderIneligibility(rider, booking('560050', '560099', { lat: 13.2, lng: 77.6 }))).toBe('zones_mismatch'); // neither, ~25 km away
+});

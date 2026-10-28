@@ -738,7 +738,7 @@ test('the page effect is hosted once: by the festive header when published, othe
   const context = { banners: [banner], device: 'mobile', loading: false, now: Date.now(), effect: liveEffect, theme: { tokens: policy.DEFAULT_TOKENS } };
   const h = browserHarness(Hero, {}, context);
   try {
-    const art = h.find(n => n.props?.className === 'sf-hero-art');
+    const art = h.find(n => /^sf-hero-art( |$)/.test(n.props?.className || ''));
     assert.equal(art.props.children.find(n => n?.type === Celebration).props.effect, undefined, 'The hero never draws the page effect');
     assert.equal(h.find(n => n.type === 'button' && /celebration/i.test(text(n))), undefined, 'The hero has no turn-off button');
     context.theme = { tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }; h.rerender();
@@ -1005,4 +1005,31 @@ test('an early request for another storefront, or none at all, falls back to the
   window.__bulkimartEarlyExperience = { key: 'quick:mobile:', promise: new Promise(() => {}) };
   const realTimeout = globalThis.setTimeout; globalThis.setTimeout = fn => realTimeout(fn, 0);
   try { assert.equal(await Provided.takeEarlyExperience('quick:mobile:'), null, 'A stalled request is given up'); } finally { globalThis.setTimeout = realTimeout; window.__bulkimartEarlyExperience = null; }
+});
+test('a deal page shows its picture and its details, and opens its category in that category\'s storefront', async () => {
+  const Deal = (await vite.ssrLoadModule('/src/modules/User/pages/CampaignLandingPage.jsx')).default;
+  const calls = [];
+  const context = { selectedCampaignId: 'deal', now: Date.now(), setSelectedCampaignId: v => calls.push(['campaign', v]), setActiveMode: v => calls.push(['mode', v]), setSelectedCategoryFilter: v => calls.push(['category', v]) };
+  const h = browserHarness(Deal, {}, context);
+  try {
+    h.requests[0].resolve({ data: { id: 'deal', name: 'Travel week', description: 'Bags and bottles', bannerImage: 'https://cdn.fixture/deal.jpg', discountValue: 15,
+      startAt: new Date(Date.now() - 1000).toISOString(), endAt: new Date(Date.now() + 3600000).toISOString(), targetCategory: { id: 'cat', slug: 'grocery--travel', name: 'Travel', type: 'grocery' } } });
+    h.requests[1].resolve({ data: { products: [] } }); await h.settle();
+    assert.equal(h.find(n => n.type === 'img').props.src, 'https://cdn.fixture/deal.jpg');
+    assert.match(text(h.tree), /Bags and bottles/); assert.match(text(h.tree), /15\s*% OFF/, 'Details show even when there is a picture');
+    h.find(n => n.type === 'button' && /^Shop\s+Travel/.test(text(n))).props.onClick();
+    assert.deepEqual(calls, [['campaign', null], ['mode', 'quick'], ['category', { _id: 'cat', slug: 'grocery--travel', name: 'Travel' }]]);
+  } finally { h.close(); }
+});
+test('tapping a promotion banner picture opens it, like its button', () => {
+  let opened;
+  const context = { banners: [{ ...banner, destination: { type: 'CAMPAIGN', id: 'deal' } }], device: 'mobile', loading: false, now: Date.now(), setSelectedCampaignId: v => { opened = v; } };
+  const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: true });
+  const h = browserHarness(Hero, {}, context);
+  try {
+    const art = h.find(n => n.props?.className?.includes?.('sf-hero-art'));
+    assert.match(art.props.className, /sf-hero-art--link/);
+    art.props.onClick({ target: { tagName: 'IMG' } }); assert.equal(opened, 'deal');
+    opened = undefined; art.props.onClick({ target: { tagName: 'VIDEO' } }); assert.equal(opened, undefined, 'Video controls do not navigate');
+  } finally { h.close(); globalThis.fetch = realFetch; }
 });

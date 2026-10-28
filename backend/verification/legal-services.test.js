@@ -235,7 +235,7 @@ describe('customer requests use the simple service flow', () => {
   test('a fixed-price customer request is paid at submission, then the admin reviews, asks for information, works and completes it', async () => {
     const a = await paidRequest();
     expect(await customerView(a._id)).toMatchObject({ status: 'submitted', billing: { status: 'paid', amountPaise: 25000 } });
-    expect(notifyAllAdmins.mock.calls.some(([opts]) => opts?.title === 'New paid service application')).toBe(true);
+    expect(notifyAllAdmins.mock.calls.some(([opts]) => opts?.title === 'New paid service application' && opts.route === `/admin/services?legalRequest=${a._id}`)).toBe(true);
     const listed = (await asAdmin(request(app).get('/manage/applications?applicant=customer')).expect(200)).body.data.map(row => String(row._id));
     expect(listed).toEqual([String(a._id)]);
     expect((await asAdmin(request(app).get('/manage/applications')).expect(200)).body.data).toEqual([]);
@@ -260,4 +260,15 @@ describe('customer requests use the simple service flow', () => {
     expect((await User.findById(customer._id)).wallet.balance).toBe(250);
     expect(await customerView(a._id)).toMatchObject({ status: 'rejected', billing: { status: 'refunded', refundedToWallet: true } });
   });
+});
+test("an admin's note for the applicant reaches the customer with any status change", async () => {
+  const a = (await submit().expect(201)).body.data;
+  const step = async (status, message) => {
+    const current = (await asAdmin(request(app).get(`/manage/applications/${a._id}`)).expect(200)).body.data;
+    await asAdmin(request(app).post(`/manage/applications/${a._id}/transition`)).field('version', current.__v).field('status', status).field('message', message).expect(200);
+  };
+  await step('under_review', 'We are checking your documents today.');
+  await step('in_progress', 'Your lawyer will call you tomorrow.');
+  const events = (await auth(request(app).get(`/c/applications/${a._id}`)).expect(200)).body.data.events;
+  expect(events.map(e => e.message).filter(Boolean)).toEqual(expect.arrayContaining(['We are checking your documents today.', 'Your lawyer will call you tomorrow.']));
 });

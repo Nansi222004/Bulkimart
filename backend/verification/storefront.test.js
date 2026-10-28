@@ -608,3 +608,29 @@ test('a splash may last from 2 seconds up to ten minutes', () => {
   expect(validateExperience({ ...base, config: { ...base.config, duration: 600 } }, 'campaign').config.duration).toBe(600);
   for (const duration of [1, 601, 2.5]) expect(() => validateExperience({ ...base, config: { ...base.config, duration } }, 'campaign')).toThrow(/Splash duration/);
 });
+test('a public campaign tells the shop its target category, so the deal page can open it in the right storefront', async () => {
+  const now = Date.now();
+  const category = await Category.create({ name: 'Travel', slug: 'grocery--travel', type: 'grocery', isActive: true });
+  const campaign = await Campaign.create({ name: 'Travel week', description: 'Bags and bottles', isDraft: false, isEnabled: true, startAt: new Date(now - 1000), endAt: new Date(now + 60000),
+    targetType: 'CATEGORY', targetCategory: category._id, discountType: 'PERCENTAGE', discountValue: 15 });
+  const one = (await request(app).get(`/api/campaigns/${campaign._id}`).expect(200)).body.data;
+  expect(one).toMatchObject({ name: 'Travel week', description: 'Bags and bottles', discountValue: 15, targetCategory: { id: String(category._id), slug: 'grocery--travel', name: 'Travel', type: 'grocery' } });
+  const list = (await request(app).get('/api/campaigns').expect(200)).body.data;
+  expect(list.find(c => String(c.id) === String(campaign._id)).targetCategory).toMatchObject({ id: String(category._id), type: 'grocery' });
+});
+test('a live campaign can be renamed and re-described, but its discount and dates stay fixed', async () => {
+  const { updateCampaign } = await import('../controllers/campaign.controller.js');
+  const edit = express(); edit.use(express.json());
+  edit.patch('/campaigns/:id', (req, _res, next) => { req.user = { _id: new mongoose.Types.ObjectId() }; next(); }, updateCampaign); edit.use(errorHandler);
+  const category = await Category.create({ name: 'Snacks', slug: 'grocery--snacks', type: 'grocery', isActive: true });
+  const startAt = new Date(Math.floor((Date.now() - 3600000) / 60000) * 60000), endAt = new Date(Math.floor((Date.now() + 86400000) / 60000) * 60000);
+  const live = await Campaign.create({ name: 'Snack week', description: 'Old text', isDraft: false, isEnabled: true, startAt, endAt, targetType: 'CATEGORY', targetCategory: category._id, discountType: 'PERCENTAGE', discountValue: 10 });
+  // Exactly what the admin form sends: every field, unchanged terms included.
+  const form = { name: 'Snack week', description: 'New text', targetType: 'CATEGORY', targetCategory: String(category._id), discountValue: '10', startAt: startAt.toISOString(), endAt: endAt.toISOString(), isEnabled: 'true', isDraft: 'false', autoCreateBanner: 'true' };
+  await request(edit).patch(`/campaigns/${live._id}`).send({ ...form, name: 'Snack week sale' }).expect(200);
+  expect(await Campaign.findById(live._id).lean()).toMatchObject({ name: 'Snack week sale', description: 'New text', discountValue: 10 });
+  const refused = await request(edit).patch(`/campaigns/${live._id}`).send({ ...form, discountValue: '25' }).expect(400);
+  expect(refused.body.message).toMatch(/discount cannot change/);
+  await request(edit).patch(`/campaigns/${live._id}`).send({ ...form, endAt: new Date(endAt.getTime() + 86400000).toISOString() }).expect(400);
+  expect((await Campaign.findById(live._id).lean()).discountValue).toBe(10);
+});

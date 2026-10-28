@@ -35,6 +35,24 @@ test('late search responses cannot replace the active request-history view', asy
     assert.match(text(h.tree), /Fixture service/); assert.doesNotMatch(text(h.tree), /Obsolete catalogue/);
   } finally { h.close(); }
 });
+
+test('search remains available during initial loading, each typed query, and search failures', async () => {
+  const h = hookHarness(ui.default, {}, '/legal-services');
+  const search = () => h.find(n => n.type === 'input' && n.props.id === 'legal-service-search');
+  try {
+    assert.ok(search(), 'Loading results must keep the input mounted');
+    h.requests[0].resolve({ data: [], meta: { total: 0 } }); await h.settle();
+    for (const value of ['l', 'le', 'legal']) {
+      search().props.onChange({ target: { value } }); h.flush();
+      assert.equal(search().props.value, value, 'Pending requests retain the controlled input');
+    }
+    h.requests.at(-1).resolve({ message: 'Search temporarily unavailable' }, 503); await h.settle();
+    assert.equal(search().props.value, 'legal'); assert.match(text(h.tree), /Search temporarily unavailable/);
+    search().props.onChange({ target: { value: 'leg' } }); h.flush();
+    h.requests.at(-1).resolve({ data: [], meta: { total: 0 } }); await h.settle();
+    assert.equal(search().props.value, 'leg');
+  } finally { h.close(); }
+});
 test('private follow-up upload enforces file count and size before a network request', () => {
   const d = new FormData(); for (let i = 0; i < 11; i++) d.append('files', new Blob(['x']), `file-${i}.pdf`); assert.throws(() => ui.validateFollowUp(d), /up to 10/);
 });
