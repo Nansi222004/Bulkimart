@@ -199,6 +199,8 @@ export default function StorefrontStudio() {
   };
   const previewHeader = normalizeHeader(form?.kind === 'theme' ? form.config.header : themes.find(t => t._id === form?.config.themeId)?.config.header);
   const festive = !!(previewHeader?.enabled && previewHeader.title);
+  // Custom animations saved on other themes and listed campaigns can be reused here.
+  const customLibrary = [...themes, ...rows].filter(r => r._id !== form?._id).flatMap(r => [r.config?.animation, r.draft?.config?.animation]).flatMap(a => a?.customs || []);
   const previewEffect = form?.config.animation && form.config.animation.scope !== 'banner' ? { ...form.config.animation, startAt: null, endAt: null } : null;
   const select = (label, value, choices, onChange) => <Field label={label}><select value={value ?? ''} onChange={e => onChange(e.target.value)}>{choices.map(option => <option key={option.value ?? option} value={option.value ?? option}>{option.label ?? option}</option>)}</select></Field>;
   const refs = list => [{ value: '', label: 'None selected' }, ...list.map(r => ({ value: r._id, label: r.name || r.title || r._id }))];
@@ -471,7 +473,7 @@ export default function StorefrontStudio() {
 {form.config.appearance?.background && <div className="studio-colors">{['background', 'text', 'accent'].map(key => <Field key={key} label={'Section ' + key}><input type="color" value={form.config.appearance[key]} onChange={e => config({ appearance: { ...form.config.appearance, [key]: e.target.value } })} /></Field>)}</div>}
         </>}
         {form.kind === 'theme' && <StorefrontHeaderFields value={form.config.header} onChange={header => config({ header })} deals={deals} />}
-        {form.kind !== 'section' && <StorefrontEffectFields value={form.config.animation} onChange={animation => config({ animation })} allowBanner={form.kind === 'campaign'} deals={deals} />}
+        {form.kind !== 'section' && <StorefrontEffectFields value={form.config.animation} onChange={animation => config({ animation })} allowBanner={form.kind === 'campaign'} deals={deals} library={customLibrary} />}
         </fieldset>
       </form><aside className="studio-preview-pane"><div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
         <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>

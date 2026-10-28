@@ -76,6 +76,22 @@ test.each([
 test.each([{ density: 101 }, { speed: 0 }, { opacity: 1 }, { duration: 121 }, { colors: ['red'] }, { preset: 'script' }, { scope: 'campaign' }, { startAt: '2030-01-01' }, { startAt: '2030-01-02T00:00:00Z', endAt: '2030-01-01T00:00:00Z' }, { javascript: 'alert(1)' }])('animation config rejects %j', async patch => {
   await send('post', '/api/admin/storefront', theme({ config: { animation: { ...DEFAULT_EFFECT, ...patch } } })).expect(400);
 });
+const diya = { id: 'custom-diya1', name: 'Diya rain', motion: 'fall', shape: 'emoji', emoji: '🪔', colors: ['#FFD45A'] };
+test('custom animations combine with built-in presets and are stored with the configuration', async () => {
+  const animation = { ...DEFAULT_EFFECT, enabled: true, presets: ['custom-diya1', 'lights'], customs: [diya, { ...diya, id: 'custom-stars', name: ' Stars ', motion: 'twinkle', shape: 'star', emoji: 'ignored' }] };
+  const row = (await send('post', '/api/admin/storefront', theme({ config: { animation } })).expect(201)).body.data;
+  const saved = (row.draft?.config || row.config).animation;
+  expect(saved).toMatchObject({ preset: 'custom-diya1', presets: ['custom-diya1', 'lights'] });
+  expect(saved.customs[1]).toEqual({ id: 'custom-stars', name: 'Stars', motion: 'twinkle', shape: 'star', emoji: '', colors: ['#FFD45A'] });
+});
+test.each([
+  { presets: ['custom-missing'] }, { presets: ['lights', 'snowfall', 'petals', 'fireworks'] }, { presets: ['lights', 'lights'] },
+  { customs: [{ ...diya, id: 'bad id' }] }, { customs: [{ ...diya, name: ' ' }] }, { customs: [{ ...diya, motion: 'spin' }] }, { customs: [{ ...diya, shape: 'svg' }] },
+  { customs: [{ ...diya, emoji: '' }] }, { customs: [{ ...diya, emoji: '🪔🪔🪔🪔🪔' }] }, { customs: [{ ...diya, colors: ['javascript:'] }] }, { customs: [{ ...diya, script: 'x' }] },
+  { customs: [diya, diya] }, { customs: Array.from({ length: 5 }, (_, i) => ({ ...diya, id: `custom-x${i}` })) },
+])('custom animation config rejects %j', async patch => {
+  await send('post', '/api/admin/storefront', theme({ config: { animation: { ...DEFAULT_EFFECT, enabled: true, ...patch } } })).expect(400);
+});
 test.each(EFFECT_PRESETS)('%s effect follows draft, schedule, device, pause, expiry and public minimization', async preset => {
   const start = Date.now() + 10000, end = start + 10000;
   let row = await create(theme({ device: 'mobile', config: { animation: { ...DEFAULT_EFFECT, enabled: true, preset, startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() } } }));

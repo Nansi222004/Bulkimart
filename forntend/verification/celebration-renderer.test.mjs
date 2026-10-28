@@ -93,3 +93,38 @@ test('combined presets share one canvas loop and each keeps its own palette', ()
   assert.equal(h.calls.filter(c => c[0] === 'arc').length, 2 * 2 * 24 + 200);
   stop(); assert.equal(h.frames.size, 0);
 });
+const custom = patch => ({ id: 'custom-a', name: 'Mine', motion: 'fall', shape: 'star', emoji: '', colors: ['#00FF00'], ...patch });
+test('custom animations draw their own shape, emoji and motion inside the canvas box', () => {
+  for (const [def, call] of [[custom(), 'lineTo'], [custom({ shape: 'heart', motion: 'rise' }), 'bezierCurveTo'], [custom({ shape: 'emoji', emoji: '🪔', motion: 'twinkle' }), 'fillText'], [custom({ shape: 'diamond', motion: 'burst' }), 'lineTo']]) {
+    const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: def.id, presets: [def.id], customs: [def], density: 30, size: 2, duration: 0 }, h.env); h.show(true);
+    for (let i = 0; i < 60; i++) h.tick(1 + i * 16);
+    assert.ok(h.calls.some(c => c[0] === call), `${def.motion} ${def.shape} uses ${call}`);
+    if (def.shape === 'emoji') assert.ok(h.calls.filter(c => c[0] === 'fillText').every(c => c[1] === '🪔'));
+    for (const [, x, y] of h.calls.filter(c => c[0] === 'translate')) assert.ok(x >= -20 && x <= 410 && y >= 0 && y <= 500, `${def.motion} drew outside its box at ${x},${y}`);
+    stop();
+  }
+});
+test('rising custom animations move upwards and unknown preset ids draw nothing', () => {
+  const h = fixture(), def = custom({ motion: 'rise', shape: 'circle' });
+  const stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, presets: [def.id, 'custom-gone'], customs: [def], density: 1 }, h.env); h.show(true);
+  h.tick(1); h.tick(34); h.tick(67);
+  const ys = h.calls.filter(c => c[0] === 'translate').map(c => c[2]);
+  assert.equal(ys.length, 3); assert.ok(ys[2] < ys[1] || ys[2] - ys[1] > 400, 'Particle rises (or wraps to the bottom)');
+  stop();
+});
+test('festive lanterns rise out of the top and return from the bottom, looping indefinitely', () => {
+  for (const height of [500, 120]) {
+    const h = fixture(); h.canvas.getBoundingClientRect = () => ({ width: 390, height });
+    const stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'lights', duration: 0 }, h.env); h.show(true);
+    // Two minutes of frames: the default duration loops, so the animation never stops.
+    for (let i = 0; i < 2400; i++) h.tick(1 + i * 50);
+    assert.equal(h.frames.size, 1, 'Still animating after two minutes');
+    const first = h.calls.filter(c => c[0] === 'translate').filter((_, i) => i % 3 === 0).map(c => c[2]);
+    const wraps = first.filter((y, i) => i && y > first[i - 1] + height / 2).length;
+    assert.ok(first.slice(1, 20).every((y, i) => y <= first[i] + 1e-9 || y > first[i] + height / 2), 'Lanterns move upwards');
+    assert.ok(Math.min(...first) < 0 && Math.max(...first) > height, 'Lanterns leave through the top and enter from below');
+    assert.ok(wraps >= 2, `The lantern restarts from the bottom repeatedly (${wraps} cycles at ${height}px)`);
+    assert.equal(h.calls.some(c => c[0] === 'fillText'), false);
+    stop();
+  }
+});

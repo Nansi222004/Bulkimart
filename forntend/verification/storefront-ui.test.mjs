@@ -767,6 +767,30 @@ test('admin effect fields show only settings relevant to the selected animation'
     assert.equal(props.value.enabled, false); assert.doesNotMatch(labelText(h.tree), /Intensity|Speed|Opacity/);
   } finally { h.close(); }
 });
+test('admin can create, edit, combine, reuse and delete custom animations', () => {
+  const saved = { id: 'custom-old', name: 'Lanterns', motion: 'rise', shape: 'emoji', emoji: '🏮', colors: ['#FF4D4D'] };
+  const props = { value: { ...DEFAULT_EFFECT, enabled: true, presets: ['lights'], preset: 'lights' }, onChange: next => { props.value = next; }, library: [saved, { ...saved }] };
+  const h = browserHarness(EffectFields, props, {});
+  const field = (label, type) => h.find(n => n.type === 'label' && text(n).trim().startsWith(label) && [n.props.children].flat().some(c => c?.type === type));
+  try {
+    h.click('+ Create custom animation'); h.rerender();
+    const [mine] = props.value.customs;
+    assert.match(mine.id, /^custom-[a-z0-9]+$/); assert.deepEqual(props.value.presets, ['lights', mine.id], 'A new animation is selected straight away');
+    field('Shape', 'select').props.children[1].props.onChange({ target: { value: 'emoji' } }); h.rerender();
+    field('Emoji or symbol', 'input').props.children[1].props.onChange({ target: { value: '🪔' } }); h.rerender();
+    field('Motion', 'select').props.children[1].props.onChange({ target: { value: 'twinkle' } }); h.rerender();
+    assert.deepEqual({ ...props.value.customs[0], id: undefined }, { id: undefined, name: 'Custom 1', motion: 'twinkle', shape: 'emoji', emoji: '🪔', colors: ['#FFD700', '#FF8A00'] });
+    assert.match(labelText(h.tree), /Custom 1/, 'Custom animations are listed with the built-in types');
+    const reuse = h.find(n => n.type === 'select' && n.props.value === '' && text(n).includes('Lanterns'));
+    assert.equal(reuse.props.children[1].length, 1, 'Identical saved animations are offered once');
+    reuse.props.onChange({ target: { value: '0' } }); h.rerender();
+    assert.equal(props.value.customs[1].name, 'Lanterns'); assert.notEqual(props.value.customs[1].id, 'custom-old'); assert.equal(props.value.presets.length, 3);
+    assert.equal(h.find(n => n.type === 'select' && text(n).includes('Lanterns')), undefined, 'Reused animations leave the reuse list');
+    h.click(`Delete ${props.value.customs[0].name}`); h.rerender();
+    assert.equal(props.value.customs.length, 1); assert.deepEqual(props.value.presets, ['lights', props.value.customs[0].id]);
+    assert.deepEqual(props.value.colors, DEFAULT_EFFECT.colors, 'Built-in colours are untouched by custom animations');
+  } finally { h.close(); }
+});
 test('admin header fields store IST sale dates and only reveal countdown settings when enabled', () => {
   const props = { value: festiveHeader(), onChange: next => { props.value = next; }, deals: [{ _id: '507f1f77bcf86cd799439099', name: 'Diwali deal' }] }, h = browserHarness(HeaderFields, props, {});
   try {

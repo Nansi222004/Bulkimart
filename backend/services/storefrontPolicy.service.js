@@ -1,22 +1,40 @@
 import { httpError } from '../utils/response.js';
-import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED } from '../shared/celebration.mjs';
+import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED, DEFAULT_CUSTOM, CUSTOM_MOTIONS, CUSTOM_SHAPES, MAX_CUSTOM, isCustomId } from '../shared/celebration.mjs';
 import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
 const integer = (value, min, max, label) => Number.isInteger(value) && value >= min && value <= max ? value : fail(`${label} must be ${min}–${max}`);
 export const objectId = value => /^[a-f\d]{24}$/i.test(String(value || ''));
+const validColors = (colors, label) => Array.isArray(colors) && colors.length && colors.length <= 6 && colors.every(c => typeof c === 'string' && /^#[a-f\d]{6}$/i.test(c)) ? [...colors] : fail(`Use 1–6 hex ${label} colors`);
+function validateCustom(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Invalid custom animation');
+  for (const key of Object.keys(value)) if (!Object.hasOwn(DEFAULT_CUSTOM, key)) fail(`Unsupported custom animation setting: ${key}`);
+  const c = { ...DEFAULT_CUSTOM, ...value };
+  if (!isCustomId(c.id)) fail('Invalid custom animation id');
+  const name = str(c.name, 40, 'custom animation name');
+  if (!name) fail('Name each custom animation');
+  one(c.motion, Object.keys(CUSTOM_MOTIONS), 'custom animation motion'); one(c.shape, Object.keys(CUSTOM_SHAPES), 'custom animation shape');
+  // The symbol is painted on the canvas as text: a short emoji or character, no control characters.
+  const emoji = c.shape === 'emoji' ? str(c.emoji, 16, 'custom animation symbol') : '';
+  if (c.shape === 'emoji' && (!emoji || [...emoji].length > 4 || /[\u0000-\u001f\u007f]/.test(emoji))) fail('Enter one emoji or symbol for the custom animation');
+  return { id: c.id, name, motion: c.motion, shape: c.shape, emoji, colors: validColors(c.colors, 'custom animation') };
+}
 export function validateEffect(value, scopes = ['storefront', 'homepage', 'campaign', 'banner']) {
   if (value == null) return { ...DEFAULT_EFFECT };
   if (typeof value !== 'object' || Array.isArray(value)) fail('Animation must be an object');
   for (const key of Object.keys(value)) if (!Object.hasOwn(DEFAULT_EFFECT, key)) fail(`Unsupported animation setting: ${key}`);
   const e = { ...DEFAULT_EFFECT, ...value };
   if (typeof e.enabled !== 'boolean') fail('Animation enabled must be boolean');
-  one(e.preset, EFFECT_PRESETS, 'animation preset'); one(e.scope, scopes, 'animation scope');
+  if (!Array.isArray(e.customs) || e.customs.length > MAX_CUSTOM) fail(`Create up to ${MAX_CUSTOM} custom animations`);
+  e.customs = e.customs.map(validateCustom);
+  if (new Set(e.customs.map(c => c.id)).size !== e.customs.length) fail('Custom animation ids must be unique');
+  const choices = [...EFFECT_PRESETS, ...e.customs.map(c => c.id)];
   if (!Array.isArray(e.presets) || e.presets.length > MAX_COMBINED || new Set(e.presets).size !== e.presets.length) fail(`Choose up to ${MAX_COMBINED} different animation presets`);
-  e.presets = e.presets.map(p => one(p, EFFECT_PRESETS, 'animation preset'));
+  e.presets = e.presets.map(p => one(p, choices, 'animation preset'));
   if (e.presets.length) e.preset = e.presets[0];
-  if (!Array.isArray(e.colors) || !e.colors.length || e.colors.length > 6 || e.colors.some(c => typeof c !== 'string' || !/^#[a-f\d]{6}$/i.test(c))) fail('Use 1–6 hex animation colors');
+  one(e.preset, choices, 'animation preset'); one(e.scope, scopes, 'animation scope');
+  e.colors = validColors(e.colors, 'animation');
   for (const [key, min, max] of [['speed', 0.2, 3], ['opacity', 0.05, 0.8]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
   for (const [key, min, max] of [['size', 0.5, 2]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
   one(e.intensity, Object.keys(INTENSITY), 'animation intensity'); one(e.direction, ['down', 'left', 'right'], 'animation direction'); one(e.reducedMotion, ['hide', 'static'], 'reduced-motion fallback');

@@ -3,6 +3,18 @@ import { particleCount, effectLayers, INTENSITY, MAX_PARTICLES } from '../../../
 // The canvas is sized to its container; nothing here can draw outside that box.
 // Combined presets share the canvas and the loop; each keeps its own particles.
 const BURST_LIFE = 1.4, MAX_BURSTS = 3;
+// Custom animation shapes, filled around the origin with radius r.
+function drawShape(ctx, custom, r) {
+  if (custom.shape === 'emoji') { ctx.font = `${Math.round(r * 2.4)}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(custom.emoji, 0, 0); return; }
+  ctx.beginPath();
+  if (custom.shape === 'square') ctx.rect(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6);
+  else if (custom.shape === 'diamond') { ctx.moveTo(0, -r); ctx.lineTo(r * 0.7, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.7, 0); ctx.closePath(); }
+  else if (custom.shape === 'petal') ctx.ellipse(0, 0, r, r / 2, 0.6, 0, Math.PI * 2);
+  else if (custom.shape === 'star') { for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, d = i % 2 ? r * 0.45 : r; i ? ctx.lineTo(Math.cos(a) * d, Math.sin(a) * d) : ctx.moveTo(Math.cos(a) * d, Math.sin(a) * d); } ctx.closePath(); }
+  else if (custom.shape === 'heart') { ctx.moveTo(0, r * 0.9); ctx.bezierCurveTo(-r * 1.4, -r * 0.1, -r * 0.6, -r * 1.1, 0, -r * 0.35); ctx.bezierCurveTo(r * 0.6, -r * 1.1, r * 1.4, -r * 0.1, 0, r * 0.9); }
+  else ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+}
 export function startCelebration(canvas, effect, env = window, { still = false } = {}) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return () => {};
@@ -12,7 +24,8 @@ export function startCelebration(canvas, effect, env = window, { still = false }
     let nextBurst = 0;
     const count = particleCount(config), scale = config.size || 1, drift = { left: -1, right: 1 }[config.direction] || 0;
     const pick = () => config.colors[Math.floor(Math.random() * config.colors.length)];
-    const particles = config.preset === 'fireworks' ? [] : Array.from({ length: count }, () => ({ x: Math.random(), y: Math.random(), size: (2 + Math.random() * 5) * scale, phase: Math.random() * Math.PI * 2, color: pick() }));
+    const custom = config.custom, bursting = config.preset === 'fireworks' || custom?.motion === 'burst';
+    const particles = bursting ? [] : Array.from({ length: count }, () => ({ x: Math.random(), y: Math.random(), size: (2 + Math.random() * 5) * scale, phase: Math.random() * Math.PI * 2, color: pick() }));
     // At most three bursts are alive, and their sparks never exceed MAX_PARTICLES.
     const sparks = Math.max(8, Math.min(Math.floor(MAX_PARTICLES / MAX_BURSTS), Math.round(count / 2)));
     const bursts = [];
@@ -38,13 +51,26 @@ export function startCelebration(canvas, effect, env = window, { still = false }
         ctx.globalAlpha = config.opacity * glow * 0.25; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = config.opacity * glow; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
       }
-      // Small diyas sit on the bottom edge; their flames flicker gently.
-      const diyas = width < 500 ? 3 : 5;
-      for (let i = 0; i < diyas; i++) {
-        const x = (i + 0.5) / diyas * width, y = height - 10 * scale, flicker = 1 + Math.sin(elapsed * 9 + i) * 0.12;
-        ctx.globalAlpha = Math.min(1, config.opacity + 0.2); ctx.fillStyle = config.colors[1] || config.colors[0];
-        ctx.beginPath(); ctx.ellipse(x, y, 13 * scale, 8 * scale, 0, 0, Math.PI); ctx.fill();
-        ctx.fillStyle = config.colors[0]; ctx.beginPath(); ctx.ellipse(x, y - 6 * scale * flicker, 3.2 * scale, 7 * scale * flicker, 0, 0, Math.PI * 2); ctx.fill();
+      // Sky lanterns rise from below the bottom edge, drift out of the top and start
+      // again from the bottom, each on its own staggered cycle. They fade in and out
+      // near the edges; the canvas clips anything beyond its box.
+      const lanterns = width < 500 ? 3 : 5, reach = 21 * scale, travel = height + 2 * reach;
+      const body = config.colors[1] || config.colors[0], trim = config.colors[2] || body;
+      for (let i = 0; i < lanterns; i++) {
+        const t = elapsed * config.speed, flicker = 1 + Math.sin(elapsed * 9 + i * 2) * 0.12;
+        const progress = (t * 32 / travel + i * 0.618) % 1, fade = Math.min(1, progress / 0.15, (1 - progress) / 0.15);
+        const x = (i + 0.5) / lanterns * width + Math.sin(t * 0.7 + i * 2.1) * 10 * scale, y = height + reach - progress * travel;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(t * 1.1 + i) * 0.08);
+        ctx.fillStyle = config.colors[0]; ctx.globalAlpha = config.opacity * 0.3 * flicker * fade;
+        ctx.beginPath(); ctx.ellipse(0, 0, 16 * scale, 18 * scale, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = Math.min(1, config.opacity + 0.3) * fade;
+        ctx.fillStyle = trim; ctx.fillRect(-5 * scale, -13 * scale, 10 * scale, 3 * scale); ctx.fillRect(-4 * scale, 10 * scale, 8 * scale, 2.5 * scale);
+        ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(0, 0, 9 * scale, 11 * scale, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = trim; ctx.lineWidth = Math.max(0.5, 0.8 * scale); ctx.beginPath(); ctx.ellipse(0, 0, 4.5 * scale, 11 * scale, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = config.colors[0]; ctx.globalAlpha = Math.min(1, config.opacity + 0.3) * (0.75 + 0.25 * flicker) * fade;
+        ctx.beginPath(); ctx.ellipse(0, scale, 4 * scale, 6 * scale * flicker, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = trim; ctx.beginPath(); ctx.moveTo(0, 12.5 * scale); ctx.lineTo(0, 20 * scale); ctx.stroke();
+        ctx.restore();
       }
     };
     const fireworks = dt => {
@@ -55,7 +81,31 @@ export function startCelebration(canvas, effect, env = window, { still = false }
         const f = bursts[b]; f.age += dt;
         if (f.age >= BURST_LIFE) { bursts.splice(b, 1); continue; }
         ctx.fillStyle = f.color; ctx.globalAlpha = config.opacity * (1 - f.age / BURST_LIFE);
-        for (const s of f.sparks) { ctx.beginPath(); ctx.arc(f.x + s.vx * f.age, f.y + s.vy * f.age + 18 * f.age * f.age, 1.6 * scale, 0, Math.PI * 2); ctx.fill(); }
+        for (const s of f.sparks) {
+          const x = f.x + s.vx * f.age, y = f.y + s.vy * f.age + 18 * f.age * f.age;
+          if (custom) { ctx.save(); ctx.translate(x, y); drawShape(ctx, custom, 2.6 * scale); ctx.restore(); }
+          else { ctx.beginPath(); ctx.arc(x, y, 1.6 * scale, 0, Math.PI * 2); ctx.fill(); }
+        }
+      }
+    };
+    // Falling and rising wrap inside the box; twinkling stays put and pulses.
+    const moving = dt => {
+      const direction = custom.motion === 'rise' ? -1 : 1;
+      for (const p of particles) {
+        const r = p.size;
+        p.phase += dt * config.speed;
+        let x, y, alpha = config.opacity;
+        if (custom.motion === 'twinkle') {
+          const pulse = Math.abs(Math.sin(p.phase * 1.5));
+          x = r + p.x * Math.max(0, width - 2 * r); y = r + p.y * Math.max(0, height - 2 * r); alpha *= 0.2 + pulse * 0.8;
+        } else {
+          p.y = (p.y + direction * dt * config.speed * 45 / height + 1) % 1;
+          p.x = (p.x + dt * config.speed * drift * 18 / width + 1) % 1;
+          x = p.x * width + Math.sin(p.phase) * 15; y = p.y * height;
+        }
+        ctx.save(); ctx.translate(x, y);
+        if (custom.motion !== 'twinkle' && custom.shape !== 'emoji') ctx.rotate(p.phase);
+        ctx.fillStyle = p.color; ctx.globalAlpha = alpha; drawShape(ctx, custom, r); ctx.restore();
       }
     };
     const falling = dt => {
@@ -75,7 +125,7 @@ export function startCelebration(canvas, effect, env = window, { still = false }
         ctx.fill(); ctx.restore();
       }
     };
-    return config.preset === 'lights' ? lights : config.preset === 'fireworks' ? fireworks : falling;
+    return bursting ? fireworks : custom ? moving : config.preset === 'lights' ? lights : falling;
   };
   const layers = effectLayers(effect).map(layer);
   const resize = () => {
