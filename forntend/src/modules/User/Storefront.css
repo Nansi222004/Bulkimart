@@ -201,6 +201,7 @@
 /* The opt-out control lives inside the decorated box it controls, never over the page. */
 .sf-decoration-toggle{position:absolute;right:10px;top:10px;z-index:3;padding:6px 10px;min-height:32px;border:1px solid #706b68;border-radius:8px;background:#fff;color:#252525;font-size:11px;cursor:pointer}
 .sf-festive>.sf-decoration-toggle{top:auto;bottom:8px}
+.header-celebration{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
 @media(max-width:600px){.sf-festive{margin:0 12px 14px;border-radius:16px}.sf-festive-content{padding:38px 16px 48px}.sf-festive h2{font-size:22px}.sf-festive p{font-size:12.5px}.sf-festive-art{width:32%}}
 @media(max-width:768px){.sf-storefront .page-home .home-feed-scrollable>.sf-festive{margin-inline:0}}
 .sf-section-banner video{width:100%;max-height:220px;object-fit:contain;border-radius:var(--sf-radius)}

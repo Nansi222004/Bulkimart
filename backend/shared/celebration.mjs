@@ -7,8 +7,18 @@ export const EFFECT_COLORS = { lights: ['#FFD45A', '#FF8A00', '#FF4D4D'], snowfa
 export const DRIFTING_PRESETS = ['snowfall', 'petals', 'confetti', 'sparkles'];
 export const INTENSITY = { low: 0.5, medium: 1, high: 1.5 };
 export const MAX_PARTICLES = 100;
-export const DEFAULT_EFFECT = { enabled: false, preset: 'confetti', colors: EFFECT_COLORS.confetti, speed: 1, density: 40, opacity: 0.6, duration: 15, scope: 'homepage', campaignId: '', startAt: null, endAt: null,
+// Up to MAX_COMBINED presets can play together; the first one is `preset` and uses `colors`.
+export const MAX_COMBINED = 3;
+export const DEFAULT_EFFECT = { enabled: false, preset: 'confetti', presets: [], colors: EFFECT_COLORS.confetti, speed: 1, density: 40, opacity: 0.6, duration: 15, scope: 'homepage', campaignId: '', startAt: null, endAt: null,
   intensity: 'medium', size: 1, direction: 'down', reducedMotion: 'hide' };
+// Older configurations only carry `preset`.
+export function effectPresets(effect) {
+  return Array.isArray(effect?.presets) && effect.presets.length ? effect.presets : effect?.preset ? [effect.preset] : [];
+}
+// One renderer config per preset; extra presets keep their own palette.
+export function effectLayers(effect) {
+  return effectPresets(effect).map((preset, i) => ({ ...effect, preset, colors: i === 0 ? effect.colors : [...EFFECT_COLORS[preset]] }));
+}
 // duration 0 loops while the header is visible; otherwise seconds per viewing.
 export function particleCount(effect) {
   return Math.min(MAX_PARTICLES, Math.max(1, Math.round((effect.density || 1) * (INTENSITY[effect.intensity] || 1))));

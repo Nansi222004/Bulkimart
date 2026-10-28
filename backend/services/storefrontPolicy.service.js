@@ -1,5 +1,5 @@
 import { httpError } from '../utils/response.js';
-import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY } from '../shared/celebration.mjs';
+import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED } from '../shared/celebration.mjs';
 import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
@@ -13,6 +13,9 @@ export function validateEffect(value, scopes = ['storefront', 'homepage', 'campa
   const e = { ...DEFAULT_EFFECT, ...value };
   if (typeof e.enabled !== 'boolean') fail('Animation enabled must be boolean');
   one(e.preset, EFFECT_PRESETS, 'animation preset'); one(e.scope, scopes, 'animation scope');
+  if (!Array.isArray(e.presets) || e.presets.length > MAX_COMBINED || new Set(e.presets).size !== e.presets.length) fail(`Choose up to ${MAX_COMBINED} different animation presets`);
+  e.presets = e.presets.map(p => one(p, EFFECT_PRESETS, 'animation preset'));
+  if (e.presets.length) e.preset = e.presets[0];
   if (!Array.isArray(e.colors) || !e.colors.length || e.colors.length > 6 || e.colors.some(c => typeof c !== 'string' || !/^#[a-f\d]{6}$/i.test(c))) fail('Use 1–6 hex animation colors');
   for (const [key, min, max] of [['speed', 0.2, 3], ['opacity', 0.05, 0.8]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);
   for (const [key, min, max] of [['size', 0.5, 2]]) if (typeof e[key] !== 'number' || !Number.isFinite(e[key]) || e[key] < min || e[key] > max) fail(`Animation ${key} must be ${min}–${max}`);

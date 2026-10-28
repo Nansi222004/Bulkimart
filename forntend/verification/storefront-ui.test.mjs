@@ -159,7 +159,7 @@ test('hero video and effect preview stay local; draft upload is always Studio-on
     h.find(n => n.type === EffectFields).props.onChange({ ...DEFAULT_EFFECT, enabled: true, preset: 'petals', scope: 'banner' }); h.flush();
     assert.equal(postRequests(h).length, 0);
     assert.equal(h.find(n => n.type === Media).props.banner.mobileVideo, 'https://fixture.test/mobile.webm');
-    assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'petals');
+    assert.equal(h.find(n => n.type === Celebration && n.props.effect).props.effect.preset, 'petals');
     const pending = h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
     const upload = postRequests(h)[0]; assert.equal(upload.options.body.get('placement'), 'STUDIO'); assert.equal(upload.options.body.get('mediaType'), 'video'); assert.equal(upload.options.body.get('loop'), 'false');
     upload.resolve({ ...banner, _id: banner.id }); await h.settle();
@@ -734,14 +734,15 @@ test('countdown follows persisted sale dates before, during and after the sale a
   const h = browserHarness(Festive.FestiveCountdown, { countdown: { ...c, expiredText: 'Sale ended — thank you!' }, now: end + 1 }, {});
   try { assert.match(text(h.tree), /Sale ended/); } finally { h.close(); }
 });
-test('the page effect is hosted once: by the festive header when published, otherwise inside the hero', () => {
+test('the page effect is hosted once: by the festive header when published, otherwise inside the top header', () => {
   const context = { banners: [banner], device: 'mobile', loading: false, now: Date.now(), effect: liveEffect, theme: { tokens: policy.DEFAULT_TOKENS } };
   const h = browserHarness(Hero, {}, context);
   try {
     const art = h.find(n => n.props?.className === 'sf-hero-art');
-    assert.equal(art.props.children.find(n => n?.type === Celebration).props.effect.preset, 'lights');
+    assert.equal(art.props.children.find(n => n?.type === Celebration).props.effect, undefined, 'The hero never draws the page effect');
+    assert.ok(h.find(n => n.type === DecorationToggle), 'The hero keeps the opt-out for the header effect');
     context.theme = { tokens: policy.DEFAULT_TOKENS, header: festiveHeader() }; h.rerender();
-    assert.equal(h.find(n => n.type === Celebration).props.effect, null, 'Festive header owns the page effect');
+    assert.equal(h.find(n => n.type === DecorationToggle), undefined, 'Festive header owns the page effect and its opt-out');
     context.banners = [{ ...banner, animation: { ...liveEffect, preset: 'petals', scope: 'banner' } }]; h.rerender();
     assert.equal(h.find(n => n.type === Celebration).props.effect.preset, 'petals', 'Banner-scoped effects stay on their banner');
   } finally { h.close(); }
@@ -751,12 +752,18 @@ test('the page effect is hosted once: by the festive header when published, othe
 const labelText = tree => { const out = []; const walk = n => { if (!n || typeof n !== 'object') return; if (n.type === 'label') out.push(text(n)); [n.props?.children].flat(Infinity).forEach(walk); }; walk(tree); return out.join('|'); };
 test('admin effect fields show only settings relevant to the selected animation', () => {
   const props = { value: { ...DEFAULT_EFFECT, enabled: true, preset: 'petals' }, onChange: next => { props.value = next; } }, h = browserHarness(EffectFields, props, {});
+  const preset = label => h.find(n => n.type === 'label' && text(n).trim() === label).props.children.find(n => n?.type === 'input');
   try {
     for (const label of [/Drift direction/, /Intensity/, /Particle quantity/, /Particle size/, /Reduced-motion fallback/]) assert.match(labelText(h.tree), label);
-    h.find(n => n.type === 'select' && n.props.value === 'petals').props.onChange({ target: { value: 'fireworks' } }); h.rerender();
-    assert.equal(props.value.preset, 'fireworks'); assert.deepEqual(props.value.colors, ['#FFD45A', '#FF6B6B', '#7FDBFF']);
+    preset('Flower petals').props.onChange(); h.rerender();
+    preset('Fireworks').props.onChange(); h.rerender();
+    assert.equal(props.value.preset, 'fireworks'); assert.deepEqual(props.value.presets, ['fireworks']); assert.deepEqual(props.value.colors, ['#FFD45A', '#FF6B6B', '#7FDBFF']);
     assert.doesNotMatch(labelText(h.tree), /Drift direction/); assert.match(labelText(h.tree), /Sparks per burst/);
-    h.find(n => n.type === 'select' && n.props.value === 'fireworks').props.onChange({ target: { value: 'none' } }); h.rerender();
+    for (const label of ['Festive lights', 'Snowfall']) { preset(label).props.onChange(); h.rerender(); }
+    assert.deepEqual(props.value.presets, ['fireworks', 'lights', 'snowfall'], 'Presets combine in selection order');
+    assert.deepEqual(props.value.colors, ['#FFD45A', '#FF6B6B', '#7FDBFF'], 'Colours stay with the first preset');
+    assert.match(labelText(h.tree), /Drift direction/); assert.equal(preset('Confetti').props.disabled, true, 'At most three presets');
+    for (const label of ['Fireworks', 'Festive lights', 'Snowfall']) { preset(label).props.onChange(); h.rerender(); }
     assert.equal(props.value.enabled, false); assert.doesNotMatch(labelText(h.tree), /Intensity|Speed|Opacity/);
   } finally { h.close(); }
 });

@@ -6,6 +6,9 @@ import NotificationDrawer from './NotificationDrawer';
 import { ImageSearchButton } from './ImageSearchSheet';
 import HeaderCategories from './HeaderCategories';
 import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
+import Celebration from './Celebration';
+import { hasFestiveHeader } from './FestiveHeader';
+import { useStorefront } from '../context/StorefrontContext';
 
 const UnifiedHeader = () => {
   const {
@@ -20,7 +23,12 @@ const UnifiedHeader = () => {
     wishlist,
     openVoiceSearch,
     openImageSearch,
+    activeNav,
   } = useUser();
+  // The festive header (home feed only) hosts the page effect when it is shown;
+  // otherwise this header does, clipped to its own box.
+  const { effect, theme, now } = useStorefront() || {};
+  const headerEffect = activeNav === 'home' && hasFestiveHeader(theme) ? null : effect;
   const cartCount = getCartCount();
   const wishlistCount = wishlist?.size || 0;
   const [showNotifications, setShowNotifications] = useState(false);
@@ -94,6 +102,7 @@ const UnifiedHeader = () => {
 
   return (
     <div ref={headerRef} className={`unified-header-container mode-${activeMode}`}>
+      {headerEffect && <div className="header-celebration"><Celebration effect={headerEffect} now={now} /></div>}
       <div className="header-primary-row">
         <div className="header-brand-location">
           <div className="header-brand-identity" aria-label="Bulkimart — Sabse Smart Bulkimart">

@@ -84,3 +84,12 @@ test('drift direction moves falling particles sideways', () => {
     const down = xAfter('down'); assert.ok(xAfter('right') > down + 10); assert.ok(xAfter('left') < down - 10);
   } finally { Math.random = random; }
 });
+test('combined presets share one canvas loop and each keeps its own palette', () => {
+  const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset: 'lights', presets: ['lights', 'snowfall'], colors: ['#123456'], density: 1000 }, h.env); h.show(true);
+  h.tick(1); h.tick(34);
+  assert.equal(h.frames.size, 1, 'One animation frame drives every preset');
+  assert.equal(h.calls.filter(c => c[0] === 'clearRect').length, 2, 'The canvas is cleared once per frame, not once per preset');
+  // Lights: 2 frames × 2 arcs × 24 bulbs; snowfall: 2 frames × 100 flakes.
+  assert.equal(h.calls.filter(c => c[0] === 'arc').length, 2 * 2 * 24 + 200);
+  stop(); assert.equal(h.frames.size, 0);
+});
