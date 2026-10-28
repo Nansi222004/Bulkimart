@@ -2022,6 +2022,13 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  /* The Android app (Appilix) already keeps the page below the status bar; reserving it again
+     here left an empty band above the header. Same rule as the customer app (initCustomerHeaderInsets
+     marks <html> for every portal). */
+  html[data-customer-header-inset-owner="native"] .seller-app-container {
+    padding-top: 0;
+  }
+
   .seller-header-title { overflow-wrap: anywhere; }
   .seller-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
