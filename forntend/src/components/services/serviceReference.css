@@ -1,0 +1,14 @@
+.service-reference {
+  display: inline-block;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+}

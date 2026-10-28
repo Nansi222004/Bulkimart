@@ -1,0 +1,40 @@
+.admin-services-workspace {
+  --primary: #087eaa;
+  --primary-light: #edf8fd;
+  --text-primary: #172b4d;
+  width: 100%;
+  max-width: 1440px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: clamp(16px, 2.5vw, 28px);
+  box-sizing: border-box;
+  color: #172b4d;
+}
+.admin-services-workspace * { box-sizing: border-box; }
+.admin-services-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.admin-services-sections button { display: flex; align-items: center; gap: 14px; width: 100%; min-width: 0; padding: 18px; border: 1px solid #dbe5ee; border-radius: 12px; background: #fff; color: #52647b; font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.admin-services-sections button > svg { flex: 0 0 auto; }
+.admin-services-sections button > span { min-width: 0; }
+.admin-services-sections strong { display: block; font-size: 15px; line-height: 1.5; }
+.admin-services-sections small { display: block; margin-top: 4px; font-size: 13px; line-height: 1.5; color: #64748b; }
+.admin-services-sections button:hover { border-color: #7dbcd4; background: #f8fcff; }
+.admin-services-sections button[aria-pressed=true] { border-color: #0784b0; background: #edf8fd; color: #075985; box-shadow: inset 0 0 0 1px #0784b0; }
+.admin-services-workspace :focus-visible { outline: 2px solid #087eaa; outline-offset: 3px; }
+.admin-services-workspace :is(.sm-panel, .legal-services) { padding: 0; max-width: none; margin: 0; color: #172b4d; background: transparent; }
+.admin-services-workspace :is(.sm-panel h2, .legal-services h2) { font-size: 24px; line-height: 1.35; }
+.admin-services-workspace .sm-panel > .sm-actions:first-child { margin: 0 0 20px; padding-bottom: 18px; border-bottom: 1px solid #e2e8f0; }
+.admin-services-workspace .sm-panel > .sm-actions:first-child h2 { margin-bottom: 0; }
+.admin-services-workspace :is(.sm-panel, .legal-services) button { min-height: 40px; padding: 9px 14px; border: 1px solid #cbdce8; border-radius: 8px; background: #fff; color: #23516d; font-size: 14px; font-weight: 600; line-height: 1.5; }
+.admin-services-workspace :is(.sm-panel, .legal-services) button:hover:not(:disabled) { background: #edf8fd; border-color: #7dbcd4; }
+.admin-services-workspace :is(.sm-panel, .legal-services) button[aria-pressed=true] { background: #0d3c70; border-color: #0d3c70; color: #fff; }
+.admin-services-workspace :is(.sm-card, .legal-card) { border-color: #dbe5ee; border-radius: 12px; box-shadow: 0 2px 8px #17324d05; }
+.admin-services-workspace :is(.sm-card, .legal-card) h3 { font-size: 18px; line-height: 1.45; }
+.admin-services-workspace :is(.sm-card, .legal-card) p { font-size: 14px; line-height: 1.65; }
+.admin-services-workspace .sm-grid > .sm-card { margin: 0; }
+.admin-services-workspace .legal-services > nav { gap: 8px; margin: 16px 0 22px; }
+@media (max-width: 640px) {
+  .admin-services-sections { grid-template-columns: 1fr; margin-bottom: 22px; }
+  .admin-services-sections button { padding: 14px; }
+  .admin-services-workspace .sm-panel > .sm-actions:first-child h2 { width: 100%; }
+  .admin-services-workspace .sm-panel > .sm-actions:first-child button { flex: 1 1 auto; }
+}

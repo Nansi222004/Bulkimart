@@ -84,16 +84,14 @@ test('logged out visitor sees Sign in, and clicking View service or My requests 
     assert.equal(globalThis.window.location.href, '/account');
   } finally { h.close(); }
 });
-test('logged in user sees Account, and clicking View service navigates to service detail', async () => {
+test('signed-in legal services omit the Account link and still open service details', async () => {
   const userStorage = { localStorage: { getItem: key => key === 'userToken' ? 'valid-jwt-token' : null } };
   const h = hookHarness(ui.default, {}, '/legal-services', { verified: true }, userStorage);
   try {
     h.requests[0].resolve({ data: [{ _id: id, name: 'Business Advisory', description: 'Legal help' }], meta: { total: 1 } });
     await h.settle();
     const authLink = h.find(n => n.type === 'a' && n.props.className === 'legal-nav-auth');
-    assert.ok(authLink);
-    assert.equal(authLink.props.children, 'Account');
-    assert.equal(authLink.props.href, '/account');
+    assert.equal(authLink, undefined);
 
     // Clicking View service navigates to /legal-services/:id
     h.click('View service');

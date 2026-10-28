@@ -127,6 +127,12 @@ try {
     scenario = 'available'; await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Reload latest').click()`); await waitText('Legal consultation');
     await check(width, '/legal-services?guest=1', 'loading', 'Loading Legal Services');
     await waitText('No eligible services available');
+    await check(width, '/legal-services', 'available', 'Legal consultation');
+    assert.equal(await evaluate('!!document.querySelector(".legal-nav-auth")'), false);
+    await evaluate('document.querySelector("#legal-service-search").focus()');
+    const searchSpacing = await evaluate(`(()=>{const input=document.querySelector('#legal-service-search'),label=document.querySelector('label[for="legal-service-search"]'),hint=document.querySelector('#legal-service-search-hint'),i=input.getBoundingClientRect(),l=label.getBoundingClientRect(),h=hint.getBoundingClientRect(),s=getComputedStyle(input),ring=parseFloat(s.outlineWidth)+Math.max(0,parseFloat(s.outlineOffset));return {above:i.top-l.bottom-ring,below:h.top-i.bottom-ring};})()`);
+    assert.ok(searchSpacing.above >= 4 && searchSpacing.below >= 4, JSON.stringify(searchSpacing));
+    if (process.env.SERVICE_SECTION !== 'legal') {
     await check(width, '/parcel-delivery/book?guest=1', 'guest', 'Sign in to Bulkimart');
     assert.equal(await evaluate(`document.querySelector('.customer-service-action').getAttribute('href')`), '/account');
     await evaluate(`document.querySelector('.customer-service-action').click()`);
@@ -137,6 +143,7 @@ try {
     await evaluate(`document.querySelector('.parcel-row').click()`); await waitText('Test pickup');
     assert.equal(await evaluate('location.pathname'), '/parcel-delivery/track/' + id);
     await check(width, '/parcel-delivery/track/' + id, 'tracking', 'Test pickup');
+    }
   }
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
   for (const [state, ready] of [['disabled', 'No customer legal services are currently available'], ['empty', 'No customer legal services are currently available'], ['error', 'Legal services availability could not be checked'], ['available', 'Browse Legal Services']]) {

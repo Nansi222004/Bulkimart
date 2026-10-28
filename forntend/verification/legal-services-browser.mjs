@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 const exe = process.env.CHROME_BIN || ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(existsSync);
 assert.ok(exe, 'Chrome or Edge is required');
 const temp = await mkdtemp(join(tmpdir(), 'bulkimart-legal-browser-')), profile = join(temp, 'profile'); await mkdir(profile);
+const screenshots = resolve('../test-artifacts/services-ui'); await mkdir(screenshots, { recursive: true });
 const id = '507f1f77bcf86cd799439022', serviceId = '507f1f77bcf86cd799439023';
 const s = { _id: serviceId, version: 1, name: 'Fixture Legal Service', description: 'Synthetic service for private intake testing only.', instructions: 'Provide only the information needed.', formVersion: 1, fields: [{ id: 'name', label: 'Required name', type: 'text', required: true }], startingPrice: null };
 const q = { version: 1, scope: 'Synthetic confirmed scope', currency: 'INR', servicePaise: 500000, serviceTaxPaise: 0, totalPaise: 500000, terms: 'Synthetic approved cancellation and refund terms', policy: { terms: 'Synthetic approved terms' } };
@@ -43,6 +44,7 @@ const vite = await createServer({ define: { 'import.meta.env.VITE_API_BASE_URL':
       else if (p === '/api/services') data = [vendorService];
       else if (p === '/api/services/applications') data = [vendorView()];
       else if (p.startsWith('/api/services/applications/')) data = vendorView();
+      else if (p === '/api/admin/services') data = [vendorService];
       else if (p === '/api/admin/services/legal/requests') data = [a];
       else if (p.startsWith('/api/admin/services/legal/requests/')) data = adminA;
       res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ success: true, data, meta }));
@@ -77,10 +79,28 @@ try {
   await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   for (const width of [320, 375, 430, 768, 1440]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 });
-    for (const [url, ready] of [['/legal-services', 'Fixture Legal Service'], [`/legal-services/${serviceId}`, 'Review request'], [`/legal-services/requests/${id}`, 'Check payment status'], ['/legal-provider', 'Open assignment'], [`/admin/services?legalRequest=${id}`, 'Apply authorized action']]) {
+    for (const [url, ready] of [['/legal-services', 'Fixture Legal Service'], [`/legal-services/${serviceId}`, 'Review request'], [`/legal-services/requests/${id}`, 'Check payment status'], ['/legal-provider', 'Open assignment'], ['/admin/services', 'Service Management'], [`/admin/services?legalRequest=${id}`, 'Apply authorized action']]) {
       await command('Page.navigate', { url: origin + url }); await waitText(ready);
       assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), true, `Horizontal overflow ${width} ${url}`);
       if (url.includes('/requests/')) assert.equal(await evaluate('document.body.innerText.includes("Pay confirmed amount")'), false, 'Pending request cannot claim eligible payment');
+      if (url === '/legal-services') {
+        assert.equal(await evaluate('!!document.querySelector(".legal-nav-auth")'), false, 'Signed-in catalogue omits Account');
+        await evaluate('document.querySelector("#legal-service-search").focus()');
+        const search = await evaluate(`(() => { const input=document.querySelector('#legal-service-search'), label=document.querySelector('label[for="legal-service-search"]'), hint=document.querySelector('#legal-service-search-hint'), card=document.querySelector('.legal-grid'); const i=input.getBoundingClientRect(), l=label.getBoundingClientRect(), h=hint.getBoundingClientRect(), c=card.getBoundingClientRect(), style=getComputedStyle(input), ring=parseFloat(style.outlineWidth)+Math.max(0,parseFloat(style.outlineOffset));return {above:i.top-ring-l.bottom,below:h.top-i.bottom-ring,card:c.top-h.bottom,focus:document.activeElement===input}; })()`);
+        assert.equal(search.focus, true); assert.ok(search.above >= 4 && search.below >= 4 && search.card >= 12, JSON.stringify({ width, search }));
+      }
+      if (url.startsWith('/legal-services/requests/') || url.includes('legalRequest=')) {
+        const reference = await evaluate(`(() => { const r=document.querySelector('.service-reference');return {text:r?.textContent,title:r?.title};})()`);
+        assert.deepEqual(reference, { text: 'SR-439022', title: id });
+      }
+      if (url.startsWith('/admin/')) {
+        const tabs = await evaluate(`(()=>{const nav=document.querySelector('.admin-services-sections'),selected=nav.querySelector('button[aria-pressed=true]'),style=getComputedStyle(selected);return {count:nav.children.length,radius:parseFloat(style.borderRadius),selected:selected.textContent};})()`);
+        assert.equal(tabs.count, 2); assert.ok(tabs.radius >= 8); assert.ok(tabs.selected.includes(url.includes('legalRequest=') ? 'Customer legal requests' : 'Catalogue and vendor applications'));
+      }
+      if ([375, 1440].includes(width) && ['/legal-services', '/admin/services'].includes(url)) {
+        const shot = await command('Page.captureScreenshot', { format: 'png' });
+        await writeFile(join(screenshots, `${url.startsWith('/admin') ? 'admin-services' : 'legal-search'}-${width}.png`), Buffer.from(shot.data, 'base64'));
+      }
       rows.push({ width, url, passed: true });
     }
   }

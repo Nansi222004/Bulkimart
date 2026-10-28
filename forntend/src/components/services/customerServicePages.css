@@ -57,6 +57,11 @@
 .customer-service-page .parcel-btn-book-now { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 24px; border-radius: 10px; background: var(--sf-action, #D91430) !important; color: #ffffff !important; border: none !important; font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px color-mix(in srgb, var(--sf-action, #D91430) 25%, transparent); transition: all 0.2s ease; }
 .customer-service-page .parcel-btn-book-now:hover { background: var(--sf-action-hover, #B50918) !important; transform: translateY(-1px); }
 .customer-service-page .legal-grid .legal-card { margin: 0; }
+.customer-service-page .legal-search { display: grid; gap: 12px; min-width: 0; margin: 0 0 24px; padding: 4px; }
+.customer-service-page .legal-search label { display: block; margin: 0; color: #334155; font-size: 14px; font-weight: 650; line-height: 1.5; }
+.customer-service-page .legal-search input { display: block; width: 100%; min-width: 0; min-height: 48px; margin: 0; padding: 12px 14px; border: 1px solid #b8c7d7; border-radius: 10px; background: #fff; color: #172b4d; font: inherit; font-size: 16px; line-height: 1.5; }
+.customer-service-page .legal-search input:focus-visible { border-color: var(--sf-action, #D91430); outline: 2px solid var(--sf-action, #D91430); outline-offset: 2px; }
+.customer-service-page .legal-search p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.5; }
 .customer-service-page .legal-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 20px; }
 .customer-service-page .legal-nav-btn { background: #ffffff !important; color: #475569 !important; border: 1px solid #cbd5e1 !important; border-radius: 10px !important; padding: 10px 18px !important; font-weight: 650 !important; font-size: 13.5px !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important; transition: all 0.2s ease !important; cursor: pointer; }
 .customer-service-page .legal-nav-btn:hover { background: #f8fafc !important; color: #0f172a !important; border-color: #94a3b8 !important; }
