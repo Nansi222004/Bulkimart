@@ -111,7 +111,19 @@ export default function AdvertisingWorkspace({ admin = false }) {
 
   const candidates = packages.filter(p => p.module === draft?.module && p.isActive && !p.archivedAt && (!p.categories.length || p.categories.includes(draft?.categoryId)));
   const chosen = candidates.find(p => p.id === draft?.packageId);
-  const categories = [...new Map(products.flatMap(p => p.categories).map(c => [c.id, c])).values()];
+  // Only categories every ticked product belongs to: the server rejects a product outside the
+  // campaign's category. A ticked product's categories are remembered when it is ticked, so a
+  // tick on another page of the product list still counts; otherwise the loaded list is used.
+  const pickedIds = [...new Set((draft?.items || []).map(i => i.productId))];
+  const pickedLists = pickedIds.map(id => draft?.pickedCategories?.[id] || products.find(p => p.id === id)?.categories).filter(Boolean);
+  const categories = pickedLists.length ? pickedLists.reduce((common, list) => common.filter(c => list.some(x => x.id === c.id)), [...new Map(pickedLists[0].map(c => [c.id, c])).values()]) : [];
+  const categoryKey = categories.map(c => c.id).join('|');
+  // One shared category is chosen for the seller; a choice that no longer fits is cleared.
+  useEffect(() => {
+    if (!draft) return;
+    const next = categories.length === 1 ? categories[0].id : categories.some(c => c.id === draft.categoryId) ? draft.categoryId : '';
+    if (next !== draft.categoryId) setDraft(d => d && ({ ...d, categoryId: next, packageId: '' }));
+  }, [categoryKey, !!draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="advertising-workspace" aria-label={admin ? 'Admin advertising' : 'Seller advertising'}>
@@ -448,7 +460,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                           </label>
                           <label className="ad-field">
                             <span className="ad-field-title">Storefront</span>
-                            <select value={draft.module} disabled={!!draft.id} onChange={e => { setDraft({ ...draft, module: e.target.value, items: [], categoryId: '', packageId: '' }); setProductPage(1); }}>
+                            <select value={draft.module} disabled={!!draft.id} onChange={e => { setDraft({ ...draft, module: e.target.value, items: [], pickedCategories: {}, categoryId: '', packageId: '' }); setProductPage(1); }}>
                               <option value="ECOMMERCE">Shop All</option>
                               <option value="QUICK">Quick Commerce</option>
                             </select>
@@ -500,7 +512,8 @@ export default function AdvertisingWorkspace({ admin = false }) {
                                         ...draft,
                                         items: e.target.checked
                                           ? [...draft.items.filter(i => i.productId !== p.id), { productId: p.id, ...(v.id ? { variantId: v.id } : {}) }]
-                                          : draft.items.filter(i => i.productId !== p.id)
+                                          : draft.items.filter(i => i.productId !== p.id),
+                                        pickedCategories: { ...draft.pickedCategories, [p.id]: p.categories }
                                       })}
                                     />
                                     <span>{v.name} · ₹{v.price} · {v.stock} available</span>
@@ -525,10 +538,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         <label className="ad-field">
                           <span className="ad-field-title">Category</span>
                           <select required value={draft.categoryId} onChange={e => setDraft({ ...draft, categoryId: e.target.value, packageId: '' })}>
-                            <option value="">Choose a category</option>
+                            <option value="">{categories.length ? 'Choose a category' : 'No category fits all your products'}</option>
                             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </select>
                         </label>
+                        {pickedIds.length > 0 && !categories.length && <p className="ad-notice" role="alert">The products you picked are in different categories. A campaign shows products from one category, so go back and keep only products from the same category.</p>}
                       </>
                     )}
 

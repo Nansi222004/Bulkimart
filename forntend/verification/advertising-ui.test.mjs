@@ -170,3 +170,25 @@ test('moderation refreshes the billing panel for the new campaign version',async
     const after=h.find(n=>n.type===Billing);assert.equal(after.key,'campaign-id:5');assert.notEqual(after.key,before.key);
   }finally{h.close();}
 });
+test('the category step offers only categories every ticked product belongs to, and picks a single one', async () => {
+  const h = hookHarness(Workspace);
+  const next = () => { h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush(); };
+  try {
+    h.requests[0].resolve(capabilities()); await h.settle(); h.requests[1].resolve(list([])); await h.settle();
+    h.click('Create campaign');
+    h.requests[2].resolve(list([
+      { id: 'dress', name: 'Different clothing', eligible: true, reason: '', categories: [{ id: 'clothing', name: 'Clothing' }], variants: [{ id: 'v1', name: 'M', price: 500, stock: 3 }] },
+      { id: 'buds', name: 'Wireless buds', eligible: true, reason: '', categories: [{ id: 'earbuds', name: 'Earbuds' }], variants: [{ id: 'v2', name: 'Black', price: 900, stock: 2 }] },
+    ]));
+    h.requests[3].resolve(list([])); await h.settle();
+    const tick = productName => { const item = h.find(n => n.type === 'div' && /ad-product-item/.test(n.props.className || '') && text(n).includes(productName)); h.find(n => n.type === 'input' && n.props.type === 'checkbox', item).props.onChange({ target: { checked: true } }); h.flush(); };
+    const categorySelect = () => h.find(n => n.type === 'select' && [n.props.children].flat(Infinity).some(o => o?.props?.value === '' && /category/i.test(text(o))));
+    tick('Different clothing'); next();
+    let options = [categorySelect().props.children].flat(Infinity).filter(o => o?.props?.value).map(o => o.props.value);
+    assert.deepEqual(options, ['clothing'], 'Earbuds is not offered for a clothing product');
+    assert.equal(categorySelect().props.value, 'clothing', 'The only fitting category is chosen');
+    h.click('Back'); h.flush(); tick('Wireless buds'); next();
+    options = [categorySelect().props.children].flat(Infinity).filter(o => o?.props?.value).map(o => o.props.value);
+    assert.deepEqual(options, []); assert.match(text(h.tree), /different categories/);
+  } finally { h.close(); }
+});
