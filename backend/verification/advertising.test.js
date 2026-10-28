@@ -280,3 +280,16 @@ test('cross-type products are suppressed until cart routing can preserve the sel
   await Product.updateOne({_id:product._id},{$set:{type:'grocery',category:grocery._id,channels:[{type:'ecommerce',category:category._id,isActive:true}]}});
   await pilot();expect((await placements()).body.data).toEqual([]);
 });
+test('the simple admin package form payload is accepted and quotes GST on top of the price', async () => {
+  // Exactly what AdvertisingPackageForm sends for ₹999, 7 days, 5 products, 18% GST added on top.
+  const body = { name: 'Simple form package', description: '', module: 'ECOMMERCE', placement: 'CATEGORY_SPONSORED', amountPaise: 99900, durationDays: 7, maxProducts: 5,
+    categories: [], isActive: true, archived: false, reason: 'Package created by admin',
+    policies: { sellerPause: 'Pause terms', cancellation: 'Cancel terms', rejection: 'Reject terms', suspension: 'Suspend terms', unusedService: 'Unused terms', refunds: 'Refund terms',
+      tax: { treatment: '18% GST is added on top of the package price.' }, attribution: { windowHours: 24, conversionEvent: 'PAID', model: 'LAST_CLICK' },
+      billing: { approvalReference: 'Standard advertising package', issuer: 'Bulkimart', taxRecognition: 'ON_RECEIPT', invoiceMode: 'NOT_REQUIRED', creditNoteMode: 'NOT_REQUIRED',
+        startCondition: 'VERIFIED_PAYMENT_OR_REQUESTED_START', interruption: 'STOP_AND_REVIEW', recognition: 'MANUAL_AFTER_COMPLETION',
+        refunds: { cancellationBps: 10000, suspensionBps: 10000, unavailableBps: 10000, unusedBps: 10000 }, taxTreatment: 'EXCLUSIVE', taxRateBps: 1800 } } };
+  const saved = (await auth(request(app).post('/admin/packages'), admin, 'admin').send(body).expect(201)).body.data;
+  expect(saved.billingQuote).toMatchObject({ basePaise: 99900, taxPaise: 17982, totalPaise: 117882 });
+  expect(saved.policyApproval).toBe('CONFIGURED_REQUIRES_CAMPAIGN_AUTHORIZATION');
+});

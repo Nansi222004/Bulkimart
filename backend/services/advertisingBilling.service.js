@@ -6,7 +6,7 @@ import Ledger from '../models/SellerLedgerEntry.js';
 import Receipt from '../models/AdWebhookReceipt.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
-import { advertisingCampaign, advertisingVersion, campaignDTO, advertisingPagination } from './advertising.service.js';
+import { advertisingCampaign, advertisingVersion, campaignDTO, advertisingPagination, advertisingBillingAuthorized } from './advertising.service.js';
 import { validateAdvertisingSelection, advertisingChannel } from './advertisingEligibility.service.js';
 import { adCharge, advertisingProduction, requireAdvertisingGateway, requireAdvertisingRefundGateway } from './advertisingBillingPolicy.service.js';
 import { paidAdvertisingEnabled } from './advertisingPaidEligibility.service.js';
@@ -14,6 +14,9 @@ import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSig
 import { httpError } from '../utils/response.js';
 
 const fail = (message,status=409) => { throw httpError(status,message); };
+// A seller has 30 minutes to finish paying for an advertising campaign before the checkout expires.
+export const ADVERTISING_CHECKOUT_TTL_SECONDS = 1800;
+const advertisingIndexesReady = () => Payment.collection.indexExists(['advertising_gateway_order_unique','advertising_capture_unique']).catch(() => false);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const reason = input => { if (typeof input.reason!=='string' || !input.reason.trim() || input.reason.length>2000) fail('A bounded financial decision reason is required',400); return input.reason.trim(); };
 const audit = (c,action,actor,comment,actorType=actor?'admin':'system') => {
@@ -66,7 +69,7 @@ async function accountingDiscrepancies(p){
 async function eligibleToPay(c,session) {
   const a=c.advertising;
   if(!paidAdvertisingEnabled())fail('Paid category delivery must be explicitly enabled before funding');
-  if(a.review!=='APPROVED'||a.approvedRevision!==a.revision||!a.paid?.authorizedBy||a.paid.revision!==a.revision||a.pilot?.enabled||!['NOT_SCHEDULED'].includes(a.delivery))fail('Approved, financially authorized revision without pilot/paid delivery is required');
+  if(!advertisingBillingAuthorized(a)||a.pilot?.enabled||!['NOT_SCHEDULED'].includes(a.delivery))fail('Approved, financially authorized revision without pilot/paid delivery is required');
   if(!await Package.exists({_id:c.packageId,advertisingVersion:2,isActive:true,'advertising.archivedAt':null}).session(session))fail('Advertising package is unavailable');
   const selection=await validateAdvertisingSelection(c,session);
   if(selection.products.some(p=>p.type!==advertisingChannel(c.module)))fail('Paid category delivery requires products in the primary purchase channel');
@@ -91,10 +94,10 @@ export async function authorizeAdvertisingBilling(id,actor,input) {
 }
 export async function initiateAdvertisingPayment(id,sellerId,userId,input) {
   requireAdvertisingGateway();
-  if(!await Payment.collection.indexExists(['advertising_gateway_order_unique','advertising_capture_unique']))fail('Advertising unique gateway indexes must be provisioned and verified before checkout',503);
+  // The duplicate-payment guards are declared on the Payment model; build them here if the database lacks them.
+  if(!await advertisingIndexesReady()){await Payment.createIndexes();if(!await advertisingIndexesReady())fail('Advertising payment safeguards could not be prepared; try again shortly',503);}
   if(Object.keys(input).some(k=>!['version','idempotencyKey'].includes(k)))fail('Unsupported advertising payment fields',400);
-  const ttl=Number(process.env.ADVERTISING_CHECKOUT_TTL_SECONDS);
-  if(!Number.isSafeInteger(ttl)||ttl<60||ttl>86400)fail('Configure ADVERTISING_CHECKOUT_TTL_SECONDS between 60 and 86400',503);
+  const ttl=ADVERTISING_CHECKOUT_TTL_SECONDS;
   if(typeof input.idempotencyKey!=='string'||!/^[a-zA-Z0-9-]{16,100}$/.test(input.idempotencyKey))fail('A stable payment idempotency key is required',400);
   const prepared=await financialTransaction(async session=>{
     const {c,p:existing}=await paymentForCampaign(id,sellerId,session);
@@ -182,7 +185,7 @@ export async function advertisingBillingStatus(id,sellerId) {
   try{quote=adCharge(c.advertising.terms);}catch(error){if(![400,409].includes(error.status))throw error;}
   const journal=!sellerId&&p?await Ledger.find({paymentId:p._id,advertisingCampaignId:c._id}).select('entryNo account type direction amount createdAt').sort({createdAt:1}).limit(501).lean():undefined;
   const gateway=!sellerId&&p?{orderId:p.gateway.orderId,captures:p.captures.map(r=>({id:r.gatewayPaymentId,amountPaise:r.amountPaise,disposition:r.disposition}))}:undefined;
-  return {campaign:campaignDTO(c),payment:view(p),quote,paidAuthorization:!!c.advertising.paid?.authorizedBy,
+  return {campaign:campaignDTO(c),payment:view(p),quote,paidAuthorization:advertisingBillingAuthorized(c.advertising),
     ...(gateway?{gateway}:{}),
     ...(journal?{journal:journal.slice(0,500).map(e=>({id:e._id,entryNo:e.entryNo,account:e.account,type:e.type,direction:e.direction,amountPaise:Math.round(e.amount*100),at:e.createdAt})),journalTruncated:journal.length>500}:{})};
 }

@@ -4,13 +4,17 @@ import Promotion from '../models/SellerPromotion.js';
 import { advertisingPilotCapabilities } from './advertisingPolicy.service.js';
 import { validateAdvertisingSelection } from './advertisingEligibility.service.js';
 import { httpError } from '../utils/response.js';
+import { JWT_SECRET } from '../config/jwt.js';
+// View and click tracking is always on. Its signing key is derived from the server's JWT secret,
+// so no separate setting is needed; ADVERTISING_TOKEN_SECRET still takes precedence where it is set.
+const tokenSecret=()=>process.env.ADVERTISING_TOKEN_SECRET?.length>=32?process.env.ADVERTISING_TOKEN_SECRET
+  :crypto.createHmac('sha256',JWT_SECRET).update('bulkimart-advertising-telemetry').digest('hex');
 export function advertisingTelemetryConfig() {
-  const retentionDays=Number(process.env.ADVERTISING_EVENT_RETENTION_DAYS || 30);
-  return {enabled:typeof process.env.ADVERTISING_TOKEN_SECRET==='string'&&process.env.ADVERTISING_TOKEN_SECRET.length>=32
-    &&Number.isSafeInteger(retentionDays)&&retentionDays>=1&&retentionDays<=365,
-  retentionDays,viewabilityRatio:0.5,viewabilityMs:1000};
+  const configured=Number(process.env.ADVERTISING_EVENT_RETENTION_DAYS || 30);
+  const retentionDays=Number.isSafeInteger(configured)&&configured>=1&&configured<=365?configured:30;
+  return {enabled:true,retentionDays,viewabilityRatio:0.5,viewabilityMs:1000};
 }
-const sign=value=>crypto.createHmac('sha256',process.env.ADVERTISING_TOKEN_SECRET).update(value).digest('base64url');
+const sign=value=>crypto.createHmac('sha256',tokenSecret()).update(value).digest('base64url');
 export function advertisingServeToken(campaign,item,mode,endAt) {
   if(!advertisingTelemetryConfig().enabled)return undefined;
   const payload=Buffer.from(JSON.stringify({c:String(campaign._id),r:campaign.advertising.revision,p:String(item.productId),

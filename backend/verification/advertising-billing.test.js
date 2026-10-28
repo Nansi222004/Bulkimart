@@ -31,7 +31,7 @@ async function paid(){const order=await checkout();capture(order.checkout.razorp
 const webhook=(p,event='payment.captured',id='evt_synthetic1')=>{const body={event,payload:{payment:{entity:p}}},raw=JSON.stringify(body);return request(app).post('/webhook').set('x-razorpay-event-id',id).set('x-razorpay-signature',crypto.createHmac('sha256',process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex')).set('Content-Type','application/json').send(raw);};
 beforeAll(async()=>{db=await MongoMemoryReplSet.create({binary:{version:'7.0.14'},replSet:{count:1}});await mongoose.connect(db.getUri('advertising-billing-isolated'));for(const model of [User,Seller,Admin,Category,Product,Promotion,Package,Payment,Ledger,Receipt,Event])await model.init();});
 beforeEach(async()=>{
-  Object.assign(process.env,{ADVERTISING_CHECKOUT_TTL_SECONDS:'600',PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
+  Object.assign(process.env,{PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
   delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;delete process.env.ADVERTISING_PRODUCTION_ENABLED;
   for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});orders.clear();payments.clear();refunds.clear();orderCalls=0;refundCalls=0;creationUnknown=false;refundUnknown=false;
   app=express();app.use(express.json({verify:(req,_res,buffer)=>{req.rawBody=buffer;}}));app.use('/seller',advertisingRouter());app.use('/admin',advertisingRouter(true));app.use('/public',advertisingPublicRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
@@ -41,10 +41,19 @@ beforeEach(async()=>{
   pack=(await adminPost('/packages',{name:'Synthetic fixed offer',module:'ECOMMERCE',durationDays:9,maxProducts:2,amountPaise:10000,categories:[],isActive:true,reason:'Synthetic policy test',policies:{billing:policy()}}).expect(201)).body.data;
   campaign=(await auth(request(app).post('/seller/campaigns')).send({name:'Synthetic paid category',module:'ECOMMERCE',categoryId:String(category._id),items:[{productId:String(product._id),variantId:String(product.variants[0]._id)}],packageId:pack.id,requestedStartAt:new Date(Date.now()+3600000).toISOString()}).expect(201)).body.data;
   campaign=(await auth(request(app).post(`/seller/campaigns/${campaign.id}/submit`)).send({version:campaign.version,packageVersion:1}).expect(200)).body.data;
-  campaign=(await adminPost(`/campaigns/${campaign.id}/approve`,{version:campaign.version,reason:'Synthetic approval'}).expect(200)).body.data;
-  campaign=(await adminPost(`/campaigns/${campaign.id}/billing-authorize`,{version:campaign.version,reason:'Synthetic finance authorization'}).expect(200)).body.data;
+  campaign=(await adminPost(`/campaigns/${campaign.id}/approve`,{version:campaign.version,reason:'Synthetic approval'},reviewer).expect(200)).body.data;
 });
 afterAll(async()=>{await mongoose.disconnect();await db?.stop();});
+
+test('standard approval opens payment without a second finance action and does not collect money',async()=>{
+  const row=await Promotion.findById(campaign.id);
+  expect(row.advertising.paid).toMatchObject({revision:row.advertising.revision,authorizedBy:reviewer._id});
+  expect(row.advertising.history.at(-1)).toMatchObject({action:'approve',actorId:reviewer._id,reason:'Synthetic approval'});
+  const view=await auth(request(app).get(`/seller/campaigns/${campaign.id}/billing`)).expect(200);
+  expect(view.body.data.paidAuthorization).toBe(true);expect(view.body.data.campaign.paid.authorized).toBe(true);
+  expect(orderCalls).toBe(0);expect(await Payment.countDocuments()).toBe(0);
+  expect((await checkout()).checkout.amountPaise).toBe(10500);
+});
 test('immutable server-calculated quote, one stable payment/order, and no merchandise posting',async()=>{
   const first=await checkout();expect(first.checkout.amountPaise).toBe(10500);expect(first.payment.basePaise).toBe(10000);expect(first.payment.taxPaise).toBe(500);
   const second=await checkout();expect(second.checkout.razorpayOrderId).toBe(first.checkout.razorpayOrderId);expect(orderCalls).toBe(1);expect(await Payment.countDocuments()).toBe(1);
@@ -260,10 +269,15 @@ test('database uniqueness and purpose validation prohibit gateway reuse and cros
   await expect(Ledger.create({idempotencyKey:'INVALID-AD-POST',sellerId:seller._id,advertisingCampaignId:campaign.id,advertiserSellerId:seller._id,advertisingRevision:1,paymentId:p._id,account:'advertising_cash',bucket:'held',type:'advertising_receipt',direction:'credit',currency:'INR',amount:1,description:'Invalid fixture'})).rejects.toThrow(/exclusive/);
 });
 
-test('missing financial indexes block new checkout without creating a gateway order',async()=>{
+test('missing duplicate-payment indexes are rebuilt before checkout instead of blocking it',async()=>{
   await Payment.collection.dropIndex('advertising_gateway_order_unique');
-  try{await init().expect(503);expect(orderCalls).toBe(0);}
+  try{await init().expect(200);expect(orderCalls).toBe(1);expect(await Payment.collection.indexExists('advertising_gateway_order_unique')).toBe(true);}
   finally{await Payment.createIndexes();}
+});
+test('checkout works without ADVERTISING_CHECKOUT_TTL_SECONDS and expires after 30 minutes',async()=>{
+  delete process.env.ADVERTISING_CHECKOUT_TTL_SECONDS;
+  const order=await checkout(),left=new Date(order.payment.checkoutExpiresAt).getTime()-Date.now();
+  expect(left).toBeGreaterThan(29*60000);expect(left).toBeLessThanOrEqual(30*60000);
 });
 
 test('advertising accounting is excluded from merchandise finance endpoints and exposed only in its authorized workspace',async()=>{

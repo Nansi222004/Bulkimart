@@ -2,13 +2,12 @@ import {before,after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 import {hookHarness} from '../tests/service-hookHarness.mjs';
-let vite,Billing,Finance,Metrics,Editor,observer,Block;
+let vite,Billing,Finance,Metrics,observer,Block;
 before(async()=>{
   vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
   Billing=(await vite.ssrLoadModule('/src/components/advertising/AdvertisingBillingPanel.jsx')).default;
   Finance=(await vite.ssrLoadModule('/src/components/advertising/AdvertisingFinancePanel.jsx')).default;
   Metrics=(await vite.ssrLoadModule('/src/components/advertising/AdvertisingMetrics.jsx')).default;
-  Editor=(await vite.ssrLoadModule('/src/components/advertising/AdvertisingBillingPolicyEditor.jsx')).default;
   observer=(await vite.ssrLoadModule('/src/components/advertising/advertisingTelemetry.js')).observeAdImpressions;
   Block=(await vite.ssrLoadModule('/src/components/advertising/SponsoredCategoryBlock.jsx')).default;
 });
@@ -23,9 +22,10 @@ test('seller checkout uses backend amount and dedicated verification; pending ga
   const h=hookHarness(Billing,{id:'campaign-fixture',capabilities:{paymentsEnabled:true}});let sdk;
   try{
     h.requests[0].resolve(envelope(fixture()));await h.settle();
-    assert.match(content(h.tree),/Fixture issuer/);assert.match(content(h.tree),/₹105/);
+    // The seller sees the total with its GST split, not the finance policy.
+    assert.match(content(h.tree),/₹105\.00/);assert.match(content(h.tree),/₹5\.00 GST/);assert.doesNotMatch(content(h.tree),/Fixture issuer|synthetic-approved-policy/);
     window.Razorpay=class{constructor(options){sdk=options;}on(){}open(){}close(){}};
-    const pending=h.click('Pay accepted campaign amount');assert.equal(h.requests.length,2);
+    const pending=h.click('Pay ₹105.00');assert.equal(h.requests.length,2);
     const body=JSON.parse(h.requests[1].options.body);assert.deepEqual(Object.keys(body).sort(),['idempotencyKey','version']);assert.equal(body.version,9);
     h.requests[1].resolve(envelope({checkout:{orderId:'campaign-fixture',keyId:'rzp_test_fixture',razorpayOrderId:'order_fixture',amountPaise:10500,currency:'INR',verificationPath:'/api/sellers/advertising/payment-verification'}}));await h.settle();
     assert.equal(sdk.amount,10500);
@@ -33,13 +33,13 @@ test('seller checkout uses backend amount and dedicated verification; pending ga
     assert.match(h.requests[2].url,/sellers\/advertising\/payment-verification$/);
     h.requests[2].resolve(envelope({status:'pending'}));await verifying;await pending;await h.settle();
     h.requests[3].resolve(envelope(fixture()));await h.settle();
-    assert.match(content(h.tree),/Funding:\s+PAYMENT_PENDING/);assert.match(content(h.tree),/Received\s+₹0/);
+    assert.match(content(h.tree),/Payment in progress/);assert.doesNotMatch(content(h.tree),/Paid\./);
   }finally{h.close();}
 });
 
 test('billing without a policy cannot offer usable checkout or invented taxes',async()=>{
   const h=hookHarness(Billing,{id:'campaign-fixture',capabilities:{paymentsEnabled:true}});
-  try{const f=fixture();delete f.quote;h.requests[0].resolve(envelope(f));await h.settle();assert.match(content(h.tree),/Billing is blocked/);assert.equal(h.find(n=>n.type==='button'&&n.props.children==='Pay accepted campaign amount').props.disabled,true);assert.doesNotMatch(content(h.tree),/configured rate:/);}finally{h.close();}
+  try{const f=fixture();delete f.quote;h.requests[0].resolve(envelope(f));await h.settle();assert.equal(h.find(n=>n.type==='button'&&/^Pay/.test(content(n))),undefined,'No price, no payment button');assert.doesNotMatch(content(h.tree),/configured rate:|GST\)/);}finally{h.close();}
 });
 
 test('finance-only workspace exposes authorization queue and backend discrepancies',async()=>{
@@ -50,14 +50,6 @@ test('finance-only workspace exposes authorization queue and backend discrepanci
 test('review permission does not expose financial authorization, reconciliation or refund actions',async()=>{
   const h=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review']});
   try{h.requests[0].resolve(envelope(fixture()));await h.settle();assert.equal(h.find(n=>n.type==='button'&&['Authorize accepted billing policy','Request authorized refund','Reconcile gateway payment'].includes(n.props.children)),undefined);}finally{h.close();}
-});
-
-test('structured package policy requires explicit values and does not supply a tax or refund default',()=>{
-  let changed;
-  const h=hookHarness(Editor,{onChange:value=>{changed=value;}});
-  try{h.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});assert.deepEqual(changed,{});}finally{h.close();}
-  const configured=hookHarness(Editor,{value:{},onChange:value=>{changed=value;}});
-  try{assert.equal(configured.find(n=>n.type==='input'&&n.props.max==='10000').props.value,'');assert.match(content(configured.tree),/Select approved rule/);}finally{configured.close();}
 });
 
 test('viewability requires continuous half-visible time in a visible document and deduplicates one card',()=>{

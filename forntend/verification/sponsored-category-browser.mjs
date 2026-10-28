@@ -99,12 +99,12 @@ try{
   for(const width of [320,390,768,1280]){
     scenario=width===320?'billing-pending':'billing-paid';verified=false;
     await command('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await command('Page.navigate',{url:origin+'/billing'});
-    await waitFor('document.body.innerText.includes("Fixture issuer")');
+    await waitFor('[...document.querySelectorAll("button")].some(b=>b.textContent==="Pay ₹105.00")');
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true,`Billing/editor width ${width}`);
-    await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Pay accepted campaign amount").click()');
-    await waitFor(`document.body.innerText.includes('Funding: ${scenario==='billing-paid'?'FUNDED':'PAYMENT_PENDING'}') && document.querySelector('[aria-label="Advertising billing"] button').disabled===false`);
+    await evaluate('[...document.querySelectorAll("button")].find(b=>/^Pay ₹/.test(b.textContent)).click()');
+    await waitFor(`document.body.innerText.includes('${scenario==='billing-paid'?'Live until':'Payment in progress'}') && document.querySelector('[aria-label="Payment"] button').disabled===false`);
     assert.equal(await evaluate('window.__checkoutAmount'),10500);
-    if(scenario==='billing-pending')assert.equal(await evaluate('document.body.innerText.includes("Received ₹0.00")'),true);
+    if(scenario==='billing-pending')assert.equal(await evaluate('document.body.innerText.includes("Paid.")||document.body.innerText.includes("Live until")'),false,'A pending payment is never shown as paid');
   }
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,responsiveWidths:[320,390,768,1280],keyboardAndCartChecks:4,organicFallbackScenarios:3,paidViewabilityAndClickCases:4,offscreenImpressionSuppressed:true,telemetryFailurePreservesNavigation:true,billingAndPolicyEditorLayouts:4,billingGateway:'fixture SDK/API only',scope:'actual components with fixture context/API; not full application E2E'}));

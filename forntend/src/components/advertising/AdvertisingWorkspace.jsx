@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { advertisingApi, advertisingMoney, campaignLabel, packagePayload } from './advertisingApi';
+import { advertisingApi, advertisingMoney, blankPackageForm, campaignLabel, packageFormFromRow, packagePayload } from './advertisingApi';
 import './advertising.css';
 import AdvertisingBillingPanel from './AdvertisingBillingPanel';
 import AdvertisingFinancePanel from './AdvertisingFinancePanel';
 import AdvertisingMetrics from './AdvertisingMetrics';
-import AdvertisingBillingPolicyEditor from './AdvertisingBillingPolicyEditor';
+import AdvertisingPackageForm from './AdvertisingPackageForm';
 
-const reviews = ['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED'];
-const freshPackage = () => ({
-  name: '', description: '', module: 'ECOMMERCE', price: '', durationDays: '', maxProducts: '', categories: '',
-  isActive: false, archived: false, reason: '', policies: {}, windowHours: '', conversionEvent: '', model: ''
-});
+const reviews = { DRAFT: 'Draft', PENDING_REVIEW: 'Waiting for review', CHANGES_REQUESTED: 'Changes requested', APPROVED: 'Approved', REJECTED: 'Rejected' };
+const STOREFRONT = { ECOMMERCE: 'Shop All', QUICK: 'Quick Commerce' };
+const STEPS = ['Products', 'Category', 'Package', 'Review'];
+// Seller-facing names for the package terms shown before submitting.
+const TERM_LABELS = { sellerPause: 'Pausing', cancellation: 'Cancelling', rejection: 'If rejected', suspension: 'Suspension', unusedService: 'If your ad cannot be shown', refunds: 'Refunds' };
 const freshCampaign = () => ({ name: '', module: 'ECOMMERCE', categoryId: '', packageId: '', requestedStartAt: '', items: [] });
 
 export default function AdvertisingWorkspace({ admin = false }) {
@@ -117,28 +117,16 @@ export default function AdvertisingWorkspace({ admin = false }) {
     <section className="advertising-workspace" aria-label={admin ? 'Admin advertising' : 'Seller advertising'}>
       <header className="ad-header">
         <div className="ad-header-main">
-          <div className="ad-header-badge">
+          {admin && <div className="ad-header-badge">
             <span className="ad-badge-dot" aria-hidden="true"></span>
-            {admin ? 'Administration & Governance' : 'Seller Growth Suite'}
-          </div>
+            Administration & Governance
+          </div>}
           <h2>Advertising</h2>
-          <p className="ad-subtitle">Manage sponsored category campaigns separately from sales and payouts.</p>
+          <p className="ad-subtitle">{admin ? 'Manage sponsored category campaigns separately from sales and payouts.' : 'Show your products at the top of a category page. You pay only after Bulkimart approves your campaign.'}</p>
         </div>
-        {!admin && (
-          <div className="ad-header-stats">
-            <div className="ad-stat-pill">
-              <span className="ad-stat-label">Active Channel</span>
-              <span className="ad-stat-val">Category Spotlight</span>
-            </div>
-            <div className="ad-stat-pill">
-              <span className="ad-stat-label">Placement</span>
-              <span className="ad-stat-val">Shop All & Quick</span>
-            </div>
-          </div>
-        )}
       </header>
 
-      <div className="ad-policy-banner">
+      {admin && <div className="ad-policy-banner">
         <div className="ad-policy-icon" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10"/>
@@ -150,11 +138,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
           <strong className="ad-policy-title">Compliance & Financial Snapshot</strong>
           <p className="ad-notice">Billing and paid delivery require enabled capabilities, an approved policy snapshot and explicit campaign financial authorization. Pilot service is separate. No revenue is recognized automatically.</p>
         </div>
-      </div>
+      </div>}
 
       {error && <p role="alert" className="ad-error">{error} <button onClick={() => cap ? setRefresh(n => n + 1) : setCapabilityRetry(n => n + 1)}>Retry</button></p>}
-      {!cap && !error && <p role="status">Loading advertising capabilities…</p>}
-      {cap && !cap.managementEnabled && <p role="status">Advertising management is currently disabled. No campaigns can be purchased or served.</p>}
+      {!cap && !error && <p role="status">Loading advertising…</p>}
+      {cap && !cap.managementEnabled && <p role="status">Advertising is not available right now.</p>}
       {canFinanceRead && <button onClick={() => setFinanceOpen(v => !v)}>Advertising finance and reconciliation</button>}
       {financeOpen && canFinanceRead && <AdvertisingFinancePanel permissions={cap.permissions} capabilities={cap} />}
 
@@ -163,7 +151,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
           {admin && !canReview && !canConfigure && <p>Your permissions do not include campaign review or package configuration. Use the finance workspace for authorized operations.</p>}
 
           <div className="ad-toolbar">
-            <div className="ad-tabs-group">
+            {admin && <div className="ad-tabs-group">
               {canReview && (
                 <button
                   className={`ad-tab-btn ${tab === 'campaigns' ? 'active' : ''}`}
@@ -180,15 +168,15 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   Packages and policies
                 </button>
               )}
-            </div>
+            </div>}
 
             <div className="ad-toolbar-actions">
               {tab === 'campaigns' && (
                 <label className="ad-filter-label">
-                  <span className="ad-filter-text">Review status</span>
+                  <span className="ad-filter-text">Status</span>
                   <select value={review} onChange={e => { setReview(e.target.value); setPage(1); }}>
-                    <option value="">All review states</option>
-                    {reviews.map(s => <option key={s}>{s}</option>)}
+                    <option value="">All campaigns</option>
+                    {Object.entries(reviews).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
               )}
@@ -198,16 +186,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
                 </button>
               )}
               {tab === 'packages' && canConfigure && (
-                <button className="ad-primary" onClick={() => setPackageForm(freshPackage())}>
+                <button className="ad-primary" onClick={() => setPackageForm(blankPackageForm())}>
                   Create package
                 </button>
               )}
             </div>
-          </div>
-
-          <div className="ad-roas-bar">
-            <span className="ad-roas-icon" aria-hidden="true">📊</span>
-            <p className="ad-roas-text">Attributed sales and ROAS: pending attribution implementation. Campaign details show backend impression and click counts separately for paid service and pilots.</p>
           </div>
 
           {busy && <p role="status">Updating advertising…</p>}
@@ -220,32 +203,18 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>
                 </svg>
               </div>
-              <h3 className="ad-empty-title">No {tab} found for this selection.</h3>
+              <h3 className="ad-empty-title">{tab === 'packages' ? 'No packages yet' : review ? 'No campaigns with this status' : 'No campaigns yet'}</h3>
               <p className="ad-empty-desc">
-                {tab === 'campaigns'
-                  ? (review
-                      ? 'No campaigns match the selected review filter. Select "All review states" or click "Create campaign" above.'
-                      : 'Promote your catalog at the top of category searches. Reach verified wholesale buyers and boost your storefront order volume.')
-                  : 'No advertising packages configured yet.'}
+                {tab === 'packages' ? 'Click Create package to add one.'
+                  : review ? 'Choose "All campaigns" to see every campaign.'
+                  : admin ? 'Seller campaigns appear here for review.' : 'Create a campaign to feature your products at the top of a category page.'}
               </p>
               {!admin && tab === 'campaigns' && !review && (
-                <div className="ad-perks-grid">
-                  <div className="ad-perk-card">
-                    <div className="ad-perk-icon">🎯</div>
-                    <h4>Category Spotlight</h4>
-                    <p>Get featured at the top of high-intent wholesale buyer categories.</p>
-                  </div>
-                  <div className="ad-perk-card">
-                    <div className="ad-perk-icon">📈</div>
-                    <h4>Verified Analytics</h4>
-                    <p>Track real qualified impressions and valid clicks from your dashboard.</p>
-                  </div>
-                  <div className="ad-perk-card">
-                    <div className="ad-perk-icon">🛡️</div>
-                    <h4>Predictable Budget</h4>
-                    <p>Fixed package durations with transparent rates and no surprise fees.</p>
-                  </div>
-                </div>
+                <ol className="ad-how-steps">
+                  <li><strong>Choose products and a package</strong><span>Pick what to advertise, the category and how long.</span></li>
+                  <li><strong>Bulkimart reviews it</strong><span>We check that your campaign follows the marketplace rules.</span></li>
+                  <li><strong>Pay and go live</strong><span>Pay online and your products show as “Sponsored”.</span></li>
+                </ol>
               )}
             </div>
           )}
@@ -276,7 +245,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     <p>Version {row.version}</p>
                     <p>{row.description}</p>
                     {!row.archivedAt && (
-                      <button onClick={() => setPackageForm({ ...freshPackage(), ...row, price: String(row.amountPaise / 100), categories: row.categories.join(', '), policies: row.policies || {}, windowHours: row.policies?.attribution?.windowHours || '', conversionEvent: row.policies?.attribution?.conversionEvent || '', model: row.policies?.attribution?.model || '', reason: '' })}>
+                      <button onClick={() => setPackageForm(packageFormFromRow(row))}>
                         Edit package
                       </button>
                     )}
@@ -286,11 +255,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
             ))}
           </div>
 
-          <nav className="ad-toolbar ad-pagination" aria-label="Advertising pages">
+          {meta.pages > 1 && <nav className="ad-toolbar ad-pagination" aria-label="Advertising pages">
             <button className="ad-page-btn" disabled={busy || page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
             <span className="ad-page-counter">Page {meta.page} of {meta.pages} · {meta.total} results</span>
             <button className="ad-page-btn" disabled={busy || page >= meta.pages} onClick={() => setPage(p => p + 1)}>Next</button>
-          </nav>
+          </nav>}
 
           {/* Campaign Details Modal */}
           {detail && (
@@ -302,7 +271,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                       {campaignLabel(detail)}
                     </span>
                     <h3>{detail.name}</h3>
-                    <p className="ad-detail-sub">Revision {detail.revision} · Funding: {detail.funding} · Delivery: {detail.delivery}</p>
+                    {admin && <p className="ad-detail-sub">Revision {detail.revision} · Funding: {detail.funding} · Delivery: {detail.delivery}</p>}
                   </div>
                   <button className="ad-close-btn ad-modal-close-btn" onClick={() => { detailGeneration.current++; setDetail(null); }}>Close details</button>
                 </div>
@@ -310,13 +279,13 @@ export default function AdvertisingWorkspace({ admin = false }) {
                 <div className="ad-modal-body">
                   <div className="ad-detail-meta-strip">
                     <div className="ad-meta-item">
-                      <span className="ad-meta-label">Schedule & Service</span>
-                      <p>Requested start: {detail.requestedStartAt ? new Date(detail.requestedStartAt).toLocaleString() : 'Not selected'}. Service dates begin only after verified payment.</p>
+                      <span className="ad-meta-label">Start date</span>
+                      <p>{detail.requestedStartAt ? new Date(detail.requestedStartAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Not selected'}{!admin && ' (or when your payment is received, if later)'}</p>
                     </div>
                     {detail.terms && (
                       <div className="ad-meta-item">
-                        <span className="ad-meta-label">Agreed Package</span>
-                        <p>Accepted package version {detail.terms.packageVersion}: {advertisingMoney(detail.terms.amountPaise)} / {detail.terms.durationDays} days. {detail.terms.policies?.billing ? 'Operational policy is recorded; financial authorization is separate.' : 'Tax/invoice treatment pending approval.'}</p>
+                        <span className="ad-meta-label">Package</span>
+                        <p>{admin ? <>Accepted package version {detail.terms.packageVersion}: {advertisingMoney(detail.terms.amountPaise)} / {detail.terms.durationDays} days. {detail.terms.policies?.billing ? 'Operational policy is recorded; financial authorization is separate.' : 'Tax/invoice treatment pending approval.'}</> : <>{detail.terms.name}: {advertisingMoney(detail.terms.amountPaise)} for {detail.terms.durationDays} days</>}</p>
                       </div>
                     )}
                   </div>
@@ -333,7 +302,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   )}
                   {canReview && <AdvertisingMetrics key={`metrics:${detail.id}`} id={detail.id} admin={admin} />}
 
-                  {detail.pilot && (
+                  {admin && detail.pilot && (
                     <p className="ad-notice">
                       Separate non-billable pilot: {detail.pilot.enabled ? 'Authorized' : 'Stopped'} · {new Date(detail.pilot.startAt).toLocaleString()} – {new Date(detail.pilot.endAt).toLocaleString()}. This is not paid or funded service.
                     </p>
@@ -356,7 +325,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   )}
 
                   <div className="ad-history-section">
-                    <h4>Campaign History</h4>
+                    <h4>History</h4>
                     <ul className="ad-history-list">
                       {detail.history.map((h, i) => (
                         <li key={i}>{new Date(h.at).toLocaleString()} · {h.action} · {h.reason}</li>
@@ -377,41 +346,34 @@ export default function AdvertisingWorkspace({ admin = false }) {
                           setStep(0);
                         }}
                       >
-                        Edit revision
+                        Edit campaign
                       </button>
                       <button
                         disabled={busy}
                         onClick={() => perform(async () => setSubmissionOffer((await advertisingApi(false, `/packages/${detail.packageId}`)).data))}
                       >
-                        Review submission terms
+                        Submit for review
                       </button>
                     </div>
                   )}
 
                   {submissionOffer && (
-                    <div className="ad-notice">
-                      <p>Confirm {submissionOffer.name}, version {submissionOffer.version}: {advertisingMoney(submissionOffer.amountPaise)} for {submissionOffer.durationDays} days.</p>
-                      <p>{submissionOffer.description}</p>
-                      {Object.entries(submissionOffer.policies || {}).filter(([, v]) => typeof v === 'string').map(([k, v]) => (
-                        <p key={k}>{k}: {v}</p>
-                      ))}
-                      {submissionOffer.billingQuote ? (
-                        <>
-                          <p>Sponsored category · {submissionOffer.module}. Base {advertisingMoney(submissionOffer.billingQuote.basePaise)} · Tax {advertisingMoney(submissionOffer.billingQuote.taxPaise)} · Total {advertisingMoney(submissionOffer.billingQuote.totalPaise)}.</p>
-                          <p>Policy {submissionOffer.billingQuote.policy.approvalReference} · Issuer {submissionOffer.billingQuote.policy.issuer} · {submissionOffer.billingQuote.policy.taxTreatment} · Rate {submissionOffer.billingQuote.policy.taxRateBps / 100}%. Invoice: {submissionOffer.billingQuote.policy.invoiceMode}. Credit note: {submissionOffer.billingQuote.policy.creditNoteMode}.</p>
-                          <p>Service starts at verified payment or your requested start, whichever is later. Interruptions stop for review; no automatic extension. Revenue requires finance review after completion.</p>
-                          <p>Maximum refund limits: cancellation {submissionOffer.billingQuote.policy.refunds.cancellationBps / 100}%, suspension {submissionOffer.billingQuote.policy.refunds.suspensionBps / 100}%, unavailable service {submissionOffer.billingQuote.policy.refunds.unavailableBps / 100}%, unused service {submissionOffer.billingQuote.policy.refunds.unusedBps / 100}%. Authorized review is required.</p>
-                        </>
-                      ) : (
-                        <p>Financial policies remain pending approval.</p>
-                      )}
-                      <p>Submission confirms this package version and its displayed terms. It does not collect payment.</p>
-                      <button disabled={busy} onClick={() => change('submit')}>Confirm terms and submit</button>
+                    <div className="ad-notice ad-terms">
+                      <h4>{submissionOffer.name}</h4>
+                      <p className="ad-terms-price">{submissionOffer.billingQuote
+                        ? <>You will pay <strong>{advertisingMoney(submissionOffer.billingQuote.totalPaise)}</strong>{submissionOffer.billingQuote.taxPaise ? ` (${advertisingMoney(submissionOffer.billingQuote.basePaise)} + ${advertisingMoney(submissionOffer.billingQuote.taxPaise)} GST)` : ''} for {submissionOffer.durationDays} days, after Bulkimart approves your campaign.</>
+                        : <>{advertisingMoney(submissionOffer.amountPaise)} for {submissionOffer.durationDays} days. Payment opens after Bulkimart approves your campaign.</>}</p>
+                      {submissionOffer.description && <p>{submissionOffer.description}</p>}
+                      <dl className="ad-terms-list">
+                        {Object.entries(TERM_LABELS).filter(([key]) => submissionOffer.policies?.[key]).map(([key, label]) => <React.Fragment key={key}><dt>{label}</dt><dd>{submissionOffer.policies[key]}</dd></React.Fragment>)}
+                        {submissionOffer.policies?.tax?.treatment && <><dt>GST</dt><dd>{submissionOffer.policies.tax.treatment}</dd></>}
+                      </dl>
+                      <button className="ad-primary" disabled={busy} onClick={() => change('submit')}>Confirm terms and submit</button>
                     </div>
                   )}
 
                   {!admin && detail.funding === 'UNPAID' && detail.delivery === 'NOT_SCHEDULED' && (
-                    <button disabled={busy} onClick={() => change('cancel')}>Cancel unpaid campaign</button>
+                    <button disabled={busy} onClick={() => change('cancel')}>Cancel campaign</button>
                   )}
 
                   {admin && canReview && (
@@ -441,9 +403,8 @@ export default function AdvertisingWorkspace({ admin = false }) {
               <div className="ad-modal-dialog" onClick={e => e.stopPropagation()}>
                 <div className="ad-modal-header">
                   <div className="ad-modal-header-text">
-                    <span className="ad-modal-badge">Campaign creation · Step {step + 1} of 4</span>
-                    <h3>Campaign creation · Step {step + 1} of 4</h3>
-                    <p className="ad-step-title">{['Products', 'Placement', 'Schedule and package', 'Preview and confirmation'][step]}</p>
+                    <span className="ad-modal-badge">{draft.id ? 'Edit campaign' : 'New campaign'}</span>
+                    <h3>Step {step + 1} of 4: {STEPS[step]}</h3>
                   </div>
                   <button type="button" className="ad-modal-close-btn" onClick={() => setDraft(null)} aria-label="Close dialog">✕</button>
                 </div>
@@ -470,7 +431,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                 >
                   <div className="ad-modal-body">
                     <div className="ad-wizard-stepper">
-                      {['Products', 'Placement', 'Schedule & Package', 'Preview & Confirmation'].map((name, i) => (
+                      {STEPS.map((name, i) => (
                         <div key={name} className={`ad-stepper-step ${i === step ? 'active' : i < step ? 'done' : ''}`}>
                           <div className="ad-step-number">{i < step ? '✓' : i + 1}</div>
                           <span className="ad-step-label">{name}</span>
@@ -483,20 +444,20 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         <div className="ad-form-grid">
                           <label className="ad-field">
                             <span className="ad-field-title">Campaign name</span>
-                            <input required maxLength={200} placeholder="e.g., Summer Wholesale Clearance" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+                            <input required maxLength={200} placeholder="e.g. Diwali offers" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
                           </label>
                           <label className="ad-field">
-                            <span className="ad-field-title">Module</span>
+                            <span className="ad-field-title">Storefront</span>
                             <select value={draft.module} disabled={!!draft.id} onChange={e => { setDraft({ ...draft, module: e.target.value, items: [], categoryId: '', packageId: '' }); setProductPage(1); }}>
                               <option value="ECOMMERCE">Shop All</option>
-                              <option value="QUICK">Quick</option>
+                              <option value="QUICK">Quick Commerce</option>
                             </select>
                           </label>
                         </div>
 
                         <div className="ad-section-divider">
-                          <h4>Select Products from Your Catalog</h4>
-                          <p className="ad-section-hint">Only products with positive stock are eligible for category placement.</p>
+                          <h4>Choose products</h4>
+                          <p className="ad-section-hint">Tick the products to advertise. Only approved products that are in stock can be picked.</p>
                         </div>
 
                         {productsError && (
@@ -507,14 +468,14 @@ export default function AdvertisingWorkspace({ admin = false }) {
 
                         {productsLoading && (
                           <div className="ad-products-loading">
-                            Loading your catalog products…
+                            Loading your products…
                           </div>
                         )}
 
                         {!productsLoading && !products.length && !productsError && (
                           <div className="ad-no-products">
-                            <p><strong>No products found for {draft.module === 'QUICK' ? 'Quick Commerce' : 'Shop All'}.</strong></p>
-                            <small>Only approved, non-digital products with active stock in this module are eligible. If your products are registered under Quick, change the Module dropdown above to "Quick".</small>
+                            <p><strong>No products found in {STOREFRONT[draft.module]}.</strong></p>
+                            <small>Only approved products that are in stock can be advertised. If your products are in {draft.module === 'QUICK' ? 'Shop All' : 'Quick Commerce'}, change the storefront above.</small>
                           </div>
                         )}
 
@@ -524,7 +485,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                               <div className="ad-product-row">
                                 {p.image && <img src={p.image} alt="" className="ad-product-img" />}
                                 <div className="ad-product-info">
-                                  <strong>{p.name}</strong> · <span className="ad-sku">{p.sku}</span>
+                                  <strong>{p.name}</strong>{p.sku && <> · <span className="ad-sku">{p.sku}</span></>}
                                   {p.reason && <span className="ad-product-ineligible"> ({p.reason})</span>}
                                 </div>
                               </div>
@@ -550,27 +511,21 @@ export default function AdvertisingWorkspace({ admin = false }) {
                           ))}
                         </div>
 
-                        <div className="ad-toolbar ad-product-nav">
+                        {productPages > 1 && <div className="ad-toolbar ad-product-nav">
                           <button type="button" disabled={productPage <= 1} onClick={() => setProductPage(p => p - 1)}>Previous products</button>
                           <span>Product page {productPage}</span>
                           <button type="button" disabled={productPage >= productPages} onClick={() => setProductPage(p => p + 1)}>More products</button>
-                        </div>
+                        </div>}
                       </>
                     )}
 
                     {step === 1 && (
                       <>
-                        <div className="ad-placement-box">
-                          <div className="ad-placement-icon">📌</div>
-                          <div>
-                            <strong>Sponsored Category Placement</strong>
-                            <p>Sponsored category is the enabled placement for this release.</p>
-                          </div>
-                        </div>
+                        <p className="ad-section-hint">Your products show as “Sponsored” at the top of this category page.</p>
                         <label className="ad-field">
                           <span className="ad-field-title">Category</span>
                           <select required value={draft.categoryId} onChange={e => setDraft({ ...draft, categoryId: e.target.value, packageId: '' })}>
-                            <option value="">Select category</option>
+                            <option value="">Choose a category</option>
                             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </select>
                         </label>
@@ -581,18 +536,18 @@ export default function AdvertisingWorkspace({ admin = false }) {
                       <>
                         <div className="ad-form-grid">
                           <label className="ad-field">
-                            <span className="ad-field-title">Requested start</span>
+                            <span className="ad-field-title">Start date</span>
                             <input required type="datetime-local" value={draft.requestedStartAt} onChange={e => setDraft({ ...draft, requestedStartAt: e.target.value })} />
                           </label>
                           <label className="ad-field">
                             <span className="ad-field-title">Package</span>
                             <select required value={draft.packageId} onChange={e => setDraft({ ...draft, packageId: e.target.value })}>
-                              <option value="">Select configured package</option>
+                              <option value="">Choose a package</option>
                               {candidates.map(p => <option key={p.id} value={p.id}>{p.name} · {p.durationDays} days · {advertisingMoney(p.amountPaise)}</option>)}
                             </select>
                           </label>
                         </div>
-                        {!candidates.length && <p className="ad-notice">No configured package is available for this module/category.</p>}
+                        {!candidates.length && <p className="ad-notice">No package is available for this category yet. Please check again later.</p>}
                       </>
                     )}
 
@@ -601,19 +556,19 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         <div className="ad-summary-box">
                           <div className="ad-summary-header">
                             <span className="ad-summary-badge">Summary</span>
-                            <p><strong>Sponsored</strong> · {draft.name} · {draft.items.length} selected products</p>
+                            <p><strong>{draft.name}</strong> · {draft.items.length} {draft.items.length === 1 ? 'product' : 'products'} · {categories.find(c => c.id === draft.categoryId)?.name}</p>
                           </div>
                           <div className="ad-summary-pkg-name">{chosen?.name}</div>
-                          <div className="ad-summary-pkg-details">{chosen?.durationDays} days · {advertisingMoney(chosen?.amountPaise)}</div>
-                          <p>Requested start: {draft.requestedStartAt}. Save the draft, then submit it for review. No payment will be collected.</p>
-                          <p className="ad-summary-note">Tax, invoice, pause and refund policies remain subject to approval.</p>
+                          <div className="ad-summary-pkg-details">{chosen?.durationDays} days · {advertisingMoney(chosen?.amountPaise)}{chosen?.billingQuote?.taxPaise ? ` + ${advertisingMoney(chosen.billingQuote.taxPaise)} GST` : ''}</div>
+                          <p>Starts: {draft.requestedStartAt ? new Date(draft.requestedStartAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</p>
+                          <p className="ad-summary-note">Save it, then submit it for review. You pay only after Bulkimart approves it.</p>
                         </div>
                       </>
                     )}
                   </div>
 
                   <div className="ad-modal-footer">
-                    <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel editing</button>
+                    <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
                     <div className="ad-modal-buttons">
                       {step > 0 && <button type="button" onClick={() => setStep(s => s - 1)}>Back</button>}
                       <button className="ad-primary" disabled={busy || (step === 0 && !draft.items.length) || (step === 3 && !chosen)}>
@@ -626,291 +581,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
             </div>
           )}
 
-          {/* Package Configuration Modal */}
-          {packageForm && (
-            <div className="ad-modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPackageForm(null)}>
-              <div className="ad-modal-dialog" onClick={e => e.stopPropagation()}>
-                <div className="ad-modal-header">
-                  <div className="ad-modal-header-text">
-                    <span className="ad-modal-badge">Package Configuration</span>
-                    <h3>{packageForm.id ? 'Edit' : 'Create'} advertising package</h3>
-                    <p className="ad-modal-subtitle">Configure pricing, duration, product limits, and administrative policy drafts.</p>
-                  </div>
-                  <button type="button" className="ad-modal-close-btn" onClick={() => setPackageForm(null)} aria-label="Close dialog">✕</button>
-                </div>
-
-                <form
-                  className="ad-modal-form"
-                  onSubmit={e => {
-                    e.preventDefault();
-                    perform(async () => {
-                      await advertisingApi(true, `/packages${packageForm.id ? `/${packageForm.id}` : ''}`, { method: packageForm.id ? 'PATCH' : 'POST', body: packagePayload(packageForm) });
-                      setPackageForm(null);
-                    });
-                  }}
-                >
-                  <div className="ad-modal-body">
-                    {/* Section 1: Overview & Placement */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">📦</span>
-                        <h4>Package Overview & Placement</h4>
-                      </div>
-                      <div className="ad-form-grid">
-                        <label className="ad-field">
-                          <span className="ad-field-title">Name</span>
-                          <input
-                            required
-                            type="text"
-                            placeholder="e.g. 7-Day Category Spotlight"
-                            value={packageForm.name}
-                            onChange={e => setPackageForm({ ...packageForm, name: e.target.value })}
-                          />
-                        </label>
-
-                        <label className="ad-field">
-                          <span className="ad-field-title">Module</span>
-                          <select value={packageForm.module} onChange={e => setPackageForm({ ...packageForm, module: e.target.value })}>
-                            <option value="ECOMMERCE">Shop All</option>
-                            <option value="QUICK">Quick</option>
-                          </select>
-                        </label>
-                      </div>
-
-                      <label className="ad-field">
-                        <span className="ad-field-title">Description</span>
-                        <input
-                          type="text"
-                          placeholder="Brief summary of package benefits"
-                          value={packageForm.description}
-                          onChange={e => setPackageForm({ ...packageForm, description: e.target.value })}
-                        />
-                      </label>
-
-                      <div className="ad-placement-box">
-                        <div className="ad-placement-icon">📌</div>
-                        <div>
-                          <strong>Placement: Sponsored category</strong>
-                          <p>Search and banners are not enabled.</p>
-                        </div>
-                      </div>
-
-                      <label className="ad-field">
-                        <span className="ad-field-title">Eligible category IDs (comma separated; blank means all)</span>
-                        <input
-                          type="text"
-                          placeholder="Leave blank to include all categories, or e.g. cat-1, cat-2"
-                          value={packageForm.categories}
-                          onChange={e => setPackageForm({ ...packageForm, categories: e.target.value })}
-                        />
-                      </label>
-                    </div>
-
-                    {/* Section 2: Pricing, Duration & Limits */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">💰</span>
-                        <h4>Pricing, Duration & Product Limits</h4>
-                      </div>
-                      <div className="ad-form-grid-3">
-                        <label className="ad-field">
-                          <span className="ad-field-title">Price (INR)</span>
-                          <input
-                            required
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            placeholder="0.00"
-                            value={packageForm.price}
-                            onChange={e => setPackageForm({ ...packageForm, price: e.target.value })}
-                          />
-                        </label>
-
-                        <label className="ad-field">
-                          <span className="ad-field-title">Duration (days)</span>
-                          <input
-                            required
-                            type="number"
-                            min="1"
-                            step="1"
-                            placeholder="e.g. 7"
-                            value={packageForm.durationDays}
-                            onChange={e => setPackageForm({ ...packageForm, durationDays: e.target.value })}
-                          />
-                        </label>
-
-                        <label className="ad-field">
-                          <span className="ad-field-title">Product limit</span>
-                          <input
-                            required
-                            type="number"
-                            min="1"
-                            step="1"
-                            placeholder="e.g. 5"
-                            value={packageForm.maxProducts}
-                            onChange={e => setPackageForm({ ...packageForm, maxProducts: e.target.value })}
-                          />
-                        </label>
-                      </div>
-
-                      <label className="ad-field">
-                        <span className="ad-field-title">reason</span>
-                        <input
-                          required
-                          type="text"
-                          placeholder="Audit or modification reason"
-                          value={packageForm.reason}
-                          onChange={e => setPackageForm({ ...packageForm, reason: e.target.value })}
-                        />
-                      </label>
-                    </div>
-
-                    {/* Section 3: Attribution */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">📊</span>
-                        <h4>Attribution Settings</h4>
-                      </div>
-                      <div className="ad-form-grid-3">
-                        <label className="ad-field">
-                          <span className="ad-field-title">Attribution window (hours; blank means unconfigured)</span>
-                          <input
-                            type="number"
-                            min="1"
-                            placeholder="Blank = unconfigured"
-                            value={packageForm.windowHours}
-                            onChange={e => setPackageForm({ ...packageForm, windowHours: e.target.value })}
-                          />
-                        </label>
-
-                        <label className="ad-field">
-                          <span className="ad-field-title">Qualifying conversion</span>
-                          <select
-                            required={!!packageForm.windowHours}
-                            value={packageForm.conversionEvent}
-                            onChange={e => setPackageForm({ ...packageForm, conversionEvent: e.target.value })}
-                          >
-                            <option value="">Unconfigured</option>
-                            <option value="PAID">Paid</option>
-                            <option value="DELIVERED">Delivered</option>
-                          </select>
-                        </label>
-
-                        <label className="ad-field">
-                          <span className="ad-field-title">Attribution model</span>
-                          <select
-                            required={!!packageForm.windowHours}
-                            value={packageForm.model}
-                            onChange={e => setPackageForm({ ...packageForm, model: e.target.value })}
-                          >
-                            <option value="">Unconfigured</option>
-                            <option value="FIRST_CLICK">First click</option>
-                            <option value="LAST_CLICK">Last click</option>
-                          </select>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Section 4: Operational Policies */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">⚖️</span>
-                        <h4>Operational Policy Drafts</h4>
-                      </div>
-                      <div className="ad-form-grid">
-                        {['sellerPause', 'cancellation', 'rejection', 'suspension', 'unusedService', 'refunds'].map(k => (
-                          <label key={k} className="ad-field">
-                            <span className="ad-field-title">{k} policy draft</span>
-                            <textarea
-                              maxLength={2000}
-                              placeholder={`Enter policy draft terms for ${k}`}
-                              value={packageForm.policies[k] || ''}
-                              onChange={e => setPackageForm({ ...packageForm, policies: { ...packageForm.policies, [k]: e.target.value } })}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Section 5: Billing & Tax Policies */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">💳</span>
-                        <h4>Structured Billing & Tax Policy Drafts</h4>
-                      </div>
-                      <div className="ad-billing-policy-wrap">
-                        <AdvertisingBillingPolicyEditor
-                          value={packageForm.policies.billing}
-                          onChange={billing => {
-                            const policies = { ...packageForm.policies };
-                            if (billing === undefined) delete policies.billing; else policies.billing = billing;
-                            setPackageForm({ ...packageForm, policies });
-                          }}
-                        />
-                      </div>
-                      <div className="ad-form-grid">
-                        {['treatment', 'invoiceIssuer', 'calculation', 'creditNotes'].map(k => (
-                          <label key={k} className="ad-field">
-                            <span className="ad-field-title">Tax policy draft: {k}</span>
-                            <textarea
-                              maxLength={2000}
-                              placeholder={`Enter tax policy draft for ${k}`}
-                              value={packageForm.policies.tax?.[k] || ''}
-                              onChange={e => setPackageForm({ ...packageForm, policies: { ...packageForm.policies, tax: { ...packageForm.policies.tax, [k]: e.target.value } } })}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Section 6: Status & Archival */}
-                    <div className="ad-form-section">
-                      <div className="ad-form-section-header">
-                        <span className="ad-section-icon">🔒</span>
-                        <h4>Package Status & Availability</h4>
-                      </div>
-                      <div className="ad-toggle-cards">
-                        <label className="ad-toggle-card">
-                          <input
-                            type="checkbox"
-                            checked={packageForm.isActive}
-                            disabled={packageForm.archived}
-                            onChange={e => setPackageForm({ ...packageForm, isActive: e.target.checked })}
-                          />
-                          <span className="ad-toggle-text">
-                            <strong>Available for campaign submission</strong>
-                            <small>When enabled, active sellers can select this package when creating advertising campaigns.</small>
-                          </span>
-                        </label>
-
-                        <label className="ad-toggle-card">
-                          <input
-                            type="checkbox"
-                            checked={packageForm.archived}
-                            onChange={e => setPackageForm({ ...packageForm, archived: e.target.checked, isActive: e.target.checked ? false : packageForm.isActive })}
-                          />
-                          <span className="ad-toggle-text">
-                            <strong>Archive permanently</strong>
-                            <small>Archived packages can no longer be used for new campaign submissions.</small>
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="ad-modal-footer">
-                    <p className="ad-modal-disclaimer">
-                      These are policy drafts. Saving them does not authorize payment, refunds or financial recognition.
-                    </p>
-                    <div className="ad-modal-buttons">
-                      <button type="button" disabled={busy} onClick={() => setPackageForm(null)}>Cancel</button>
-                      <button className="ad-primary" disabled={busy}>Save package version</button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
+          {packageForm && <AdvertisingPackageForm key={packageForm.id || 'new'} value={packageForm} busy={busy} onCancel={() => setPackageForm(null)}
+            onSave={form => perform(async () => {
+              await advertisingApi(true, `/packages${form.id ? `/${form.id}` : ''}`, { method: form.id ? 'PATCH' : 'POST', body: packagePayload(form) });
+              setPackageForm(null);
+            })} />}
         </>
       )}
     </section>

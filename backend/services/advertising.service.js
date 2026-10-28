@@ -11,6 +11,8 @@ export const advertisingVersion = value => {
   if (!Number.isSafeInteger(value) || value < 0) throw httpError(400, 'A current integer version is required');
   return value;
 };
+export const advertisingBillingAuthorized = a => Boolean(a?.review === 'APPROVED' && a.approvedRevision === a.revision
+  && a.paid?.authorizedBy && a.paid.revision === a.revision);
 const text = (value, label, max = 200, optional = false) => {
   if (optional && value === undefined) return '';
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw httpError(400, `${label} is required (maximum ${max} characters)`);
@@ -26,7 +28,7 @@ export const campaignDTO = row => {
     ...r.advertising, pilot: r.advertising.pilot ? { enabled: r.advertising.pilot.enabled, revision: r.advertising.pilot.revision,
       startAt: r.advertising.pilot.startAt, endAt: r.advertising.pilot.endAt, billable: false } : undefined,
     paid: r.advertising.paid ? {paymentId:r.advertising.paid.paymentId,revision:r.advertising.paid.revision,startAt:r.advertising.paid.startAt,endAt:r.advertising.paid.endAt,
-      invoiceReference:r.advertising.paid.invoiceReference,authorized:!!r.advertising.paid.authorizedBy} : undefined,
+      invoiceReference:r.advertising.paid.invoiceReference,authorized:advertisingBillingAuthorized(r.advertising)} : undefined,
     history: (r.advertising.history || []).map(({ actorId, ...event }) => event) };
 };
 export const packageDTO = row => ({ id: row._id, name: row.name, module: row.module,
@@ -111,7 +113,7 @@ export async function changeAdvertisingCampaign({ id, sellerId, actorId, admin =
     const a = row.advertising;
     if (action === 'edit') {
       editable(row); setCampaignFields(row, input); a.revision += 1;
-      a.review = 'DRAFT'; a.terms = undefined; a.approvedRevision = undefined; a.pilot = undefined;
+      a.review = 'DRAFT'; a.terms = undefined; a.approvedRevision = undefined; a.pilot = undefined; a.paid = undefined;
       if (a.items.length) await validateAdvertisingSelection(row, session);
     } else {
       fields(input, action === 'submit' ? ['version', 'packageVersion'] : action === 'pilot' ? ['version', 'reason', 'enabled', 'startAt', 'endAt'] : ['version', 'reason']);
@@ -131,6 +133,15 @@ export async function changeAdvertisingCampaign({ id, sellerId, actorId, admin =
           if (!a.terms?.packageVersion) throw httpError(409, 'A submitted commercial snapshot is required');
           if (a.requestedStartAt <= new Date()) throw httpError(409, 'Schedule has passed; request changes');
           a.review = 'APPROVED'; a.approvedRevision = a.revision;
+          // Approval opens payment: the seller already accepted the package's billing rules. Only a
+          // package that needs an external invoice number still waits for finance to authorize it.
+          a.paid = undefined;
+          let charge = null;
+          try { charge = adCharge(a.terms); } catch (error) {
+            // Legacy or incomplete snapshots stay blocked until their billing terms are reviewed.
+            if (![400, 409].includes(error.status)) throw error;
+          }
+          if (charge && charge.policy.invoiceMode !== 'EXTERNAL_REFERENCE') a.paid = { revision: a.revision, authorizedBy: actorId, authorizedAt: new Date() };
         } else a.review = action === 'reject' ? 'REJECTED' : 'CHANGES_REQUESTED';
       } else if (admin && action === 'pilot') {
         text(input.reason, 'Pilot authorization reason', 2000);

@@ -69,37 +69,6 @@
   line-height: 1.5;
 }
 
-.ad-header-stats {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.ad-stat-pill {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 10px 16px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
-}
-
-.ad-stat-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: #64748b;
-  margin-bottom: 2px;
-}
-
-.ad-stat-val {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0284c7;
-}
-
 /* Compliance / Policy Banner */
 .ad-policy-banner {
   display: flex;
@@ -279,29 +248,6 @@
   transform: none !important;
 }
 
-/* ROAS & Analytics Disclaimer Bar */
-.ad-roas-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 10px 16px;
-  margin-bottom: 20px;
-}
-
-.ad-roas-icon {
-  font-size: 16px;
-}
-
-.ad-roas-text {
-  margin: 0;
-  font-size: 12px;
-  color: #64748b;
-  line-height: 1.5;
-}
-
 /* Empty State Experience */
 .ad-empty-state {
   background: #ffffff;
@@ -338,49 +284,6 @@
   max-width: 520px;
   margin: 0 auto 24px auto;
   line-height: 1.6;
-}
-
-.ad-perks-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-  max-width: 860px;
-  margin: 0 auto;
-  text-align: left;
-}
-
-.ad-perk-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 18px;
-  transition: all 0.2s ease;
-}
-
-.ad-perk-card:hover {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
-  transform: translateY(-2px);
-}
-
-.ad-perk-icon {
-  font-size: 22px;
-  margin-bottom: 8px;
-}
-
-.ad-perk-card h4 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-  margin: 0 0 6px 0;
-}
-
-.ad-perk-card p {
-  font-size: 12px;
-  color: #64748b;
-  margin: 0;
-  line-height: 1.5;
 }
 
 /* Campaign Grid & Cards */
@@ -739,28 +642,6 @@
   box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
 }
 
-.ad-billing-policy-wrap fieldset {
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  padding: 18px;
-  margin: 0 0 16px 0;
-  background: #f8fafc;
-}
-
-.ad-billing-policy-wrap legend {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0369a1;
-  padding: 0 8px;
-}
-
-.ad-billing-policy-wrap p {
-  font-size: 12px;
-  color: #64748b;
-  margin: 0 0 12px 0;
-  line-height: 1.5;
-}
-
 .ad-toggle-cards {
   display: flex;
   flex-direction: column;
@@ -984,13 +865,6 @@
 .ad-stepper-step.active .ad-step-label {
   color: #9a3412;
   font-weight: 700;
-}
-
-.ad-step-title {
-  font-size: 13px;
-  color: #ea580c;
-  font-weight: 700;
-  margin: 0;
 }
 
 .ad-section-divider {
@@ -1276,3 +1150,36 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+/* Simple package form */
+.ad-segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: #f1f5f9; }
+.advertising-workspace .ad-segmented button { min-height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; }
+.advertising-workspace .ad-segmented button[aria-pressed="true"] { background: #ffffff; color: #0369a1; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+.advertising-workspace .ad-segmented button:disabled { cursor: not-allowed; opacity: 0.7; }
+.ad-help { display: block; margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: #64748b; }
+.ad-help-warn { color: #b45309; }
+.ad-category-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+.ad-category-picks label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 999px; background: #ffffff; font-size: 13px; color: #334155; cursor: pointer; }
+.ad-category-picks label.selected { border-color: #0284c7; background: #e0f2fe; color: #075985; }
+.ad-package-summary { margin: 4px 0 0; padding: 12px 14px; border-radius: 10px; background: #f0f9ff; color: #0c4a6e; font-size: 13px; line-height: 1.5; }
+
+/* Seller: how advertising works, and package terms before submitting */
+.ad-how-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; margin: 20px 0 0; padding: 0; list-style: none; counter-reset: ad-step; text-align: left; }
+.ad-how-steps li { counter-increment: ad-step; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 14px 52px; position: relative; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
+.ad-how-steps li::before { content: counter(ad-step); position: absolute; left: 16px; top: 14px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #e0f2fe; color: #0369a1; font-weight: 700; font-size: 13px; }
+.ad-how-steps strong { font-size: 14px; color: #0f172a; }
+.ad-how-steps span { font-size: 13px; color: #64748b; line-height: 1.5; }
+.ad-terms h4 { margin: 0 0 6px; font-size: 15px; color: #0f172a; }
+.ad-terms-price { margin: 0 0 10px; color: #0f172a; }
+.ad-terms-list { display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 6px 14px; margin: 0 0 14px; font-size: 13px; line-height: 1.5; }
+.ad-terms-list dt { font-weight: 600; color: #334155; }
+.ad-terms-list dd { margin: 0; color: #475569; }
+@media (max-width: 480px) { .ad-terms-list { grid-template-columns: 1fr; } .ad-terms-list dd { margin-bottom: 6px; } }
+
+/* Seller payment card */
+.ad-pay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ad-pay-head h3 { margin: 0; }
+.ad-pay-status { margin: 10px 0; padding: 10px 14px; border-radius: 10px; background: #f0f9ff; color: #0c4a6e; font-weight: 600; }
+.ad-pay-cancel { margin-top: 14px; }
+.ad-pay-cancel summary { cursor: pointer; color: #b91c1c; font-weight: 600; font-size: 14px; }
+.ad-pay-cancel label { display: block; margin: 10px 0 6px; font-size: 13px; }
