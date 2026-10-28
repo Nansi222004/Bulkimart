@@ -20,6 +20,17 @@ const allowedPush = async data => {
     return !!session?.sessionId && session.recipientId === data.recipientId;
   } catch { return false; }
 };
+// Customer, seller, delivery and admin apps share this origin, and one login can use several.
+// A push belongs to one app: while Bulkimart pages are open it is shown only if that app is
+// among them, so a customer's parcel update never pops up over the seller app.
+const appOf = path => /^\/seller(?:\/|$)/.test(path) ? 'seller' : /^\/delivery(?:\/|$)/.test(path) ? 'delivery' : /^\/admin(?:\/|$)/.test(path) ? 'admin' : 'customer';
+const openApps = async () => (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).flatMap(client => {
+  try { const url = new URL(client.url); return url.origin === self.location.origin ? [{ client, app: appOf(url.pathname) }] : []; } catch { return []; }
+});
+const pushFitsOpenApps = async data => {
+  try { const open = await openApps(); return !open.length || open.some(entry => entry.app === pushScope(data)); }
+  catch { return true; }
+};
 // Drop legacy automatic-display payloads before Firebase handles them. All
 // current web sends are data-only and go through the session check below.
 self.addEventListener('push', event => {
@@ -33,9 +44,8 @@ self.addEventListener('notificationclick', (event) => {
   const route = self.notificationTarget(data);
   event.waitUntil((async () => {
     if (!await allowedPush(data)) return;
-    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const sameOrigin = list.filter(client => { try { return new URL(client.url).origin === self.location.origin; } catch { return false; } });
-    const client = sameOrigin.find(client => new URL(client.url).pathname.startsWith('/seller')) || sameOrigin[0];
+    // Reuse a tab of the app the notification belongs to; never turn the seller tab into a customer page.
+    const client = (await openApps()).find(entry => entry.app === pushScope(data))?.client;
     if (client) { await client.navigate(route); return client.focus(); }
     return self.clients.openWindow?.(route);
   })());
@@ -61,7 +71,7 @@ messaging.onBackgroundMessage(async (payload) => {
   // Firebase displays notification payloads itself. Only data-only messages
   // need manual display, avoiding duplicate background notifications.
   if (payload.notification) return;
-  if (!await allowedPush(data)) return;
+  if (!await allowedPush(data) || !await pushFitsOpenApps(data)) return;
 
   // `image` is only ever present on an Admin broadcast with media attached
   // (backend/services/fcm.service.js) — absent on every event-driven push,

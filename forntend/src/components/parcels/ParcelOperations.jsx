@@ -1,6 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {parcelRequest as request,parcelMoney as money} from './parcelApi';
-import {ParcelTimeline} from './ParcelDelivery';
 import './parcels.css';
 
 import {socket} from '../../utils/socket';
@@ -56,7 +55,6 @@ export function ParcelDriverOperations() {
         {detail.details?.pickup&&<div className="parcel-rider-route">{routeCard('Collect from',detail.details.pickup,true)}{routeCard('Deliver to',detail.details.dropoff,false)}</div>}
         {!closed&&<details className="parcel-rider-card parcel-rider-help"><summary>Need help with this delivery?</summary><p>Tell the team what is wrong. This pauses the delivery until they review it.</p><form onSubmit={e=>{e.preventDefault();act('exception',{reason:new FormData(e.currentTarget).get('reason')});}}><label>What’s the problem?<select name="reason" required disabled={busy}>{riderProblemOptions.map(([value,title])=><option value={value} key={value}>{title}</option>)}</select></label><button className="parcel-rider-secondary" disabled={busy}>Ask support for help</button></form></details>}
       </>}
-      <details className="parcel-rider-card parcel-rider-history"><summary>Delivery updates</summary><ParcelTimeline events={detail.history||[]}/></details>
       <details className="parcel-rider-card parcel-rider-reference"><summary>Booking and payment details</summary><p className="parcel-rider-full-number">{detail.reference}</p>{earning!=null&&<p>Your earning: {money(earning)}. {detail.finance?.held?'It will be reviewed after delivery before payment is released.':'Check Earnings for payment details.'}</p>}{detail.details?.weightKg!=null&&<p>Parcel weight: {detail.details.weightKg} kg</p>}</details>
     </>:<><section className="parcel-rider-list"><h2>Your requests and tasks</h2>{!items.length&&<div className="parcel-rider-card parcel-rider-empty"><h3>No parcel requests yet</h3><p>Stay on duty and keep your location updated. New requests will appear here.</p><a href="/delivery/dashboard">Back to duty dashboard</a></div>}{items.map(b=><button className="parcel-row parcel-rider-list-card" key={b._id} onClick={()=>setId(b._id)}><div><strong>{shortParcelNumber(b)}</strong><span className="parcel-rider-badge">{b.offer?'New request':riderParcelStatus(b.status)}</span></div><p>{b.offer?`${b.pickupArea} → ${b.dropoffArea}`:`${b.details?.pickup?.pincode||'Pickup'} → ${b.details?.dropoff?.pincode||'Delivery'}`}</p><span>{(b.earningPaise??b.finance?.earningPaise)!=null?'You earn '+money(b.earningPaise??b.finance?.earningPaise):'Delivery fee '+money(b.feePaise)}</span><small>Open parcel →</small><span className="parcel-rider-list-number">{b.reference}</span></button>)}</section>{pages>1&&<nav className="parcel-rider-pagination"><button disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span>Page {page} of {pages}</span><button disabled={page>=pages} onClick={()=>setPage(x=>x+1)}>Next</button></nav>}</>}
   </main>;

@@ -35,6 +35,10 @@ const notificationSchema = new Schema(
     // (written before this field existed) keeps meaning exactly what it did.
     userId: { type: ObjectId, required: true, refPath: "recipientModel" },
     recipientModel: { type: String, enum: ["User", "Admin"], default: "User" },
+    // Which app the notification is for. One login can be a customer, a seller and a rider at
+    // once, so the userId alone cannot keep a customer's parcel updates out of the seller bell.
+    // Rows written before this field existed have none; see notification.controller.js.
+    audience: { type: String, enum: ["user", "seller", "rider", "admin"] },
     type:    {
       type: String,
       enum: ["order", "delivery", "subscription", "promotion", "membership", "system", "broadcast"],

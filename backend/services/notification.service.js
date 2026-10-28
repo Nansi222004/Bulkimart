@@ -227,7 +227,7 @@ const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
   const type = EVENT_CATEGORY[event] || 'system';
   let record = null;
   try {
-    record = await Notification.create({ userId, type, event, title, message, metadata, route, expiresAt, media, ...(dedupeKey ? { dedupeKey } : {}) });
+    record = await Notification.create({ userId, audience: roomKind, type, event, title, message, metadata, route, expiresAt, media, ...(dedupeKey ? { dedupeKey } : {}) });
   } catch (err) {
     if (dedupeKey && err.code === 11000) return null;
     console.error('[NOTIFICATION] persist failed:', err.message);

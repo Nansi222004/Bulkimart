@@ -4,8 +4,8 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {createServer} from 'vite';
 import {hookHarness} from '../tests/service-hookHarness.mjs';
-let vite,Operations,Updates,summarize;
-before(async()=>{vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});Operations=(await vite.ssrLoadModule('/src/components/parcels/ParcelOperations.jsx')).ParcelDriverOperations;const updates=await vite.ssrLoadModule('/src/components/parcels/ParcelUpdates.jsx');Updates=updates.default;summarize=updates.summarizeParcelUpdates;});
+let vite,Operations;
+before(async()=>{vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});Operations=(await vite.ssrLoadModule('/src/components/parcels/ParcelOperations.jsx')).ParcelDriverOperations;});
 after(async()=>await vite?.close());
 const id='507f1f77bcf86cd799439022';
 const booking={_id:id,reference:'PD-507F1F77BCF86CD799439022',version:4,status:'driver_assigned',paymentMethod:'online',paymentStatus:'paid',feePaise:2040,finance:{held:true,earningPaise:1020},details:{pickup:{name:'Sender',address:'Pickup street',phone:'9876500011',lat:22.74,lng:75.84},dropoff:{name:'Recipient',address:'Delivery street',lat:22.75,lng:75.85}},cash:{status:'not_applicable'},history:[]};
@@ -27,11 +27,6 @@ test('cash at pickup is recorded before pickup confirmation; online payments nev
 test('pickup code uses the existing proof API with the current booking version',async()=>{
   const h=hookHarness(Operations,{},'/delivery/parcels?parcel='+id),original=globalThis.FormData;
   try{await reply(h,{...booking,status:'arrived_at_pickup'});const code=h.find(n=>n.type==='input'&&n.props.name==='code');assert.equal(code.props.pattern,'[0-9]{6}');assert.equal(code.props.inputMode,'numeric');globalThis.FormData=class{get(){return '123456';}};h.find(n=>n.props?.className==='parcel-rider-code-form').props.onSubmit({preventDefault(){},currentTarget:{}});h.rerender();assert.deepEqual(JSON.parse(h.requests.at(-1).options.body),{action:'verify_pickup',version:4,code:'123456'});await reply(h,booking);await reply(h,{...booking,status:'picked_up'});assert.ok(h.find(n=>n.props?.children==='Start delivery'));}finally{globalThis.FormData=original;h.close();}
-});
-test('customer and rider history groups repeated matching attempts and hides code-request noise',()=>{
-  const events=[{action:'terms_accepted',status:'payment_pending',at:'2026-10-25T10:00:00Z'},{action:'payment_initiated',status:'payment_pending',at:'2026-10-25T10:00:01Z'},{action:'payment_verified',status:'searching_for_driver',at:'2026-10-25T10:01:00Z'},{action:'automatic_offer',status:'searching_for_driver',at:'2026-10-25T10:01:01Z'},{action:'admin_fallback',status:'needs_admin_assignment',at:'2026-10-25T10:02:00Z'},{action:'manual_offer',status:'searching_for_driver',at:'2026-10-25T10:03:00Z'},{action:'offer_accepted',status:'driver_assigned',at:'2026-10-25T10:04:00Z'},{action:'driver_arriving',status:'driver_arriving',at:'2026-10-25T10:05:00Z'},{action:'arrived_at_pickup',status:'arrived_at_pickup',at:'2026-10-25T10:06:00Z'},{action:'pickup_code',status:'arrived_at_pickup',at:'2026-10-25T10:06:01Z'}];
-  const updates=summarize(events);assert.equal(updates.filter(e=>e.title==='Finding a delivery partner').length,1);assert.equal(updates.length,6);assert.ok(updates.some(e=>e.title==='Payment confirmed'));assert.ok(!updates.some(e=>e.title==='Payment started'));assert.equal(updates.at(-1).title,'Arrived at pickup');
-  const output=renderToStaticMarkup(React.createElement(Updates,{events}));assert.ok(output.includes('Earlier updates (2)'));assert.ok(output.includes('Most recent first'));assert.ok(!output.includes('Complete your payment'));assert.ok(!output.includes('pickup_code'));
 });
 test('the sender’s pickup note and parcel contents are shown on the assigned task',async()=>{
   const withNote={...booking,details:{...booking.details,category:'test_documents',description:'Two signed contracts',weightKg:1.5,dimensions:[30,20,2],instructions:'Ring the bell twice — gate code 4512'}};

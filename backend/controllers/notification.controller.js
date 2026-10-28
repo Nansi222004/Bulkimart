@@ -15,6 +15,11 @@ const RETIRED_EVENT_TYPES = [
   'REFERRAL_MILESTONE_REACHED',
 ];
 
+// One login can shop, sell and ride. Each app lists only what was sent to it: by `audience`,
+// or, for rows written before that field existed, by the app the route opens.
+const CUSTOMER_ONLY_ROUTE = /^\/(?:parcel-delivery|legal-services|coins|profile|wallet)(?:[/?#]|$)/i;
+const PARTNER_ROUTE = /^\/(?:seller|delivery|admin)(?:[/?#]|$)/i;
+
 // Filter historical seller-program messages without changing stored records.
 const visibleNotifications = req => ({
   userId: req.user._id,
@@ -24,6 +29,12 @@ const visibleNotifications = req => ({
     { event: { $in: ['CAMPAIGN_UPDATE', 'SELLER_PROMOTION_UPDATE'] } },
     { type: 'promotion' },
     { route: /^\/(?:seller\/)?(?:promotions|campaigns|deals|advertisements|grow)(?:[/?#]|$)/i },
+    { audience: { $in: ['user', 'rider'] } },
+    { audience: { $exists: false }, route: CUSTOMER_ONLY_ROUTE },
+  ] } : {}),
+  ...(req.userType === 'user' && !['seller', 'delivery'].includes(req.tokenRole) ? { $nor: [
+    { audience: { $in: ['seller', 'rider'] } },
+    { audience: { $exists: false }, route: PARTNER_ROUTE },
   ] } : {}),
 });
 
@@ -128,7 +139,8 @@ export const markNotificationRead = asyncHandler(async (req, res) => {
 // @access  Private
 export const markAllNotificationsRead = asyncHandler(async (req, res) => {
   const result = await Notification.updateMany(
-    { userId: req.user._id, isRead: false },
+    // Only this app's list: "mark all read" in the seller app leaves the customer app's unread badge alone.
+    { ...await visibleNotificationFilter(req), isRead: false },
     { $set: { isRead: true } }
   );
   ok(res, { modified: result.modifiedCount }, "All notifications marked as read");

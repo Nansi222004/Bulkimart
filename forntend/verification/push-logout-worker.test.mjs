@@ -82,3 +82,20 @@ test('authorized image notifications keep their media in the data-only transport
   await h.background({ data: { audience: 'user', recipientId: 'account-fixture', title: 'Update', image: 'https://fixture.invalid/image.webp' } });
   assert.equal(h.shown[0].options.image, 'https://fixture.invalid/image.webp');
 });
+
+test('a push pops up only in its own app: a customer parcel update never shows over the seller app', async () => {
+  const h = harness({ customer: { recipientId: 'account-fixture' }, seller: { recipientId: 'account-fixture' } });
+  const navigated = [], tab = path => ({ url: 'https://fixture.invalid' + path, async navigate(to) { navigated.push([path, to]); }, async focus() {} });
+  let open = [tab('/seller/services')];
+  h.sandbox.self.clients.matchAll = async () => open;
+  await h.background({ data: { recipientId: 'account-fixture', audience: 'user', event: 'PARCEL_UPDATED', title: 'Parcel delivery update', route: '/parcel-delivery/track/1' } });
+  await h.background({ data: { recipientId: 'account-fixture', audience: 'seller', event: 'SYSTEM', title: 'Seller update', route: '/seller/orders' } });
+  assert.deepEqual(h.shown.map(n => n.title), ['Seller update']);
+  // With the customer app open too, its update is shown, and clicking it opens the customer tab, not the seller one.
+  open = [tab('/seller/services'), tab('/')];
+  const customer = { recipientId: 'account-fixture', audience: 'user', event: 'PARCEL_UPDATED', title: 'Parcel delivery update', route: '/parcel-delivery/track/1' };
+  await h.background({ data: customer }); assert.equal(h.shown.at(-1).title, 'Parcel delivery update');
+  await h.click(customer); assert.deepEqual(navigated, [['/', '/parcel-delivery/track/1']]);
+  // With no Bulkimart page open, every signed-in app still gets its notifications.
+  open = []; await h.background({ data: customer }); assert.equal(h.shown.length, 3);
+});
