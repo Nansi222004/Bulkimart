@@ -101,7 +101,7 @@ test('provider revalidates publication changes on online and retains valid fallb
 test('an active cached campaign expires to red when subsequent configuration requests fail', async () => {
   const h = browserHarness(Provider, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' });
   try {
-    h.requests[0].resolve({ data: { version: 'short-campaign', theme: { id: 'published', tokens: policy.PRESETS['Eid Celebration'] }, banners: [banner], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 200).toISOString() } });
+    h.requests[0].resolve({ data: { version: 'short-campaign', theme: { id: 'published', tokens: policy.PRESETS['Eid Celebration'] }, banners: [banner], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 200).toISOString(), scheduleUntil: new Date(Date.now() + 200).toISOString() } });
     await h.settle(); assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52');
     await new Promise(resolve => setTimeout(resolve, 1150)); h.flush();
     h.requests.at(-1).reject(new Error('Offline')); await h.settle();
@@ -855,4 +855,26 @@ test('studio publishes a live draft with both revisions and discards a draft wit
     assert.match(text(h.tree), /live version changed since; open, review and save it before publishing/);
     assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Publish draft').props.disabled, true);
   } finally { h.close(); }
+});
+test('a late or failed refresh keeps the admin theme briefly, but never past a scheduled change', () => {
+  const now = Date.now(), base = { version: 'v', banners: [], sections: [], validUntil: new Date(now).toISOString() };
+  assert.equal(policy.showableExperience({ ...base, validUntil: new Date(now + 1).toISOString() }, now), true, 'Fresh content is shown');
+  assert.equal(policy.showableExperience(base, now + 1000), true, 'A refresh due a second ago does not drop the theme');
+  assert.equal(policy.showableExperience(base, now + policy.EXPERIENCE_GRACE_MS + 1), false, 'Long-stale content falls back');
+  assert.equal(policy.showableExperience({ ...base, scheduleUntil: new Date(now + 500).toISOString() }, now + 600), false, 'A scheduled end is honoured exactly');
+  assert.equal(policy.showableExperience({ ...base, scheduleUntil: null }, now + 600), true);
+  assert.equal(policy.showableExperience({ validUntil: base.validUntil }, now), false, 'Malformed data is never shown');
+  assert.equal(policy.freshExperience(base, now + 1), false, 'Freshness itself stays strict');
+});
+test('the storefront refreshes before its copy expires and keeps the theme through a refresh', async () => {
+  const h = browserHarness(Provider, {}, { activeMode: 'shop-all', activeSubNav: 'ecommerce--smart-buy', activeNav: 'home' });
+  const realNow = Date.now;
+  try {
+    const serverTime = new Date(), data = { version: 'live', animations: [], theme: { id: 'published', tokens: policy.PRESETS['Eid Celebration'] }, banners: [], sections: [], serverTime: serverTime.toISOString(), validUntil: new Date(serverTime.getTime() + 30000).toISOString(), scheduleUntil: null };
+    h.requests[0].resolve({ data }); await h.settle();
+    assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52');
+    // 31 seconds later, with the refresh still in flight, the admin theme is still applied.
+    Date.now = () => realNow() + 31000; h.rerender(); await h.settle();
+    assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52', 'No fallback flash while refreshing');
+  } finally { Date.now = realNow; h.close(); }
 });

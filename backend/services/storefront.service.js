@@ -189,6 +189,8 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const banners = [...managedHeroes.map(c => ({ ...c.banner, endAt: c.endAt })), ...legacyHeroes].filter((b, i, all) => all.findIndex(other => other.id === b.id) === i);
   const boundary = rows.flatMap(r => [r.startAt, r.endAt, r.config.animation?.startAt, r.config.animation?.endAt]).concat(bannerRows.flatMap(b => [b.startDate, b.endDate, b.animation?.startAt, b.animation?.endAt, b.targetCampaign?.startAt, b.targetCampaign?.endAt]), deals.map(d => d.endAt)).filter(Boolean).map(d => new Date(d).getTime()).filter(t => t > now);
   const validUntil = new Date(Math.min(now + 30000, ...boundary)).toISOString();
+  // The next scheduled start or end. Until then, content may be shown a little past validUntil if a refresh is late.
+  const scheduleUntil = boundary.length ? new Date(Math.min(...boundary)).toISOString() : null;
   const categoryTiles = (theme?.config.categoryTiles || []).flatMap(tile => {
     const banner = bannerMap.get(tile.bannerId);
     return banner && categories.some(c => String(c._id) === tile.categoryId) ? [{ categoryId: tile.categoryId, badge: tile.badge, banner }] : [];
@@ -208,5 +210,5 @@ export async function resolveExperience(scope, device, category = '', now = Date
     splash: resolvedCampaigns.find(c => c.config.placement === 'splash') || null,
     announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };
   const version = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 20);
-  return { ...data, version, serverTime: new Date(now).toISOString(), validUntil, refreshMs: 30000 };
+  return { ...data, version, serverTime: new Date(now).toISOString(), validUntil, scheduleUntil, refreshMs: 30000 };
 }

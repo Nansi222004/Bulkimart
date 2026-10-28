@@ -8,6 +8,15 @@ import { DEFAULT_TOKENS } from '../../../backend/shared/storefront.mjs';
 export function freshExperience(data, now = Date.now()) {
   return !!data?.version && Array.isArray(data.banners) && Array.isArray(data.sections) && Number.isFinite(Date.parse(data.validUntil)) && Date.parse(data.validUntil) > now;
 }
+// What the storefront may keep showing. validUntil is only the refresh deadline, so a slow or
+// failed refresh keeps the admin's theme for up to two minutes, but never past a scheduled change.
+export const EXPERIENCE_GRACE_MS = 120000;
+export function showableExperience(data, now = Date.now()) {
+  if (freshExperience(data, now)) return true;
+  if (!data?.version || !Array.isArray(data.banners) || !Array.isArray(data.sections)) return false;
+  const schedule = data.scheduleUntil ? Date.parse(data.scheduleUntil) : Infinity;
+  return Date.parse(data.validUntil) + EXPERIENCE_GRACE_MS > now && now < schedule;
+}
 export function frequencyKey(splash, now = Date.now()) {
   const base = `bulkimart:splash:${splash.id}:${splash.revision}`;
   return splash.config.frequency === 'daily' ? `${base}:${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)}` : base;

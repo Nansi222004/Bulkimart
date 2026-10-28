@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useUser } from './UserContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
-import { DEFAULT_TOKENS, freshExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
+import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
 import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
@@ -36,9 +36,11 @@ export function StorefrontProvider({ children }) {
         if (cancelled) return;
         offset.current = Date.parse(body.data.serverTime) - Date.now();
         setData({ ...body.data, key }); setClock(Date.now());
-        delay = Math.max(1000, Math.min(30000, Date.parse(body.data.validUntil) - Date.parse(body.data.serverTime)));
+        // Refresh a few seconds before the copy expires, so the next one arrives while this one is still current.
+        const ttl = Date.parse(body.data.validUntil) - Date.parse(body.data.serverTime);
+        delay = Math.max(1000, Math.min(30000, ttl > 10000 ? ttl - 5000 : ttl));
         try { sessionStorage.setItem(`bulkimart:experience:${key}`, JSON.stringify(body.data)); } catch { /* quota/private mode */ }
-      } catch { /* valid cached content expires below; normal shopping always remains */ }
+      } catch { delay = 5000; /* Retry soon; the current theme stays during the grace period below. */ }
       finally {
         initial = false;
         pending = false;
@@ -54,7 +56,7 @@ export function StorefrontProvider({ children }) {
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', visible); };
   }, [key]);
   const now = clock + offset.current;
-  const current = data?.key === key && freshExperience(data, now) ? normalizeExperience(data) : fallback;
+  const current = data?.key === key && showableExperience(data, now) ? normalizeExperience(data) : fallback;
   useEffect(() => {
     // The desktop gutters sit outside the customer shell. Restore the host
     // background on exit so other portals keep their existing appearance.

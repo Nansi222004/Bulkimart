@@ -76,7 +76,7 @@ export default function StorefrontEffectFields({ value, onChange, bannerOnly = f
         {number('speed', 'Speed', 0.2, 3, 0.1)}
         {number('size', 'Particle size', 0.5, 2, 0.1)}
         {number('opacity', 'Opacity', 0.05, 0.8, 0.05)}
-        {number('duration', 'Duration (seconds, 0 = loop)', 0, 120, 1)}
+        {number('duration', 'Stop after (seconds) · 0 = keep playing', 0, 120, 1)}
         {drifting && <label className="studio-field">Drift direction<select value={e.direction} onChange={event => change({ direction: event.target.value })}><option value="down">Straight down</option><option value="left">Drift left</option><option value="right">Drift right</option></select></label>}
         <label className="studio-field">Reduced-motion fallback<select value={e.reducedMotion} onChange={event => change({ reducedMotion: event.target.value })}><option value="hide">Hide animation</option><option value="static">Show a still frame</option></select></label>
         {['startAt', 'endAt'].map(key => <label className="studio-field" key={key}>{key === 'startAt' ? 'Effect start · IST' : 'Effect end · IST'}<input type="datetime-local" value={local(e[key])} onChange={event => change({ [key]: event.target.value ? new Date(`${event.target.value}:00+05:30`).toISOString() : null })} /></label>)}
