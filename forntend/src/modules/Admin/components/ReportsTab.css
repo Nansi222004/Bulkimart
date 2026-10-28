@@ -131,3 +131,10 @@
 .sa-order-card.is-skeleton span { display: block; height: 12px; width: 50%; border-radius: 6px; background: linear-gradient(90deg, #eef2f6, #f8fafc, #eef2f6); background-size: 200% 100%; animation: sa-report-shimmer 1.2s infinite; }
 .sa-order-card.is-skeleton span + span { width: 85%; }
 @media (max-width: 640px) { .sa-order-figures { margin-left: 14px; } .sa-order-card-head { flex-wrap: wrap; } .sa-order-card-admin { width: 100%; flex-direction: row; align-items: baseline; justify-content: space-between; } }
+
+/* Report picker: a segmented control inside the page, visually distinct from the admin header's section pills. */
+.sa-report-tabs { align-items: center; gap: 4px; padding: 6px; border: 1px solid var(--sa-border, #e2e8f0); border-radius: 12px; background: var(--sa-bg-card, #fff); }
+.sa-report-tabs-label { padding: 0 10px 0 6px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--sa-text-muted, #64748b); }
+.sa-report-tabs button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--sa-text-secondary, #475569); font-size: 13px; box-shadow: none; }
+.sa-report-tabs button:hover { background: #f1f5f9; }
+.sa-report-tabs button.is-active { background: var(--sa-primary, #00b5d8); color: #fff; box-shadow: none; }

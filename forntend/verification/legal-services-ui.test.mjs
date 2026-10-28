@@ -4,19 +4,14 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import { hookHarness } from '../tests/service-hookHarness.mjs';
-let vite, ui;
-before(async () => { vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' }); ui = await vite.ssrLoadModule('/src/components/services/LegalServices.jsx'); });
+let vite, ui, Fee;
+before(async () => { vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' }); ui = await vite.ssrLoadModule('/src/components/services/LegalServices.jsx'); Fee = (await vite.ssrLoadModule('/src/components/services/ServicePaymentPanel.jsx')).default; });
 after(async () => { await vite?.close(); });
 const render = (c, props) => renderToStaticMarkup(React.createElement(c, props));
 const text = n => n == null || typeof n === 'boolean' ? '' : typeof n !== 'object' ? String(n) : [n.props?.children].flat(Infinity).map(text).join(' ');
 const id = '507f1f77bcf86cd799439022';
 const q = { version: 1, scope: 'Approved scope', totalPaise: 500000, servicePaise: 500000, serviceTaxPaise: 0, currency: 'INR', terms: 'Synthetic terms', expiresAt: '2030-01-01T00:00:00Z' };
 const app = extra => ({ _id: id, version: 1, serviceName: 'Fixture service', status: 'awaiting_payment', paymentStatus: 'not_requested', answers: {}, fields: [], files: [], events: [], quotation: q, canPay: false, ...extra });
-test('quotation displays authoritative itemization and terms without internal commission information', () => {
-  const html = render(ui.QuoteBreakdown, { quotation: { ...q, commissionPaise: 50000, confirmedBy: 'private-admin' } });
-  for (const value of ['₹5000.00', 'Synthetic terms', 'Applicable service tax', 'version 1']) assert.ok(html.includes(value));
-  assert.doesNotMatch(html, /private-admin|commissionPaise/);
-});
 test('request history escapes private text instead of executing HTML', () => {
   const html = render(ui.RequestTimeline, { events: [{ action: 'information_required', at: '2026-10-22', message: '<script>secret</script>' }] });
   assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>/);
@@ -39,24 +34,6 @@ test('late search responses cannot replace the active request-history view', asy
     h.requests[0].resolve({ data: [{ _id: id, name: 'Obsolete catalogue' }], meta: { total: 1 } }); await h.settle();
     assert.match(text(h.tree), /Fixture service/); assert.doesNotMatch(text(h.tree), /Obsolete catalogue/);
   } finally { h.close(); }
-});
-test('payment CTA requires server eligibility and explicit terms acceptance', async () => {
-  const h = hookHarness(ui.default, {}, `/legal-services/requests/${id}`);
-  try {
-    h.requests[0].resolve({ data: app({ canPay: true }) }); await h.settle();
-    const pay = () => h.find(n => n.type === 'button' && n.props.children === 'Pay confirmed amount'); assert.equal(pay().props.disabled, true);
-    h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.flush(); assert.equal(pay().props.disabled, false);
-  } finally { h.close(); }
-});
-test('pending and held requests do not display false payment success or a disabled-server payment action', async () => {
-  const h = hookHarness(ui.default, {}, `/legal-services/requests/${id}`);
-  try { h.requests[0].resolve({ data: app({ paymentStatus: 'pending', financialHold: true, canPay: false }) }); await h.settle(); assert.match(text(h.tree), /pending/); assert.match(text(h.tree), /financial hold/); assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Pay confirmed amount'), undefined); assert.doesNotMatch(text(h.tree), /Payment verified by the server/); }
-  finally { h.close(); }
-});
-test('provider completion remains unavailable before admin-authorized work', async () => {
-  const h = hookHarness(ui.ProviderWorkspace, {}, '/legal-provider');
-  try { h.requests[0].resolve({ data: [app()] }); await h.settle(); h.click('Open assignment'); h.requests[1].resolve({ data: app() }); await h.settle(); assert.match(text(h.tree), /Completion requires admin verification/); assert.equal(h.find(n => n.type === 'option' && n.props.value === 'completion_submitted'), undefined); }
-  finally { h.close(); }
 });
 test('private follow-up upload enforces file count and size before a network request', () => {
   const d = new FormData(); for (let i = 0; i < 11; i++) d.append('files', new Blob(['x']), `file-${i}.pdf`); assert.throws(() => ui.validateFollowUp(d), /up to 10/);
@@ -99,3 +76,30 @@ test('signed-in legal services omit the Account link and still open service deta
   } finally { h.close(); }
 });
 
+
+test('a fixed-price service shows its fee and only offers Pay & submit after the customer agrees to pay', async () => {
+  const userStorage = { localStorage: { getItem: key => key === 'userToken' ? 'valid-jwt-token' : null } };
+  const h = hookHarness(ui.default, {}, `/legal-services/${id}`, { verified: true }, userStorage);
+  try {
+    h.requests[0].resolve({ data: { _id: id, name: 'Business Advisory', description: 'Legal help', fields: [], formVersion: 1, version: 0, startingPrice: { amount: 500, currency: 'INR' } } }); await h.settle();
+    assert.match(text(h.tree), /Service fee\s+₹500\.00\s+·\s+paid when you submit/);
+    h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); h.flush();
+    const submit = () => h.find(n => n.type === 'button' && [n.props.children].flat().join('') === 'Pay ₹500.00 & submit');
+    assert.equal(submit().props.disabled, true, 'Paying needs explicit agreement');
+    h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.flush();
+    assert.equal(submit().props.disabled, false);
+  } finally { h.close(); }
+});
+test('an unpaid request offers Pay; paid and refunded requests show their status without a payment button', async () => {
+  const billing = status => ({ version: 1, amountPaise: 50000, currency: 'INR', status, terms: 'Fee terms', refundedToWallet: status === 'refunded' });
+  const h = hookHarness(ui.default, {}, `/legal-services/requests/${id}`);
+  try {
+    h.requests[0].resolve({ data: app({ quotation: null, billing: billing('unpaid') }) }); await h.settle();
+    const panel = h.find(n => n.type === Fee); assert.ok(panel, 'The fee panel is shown on the request');
+    assert.equal(panel.props.application.billing.status, 'unpaid');
+  } finally { h.close(); }
+  const html = (status, extra = {}) => render(Fee, { application: { _id: id, status: extra.status || 'awaiting_payment', billing: billing(status) }, request: async () => ({}), authorization: () => '' });
+  assert.match(html('unpaid'), /Pay ₹500\.00/); assert.match(html('unpaid'), /Fee terms/);
+  assert.doesNotMatch(html('paid', { status: 'submitted' }), /Pay ₹/); assert.match(html('paid', { status: 'submitted' }), /Paid/);
+  assert.match(html('refunded', { status: 'rejected' }), /Refunded to Bulkimart wallet/);
+});

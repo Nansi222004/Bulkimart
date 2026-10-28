@@ -34,7 +34,8 @@ const adminAuth = r => auth(r, admin, 'admin', undefined);
 const get = async id => (await auth(request(app).get(`/api/services/applications/${id}`)).expect(200)).body.data;
 const action = async (id, status, message = 'Synthetic review', expected = 200) => { const a = await get(id); return (await adminAuth(request(app).post(`/api/admin/services/applications/${id}/transition`)).field('version', a.__v).field('status', status).field('message', message).expect(expected)).body.data; };
 const submit = () => auth(request(app).post(`/api/services/${service._id}/applications`)).set('Idempotency-Key', crypto.randomUUID()).field('formVersion', service.formVersion).field('serviceVersion', service.__v).field('answers', '{}');
-async function billed() { const a = (await submit().expect(201)).body.data; await action(a._id, 'under_review'); return action(a._id, 'awaiting_payment', 'Synthetic fee and refund terms'); }
+// Fixed-price services are paid at submission: a new application waits for its fee.
+async function billed() { return (await submit().expect(201)).body.data; }
 const pay = (a, body = {}, who = user, key = crypto.randomUUID()) => auth(request(app).post(`/api/services/applications/${a._id}/payment`), who).set('Idempotency-Key', key).send({ feeVersion: a.billing.version, amountPaise: a.billing.amountPaise, acceptTerms: true, ...body });
 const capture = (checkout, id = 'pay_service_fixture', amount = checkout.amountPaise) => { const p = { id, order_id: checkout.razorpayOrderId, amount, currency: 'INR', status: 'captured', captured: true, amount_refunded: 0 }; captures.set(id, p); return p; };
 const verify = (a, checkout, id = 'pay_service_fixture', signature) => auth(request(app).post('/api/services/payments/verify')).send({ orderId: a._id, razorpay_order_id: checkout.razorpayOrderId, razorpay_payment_id: id, razorpay_signature: signature ?? crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${checkout.razorpayOrderId}|${id}`).digest('hex') });
@@ -55,26 +56,40 @@ beforeEach(async () => {
   service = await Service.create({ name: 'Fixture service', slug: 'fixture-service', status: 'published', pricing: { mode: 'fixed', amount: 100, currency: 'INR' }, fields: [{ id: 'optional', label: 'Optional answer', type: 'text' }] });
 });
 
-test('submission with omitted optional answers returns a renderable detail and an admin request creates the frozen fee', async () => {
+
+const adminList = async (query = '') => (await adminAuth(request(app).get(`/api/admin/services/applications${query}`)).expect(200)).body.data.map(row => String(row._id));
+
+test('a fixed-price application waits for its fee, reaches the admin once paid, then runs review to completion', async () => {
   const a = await billed(); expect(a.answers).toEqual({}); expect((await get(a._id)).answers).toEqual({});
-  expect(a.billing).toMatchObject({ amountPaise: 10000, version: 1, status: 'unpaid', terms: 'Synthetic fee and refund terms' });
+  expect(a).toMatchObject({ status: 'awaiting_payment', billing: { amountPaise: 10000, version: 1, status: 'unpaid', currency: 'INR' } });
+  expect(a.billing.terms).toMatch(/refunded to your Bulkimart wallet/);
+  expect(await adminList()).toEqual([]); expect(await adminList('?status=awaiting_payment')).toEqual([String(a._id)]);
+  expect(notify).not.toHaveBeenCalled();
+  await action(a._id, 'under_review', 'Too early', 409);
+  // A later price change never alters the fee frozen on the application.
   await Service.updateOne({ _id: service._id }, { $set: { 'pricing.amount': 900 } });
   const key = crypto.randomUUID(), checkout = (await pay(a, {}, user, key).expect(200)).body.data;
   expect(checkout).toMatchObject({ amountPaise: 10000, currency: 'INR', verificationPath: '/api/services/payments/verify' });
   expect((await pay(a, {}, user, key).expect(200)).body.data.razorpayOrderId).toBe(checkout.razorpayOrderId);
   expect(sdk.orders.create).toHaveBeenCalledTimes(1);
   capture(checkout); await verify(a, checkout).expect(200); await verify(a, checkout).expect(200);
-  expect((await get(a._id)).status).toBe('payment_verified'); expect(await Ledger.countDocuments({ account: 'service_collections' })).toBe(1);
-  await action(a._id, 'in_progress'); await action(a._id, 'completed');
+  const paid = await get(a._id);
+  expect(paid).toMatchObject({ status: 'submitted', billing: { status: 'paid' } }); expect(await Ledger.countDocuments({ account: 'service_collections' })).toBe(1);
+  expect(notify.mock.calls.filter(([opts]) => opts?.title === 'New paid service application')).toHaveLength(1);
+  expect(await adminList()).toEqual([String(a._id)]);
+  for (const status of ['under_review', 'in_progress', 'completed']) await action(a._id, status);
 });
 
-test('unpaid fixed services cannot start, and clients cannot change the fee, terms version, or owner', async () => {
-  const a = (await submit().expect(201)).body.data; await action(a._id, 'under_review');
-  await action(a._id, 'in_progress', 'Cannot start unpaid work', 409);
-  const bill = await action(a._id, 'awaiting_payment');
+test('a free service submits straight to the admin; clients cannot change the fee, terms version or owner', async () => {
+  await Service.updateOne({ _id: service._id }, { $set: { pricing: { mode: 'free', amount: 0, currency: 'INR' } } }); service = await Service.findById(service._id);
+  const free = (await submit().expect(201)).body.data;
+  expect(free.status).toBe('submitted'); expect(free.billing).toBeUndefined(); expect(await adminList()).toEqual([String(free._id)]);
+  await action(free._id, 'under_review'); await action(free._id, 'in_progress');
+  await Service.updateOne({ _id: service._id }, { $set: { pricing: { mode: 'fixed', amount: 100, currency: 'INR' } } }); service = await Service.findById(service._id);
+  const bill = await billed();
   for (const patch of [{ amountPaise: 1 }, { feeVersion: 999 }, { acceptTerms: false }]) await pay(bill, patch).expect(409);
   await pay(bill, {}, other).expect(404);
-  await auth(request(app).post(`/api/services/applications/${a._id}/payment`), buyer, 'user', 'buyer').send({}).expect(403);
+  await auth(request(app).post(`/api/services/applications/${bill._id}/payment`), buyer, 'user', 'buyer').send({}).expect(403);
   expect(await Payment.countDocuments()).toBe(0);
 });
 
@@ -97,7 +112,7 @@ test('an uncertain checkout recovers the existing provider order and signed webh
   const checkout = (await pay(a).expect(200)).body.data; const p = capture(checkout);
   const body = { event: 'payment.captured', payload: { payment: { entity: p } } };
   await webhook(body).expect(200); await webhook(body).expect(200);
-  expect((await get(a._id)).billing.status).toBe('paid'); expect(await Ledger.countDocuments()).toBe(1);
+  expect(await get(a._id)).toMatchObject({ status: 'submitted', billing: { status: 'paid' } }); expect(await Ledger.countDocuments()).toBe(1);
 });
 
 test('extra captures create a refund obligation and financial hold instead of authorizing more work', async () => {
@@ -106,7 +121,8 @@ test('extra captures create a refund obligation and financial hold instead of au
   const extra = capture(checkout, 'pay_extra_fixture'); await webhook({ event: 'payment.captured', payload: { payment: { entity: extra } } }).expect(200);
   expect((await get(a._id)).billing.reviewRequired).toBe(true);
   expect((await Payment.findOne({ serviceApplicationId: a._id })).refundObligations).toHaveLength(1);
-  await action(a._id, 'in_progress', 'Held payment', 409);
+  await action(a._id, 'under_review'); await action(a._id, 'in_progress', 'Held payment', 409);
+  await action(a._id, 'rejected', 'Held payment', 409);
 });
 
 test('provider refund evidence is posted once and blocks processing without losing the original collection', async () => {
@@ -117,6 +133,20 @@ test('provider refund evidence is posted once and blocks processing without losi
   await webhook(body).expect(200); await webhook(body).expect(200);
   expect((await get(a._id)).billing).toMatchObject({ status: 'partial_refund', reviewRequired: true, refundedPaise: 5000 });
   expect(await Ledger.countDocuments()).toBe(2);
+});
+
+test('rejecting a paid application refunds the fee to the applicant wallet exactly once; unpaid ones close without a refund', async () => {
+  const a = await billed(), checkout = (await pay(a).expect(200)).body.data;
+  capture(checkout); await verify(a, checkout).expect(200);
+  const rejected = await action(a._id, 'rejected', 'Documents do not qualify');
+  expect(rejected).toMatchObject({ status: 'rejected', billing: { status: 'refunded', refundedPaise: 10000, refundedToWallet: true } });
+  expect((await User.findById(user._id)).wallet.balance).toBe(100);
+  const { default: WalletLedger } = await import('../models/WalletLedger.js');
+  expect(await WalletLedger.find({ userId: user._id }).lean()).toEqual([expect.objectContaining({ direction: 'credit', amount: 100, referenceType: 'SERVICE', referenceId: String(a._id) })]);
+  expect(await Ledger.findOne({ account: 'service_collections', direction: 'debit' })).toMatchObject({ amount: 100 });
+  expect((await Payment.findOne({ serviceApplicationId: a._id })).status).toBe('refunded');
+  const unpaid = await billed(); await action(unpaid._id, 'rejected', 'Closed unpaid');
+  expect((await User.findById(user._id)).wallet.balance).toBe(100);
 });
 
 test('live service payments require production mode and matching configured keys; old test payments cannot cross environments', async () => {

@@ -1,1 +1,29 @@
 .sm-panel{padding:clamp(12px,2vw,28px);color:var(--text-primary,#18352c);max-width:1400px;margin:auto}.sm-panel *{box-sizing:border-box}.sm-panel h2,.sm-panel h3,.sm-panel h4{margin:0 0 12px}.sm-panel p{white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0}.sm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:16px;margin:16px 0}.sm-card{background:var(--bg-card,#fff);border:1px solid #d7e3dd;border-radius:12px;padding:20px;margin:16px 0;min-width:0}.sm-panel label{display:flex;flex-direction:column;gap:6px;font-weight:600;margin-bottom:12px}.sm-panel input,.sm-panel textarea,.sm-panel select{width:100%;padding:10px;border:1px solid #acbeb5;border-radius:6px;font:inherit;background:#fff;color:#18352c}.sm-panel textarea{min-height:90px;resize:vertical}.sm-panel input[type=checkbox],.sm-panel input[type=radio]{width:auto;align-self:flex-start}.sm-panel button{border:1px solid #b6cbc0;background:#edf6f0;border-radius:6px;padding:10px 14px;color:#174b34;cursor:pointer;font:inherit}.sm-panel button:disabled{opacity:.5;cursor:default}.sm-panel :focus-visible{outline:3px solid #218652;outline-offset:2px}.sm-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.sm-actions h2{margin-right:auto}.sm-field{margin:18px 0}.sm-field small{display:block}.sm-panel fieldset{border:1px solid #d7e3dd;border-radius:6px;padding:12px}.sm-error{color:#a32020;background:#fff0f0;padding:10px;border-radius:6px}.sm-panel dt{font-weight:700;margin-top:12px}.sm-panel dd{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 12px}.sm-panel li{padding:6px 0}.sm-panel code{overflow-wrap:anywhere}.sm-sr{position:absolute;clip:rect(0,0,0,0);width:1px;height:1px;overflow:hidden}
+
+/* Service fee (paid at submission) and simple application header. */
+.service-fee { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; padding: 12px 14px; border: 1px solid #dbe4ee; border-radius: 12px; background: #f8fafc; }
+.service-fee.is-due { border-color: #99d5e6; background: #f0f9fc; }
+.service-fee-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.service-fee-row > span { color: #475569; font-size: 13px; font-weight: 700; }
+.service-fee-row > strong { font-size: 18px; color: #0f172a; font-variant-numeric: tabular-nums; }
+.service-fee-status { margin-left: auto; padding: 3px 10px; border-radius: 999px; background: #e2e8f0; color: #334155; font-size: 12px; font-style: normal; font-weight: 700; }
+.service-fee-status.is-paid { background: #dcfce7; color: #166534; }
+.service-fee-status:is(.is-unpaid, .is-pending, .is-failed) { background: #fef3c7; color: #92400e; }
+.service-fee-status:is(.is-refunded, .is-partial_refund) { background: #e0e7ff; color: #3730a3; }
+.service-fee-status.is-review { background: #fee2e2; color: #991b1b; }
+.service-fee-terms { margin: 0; color: #475569; font-size: 13px; line-height: 1.5; }
+.service-fee-pay { align-self: flex-start; min-height: 44px; padding: 0 20px; border: 0; border-radius: 10px; background: #0f766e; color: #fff; font-weight: 800; cursor: pointer; }
+.service-fee-pay:disabled { opacity: .6; cursor: not-allowed; }
+.service-fee-check { align-self: flex-start; }
+.sm-agree { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; color: #334155; }
+.sm-agree input { margin-top: 3px; }
+.sm-hint { margin: 0; padding: 8px 10px; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: 13px; }
+.sm-application-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sm-application-head h3 { margin: 0 0 4px; }
+.sm-application-head p { margin: 2px 0; color: #475569; font-size: 13px; }
+.sm-status { padding: 4px 12px; border-radius: 999px; background: #e2e8f0; color: #334155; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.sm-status:is(.is-submitted, .is-payment_verified, .is-under_review) { background: #e0f2fe; color: #075985; }
+.sm-status.is-information_required, .sm-status.is-awaiting_payment { background: #fef3c7; color: #92400e; }
+.sm-status.is-in_progress { background: #ede9fe; color: #5b21b6; }
+.sm-status.is-completed { background: #dcfce7; color: #166534; }
+.sm-status.is-rejected { background: #fee2e2; color: #991b1b; }

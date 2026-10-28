@@ -103,6 +103,8 @@ export default function StorefrontStudio() {
   const save = async publish => {
     if (operationBusy.current || uploadingBanner) return; operationBusy.current = true; setBusy(true); setFormError('');
     try {
+      // Checked before uploading: otherwise the artwork lands in a draft that can never be published.
+      if (publish && form.endAt && Date.parse(scheduleISO(form.endAt)) <= Date.now()) throw new Error('The end time has already passed. Set a later end time, then publish.');
       const attachedBanner = showUploadBanner && (bannerFile || newBannerForm.image) ? await uploadBanner() : selectedBanner;
       const bannerId = attachedBanner?._id || form.config.bannerId;
       if (publish && form.kind === 'campaign') {
@@ -148,9 +150,8 @@ export default function StorefrontStudio() {
         fd.append('externalUrl', newBannerForm.externalUrl);
       }
       fd.append('placement', 'STUDIO');
+      // No banner dates: the campaign's own schedule decides when this artwork is shown.
       fd.append('priority', String(form.priority || 0));
-      if (form.startAt) fd.append('startDate', scheduleISO(form.startAt));
-      if (form.endAt) fd.append('endDate', scheduleISO(form.endAt));
       fd.append('isActive', 'true');
       fd.append('isDraft', 'false');
       fd.append('image', bannerFile || newBannerForm.image);
@@ -462,7 +463,7 @@ export default function StorefrontStudio() {
         )}
 
         {form.kind === 'campaign' && <>{select('Theme override', form.config.themeId, refs(themes), themeId => config({ themeId }))}
-          {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<Field label="Auto-close after seconds (2–15)"><input type="number" min="2" max="15" value={form.config.duration} onChange={e => config({ duration: Number(e.target.value) })} /></Field><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">The splash closes automatically after the configured duration. One splash maximum per app launch. Audience: all visitors to the selected storefront.</p></>}
+          {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<Field label="Auto-close after seconds (2–15)"><input type="number" min="2" max="15" value={form.config.duration} onChange={e => config({ duration: Number(e.target.value) })} /></Field><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">The seconds count from when the image has loaded. One splash maximum per app launch: when several splash campaigns are live at the same time, only the one with the highest priority is shown. Changes reach customers only after you publish. Audience: all visitors to the selected storefront.</p></>}
         </>}
         {form.kind === 'section' && <><Field label="Customer-facing title"><input maxLength={100} value={form.config.title} onChange={e => config({ title: e.target.value })} /></Field>{select('Product collection', form.config.source, [{ value: 'recent', label: 'Recently added' }, { value: 'featured', label: 'Featured / curated picks' }, { value: 'category', label: 'Category collection' }, { value: 'price', label: 'Under a price' }, { value: 'campaign', label: 'Flash sale / accepted deal products' }, { value: 'wholesale', label: 'Wholesale discovery' }], source => config({ source }))}
           {form.config.source === 'category' && select('Category', form.config.categoryId, refs(categories), categoryId => config({ categoryId }))}

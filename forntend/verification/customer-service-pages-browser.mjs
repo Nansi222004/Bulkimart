@@ -155,7 +155,7 @@ try {
   await evaluate(`document.querySelector('a.service-book[href="/legal-services"]').click()`);
   await waitText('Legal consultation');
   await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='View service').click()`);
-  await waitText('Review request'); await waitText('Starting price: INR 100.00');
+  await waitText('Review request'); await waitText('₹100.00'); await waitText('paid when you submit');
   assert.equal(await evaluate('location.pathname'), '/legal-services/' + id);
   assert.ok(await evaluate(`!!document.querySelector('#service-field-name[required]')`));
   views.push({ width: 390, path: '/legal-services/' + id, state: 'requirements' });

@@ -10,27 +10,23 @@ assert.ok(exe, 'Chrome or Edge is required');
 const temp = await mkdtemp(join(tmpdir(), 'bulkimart-legal-browser-')), profile = join(temp, 'profile'); await mkdir(profile);
 const screenshots = resolve('../test-artifacts/services-ui'); await mkdir(screenshots, { recursive: true });
 const id = '507f1f77bcf86cd799439022', serviceId = '507f1f77bcf86cd799439023';
-const s = { _id: serviceId, version: 1, name: 'Fixture Legal Service', description: 'Synthetic service for private intake testing only.', instructions: 'Provide only the information needed.', formVersion: 1, fields: [{ id: 'name', label: 'Required name', type: 'text', required: true }], startingPrice: null };
-const q = { version: 1, scope: 'Synthetic confirmed scope', currency: 'INR', servicePaise: 500000, serviceTaxPaise: 0, totalPaise: 500000, terms: 'Synthetic approved cancellation and refund terms', policy: { terms: 'Synthetic approved terms' } };
-const a = { _id: id, version: 1, serviceName: s.name, status: 'awaiting_payment', paymentStatus: 'pending', fields: s.fields, answers: { name: 'Private fixture' }, files: [], events: [], quotation: q, canPay: false, createdAt: '2026-10-22T00:00:00Z' };
-const adminA = { _id: id, __v: 1, service: serviceId, user: 'fixture-customer', snapshot: { name: s.name, fields: s.fields }, answers: a.answers, files: [], events: [], status: 'awaiting_payment', legal: { quotes: [{ ...q, rate: 10, commissionPaise: 50000, providerPaise: 450000, policyVersion: 'fixture-only' }], paymentStatus: 'pending' }, reconciliation: { balancesPaise: {}, exceptions: ['bank_settlement_unreconciled'], settlementBlockers: ['completion_not_verified'], entries: [], payment: { attempts: [] } }, flags: { refunds: false } };
-let writes = 0, customerPhase = 'pending', vendorPhase = 'submitted';
+const s = { _id: serviceId, version: 1, name: 'Fixture Legal Service', description: 'Synthetic service for private intake testing only.', instructions: 'Provide only the information needed.', formVersion: 1, fields: [{ id: 'name', label: 'Required name', type: 'text', required: true }], startingPrice: { amount: 250, currency: 'INR' } };
+// Fixed-price services are paid at submission: an application is "Payment pending" until its fee is verified.
+const fee = (amountPaise, paid) => ({ version: 1, amountPaise, currency: 'INR', status: paid ? 'paid' : 'unpaid', terms: 'Synthetic fee and wallet refund terms', ...(paid ? { paymentId: true } : {}) });
+const adminApp = { _id: id, __v: 1, applicantType: 'customer', service: serviceId, user: '507f1f77bcf86cd799439099', snapshot: { name: s.name, fields: s.fields, pricing: { mode: 'fixed', amount: 250, currency: 'INR' } }, answers: { name: 'Private fixture' }, files: [], events: [], status: 'submitted', createdAt: '2026-10-22T00:00:00Z', billing: fee(25000, true) };
+let writes = 0, customerPhase = 'unpaid', vendorPhase = 'unpaid';
 const vendorService = { ...s, __v: 1, pricing: { mode: 'fixed', amount: 100, currency: 'INR' } };
-const customerView = () => customerPhase === 'pending' ? a : { ...a, answers: undefined,
-  status: customerPhase === 'submitted' ? 'submitted' : customerPhase === 'paid' ? 'payment_verified' : 'awaiting_payment',
-  paymentStatus: customerPhase === 'paid' ? 'paid' : 'not_requested', quotation: customerPhase === 'submitted' ? null : q, canPay: customerPhase === 'payable' };
-const vendorView = () => ({ _id: id, __v: 1, status: vendorPhase === 'submitted' ? 'submitted' : vendorPhase === 'paid' ? 'payment_verified' : 'awaiting_payment',
-  snapshot: { name: s.name, pricing: vendorService.pricing, fields: s.fields }, createdAt: a.createdAt,
-  billing: vendorPhase === 'submitted' ? undefined : { version: 1, amountPaise: 10000, status: vendorPhase === 'paid' ? 'paid' : 'unpaid', terms: 'Synthetic service payment terms', paymentId: 'fixture-payment' } });
+const customerView = () => ({ _id: id, version: 1, serviceName: s.name, status: customerPhase === 'paid' ? 'submitted' : 'awaiting_payment', fields: s.fields, answers: { name: 'Private fixture' }, files: [], events: [], createdAt: '2026-10-22T00:00:00Z', billing: fee(25000, customerPhase === 'paid') });
+const vendorView = () => ({ _id: id, __v: 1, status: vendorPhase === 'paid' ? 'submitted' : 'awaiting_payment', snapshot: { name: s.name, pricing: vendorService.pricing, fields: s.fields }, createdAt: '2026-10-22T00:00:00Z', files: [], events: [], billing: fee(10000, vendorPhase === 'paid') });
 const vite = await createServer({ define: { 'import.meta.env.VITE_API_BASE_URL': '""', 'import.meta.env.VITE_API_URL': '""' }, cacheDir: join(temp, 'vite-cache'), server: { host: '127.0.0.1', port: 0, hmr: false }, plugins: [{ name: 'isolated-legal-fixtures', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     if (req.url.startsWith('/api/')) {
       const p = new URL(req.url, 'http://fixture').pathname;
       if (req.method !== 'GET') {
         writes++; req.resume(); let data;
-        if (p === `/api/customer-services/catalogue/${serviceId}/applications`) { customerPhase = 'submitted'; data = { _id: id }; }
-        else if (p === `/api/services/${serviceId}/applications`) { vendorPhase = 'submitted'; data = vendorView(); }
-        else if (p === `/api/customer-services/applications/${id}/payment` || p === `/api/services/applications/${id}/payment`) data = { orderId: id, amountPaise: p.startsWith('/api/services/') ? 10000 : q.totalPaise, currency: 'INR', keyId: 'synthetic-key', razorpayOrderId: 'synthetic-order', verificationPath: p.startsWith('/api/services/') ? '/api/services/payments/verify' : '/api/customer-services/payments/verify' };
+        if (p === `/api/customer-services/catalogue/${serviceId}/applications`) { customerPhase = 'unpaid'; data = customerView(); }
+        else if (p === `/api/services/${serviceId}/applications`) { vendorPhase = 'unpaid'; data = vendorView(); }
+        else if (p === `/api/customer-services/applications/${id}/payment` || p === `/api/services/applications/${id}/payment`) data = { orderId: id, amountPaise: p.startsWith('/api/services/') ? 10000 : 25000, currency: 'INR', keyId: 'synthetic-key', razorpayOrderId: 'synthetic-order', verificationPath: p.startsWith('/api/services/') ? '/api/services/payments/verify' : '/api/customer-services/payments/verify' };
         else if (p === '/api/customer-services/payments/verify') { customerPhase = 'paid'; data = { status: 'paid' }; }
         else if (p === '/api/services/payments/verify') { vendorPhase = 'paid'; data = { status: 'paid' }; }
         res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(data ? { success: true, data } : { success: false, message: 'Browser fixture blocks unrecognized writes' }));
@@ -38,18 +34,17 @@ const vite = await createServer({ define: { 'import.meta.env.VITE_API_BASE_URL':
       let data = [], meta = { total: 1, page: 1, limit: 20 };
       if (p === '/api/customer-services') data = [s];
       else if (p === `/api/customer-services/catalogue/${serviceId}`) data = s;
-      else if (p === '/api/customer-services/applications' || p === '/api/legal-provider') data = [a];
+      else if (p === '/api/customer-services/applications') data = [customerView()];
       else if (p.startsWith('/api/customer-services/applications/')) data = customerView();
-      else if (p.startsWith('/api/legal-provider/')) data = a;
       else if (p === '/api/services') data = [vendorService];
       else if (p === '/api/services/applications') data = [vendorView()];
       else if (p.startsWith('/api/services/applications/')) data = vendorView();
       else if (p === '/api/admin/services') data = [vendorService];
-      else if (p === '/api/admin/services/legal/requests') data = [a];
-      else if (p.startsWith('/api/admin/services/legal/requests/')) data = adminA;
+      else if (p === '/api/admin/services/applications') data = [adminApp];
+      else if (p.startsWith('/api/admin/services/applications/')) data = adminApp;
       res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ success: true, data, meta }));
     }
-    if (/^\/(legal-services|legal-provider|admin\/services|seller\/services)(\/|\?|$)/.test(req.url)) {
+    if (/^\/(legal-services|admin\/services|seller\/services)(\/|\?|$)/.test(req.url)) {
       res.setHeader('Content-Type', 'text/html'); return res.end(await server.transformIndexHtml(req.url, '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Isolated legal fixtures</title></head><body style="margin:0"><div id="root"></div><script type="module" src="/verification/legal-browser-entry.jsx"></script></body></html>'));
     }
     next();
@@ -79,10 +74,10 @@ try {
   await command('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   for (const width of [320, 375, 430, 768, 1440]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 });
-    for (const [url, ready] of [['/legal-services', 'Fixture Legal Service'], [`/legal-services/${serviceId}`, 'Review request'], [`/legal-services/requests/${id}`, 'Check payment status'], ['/legal-provider', 'Open assignment'], ['/admin/services', 'Service Management'], [`/admin/services?legalRequest=${id}`, 'Apply authorized action']]) {
+    for (const [url, ready] of [['/legal-services', 'Fixture Legal Service'], [`/legal-services/${serviceId}`, 'Review request'], [`/legal-services/requests/${id}`, 'Payment pending'], ['/admin/services', 'Services and seller applications'], [`/admin/services?legalRequest=${id}`, 'APP-439022']]) {
       await command('Page.navigate', { url: origin + url }); await waitText(ready);
       assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), true, `Horizontal overflow ${width} ${url}`);
-      if (url.includes('/requests/')) assert.equal(await evaluate('document.body.innerText.includes("Pay confirmed amount")'), false, 'Pending request cannot claim eligible payment');
+      if (url.includes('/requests/')) assert.equal(await evaluate('document.body.innerText.includes("Pay ₹250.00")'), true, 'An unpaid request offers its fee');
       if (url === '/legal-services') {
         assert.equal(await evaluate('!!document.querySelector(".legal-nav-auth")'), false, 'Signed-in catalogue omits Account');
         await evaluate('document.querySelector("#legal-service-search").focus()');
@@ -91,11 +86,11 @@ try {
       }
       if (url.startsWith('/legal-services/requests/') || url.includes('legalRequest=')) {
         const reference = await evaluate(`(() => { const r=document.querySelector('.service-reference');return {text:r?.textContent,title:r?.title};})()`);
-        assert.deepEqual(reference, { text: 'SR-439022', title: id });
+        assert.deepEqual(reference, { text: url.includes('legalRequest=') ? 'APP-439022' : 'SR-439022', title: id });
       }
       if (url.startsWith('/admin/')) {
         const tabs = await evaluate(`(()=>{const nav=document.querySelector('.admin-services-sections'),selected=nav.querySelector('button[aria-pressed=true]'),style=getComputedStyle(selected);return {count:nav.children.length,radius:parseFloat(style.borderRadius),selected:selected.textContent};})()`);
-        assert.equal(tabs.count, 2); assert.ok(tabs.radius >= 8); assert.ok(tabs.selected.includes(url.includes('legalRequest=') ? 'Customer legal requests' : 'Catalogue and vendor applications'));
+        assert.equal(tabs.count, 2); assert.ok(tabs.radius >= 8); assert.ok(tabs.selected.includes(url.includes('legalRequest=') ? 'Customer requests' : 'Services and seller applications'));
       }
       if ([375, 1440].includes(width) && ['/legal-services', '/admin/services'].includes(url)) {
         const shot = await command('Page.captureScreenshot', { format: 'png' });
@@ -109,23 +104,23 @@ try {
   for (const width of [390, 1440]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 768 });
     for (const vendor of [false, true]) {
-      customerPhase = 'pending'; vendorPhase = 'submitted';
+      customerPhase = 'unpaid'; vendorPhase = 'unpaid';
       await command('Page.navigate', { url: origin + (vendor ? '/seller/services' : `/legal-services/${serviceId}`) });
       await waitText(vendor ? 'View requirements and apply' : 'Review request');
-      if (vendor) { await click('View requirements and apply'); await waitText('Submit application'); }
+      if (vendor) await click('View requirements and apply');
+      const payLabel = vendor ? 'Pay ₹100.00 & submit' : 'Pay ₹250.00 & submit';
       await evaluate(`(()=>{const input=document.querySelector('#service-field-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Fixture applicant');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-      if (!vendor) { await click('Review request'); await waitText('Submit Service Request'); }
-      await click(vendor ? 'Submit application' : 'Submit Service Request');
-      await waitText(vendor ? 'submitted successfully' : 'Reference:');
+      if (!vendor) await click('Review request');
+      await waitText(payLabel);
+      assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(payLabel)}).disabled`), true, 'Paying needs agreement');
+      // Razorpay is stubbed in the page: checkout succeeds and posts to the verification path.
+      await evaluate(`window.Razorpay=class{constructor(options){this.options=options;}on(){}close(){}open(){queueMicrotask(()=>this.options.handler({razorpay_order_id:'synthetic-order',razorpay_payment_id:'synthetic-payment',razorpay_signature:'synthetic-signature'}));}};document.querySelector('.sm-agree input').click();`);
+      await click(payLabel);
+      await waitText('Payment received');
       assert.ok(await evaluate('document.body.innerText.length>100'), 'Submission keeps a rendered page');
-      if (vendor) vendorPhase = 'payable'; else customerPhase = 'payable';
-      await click(vendor ? 'Refresh' : 'Refresh request');
-      await waitText(vendor ? 'Pay ₹100.00 to Bulkimart' : 'Pay confirmed amount');
-      await evaluate(`window.Razorpay=class{constructor(options){this.options=options;}on(){}close(){}open(){queueMicrotask(()=>this.options.handler({razorpay_order_id:'synthetic-order',razorpay_payment_id:'synthetic-payment',razorpay_signature:'synthetic-signature'}));}};document.querySelector('input[type=checkbox]').click();`);
-      await click(vendor ? 'Pay ₹100.00 to Bulkimart' : 'Pay confirmed amount');
-      await waitText(vendor ? 'Payment status: paid' : 'Payment: paid');
+      await waitText('Paid');
       assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true, `Payment overflow at ${width}`);
-      rows.push({ width, flow: vendor ? 'vendor submit and pay' : 'customer submit and pay', passed: true });
+      rows.push({ width, flow: vendor ? 'seller pays and submits' : 'customer pays and submits', passed: true });
     }
   }
   assert.equal(writes, 12); assert.deepEqual(errors, []);

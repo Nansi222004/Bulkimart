@@ -1,44 +1,56 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getPortalToken } from '../../utils/portalSession';
 import { openRazorpayCheckout } from '../../utils/razorpayCheckout';
 
-export default function ServicePaymentPanel({ application, admin, request, onUpdated, checkout = openRazorpayCheckout }) {
-  const [accepted, setAccepted] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+export const feeText = paise => `₹${(paise / 100).toFixed(2)}`;
+const STATUS_TEXT = { unpaid: 'Not paid yet', pending: 'Payment processing', failed: 'Payment failed — try again', paid: 'Paid', refunded: 'Refunded', partial_refund: 'Partly refunded' };
+
+// Opens Razorpay for an application's service fee. One idempotency key per fee version
+// survives a reload, so a retried checkout reuses the same gateway order.
+export async function payServiceFee({ application, request, authorization, checkout = openRazorpayCheckout }) {
+  const bill = application.billing, storageKey = `service-payment:${application._id}:${bill.version}`;
+  let key = null;
+  try { key = sessionStorage.getItem(storageKey); } catch { /* Storage is optional. */ }
+  key = key || crypto.randomUUID();
+  try { sessionStorage.setItem(storageKey, key); } catch { /* The same mounted page still reuses the key. */ }
+  const order = await request(`/applications/${application._id}/payment`, { method: 'POST', headers: { 'Idempotency-Key': key },
+    body: JSON.stringify({ feeVersion: bill.version, amountPaise: bill.amountPaise, acceptTerms: true }) });
+  const outcome = await checkout(order.data, { Authorization: authorization(), 'Content-Type': 'application/json' });
+  if (outcome.verified) { try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ } }
+  return outcome;
+}
+
+// The service fee on an application: applicants pay or check it here; admins see where it stands.
+export default function ServicePaymentPanel({ application, admin, request, onUpdated, authorization, checkout = openRazorpayCheckout }) {
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const lock = useRef(false), alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const bill = application.billing;
-  if (!bill) return application.snapshot?.pricing?.mode === 'fixed'
-    ? <p role="status">Payment can be made here after an admin reviews the application and requests the service fee.</p> : null;
-  const base = `/applications/${application._id}`, amount = `₹${(bill.amountPaise / 100).toFixed(2)}`;
+  if (!bill) return null;
+  const amount = feeText(bill.amountPaise);
   const payable = !admin && application.status === 'awaiting_payment' && !bill.reviewRequired && ['unpaid', 'pending', 'failed'].includes(bill.status);
-  const storageKey = `service-payment:${application._id}:${bill.version}`;
+  const status = bill.reviewRequired ? 'Needs finance review' : bill.refundedToWallet ? 'Refunded to Bulkimart wallet' : STATUS_TEXT[bill.status] || bill.status;
   async function run(pay) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setMessage('');
-    const token = getPortalToken('seller');
     try {
       if (pay) {
-        const key = sessionStorage.getItem(storageKey) || crypto.randomUUID(); sessionStorage.setItem(storageKey, key);
-        const b = await request(`${base}/payment`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ feeVersion: bill.version, amountPaise: bill.amountPaise, acceptTerms: accepted }) });
-        if (!alive.current || token !== getPortalToken('seller')) return;
-        const outcome = await checkout(b.data, { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
-        if (!alive.current || token !== getPortalToken('seller')) return;
-        setMessage(outcome.verified ? 'Payment verified. Your application is ready for admin processing.' : outcome.message || 'Payment pending verification. Check payment status before retrying.');
-        if (outcome.verified) sessionStorage.removeItem(storageKey);
+        const outcome = await payServiceFee({ application, request, authorization, checkout });
+        if (!alive.current) return;
+        setMessage(outcome.verified ? 'Payment received. Your application has been submitted.' : outcome.message || 'Payment not completed. You can try again.');
       } else {
-        const b = await request(`${base}/payment-status`, { method: 'POST', body: '{}' });
-        if (!alive.current || token !== getPortalToken('seller')) return;
-        if (['paid', 'failed'].includes(b.data.status)) sessionStorage.removeItem(storageKey);
-        setMessage(`Payment status: ${b.data.status}`);
+        const result = await request(`/applications/${application._id}/payment-status`, { method: 'POST', body: '{}' });
+        if (!alive.current) return;
+        setMessage(`Payment status: ${STATUS_TEXT[result.data.status] || result.data.status}`);
       }
       await onUpdated?.();
-    } catch (e) { if (alive.current && token === getPortalToken('seller')) setMessage(e.message); }
+    } catch (e) { if (alive.current) setMessage(e.message); }
     finally { lock.current = false; if (alive.current) setBusy(false); }
   }
-  return <section className="sm-card" aria-label="Service payment"><h4>Service payment · {amount}</h4><p>Payment status: {bill.status}</p><p>{bill.terms}</p>
-    {bill.reviewRequired && <p role="status">This payment requires admin reconciliation or refund review. Further payment and paid work are blocked.</p>}
-    {payable && <><label><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} />I accept the displayed fee and payment terms.</label><button type="button" disabled={!accepted || busy} onClick={() => run(true)}>Pay {amount} to Bulkimart</button></>}
-    {!admin && bill.paymentId && <button type="button" disabled={busy} onClick={() => run(false)}>Check payment status</button>}
+  return <section className={`service-fee${payable ? ' is-due' : ''}`} aria-label="Service fee">
+    <div className="service-fee-row"><span>Service fee</span><strong>{amount}</strong><em className={`service-fee-status is-${bill.reviewRequired ? 'review' : bill.status}`}>{status}</em></div>
+    {payable && <><p className="service-fee-terms">{bill.terms}</p><button type="button" className="service-fee-pay" disabled={busy} onClick={() => run(true)}>{busy ? 'Opening payment…' : `Pay ${amount}`}</button></>}
+    {!admin && bill.paymentId && ['pending', 'failed'].includes(bill.status) && <button type="button" className="service-fee-check" disabled={busy} onClick={() => run(false)}>Check payment status</button>}
+    {bill.reviewRequired && <p role="status">Our finance team is reviewing this payment. Work is paused until it is resolved.</p>}
     {message && <p role="status">{message}</p>}
   </section>;
 }

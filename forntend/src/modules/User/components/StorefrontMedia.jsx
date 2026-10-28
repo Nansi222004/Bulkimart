@@ -1,6 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 const mediaSrc = src => src?.startsWith('/uploads/') ? apiUrl(src) : src;
+// True once the image has loaded (or failed, or maxWait passed), so a timed splash counts its
+// seconds from when the artwork is on screen rather than from when the download started.
+export function useMediaReady(src, maxWait = 4000) {
+  const [loaded, setLoaded] = useState(null);
+  useEffect(() => {
+    if (!src) return;
+    let done = false; const finish = () => { if (!done) { done = true; setLoaded(src); } };
+    if (typeof Image === 'undefined') { finish(); return; }
+    const image = new Image(); image.onload = image.onerror = finish; image.src = mediaSrc(src);
+    if (image.complete) finish();
+    const timer = setTimeout(finish, maxWait);
+    return () => { done = true; clearTimeout(timer); image.onload = image.onerror = null; };
+  }, [src, maxWait]);
+  return !src || loaded === src;
+}
 export function useReducedMotion() {
   const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   useEffect(() => { const query = window.matchMedia('(prefers-reduced-motion: reduce)'); const update = () => setReduced(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);

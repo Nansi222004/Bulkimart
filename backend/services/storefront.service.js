@@ -26,7 +26,8 @@ export async function validateReferences(row) {
     if (!b || b.isDraft || !b.isActive || b.isArchived || b.actionType === 'SELLER_PROMOTION' || b.targetPromotion) throw httpError(400, 'Publish and enable the selected banner first');
     const requiredType = row.scope === 'quick' ? 'grocery' : row.scope === 'shop-all' ? 'ecommerce' : 'general';
     if (b.type !== 'general' && b.type !== requiredType) throw httpError(400, 'Banner storefront must match this configuration');
-    if (!overlap(row, { startAt: b.startDate, endAt: b.endDate })) throw httpError(400, 'Banner and configuration schedules do not overlap');
+    const own = bannerSchedule(b);
+    if (!overlap(row, { startAt: own.startDate, endAt: own.endDate })) throw httpError(400, 'Banner and configuration schedules do not overlap');
   }
   if (c.themeId && !await Experience.exists({ _id: c.themeId, kind: 'theme', status: 'published', scope: { $in: ['global', row.scope] } })) throw httpError(400, 'Select a published theme for this storefront');
   if (row.kind === 'section' && c.source === 'category' && (!c.categoryId || !await Category.exists({ _id: c.categoryId, isActive: true, type: row.scope === 'quick' ? 'grocery' : 'ecommerce' }))) throw httpError(400, 'Select an active category in this storefront');
@@ -113,9 +114,14 @@ export const adminDTO = row => {
     draft: draft ? { values: draft.values, revision: draft.revision, savedAt: draft.savedAt, stale: draft.base !== liveHash(row) } : null };
 };
 
+// Artwork uploaded inside the Studio belongs to its campaign, which owns the schedule. Older uploads
+// copied the campaign dates onto the banner, so extending the campaign later silently hid its artwork.
+export const bannerSchedule = b => b?.placement === 'STUDIO' ? {} : { startDate: b?.startDate, endDate: b?.endDate };
+
 // Explicit projection prevents draft/audit fields and private product details leaking.
 export function publicBanner(b, now = Date.now(), type) {
-  if (!b || !b.isActive || b.isDraft || b.isArchived || (b.startDate && new Date(b.startDate) > now) || (b.endDate && new Date(b.endDate) <= now) || b.targetPromotion || b.actionType === 'SELLER_PROMOTION') return null;
+  const { startDate, endDate } = bannerSchedule(b);
+  if (!b || !b.isActive || b.isDraft || b.isArchived || (startDate && new Date(startDate) > now) || (endDate && new Date(endDate) <= now) || b.targetPromotion || b.actionType === 'SELLER_PROMOTION') return null;
   let destination = { type: 'NONE' };
   if (b.actionType === 'CATEGORY') {
     const c = b.targetCategory; if (!c?.isActive || (type && c.type !== type)) return null;
@@ -138,7 +144,7 @@ export function publicBanner(b, now = Date.now(), type) {
   let animation = null;
   try { if (b.animation && effectActive(b.animation, now)) animation = validateEffect(b.animation, ['banner']); } catch { /* Invalid manual effects stay off. */ }
   return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', mobileVideo: b.mobileVideo || '', mediaType: b.mediaType || (b.video ? 'video' : 'image'), autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, animation, cta: b.cta || '', destination,
-    endAt: [b.endDate, b.targetCampaign?.endAt].filter(Boolean).sort((a, c) => new Date(a) - new Date(c))[0] || null };
+    endAt: [endDate, b.targetCampaign?.endAt].filter(Boolean).sort((a, c) => new Date(a) - new Date(c))[0] || null };
 }
 const populatedBanners = query => Banner.find(query).select('title subtitle image mobileImage video mobileVideo mediaType autoplay muted loop playsInline animation cta type category placement actionType targetCategory targetProduct targetCampaign targetPromotion targetRoute externalUrl isActive isDraft isArchived priority startDate endDate').populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();
 export async function resolveExperience(scope, device, category = '', now = Date.now()) {

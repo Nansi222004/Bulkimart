@@ -564,3 +564,11 @@ test('never-published drafts and legacy published records keep their existing be
   expect(legacyDraft).toMatchObject({ revision: 3, draft: { revision: 1, stale: false } }); expect((await publicRead()).theme.header).toEqual(DEFAULT_HEADER);
   await transition(legacyDraft); expect((await publicRead()).theme.header.title).toBe('Festive Sale');
 });
+test('Studio artwork follows its campaign schedule, so extending a campaign keeps its uploaded image live', async () => {
+  // Older Studio uploads copied the campaign dates onto the banner; once those passed, the extended campaign vanished.
+  await Banner.updateOne({ _id: banner._id }, { startDate: new Date(Date.now() - 7200000), endDate: new Date(Date.now() - 3600000) });
+  await transition(await create(promo({ startAt: new Date(Date.now() - 60000).toISOString(), endAt: new Date(Date.now() + 86400000).toISOString() })));
+  const live = await publicRead(); expect(live.splash?.banner.id).toBe(String(banner._id)); expect(live.splash.config.duration).toBe(5);
+  // A homepage banner keeps its own dates.
+  await Banner.updateOne({ _id: banner._id }, { placement: 'HOME_HERO' }); expect((await publicRead()).splash).toBeNull();
+});

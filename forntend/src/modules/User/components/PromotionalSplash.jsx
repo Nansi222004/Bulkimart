@@ -4,6 +4,7 @@ import { useStorefront } from '../context/StorefrontContext';
 import { useUser } from '../context/UserContext';
 import { eligibleSplash, markSplash, themeStyle } from '../../../utils/storefront';
 import SplashCard from './SplashCard';
+import { useMediaReady } from './StorefrontMedia';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 
 // "Once per launch" must outlive this component: signing in or out remounts
@@ -33,20 +34,33 @@ export default function PromotionalSplash({ children }) {
     if (eligibleSplash(splash, storage)) { consumed.current = true; rememberLaunch(splash); markSplash(splash, storage); setOpen(splash); }
     setLaunchChecked(true);
   }, [splash, now, homeLaunch, launchChecked, loading, version]);
+  // The launch may open a cached copy while the storefront revalidates. When the refresh brings the
+  // same splash republished (e.g. a new duration), switch to it instead of closing after a second.
+  useEffect(() => {
+    if (!open || splash?.id !== open.id || splash.revision === open.revision) return;
+    rememberLaunch(splash); setOpen(splash);
+  }, [splash, open]);
+  // On wide screens the artwork also fills the backdrop, blurred, so a portrait splash never sits on a bare colour.
+  const art = open && (device === 'mobile' && open.banner.mobileImage || open.banner.image);
+  const artReady = useMediaReady(art);
   useEffect(() => {
     if (!open) return;
-    const timer = setTimeout(() => setOpen(null), Math.min(15, Math.max(2, open.config.duration)) * 1000);
     const escape = event => { if (event.key === 'Escape') setOpen(null); };
     document.addEventListener('keydown', escape);
-    return () => { clearTimeout(timer); document.removeEventListener('keydown', escape); };
+    return () => document.removeEventListener('keydown', escape);
   }, [open]);
-  const visible = open && open.id === splash?.id && open.revision === splash?.revision && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
+  // The configured seconds count from when the artwork is on screen, not from when it started downloading.
+  useEffect(() => {
+    if (!open || !artReady) return;
+    const seconds = Number(open.config.duration);
+    const timer = setTimeout(() => setOpen(null), Math.min(15, Math.max(2, Number.isFinite(seconds) ? seconds : 5)) * 1000);
+    return () => clearTimeout(timer);
+  }, [open, artReady]);
+  const visible = open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
   if (!visible) {
     if (homeLaunch && !launchChecked) return <div className="sf-launch-loading" style={themeStyle(theme.tokens)}><strong>Bulkimart</strong><p role="status">Opening your store…</p></div>;
     return children || null;
   }
-  // On wide screens the artwork also fills the backdrop, blurred, so a portrait splash never sits on a bare colour.
-  const art = device === 'mobile' && open.banner.mobileImage || open.banner.image;
   return <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
     <SplashCard banner={open.banner} device={device} now={now} endAt={open.endAt} showCountdown={open.config.countdown}
       onNavigate={destination => { setOpen(null); navigate(destination); }} />

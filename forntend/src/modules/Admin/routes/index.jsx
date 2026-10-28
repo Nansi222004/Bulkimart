@@ -7,6 +7,7 @@ import { deregisterPushToken } from '../../../utils/firebaseMessaging';
 import { disconnectSocket } from '../../../utils/socket';
 import AdminProductDetailsPage from '../pages/AdminProductDetailsPage';
 import AdminServicesWorkspace from '../../../components/services/LegalAdminWorkspace';
+import PageErrorBoundary from '../../../components/PageErrorBoundary';
 import { AdminProvider, useAdmin } from '../context/AdminContext';
 import LeftSidebar from '../components/LeftSidebar';
 import TopHeader from '../components/TopHeader';
@@ -69,7 +70,7 @@ const AdminRoutesContent = ({ onLogout }) => {
     switch (activeTab) {
       case 'parcel-delivery': return <ParcelOperations admin />;
       case 'advertising': return <AdvertisingWorkspace admin />;
-      case 'services': return <AdminServicesWorkspace />;
+      case 'services': return <PageErrorBoundary name="admin-services"><AdminServicesWorkspace /></PageErrorBoundary>;
       case 'users':             
       case 'users-all':         return <UsersTab defaultStatusFilter="All" />;
       case 'users-active':      return <UsersTab defaultStatusFilter="Active" />;

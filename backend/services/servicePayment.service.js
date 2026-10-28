@@ -8,10 +8,25 @@ import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSig
 import { reconcileCreationAttempt } from './paymentRecovery.service.js';
 import { addRefundObligation } from './paymentObligations.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
+import { moneyPaise } from './vendorCommission.service.js';
+import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
+import { notifyAllAdmins } from './notification.service.js';
 
+// 'vendor_service' marks every simple service-fee payment (sellers and customers); legal quotation payments never use it.
 const purpose = { servicePaymentKind: 'vendor_service' };
+// The fee a fixed-price service charges when the application is submitted, or null for a free service.
+export function serviceFeeBilling(service) {
+  const price = service.pricing;
+  if (price?.mode !== 'fixed' || !(Number(price.amount) > 0)) return null;
+  if (price.currency !== 'INR') fail('Only INR service fees can be paid online', 409);
+  const amountPaise = moneyPaise(price.amount, 'Service fee');
+  if (amountPaise <= 0 || amountPaise > MAX_CHECKOUT_PAISE) fail('Service fee is outside the supported payment limit', 409);
+  return { version: 1, amountPaise, currency: 'INR', status: 'unpaid', requestedAt: new Date(),
+    terms: `Service fee for ${service.name}, paid to Bulkimart when you submit. If your application is rejected, the fee is refunded to your Bulkimart wallet.` };
+}
+// A seller's application (vendor set) or the signed-in customer's own request.
 async function owned(id, user, vendor, session = null) {
-  const a = await Application.findOne({ _id: id, user, vendor, applicantType: { $ne: 'customer' } }).session(session);
+  const a = await Application.findOne({ _id: id, user, ...(vendor ? { vendor, applicantType: { $ne: 'customer' } } : { applicantType: 'customer' }) }).session(session);
   if (!a) fail('Service application not found', 404);
   return a;
 }
@@ -20,7 +35,7 @@ export async function initiateServicePayment(id, user, vendor, input, key) {
   if (!/^[a-zA-Z0-9-]{16,100}$/.test(key || '')) fail('A valid payment request key is required');
   const prepared = await financialTransaction(async session => {
     const a = await owned(id, user, vendor, session), bill = a.billing;
-    if (a.status !== 'awaiting_payment' || !bill || bill.reviewRequired || ['paid', 'refunded', 'partial_refund'].includes(bill.status)) fail('An active admin payment request is required', 409);
+    if (a.status !== 'awaiting_payment' || !bill || bill.reviewRequired || ['paid', 'refunded', 'partial_refund'].includes(bill.status)) fail('This application has no service fee waiting to be paid', 409);
     if (input.acceptTerms !== true || input.feeVersion !== bill.version || input.amountPaise !== bill.amountPaise) fail('Refresh and accept the current service fee and payment terms', 409);
     if (bill.mode && bill.mode !== process.env.RAZORPAY_MODE) fail('Payment environment changed. Contact support.', 409);
     let p = bill.paymentId ? await Payment.findOne({ _id: bill.paymentId, ...purpose, serviceApplicationId: a._id, userId: user }).session(session) : null;
@@ -37,7 +52,7 @@ export async function initiateServicePayment(id, user, vendor, input, key) {
     if (p.gatewayAttempts.length >= 10) fail('Payment attempt limit reached. Contact support.', 409);
     p.gatewayAttempts.push({ attemptId: key, provider: 'razorpay', merchantOrderId: `SVC-${crypto.randomUUID()}`, amountPaise: bill.amountPaise, currency: 'INR', status: 'initializing', createdAt: new Date() });
     p.status = 'pending'; bill.status = 'pending'; bill.mode = process.env.RAZORPAY_MODE; bill.acceptedAt = new Date();
-    a.events.push({ action: 'payment_terms_accepted', actor: user, actorType: 'vendor', status: a.status });
+    a.events.push({ action: 'payment_terms_accepted', actor: user, actorType: a.applicantType === 'customer' ? 'customer' : 'vendor', status: a.status });
     a.markModified('billing'); await a.save({ session }); await p.save({ session });
     return { p, attempt: p.gatewayAttempts.at(-1).toObject(), fresh: true };
   });
@@ -54,14 +69,15 @@ export async function initiateServicePayment(id, user, vendor, input, key) {
     }
   }
   return { orderId: String(id), razorpayOrderId: attempt.gatewayOrderId, keyId: process.env.RAZORPAY_KEY_ID, amountPaise: attempt.amountPaise,
-    currency: 'INR', name: 'Bulkimart', description: 'Admin-confirmed service fee', verificationPath: '/api/services/payments/verify' };
+    currency: 'INR', name: 'Bulkimart', description: 'Service fee', verificationPath: vendor ? '/api/services/payments/verify' : '/api/customer-services/payments/verify' };
 }
 
 export async function settleServicePayment(paymentId, live) {
   requireServiceGateway();
-  return financialTransaction(async session => {
+  let submitted = null;
+  const status = await financialTransaction(async session => {
     const p = await Payment.findOne({ _id: paymentId, ...purpose }).session(session);
-    const a = p && await Application.findOne({ _id: p.serviceApplicationId, applicantType: { $ne: 'customer' } }).session(session), bill = a?.billing;
+    const a = p && await Application.findOne({ _id: p.serviceApplicationId }).session(session), bill = a?.billing;
     const attempt = p?.gatewayAttempts.find(t => t.gatewayOrderId === live.orderId);
     if (!bill || String(bill.paymentId) !== String(p._id) || bill.mode !== process.env.RAZORPAY_MODE || bill.version !== p.quotationVersion
       || !attempt || !live.paymentId || live.currency !== 'INR' || live.amountPaise !== attempt.amountPaise || live.amountPaise !== bill.amountPaise) fail('Service payment amount or association mismatch', 409);
@@ -78,7 +94,9 @@ export async function settleServicePayment(paymentId, live) {
           addRefundObligation(p, { key: `SERVICE_EXTRA:${live.paymentId}`, gatewayOrderId: live.orderId, gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, reason: 'Extra or late service capture requires refund review' });
           bill.reviewRequired = true;
         } else {
-          p.status = 'paid'; p.paidAt = new Date(); bill.status = 'paid'; bill.captureId = live.paymentId; a.status = 'payment_verified';
+          p.status = 'paid'; p.paidAt = new Date(); bill.status = 'paid'; bill.captureId = live.paymentId;
+          // A fee paid at submission makes the application real for the admin; an older admin-requested fee resumes review.
+          a.status = bill.requestedBy ? 'payment_verified' : 'submitted'; if (!bill.requestedBy) submitted = a;
         }
         await postLedgerEntry({ idempotencyKey: `SERVICE_RECEIPT:${live.paymentId}`, serviceApplicationId: a._id, paymentId: p._id,
           account: 'service_collections', type: 'adjustment', direction: 'credit', bucket: 'held', amount: live.amountPaise / 100,
@@ -99,6 +117,9 @@ export async function settleServicePayment(paymentId, live) {
     a.markModified('billing'); await a.save({ session }); await p.save({ session });
     return bill.status;
   });
+  if (submitted) await notifyAllAdmins({ event: 'SYSTEM', title: 'New paid service application', message: `${submitted.snapshot.name}: service fee paid and application submitted`,
+    metadata: { applicationId: String(submitted._id) }, route: `/admin/services?application=${submitted._id}` }).catch(() => {});
+  return status;
 }
 
 export async function verifyServicePayment(id, user, vendor, input = {}, poll = false) {

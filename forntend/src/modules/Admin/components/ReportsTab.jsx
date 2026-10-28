@@ -397,7 +397,7 @@ export default function ReportsTab() {
   const current = data && data.report === tab ? data : null;
 
   return <div className="sa-reports">
-    <div className="sa-report-tabs" role="tablist" aria-label="Report">
+    <div className="sa-report-tabs" role="tablist" aria-label="Report"><span className="sa-report-tabs-label" aria-hidden="true">Report</span>
       {REPORT_TABS.map(item => <button key={item.id} type="button" role="tab" id={`report-tab-${item.id}`} aria-selected={tab === item.id} aria-controls="report-panel"
         className={tab === item.id ? 'is-active' : ''} onClick={() => { setTab(item.id); setExportMessage(null); }}><span aria-hidden="true">{item.icon}</span> {item.label}</button>)}
     </div>

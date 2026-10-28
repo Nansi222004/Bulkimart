@@ -11,9 +11,10 @@ import { cleanupUnreferenced } from './serviceManagement.controller.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
 import { legalFlags, requireLegalFlag, requireLegalGateway, validateLegalPolicy, currentQuote, quotePayable } from '../services/legalPolicy.service.js';
 import { mutateLegal, adminAction, approvedProvider, oid, event, notifyLegal, submissionHash, legalReconciliation } from '../services/legalWorkflow.service.js';
-import { initiateLegalPayment, verifyLegalPayment, approveLegalRefund, executeLegalRefund } from '../services/legalPayment.service.js';
+import { approveLegalRefund, executeLegalRefund } from '../services/legalPayment.service.js';
 import { SERVICE_ANSWER_BYTES } from '../shared/serviceLimits.mjs';
 import { reconcileCreationAttempt } from '../services/paymentRecovery.service.js';
+import { serviceFeeBilling, initiateServicePayment, verifyServicePayment } from '../services/servicePayment.service.js';
 
 export const send = (res, data, meta = {}) => res.json({ success: true, data, meta });
 const visibility = { status: 'published', audiences: 'customer' };
@@ -32,6 +33,8 @@ export function requestDTO(a, mode = 'customer') {
     quotation: quoteDTO(q), paymentStatus: provider ? undefined : l.paymentStatus || 'not_requested',
     receipt: provider || !l.captureId ? null : { transactionReference: l.captureId, capturedPaise: l.capturedPaise, currency: 'INR' },
     canPay: !provider && quotePayable(a) && legalFlags().payments,
+    billing: provider || !a.billing ? null : { version: a.billing.version, amountPaise: a.billing.amountPaise, currency: a.billing.currency, status: a.billing.status, terms: a.billing.terms,
+      paymentId: a.billing.paymentId ? true : undefined, reviewRequired: Boolean(a.billing.reviewRequired), refundedToWallet: Boolean(a.billing.refundedToWallet) },
     cancellation: provider ? undefined : Boolean(l.cancellation), refundedPaise: provider ? undefined : l.refundedPaise || 0,
     refunds: provider ? undefined : (l.refunds || []).map(r => ({ key: r.key, amountPaise: r.amountPaise, status: r.status })),
     financialHold: Boolean(l.hold), settlementStatus: provider ? l.payout?.status || l.payableBucket || 'not_eligible' : undefined };
@@ -68,6 +71,7 @@ export async function submit(req, res) {
   if (!s) fail('Service not available', 404);
   if (Number(req.body.formVersion) !== s.formVersion || Number(req.body.serviceVersion) !== s.__v) fail('Service changed; reload requirements', 409);
   validateAnswers(s.fields, answers, metadata);
+  const billing = serviceFeeBilling(s);
   let stored = [], a;
   try {
     if (metadata.length) stored = await storeServiceFiles(req.files, 'document');
@@ -77,14 +81,17 @@ export async function submit(req, res) {
       if (!accepted.modifiedCount) fail('Service changed; reload requirements', 409);
       return (await Application.create([{ applicantType: 'customer', user: req.user._id, customerKey, submissionKey: `customer-${req.user._id}-${key}`, requestHash: hash, service: s._id,
         snapshot: { name: s.name, description: s.description, instructions: s.instructions, fields: s.fields, formVersion: s.formVersion }, answers,
-        files: stored, legal: { quotes: [], paymentStatus: 'not_requested' }, events: [{ actor: req.user._id, actorType: 'customer', action: 'submitted', status: 'submitted' }] }], { session }))[0];
+        files: stored, legal: { quotes: [], paymentStatus: 'not_requested' }, ...(billing ? { status: 'awaiting_payment', billing } : {}),
+        events: [{ actor: req.user._id, actorType: 'customer', action: 'submitted', status: billing ? 'awaiting_payment' : 'submitted' }] }], { session }))[0];
     });
   } catch (error) {
     await cleanupUnreferenced(stored);
     if (error.code === 11000) { const prior = await Application.findOne({ customerKey }); if (prior?.requestHash === hash) return send(res, requestDTO(prior)); }
     throw error;
   }
-  await notifyLegal(a, 'submitted'); send(res.status(201), requestDTO(a));
+  // A fixed-price request reaches the admins once its fee is paid (see servicePayment.service).
+  if (a.status === 'submitted') await notifyLegal(a, 'submitted');
+  send(res.status(201), requestDTO(a));
 }
 export async function loadRequest(req) {
   const match = { _id: oid(req.params.id), applicantType: 'customer' };
@@ -184,9 +191,10 @@ export async function savePolicy(req, res) {
   // Every version is immutable; explicit selected rule ID is never supplied by customers.
   const p = await Commission.create({ ...definition, createdBy: req.user._id }); send(res.status(201), p);
 }
-export const pay = async (req, res) => send(res, await initiateLegalPayment(oid(req.params.id), req.user._id, req.body, req.get('Idempotency-Key')));
-export const verify = async (req, res) => send(res, await verifyLegalPayment(oid(req.body.orderId), req.user._id, req.body));
-export const paymentStatus = async (req, res) => send(res, await verifyLegalPayment(oid(req.params.id), req.user._id, {}, true));
+// Customers pay the service fee when they submit, through the same checkout as seller services.
+export const pay = async (req, res) => send(res, await initiateServicePayment(oid(req.params.id), req.user._id, null, req.body, req.get('Idempotency-Key')));
+export const verify = async (req, res) => send(res, await verifyServicePayment(oid(req.body.orderId), req.user._id, null, req.body));
+export const paymentStatus = async (req, res) => send(res, await verifyServicePayment(oid(req.params.id), req.user._id, null, {}, true));
 export async function refund(req, res) { const a = await loadRequest(req); await executeLegalRefund(a, req.body.key, req.user._id, req.body.reconcile === true, req.body.providerRefundId); return requestDetail(req, res); }
 export async function recoverPayment(req, res) {
   requireLegalGateway();

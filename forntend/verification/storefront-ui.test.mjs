@@ -261,7 +261,8 @@ for (const publish of [false, true]) test(`${publish ? 'Publish schedule' : 'Sav
     assert.match(upload.url, /\/api\/banners$/); assert.ok(upload.options.body instanceof FormData);
     assert.equal(upload.options.body.get('image').name, 'diwali.webp');
     assert.equal(upload.options.body.get('placement'), 'STUDIO');
-    assert.equal(upload.options.body.get('startDate'), '2030-01-01T00:00:00.000Z');
+    // Studio artwork follows the campaign schedule, so the banner carries no dates of its own.
+    assert.equal(upload.options.body.get('startDate'), null); assert.equal(upload.options.body.get('endDate'), null);
     assert.equal(new Headers(upload.options.headers).has('Content-Type'), false);
     assert.equal(h.find(n => n.type === 'fieldset').props.disabled, true);
     upload.resolve({ _id: banner.id, image: banner.image, title: 'Diwali', type: 'general' }, 201); await h.settle();
@@ -895,4 +896,23 @@ test('media fields explain desktop vs mobile sizes and warn when a tall image is
     props.value = { mediaType: 'image', image: '/uploads/wide.webp' }; h.rerender(); await h.settle();
     assert.match(text(h.tree), /No mobile image yet/);
   } finally { h.close(); if (previous) globalThis.Image = previous; else delete globalThis.Image; }
+});
+test('the splash counts its seconds from when the image has loaded and stays open when a refresh republishes it', () => {
+  const originalTimer = globalThis.setTimeout, originalImage = globalThis.Image, callbacks = [], images = [];
+  globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
+  globalThis.Image = class { constructor() { images.push(this); } };
+  const context = { loading: false, version: 'cached', splash: { ...splash('launch'), config: { frequency: 'launch', duration: 10 } }, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
+  let h;
+  try {
+    h = browserHarness(Splash, { children: createElement('main') }, context);
+    assert.ok(h.find(n => n.type === SplashCard));
+    // Only the 4 s image-wait fallback is pending; the 10 s close timer waits for the artwork.
+    assert.deepEqual(callbacks.map(c => c.delay), [4000]);
+    images[0].onload(); h.flush();
+    assert.deepEqual(callbacks.map(c => c.delay), [4000, 10000]);
+    // The fresh response republished the same splash with a new duration: it stays open with the new one.
+    context.splash = { ...context.splash, revision: 2, config: { frequency: 'launch', duration: 12 } }; h.rerender(); h.flush();
+    assert.ok(h.find(n => n.type === SplashCard), 'A newer revision of the open splash does not close it');
+    assert.equal(callbacks.at(-1).delay, 12000);
+  } finally { h?.close(); globalThis.setTimeout = originalTimer; globalThis.Image = originalImage; }
 });

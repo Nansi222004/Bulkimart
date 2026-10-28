@@ -6,6 +6,7 @@ import StorefrontSections, { StorefrontAnnouncement } from '../components/Storef
 import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
 import LegalServices from '../../../components/services/LegalServices';
+import PageErrorBoundary from '../../../components/PageErrorBoundary';
 import { ParcelCustomerEntry } from '../../../components/parcels/ParcelDelivery';
 import { readProductRoute, rememberWholesaleReturn } from '../utils/productRoute';
 import RealtimeNotice from '../../../components/RealtimeNotice';
@@ -234,9 +235,9 @@ export const LandingPageContent = () => {
       case 'search':
         return <SearchPage />;
       case 'services':
-        return <><UnifiedHeader /><CustomerServices /></>;
+        return <><UnifiedHeader /><PageErrorBoundary name="services" key={activeNav}><CustomerServices /></PageErrorBoundary></>;
       case 'legal-services':
-        return <><UnifiedHeader /><LegalServices /></>;
+        return <><UnifiedHeader /><PageErrorBoundary name="legal-services" key={activeNav}><LegalServices /></PageErrorBoundary></>;
       case 'parcel-delivery':
         return <><UnifiedHeader /><ParcelCustomerEntry /></>;
       case 'categories':

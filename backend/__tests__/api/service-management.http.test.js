@@ -146,7 +146,8 @@ test('concurrent status actions commit a single transition and reject the losing
   expect(notifyUser).toHaveBeenCalledTimes(1);
 });
 test('file-only responses work and malformed response files cannot change status or history', async () => {
-  let a = (await submit(await published()).expect(201)).body.data;
+  // A free service: this test is about responses, not the fee paid at submission.
+  let a = (await submit(await published({ pricing: { mode: 'free', amount: 0, currency: 'INR' } })).expect(201)).body.data;
   a = await action(a, 'under_review'); a = await action(a, 'information_required', 'Please provide proof');
   const before = (await readdir(storage)).length;
   await auth(request(app).post(`/vendor/applications/${a._id}/respond`)).field('version', a.__v).attach('files', Buffer.from('invalid'), 'proof.pdf').expect(400);
@@ -299,7 +300,7 @@ test('all role/state/target combinations preserve the centralized lifecycle with
     if (permitted) { transition(a, target, { type, id: id() }, 'Fixture message'); expect(a.events).toHaveLength(1); allowed++; }
     else { expect(() => transition(a, target, { type, id: id() }, 'Fixture message')).toThrow(); expect(a).toEqual(before); denied++; }
   }
-  expect([allowed, denied]).toEqual([15, 113]);
+  expect([allowed, denied]).toEqual([14, 114]);
 });
 test('disconnects and upload timeouts release capacity without invoking the controller', async () => {
   const uploads = createServiceUploadControls({ maxPerAccount: 1, timeoutMs: 50 });

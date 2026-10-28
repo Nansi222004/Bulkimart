@@ -52,7 +52,7 @@ beforeEach(async () => {
   const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
   await Admin.collection.insertMany([{ _id: ids[0], name: 'Fixture', email: 'super@example.test', password: 'not-live', role: 'superAdmin', isActive: true }, { _id: ids[1], name: 'Limited', email: 'limited@example.test', password: 'not-live', role: 'admin', isActive: true, permissions: [] }]);
   [admin, limited] = await Promise.all(ids.map(id => Admin.findById(id)));
-  service = await Service.create({ name: 'Fixture legal intake', slug: 'fixture-legal', description: 'Synthetic service', instructions: 'Necessary data only', audiences: ['customer'], status: 'published', pricing: { mode: 'fixed', amount: 100, currency: 'INR' }, fields: [{ id: 'name', label: 'Name', type: 'text', required: true }, { id: 'proof', label: 'Proof', type: 'file', required: true, formats: ['pdf'], maxBytes: 1024 }] });
+  service = await Service.create({ name: 'Fixture legal intake', slug: 'fixture-legal', description: 'Synthetic service', instructions: 'Necessary data only', audiences: ['customer'], status: 'published', pricing: { mode: 'free', amount: 0, currency: 'INR' }, fields: [{ id: 'name', label: 'Name', type: 'text', required: true }, { id: 'proof', label: 'Proof', type: 'file', required: true, formats: ['pdf'], maxBytes: 1024 }] });
   provider = await Provider.create({ user: professional._id, displayName: 'Reviewed fixture', status: 'approved', services: [service._id], reviewReference: 'SYNTHETIC IDENTITY/ELIGIBILITY REVIEW', reviewedBy: admin._id, reviewedAt: new Date() });
 });
 const submit = (key = crypto.randomUUID(), who = customer, answers = { name: 'Private fixture' }) => auth(request(app).post(`/c/catalogue/${service._id}/applications`), who).set('Idempotency-Key', key).field('answers', JSON.stringify(answers)).field('formVersion', service.formVersion).field('serviceVersion', service.__v).attach('proof', pdf, { filename: 'proof.pdf', contentType: 'application/pdf' });
@@ -146,7 +146,7 @@ test('Admin customer checkbox alone controls visibility of an already-published 
   await request(app).get(`/c/catalogue/${service._id}`).expect(404);
   const visible = (await asAdmin(request(app).put(`/manage/${service._id}`)).send({ ...definition, audiences: ['vendor', 'customer'], version: hidden.__v }).expect(200)).body.data;
   expect(visible.status).toBe('published');
-  expect(visible.pricing.amount).toBe(100);
+  expect(visible.pricing.amount).toBe(service.pricing.amount);
   expect((await request(app).get('/c/capabilities').expect(200)).body.data.catalogue).toBe(true);
   await request(app).get(`/c/catalogue/${service._id}`).expect(200);
 });
@@ -187,101 +187,10 @@ test('provider needs explicit approval and sees only assigned and shared informa
   const shared = await auth(request(app).get(`/p/${a._id}`), professional).expect(200); expect(shared.body.data.files).toHaveLength(1);
   provider = await Provider.findById(provider._id); provider.status = 'suspended'; await provider.save(); await auth(request(app).get(`/p/${a._id}`), professional).expect(403);
 });
-test('quotation calculates illustrative 5000/10% correctly and is frozen after initiation', async () => {
-  const a = await quoted(), q = a.legal.quotes[0]; expect(q.totalPaise).toBe(500000); expect(q.commissionPaise).toBe(50000); expect(q.providerPaise).toBe(450000);
-  await initiate(a); expect((await act(a._id, 'quote', { serviceAmount: 1, scope: 'Attempted replacement' })).success).toBe(false);
-  expect((await getAdmin(a._id)).legal.quotes).toHaveLength(1);
-});
 test('no approved policy or future/expired quotation cannot authorize payment', async () => {
   expect(() => policy.quotationSnapshot({ serviceAmount: 1, scope: 'x' }, null, {}, admin._id)).toThrow(/approved/);
   const a = await quoted(); await Application.updateOne({ _id: a._id }, { $set: { 'legal.quotes.0.expiresAt': new Date('2000-01-01') } });
   await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', crypto.randomUUID()).send({ quotationVersion: 1, acceptTerms: true }).expect(409);
-});
-test('repeated payment creation reuses gateway order and never trusts body amount', async () => {
-  const a = await quoted(), key = crypto.randomUUID(), one = await initiate(a, key), two = await initiate(a, key); expect(one.razorpayOrderId).toBe(two.razorpayOrderId); expect(sdk.orders.create).toHaveBeenCalledTimes(1);
-  await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', crypto.randomUUID()).send({ quotationVersion: 2, acceptTerms: true, amount: 1 }).expect(409);
-});
-test('uncertain order creation blocks retry and shared recovery binds exact request and quote', async () => {
-  const a = await quoted(), key = crypto.randomUUID(); createError = true;
-  await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', key).send({ quotationVersion: 1, acceptTerms: true }).expect(503);
-  createError = false; await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', key).send({ quotationVersion: 1, acceptTerms: true }).expect(409);
-  await asAdmin(request(app).post(`/a/requests/${a._id}/recover-payment`)).send({ key, gatewayOrderId: 'order_1' }).expect(200);
-  expect((await initiate(a, key)).razorpayOrderId).toBe('order_1'); expect(sdk.orders.create).toHaveBeenCalledTimes(1);
-});
-test('invalid signature, wrong owner, amount or order cannot mark paid', async () => {
-  const a = await quoted(), c = await initiate(a); captured(c, 'pay_wrong', 1);
-  await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: c.razorpayOrderId, razorpay_payment_id: 'pay_wrong', razorpay_signature: 'bad' }).expect(401);
-  await auth(request(app).post(`/c/applications/${a._id}/payment-status`), other).send({}).expect(404);
-  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(409); expect(await Ledger.countDocuments()).toBe(0);
-});
-test('pending payment and frontend-only success do not allow work to start', async () => {
-  const a = await quoted(); await initiate(a); expect((await act(a._id, 'start')).success).toBe(false);
-  const pending = await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); expect(pending.body.data.status).toBe('pending'); expect(await Ledger.countDocuments()).toBe(0);
-});
-test('verified capture posts shared ledger once; repeated and concurrent callbacks conserve obligations', async () => {
-  const a = await paid(), p = await Payment.findById(a.legal.paymentId), live = { state: 'COMPLETED', orderId: 'order_1', paymentId: 'pay_fixture', amountPaise: 500000, currency: 'INR' };
-  await Promise.all([workflow.captureLegalPayment(p._id, live), workflow.captureLegalPayment(p._id, live)]);
-  expect(await Ledger.countDocuments({ serviceApplicationId: a._id })).toBe(3); // zero tax is not posted
-  expect((await Ledger.findOne({ account: 'legal_provider_payable' })).amount).toBe(4500);
-});
-test('signed webhook independently verifies capture; duplicate event is idempotent and invalid signature denied', async () => {
-  const a = await quoted(), c = await initiate(a), entity = captured(c), b = { event: 'payment.captured', payload: { payment: { entity } } };
-  expect((await webhook(b, false)).status).toBe(401); expect((await webhook(b)).status).toBe(200); expect((await webhook(b)).status).toBe(200); expect(await Ledger.countDocuments()).toBe(3);
-});
-test('failed then late capture is held and never authorizes work', async () => {
-  const a = await quoted(), c = await initiate(a), row = captured(c); row.status = 'failed';
-  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); row.status = 'captured';
-  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200);
-  expect((await getAdmin(a._id)).status).toBe('disputed'); expect(await Ledger.countDocuments({ account: 'legal_provider_payable' })).toBe(0);
-});
-test('provider completion requires full payment, admin verification and bank reconciliation before eligibility', async () => {
-  const a = await paid(); expect((await act(a._id, 'release')).success).toBe(false); expect((await act(a._id, 'start')).success).toBe(true);
-  let p = await auth(request(app).get(`/p/${a._id}`), professional); await auth(request(app).post(`/p/${a._id}/progress`), professional).field('version', p.body.data.version).field('action', 'completion_submitted').field('message', 'Synthetic completion evidence').expect(200);
-  expect((await act(a._id, 'release')).success).toBe(false); expect((await act(a._id, 'verify_completion')).success).toBe(true);
-  expect((await act(a._id, 'release')).success).toBe(false);
-  expect((await act(a._id, 'bank_reconciled', { bankReference: 'Synthetic bank receipt', settlementReference: 'Synthetic gateway settlement' })).success).toBe(true);
-  expect((await act(a._id, 'release')).success).toBe(true); expect((await act(a._id, 'release')).success).toBe(false);
-  await asAdmin(request(app).post(`/a/requests/${a._id}/payout`)).send({}).expect(503);
-});
-test('refund approval does not transfer money; execution works without an environment flag', async () => {
-  const a = await paid(); delete process.env.LEGAL_SERVICES_REFUNDS_ENABLED;
-  const r = await act(a._id, 'approve_refund', { amount: 1000 }); expect(r.success).toBe(true);
-  expect(sdk.payments.refund).not.toHaveBeenCalled();
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key: r.data.legal.refunds[0].key }).expect(200); expect(sdk.payments.refund).toHaveBeenCalledTimes(1);
-});
-test('full/partial refunds use shared recovery, compensate ledger once and cannot exceed capture', async () => {
-  const a = await paid(); let r = await act(a._id, 'approve_refund', { amount: 1000 }), key = r.data.legal.refunds[0].key;
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200); const count = await Ledger.countDocuments();
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key, reconcile: true }).expect(200); expect(await Ledger.countDocuments()).toBe(count);
-  expect((await getAdmin(a._id)).legal.reversedProviderPaise).toBe(90000);
-  expect((await act(a._id, 'approve_refund', { amount: 4001 })).success).toBe(false);
-  r = await act(a._id, 'approve_refund', { amount: 4000 }); key = r.data.legal.refunds.at(-1).key;
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
-  expect((await getAdmin(a._id)).status).toBe('refunded'); expect((await getAdmin(a._id)).legal.reversedProviderPaise).toBe(450000);
-});
-test('uncertain refund outcome is not retried as a second transfer', async () => {
-  const a = await paid(), r = await act(a._id, 'approve_refund', { amount: 1000 }), key = r.data.legal.refunds[0].key; refundError = true;
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(409); expect(sdk.payments.refund).toHaveBeenCalledTimes(1); expect((await getAdmin(a._id)).status).toBe('refund_processing');
-});
-test('cancellation requests hold work and do not silently mark a paid request cancelled', async () => {
-  const a = await paid(); const own = (await auth(request(app).get(`/c/applications/${a._id}`))).body.data;
-  await auth(request(app).post(`/c/applications/${a._id}/cancellation`)).send({ version: own.version, message: 'Review synthetic cancellation' }).expect(200);
-  expect((await act(a._id, 'start')).success).toBe(false); expect((await act(a._id, 'cancel')).success).toBe(false);
-});
-test('dispute hold and concurrent stale admin transitions cannot release payable or overwrite state', async () => {
-  const a = await paid(); expect((await act(a._id, 'hold')).success).toBe(true); expect((await act(a._id, 'start')).success).toBe(false);
-  const frozen = await getAdmin(a._id); const r = await Promise.all([asAdmin(request(app).post(`/a/requests/${a._id}/actions`)).send({ version: frozen.__v, action: 'resolve_hold', message: 'Verified resolution evidence' }), asAdmin(request(app).post(`/a/requests/${a._id}/actions`)).send({ version: frozen.__v, action: 'resolve_hold', message: 'Competing evidence' })]); expect(r.map(x => x.status).sort()).toEqual([200, 409]);
-});
-test('notification transport failure does not roll back submission or captured ledger postings', async () => {
-  notifyUser.mockRejectedValue(new Error('Transport offline')); notifyAllAdmins.mockRejectedValue(new Error('Transport offline'));
-  const a = await paid(); expect(a.status).toBe('payment_verified'); expect(await Ledger.countDocuments()).toBe(3);
-  notifyUser.mockResolvedValue(); notifyAllAdmins.mockResolvedValue();
-});
-test('append-only shared ledger denies mutation and transaction failure leaves no partial postings', async () => {
-  const a = await paid(), entry = await Ledger.findOne(); await expect(Ledger.updateOne({ _id: entry._id }, { amount: 1 })).rejects.toThrow(/append-only/);
-  const { financialTransaction } = await import('../services/financeSafety.service.js'); const count = await Ledger.countDocuments();
-  await expect(financialTransaction(async session => { await workflow.posting(await Application.findById(a._id).session(session), 'rollback-fixture', 'legal_collections', 'credit', 'held', 1, session); throw new Error('rollback fixture'); })).rejects.toThrow(/rollback fixture/); expect(await Ledger.countDocuments()).toBe(count);
 });
 test('policy requires explicit rates/base/tax/terms and conserves paise across rounding', () => {
   expect(() => policy.validateLegalPolicy({})).toThrow(); expect(() => policy.validateLegalPolicy({ ...fixturePolicy(), rate: 101 })).toThrow();
@@ -299,34 +208,56 @@ test('assigned provider may acknowledge before payment but cannot upload complet
   const otherProvider = await Provider.create({ user: other._id, displayName: 'Other fixture', status: 'approved', services: [service._id], reviewReference: 'Synthetic evidence', reviewedBy: admin._id, reviewedAt: new Date() });
   await auth(request(app).get(`/p/${a._id}`), other).expect(404);
 });
-test('admin-managed information loop resumes paid work without resetting payment or quotation', async () => {
-  const a = await paid(); await act(a._id, 'start'); await act(a._id, 'information');
-  const own = (await auth(request(app).get(`/c/applications/${a._id}`))).body.data;
-  await auth(request(app).post(`/c/applications/${a._id}/respond`)).field('version', own.version).field('message', 'Requested clarification').expect(200);
-  const fresh = await getAdmin(a._id); expect(fresh.status).toBe('in_progress'); expect(fresh.legal.paymentStatus).toBe('paid'); expect(fresh.legal.quotes).toHaveLength(1);
-});
-test('gateway dispute events are idempotent holds, including dispute closure until admin reconciliation', async () => {
-  const a = await paid(), b = { event: 'payment.dispute.created', payload: { dispute: { entity: { id: 'disp_fixture', payment_id: 'pay_fixture' } } } };
-  expect((await webhook(b)).status).toBe(200); expect((await webhook(b)).status).toBe(200);
-  const held = await getAdmin(a._id); expect(held.status).toBe('disputed'); expect(held.legal.disputes).toHaveLength(1); expect(await Ledger.countDocuments()).toBe(3);
-});
-test('wrong currency and gateway payment reused across request orders are rejected', async () => {
-  const a = await quoted(), c = await initiate(a), p = captured(c); p.currency = 'USD';
-  await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(409); p.currency = 'INR'; p.order_id = 'another-order';
-  const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${c.razorpayOrderId}|${p.id}`).digest('hex');
-  await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: c.razorpayOrderId, razorpay_payment_id: p.id, razorpay_signature: signature }).expect(409); expect(await Ledger.countDocuments()).toBe(0);
-});
-test('confirmed failed payment can create a new attempt while abandoned issued orders are reused', async () => {
-  const a = await quoted(), c = await initiate(a), p = captured(c); p.status = 'failed';
-  const failed = await auth(request(app).post(`/c/applications/${a._id}/payment-status`)).send({}).expect(200); expect(failed.body.data.status).toBe('failed');
-  const next = await initiate(a); expect(next.razorpayOrderId).not.toBe(c.razorpayOrderId); expect(sdk.orders.create).toHaveBeenCalledTimes(2);
-});
-test('pending refunds do not reverse ledger or establish refund completion', async () => {
-  const a = await paid(), r = await act(a._id, 'approve_refund', { amount: 1 }), key = r.data.legal.refunds[0].key; refundState = 'pending';
-  await asAdmin(request(app).post(`/a/requests/${a._id}/refund`)).send({ key }).expect(200);
-  const pending = await getAdmin(a._id); expect(pending.status).toBe('refund_processing'); expect(pending.legal.refundedPaise).toBeUndefined(); expect(await Ledger.countDocuments()).toBe(3);
-});
 test('stale provider review cannot overwrite approval and missing attestations cannot create verification', async () => {
   await asAdmin(request(app).post('/a/providers')).send({ user: String(professional._id), status: 'approved', displayName: 'Bad review', services: [String(service._id)], reviewReference: 'No attestation' }).expect(400);
   await asAdmin(request(app).post('/a/providers')).send({ user: String(professional._id), status: 'approved', displayName: 'Stale review', services: [String(service._id)], reviewReference: 'Synthetic review', identityReviewed: true, credentialsReviewed: true, version: 99 }).expect(409);
+});
+
+describe('customer requests use the simple service flow', () => {
+  const manage = async (id, status, message = 'Synthetic admin step', expected = 200) => {
+    const a = (await asAdmin(request(app).get(`/manage/applications/${id}`)).expect(200)).body.data;
+    return (await asAdmin(request(app).post(`/manage/applications/${id}/transition`)).field('version', a.__v).field('status', status).field('message', message).expect(expected)).body.data;
+  };
+  const customerView = async id => (await auth(request(app).get(`/c/applications/${id}`)).expect(200)).body.data;
+  async function paidRequest() {
+    await Service.updateOne({ _id: service._id }, { $set: { pricing: { mode: 'fixed', amount: 250, currency: 'INR' } } }); service = await Service.findById(service._id);
+    const a = (await submit().expect(201)).body.data;
+    expect(a).toMatchObject({ status: 'awaiting_payment', billing: { amountPaise: 25000, status: 'unpaid', version: 1 } });
+    expect(notifyAllAdmins).not.toHaveBeenCalled();
+    const checkout = (await auth(request(app).post(`/c/applications/${a._id}/payment`)).set('Idempotency-Key', crypto.randomUUID()).send({ feeVersion: 1, amountPaise: 25000, acceptTerms: true }).expect(200)).body.data;
+    expect(checkout).toMatchObject({ amountPaise: 25000, verificationPath: '/api/customer-services/payments/verify' });
+    captured(checkout);
+    const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${checkout.razorpayOrderId}|pay_fixture`).digest('hex');
+    await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: checkout.razorpayOrderId, razorpay_payment_id: 'pay_fixture', razorpay_signature: signature }).expect(200);
+    return a;
+  }
+
+  test('a fixed-price customer request is paid at submission, then the admin reviews, asks for information, works and completes it', async () => {
+    const a = await paidRequest();
+    expect(await customerView(a._id)).toMatchObject({ status: 'submitted', billing: { status: 'paid', amountPaise: 25000 } });
+    expect(notifyAllAdmins.mock.calls.some(([opts]) => opts?.title === 'New paid service application')).toBe(true);
+    const listed = (await asAdmin(request(app).get('/manage/applications?applicant=customer')).expect(200)).body.data.map(row => String(row._id));
+    expect(listed).toEqual([String(a._id)]);
+    expect((await asAdmin(request(app).get('/manage/applications')).expect(200)).body.data).toEqual([]);
+    await manage(a._id, 'under_review');
+    await manage(a._id, 'information_required', 'Please upload the signed form');
+    expect(notifyUser.mock.calls.some(([id, opts]) => id === String(customer._id) && opts.route === `/legal-services/requests/${a._id}`)).toBe(true);
+    const view = await customerView(a._id);
+    await auth(request(app).post(`/c/applications/${a._id}/respond`)).field('version', view.version).field('message', 'Signed form attached').attach('files', pdf, { filename: 'signed.pdf', contentType: 'application/pdf' }).expect(200);
+    expect((await customerView(a._id)).status).toBe('under_review');
+    await manage(a._id, 'in_progress'); await manage(a._id, 'completed');
+    expect((await customerView(a._id)).status).toBe('completed');
+  });
+
+  test('an unpaid customer request stays out of the admin queue and cannot be worked on; rejecting a paid one refunds the wallet', async () => {
+    await Service.updateOne({ _id: service._id }, { $set: { pricing: { mode: 'fixed', amount: 250, currency: 'INR' } } }); service = await Service.findById(service._id);
+    const unpaid = (await submit().expect(201)).body.data;
+    expect((await asAdmin(request(app).get('/manage/applications?applicant=customer')).expect(200)).body.data).toEqual([]);
+    await manage(unpaid._id, 'under_review', 'Too early', 409);
+    const a = await paidRequest();
+    const rejected = await manage(a._id, 'rejected', 'Outside our service area');
+    expect(rejected).toMatchObject({ status: 'rejected', billing: { status: 'refunded', refundedToWallet: true } });
+    expect((await User.findById(customer._id)).wallet.balance).toBe(250);
+    expect(await customerView(a._id)).toMatchObject({ status: 'rejected', billing: { status: 'refunded', refundedToWallet: true } });
+  });
 });

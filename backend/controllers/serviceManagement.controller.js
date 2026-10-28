@@ -3,10 +3,11 @@ import Service from '../models/Service.js';
 import Application, { APPLICATION_STATUSES } from '../models/ServiceApplication.js';
 import { fail, text, validateDefinition, validateAnswers } from '../services/serviceForms.service.js';
 import { SERVICE_ANSWER_BYTES } from '../shared/serviceLimits.mjs';
-import { transition } from '../services/serviceWorkflow.service.js';
+import { transition, refundDueOnRejection } from '../services/serviceWorkflow.service.js';
+import { refundServiceFeeToWallet } from '../services/serviceRefund.service.js';
 import { validateServiceFile, storeServiceFiles, removeServiceFiles, readServiceFile } from '../services/serviceStorage.service.js';
-import { notifyAllAdmins, notifySeller } from '../services/notification.service.js';
-import { initiateServicePayment, verifyServicePayment } from '../services/servicePayment.service.js';
+import { notifyAllAdmins, notifySeller, notifyUser } from '../services/notification.service.js';
+import { initiateServicePayment, verifyServicePayment, serviceFeeBilling } from '../services/servicePayment.service.js';
 const oid = id => { if (!mongoose.isObjectIdOrHexString(id)) fail('Invalid identifier'); return id; };
 const send = (res, data, meta = {}) => res.json({ success: true, data, meta });
 const admin = req => req.userType === 'admin';
@@ -71,7 +72,7 @@ export async function publishService(req, res) {
   await service.save(); send(res, service);
 }
 async function ownedApplication(req) {
-  const application = await Application.findOne({ _id: oid(req.params.id), applicantType: { $ne: 'customer' }, ...(admin(req) ? {} : { vendor: req.seller._id }) });
+  const application = await Application.findOne({ _id: oid(req.params.id), ...(admin(req) ? {} : { applicantType: { $ne: 'customer' }, vendor: req.seller._id }) });
   if (!application) fail('Application not found', 404);
   return application;
 }
@@ -81,10 +82,14 @@ export async function preflightApplicationUpload(req, _res, next) {
   if (!admin(req) && application.status !== 'information_required') fail('An information request is required before responding.', 403);
   next();
 }
+const STATUS_WORDS = { submitted: 'submitted', under_review: 'is being reviewed', information_required: 'needs more information from you', in_progress: 'is in progress', completed: 'is completed', rejected: 'was rejected' };
 async function notify(application, isAdmin, action) {
-  const opts = { event: 'SYSTEM', title: 'Service application update', message: `Application ${application._id}: ${action}`, metadata: { applicationId: String(application._id) }, route: isAdmin ? '/seller/services' : '/admin/services' };
-  if (isAdmin) await notifySeller(application.vendor, opts);
-  else await notifyAllAdmins(opts);
+  const name = application.snapshot?.name || 'Service';
+  const opts = { event: 'SYSTEM', title: 'Service application update', message: `${name} ${isAdmin ? STATUS_WORDS[action] || action.replaceAll('_', ' ') : action.replaceAll('_', ' ')}`, metadata: { applicationId: String(application._id) },
+    route: !isAdmin ? `/admin/services?application=${application._id}` : application.applicantType === 'customer' ? `/legal-services/requests/${application._id}` : '/seller/services' };
+  if (!isAdmin) await notifyAllAdmins(opts);
+  else if (application.applicantType === 'customer') await notifyUser(String(application.user), opts);
+  else await notifySeller(application.vendor, opts);
 }
 export async function createApplication(service, payload) {
   // The conditional write is the acceptance boundary. An unpublication or
@@ -114,6 +119,7 @@ export async function submitApplication(req, res) {
   const service = await Service.findOne({ _id: oid(req.params.id), status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] });
   if (!service) fail('Service not available', 404);
   if (Number(req.body.formVersion) !== service.formVersion || Number(req.body.serviceVersion) !== service.__v) fail('Service has changed. Reload the form and review the current price.', 409);
+  const billing = serviceFeeBilling(service);
   const files = req.files || [];
   const metadata = files.map(validateServiceFile);
   const answers = validateAnswers(service.fields, parse(req.body.answers), metadata);
@@ -124,7 +130,8 @@ export async function submitApplication(req, res) {
     if (req.aborted || res.destroyed) fail('Service upload interrupted. Please retry.', 400);
     application = await createApplication(service, { service: service._id, vendor: req.seller._id, user: req.user._id, submissionKey,
       snapshot: { name: service.name, instructions: service.instructions, formVersion: service.formVersion, fields: service.fields, pricing: service.pricing.toObject() }, answers, files: stored,
-      events: [{ action: 'submitted', status: 'submitted', actor: req.user._id, actorType: 'vendor' }],
+      ...(billing ? { status: 'awaiting_payment', billing } : {}),
+      events: [{ action: 'submitted', status: billing ? 'awaiting_payment' : 'submitted', actor: req.user._id, actorType: 'vendor' }],
     });
   } catch (error) {
     await cleanupUnreferenced(stored);
@@ -134,12 +141,15 @@ export async function submitApplication(req, res) {
     }
     throw error;
   }
-  await notify(application, false, 'submitted'); send(res.status(201), publicApplication(application));
+  if (application.status === 'submitted') await notify(application, false, 'submitted');
+  send(res.status(201), publicApplication(application));
 }
 export async function listApplications(req, res) {
   const { page, limit } = pagination(req);
-  const query = { applicantType: { $ne: 'customer' }, ...(admin(req) ? {} : { vendor: req.seller._id }) };
+  const customers = admin(req) && req.query.applicant === 'customer';
+  const query = { applicantType: customers ? 'customer' : { $ne: 'customer' }, ...(admin(req) ? {} : { vendor: req.seller._id }) };
   if (req.query.status) { if (!APPLICATION_STATUSES.includes(req.query.status)) fail('Invalid status'); query.status = req.query.status; }
+  else if (admin(req)) query.status = { $ne: 'awaiting_payment' };
   if (req.query.service) query.service = oid(req.query.service);
   for (const key of ['from', 'to']) if (req.query[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(req.query[key]) || !Number.isFinite(Date.parse(req.query[key])))) fail('Invalid date filter');
   if (req.query.from || req.query.to) query.createdAt = { ...(req.query.from ? { $gte: new Date(req.query.from) } : {}), ...(req.query.to ? { $lt: new Date(Date.parse(req.query.to) + 86400000) } : {}) };
@@ -164,8 +174,11 @@ export async function actOnApplication(req, res) {
   const files = req.files || [];
   let message = req.body.message ?? '';
   if (!isAdmin && files.length && typeof message === 'string' && !message.trim()) message = 'Additional documents submitted';
+  const refund = isAdmin && target === 'rejected' && refundDueOnRejection(application);
   transition(application, target, actor(req), message);
   if (files.length && isAdmin && target !== 'completed') fail('Deliverables can only be added when completing an application');
+  // The wallet credit is idempotent per application, so a retried rejection never pays twice.
+  if (refund) await refundServiceFeeToWallet(application, req.user._id);
   if (files.some(f => f.fieldname !== 'files')) fail('Invalid upload field');
   let stored = [];
   try {

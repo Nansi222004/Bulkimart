@@ -3,15 +3,19 @@ import { getPortalToken } from '../../utils/portalSession';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
-import ServicePaymentPanel from './ServicePaymentPanel';
+import ServicePaymentPanel, { payServiceFee, feeText } from './ServicePaymentPanel';
 import ServiceReference, { shortServiceReference } from './ServiceReference';
 import './services.css';
 import { createLatestRequest, serviceApplicationId } from './serviceRequests';
 import { SERVICE_TEXT_CHARS, SERVICE_ANSWER_BYTES, SERVICE_FILE_COUNT, SERVICE_FILE_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
 
 const types = ['text', 'textarea', 'number', 'date', 'select', 'radio', 'checkbox', 'email', 'phone', 'file'];
-const labels = { submitted: 'Submitted', under_review: 'Under Review', information_required: 'More Information Required', awaiting_payment: 'Awaiting payment', payment_verified: 'Payment verified', in_progress: 'In Progress', completed: 'Completed', rejected: 'Rejected' };
-const transitions = { submitted: ['under_review', 'rejected'], under_review: ['information_required', 'awaiting_payment', 'in_progress', 'rejected'], information_required: ['rejected'], awaiting_payment: ['awaiting_payment', 'rejected'], payment_verified: ['in_progress'], in_progress: ['awaiting_payment', 'completed', 'rejected'], completed: [], rejected: [] };
+const labels = { awaiting_payment: 'Payment pending', submitted: 'Submitted', payment_verified: 'Paid', under_review: 'Under review', information_required: 'More information needed', in_progress: 'In progress', completed: 'Completed', rejected: 'Rejected' };
+// Mirrors the server workflow. Fixed-price services are paid when the applicant submits.
+const transitions = { awaiting_payment: ['rejected'], submitted: ['under_review', 'rejected'], payment_verified: ['under_review', 'in_progress', 'rejected'], under_review: ['information_required', 'in_progress', 'rejected'], information_required: ['under_review', 'rejected'], in_progress: ['completed', 'rejected'], completed: [], rejected: [] };
+const actionLabels = { under_review: 'Start review', information_required: 'Ask for more information', in_progress: 'Start work', completed: 'Mark completed', rejected: 'Reject' };
+const eventLabels = { submitted: 'Submitted', payment_terms_accepted: 'Payment started', payment_verified: 'Payment received', refunded_to_wallet: 'Fee refunded to wallet', vendor_response: 'Applicant responded', customer_response: 'Applicant responded', deliverables_added: 'Deliverables added', response_documents_added: 'Documents added' };
+const sellerAuthorization = () => `Bearer ${getPortalToken('seller') || ''}`;
 const blank = () => ({ name: '', slug: '', description: '', instructions: '', pricing: { mode: 'free', amount: 0, currency: 'INR' }, fields: [] });
 const price = p => !p ? 'Price unavailable' : p.mode === 'free' ? 'Free' : `${p.currency} ${Number(p.amount).toFixed(2)}`;
 const key = () => crypto.randomUUID();
@@ -74,41 +78,46 @@ export function ServiceEditor({ initial, onSave, busy }) {
   </form>;
 }
 
-export function ApplicationDetail({ application: a, admin, request, run, busy, onChange, onDirty }) {
+export function ApplicationDetail({ application: a, admin, request, run, busy, onChange, onDirty, authorization = sellerAuthorization }) {
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState([]);
   const [target, setTarget] = useState('');
   const upload = useRef();
   useEffect(() => { onDirty?.(Boolean(message || files.length || target)); }, [message, files, target, onDirty]);
   const ui = useFeedback();
-  const available = (transitions[a.status] || []).filter(status => status !== 'awaiting_payment' || a.snapshot.pricing?.mode === 'fixed')
-    .filter(status => !['awaiting_payment', 'rejected'].includes(status) || (!a.billing?.paymentId && a.billing?.status !== 'paid'))
-    .filter(status => !['in_progress', 'completed'].includes(status) || a.snapshot.pricing?.mode !== 'fixed' || (a.billing?.status === 'paid' && !a.billing.reviewRequired));
-  const act = status => ui.perform({title:'Update application?', message:`Set application ${shortServiceReference(a._id, 'APP')} (${a.snapshot.name}) to ${labels[status] || status}?`,confirmLabel:'Update application',destructive:status==='rejected'}, () => run(async () => {
+  const feeHeld = a.billing && (a.billing.status !== 'paid' || a.billing.reviewRequired);
+  const available = (transitions[a.status] || []).filter(status => !['in_progress', 'completed'].includes(status) || !feeHeld)
+    .filter(status => status !== 'rejected' || !a.billing?.reviewRequired);
+  const refundsFee = a.billing?.status === 'paid' && !a.billing.reviewRequired;
+  const act = status => ui.perform({title: `${actionLabels[status] || 'Update'}?`, message: `${actionLabels[status] || labels[status]}: ${a.snapshot.name} (${shortServiceReference(a._id, 'APP')}).${status === 'rejected' && refundsFee ? ` The ${feeText(a.billing.amountPaise)} fee will be refunded to the applicant's Bulkimart wallet.` : ''}`, confirmLabel: actionLabels[status] || 'Update', destructive: status === 'rejected'}, () => run(async () => {
     const data = new FormData(); data.set('version', a.__v); data.set('message', message); if (admin) data.set('status', status);
     if (files.length > SERVICE_FILE_COUNT || files.some(f => f.size > SERVICE_FILE_BYTES)) throw new Error('Upload at most 10 files, with each file no larger than 5 MiB.');
     if (!admin || status === 'completed') files.forEach(f => data.append('files', f));
     const result = await request(`/applications/${a._id}/${admin ? 'transition' : 'respond'}`, { method: 'POST', body: data });
     onChange(result.data); setMessage(''); setFiles([]); setTarget(''); if (upload.current) upload.current.value = '';
   }));
-  return <section className="sm-card"><h3>{a.snapshot.name}</h3><p>Application ID: <ServiceReference value={a._id} prefix="APP" label="Application ID" /></p><p><strong>{labels[a.status] || String(a.status || '').replaceAll('_', ' ')}</strong> · {price(a.snapshot.pricing)}</p><p>Submitted {new Date(a.createdAt).toLocaleString()}</p>{admin && <p>Vendor ID: <ServiceReference value={a.vendor} prefix="VEN" label="Vendor ID" /></p>}
+  const customer = a.applicantType === 'customer';
+  return <section className="sm-card sm-application"><div className="sm-application-head"><div><h3>{a.snapshot.name}</h3><p><ServiceReference value={a._id} prefix="APP" label="Application ID" /> · Submitted {new Date(a.createdAt).toLocaleString()}</p>{admin && <p>{customer ? 'Customer' : 'Seller'}: <ServiceReference value={customer ? a.user : a.vendor} prefix={customer ? 'CUS' : 'VEN'} label={customer ? 'Customer ID' : 'Seller ID'} /></p>}</div><span className={`sm-status is-${a.status}`}>{labels[a.status] || String(a.status || '').replaceAll('_', ' ')}</span></div>
     <dl>{(a.snapshot.fields || []).filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{typeof a.answers?.[f.id] === 'boolean' ? (a.answers[f.id] ? 'Yes' : 'No') : String(a.answers?.[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
-    <ServicePaymentPanel application={a} admin={admin} request={request} onUpdated={async () => onChange((await request(`/applications/${a._id}`)).data)} />
+    <ServicePaymentPanel application={a} admin={admin} request={request} authorization={authorization} onUpdated={async () => onChange((await request(`/applications/${a._id}`)).data)} />
     {a.informationRequest && <p><strong>Information request:</strong> {a.informationRequest}</p>}{a.rejectionReason && <p><strong>Rejection reason:</strong> {a.rejectionReason}</p>}
     <h4>Documents and deliverables</h4>{!a.files?.length && <p>No files attached.</p>}{(a.files || []).map(f => <div key={f.fileId}><button disabled={busy} onClick={() => run(async () => { const blob = await request(`/applications/${a._id}/files/${f.fileId}`, {}, true); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); })}>Download {f.name}</button> <small>{f.kind} · {(f.sizeBytes / 1024).toFixed(1)} KB</small></div>)}
-    <h4>History</h4><ol>{(a.events || []).map(e => <li key={e._id}>{new Date(e.at).toLocaleString()} · {e.actorType} · {labels[e.action] || String(e.action || '').replaceAll('_', ' ')}{e.message && <p>{e.message}</p>}</li>)}</ol>
+    <h4>History</h4><ol>{(a.events || []).map(e => <li key={e._id}>{new Date(e.at).toLocaleString()} · {e.actorType} · {eventLabels[e.action] || actionLabels[e.action] || labels[e.action] || String(e.action || '').replaceAll('_', ' ')}{e.message && <p>{e.message}</p>}</li>)}</ol>
     {((admin && available.length > 0) || (!admin && a.status === 'information_required')) && <form onSubmit={e => { e.preventDefault(); act(admin ? target : 'under_review'); }}><fieldset disabled={busy}>
-      {admin && <label>Action<select required value={target} onChange={e => setTarget(e.target.value)}><option value="">Choose action…</option>{available.map(s => <option key={s} value={s}>{s === 'awaiting_payment' ? 'Request payment' : labels[s]}</option>)}</select></label>}
-      <label>{admin ? target === 'awaiting_payment' ? 'Payment terms shown to the applicant (include cancellation and refund terms)' : 'Message / required reason for rejection or information request' : 'Response to information request'}<textarea maxLength={2000} required={admin ? ['rejected', 'information_required', 'awaiting_payment'].includes(target) : !files.length} value={message} onChange={e => setMessage(e.target.value)} /></label>
+      {admin && <label>Action<select required value={target} onChange={e => setTarget(e.target.value)}><option value="">Choose action…</option>{available.map(s => <option key={s} value={s}>{actionLabels[s]}</option>)}</select></label>}
+      {admin && target === 'rejected' && refundsFee && <p className="sm-hint">The {feeText(a.billing.amountPaise)} service fee will be refunded to the applicant's Bulkimart wallet.</p>}
+      <label>{admin ? target === 'information_required' ? 'What do you need from the applicant?' : target === 'rejected' ? 'Reason for rejection (shown to the applicant)' : 'Note for the applicant (optional)' : 'Your response'}<textarea maxLength={2000} required={admin ? ['rejected', 'information_required'].includes(target) : !files.length} value={message} onChange={e => setMessage(e.target.value)} /></label>
       {(!admin || target === 'completed') && <label>{admin ? 'Final deliverables' : 'Additional documents'} (up to 10 files, 5 MB each)<input ref={upload} type="file" multiple accept=".pdf,.png,.jpg,.jpeg" onChange={e => setFiles(Array.from(e.target.files))} /></label>}
-      <button disabled={busy || (admin && !target)}>{busy ? 'Saving…' : admin ? 'Apply action' : 'Send response and return to review'}</button>
+      <button disabled={busy || (admin && !target)}>{busy ? 'Saving…' : admin ? actionLabels[target] || 'Apply' : 'Send response'}</button>
     </fieldset></form>}
   </section>;
 }
 
-export default function ServicesPanel({ admin = false }) {
+export default function ServicesPanel({ admin = false, applicant = 'vendor' }) {
   const ui = useFeedback();
-  const [tab, setTab] = useState('services');
+  const customers = admin && applicant === 'customer';
+  const [tab, setTab] = useState(customers ? 'applications' : 'services');
+  const [agreed, setAgreed] = useState(false);
   const [items, setItems] = useState([]), [meta, setMeta] = useState({ total: 0 }), [page, setPage] = useState(1);
   const [filter, setFilter] = useState(''), [from, setFrom] = useState(''), [to, setTo] = useState('');
   const [selected, setSelected] = useState(null), [editor, setEditor] = useState(null), [application, setApplication] = useState(null);
@@ -132,9 +141,9 @@ export default function ServicesPanel({ admin = false }) {
   const load = useCallback(async () => {
     const task = listRequests.current.start();
     setLoading(true); setError('');
-    try { const result = await request(`${tab === 'applications' ? '/applications' : ''}?page=${page}&limit=20${tab === 'applications' ? `&status=${filter}&from=${from}&to=${to}` : ''}`, { signal: task.signal }); if (mounted.current && task.isCurrent()) { setItems(result.data); setMeta(result.meta); } }
+    try { const result = await request(`${tab === 'applications' ? '/applications' : ''}?page=${page}&limit=20${tab === 'applications' ? `&status=${filter}&from=${from}&to=${to}${customers ? '&applicant=customer' : ''}` : ''}`, { signal: task.signal }); if (mounted.current && task.isCurrent()) { setItems(result.data); setMeta(result.meta); } }
     catch (e) { if (mounted.current && task.isCurrent()) { setError(e.message); setItems([]); } } finally { if (mounted.current && task.isCurrent()) setLoading(false); }
-  }, [request, tab, page, filter, from, to]);
+  }, [request, tab, page, filter, from, to, customers]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; listRequests.current.cancel(); detailRequests.current.cancel(); }; }, []);
   useEffect(() => { load(); return () => listRequests.current.cancel(); }, [load]);
   const openApplication = useCallback(async (id, confirmDiscard = true) => {
@@ -167,7 +176,7 @@ export default function ServicesPanel({ admin = false }) {
         if (detailDirty.current && !await ui.ask('Discard unsaved application changes and return to the service list?')) {
           window.history.replaceState(null, '', `/admin/services?application=${currentApplication.current._id}`); return;
         }
-        detailRequests.current.cancel(); setApplication(null); setDetailLoading(false); detailDirty.current = false; setItems([]); setTab('services');
+        detailRequests.current.cancel(); setApplication(null); setDetailLoading(false); detailDirty.current = false; setItems([]); setTab(customers ? 'applications' : 'services');
       } else { detailRequests.current.cancel(); setDetailLoading(false); }
     };
     navigate(); window.addEventListener('service-application-open', navigate); window.addEventListener('popstate', navigate);
@@ -185,6 +194,7 @@ export default function ServicesPanel({ admin = false }) {
   };
   const switchTab = async t => { const allowed=allowDiscard(); if(allowed!==true && !await allowed)return; listRequests.current.cancel(); detailRequests.current.cancel(); setDetailLoading(false); detailDirty.current = false; setConflict(false); setItems([]); setLoading(true); setTab(t); setPage(1); setSelected(null); setEditor(null); setApplication(null); setError(''); setNotice(''); if (admin) window.history.replaceState(null, '', '/admin/services'); if (tab === t && page === 1) void load(); };
   const submit = () => run(async () => {
+    if (fee && !agreed) throw new Error(`Agree to pay the ${feeText(fee)} service fee to submit.`);
     if (serializedAnswerBytes(answers) > SERVICE_ANSWER_BYTES) throw new Error('Application answers exceed the 256 KiB total limit. Please shorten your answers.');
     if (Object.values(files).filter(Boolean).length > SERVICE_FILE_COUNT) throw new Error('Upload at most 10 documents.');
     for (const f of selected.fields.filter(f => f.type !== 'file')) if (typeof answers[f.id] === 'string' && answers[f.id].length > Math.min(f.maxLength ?? SERVICE_TEXT_CHARS, SERVICE_TEXT_CHARS)) throw Object.assign(new Error('Please shorten your answer.'), { fields: { [f.id]: 'Text length is invalid' } });
@@ -193,18 +203,27 @@ export default function ServicesPanel({ admin = false }) {
     Object.entries(files).forEach(([id, file]) => { if (file) data.append(id, file); });
     const result = await request(`/${selected._id}/applications`, { method: 'POST', headers: { 'Idempotency-Key': submissionKey.current }, body: data });
     if (!result.data?._id || !result.data.snapshot || !Array.isArray(result.data.snapshot.fields)) throw new Error('The application response is incomplete. Retry with the same submission key to recover your request.');
-    setSelected(null); setItems([]); setTab('applications'); setApplication(result.data); submissionKey.current = key(); setNotice(`Application ${shortServiceReference(result.data._id, 'APP')} submitted successfully.`);
+    setSelected(null); setItems([]); setTab('applications'); setApplication(result.data); submissionKey.current = key();
+    if (result.data.status !== 'awaiting_payment') { setNotice(`Application ${shortServiceReference(result.data._id, 'APP')} submitted successfully.`); return; }
+    // Fixed-price service: take the fee straight away. Closing checkout leaves a Pay button on the application.
+    const outcome = await payServiceFee({ application: result.data, request, authorization: sellerAuthorization }).catch(e => ({ message: e.message }));
+    if (!mounted.current) return;
+    applyApplication((await request(`/applications/${result.data._id}`)).data);
+    setNotice(outcome.verified ? `Payment received. Application ${shortServiceReference(result.data._id, 'APP')} has been submitted.` : `${outcome.message || 'Payment was not completed.'} Your application is saved — pay the fee below to submit it.`);
   });
-  return <section className="sm-panel" aria-label="Service management"><div className="sm-actions"><h2>{admin ? 'Service Management' : 'Vendor Services'}</h2><button disabled={busy} aria-pressed={tab === 'services'} onClick={() => switchTab('services')}>{admin ? 'Manage services' : 'Service catalogue'}</button><button disabled={busy} aria-pressed={tab === 'applications'} onClick={() => switchTab('applications')}>{admin ? 'Applications' : 'My applications'}</button><button disabled={busy || loading || detailLoading} onClick={refresh}>Refresh</button></div>
+  const fee = selected?.pricing?.mode === 'fixed' && Number(selected.pricing.amount) > 0 ? Math.round(Number(selected.pricing.amount) * 100) : 0;
+  return <section className="sm-panel" aria-label="Service management"><div className="sm-actions"><h2>{customers ? 'Customer requests' : admin ? 'Services and seller applications' : 'Vendor Services'}</h2>{!customers && <><button disabled={busy} aria-pressed={tab === 'services'} onClick={() => switchTab('services')}>{admin ? 'Manage services' : 'Service catalogue'}</button><button disabled={busy} aria-pressed={tab === 'applications'} onClick={() => switchTab('applications')}>{admin ? 'Seller applications' : 'My applications'}</button></>}<button disabled={busy || loading || detailLoading} onClick={refresh}>Refresh</button></div>
     {error && <div className="sm-error" role="alert">{error} <button disabled={busy} onClick={refresh}>{application ? 'Reload latest application' : 'Retry list'}</button></div>}{conflict && <p role="alert">The record changed. Reload the latest application and review it before retrying your action.</p>}{notice && <p role="status">{notice}</p>}{detailLoading && <p role="status">Loading application…</p>}
     {application ? <><button disabled={busy} onClick={() => switchTab('applications')}>Back to applications</button><ApplicationDetail key={`${application._id}:${detailRevision}`} application={application} admin={admin} request={request} run={run} busy={busy || detailLoading} onChange={applyApplication} onDirty={onDirty} /></>
       : editor ? <><button disabled={busy} onClick={() => setEditor(null)}>Back to services</button><ServiceEditor key={editor._id || 'new'} initial={editor} busy={busy} onSave={form => run(async () => { await request(form._id ? `/${form._id}` : '', { method: form._id ? 'PUT' : 'POST', body: JSON.stringify({ ...form, version: form.__v }) }); setEditor(null); setNotice('Service saved.'); await load(); })} /></>
-      : selected ? <><button disabled={busy} onClick={() => setSelected(null)}>Back to catalogue</button><form className="sm-card" onSubmit={e => { e.preventDefault(); submit(); }}><h3>{selected.name} — {price(selected.pricing)}</h3><p>{selected.description}</p><p>{selected.instructions}</p><p>Each application is independent. The displayed price will be recorded with this application.</p><DynamicFields fields={selected.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy} /><button disabled={busy}>{busy ? 'Submitting…' : 'Submit application'}</button></form></>
+      : selected ? <><button disabled={busy} onClick={() => setSelected(null)}>Back to catalogue</button><form className="sm-card" onSubmit={e => { e.preventDefault(); submit(); }}><h3>{selected.name} — {price(selected.pricing)}</h3><p>{selected.description}</p><p>{selected.instructions}</p><DynamicFields fields={selected.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy} />
+        {fee > 0 && <div className="service-fee is-due"><div className="service-fee-row"><span>Service fee</span><strong>{feeText(fee)}</strong></div><label className="sm-agree"><input type="checkbox" checked={agreed} disabled={busy} onChange={e => setAgreed(e.target.checked)} />I agree to pay {feeText(fee)} now. If my application is rejected, the fee is refunded to my Bulkimart wallet.</label></div>}
+        <button disabled={busy || (fee > 0 && !agreed)}>{busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${feeText(fee)} & submit` : 'Submit application'}</button></form></>
       : <>{tab === 'applications' && <div className="sm-grid"><label>Status<select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All statuses</option>{Object.entries(labels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label><label>From<input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1); }} /></label><label>To<input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1); }} /></label></div>}
         {admin && tab === 'services' && <button onClick={() => setEditor(blank())}>Create service</button>}
         {loading ? <p role="status">Loading…</p> : <><div className="sm-grid">{items.map(item => <article className="sm-card" key={item._id}><h3>{tab === 'services' ? item.name : item.snapshot.name}</h3><p>{tab === 'services' ? price(item.pricing) : labels[item.status]}</p>{tab === 'applications' ? <><p><ServiceReference value={item._id} prefix="APP" label="Application ID" /></p><p>{new Date(item.createdAt).toLocaleDateString()}</p><button disabled={busy || detailLoading} onClick={() => openApplication(item._id)}>View application</button></>
-          : <><p>{item.description}</p>{admin ? <><p>{item.status} · Form version {item.formVersion}</p><ServiceVisibility service={item}/><div className="sm-actions"><button disabled={busy} onClick={() => setEditor(item)}>Edit / preview</button><button disabled={busy} onClick={async () => { return ui.perform(`${item.status === 'published' ? 'Unpublish' : 'Publish'} ${item.name}?`, async () => {return await run(async () => { await request(`/${item._id}/publication`, { method: 'POST', body: JSON.stringify({ status: item.status === 'published' ? 'unpublished' : 'published', version: item.__v }) }); await load(); });}); }}>{item.status === 'published' ? 'Unpublish' : 'Publish'}</button></div></> : <button disabled={busy} onClick={() => { setSelected(item); setAnswers({}); setFiles({}); setErrors({}); submissionKey.current = key(); }}>View requirements and apply</button>}</>}
-        </article>)}</div>{!items.length && <p>No {tab === 'services' ? 'services available' : 'applications found'}.</p>}<div className="sm-actions"><button disabled={page <= 1 || busy} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} · {meta.total} total</span><button disabled={page * 20 >= meta.total || busy} onClick={() => setPage(p => p + 1)}>Next</button></div></>}
+          : <><p>{item.description}</p>{admin ? <><p>{item.status} · Form version {item.formVersion}</p><ServiceVisibility service={item}/><div className="sm-actions"><button disabled={busy} onClick={() => setEditor(item)}>Edit / preview</button><button disabled={busy} onClick={async () => { return ui.perform(`${item.status === 'published' ? 'Unpublish' : 'Publish'} ${item.name}?`, async () => {return await run(async () => { await request(`/${item._id}/publication`, { method: 'POST', body: JSON.stringify({ status: item.status === 'published' ? 'unpublished' : 'published', version: item.__v }) }); await load(); });}); }}>{item.status === 'published' ? 'Unpublish' : 'Publish'}</button></div></> : <button disabled={busy} onClick={() => { setSelected(item); setAnswers({}); setFiles({}); setErrors({}); setAgreed(false); submissionKey.current = key(); }}>View requirements and apply</button>}</>}
+        </article>)}</div>{!items.length && <p>{tab === 'services' ? 'No services available.' : customers ? 'No customer requests yet.' : 'No applications found.'}</p>}<div className="sm-actions"><button disabled={page <= 1 || busy} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} · {meta.total} total</span><button disabled={page * 20 >= meta.total || busy} onClick={() => setPage(p => p + 1)}>Next</button></div></>}
       </>}
   </section>;
 }
