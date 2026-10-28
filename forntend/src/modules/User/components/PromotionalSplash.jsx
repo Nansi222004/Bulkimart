@@ -45,7 +45,9 @@ export default function PromotionalSplash({ children }) {
     if (homeLaunch && !launchChecked) return <div className="sf-launch-loading" style={themeStyle(theme.tokens)}><strong>Bulkimart</strong><p role="status">Opening your store…</p></div>;
     return children || null;
   }
-  return <ModalPortal className="sf-splash" style={themeStyle(theme.tokens)} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
+  // On wide screens the artwork also fills the backdrop, blurred, so a portrait splash never sits on a bare colour.
+  const art = device === 'mobile' && open.banner.mobileImage || open.banner.image;
+  return <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
     <SplashCard banner={open.banner} device={device} now={now} endAt={open.endAt} showCountdown={open.config.countdown}
       onNavigate={destination => { setOpen(null); navigate(destination); }} />
   </ModalPortal>;

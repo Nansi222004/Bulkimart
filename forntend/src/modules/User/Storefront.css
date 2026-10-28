@@ -212,7 +212,8 @@
 /* Desktop and tablet: the splash is a centred card over a dimmed backdrop, showing the whole artwork instead of a full-window crop. Phones keep the full-screen splash. */
 @media(min-width:768px){
   .sf-splash,.sf-splash.modal-viewport{display:flex;align-items:center;justify-content:center;padding:32px;background:color-mix(in srgb,var(--sf-header,#79000B) 35%,#0b0f19e6)}
-  .sf-splash .sf-splash-card{width:auto;height:auto;max-width:min(880px,90vw);max-height:86vh;border-radius:20px;box-shadow:0 30px 80px #0008}
+  .sf-splash::before{content:"";position:absolute;inset:-60px;background:var(--sf-splash-art,none) center/cover no-repeat;filter:blur(40px) saturate(1.15) brightness(.55);transform:scale(1.05);pointer-events:none}
+  .sf-splash .sf-splash-card{position:relative;z-index:1;width:auto;height:auto;max-width:min(880px,90vw);max-height:86vh;border-radius:20px;box-shadow:0 30px 80px #0008}
   .sf-splash .sf-splash-card>img,.sf-splash .sf-splash-card>video{position:static;width:auto;max-width:100%;height:auto;max-height:86vh;object-fit:contain}
   .sf-splash .sf-splash-card>.sf-media-fallback{position:static;width:min(560px,90vw);height:min(420px,70vh)}
 }

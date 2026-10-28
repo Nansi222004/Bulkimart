@@ -162,3 +162,78 @@ test('csv helpers keep numbers numeric and neutralise formulas in text', () => {
   expect(toCsv(['a', 'b'], [[-12.5, '-cmd'], ['x,"y"\nz', null]])).toBe('"a","b"\r\n-12.5,"\'-cmd"\r\n"x,""y""\nz",\r\n');
   expect(maskPhone('9876543210')).toBe('98••••••10'); expect(maskPhone('')).toBe('');
 });
+
+describe('order payments report', () => {
+  const line = (sellerId, extra) => ({ itemId: String(id()), productId: String(id()), sellerId: String(sellerId), qty: 1, rule: { version: 1 }, allocatedDiscounts: {}, ...extra });
+  async function seedOrders() {
+    const [S1, S2, buyer, riderUser, P1] = [id(), id(), id(), id(), id()];
+    await Seller.collection.insertMany([{ _id: S1, userId: id(), businessName: 'Alpha Store', status: 'approved' }, { _id: S2, userId: id(), businessName: 'Beta Store', status: 'approved' }]);
+    await User.collection.insertMany([{ _id: buyer, name: 'Asha Buyer', phone: '9876501111', roles: ['buyer'] }, { _id: riderUser, name: 'Ravi Rider', phone: '9876503333', roles: ['delivery'] }]);
+    await DeliveryPartner.collection.insertOne({ _id: P1, userId: riderUser, status: 'approved' });
+    const a1 = line(S1, { grossPaise: 60000, eligiblePaise: 58000, commissionPaise: 5800, taxPaise: 1044, tcsPaise: 300, tdsPaise: 600, taxableValuePaise: 50847, gstRatePercent: 18, netPaise: 52256 });
+    const a2 = line(S2, { grossPaise: 40000, eligiblePaise: 40000, commissionPaise: 4000, taxPaise: 720, tcsPaise: 200, tdsPaise: 400, taxableValuePaise: 38095, gstRatePercent: 5, netPaise: 34680 });
+    const snapshot = (lines, components) => ({ version: 2, discountFunding: 'platform', lines, components: { merchandisePaise: 0, sellerIncentivePaise: 0, tipPaise: 0, donationPaise: 0, ...components } });
+    const order = (key, extra) => ({ _id: id(), orderNo: `ORD-${key}`, userId: buyer, type: 'ecommerce', paymentMethod: 'cod', createdAt: ist('2026-09-10T10:00:00'), updatedAt: ist('2026-09-10T10:00:00'), ...extra });
+    const delivered = order('A', { status: 'delivered', financialPosting: 'held',
+      items: [{ _id: new mongoose.Types.ObjectId(a1.itemId), sellerId: S1, name: 'Rice 5kg', price: 600, qty: 1 }, { _id: new mongoose.Types.ObjectId(a2.itemId), sellerId: S2, name: 'Oil 1L', price: 400, qty: 1 }],
+      pricing: { subtotal: 1000, deliveryCharge: 30, tipAmount: 5, totalAmount: 1015 }, financialSnapshot: snapshot([a1, a2], { deliveryPaise: 3000, tipPaise: 500 }) });
+    const b1 = line(S1, { grossPaise: 20000, eligiblePaise: 20000, commissionPaise: 2000, taxPaise: 360, tcsPaise: 100, tdsPaise: 200, taxableValuePaise: 16949, gstRatePercent: 18, netPaise: 17340 });
+    const open = order('B', { status: 'placed', items: [{ _id: new mongoose.Types.ObjectId(b1.itemId), sellerId: S1, name: 'Dal', price: 200, qty: 1 }], pricing: { subtotal: 200, deliveryCharge: 20, totalAmount: 220 },
+      financialSnapshot: snapshot([b1], { deliveryPaise: 2000 }), delivery: { riderPayoutQuoted: 25 } });
+    const payC = id();
+    const cancelled = order('C', { status: 'cancelled', paymentMethod: 'wallet', paymentId: payC, items: [{ _id: id(), sellerId: S2, name: 'Tea', price: 150, qty: 1 }], pricing: { subtotal: 150, totalAmount: 150 } });
+    await Payment.collection.insertOne({ _id: payC, userId: buyer, orderId: cancelled._id, method: 'wallet', status: 'refunded', amount: 150 });
+    await Order.collection.insertMany([delivered, open, cancelled]);
+    let n = 0;
+    const post = (account, type, direction, amount, sellerId) => ({ _id: id(), entryNo: `OE${++n}`, idempotencyKey: `OK${n}`, orderId: delivered._id, sellerId, account, type, direction, bucket: 'held', amount, currency: 'INR', status: 'posted', description: 'fixture', metadata: {}, createdAt: ist('2026-09-11T12:05:00') });
+    await Ledger.collection.insertMany([
+      post('seller_payable', 'order_earning', 'credit', 522.56, S1), post('seller_payable', 'order_earning', 'credit', 346.8, S2),
+      // A held→eligible release is a pair of moves and must not change the seller's earning.
+      post('seller_payable', 'adjustment', 'debit', 522.56, S1), { ...post('seller_payable', 'adjustment', 'credit', 522.56, S1), bucket: 'eligible' },
+      post('commission_revenue', 'platform_commission', 'credit', 58, S1), post('commission_revenue', 'platform_commission', 'credit', 40, S2),
+      post('tax_liability', 'commission_tax', 'credit', 17.64), post('tcs_liability', 'tcs_deduction', 'credit', 5), post('tds_liability', 'tds_deduction', 'credit', 10),
+      post('platform_discount_expense', 'platform_discount', 'credit', 20), post('customer_delivery', 'customer_delivery', 'credit', 30),
+    ]);
+    await Delivery.collection.insertOne({ _id: id(), orderId: delivered._id, partnerId: P1, status: 'delivered', direction: 'forward', createdAt: ist('2026-09-11T10:00:00'), endTime: ist('2026-09-11T12:00:00'), partnerEarnings: 45, partnerTip: 5 });
+    const { default: WalletLedger } = await import('../models/WalletLedger.js');
+    await WalletLedger.collection.insertOne({ _id: id(), transactionId: 'TX1', userId: buyer, type: 'REFUND', direction: 'credit', amount: 150, balanceBefore: 0, balanceAfter: 150, status: 'completed', referenceType: 'ORDER', referenceId: String(cancelled._id), createdAt: ist('2026-09-10T11:00:00') });
+    return { delivered, open, cancelled };
+  }
+
+  test('each order shows the customer payment split into seller, delivery partner, commission, tax and admin earning', async () => {
+    const { delivered, open, cancelled } = await seedOrders();
+    const body = (await get(`orders?${SEPT}&limit=100`).expect(200)).body.data;
+    const row = key => body.rows.find(r => r.id === String(key));
+    expect(row(delivered._id)).toMatchObject({ orderNo: 'ORD-A', basis: 'posted', paidPaise: 101500, deliveryFeePaise: 3000, tipPaise: 500, sellers: ['Alpha Store', 'Beta Store'], riderName: 'Ravi Rider',
+      sellerEarningPaise: 86936, commissionPaise: 9800, commissionGstPaise: 1764, tcsPaise: 500, tdsPaise: 1000, platformDiscountPaise: 2000, deliveryIncomePaise: 3000,
+      riderEarningPaise: 4000, riderTipPaise: 500, adminEarningPaise: 9800 + 3000 - 4000 - 2000, productGstPaise: (60000 - 50847) + (40000 - 38095), discountPaise: 2000, customerPhone: '98••••••11' });
+    expect(row(delivered._id).lines.map(l => [l.name, l.seller, l.commissionPaise, l.sellerNetPaise])).toEqual([['Rice 5kg', 'Alpha Store', 5800, 52256], ['Oil 1L', 'Beta Store', 4000, 34680]]);
+    expect(row(open._id)).toMatchObject({ basis: 'expected', sellerEarningPaise: 17340, commissionPaise: 2000, commissionGstPaise: 360, riderEarningPaise: 2500, riderBasis: 'quoted', adminEarningPaise: 2000 + 2000 - 2500 });
+    expect(row(cancelled._id)).toMatchObject({ basis: 'cancelled', paidPaise: 15000, refundsPaise: 15000, sellerEarningPaise: 0, commissionPaise: 0, riderEarningPaise: 0, adminEarningPaise: 0 });
+    expect(body.totals).toMatchObject({ orders: 3, completedOrders: 1, cancelledOrders: 1, paidPaise: 138500, refundsPaise: 15000, sellerEarningPaise: 86936, riderEarningPaise: 4000, commissionPaise: 9800, adminEarningPaise: 6800 });
+
+    expect((await get(`orders?${SEPT}&status=open`).expect(200)).body.data.rows.map(r => r.orderNo)).toEqual(['ORD-B']);
+    expect((await get(`orders?${SEPT}&search=beta`).expect(200)).body.data.rows.map(r => r.orderNo).sort()).toEqual(['ORD-A', 'ORD-C']);
+    expect((await get(`orders?${SEPT}&sort=admin&dir=desc`).expect(200)).body.data.rows.map(r => r.orderNo)).toEqual(['ORD-A', 'ORD-B', 'ORD-C']);
+    await get(`orders?${SEPT}`, plain).expect(403);
+    await get(`orders?${SEPT}&sort=bogus`).expect(400);
+
+    const csv = await request(app).get(`/api/admin/reports/export?report=orders&${SEPT}`).set('Authorization', finance).expect(200);
+    expect(csv.headers['content-disposition']).toMatch(/bulkimart-order-payments-2026-09-01-to-2026-09-30\.csv/);
+    expect(csv.text).toMatch(/Admin earning \(INR\)/);
+    expect(csv.text).toMatch(/"ORD-A".*1015,1000,20,30,5,0,110\.58,869\.36,40,98,17\.64,5,10,20,68,0,"posted"/);
+  });
+  test('orders without a usable checkout snapshot show an unavailable split instead of failing', async () => {
+    await seed();
+    const body = (await get(`orders?${SEPT}&limit=100`).expect(200)).body.data;
+    const o2 = body.rows.find(r => r.orderNo === 'ORD-O2'), o3 = body.rows.find(r => r.orderNo === 'ORD-O3');
+    expect(o2).toMatchObject({ basis: 'unavailable', sellerEarningPaise: null, adminEarningPaise: null, lines: [] });
+    expect(o3).toMatchObject({ basis: 'cancelled', adminEarningPaise: 0 });
+    expect(body.rows.some(r => r.orderNo === 'ORD-O5')).toBe(false); // unpaid online checkout
+    expect(body.totals.incompleteOrders).toBeGreaterThan(0);
+    // Orders without figures are left out; the totals still add up the rest instead of going blank.
+    for (const key of ['sellerEarningPaise', 'riderEarningPaise', 'commissionPaise', 'adminEarningPaise']) expect(typeof body.totals[key]).toBe('number');
+    expect(body.rows.find(r => r.orderNo === 'ORD-O4')).toMatchObject({ riderEarningPaise: null, riderBasis: 'not assigned' });
+  });
+});
+

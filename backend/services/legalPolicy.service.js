@@ -3,6 +3,7 @@ import Commission from '../models/Commission.js';
 import { fail, text } from './serviceForms.service.js';
 import { moneyPaise, calculateCommission } from './vendorCommission.service.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
+import { requireServiceGateway } from './servicePaymentPolicy.service.js';
 
 export const legalFlags = () => ({
   submissions: true, fulfilment: true, payments: true, refunds: true,
@@ -11,11 +12,10 @@ export const legalFlags = () => ({
 });
 export function requireLegalFlag(kind) {
   if (!legalFlags()[kind]) fail('Legal Services capability is not enabled', 503);
-  if (kind !== 'catalogue' && (process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_ENV === 'production')) fail('Production Legal Services operations are release-blocked', 503);
 }
 export function requireLegalGateway(kind = 'payments') {
   requireLegalFlag(kind);
-  if (process.env.RAZORPAY_MODE !== 'test' || !process.env.RAZORPAY_KEY_ID?.startsWith('rzp_test_')) fail('Legal Services currently supports isolated Razorpay test mode only', 503);
+  requireServiceGateway();
 }
 export const legalAdminPermission = (req, _res, next) => {
   if (req.userType !== 'admin' || (req.user.role !== 'superAdmin' && !req.user.permissions?.includes('manage_services'))) fail('Service management permission required', 403);

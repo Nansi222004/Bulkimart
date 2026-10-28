@@ -107,6 +107,16 @@ try {
   const overviewCsv = await downloaded('bulkimart-platform-report-2026-09-01-to-2026-09-30.csv');
   assert.equal(overviewCsv.trim().split('\r\n').at(-1), '"Total",4,2000,2,1500,2,400');
   checks.push('Export CSV downloads real files for the selected tab and range (delivery and platform verified)');
+  await click('Order Payments', '[role=tab]');
+  await waitFor('[...document.querySelectorAll(".sa-order-card")].some(r=>r.textContent.includes("ORD-O1"))', 'order row');
+  await evaluate('document.querySelector(".sa-report-expand").click()');
+  await waitFor('!!document.querySelector(".sa-order-breakdown")', 'order breakdown');
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true, 'Order payments table does not overflow the page');
+  await screenshot('orders-1440');
+  await viewport(1280); await screenshot('orders-1280');
+  assert.equal(await evaluate('[...document.querySelectorAll(".sa-report-tabs button")].every(b=>{const r=b.getBoundingClientRect(),p=b.parentElement.getBoundingClientRect();return r.left>=p.left-1&&r.right<=p.right+1})'), true, 'Report tabs wrap instead of scrolling');
+  await viewport(1440);
+  checks.push('order payments: one card per order with seller/delivery/commission/tax/admin split and an expandable breakdown; tabs wrap without sideways scrolling');
 
   for (const width of [390, 768]) {
     await viewport(width); await delay(300);

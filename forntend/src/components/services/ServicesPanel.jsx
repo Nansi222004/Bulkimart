@@ -2,15 +2,17 @@ import { useFeedback } from '../feedback/FeedbackProvider';
 import { getPortalToken } from '../../utils/portalSession';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../utils/api';
+import { boundedFetch } from '../../utils/portalRequests';
+import ServicePaymentPanel from './ServicePaymentPanel';
 import './services.css';
 import { createLatestRequest, serviceApplicationId } from './serviceRequests';
 import { SERVICE_TEXT_CHARS, SERVICE_ANSWER_BYTES, SERVICE_FILE_COUNT, SERVICE_FILE_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
 
 const types = ['text', 'textarea', 'number', 'date', 'select', 'radio', 'checkbox', 'email', 'phone', 'file'];
-const labels = { submitted: 'Submitted', under_review: 'Under Review', information_required: 'More Information Required', in_progress: 'In Progress', completed: 'Completed', rejected: 'Rejected' };
-const transitions = { submitted: ['under_review', 'rejected'], under_review: ['information_required', 'in_progress', 'rejected'], information_required: ['rejected'], in_progress: ['completed', 'rejected'], completed: [], rejected: [] };
+const labels = { submitted: 'Submitted', under_review: 'Under Review', information_required: 'More Information Required', awaiting_payment: 'Awaiting payment', payment_verified: 'Payment verified', in_progress: 'In Progress', completed: 'Completed', rejected: 'Rejected' };
+const transitions = { submitted: ['under_review', 'rejected'], under_review: ['information_required', 'awaiting_payment', 'in_progress', 'rejected'], information_required: ['rejected'], awaiting_payment: ['awaiting_payment', 'rejected'], payment_verified: ['in_progress'], in_progress: ['awaiting_payment', 'completed', 'rejected'], completed: [], rejected: [] };
 const blank = () => ({ name: '', slug: '', description: '', instructions: '', pricing: { mode: 'free', amount: 0, currency: 'INR' }, fields: [] });
-const price = p => p.mode === 'free' ? 'Free' : `${p.currency} ${Number(p.amount).toFixed(2)}`;
+const price = p => !p ? 'Price unavailable' : p.mode === 'free' ? 'Free' : `${p.currency} ${Number(p.amount).toFixed(2)}`;
 const key = () => crypto.randomUUID();
 
 export function ServiceVisibility({ service }) {
@@ -18,7 +20,7 @@ export function ServiceVisibility({ service }) {
   return <p>Audience: {audiences.includes('vendor') ? 'Approved sellers' : ''}{audiences.includes('vendor') && audiences.includes('customer') ? ' and ' : ''}{audiences.includes('customer') ? 'Customers' : ''}. Customer catalogue: {service.status !== 'published' ? 'Hidden until published.' : !audiences.includes('customer') ? 'Hidden — customer audience is not selected.' : 'Visible to customers.'}</p>;
 }
 
-export function DynamicFields({ fields, answers, setAnswers, setFiles, errors = {}, disabled = false }) {
+export function DynamicFields({ fields = [], answers = {}, setAnswers, setFiles, errors = {}, disabled = false }) {
   return fields.map(f => {
     const id = `service-field-${f.id}`;
     const common = { id, disabled, required: f.required, 'aria-invalid': !!errors[f.id], 'aria-describedby': `${id}-help`, value: answers[f.id] ?? '', onChange: e => setAnswers(a => ({ ...a, [f.id]: f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value })) };
@@ -78,6 +80,9 @@ export function ApplicationDetail({ application: a, admin, request, run, busy, o
   const upload = useRef();
   useEffect(() => { onDirty?.(Boolean(message || files.length || target)); }, [message, files, target, onDirty]);
   const ui = useFeedback();
+  const available = (transitions[a.status] || []).filter(status => status !== 'awaiting_payment' || a.snapshot.pricing?.mode === 'fixed')
+    .filter(status => !['awaiting_payment', 'rejected'].includes(status) || (!a.billing?.paymentId && a.billing?.status !== 'paid'))
+    .filter(status => !['in_progress', 'completed'].includes(status) || a.snapshot.pricing?.mode !== 'fixed' || (a.billing?.status === 'paid' && !a.billing.reviewRequired));
   const act = status => ui.perform({title:'Update application?', message:`Set application ${a._id} (${a.snapshot.name}) to ${labels[status] || status}?`,confirmLabel:'Update application',destructive:status==='rejected'}, () => run(async () => {
     const data = new FormData(); data.set('version', a.__v); data.set('message', message); if (admin) data.set('status', status);
     if (files.length > SERVICE_FILE_COUNT || files.some(f => f.size > SERVICE_FILE_BYTES)) throw new Error('Upload at most 10 files, with each file no larger than 5 MiB.');
@@ -85,14 +90,15 @@ export function ApplicationDetail({ application: a, admin, request, run, busy, o
     const result = await request(`/applications/${a._id}/${admin ? 'transition' : 'respond'}`, { method: 'POST', body: data });
     onChange(result.data); setMessage(''); setFiles([]); setTarget(''); if (upload.current) upload.current.value = '';
   }));
-  return <section className="sm-card"><h3>{a.snapshot.name}</h3><p>Application ID: <code>{a._id}</code></p><p><strong>{labels[a.status]}</strong> · {price(a.snapshot.pricing)}</p><p>Submitted {new Date(a.createdAt).toLocaleString()}</p>{admin && <p>Vendor ID: {a.vendor}</p>}
-    <dl>{a.snapshot.fields.filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{typeof a.answers[f.id] === 'boolean' ? (a.answers[f.id] ? 'Yes' : 'No') : String(a.answers[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
+  return <section className="sm-card"><h3>{a.snapshot.name}</h3><p>Application ID: <code>{a._id}</code></p><p><strong>{labels[a.status] || String(a.status || '').replaceAll('_', ' ')}</strong> · {price(a.snapshot.pricing)}</p><p>Submitted {new Date(a.createdAt).toLocaleString()}</p>{admin && <p>Vendor ID: {String(a.vendor?._id || a.vendor || '—')}</p>}
+    <dl>{(a.snapshot.fields || []).filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{typeof a.answers?.[f.id] === 'boolean' ? (a.answers[f.id] ? 'Yes' : 'No') : String(a.answers?.[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
+    <ServicePaymentPanel application={a} admin={admin} request={request} onUpdated={async () => onChange((await request(`/applications/${a._id}`)).data)} />
     {a.informationRequest && <p><strong>Information request:</strong> {a.informationRequest}</p>}{a.rejectionReason && <p><strong>Rejection reason:</strong> {a.rejectionReason}</p>}
-    <h4>Documents and deliverables</h4>{!a.files.length && <p>No files attached.</p>}{a.files.map(f => <div key={f.fileId}><button disabled={busy} onClick={() => run(async () => { const blob = await request(`/applications/${a._id}/files/${f.fileId}`, {}, true); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); })}>Download {f.name}</button> <small>{f.kind} · {(f.sizeBytes / 1024).toFixed(1)} KB</small></div>)}
-    <h4>History</h4><ol>{a.events.map(e => <li key={e._id}>{new Date(e.at).toLocaleString()} · {e.actorType} · {labels[e.action] || e.action.replaceAll('_', ' ')}{e.message && <p>{e.message}</p>}</li>)}</ol>
-    {((admin && transitions[a.status].length > 0) || (!admin && a.status === 'information_required')) && <form onSubmit={e => { e.preventDefault(); act(admin ? target : 'under_review'); }}><fieldset disabled={busy}>
-      {admin && <label>Action<select required value={target} onChange={e => setTarget(e.target.value)}><option value="">Choose action…</option>{transitions[a.status].map(s => <option key={s} value={s}>{labels[s]}</option>)}</select></label>}
-      <label>{admin ? 'Message / required reason for rejection or information request' : 'Response to information request'}<textarea maxLength={2000} required={admin ? ['rejected', 'information_required'].includes(target) : !files.length} value={message} onChange={e => setMessage(e.target.value)} /></label>
+    <h4>Documents and deliverables</h4>{!a.files?.length && <p>No files attached.</p>}{(a.files || []).map(f => <div key={f.fileId}><button disabled={busy} onClick={() => run(async () => { const blob = await request(`/applications/${a._id}/files/${f.fileId}`, {}, true); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); })}>Download {f.name}</button> <small>{f.kind} · {(f.sizeBytes / 1024).toFixed(1)} KB</small></div>)}
+    <h4>History</h4><ol>{(a.events || []).map(e => <li key={e._id}>{new Date(e.at).toLocaleString()} · {e.actorType} · {labels[e.action] || String(e.action || '').replaceAll('_', ' ')}{e.message && <p>{e.message}</p>}</li>)}</ol>
+    {((admin && available.length > 0) || (!admin && a.status === 'information_required')) && <form onSubmit={e => { e.preventDefault(); act(admin ? target : 'under_review'); }}><fieldset disabled={busy}>
+      {admin && <label>Action<select required value={target} onChange={e => setTarget(e.target.value)}><option value="">Choose action…</option>{available.map(s => <option key={s} value={s}>{s === 'awaiting_payment' ? 'Request payment' : labels[s]}</option>)}</select></label>}
+      <label>{admin ? target === 'awaiting_payment' ? 'Payment terms shown to the applicant (include cancellation and refund terms)' : 'Message / required reason for rejection or information request' : 'Response to information request'}<textarea maxLength={2000} required={admin ? ['rejected', 'information_required', 'awaiting_payment'].includes(target) : !files.length} value={message} onChange={e => setMessage(e.target.value)} /></label>
       {(!admin || target === 'completed') && <label>{admin ? 'Final deliverables' : 'Additional documents'} (up to 10 files, 5 MB each)<input ref={upload} type="file" multiple accept=".pdf,.png,.jpg,.jpeg" onChange={e => setFiles(Array.from(e.target.files))} /></label>}
       <button disabled={busy || (admin && !target)}>{busy ? 'Saving…' : admin ? 'Apply action' : 'Send response and return to review'}</button>
     </fieldset></form>}
@@ -116,7 +122,7 @@ export default function ServicesPanel({ admin = false }) {
   const allowDiscard = () => !detailDirty.current || ui.ask('Discard your unsaved application message and selected files and reload or leave this application?');
   const request = useCallback(async (suffix = '', options = {}, blob = false) => {
     const token = (admin ? localStorage.getItem('adminToken') : getPortalToken('seller'));
-    const response = await fetch(apiUrl(`/api/${admin ? 'admin/' : ''}services${suffix}`), { ...options, headers: { Authorization: `Bearer ${token || ''}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+    const response = await boundedFetch(apiUrl(`/api/${admin ? 'admin/' : ''}services${suffix}`), { ...options, headers: { Authorization: `Bearer ${token || ''}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
     if (blob && response.ok) return response.blob();
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(body.message || 'Request failed'), { status: response.status, fields: body.meta?.fields });
@@ -185,7 +191,8 @@ export default function ServicesPanel({ admin = false }) {
     const data = new FormData(); data.set('answers', JSON.stringify(answers)); data.set('formVersion', selected.formVersion); data.set('serviceVersion', selected.__v);
     Object.entries(files).forEach(([id, file]) => { if (file) data.append(id, file); });
     const result = await request(`/${selected._id}/applications`, { method: 'POST', headers: { 'Idempotency-Key': submissionKey.current }, body: data });
-    setSelected(null); setTab('applications'); setApplication(result.data); submissionKey.current = key(); setNotice(`Application ${result.data._id} submitted successfully.`);
+    if (!result.data?._id || !result.data.snapshot || !Array.isArray(result.data.snapshot.fields)) throw new Error('The application response is incomplete. Retry with the same submission key to recover your request.');
+    setSelected(null); setItems([]); setTab('applications'); setApplication(result.data); submissionKey.current = key(); setNotice(`Application ${result.data._id} submitted successfully.`);
   });
   return <section className="sm-panel" aria-label="Service management"><div className="sm-actions"><h2>{admin ? 'Service Management' : 'Vendor Services'}</h2><button disabled={busy} aria-pressed={tab === 'services'} onClick={() => switchTab('services')}>{admin ? 'Manage services' : 'Service catalogue'}</button><button disabled={busy} aria-pressed={tab === 'applications'} onClick={() => switchTab('applications')}>{admin ? 'Applications' : 'My applications'}</button><button disabled={busy || loading || detailLoading} onClick={refresh}>Refresh</button></div>
     {error && <div className="sm-error" role="alert">{error} <button disabled={busy} onClick={refresh}>{application ? 'Reload latest application' : 'Retry list'}</button></div>}{conflict && <p role="alert">The record changed. Reload the latest application and review it before retrying your action.</p>}{notice && <p role="status">{notice}</p>}{detailLoading && <p role="status">Loading application…</p>}

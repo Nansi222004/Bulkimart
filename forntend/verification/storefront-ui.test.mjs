@@ -878,3 +878,21 @@ test('the storefront refreshes before its copy expires and keeps the theme throu
     assert.equal(h.tree.props.value.theme.tokens.primary, '#116b52', 'No fallback flash while refreshing');
   } finally { Date.now = realNow; h.close(); }
 });
+
+test('media fields explain desktop vs mobile sizes and warn when a tall image is used for desktop', async () => {
+  const previous = globalThis.Image, sizes = { '/uploads/tall.webp': [1080, 1920], '/uploads/wide.webp': [1600, 900] };
+  globalThis.Image = class { set src(url) { [this.naturalWidth, this.naturalHeight] = sizes[url]; queueMicrotask(() => this.onload?.()); } };
+  const props = { value: { mediaType: 'image', image: '/uploads/tall.webp' }, onChange() {} };
+  const h = browserHarness(MediaFields, props, {});
+  try {
+    await h.settle();
+    let out = text(h.tree);
+    assert.match(out, /e\.g\. 1600 × 900 px/); assert.match(out, /e\.g\. 1080 × 1920 px/);
+    assert.match(out, /desktop image is tall \(portrait\)/);
+    props.value = { mediaType: 'image', image: '/uploads/wide.webp', mobileImage: '/uploads/tall.webp' }; h.rerender(); await h.settle();
+    out = text(h.tree);
+    assert.doesNotMatch(out, /is tall \(portrait\)|is wide \(landscape\)|No mobile image yet/, 'Correct artwork raises no warning');
+    props.value = { mediaType: 'image', image: '/uploads/wide.webp' }; h.rerender(); await h.settle();
+    assert.match(text(h.tree), /No mobile image yet/);
+  } finally { h.close(); if (previous) globalThis.Image = previous; else delete globalThis.Image; }
+});

@@ -97,6 +97,7 @@ router.get('/reports/overview', getReport('overview'));
 router.get('/reports/customers', getReport('customers'));
 router.get('/reports/vendors', getReport('vendors'));
 router.get('/reports/delivery', getReport('delivery'));
+router.get('/reports/orders', getReport('orders'));
 router.get('/reports/export', exportAdminReport);
 router.get('/finance/overview', getFinanceOverview);
 router.get('/finance/policy', getFinancePolicySettings);

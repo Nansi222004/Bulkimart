@@ -46,7 +46,7 @@ function FollowUp({ request: a, submit, provider = false, busy }) {
     <label>Message<textarea name="message" required maxLength={2000} /></label><label>Private documents (up to 10, 5 MiB each)<input name="files" type="file" disabled={provider && a.status !== 'in_progress'} multiple accept=".pdf,.png,.jpg,.jpeg" /></label><button disabled={busy}>Send update</button></form>;
 }
 export default function LegalServices() {
-  const request = useLegalApi(), [path, navigate] = usePath();
+  const request = useLegalApi(), [path, changePath] = usePath();
   const session = useContext(CustomerSessionContext);
   const isLoggedIn = Boolean(session?.verified || (typeof localStorage !== 'undefined' && localStorage.getItem('userToken')));
   const [items, setItems] = useState([]), [detail, setDetail] = useState(null), [meta, setMeta] = useState({ total: 0 });
@@ -54,6 +54,10 @@ export default function LegalServices() {
   const [answers, setAnswers] = useState({}), [files, setFiles] = useState({}), [errors, setErrors] = useState({}), [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [review, setReview] = useState(false);
   const lock = useRef(false), key = useRef(crypto.randomUUID());
+  // A service definition and a submitted request have different shapes. Clear
+  // the old view before changing routes, rather than rendering it as a request
+  // for one frame while the next effect starts its fetch.
+  const navigate = next => { setDetail(null); setItems([]); setLoading(true); changePath(next); };
   const parts = path.split('/').filter(Boolean), history = parts[1] === 'requests', id = parts[2] || (history ? null : parts[1]);
   useEffect(() => {
     const c = new AbortController(); setLoading(true); setError(''); setDetail(null); setAnswers({}); setFiles({}); setAccepted(false); setReview(false);
@@ -79,6 +83,7 @@ export default function LegalServices() {
     // Store a non-sensitive retry key only; never persist form answers/documents.
     const storageKey = `legal-submission:${detail._id}`, pendingKey = sessionStorage.getItem(storageKey) || key.current; sessionStorage.setItem(storageKey, pendingKey);
     const b = await request(`/api/customer-services/catalogue/${detail._id}/applications`, { method: 'POST', headers: { 'Idempotency-Key': pendingKey }, body: data });
+    if (!/^[a-f\d]{24}$/i.test(b.data?._id || '')) throw new Error('The submission response is incomplete. Retry to recover the existing request.');
     sessionStorage.removeItem(storageKey); key.current = crypto.randomUUID(); setNotice('Request submitted. Awaiting admin review. No payment has been collected.'); navigate(legalRequestPath(b.data._id));
   });
   const base = detail?._id ? `/api/customer-services/applications/${detail._id}` : '';
@@ -93,13 +98,15 @@ export default function LegalServices() {
   return <section className="legal-services customer-service-page" aria-label="Legal Services"><CustomerServiceHeading title={history ? 'My Legal Service Requests' : 'Legal Services'}><p>Explore legal services and submit a private request. Final pricing is confirmed after review.</p></CustomerServiceHeading><nav className="legal-nav" aria-label="Legal services navigation"><button type="button" className={`legal-nav-btn ${!history ? 'active' : ''}`} onClick={() => navigate('/legal-services')}>Browse services</button><button type="button" className={`legal-nav-btn ${history ? 'active' : ''}`} onClick={() => { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate('/legal-services/requests'); }}>My requests</button><a className="legal-nav-auth" href="/account">{isLoggedIn ? 'Account' : 'Sign in'}</a></nav>
     {notice && <p role="status">{notice}</p>}{error && <section className="customer-service-state" role="alert"><h2>Legal Services update</h2><p>{error}</p><button disabled={busy} onClick={() => refresh(n => n + 1)}>Reload latest</button></section>}
     {loading ? <section className="customer-service-state" role="status"><p>Loading Legal Services…</p></section> : detail ? history ? <>
-      <h3>{detail.serviceName}</h3><p>Reference: {detail._id}</p><p><strong>{statusLabel(detail.status)}</strong> · Payment: {statusLabel(detail.paymentStatus)}</p>
+      <h3>{detail.serviceName}</h3><p>Reference: {detail._id}</p><p><strong>{statusLabel(detail.status)}</strong> · Payment: {statusLabel(detail.paymentStatus)}</p><button type="button" disabled={busy} onClick={() => refresh(n => n + 1)}>Refresh request</button>
       {detail.informationRequest && <p>Information requested: {detail.informationRequest}</p>}{detail.rejectionReason && <p>{detail.rejectionReason}</p>}
       <QuoteBreakdown quotation={detail.quotation} />{detail.receipt && <p>Payment receipt: {detail.receipt.transactionReference} · {money(detail.receipt.capturedPaise)}</p>}
       {detail.canPay && <section className="legal-card"><label><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} />I accept this quotation and the displayed payment, cancellation and refund terms.</label><button disabled={!accepted || busy} onClick={pay}>Pay confirmed amount</button></section>}
+      {!detail.quotation && ['submitted', 'under_review', 'information_required'].includes(detail.status) && <p role="status">Awaiting an admin-confirmed quotation. Once payment is requested, refresh this request to review the amount and pay here.</p>}
+      {detail.quotation && !detail.canPay && detail.status === 'awaiting_payment' && !detail.financialHold && <p role="status">This quotation is unavailable or has expired. Ask the admin to confirm a current quotation.</p>}
       {detail.paymentStatus !== 'not_requested' && <button disabled={busy} onClick={() => run(async () => { const b = await request(`${base}/payment-status`, { method: 'POST', body: '{}' }); if (b.data.status === 'failed') sessionStorage.removeItem(`legal-payment:${detail._id}`); setNotice(`Payment status: ${statusLabel(b.data.status)}`); refresh(n => n + 1); })}>Check payment status</button>}
       {detail.financialHold && <p role="status">This request is on financial hold pending admin review.</p>}
-      <dl>{detail.fields?.filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{String(detail.answers[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
+      <dl>{detail.fields?.filter(f => f.type !== 'file').map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{String(detail.answers?.[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
       <PrivateFiles files={detail.files} request={request} base={base} run={run} />
       {detail.status === 'information_required' && <FollowUp request={detail} busy={busy} submit={data => run(async () => { validateFollowUp(data); await request(`${base}/respond`, { method: 'POST', body: data }); refresh(n => n + 1); })} />}
       {!['cancelled', 'refunded', 'rejected'].includes(detail.status) && !detail.cancellation && <form onSubmit={e => { e.preventDefault(); const message = new FormData(e.currentTarget).get('reason'); run(async () => { await request(`${base}/cancellation`, { method: 'POST', body: JSON.stringify({ version: detail.version, message }) }); refresh(n => n + 1); }); }}><label>Cancellation or refund review request<textarea name="reason" required maxLength={2000} /></label><button disabled={busy}>Request admin review</button><p>Submitting this request does not confirm cancellation or a refund.</p></form>}
@@ -123,7 +130,7 @@ export function ProviderWorkspace() {
   return <main className="legal-services"><h1>Legal provider workspace</h1><a href="/account">Sign in / account</a><button disabled={busy} onClick={load}>Refresh assignments</button>{error && <p role="alert">{error}</p>}{busy && <p role="status">Loading…</p>}
     {!a ? items.map(a => <article key={a._id} className="legal-card"><h2>{a.serviceName}</h2><p>{statusLabel(a.status)}</p><button onClick={() => run(async () => setA((await request(`/api/legal-provider/${a._id}`)).data))}>Open assignment</button></article>) : <>
       <button onClick={() => setA(null)}>Back to assignments</button><h2>{a.serviceName}</h2><p>{statusLabel(a.status)}</p><p>{a.quotation?.scope}</p>
-      <dl>{a.fields?.map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{String(a.answers[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
+      <dl>{a.fields?.map(f => <React.Fragment key={f.id}><dt>{f.label}</dt><dd>{String(a.answers?.[f.id] ?? '—')}</dd></React.Fragment>)}</dl>
       <PrivateFiles files={a.files} request={request} base={base} run={run} />
       {['under_review', 'awaiting_payment', 'payment_verified', 'in_progress'].includes(a.status) && !a.financialHold && <FollowUp request={a} provider busy={busy} submit={data => run(async () => { validateFollowUp(data); setA((await request(`${base}/progress`, { method: 'POST', body: data })).data); })} />}
       <p>Settlement status: {statusLabel(a.settlementStatus)}. Completion requires admin verification.</p><RequestTimeline events={a.events} /></>}

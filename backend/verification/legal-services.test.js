@@ -69,7 +69,7 @@ function captured(checkout, id = 'pay_fixture', amount = checkout.amountPaise) {
 async function paid() { const a = await quoted(), checkout = await initiate(a); captured(checkout); const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${checkout.razorpayOrderId}|pay_fixture`).digest('hex'); await auth(request(app).post('/c/payments/verify')).send({ orderId: a._id, razorpay_order_id: checkout.razorpayOrderId, razorpay_payment_id: 'pay_fixture', razorpay_signature: signature }).expect(200); return getAdmin(a._id); }
 async function webhook(body, valid = true) { const raw = JSON.stringify(body), signature = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex'); return request(app).post('/webhook').set('x-razorpay-signature', valid ? signature : 'invalid').set('Content-Type', 'application/json').send(raw); }
 
-test.each([undefined, 'false'])('legal capabilities stay enabled with legacy switches %s; production and live keys remain blocked', value => {
+test.each([undefined, 'false'])('legal capabilities ignore legacy switches %s and enforce the matching configured gateway mode', value => {
   for (const k of ['submissions', 'fulfilment', 'payments', 'refunds']) {
     const name = `LEGAL_SERVICES_${k.toUpperCase()}_ENABLED`;
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
@@ -77,8 +77,11 @@ test.each([undefined, 'false'])('legal capabilities stay enabled with legacy swi
   }
   expect(() => policy.requireLegalGateway()).not.toThrow();
   expect(policy.legalFlags().payouts).toBe(false);
-  process.env.RAZORPAY_KEY_ID = 'rzp_live_forbidden'; expect(() => policy.requireLegalGateway()).toThrow(/test mode/);
-  process.env.DEPLOYMENT_ENV = 'production'; expect(() => policy.requireLegalFlag('submissions')).toThrow(/release-blocked/); delete process.env.DEPLOYMENT_ENV;
+  process.env.RAZORPAY_KEY_ID = 'rzp_live_isolated'; expect(() => policy.requireLegalGateway()).toThrow(/not configured/);
+  process.env.DEPLOYMENT_ENV = 'production'; expect(() => policy.requireLegalFlag('submissions')).not.toThrow();
+  expect(() => policy.requireLegalGateway()).toThrow(/live mode/);
+  process.env.RAZORPAY_MODE = 'live'; expect(() => policy.requireLegalGateway()).not.toThrow();
+  delete process.env.DEPLOYMENT_ENV;
 });
 test('legacy defaults and drafts are excluded; customer DTO contains no administrative metadata', async () => {
   await Service.create({ name: 'Legacy', slug: 'legacy', status: 'published' });

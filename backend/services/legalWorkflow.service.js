@@ -142,7 +142,8 @@ export async function posting(a, suffix, account, direction, bucket, paise, sess
 export async function captureLegalPayment(paymentId, live) {
   const a = await financialTransaction(async session => {
     const p = await Payment.findById(paymentId).session(session);
-    if (!p?.serviceApplicationId) fail('Payment not found', 404);
+    if (!p?.serviceApplicationId || p.servicePaymentKind === 'vendor_service') fail('Payment not found', 404);
+    if ((p.serviceGatewayMode || 'test') !== process.env.RAZORPAY_MODE) fail('Payment environment changed. Contact support.', 409);
     const a = await Application.findById(p.serviceApplicationId).session(session), l = a.legal, q = currentQuote(a);
     const attempt = p.gatewayAttempts.find(t => t.gatewayOrderId === live.orderId);
     if (!attempt || p.quotationVersion !== q.version || live.amountPaise !== q.totalPaise || live.amountPaise !== attempt.amountPaise || live.currency !== 'INR' || !live.paymentId) fail('Payment does not match the stored quotation and attempt', 409);

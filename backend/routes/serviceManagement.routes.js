@@ -12,6 +12,7 @@ export const serviceAdminPermission = (req, _res, next) => {
 export function serviceRouter(isAdmin = false, uploads = serviceUploadControls) {
   const r = express.Router();
   r.use(protect);
+  r.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
   if (isAdmin) r.use(requireAdmin, serviceAdminPermission);
   else r.use((req, _res, next) => { if (req.userType !== 'user' || !req.user.roles?.includes('seller')) fail('Seller access required', 403); next(); }, requireApprovedSeller);
   r.use((req, _res, next) => { if (['POST', 'PUT'].includes(req.method) && !req.is('multipart/form-data') && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) fail('A valid request body is required'); next(); });
@@ -25,7 +26,12 @@ export function serviceRouter(isAdmin = false, uploads = serviceUploadControls) 
     r.post('/', asyncHandler(c.saveService));
     r.put('/:id', asyncHandler(c.saveService));
     r.post('/:id/publication', asyncHandler(c.publishService));
-  } else r.post('/:id/applications', uploads.limiter, uploads.handle(c.submitApplication));
+  } else {
+    r.post('/payments/verify', asyncHandler(c.verifyApplicationPayment));
+    r.post('/applications/:id/payment', asyncHandler(c.payApplication));
+    r.post('/applications/:id/payment-status', asyncHandler(c.applicationPaymentStatus));
+    r.post('/:id/applications', uploads.limiter, uploads.handle(c.submitApplication));
+  }
   r.use((error, _req, _res, next) => {
     if (error.name === 'VersionError') { error.status = 409; error.message = 'Record changed. Reload before continuing.'; }
     next(error);

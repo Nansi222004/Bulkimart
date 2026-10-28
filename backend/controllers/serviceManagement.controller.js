@@ -5,7 +5,8 @@ import { fail, text, validateDefinition, validateAnswers } from '../services/ser
 import { SERVICE_ANSWER_BYTES } from '../shared/serviceLimits.mjs';
 import { transition } from '../services/serviceWorkflow.service.js';
 import { validateServiceFile, storeServiceFiles, removeServiceFiles, readServiceFile } from '../services/serviceStorage.service.js';
-import { notifyAllAdmins, notifyUser } from '../services/notification.service.js';
+import { notifyAllAdmins, notifySeller } from '../services/notification.service.js';
+import { initiateServicePayment, verifyServicePayment } from '../services/servicePayment.service.js';
 const oid = id => { if (!mongoose.isObjectIdOrHexString(id)) fail('Invalid identifier'); return id; };
 const send = (res, data, meta = {}) => res.json({ success: true, data, meta });
 const admin = req => req.userType === 'admin';
@@ -32,7 +33,7 @@ export async function cleanupUnreferenced(files) {
 }
 const publicApplication = a => {
   const value = a.toObject ? a.toObject() : a;
-  return { ...value, files: value.files.map(({ sha256, ...f }) => f) };
+  return { ...value, answers: value.answers || {}, events: value.events || [], files: (value.files || []).map(({ sha256, ...f }) => f) };
 };
 export async function listServices(req, res) {
   const { page, limit } = pagination(req);
@@ -82,7 +83,7 @@ export async function preflightApplicationUpload(req, _res, next) {
 }
 async function notify(application, isAdmin, action) {
   const opts = { event: 'SYSTEM', title: 'Service application update', message: `Application ${application._id}: ${action}`, metadata: { applicationId: String(application._id) }, route: isAdmin ? '/seller/services' : '/admin/services' };
-  if (isAdmin) await notifyUser(application.user, opts);
+  if (isAdmin) await notifySeller(application.vendor, opts);
   else await notifyAllAdmins(opts);
 }
 export async function createApplication(service, payload) {
@@ -142,10 +143,19 @@ export async function listApplications(req, res) {
   if (req.query.service) query.service = oid(req.query.service);
   for (const key of ['from', 'to']) if (req.query[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(req.query[key]) || !Number.isFinite(Date.parse(req.query[key])))) fail('Invalid date filter');
   if (req.query.from || req.query.to) query.createdAt = { ...(req.query.from ? { $gte: new Date(req.query.from) } : {}), ...(req.query.to ? { $lt: new Date(Date.parse(req.query.to) + 86400000) } : {}) };
-  const [items, total] = await Promise.all([Application.find(query).select('snapshot.name snapshot.pricing status createdAt vendor service').sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Application.countDocuments(query)]);
+  const [items, total] = await Promise.all([Application.find(query).select('snapshot.name snapshot.pricing status billing createdAt vendor service').sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Application.countDocuments(query)]);
   send(res, items, { total, page, limit });
 }
 export async function getApplication(req, res) { send(res, publicApplication(await ownedApplication(req))); }
+export async function payApplication(req, res) {
+  send(res, await initiateServicePayment(oid(req.params.id), req.user._id, req.seller._id, req.body, req.get('Idempotency-Key')));
+}
+export async function verifyApplicationPayment(req, res) {
+  send(res, await verifyServicePayment(oid(req.body.orderId), req.user._id, req.seller._id, req.body));
+}
+export async function applicationPaymentStatus(req, res) {
+  send(res, await verifyServicePayment(oid(req.params.id), req.user._id, req.seller._id, {}, true));
+}
 export async function actOnApplication(req, res) {
   const application = await ownedApplication(req);
   if (Number(req.body.version) !== application.__v) fail('Application changed. Reload before continuing.', 409);

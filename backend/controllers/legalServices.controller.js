@@ -23,9 +23,9 @@ const publicService = s => ({ _id: s._id, name: s.name, slug: s.slug, descriptio
 const quoteDTO = q => q ? { version: q.version, scope: q.scope, currency: q.currency, servicePaise: q.servicePaise, serviceTaxPaise: q.serviceTaxPaise, totalPaise: q.totalPaise, terms: q.policy.terms, confirmedAt: q.confirmedAt, expiresAt: q.expiresAt } : null;
 export function requestDTO(a, mode = 'customer') {
   const l = a.legal || {}, q = currentQuote(a), provider = mode === 'provider';
-  const files = a.files.filter(f => !provider || f.providerVisible).map(f => ({ fileId: f.fileId, name: f.name, format: f.format, sizeBytes: f.sizeBytes, kind: f.kind, uploadedAt: f.uploadedAt }));
+  const files = (a.files || []).filter(f => !provider || f.providerVisible).map(f => ({ fileId: f.fileId, name: f.name, format: f.format, sizeBytes: f.sizeBytes, kind: f.kind, uploadedAt: f.uploadedAt }));
   return { _id: a._id, version: a.__v, serviceName: a.snapshot.name, createdAt: a.createdAt, status: a.status,
-    answers: provider ? Object.fromEntries(Object.entries(a.answers).filter(([id]) => l.sharedAnswerIds?.includes(id))) : a.answers,
+    answers: provider ? Object.fromEntries(Object.entries(a.answers || {}).filter(([id]) => l.sharedAnswerIds?.includes(id))) : a.answers || {},
     fields: a.snapshot.fields.filter(f => !provider || l.sharedAnswerIds?.includes(f.id)), files,
     informationRequest: provider ? undefined : a.informationRequest, rejectionReason: provider ? undefined : a.rejectionReason,
     events: a.events.filter(e => provider ? ['provider_assigned', 'work_authorized', 'progress', 'provider_information_request', 'admin_provider_message', 'acknowledged', 'completion_submitted', 'completion_verified'].includes(e.action) : !['admin_provider_message', 'provider_information_request'].includes(e.action)).map(e => ({ action: e.action, status: e.status, message: ['information_required', 'customer_response', 'progress', 'completion_submitted', 'completion_verified', 'rejected', 'cancelled', ...(provider ? ['admin_provider_message', 'provider_information_request'] : [])].includes(e.action) ? e.message : undefined, at: e.at })),

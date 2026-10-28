@@ -10,6 +10,8 @@ const paymentSchema = new Schema(
     userId:         { type: ObjectId, ref: "User", required: true },
     parcelDeliveryId: { type: ObjectId, ref: 'ParcelDelivery' },
     serviceApplicationId: { type: ObjectId, ref: 'ServiceApplication' },
+    servicePaymentKind: { type: String, enum: ['vendor_service'] },
+    serviceGatewayMode: { type: String, enum: ['test', 'live'] },
     gstAssistanceRequestId: { type: ObjectId, ref: 'GstAssistanceRequest' },
     quotationVersion: Number,
     // Separate seller collection; never replaces the customer's order payment.
@@ -84,6 +86,7 @@ const paymentSchema = new Schema(
     captures: [{
       _id: false, gatewayOrderId: String, gatewayPaymentId: String,
       amountPaise: Number, currency: String, disposition: String, receivedAt: Date,
+      refundedPaise: Number,
     }],
     // Durable debts only. No automatic provider refund is initiated here.
     refundObligations: [{
@@ -135,6 +138,7 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.pre('validate', function () {
+  if (this.servicePaymentKind && (!this.serviceApplicationId || this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || this.advertising || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','parcelDeliveryId','gstAssistanceRequestId'].some(k => this[k]))) throw new Error('Service fees require an exclusive online service payment');
   if (this.gstAssistanceRequestId && (this.method !== 'online' || this.advertising || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]))) throw new Error('GST assistance requires an exclusive online service payment');
   if (this.advertising && (this.method !== 'online' || this.isWalletTopup || this.coinsUsed || this.coinDiscount || ['orderId','groupRef','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId','quickFeeSnapshotId','serviceApplicationId','parcelDeliveryId'].some(k=>this[k]) || this.gatewayAttempts?.some(a=>a.orderId) || this.refundObligations?.some(r=>r.orderId || r.returnId))) throw new Error('Advertising payments require an exclusive online advertising purpose');
   if(this.advertising&&String(this._id)!==String(this.advertising.campaignId))throw new Error('Advertising payment identity must equal its campaign identity');

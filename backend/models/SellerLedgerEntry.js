@@ -23,7 +23,7 @@ const sellerLedgerEntrySchema = new Schema({
   sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
   partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
   deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
-  account: { type: String, enum: ['gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense'], default: 'seller_payable', immutable: true },
+  account: { type: String, enum: ['service_collections', 'gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense'], default: 'seller_payable', immutable: true },
   advertisingCampaignId: { type: Schema.Types.ObjectId, ref: 'SellerPromotion', immutable: true },
   advertiserSellerId: { type: Schema.Types.ObjectId, ref: 'Seller', immutable: true },
   advertisingRevision: { type: Number, immutable: true },
@@ -65,6 +65,7 @@ for (const operation of ['replaceOne', 'findOneAndReplace', 'findOneAndDelete'])
 sellerLedgerEntrySchema.pre('bulkWrite', denyMutation);
 sellerLedgerEntrySchema.pre('save', function () { if (!this.isNew) denyMutation(); });
 sellerLedgerEntrySchema.pre('validate', function () {
+  if (this.account === 'service_collections' && (!this.serviceApplicationId || !this.paymentId || this.bucket !== 'held' || ['sellerId','partnerId','orderId','parcelDeliveryId','gstAssistanceRequestId','providerId','advertisingCampaignId','snapshotId'].some(k => this[k]))) throw new Error('Service collections require exclusive held application and payment references');
   if (this.gstAssistanceRequestId && (this.account !== 'gst_assistance_collections' || this.bucket !== 'held' || !this.paymentId || ['sellerId','partnerId','orderId','parcelDeliveryId','serviceApplicationId','advertisingCampaignId','advertiserSellerId','snapshotId'].some(k=>this[k]))) throw new Error('GST service collections require exclusive held service references');
   if (this.account === 'gst_assistance_collections' && !this.gstAssistanceRequestId) throw new Error('GST service collections require a GST assistance request');
   moneyPaise(this.amount);

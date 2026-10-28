@@ -40,6 +40,7 @@ const TABLES = {
   customers: { sorts: ['spend', 'orders', 'completed', 'lastOrder', 'name'], statuses: ['all', 'completed', 'repeat', 'new'] },
   vendors: { sorts: ['sales', 'orders', 'commission', 'earnings', 'refunds', 'name'], statuses: ['all', 'approved', 'pending', 'under_review', 'incomplete', 'rejected', 'suspended'] },
   delivery: { sorts: ['delivered', 'assigned', 'successRate', 'cod', 'outstanding', 'name'], statuses: ['all', 'approved', 'pending', 'under_review', 'incomplete', 'rejected', 'suspended'] },
+  orders: { sorts: ['placed', 'paid', 'admin', 'commission', 'seller', 'rider', 'refunds'], statuses: ['all', 'completed', 'open', 'cancelled'] },
 };
 const ALLOWED_KEYS = ['range', 'from', 'to', 'search', 'status', 'sort', 'dir', 'page', 'limit', 'report'];
 
@@ -393,6 +394,112 @@ export async function deliveryReport(params, { all = false } = {}) {
       duration: 'Average minutes from trip start to completion, for delivered trips with both timestamps.', earnings: 'Trip earnings recorded on delivered trips assigned in the period. Not payouts.' } });
 }
 
+// ---- Order Payments -----------------------------------------------------------
+// One row per order placed in the period (payment secured), showing where the customer's money goes:
+// seller earning, delivery partner earning, platform commission and taxes, and what the platform keeps.
+//
+// Figures come from the order's frozen checkout snapshot ("expected"). Once the order's finance is
+// posted at delivery, seller, commission, tax and delivery figures are read from the ledger instead
+// ("posted"), so later refund reversals are included. Cancelled orders earn nothing.
+const sumPaise = (lines, key) => lines.reduce((n, line) => n + (Number.isSafeInteger(line[key]) ? line[key] : 0), 0);
+const orderMoney = value => { try { return moneyPaise(value || 0); } catch { return null; } };
+const LEDGER_FIELDS = { seller_payable: 'seller', commission_revenue: 'commission', tax_liability: 'commissionGst', tcs_liability: 'tcs', tds_liability: 'tds', platform_discount_expense: 'platformDiscount', customer_delivery: 'deliveryIncome' };
+async function inBatches(ids, size, load) { const out = []; for (let i = 0; i < ids.length; i += size) out.push(...await load(ids.slice(i, i + size))); return out; }
+
+export async function ordersReport(params, { all = false } = {}) {
+  const { range } = params;
+  const orders = [];
+  for await (const order of placedOrders(range, { orderNo: 1, createdAt: 1, status: 1, paymentMethod: 1, userId: 1, pricing: 1, items: { _id: 1, sellerId: 1, name: 1, qty: 1, price: 1 },
+    financialSnapshot: 1, financialPosting: 1, paymentId: 1, 'delivery.riderPayoutQuoted': 1, 'codFinance.status': 1 }).cursor()) orders.push(order);
+  const ids = orders.map(order => order._id);
+
+  // Ledger nets per order and account (signed; held→eligible moves cancel out).
+  const ledger = new Map();
+  for (const entry of await inBatches(ids, 500, batch => Ledger.find({ orderId: { $in: batch }, account: { $in: Object.keys(LEDGER_FIELDS) } }).select('orderId account direction amount').lean())) {
+    const key = id(entry.orderId), field = LEDGER_FIELDS[entry.account], sums = ledger.get(key) || {};
+    try { sums[field] = (sums[field] || 0) + signedPaise(entry); } catch { sums.invalid = true; }
+    ledger.set(key, sums);
+  }
+  // Delivery partner pay from the completed forward trip; the tip is the customer's money for the rider.
+  const riders = new Map();
+  for (const trip of await inBatches(ids, 500, batch => Delivery.find({ orderId: { $in: batch }, status: 'delivered', direction: { $ne: 'return_pickup' } }).select('orderId partnerId partnerEarnings partnerTip').lean())) {
+    const earned = orderMoney(trip.partnerEarnings), tip = orderMoney(trip.partnerTip);
+    if (earned !== null && tip !== null) riders.set(id(trip.orderId), { payPaise: earned - tip, tipPaise: tip, partnerId: id(trip.partnerId) });
+  }
+  // Refunds: completed item returns, verified whole-order online refunds, and cancellation refunds to the wallet.
+  const refunds = new Map(), addRefundTo = (orderId, paise) => { if (Number.isSafeInteger(paise) && paise > 0) refunds.set(id(orderId), (refunds.get(id(orderId)) || 0) + paise); };
+  for (const ret of await inBatches(ids, 500, batch => Return.find({ orderId: { $in: batch }, status: 'REFUNDED' }).select('orderId refundAmount').lean())) addRefundTo(ret.orderId, orderMoney(ret.refundAmount));
+  const paymentIds = orders.map(order => order.paymentId).filter(Boolean);
+  for (const payment of await inBatches(paymentIds, 500, batch => Payment.find({ _id: { $in: batch } }).select('orderId refundObligations').lean())) {
+    for (const refund of payment.refundObligations || []) if (refund.status === 'processed' && !refund.returnId && refund.currency === 'INR') addRefundTo(refund.orderId || payment.orderId, refund.amountPaise);
+  }
+  const { default: WalletLedger } = await import('../models/WalletLedger.js');
+  for (const credit of await inBatches(ids.map(String), 500, batch => WalletLedger.find({ referenceType: 'ORDER', referenceId: { $in: batch }, direction: 'credit', type: { $in: ['REFUND', 'CANCELLATION_REFUND'] }, status: 'completed' }).select('referenceId amount').lean())) addRefundTo(credit.referenceId, orderMoney(credit.amount));
+
+  const [sellers, customers, partners] = await Promise.all([
+    Seller.find({ _id: { $in: [...new Set(orders.flatMap(order => (order.items || []).map(item => id(item.sellerId))))].filter(key => mongoose.isValidObjectId(key)) } }).select('businessName storeDetails.name').lean(),
+    User.find({ _id: { $in: [...new Set(orders.map(order => id(order.userId)))].filter(key => mongoose.isValidObjectId(key)) } }).select('name phone').lean(),
+    DeliveryPartner.find({ _id: { $in: [...new Set([...riders.values()].map(rider => rider.partnerId))].filter(key => mongoose.isValidObjectId(key)) } }).select('userId').populate('userId', 'name').lean(),
+  ]);
+  const sellerName = new Map(sellers.map(seller => [id(seller._id), seller.storeDetails?.name || seller.businessName || 'Unnamed seller']));
+  const customerOf = new Map(customers.map(user => [id(user._id), user]));
+  const partnerName = new Map(partners.map(partner => [id(partner._id), partner.userId?.name || 'Delivery partner']));
+
+  let list = orders.map(order => {
+    const key = id(order._id), p = order.pricing || {}, snapshot = order.financialSnapshot?.version === 2 && Array.isArray(order.financialSnapshot.lines) && order.financialSnapshot.components ? order.financialSnapshot : null;
+    const cancelled = order.status === 'cancelled', delivered = order.status === 'delivered';
+    const lines = snapshot ? snapshot.lines.map(line => {
+      const productGstPaise = Number.isSafeInteger(line.taxableValuePaise) ? line.grossPaise - line.taxableValuePaise : null;
+      return { itemId: line.itemId, name: (order.items || []).find(item => id(item._id) === line.itemId)?.name || 'Item', seller: sellerName.get(line.sellerId) || 'Removed seller', qty: line.qty,
+        grossPaise: line.grossPaise, discountPaise: line.grossPaise - line.eligiblePaise, productGstPaise, gstRatePercent: line.gstRatePercent ?? null,
+        commissionPaise: line.commissionPaise ?? null, commissionGstPaise: line.taxPaise ?? null, tcsPaise: line.tcsPaise ?? 0, tdsPaise: line.tdsPaise ?? 0, sellerNetPaise: line.netPaise ?? null, ruleMissing: !line.rule };
+    }) : [];
+    const expected = snapshot && !lines.some(line => line.ruleMissing) ? {
+      seller: sumPaise(lines, 'sellerNetPaise') + (snapshot.components.sellerIncentivePaise || 0), commission: sumPaise(lines, 'commissionPaise'), commissionGst: sumPaise(lines, 'commissionGstPaise'),
+      tcs: sumPaise(lines, 'tcsPaise'), tds: sumPaise(lines, 'tdsPaise'), platformDiscount: snapshot.discountFunding === 'platform' ? sumPaise(lines, 'discountPaise') : 0, deliveryIncome: snapshot.components.deliveryPaise,
+    } : null;
+    const posted = order.financialPosting && ledger.has(key) && !ledger.get(key).invalid ? { seller: 0, commission: 0, commissionGst: 0, tcs: 0, tds: 0, platformDiscount: 0, deliveryIncome: 0, ...ledger.get(key) } : null;
+    const split = cancelled ? { seller: 0, commission: 0, commissionGst: 0, tcs: 0, tds: 0, platformDiscount: 0, deliveryIncome: 0 } : posted || expected;
+    const basis = cancelled ? 'cancelled' : posted ? 'posted' : expected ? 'expected' : 'unavailable';
+    const rider = riders.get(key), quoted = order.delivery?.riderPayoutQuoted == null ? null : orderMoney(order.delivery.riderPayoutQuoted);
+    const riderPaise = cancelled ? 0 : rider ? rider.payPaise : quoted;
+    const adminPaise = split && riderPaise !== null ? split.commission + split.deliveryIncome - riderPaise - split.platformDiscount : null;
+    const user = customerOf.get(id(order.userId)) || {};
+    return { id: key, orderNo: order.orderNo || key.slice(-8).toUpperCase(), placedAt: order.createdAt, status: order.status, paymentMethod: order.paymentMethod || 'unknown', basis,
+      customer: user.name || 'Customer', customerPhone: maskPhone(user.phone), sellers: [...new Set(lines.length ? lines.map(line => line.seller) : (order.items || []).map(item => sellerName.get(id(item.sellerId)) || 'Removed seller'))],
+      riderName: rider ? partnerName.get(rider.partnerId) || 'Delivery partner' : null, riderBasis: cancelled ? 'cancelled' : rider ? 'paid on delivery' : quoted !== null ? 'quoted' : 'not assigned',
+      paidPaise: orderMoney(p.totalAmount), merchandisePaise: orderMoney(p.subtotal), deliveryFeePaise: orderMoney(p.deliveryCharge), tipPaise: orderMoney(p.tipAmount), donationPaise: orderMoney(p.donationAmount),
+      discountPaise: lines.length ? sumPaise(lines, 'discountPaise') : null, productGstPaise: lines.length && lines.every(line => line.productGstPaise !== null) ? sumPaise(lines, 'productGstPaise') : null,
+      sellerEarningPaise: split ? split.seller : null, commissionPaise: split ? split.commission : null, commissionGstPaise: split ? split.commissionGst : null, tcsPaise: split ? split.tcs : null, tdsPaise: split ? split.tds : null,
+      platformDiscountPaise: split ? split.platformDiscount : null, deliveryIncomePaise: split ? split.deliveryIncome : null, riderEarningPaise: riderPaise, riderTipPaise: cancelled ? 0 : rider ? rider.tipPaise : orderMoney(p.tipAmount),
+      adminEarningPaise: adminPaise, refundsPaise: refunds.get(key) || 0, delivered, lines };
+  });
+
+  const completed = list.filter(row => row.status === 'delivered');
+  // Totals add up the orders that have the figure; orders without one are counted in incompleteOrders.
+  const total = (rows, key) => rows.reduce((n, row) => n + (row[key] ?? 0), 0);
+  const totals = { orders: list.length, completedOrders: completed.length, cancelledOrders: list.filter(row => row.status === 'cancelled').length,
+    paidPaise: total(list, 'paidPaise'), refundsPaise: total(list, 'refundsPaise'),
+    ...Object.fromEntries(['sellerEarningPaise', 'riderEarningPaise', 'commissionPaise', 'commissionGstPaise', 'tcsPaise', 'tdsPaise', 'productGstPaise', 'adminEarningPaise'].map(key => [key, total(completed, key)])),
+    incompleteOrders: list.filter(row => row.basis === 'unavailable' || row.adminEarningPaise === null).length };
+  if (params.status === 'completed') list = list.filter(row => row.status === 'delivered');
+  if (params.status === 'cancelled') list = list.filter(row => row.status === 'cancelled');
+  if (params.status === 'open') list = list.filter(row => !['delivered', 'cancelled'].includes(row.status));
+  if (params.search) { const rx = new RegExp(escapeRegex(params.search), 'i'); list = list.filter(row => rx.test(row.orderNo) || rx.test(row.customer) || row.sellers.some(name => rx.test(name))); }
+  const sortKey = { placed: 'placedAt', paid: 'paidPaise', admin: 'adminEarningPaise', commission: 'commissionPaise', seller: 'sellerEarningPaise', rider: 'riderEarningPaise', refunds: 'refundsPaise' }[params.sort];
+  list.sort(sorter(sortKey, params.dir));
+  const table = all ? { rows: list, meta: { page: 1, limit: list.length, total: list.length, pages: 1 } } : page(list, params);
+  return envelope('orders', range, { totals, ...table, definitions: {
+    customerPaid: 'The order total the customer paid (after discounts and coins, including delivery fee, tip and donation).',
+    sellerEarning: 'What the seller(s) earn: item prices minus commission, GST on commission, TCS and TDS, plus any same-day incentive. Posted orders include later refund reversals.',
+    deliveryPartnerEarning: 'The delivery partner’s trip pay for the order, excluding the customer’s tip (shown separately and paid to the rider in full). Before delivery this is the quoted pay.',
+    commission: 'Platform commission on the order’s items. GST on commission is collected by the platform and owed to the government.',
+    taxes: 'Product GST is included in item prices and is the seller’s tax. TCS and TDS are withheld from the seller’s payout and deposited with the government.',
+    adminEarning: 'What the platform keeps: commission + delivery fee income − delivery partner pay − discounts funded by Bulkimart. Excludes GST, TCS/TDS, tips and donations, which belong to others.',
+    basis: 'Posted: read from the finance ledger after delivery. Expected: from the order’s checkout snapshot, before delivery or posting. Cancelled orders earn nothing.',
+    totals: 'Earning, commission and tax totals cover completed (delivered) orders only.' } });
+}
+
 // ---- CSV ----------------------------------------------------------------------
 // Text cells that a spreadsheet could execute are prefixed with an apostrophe;
 // numbers are written as plain numbers (so negatives stay numeric).
@@ -429,6 +536,13 @@ export async function exportReport(report, params) {
     const data = await deliveryReport(params, { all: true });
     return { filename: `bulkimart-delivery-report-${stamp}.csv`, csv: toCsv(['Delivery partner', 'Phone (masked)', 'Vehicle', 'Status', 'Trips assigned', 'Delivered', 'Failed', 'Rejected', 'In progress', 'Success rate (%)', 'Avg duration (min)', 'Recorded earnings (INR)', 'COD collected (INR)', 'Cash outstanding now (INR)'],
       data.rows.map(r => [r.name, r.phone, r.vehicle, r.status, r.assigned, r.delivered, r.failed, r.rejected, r.inProgress, pct(r.successRate), r.avgDurationMinutes, inr(r.earningsPaise), inr(r.codCollectedPaise), inr(r.cashOutstandingPaise)])) };
+  }
+  if (report === 'orders') {
+    const data = await ordersReport(params, { all: true });
+    return { filename: `bulkimart-order-payments-${stamp}.csv`, csv: toCsv(['Order', 'Placed (IST)', 'Status', 'Payment method', 'Customer', 'Sellers', 'Delivery partner', 'Customer paid (INR)', 'Items (INR)', 'Discounts (INR)', 'Delivery fee (INR)', 'Tip (INR)', 'Donation (INR)',
+      'Product GST in prices (INR)', 'Seller earning (INR)', 'Delivery partner earning (INR)', 'Platform commission (INR)', 'GST on commission (INR)', 'TCS (INR)', 'TDS (INR)', 'Discounts funded by Bulkimart (INR)', 'Admin earning (INR)', 'Refunds (INR)', 'Figures'],
+      data.rows.map(r => [r.orderNo, date(r.placedAt), r.status, r.paymentMethod, r.customer, r.sellers.join('; '), r.riderName || r.riderBasis, inr(r.paidPaise), inr(r.merchandisePaise), inr(r.discountPaise), inr(r.deliveryFeePaise), inr(r.tipPaise), inr(r.donationPaise),
+        inr(r.productGstPaise), inr(r.sellerEarningPaise), inr(r.riderEarningPaise), inr(r.commissionPaise), inr(r.commissionGstPaise), inr(r.tcsPaise), inr(r.tdsPaise), inr(r.platformDiscountPaise), inr(r.adminEarningPaise), inr(r.refundsPaise), r.basis])) };
   }
   throw httpError(400, 'Unknown report');
 }

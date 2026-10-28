@@ -31,6 +31,16 @@ test('wallet checkout sends signed results to the wallet verification endpoint',
     assert.equal(payload.orderId, checkout.orderId); assert.equal(payload.razorpay_signature, 'signed-result');
   } finally { f.restore(); }
 });
+
+test('service checkout uses its dedicated verification endpoint instead of the shopping-order endpoint', async () => {
+  const f = fixture(); let target;
+  try {
+    globalThis.fetch = async url => { target = String(url); return { ok: true, json: async () => ({ data: { status: 'paid' } }) }; };
+    const pending = open({ ...checkout, verificationPath: '/api/services/payments/verify' }, { Authorization: 'Bearer seller-fixture' }); await Promise.resolve();
+    await f.options.handler({ razorpay_payment_id: 'pay_service_fixture', razorpay_signature: 'fixture-signature' });
+    assert.equal((await pending).verified, true); assert.ok(target.endsWith('/api/services/payments/verify'));
+  } finally { f.restore(); }
+});
 test('provider dismissal during verification cannot replace a trusted paid result with cancellation', async () => {
   const f = fixture(); let respond;
   try {

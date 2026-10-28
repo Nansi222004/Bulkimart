@@ -74,3 +74,5 @@
 .studio-swatch-action{width:30px;height:30px;border:1px solid #c9d8e5;border-radius:8px;background:#fff;color:#172b4d;font-size:16px;line-height:1;cursor:pointer}
 .studio-field-hint{font-size:11px;font-weight:500;color:#6b7c8f}
 .studio-effect-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));column-gap:12px}
+.studio-media-thumb{display:block;max-width:180px;max-height:120px;margin-top:6px;border:1px solid #dce7ef;border-radius:8px;object-fit:contain;background:#f4f7fa}
+.studio-media-warning{margin:6px 0 0;padding:8px 10px;border-radius:8px;background:#fff7ed;color:#9a3412;font-size:12px;font-weight:600;line-height:1.45}

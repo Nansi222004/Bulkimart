@@ -35,10 +35,6 @@ customerLegalRouter.use(errors);
 
 export const adminLegalRouter = express.Router();
 adminLegalRouter.use(protect, requireAdmin, legalAdminPermission, privacy, mode('admin'), validBody);
-adminLegalRouter.use((req, _res, next) => {
-  if (req.method !== 'GET' && (process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_ENV === 'production')) { const err = new Error('Production Legal Services mutations are release-blocked'); err.status = 503; return next(err); }
-  next();
-});
 adminLegalRouter.get('/requests', wrap(c.requests));
 adminLegalRouter.get('/requests/:id', wrap(c.requestDetail));
 adminLegalRouter.get('/requests/:id/files/:fileId', wrap(c.download));

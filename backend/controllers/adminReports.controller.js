@@ -1,9 +1,9 @@
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
-import { parseReportQuery, overviewReport, customersReport, vendorsReport, deliveryReport, exportReport } from '../services/adminReports.service.js';
+import { parseReportQuery, overviewReport, customersReport, vendorsReport, deliveryReport, ordersReport, exportReport } from '../services/adminReports.service.js';
 
 // Read-only admin reports. Routing applies auth, admin and manage_finance.
-const handlers = { overview: overviewReport, customers: customersReport, vendors: vendorsReport, delivery: deliveryReport };
+const handlers = { overview: overviewReport, customers: customersReport, vendors: vendorsReport, delivery: deliveryReport, orders: ordersReport };
 const noStore = res => res.set('Cache-Control', 'no-store');
 
 export const getReport = report => asyncHandler(async (req, res) => {

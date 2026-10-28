@@ -12,12 +12,14 @@ export const REPORT_TABS = [
   { id: 'customers', label: 'Consumer Users', icon: '👤' },
   { id: 'vendors', label: 'General Vendors', icon: '🏬' },
   { id: 'delivery', label: 'Delivery Fleet', icon: '🛵' },
+  { id: 'orders', label: 'Order Payments', icon: '🧾' },
 ];
 const PRESETS = [{ id: 'today', label: 'Today' }, { id: 'last7', label: 'Last 7 days' }, { id: 'last30', label: 'Last 30 days' }, { id: 'month', label: 'This month' }, { id: 'custom', label: 'Custom range' }];
-const TABLE_DEFAULTS = { customers: { sort: 'spend', status: 'all' }, vendors: { sort: 'sales', status: 'all' }, delivery: { sort: 'delivered', status: 'all' } };
+const TABLE_DEFAULTS = { customers: { sort: 'spend', status: 'all' }, vendors: { sort: 'sales', status: 'all' }, delivery: { sort: 'delivered', status: 'all' }, orders: { sort: 'placed', status: 'all' } };
 const STATUS_OPTIONS = {
   customers: [['all', 'All customers'], ['completed', 'With completed orders'], ['repeat', 'Repeat customers'], ['new', 'Registered in period']],
   vendors: [['all', 'All vendors'], ['approved', 'Approved'], ['pending', 'Pending'], ['under_review', 'Under review'], ['incomplete', 'Incomplete'], ['rejected', 'Rejected'], ['suspended', 'Suspended']],
+  orders: [['all', 'All orders'], ['completed', 'Delivered'], ['open', 'In progress'], ['cancelled', 'Cancelled']],
   delivery: [['all', 'All partners'], ['approved', 'Approved'], ['pending', 'Pending'], ['under_review', 'Under review'], ['incomplete', 'Incomplete'], ['rejected', 'Rejected'], ['suspended', 'Suspended']],
 };
 export const istToday = (now = Date.now()) => new Date(now + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -79,12 +81,48 @@ export function DataTable({ columns, rows, meta, params, onChange, loading, empt
           : rows.map(row => <tr key={row.id}>{columns.map(column => <td key={column.key} className={column.numeric ? 'is-number' : ''}>{column.render(row)}</td>)}</tr>)}
       </tbody>
     </table>
-    {meta && meta.total > 0 && <nav className="sa-report-pagination" aria-label="Table pages">
-      <span>{((meta.page - 1) * meta.limit + 1).toLocaleString('en-IN')}–{Math.min(meta.page * meta.limit, meta.total).toLocaleString('en-IN')} of {meta.total.toLocaleString('en-IN')}</span>
-      <button type="button" disabled={loading || meta.page <= 1} onClick={() => onChange({ page: meta.page - 1 })}>Previous</button>
-      <span aria-current="page">Page {meta.page} of {Math.max(1, meta.pages)}</span>
-      <button type="button" disabled={loading || meta.page >= meta.pages} onClick={() => onChange({ page: meta.page + 1 })}>Next</button>
-    </nav>}
+    {Pagination({ meta, loading, onChange })}
+  </div>;
+}
+export function Pagination({ meta, loading, onChange }) {
+  if (!meta || meta.total <= 0) return null;
+  return <nav className="sa-report-pagination" aria-label="Table pages">
+    <span>{((meta.page - 1) * meta.limit + 1).toLocaleString('en-IN')}–{Math.min(meta.page * meta.limit, meta.total).toLocaleString('en-IN')} of {meta.total.toLocaleString('en-IN')}</span>
+    <button type="button" disabled={loading || meta.page <= 1} onClick={() => onChange({ page: meta.page - 1 })}>Previous</button>
+    <span aria-current="page">Page {meta.page} of {Math.max(1, meta.pages)}</span>
+    <button type="button" disabled={loading || meta.page >= meta.pages} onClick={() => onChange({ page: meta.page + 1 })}>Next</button>
+  </nav>;
+}
+
+// Order Payments as cards: identity on top, admin earning on the right, the money split as a wrapping row of figures.
+const ORDER_SORTS = [['placed', 'Newest first'], ['paid', 'Customer paid'], ['admin', 'Admin earning'], ['commission', 'Commission'], ['seller', 'Seller earning'], ['rider', 'Delivery earning'], ['refunds', 'Refunds']];
+export function OrderList({ rows, meta, params, onChange, loading, emptyText }) {
+  const [open, setOpen] = useState(() => new Set());
+  const toggle = key => setOpen(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const figure = (label, value, note) => <div className="sa-order-figure"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>;
+  return <div className="sa-order-list">
+    {loading && !rows.length ? Array.from({ length: 3 }, (_, i) => <div key={i} className="sa-order-card is-skeleton"><span /><span /></div>)
+      : !rows.length ? <p className="sa-report-empty">{emptyText}</p>
+      : rows.map(r => <article key={r.id} className={`sa-order-card${open.has(r.id) ? ' is-open' : ''}`}>
+        <header className="sa-order-card-head">
+          <button type="button" className="sa-report-expand" aria-expanded={open.has(r.id)} aria-label={`${open.has(r.id) ? 'Hide' : 'Show'} breakdown for ${r.orderNo}`} onClick={() => toggle(r.id)}>{open.has(r.id) ? '▾' : '▸'}</button>
+          <div className="sa-order-card-id">
+            <strong className="sa-order-no">{r.orderNo}</strong>
+            <span className="sa-order-meta">{dateTime(r.placedAt)} · <span className={`sa-report-status is-${r.status}`}>{r.status.replace(/_/g, ' ')}</span> · {PAYMENT_LABELS[r.paymentMethod] || r.paymentMethod}</span>
+            <span className="sa-order-parties">{r.customer} → {r.sellers.join(', ') || '—'}</span>
+          </div>
+          <div className="sa-order-card-admin"><span>Admin earning</span><strong className={r.adminEarningPaise < 0 ? 'sa-report-negative' : ''}>{money(r.adminEarningPaise)}</strong><small className={`sa-report-basis is-${r.basis}`}>{BASIS_LABELS[r.basis]}</small></div>
+        </header>
+        <div className="sa-order-figures">
+          {figure('Customer paid', money(r.paidPaise), r.refundsPaise > 0 ? `${money(r.refundsPaise)} refunded` : null)}
+          {figure('Seller earning', money(r.sellerEarningPaise))}
+          {figure('Delivery earning', money(r.riderEarningPaise), `${r.riderName || r.riderBasis}${r.riderTipPaise > 0 ? ` · +${money(r.riderTipPaise)} tip` : ''}`)}
+          {figure('Commission', money(r.commissionPaise), r.commissionGstPaise > 0 ? `+ ${money(r.commissionGstPaise)} GST` : null)}
+          {figure('TCS / TDS', r.tcsPaise === null ? '—' : money(r.tcsPaise + r.tdsPaise), r.tcsPaise === null ? null : `${money(r.tcsPaise)} / ${money(r.tdsPaise)}`)}
+        </div>
+        {open.has(r.id) && <OrderBreakdown order={r} />}
+      </article>)}
+    {Pagination({ meta, loading, onChange })}
   </div>;
 }
 
@@ -158,24 +196,84 @@ const tableColumns = {
     { key: 'outstanding', label: 'Cash held now', sort: 'outstanding', numeric: true, render: r => money(r.cashOutstandingPaise) },
   ],
 };
+const PAYMENT_LABELS = { online: 'Online', cod: 'Cash on delivery', wallet: 'Wallet', unknown: 'Unknown payment' };
+const BASIS_LABELS = { posted: 'Posted', expected: 'Expected', cancelled: 'Cancelled', unavailable: 'Not available' };
+
+// The full money trail of one order: where the customer's payment went, and each item's split.
+export function OrderBreakdown({ order: r }) {
+  const item = (label, value, note) => <div className="sa-order-split-row"><dt>{label}{note && <small>{note}</small>}</dt><dd>{value}</dd></div>;
+  return <div className="sa-order-breakdown">
+    <div className="sa-order-split">
+      <section><h4>Customer paid</h4><dl>
+        {item('Items', money(r.merchandisePaise))}{item('Discounts', r.discountPaise === null ? '—' : `− ${money(r.discountPaise)}`)}
+        {item('Delivery fee', money(r.deliveryFeePaise))}{r.tipPaise > 0 && item('Tip for rider', money(r.tipPaise))}{r.donationPaise > 0 && item('Donation', money(r.donationPaise))}
+        {item(<strong>Total paid</strong>, <strong>{money(r.paidPaise)}</strong>)}{r.refundsPaise > 0 && item('Refunded', `− ${money(r.refundsPaise)}`)}
+      </dl></section>
+      <section><h4>Where it goes</h4><dl>
+        {item('Seller earning', money(r.sellerEarningPaise), 'After commission, GST, TCS and TDS')}
+        {item('Delivery partner', money(r.riderEarningPaise), r.riderName ? `${r.riderName}${r.riderTipPaise > 0 ? ` · plus ${money(r.riderTipPaise)} tip` : ''}` : r.riderBasis)}
+        {item('Platform commission', money(r.commissionPaise))}{item('GST on commission', money(r.commissionGstPaise), 'Owed to government')}
+        {item('TCS + TDS withheld', r.tcsPaise === null ? '—' : money(r.tcsPaise + r.tdsPaise), 'Deposited with government')}
+        {item('Product GST in prices', money(r.productGstPaise), 'Seller’s tax')}
+      </dl></section>
+      <section><h4>Admin earning</h4><dl>
+        {item('Commission', money(r.commissionPaise))}{item('Delivery fee income', money(r.deliveryIncomePaise))}
+        {item('Delivery partner pay', r.riderEarningPaise === null ? '—' : `− ${money(r.riderEarningPaise)}`)}{item('Discounts funded by Bulkimart', r.platformDiscountPaise === null ? '—' : `− ${money(r.platformDiscountPaise)}`)}
+        {item(<strong>Admin earning</strong>, <strong>{money(r.adminEarningPaise)}</strong>, BASIS_LABELS[r.basis])}
+      </dl></section>
+    </div>
+    {r.lines.length > 0 ? <div className="sa-report-table-wrap"><table className="sa-report-table sa-order-lines">
+      <caption>Item breakdown</caption>
+      <thead><tr><th scope="col">Item</th><th scope="col">Seller</th><th scope="col" className="is-number">Price</th><th scope="col" className="is-number">Discount</th><th scope="col" className="is-number">Product GST</th><th scope="col" className="is-number">Commission</th><th scope="col" className="is-number">GST on comm.</th><th scope="col" className="is-number">TCS / TDS</th><th scope="col" className="is-number">Seller net</th></tr></thead>
+      <tbody>{r.lines.map(line => <tr key={line.itemId}><td><strong>{line.name}</strong><small>Qty {line.qty}{line.ruleMissing ? ' · no commission rule' : ''}</small></td><td>{line.seller}</td>
+        <td className="is-number">{money(line.grossPaise)}</td><td className="is-number">{money(line.discountPaise)}</td>
+        <td className="is-number">{money(line.productGstPaise)}{line.gstRatePercent !== null && <small>{line.gstRatePercent}%</small>}</td><td className="is-number">{money(line.commissionPaise)}</td>
+        <td className="is-number">{money(line.commissionGstPaise)}</td><td className="is-number">{money(line.tcsPaise)} / {money(line.tdsPaise)}</td><td className="is-number">{money(line.sellerNetPaise)}</td></tr>)}</tbody>
+    </table></div> : <p className="sa-report-note">This order has no checkout finance snapshot, so an item-level split is not available.</p>}
+  </div>;
+}
+
+export function OrderPayments({ data, ...table }) {
+  const t = data.totals;
+  return <>
+    <div className="sa-report-kpis">
+      <MoneyCard label="Customer payments" metric={{ amountPaise: t.paidPaise }} note={`${count(t.orders)} orders · ${count(t.cancelledOrders)} cancelled`} />
+      <MoneyCard label="Admin earning" metric={{ amountPaise: t.adminEarningPaise }} note={`${count(t.completedOrders)} delivered orders`} />
+      <MoneyCard label="Seller earnings" metric={{ amountPaise: t.sellerEarningPaise }} note="Delivered orders" />
+      <MoneyCard label="Delivery partner earnings" metric={{ amountPaise: t.riderEarningPaise }} note="Excluding tips" />
+      <MoneyCard label="Platform commission" metric={{ amountPaise: t.commissionPaise }} note={t.commissionGstPaise !== null ? `+ ${money(t.commissionGstPaise)} GST on commission` : undefined} />
+      <MoneyCard label="TCS + TDS withheld" metric={{ amountPaise: t.tcsPaise === null || t.tdsPaise === null ? null : t.tcsPaise + t.tdsPaise }} note={t.tcsPaise !== null ? `TCS ${money(t.tcsPaise)} · TDS ${money(t.tdsPaise)}` : undefined} />
+      <MoneyCard label="Product GST in prices" metric={{ amountPaise: t.productGstPaise }} note="Sellers’ tax" />
+      <MoneyCard label="Refunds" metric={{ amountPaise: t.refundsPaise }} note="On these orders" />
+    </div>
+    {t.incompleteOrders > 0 && <p className="sa-report-note" role="note">{t.incompleteOrders} order(s) have no checkout finance snapshot or delivery pay, so part of their split shows “—” and is left out of the totals.</p>}
+    <TableReport tab="orders" data={data} {...table} />
+    <Definitions items={data.definitions} />
+  </>;
+}
 
 export function TableReport({ tab, data, params, onChange, loading }) {
   const [search, setSearch] = useState(params.search);
   useEffect(() => setSearch(params.search), [params.search, tab]);
   // Debounce typing; one request per pause, never per keystroke.
   useEffect(() => { if (search === params.search) return; const timer = setTimeout(() => onChange({ search, page: 1 }), 350); return () => clearTimeout(timer); }, [search]);
-  const noun = { customers: 'customers', vendors: 'vendors', delivery: 'delivery partners' }[tab];
+  const noun = { customers: 'customers', vendors: 'vendors', delivery: 'delivery partners', orders: 'orders' }[tab];
   return <section className="sa-report-card">
     <div className="sa-report-filters">
       <label className="sa-report-search"><span className="sa-report-sr-only">Search {noun}</span>
-        <input type="search" value={search} maxLength={80} placeholder={`Search ${noun} by name${tab === 'vendors' ? '' : ' or phone'}…`} onChange={event => setSearch(event.target.value)} />
+        <input type="search" value={search} maxLength={80} placeholder={tab === 'orders' ? 'Search by order number, customer or seller…' : `Search ${noun} by name${tab === 'vendors' ? '' : ' or phone'}…`} onChange={event => setSearch(event.target.value)} />
       </label>
       <label><span className="sa-report-sr-only">Filter {noun}</span>
         <select value={params.status} onChange={event => onChange({ status: event.target.value, page: 1 })}>{STATUS_OPTIONS[tab].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       </label>
+      {tab === 'orders' && <label className="sa-report-sort"><span>Sort by</span>
+        <select value={params.sort} onChange={event => onChange({ sort: event.target.value, dir: 'desc', page: 1 })}>{ORDER_SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      </label>}
     </div>
-    <DataTable columns={tableColumns[tab]} rows={data?.rows || []} meta={data?.meta} params={params} onChange={onChange} loading={loading}
-      emptyText={params.search || params.status !== 'all' ? `No ${noun} match these filters.` : tab === 'customers' ? 'No customer placed or completed an order in this period.' : `No ${noun} yet.`} />
+    {tab === 'orders' ? <OrderList rows={data?.rows || []} meta={data?.meta} params={params} onChange={onChange} loading={loading}
+      emptyText={params.search || params.status !== 'all' ? 'No orders match these filters.' : 'No orders were placed in this period.'} />
+    : <DataTable columns={tableColumns[tab]} rows={data?.rows || []} meta={data?.meta} params={params} onChange={onChange} loading={loading}
+      emptyText={params.search || params.status !== 'all' ? `No ${noun} match these filters.` : tab === 'customers' ? 'No customer placed or completed an order in this period.' : `No ${noun} yet.`} />}
   </section>;
 }
 
@@ -330,6 +428,7 @@ export default function ReportsTab() {
         : tab === 'overview' ? <Overview data={current} />
         : tab === 'customers' ? <Customers data={current} {...tableProps} />
         : tab === 'vendors' ? <Vendors data={current} {...tableProps} />
+        : tab === 'orders' ? <OrderPayments data={current} {...tableProps} />
         : <Delivery data={current} {...tableProps} />}
     </div>
   </div>;

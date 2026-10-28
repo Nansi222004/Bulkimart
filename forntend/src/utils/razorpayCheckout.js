@@ -53,7 +53,7 @@ export const openRazorpayCheckout = async (checkout, requestHeaders) => {
         if (settled || verifying) return;
         verifying = true;
         try {
-          const response = await boundedFetch(apiUrl(['/api/wallet/topup/verify', '/api/sellers/gst-assistance/payments/verify', '/api/sellers/advertising/payment-verification', '/api/sellers/shiprocket-fees/verify', '/api/customer-services/payments/verify', '/api/parcel-delivery/payments/verify'].includes(checkout.verificationPath) ? checkout.verificationPath : '/api/payments/razorpay/verify'), {
+          const response = await boundedFetch(apiUrl(['/api/services/payments/verify', '/api/wallet/topup/verify', '/api/sellers/gst-assistance/payments/verify', '/api/sellers/advertising/payment-verification', '/api/sellers/shiprocket-fees/verify', '/api/customer-services/payments/verify', '/api/parcel-delivery/payments/verify'].includes(checkout.verificationPath) ? checkout.verificationPath : '/api/payments/razorpay/verify'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify({ orderId: checkout.orderId, ...result }),

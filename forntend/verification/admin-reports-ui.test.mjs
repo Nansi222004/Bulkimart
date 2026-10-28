@@ -168,3 +168,40 @@ test('a failed report shows an actionable error and Refresh retries', async () =
     assert.equal(h.requests.length, count + 1);
   } finally { h.close(); }
 });
+
+test('order payments report requests the orders table and shows each order’s money split with an item breakdown', async () => {
+  const order = { id: 'o1', orderNo: 'ORD-A', placedAt: '2026-10-26T04:30:00Z', status: 'delivered', paymentMethod: 'cod', basis: 'posted', customer: 'Asha Buyer', customerPhone: '98••••11', sellers: ['Alpha Store', 'Beta Store'],
+    riderName: 'Ravi Rider', riderBasis: 'paid on delivery', paidPaise: 101500, merchandisePaise: 100000, discountPaise: 2000, deliveryFeePaise: 3000, tipPaise: 500, donationPaise: 0, productGstPaise: 11058,
+    sellerEarningPaise: 86936, commissionPaise: 9800, commissionGstPaise: 1764, tcsPaise: 500, tdsPaise: 1000, platformDiscountPaise: 2000, deliveryIncomePaise: 3000, riderEarningPaise: 4000, riderTipPaise: 500, adminEarningPaise: 6800, refundsPaise: 0,
+    lines: [{ itemId: 'i1', name: 'Rice 5kg', seller: 'Alpha Store', qty: 1, grossPaise: 60000, discountPaise: 2000, productGstPaise: 9153, gstRatePercent: 18, commissionPaise: 5800, commissionGstPaise: 1044, tcsPaise: 300, tdsPaise: 600, sellerNetPaise: 52256, ruleMissing: false }] };
+  const data = { report: 'orders', range, asOf: '2026-10-27T10:00:00Z', rows: [order], meta: { page: 1, limit: 20, total: 1, pages: 1 }, definitions: { adminEarning: 'fixture' },
+    totals: { orders: 1, completedOrders: 1, cancelledOrders: 0, paidPaise: 101500, refundsPaise: 0, sellerEarningPaise: 86936, riderEarningPaise: 4000, commissionPaise: 9800, commissionGstPaise: 1764, tcsPaise: 500, tdsPaise: 1000, productGstPaise: 11058, adminEarningPaise: 6800, incompleteOrders: 0 } };
+  const h = setup();
+  try {
+    h.requests.at(-1).resolve({ data: overview() }); await h.settle();
+    h.find(n => n.type === 'button' && n.props.id === 'report-tab-orders').props.onClick(); await h.settle();
+    const request = h.requests.at(-1);
+    assert.equal(path(request), '/api/admin/reports/orders'); assert.equal(query(request).sort, 'placed'); assert.equal(query(request).status, 'all');
+    request.resolve({ data }); await h.settle();
+    const view = child(h, ReportsModule.OrderPayments);
+    assert.ok(view, 'Order Payments view is shown');
+    const summary = hookHarness(ReportsModule.OrderPayments, { ...view.props }, '/admin/reports', {});
+    try { const cards = []; const walk = node => { if (!node || typeof node !== 'object') return; if (node.type === ReportsModule.MoneyCard) cards.push(node.props); [node.props?.children].flat(Infinity).forEach(walk); }; walk(summary.tree);
+      const amount = label => cards.find(card => card.label === label)?.metric.amountPaise;
+      assert.deepEqual([amount('Admin earning'), amount('Seller earnings'), amount('Delivery partner earnings'), amount('Platform commission'), amount('TCS + TDS withheld'), amount('Customer payments')], [6800, 86936, 4000, 9800, 1500, 101500]); } finally { summary.close(); }
+    const list = hookHarness(ReportsModule.OrderList, { rows: [order], meta: { page: 1, limit: 20, total: 1, pages: 1 }, params: { sort: 'placed', dir: 'desc' }, onChange() {}, emptyText: 'none' }, '/admin/reports', {});
+    try {
+      const card = text(list.tree).replace(/\s+/g, ' ');
+      for (const words of ['ORD-A', 'Asha Buyer → Alpha Store, Beta Store', 'Admin earning', '₹68.00', 'Customer paid', '₹1,015.00', 'Seller earning', '₹869.36', 'Delivery earning', 'Ravi Rider', 'Commission', '₹98.00', 'TCS / TDS', '₹15.00']) assert.ok(card.includes(words), words);
+      assert.equal(list.find(n => n.type === ReportsModule.OrderBreakdown), undefined);
+      list.find(n => n.type === 'button' && n.props['aria-label'] === 'Show breakdown for ORD-A').props.onClick(); list.flush();
+      assert.equal(list.find(n => n.type === ReportsModule.OrderBreakdown).props.order, order, 'The breakdown opens under the card');
+    } finally { list.close(); }
+    const detail = hookHarness(ReportsModule.OrderBreakdown, { order }, '/admin/reports', {});
+    try {
+      const out = text(detail.tree);
+      for (const words of ['Item breakdown', 'Rice 5kg', 'Where it goes', 'Delivery partner pay', 'GST on commission', '₹522.56']) assert.ok(out.includes(words), words);
+      assert.match(out, /18\s*%/, 'GST rate is shown');
+    } finally { detail.close(); }
+  } finally { h.close(); }
+});

@@ -21,9 +21,10 @@ export async function initiateLegalPayment(id, user, input, key) {
     await approvedProvider(a.provider, a.service, session);
     let p = a.legal.paymentId ? await Payment.findById(a.legal.paymentId).session(session) : null;
     if (!p) {
-      [p] = await Payment.create([{ userId: user, serviceApplicationId: a._id, quotationVersion: q.version, amount: q.totalPaise / 100, method: 'online', status: 'pending', gateway: { provider: 'razorpay' } }], { session });
+      [p] = await Payment.create([{ userId: user, serviceApplicationId: a._id, serviceGatewayMode: process.env.RAZORPAY_MODE, quotationVersion: q.version, amount: q.totalPaise / 100, method: 'online', status: 'pending', gateway: { provider: 'razorpay' } }], { session });
       a.legal.paymentId = String(p._id); a.legal.paymentStatus = 'pending';
     }
+    if ((p.serviceGatewayMode || 'test') !== process.env.RAZORPAY_MODE) fail('Payment environment changed. Contact support.', 409);
     const prior = p.gatewayAttempts.find(t => t.attemptId === key);
     const active = p.gatewayAttempts.find(t => ['issued', 'initializing', 'creation_unknown'].includes(t.status));
     if (active || prior) {
@@ -61,11 +62,12 @@ export async function verifyLegalPayment(id, user, input, poll = false) {
   if (!a) fail('Request not found', 404);
   const p = await Payment.findById(a.legal?.paymentId);
   if (!p) fail('Payment not initiated', 409);
+  if ((p.serviceGatewayMode || 'test') !== process.env.RAZORPAY_MODE) fail('Payment environment changed. Contact support.', 409);
   const orderId = poll ? p.gatewayAttempts.at(-1)?.gatewayOrderId : input.razorpay_order_id;
   if (!orderId || !p.gatewayAttempts.some(t => t.gatewayOrderId === orderId)) fail('Payment order mismatch', 409);
   if (!poll && !verifyRazorpayPaymentSignature({ orderId, paymentId: input.razorpay_payment_id, signature: input.razorpay_signature })) fail('Payment verification failed', 401);
   const live = await getRazorpayPaymentStatus({ orderId, ...(poll ? {} : { paymentId: input.razorpay_payment_id }) });
-  if (live.orderId !== orderId) fail('Gateway payment association mismatch', 409);
+  if (live.orderId !== orderId || (!poll && live.paymentId !== input.razorpay_payment_id)) fail('Gateway payment association mismatch', 409);
   if (live.paymentId) await captureLegalPayment(p._id, live);
   const fresh = await Application.findById(id);
   return { status: fresh.legal.paymentStatus || 'pending', requestStatus: fresh.status };
@@ -128,7 +130,7 @@ export async function executeLegalRefund(a, key, actor, reconcile = false, provi
 export async function handleLegalWebhook(body, evt) {
   if (typeof body.event === 'string' && body.event.startsWith('payment.dispute.')) {
     const d = body.payload?.dispute?.entity;
-    const p = d?.payment_id && await Payment.findOne({ serviceApplicationId: { $exists: true }, 'captures.gatewayPaymentId': d.payment_id });
+    const p = d?.payment_id && await Payment.findOne({ serviceApplicationId: { $exists: true }, servicePaymentKind: { $ne: 'vendor_service' }, 'captures.gatewayPaymentId': d.payment_id });
     if (p?.serviceApplicationId) {
       requireLegalGateway();
       await financialTransaction(async session => {
@@ -143,9 +145,9 @@ export async function handleLegalWebhook(body, evt) {
       return true;
     }
   }
-  const p = evt.gatewayOrderId ? await Payment.findOne({ serviceApplicationId: { $exists: true }, 'gatewayAttempts.gatewayOrderId': evt.gatewayOrderId }) : null;
+  const p = evt.gatewayOrderId ? await Payment.findOne({ serviceApplicationId: { $exists: true }, servicePaymentKind: { $ne: 'vendor_service' }, 'gatewayAttempts.gatewayOrderId': evt.gatewayOrderId }) : null;
   const ref = evt.refundReceipt || evt.refundNotes?.obligationReceipt;
-  const rp = evt.refundId ? await Payment.findOne({ serviceApplicationId: { $exists: true }, $or: [{ 'refundObligations.providerRefundId': evt.refundId }, ...(ref ? [{ 'refundObligations.receipt': ref }] : [])] }) : null;
+  const rp = evt.refundId ? await Payment.findOne({ serviceApplicationId: { $exists: true }, servicePaymentKind: { $ne: 'vendor_service' }, $or: [{ 'refundObligations.providerRefundId': evt.refundId }, ...(ref ? [{ 'refundObligations.receipt': ref }] : [])] }) : null;
   if (rp?.serviceApplicationId) {
     requireLegalGateway('refunds'); await reconcileRefundEvent(evt); await syncLegalRefunds(rp._id); return true;
   }

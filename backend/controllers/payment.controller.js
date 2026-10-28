@@ -419,6 +419,8 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
   }
   const { handleParcelWebhook } = await import('../services/parcelPayment.service.js');
   if (await handleParcelWebhook(req.body, evt)) return res.status(200).json({ success: true });
+  const { handleServiceWebhook } = await import('../services/servicePayment.service.js');
+  if (await handleServiceWebhook(req.body, evt)) return res.status(200).json({ success: true });
   const { handleLegalWebhook } = await import('../services/legalPayment.service.js');
   if (await handleLegalWebhook(req.body, evt)) return res.status(200).json({ success: true });
   const { handleGstWebhook } = await import('../services/gstPayment.service.js');
@@ -455,7 +457,8 @@ export const razorpayWebhook = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true });
   }
   if (payment.serviceApplicationId) {
-    await handleLegalWebhook(req.body, evt);
+    if (payment.servicePaymentKind === 'vendor_service') await handleServiceWebhook(req.body, evt);
+    else await handleLegalWebhook(req.body, evt);
     return res.status(200).json({ success: true });
   }
   if (payment.gstAssistanceRequestId) { await handleGstWebhook(req.body, evt); return res.status(200).json({ success: true }); }

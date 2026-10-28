@@ -20,7 +20,7 @@ jest.unstable_mockModule('../../models/User.js', () => ({ default: { findById: x
 jest.unstable_mockModule('../../models/Admin.js', () => ({ default: { findById: x => ({ select: async () => Object.values(admins).find(u => String(u._id) === String(x)) }) } }));
 jest.unstable_mockModule('../../models/Seller.js', () => ({ default: { findOne: async q => sellers[String(q.userId)] } }));
 const notifyUser = jest.fn(), notifyAllAdmins = jest.fn();
-jest.unstable_mockModule('../../services/notification.service.js', () => ({ notifyUser, notifyAllAdmins }));
+jest.unstable_mockModule('../../services/notification.service.js', () => ({ notifyUser, notifySeller: notifyUser, notifyAllAdmins }));
 const [{ serviceRouter }, { errorHandler }, { JWT_SECRET }, { default: Service }, { default: Application }, { validateDefinition, validateAnswers }, { validateServiceFile, storageRoot }] = await Promise.all([
   import('../../routes/serviceManagement.routes.js'), import('../../middlewares/error.middleware.js'), import('../../config/jwt.js'), import('../../models/Service.js'), import('../../models/ServiceApplication.js'), import('../../services/serviceForms.service.js'), import('../../services/serviceStorage.service.js'),
 ]);
@@ -37,8 +37,8 @@ beforeAll(async () => {
 });
 afterAll(async () => { await mongoose.disconnect(); if (db) await db.stop(); if (storage) await rm(storage, { recursive: true, force: true }); delete process.env.SERVICE_STORAGE_DIR; });
 beforeEach(async () => { await Promise.all([Service.deleteMany({}), Application.deleteMany({})]); jest.clearAllMocks(); for (const u of Object.values(users)) serviceUploadControls.limiter.resetKey(`user:${u._id}`); for (const a of Object.values(admins)) serviceUploadControls.limiter.resetKey(`admin:${a._id}`); });
-async function published() {
-  const created = await auth(request(app).post('/admin'), 'admin').send(definition()).expect(201);
+async function published(overrides = {}) {
+  const created = await auth(request(app).post('/admin'), 'admin').send({ ...definition(), ...overrides }).expect(201);
   return (await auth(request(app).post(`/admin/${created.body.data._id}/publication`), 'admin').send({ status: 'published', version: 0 }).expect(200)).body.data;
 }
 function submit(service, who = 'vendor', key = randomUUID(), answers = { name: 'My shop' }, buffer = pdf) {
@@ -100,7 +100,7 @@ test('schema and price snapshots survive edits and unpublication', async () => {
   expect(saved.snapshot.pricing.amount).toBe(125.50); expect(saved.snapshot.fields).toHaveLength(2); expect(saved.events).toHaveLength(1);
 });
 test('full review, information response, processing and deliverable completion lifecycle', async () => {
-  let a = (await submit(await published()).expect(201)).body.data;
+  let a = (await submit(await published({ pricing: { mode: 'free', amount: 0, currency: 'INR' } })).expect(201)).body.data;
   a = await action(a, 'under_review');
   a = await action(a, 'information_required', 'Please provide the updated certificate');
   a = (await auth(request(app).post(`/vendor/applications/${a._id}/respond`)).field('version', a.__v).field('message', 'Updated certificate attached').attach('files', pdf, 'certificate.pdf').expect(200)).body.data;
@@ -292,14 +292,14 @@ test('aggregate cap rejects declared and chunked bodies and recovers upload capa
     await request(local).post('/').field('answers', '{}').expect(200);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
-test('all 72 role/state/target combinations preserve the centralized lifecycle', () => {
+test('all role/state/target combinations preserve the centralized lifecycle with a verified fee', () => {
   const states = Object.keys(TRANSITIONS); let allowed = 0, denied = 0;
   for (const type of ['admin', 'vendor']) for (const from of states) for (const target of states) {
-    const a = { status: from, events: [] }, permitted = TRANSITIONS[from].includes(target) && (type === 'admin' || (from === 'information_required' && target === 'under_review'));
+    const a = { status: from, events: [], snapshot: { pricing: { mode: 'fixed', amount: 100, currency: 'INR' } }, billing: { status: 'paid' } }, before = structuredClone(a), permitted = TRANSITIONS[from].includes(target) && (type === 'admin' || (from === 'information_required' && target === 'under_review'));
     if (permitted) { transition(a, target, { type, id: id() }, 'Fixture message'); expect(a.events).toHaveLength(1); allowed++; }
-    else { expect(() => transition(a, target, { type, id: id() }, 'Fixture message')).toThrow(); expect(a).toEqual({ status: from, events: [] }); denied++; }
+    else { expect(() => transition(a, target, { type, id: id() }, 'Fixture message')).toThrow(); expect(a).toEqual(before); denied++; }
   }
-  expect([allowed, denied]).toEqual([10, 62]);
+  expect([allowed, denied]).toEqual([15, 113]);
 });
 test('disconnects and upload timeouts release capacity without invoking the controller', async () => {
   const uploads = createServiceUploadControls({ maxPerAccount: 1, timeoutMs: 50 });

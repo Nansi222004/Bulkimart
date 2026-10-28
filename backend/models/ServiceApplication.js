@@ -19,13 +19,14 @@ const schema = new Schema({
   provider: { type: Schema.Types.ObjectId, ref: 'LegalProvider' },
   responsibleAdmin: { type: Schema.Types.ObjectId, ref: 'Admin' },
   legal: { type: Schema.Types.Mixed, default: undefined },
+  billing: { type: Schema.Types.Mixed, default: undefined },
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   submissionKey: { type: String, required: true },
-  snapshot: { type: Schema.Types.Mixed, required: true }, answers: { type: Schema.Types.Mixed, required: true },
+  snapshot: { type: Schema.Types.Mixed, required: true }, answers: { type: Schema.Types.Mixed, required: true, default: () => ({}) },
   status: { type: String, enum: APPLICATION_STATUSES, default: 'submitted', index: true },
   files: [file], events: [event], informationRequest: String, rejectionReason: String,
   processingAt: Date, completedAt: Date, processedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
-}, { timestamps: true, optimisticConcurrency: true });
+}, { timestamps: true, optimisticConcurrency: true, minimize: false });
 schema.index({ vendor: 1, submissionKey: 1 }, { unique: true });
 schema.index({ customerKey: 1 }, { unique: true, sparse: true, name: 'legal_customer_key_unique' });
 schema.set('autoIndex', process.env.NODE_ENV === 'test');
