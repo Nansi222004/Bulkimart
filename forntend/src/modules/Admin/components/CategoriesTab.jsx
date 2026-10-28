@@ -1,6 +1,6 @@
 import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import {
@@ -218,6 +218,42 @@ const HeaderMediaPicker = ({
   );
 };
 
+/**
+ * Picture for a main or sub category: opens the file chooser, previews the
+ * choice, and shows the saved picture when editing. Same file rules as the server.
+ */
+export const CategoryImagePicker = ({ file, existingUrl = '', onPick }) => {
+  const input = React.useRef(null);
+  const [error, setError] = useState(''), [preview, setPreview] = useState('');
+  useEffect(() => {
+    if (!file) { setPreview(''); return undefined; }
+    const url = URL.createObjectURL(file); setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const shown = preview || existingUrl;
+  const pick = chosen => {
+    if (!chosen) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(chosen.type) || chosen.size > 5 * 1024 * 1024) { setError('Choose a JPEG, PNG or WebP image up to 5 MB.'); return; }
+    setError(''); onPick(chosen);
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+      <button type="button" onClick={() => input.current?.click()} aria-label={shown ? 'Change category image' : 'Upload category image'} style={{
+        width: 88, height: 88, borderRadius: '50%', border: shown ? '1.5px solid #cbd5e1' : '2px dashed #cbd5e1', backgroundColor: '#ffffff',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', padding: 0,
+      }}>
+        {shown
+          ? <img src={shown} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <><span style={{ fontSize: 24, color: '#94a3b8' }}>🖼️</span><span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 4 }}>Upload</span></>}
+      </button>
+      <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{shown ? 'Tap the picture to change it' : 'JPEG, PNG or WebP, up to 5 MB'}</span>
+      {error && <span role="alert" style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 700 }}>{error}</span>}
+      {file && <button type="button" onClick={() => onPick(null)} style={{ border: 0, background: 'none', color: '#64748b', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>Remove selected image</button>}
+    </div>
+  );
+};
+
 export const CategoriesTab = ({ subTab }) => {
   const ui = useFeedback();
   const { triggerToast } = useAdmin();
@@ -358,6 +394,17 @@ export const CategoriesTab = ({ subTab }) => {
   const [showAddHeaderModal, setShowAddHeaderModal] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
+  const [newCategoryImage, setNewCategoryImage] = useState(null), [newSubcategoryImage, setNewSubcategoryImage] = useState(null);
+  useEffect(() => { if (!showAddCategoryModal) setNewCategoryImage(null); }, [showAddCategoryModal]);
+  useEffect(() => { if (!showAddSubcategoryModal) setNewSubcategoryImage(null); }, [showAddSubcategoryModal]);
+  // Plain JSON unless a picture was chosen, as for header categories.
+  const postCategory = (fields, image) => {
+    if (!image) return authPost('/api/categories', fields);
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => { if (v !== undefined) fd.append(k, v); });
+    fd.append('image', image);
+    return authPost('/api/categories', fd);
+  };
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
 
@@ -503,14 +550,15 @@ export const CategoriesTab = ({ subTab }) => {
     if (!parent) { triggerToast('Parent header not found.'); return; }
 
     try {
-      await authPost('/api/categories', {
+      await postCategory({
         name: newCategory.name.trim(),
         type: parent.type,          // a child always lives in its parent's channel
         parent: parent.id,          // => Level 2 (main)
         sortOrder: mainCategories.filter((m) => m.parentId === parent.id).length + 1,
+        isActive: newCategory.status === 'Active',
         isPopular: newCategory.isPopular,
         showOnHome: newCategory.showOnHome,
-      });
+      }, newCategoryImage);
       triggerToast(`"${newCategory.name}" created under "${parent.name}".`);
       await loadTree();
       setNewCategory({ name: '', slug: '', parentHeader: '', status: 'Active', isPopular: false, showOnHome: false });
@@ -531,14 +579,15 @@ export const CategoriesTab = ({ subTab }) => {
     if (!parent) { triggerToast('Parent category not found.'); return; }
 
     try {
-      await authPost('/api/categories', {
+      await postCategory({
         name: newSubcategory.name.trim(),
         type: parent.type,
         parent: parent.id,          // => Level 3 (sub)
         sortOrder: subCategories.filter((sc) => sc.parentId === parent.id).length + 1,
+        isActive: newSubcategory.status === 'Active',
         isPopular: newSubcategory.isPopular,
         showOnHome: newSubcategory.showOnHome,
-      });
+      }, newSubcategoryImage);
       triggerToast(`Subcategory "${newSubcategory.name}" created under "${parent.name}".`);
       await loadTree();
       setNewSubcategory({ name: '', slug: '', parentL2: '', status: 'Active', isPopular: false, showOnHome: false });
@@ -598,7 +647,7 @@ export const CategoriesTab = ({ subTab }) => {
         }
       }
 
-      if (editingCategory.level === 1 && (editIconFile || editImageFile)) {
+      if (editIconFile || editImageFile) {
         const fd = new FormData();
         Object.entries(payload).forEach(([k, v]) => { if (v !== undefined) fd.append(k, v); });
         if (editIconFile) fd.append('icon', editIconFile);
@@ -1836,24 +1885,7 @@ export const CategoriesTab = ({ subTab }) => {
               style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 20, textAlign: 'left', boxSizing: 'border-box' }}
             >
               
-              {/* Image upload selector zone */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <div style={{
-                  width: 88,
-                  height: 88,
-                  borderRadius: '50%',
-                  border: '2px dashed #cbd5e1',
-                  backgroundColor: '#ffffff',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer'
-                }} onClick={() => triggerToast('Select category logo to upload.')}>
-                  <span style={{ fontSize: 24, color: '#94a3b8' }}>🖼️</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 4 }}>Upload</span>
-                </div>
-              </div>
+              <CategoryImagePicker file={newCategoryImage} onPick={setNewCategoryImage} />
 
               {/* Input Fields */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2027,24 +2059,7 @@ export const CategoriesTab = ({ subTab }) => {
               style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 20, textAlign: 'left', boxSizing: 'border-box' }}
             >
               
-              {/* Image upload selector zone */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <div style={{
-                  width: 88,
-                  height: 88,
-                  borderRadius: '50%',
-                  border: '2px dashed #cbd5e1',
-                  backgroundColor: '#ffffff',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer'
-                }} onClick={() => triggerToast('Select subcategory logo to upload.')}>
-                  <span style={{ fontSize: 24, color: '#94a3b8' }}>🖼️</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginTop: 4 }}>Upload</span>
-                </div>
-              </div>
+              <CategoryImagePicker file={newSubcategoryImage} onPick={setNewSubcategoryImage} />
 
               {/* Input Fields */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2231,6 +2246,9 @@ export const CategoriesTab = ({ subTab }) => {
                   onImagePick={setEditImageFile}
                   imageInputRef={editImageInputRef}
                 />
+              )}
+              {editingCategory.level > 1 && (
+                <CategoryImagePicker file={editImageFile} existingUrl={editImageExisting} onPick={setEditImageFile} />
               )}
 
               {/* Input Fields */}

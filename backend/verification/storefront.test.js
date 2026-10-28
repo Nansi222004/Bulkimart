@@ -572,3 +572,30 @@ test('Studio artwork follows its campaign schedule, so extending a campaign keep
   // A homepage banner keeps its own dates.
   await Banner.updateOne({ _id: banner._id }, { placement: 'HOME_HERO' }); expect((await publicRead()).splash).toBeNull();
 });
+test('uploading a custom image for a header category replaces its old icon', async () => {
+  const old = { ...cloudinaryConfig }; Object.assign(cloudinaryConfig, { cloud_name: 'fixture', api_key: 'fixture', api_secret: 'fixture' });
+  const upload = jest.spyOn(cloudinary.uploader, 'upload_stream').mockImplementation((_options, callback) => ({ end() { callback(null, { secure_url: 'https://res.cloudinary.com/fixture/image/upload/travel.jpg' }); } }));
+  try {
+    const header = await Category.create({ name: 'Travel items', slug: 'grocery--travel-items', type: 'grocery', showInNav: true, isActive: true, icon: 'https://res.cloudinary.com/fixture/image/upload/old-icon.png' });
+    const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+    await request(app).put(`/api/categories/${header._id}`).set('Authorization', `Bearer ${admin}`).field('name', 'Travel items').attach('image', png, { filename: 'travel.png', contentType: 'image/png' }).expect(200);
+    const saved = await Category.findById(header._id).lean();
+    expect(saved.image).toBe('https://res.cloudinary.com/fixture/image/upload/travel.jpg'); expect(saved.icon).toBeUndefined();
+    expect((await publicRead()).headerCategories.find(c => String(c._id) === String(header._id))).toMatchObject({ image: saved.image });
+  } finally { upload.mockRestore(); Object.assign(cloudinaryConfig, old); }
+});
+test('main and sub categories can be created and edited with a picture', async () => {
+  const old = { ...cloudinaryConfig }; Object.assign(cloudinaryConfig, { cloud_name: 'fixture', api_key: 'fixture', api_secret: 'fixture' });
+  let n = 0; const upload = jest.spyOn(cloudinary.uploader, 'upload_stream').mockImplementation((_options, callback) => ({ end() { callback(null, { secure_url: `https://res.cloudinary.com/fixture/image/upload/pic-${++n}.jpg` }); } }));
+  try {
+    const header = await Category.create({ name: 'Travel', slug: 'grocery--travel', type: 'grocery', isActive: true });
+    const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+    const created = (await request(app).post('/api/categories').set('Authorization', `Bearer ${admin}`)
+      .field('name', 'Bags').field('type', 'grocery').field('parent', String(header._id)).field('isActive', 'true')
+      .attach('image', png, { filename: 'bags.png', contentType: 'image/png' }).expect(201)).body.category;
+    expect(created.image).toBe('https://res.cloudinary.com/fixture/image/upload/pic-1.jpg');
+    await request(app).put(`/api/categories/${created._id}`).set('Authorization', `Bearer ${admin}`).field('name', 'Bags')
+      .attach('image', png, { filename: 'bags-2.png', contentType: 'image/png' }).expect(200);
+    expect((await Category.findById(created._id).lean()).image).toBe('https://res.cloudinary.com/fixture/image/upload/pic-2.jpg');
+  } finally { upload.mockRestore(); Object.assign(cloudinaryConfig, old); }
+});

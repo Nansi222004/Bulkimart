@@ -355,6 +355,9 @@ export const updateCategory = asyncHandler(async (req, res) => {
   if (req.files) {
     if (req.files.image) {
       category.image = await uploadToCloudinary(req.files.image[0].buffer, 'categories');
+      // A header category shows an icon OR a custom image. Uploading a new image replaces the
+      // old icon, which the header would otherwise keep showing in its place.
+      if (!category.parent && !req.files.icon) category.icon = undefined;
     }
     if (req.files.icon) {
       category.icon = await uploadToCloudinary(req.files.icon[0].buffer, 'category-icons', {

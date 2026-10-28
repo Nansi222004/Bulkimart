@@ -916,3 +916,19 @@ test('the splash counts its seconds from when the image has loaded and stays ope
     assert.equal(callbacks.at(-1).delay, 12000);
   } finally { h?.close(); globalThis.setTimeout = originalTimer; globalThis.Image = originalImage; }
 });
+test('a header category with a custom image shows it in colour; a picked icon is tinted to the header', () => {
+  const context = { activeSubNav: '', setActiveSubNav() {}, headerCategories: [
+    { _id: 'icon', name: 'Icon tab', slug: 'grocery--icon', icon: 'https://cdn.fixture/icon.png', image: 'https://cdn.fixture/old-photo.jpg' },
+    { _id: 'photo', name: 'Photo tab', slug: 'grocery--photo', image: 'https://cdn.fixture/travel.jpg' },
+    { _id: 'none', name: 'Plain tab', slug: 'grocery--plain' },
+  ] };
+  const h = browserHarness(HeaderCategories, {}, context);
+  try {
+    const holder = button => button.props.children[0];
+    assert.equal(holder(h.tree[0]).props.className, 'sub-nav-icon sub-nav-icon--category');
+    assert.equal(holder(h.tree[0]).props.children.props.source, 'https://cdn.fixture/icon.png', 'A picked icon wins over an older image');
+    assert.equal(holder(h.tree[1]).props.className, 'sub-nav-icon sub-nav-icon--category sub-nav-icon--photo');
+    assert.equal(holder(h.tree[1]).props.children.props.source, 'https://cdn.fixture/travel.jpg');
+    assert.equal(holder(h.tree[2]).props.className, 'sub-nav-icon sub-nav-icon--category');
+  } finally { h.close(); }
+});

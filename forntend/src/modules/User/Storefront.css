@@ -166,6 +166,8 @@
 .sf-storefront .header-body-content .sub-nav-icon{width:24px;height:24px}
 .sf-storefront .header-body-content .sub-nav-icon--category{background:transparent;color:inherit;border-radius:0}
 .sf-storefront .header-body-content .sub-nav-icon--category img{width:18px;height:18px;object-fit:contain}
+/* A custom category image keeps its colours; only line icons are tinted to the header colour. */
+.sf-storefront .header-body-content .sub-nav-icon--photo img{width:24px;height:24px;object-fit:cover;border-radius:50%;filter:none;box-shadow:0 0 0 1.5px rgba(255,255,255,0.85)}
 /* One mobile page gutter; hero margins must not add another. */
 @media(max-width:768px){
   .sf-storefront .header-primary-row .header-account-action{display:none}
