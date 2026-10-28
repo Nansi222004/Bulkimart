@@ -143,5 +143,11 @@ test('tracking shows the delivery partner, a wallet refund and a live update tim
     h.click('Refresh status');await reply(h,{...booking,status:'cancelled',partner:undefined,refund:{status:'confirmed',refundedPaise:2040,toWallet:true}});
     const cancelled=renderToStaticMarkup(React.createElement(Status,h.find(n=>n.type===Status).props));
     assert.ok(cancelled.includes('refunded to your Bulkimart wallet'));assert.ok(cancelled.includes('₹20.40'));assert.ok(!cancelled.includes('Ravi Rider'));
+    assert.ok(cancelled.includes('href="/account?section=wallet"'));
   }finally{h.close();}
+});
+test('parcel tracking explains pending cancellation approval separately from a completed refund', () => {
+  const html = renderToStaticMarkup(React.createElement(Status, { booking: { ...booking, status: 'cancellation_review', paymentStatus: 'paid', paymentMethod: 'online' } }));
+  assert.match(html, /awaiting admin approval/); assert.match(html, /refund is processed after approval/);
+  assert.doesNotMatch(html, /refunded to your Bulkimart wallet/);
 });

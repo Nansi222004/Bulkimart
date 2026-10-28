@@ -3,17 +3,18 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './componentHarness.mjs';
 
-let vite, Provider, Orders, Checkout, socket, previousDocument;
+let vite, Provider, Orders, Checkout, socket, previousDocument, portalRequests;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   Provider = (await vite.ssrLoadModule('/src/modules/User/context/UserContext.jsx')).UserProvider;
   Orders = (await vite.ssrLoadModule('/src/modules/User/pages/OrdersPage.jsx')).default;
   Checkout = (await vite.ssrLoadModule('/src/modules/User/pages/CheckoutPage.jsx')).default;
   ({ socket } = await vite.ssrLoadModule('/src/utils/socket.js')); socket.connect = () => socket;
+  portalRequests = await vite.ssrLoadModule('/src/utils/portalRequests.js');
 });
 after(async () => { await vite.close(); });
-beforeEach(() => { previousDocument = globalThis.document; globalThis.document = Object.assign(new EventTarget(), { visibilityState: 'visible', querySelector: () => null }); });
-afterEach(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument; });
+beforeEach(() => { portalRequests.clearPortalRequests('customer'); previousDocument = globalThis.document; globalThis.document = Object.assign(new EventTarget(), { visibilityState: 'visible', querySelector: () => null }); });
+afterEach(() => { portalRequests.clearPortalRequests('customer'); if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument; });
 const profile = { _id: 'fixture-buyer', name: 'Fixture Buyer', phone: '9876500001', roles: ['buyer'] };
 const order = { _id: 'fixture-order', orderNo: 'ORD-FIXTURE', status: 'placed', type: 'grocery', paymentMethod: 'online',
   createdAt: '2026-10-24T10:00:00Z', items: [{ _id: 'item', name: 'Amla', qty: 1, price: 100 }], pricing: { subtotal: 100, totalAmount: 140 },
@@ -102,6 +103,29 @@ test('provider cleanup leaves tracking screen socket listeners intact', () => {
   const h = provider(); h.close();
   try { assert.ok(socket.listeners('order_status_updated').includes(trackingListener)); }
   finally { socket.off('order_status_updated', trackingListener); }
+});
+
+test('refund notifications refresh the checkout wallet balance from the server', async () => {
+  const h = provider('/account');
+  try {
+    h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: true, data: { balance: 0 } }); await h.settle();
+    assert.equal(h.tree.props.value.walletBalance, 0);
+    emit('notification_new', { event: 'REFUND_COMPLETED' });
+    h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: true, data: { balance: 20.4 } }); await h.settle();
+    assert.equal(h.tree.props.value.walletBalance, 20.4);
+    const count = h.requests.length;
+    emit('notification_new', { event: 'UNRELATED_EVENT' }); assert.equal(h.requests.length, count);
+  } finally { h.close(); }
+});
+
+test('a wallet response from an earlier customer session cannot restore the checkout balance', async () => {
+  const h = provider('/checkout');
+  try {
+    const pending = h.requests.findLast(r => r.url.endsWith('/api/wallet'));
+    localStorage.setItem('userToken', 'different-customer-token');
+    pending.resolve({ success: true, data: { balance: 999 } }); await h.settle();
+    assert.equal(h.tree.props.value.walletBalance, 0);
+  } finally { h.close(); }
 });
 
 test('My Orders labels the existing detail action Order Details and retains the same order target', () => {

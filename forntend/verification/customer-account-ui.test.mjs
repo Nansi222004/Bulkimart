@@ -43,3 +43,21 @@ test('wishlist displays saved e-books directly without a truncated catalog fetch
     assert.equal(added[0].fulfillmentType, 'digital'); assert.equal(added[0].stock, 1); assert.equal(opened[0].id, item._id);
   } finally { h.close(); }
 });
+
+test('the parcel refund wallet link opens the rupee wallet and explains coins separately', async () => {
+  const previous = globalThis.document;
+  globalThis.document = { getElementById: () => ({}) };
+  const h = hookHarness(Profile, {}, '/account?section=wallet', { currentUser: { name: 'Buyer' }, savedAddresses: [] });
+  try {
+    assert.match(text(h.tree), /Bulkimart Wallet Balance/); assert.match(text(h.tree), /Coins are earned rewards/);
+    h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: true, data: { balance: 20.4 } });
+    h.requests.findLast(r => r.url.includes('/wallet/transactions')).resolve({ success: true, data: [{ _id: 'parcel-refund', direction: 'credit', amount: 20.4, description: 'Refund for cancelled parcel #TEST' }] });
+    await h.settle();
+    assert.match(text(h.tree), /20.40/); assert.match(text(h.tree), /Refund for cancelled parcel #TEST/);
+    h.click('Refresh wallet');
+    h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: false, message: 'Wallet unavailable' }, 503);
+    h.requests.findLast(r => r.url.includes('/wallet/transactions')).resolve({ success: true, data: [] }); await h.settle();
+    assert.match(text(h.tree), /Wallet unavailable/); assert.match(text(h.tree), /may be outdated/);
+    assert.match(text(h.tree), /20.40/);
+  } finally { h.close(); globalThis.document = previous; }
+});

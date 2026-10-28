@@ -8,6 +8,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
+import useCustomerWallet from '../hooks/useCustomerWallet';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 
 const DEFAULT_NEUTRAL_AVATAR = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231e293b"/><circle cx="50" cy="38" r="20" fill="%2394a3b8"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%2394a3b8"/></svg>`;
@@ -33,6 +34,7 @@ const ProfilePage = () => {
     selectedAddressId,
     uploadLandmarkImage,
     fetchWalletBalance,
+    setWalletBalance,
   } = useUser();
 
 
@@ -115,7 +117,7 @@ const ProfilePage = () => {
     }
   }, []);
 
-  const [activeSection, setActiveSection] = useState(null);
+  const [activeSection, setActiveSection] = useState(() => new URLSearchParams(window.location.search).get('section') === 'wallet' ? 'real-wallet' : null);
 
   // Sub-Section states
   const [profileName, setProfileName] = useState(currentUser?.name || '');
@@ -319,33 +321,10 @@ const ProfilePage = () => {
   const [coinHistory, setCoinHistory] = useState([]);
   const [loadingCoins, setLoadingCoins] = useState(false);
 
-  // Real Money NHCONE Wallet states
-  const [realWalletData, setRealWalletData] = useState(null);
-  const [realWalletTxns, setRealWalletTxns] = useState([]);
-  const [loadingRealWallet, setLoadingRealWallet] = useState(false);
-
-  const loadRealWalletDetails = async () => {
-    setLoadingRealWallet(true);
-    try {
-      const authHeader = { Authorization: 'Bearer ' + localStorage.getItem('userToken') };
-      const [walletRes, txnsRes] = await Promise.all([
-        fetch(apiUrl('/api/wallet'), { headers: authHeader }).then((r) => r.json()),
-        fetch(apiUrl('/api/wallet/transactions?limit=20'), { headers: authHeader }).then((r) => r.json()),
-      ]);
-      setRealWalletData(walletRes?.data || null);
-      setRealWalletTxns(txnsRes?.data || txnsRes?.transactions || []);
-    } catch (err) {
-      setRealWalletData(null);
-      setRealWalletTxns([]);
-    } finally {
-      setLoadingRealWallet(false);
-    }
-  };
-
-  useEffect(() => { loadRealWalletDetails(); }, []);
-  useEffect(() => {
-    if (activeSection === 'real-wallet') loadRealWalletDetails();
-  }, [activeSection]);
+  const { data: realWalletData, transactions: realWalletTxns, loading: loadingRealWallet,
+    error: realWalletError, refresh: loadRealWalletDetails } = useCustomerWallet({
+    active: activeSection === 'real-wallet', userId: currentUser?._id || currentUser?.id, onBalance: setWalletBalance,
+  });
 
   const loadCoinWallet = async () => {
     setLoadingCoins(true);
@@ -509,7 +488,7 @@ const ProfilePage = () => {
           padding: '2px 8px',
           borderRadius: '20px'
         }}>
-          💰 ₹{realWalletData?.balance?.toFixed(2) ?? '0.00'}
+          💰 ₹{realWalletData?.balance?.toFixed(2) ?? '—'}
         </span>
       ),
       action: () => setActiveSection('real-wallet')
@@ -780,6 +759,9 @@ const ProfilePage = () => {
       case 'real-wallet':
         return (
           <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
+            <p style={{ margin: 0, fontSize: '13px' }}>Bulkimart Wallet holds money in rupees for payments and refunds. Parcel refunds sent to your wallet appear here. Coins are earned rewards for discounts on eligible orders.</p>
+            {realWalletError && <p role="alert">{realWalletError} {realWalletData && 'The balance below was last loaded successfully and may be outdated.'}</p>}
+            <button type="button" onClick={loadRealWalletDetails} disabled={loadingRealWallet}>{loadingRealWallet ? 'Refreshing wallet…' : 'Refresh wallet'}</button>
             {topupAlert && (
               <div style={{
                 padding: '14px 16px',
@@ -809,7 +791,7 @@ const ProfilePage = () => {
             }}>
               <span style={{ fontSize: '12px', color: '#d7f4fc', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>Bulkimart Wallet Balance</span>
               <h2 style={{ fontSize: '36px', fontWeight: '900', margin: '8px 0 14px 0', color: '#ffffff' }}>
-                ₹{loadingRealWallet ? '…' : (realWalletData?.balance ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ₹{realWalletData ? realWalletData.balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : loadingRealWallet ? '…' : '—'}
               </h2>
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(255, 255, 255, 0.2)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
@@ -984,9 +966,9 @@ const ProfilePage = () => {
             )}
 
             <h4 style={{ margin: '12px 0 0 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Recent Wallet Transactions</h4>
-            {loadingRealWallet ? (
+            {loadingRealWallet && !realWalletData ? (
               <p style={{ fontSize: '13px', color: '#64748b' }}>Loading wallet transactions...</p>
-            ) : realWalletTxns.length === 0 ? (
+            ) : !realWalletData ? null : realWalletTxns.length === 0 ? (
               <div style={{ padding: '20px', background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                 <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>No wallet transaction history yet.</p>
               </div>
@@ -1050,7 +1032,7 @@ const ProfilePage = () => {
                 🪙 {loadingCoins ? '…' : (coinBalance ?? 0).toLocaleString('en-IN')} <span style={{ fontSize: '18px', color: '#b45309', fontWeight: '700' }}>Coins</span>
               </h2>
               <p style={{ margin: 0, fontSize: '12px', color: '#92400e', lineHeight: '1.4' }}>
-                Earned automatically on delivered orders, once each item's return window closes.
+                Earned automatically on delivered orders, once each item's return window closes. Use Coins for discounts on eligible orders. Parcel wallet refunds appear in Bulkimart Wallet.
               </p>
             </div>
 

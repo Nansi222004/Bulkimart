@@ -24,15 +24,16 @@ export default function ParcelCustomerStatus({booking:b,justBooked}) {
     <section className="parcel-card parcel-customer-status">
       <div className="parcel-status-symbol" aria-hidden="true">{unpaid?'₹':b.status==='delivered'?'✓':'▣'}</div>
       <h2>{parcelCustomerStatus(b.status)}</h2>
-      <p>{unpaid?'Finish payment securely with Razorpay to confirm your booking.':b.status==='searching_for_driver'?'Your request is with nearby delivery partners. We’ll update you when someone accepts.':b.status==='needs_admin_assignment'?'Our team is helping find an available delivery partner. You don’t need to book again.':b.status==='delivered'?'Your parcel has reached its destination.':'Follow your pickup and delivery updates here.'}</p>
+      <p>{unpaid?'Finish payment securely with Razorpay to confirm your booking.':b.status==='cancellation_review'?'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.':b.status==='searching_for_driver'?'Your request is with nearby delivery partners. We’ll update you when someone accepts.':b.status==='needs_admin_assignment'?'Our team is helping find an available delivery partner. You don’t need to book again.':b.status==='delivered'?'Your parcel has reached its destination.':'Follow your pickup and delivery updates here.'}</p>
       {justBooked&&!unpaid&&<p role="status" className="parcel-notice">Booking received. {b.paymentMethod==='online'?'Payment successful.':'Your pickup request is confirmed.'}</p>}
       <div className="parcel-payment-receipt"><strong>{parcelMoney(b.feePaise)}</strong><span>{b.paymentStatus==='paid'?'Paid online':b.paymentMethod==='pay_driver'?`Cash at ${b.cashCollectionPoint==='pickup'?'pickup':'delivery'}`:'Online payment'}</span></div>
       {b.pickupCode&&<p className="parcel-notice">Pickup code: <strong>{b.pickupCode}</strong>. Share only when your partner arrives.</p>}
       {b.deliveryCode&&<p className="parcel-notice">Delivery code: <strong>{b.deliveryCode}</strong>. Share only when your parcel arrives.</p>}
-      {b.refund?.toWallet?<p className="parcel-notice parcel-refund-wallet" role="status"><strong>{parcelMoney(b.refund.refundedPaise)}</strong> refunded to your Bulkimart wallet.</p>
+      {b.refund?.toWallet?<p className="parcel-notice parcel-refund-wallet" role="status"><strong>{parcelMoney(b.refund.refundedPaise)}</strong> refunded to your Bulkimart wallet. <a href="/account?section=wallet">View Bulkimart Wallet</a></p>
         :b.refund?.status==='confirmed'?<p className="parcel-notice" role="status">{parcelMoney(b.refund.refundedPaise)} refunded to your original payment method.</p>
         :b.refund?.status&&b.refund.status!=='none'?<p>Your refund is being processed.</p>
-        :b.status==='cancelled'&&b.paymentMethod==='pay_driver'&&['collected_unreconciled'].includes(b.cash?.status)?<p>The cash you paid will be refunded to your Bulkimart wallet once it is deposited with us.</p>:null}
+        :b.status==='cancelled'&&b.paymentMethod==='pay_driver'&&['collected_unreconciled'].includes(b.cash?.status)?<p>The cash you paid is awaiting deposit confirmation and refund review.</p>
+        :b.status==='cancelled'&&b.paymentStatus==='paid'?<p>Your payment refund is awaiting review. Its status will appear here once processed.</p>:null}
       <details className="parcel-booking-reference"><summary>Booking details</summary><p>{b.reference}</p><p>{b.service?.name||'Doorstep delivery'}{b.route?.distanceMetres>0?` · ${(b.route.distanceMetres/1000).toFixed(2)} km`:''}</p></details>
     </section>
     {b.partner&&<ParcelPartnerCard partner={b.partner} active={!!b.partner.phone}/>}

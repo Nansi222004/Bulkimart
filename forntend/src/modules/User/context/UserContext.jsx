@@ -417,20 +417,23 @@ export const UserProvider = ({ children }) => {
 
   // --- Wallet Balance ---
   const [walletBalance, setWalletBalance] = useState(0);
+  const walletRead = useRef(0);
 
   const fetchWalletBalance = useCallback(async () => {
+    const request = ++walletRead.current;
     if (!isSignedIn()) { setWalletBalance(0); return; }
+    const session = captureUserSession();
     try {
-      const res = await portalRequest('customer', localStorage.getItem('userToken'), '/api/wallet');
+      const res = await portalRequest('customer', session.token, '/api/wallet', { fresh: true });
       if (!res.ok) return;
       const body = await res.json();
-      if (body.data?.balance !== undefined) {
+      if (request === walletRead.current && isCurrentUserSession(session) && body.success !== false && Number.isFinite(body.data?.balance)) {
         setWalletBalance(body.data.balance);
       }
     } catch {}
-  }, []);
+  }, [restoredSession?.verified, currentUser?._id, currentUser?.id]);
 
-  useEffect(() => { fetchWalletBalance(); }, [fetchWalletBalance]);
+  useEffect(() => { fetchWalletBalance(); return () => { walletRead.current++; }; }, [fetchWalletBalance]);
 
   // --- Orders ---
   const [orders, setOrders] = useState([]);
@@ -566,7 +569,10 @@ export const UserProvider = ({ children }) => {
       void fetchOrders();
     };
     const handlers = {
-    connect: () => { void fetchOrders(); },
+    connect: () => { void fetchOrders(); void fetchWalletBalance(); },
+    notification_new: notification => {
+      if (['REFUND_COMPLETED', 'WALLET_CREDIT', 'WALLET_DEBIT', 'PARCEL_UPDATED'].includes(notification?.event)) void fetchWalletBalance();
+    },
     order_status_updated: ({ orderId, status, timeline }) => {
       updateOrder(orderId, { ...(status ? { status } : {}), ...(Array.isArray(timeline) ? { timeline } : {}) });
     },
@@ -631,7 +637,7 @@ export const UserProvider = ({ children }) => {
       listeners.forEach(([event, listener]) => socket.off(event, listener));
       disconnectSocket();
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, fetchWalletBalance]);
 
   /**
    * Wishlist — backend is the source of truth (User.wishlist, product refs
