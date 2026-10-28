@@ -213,7 +213,8 @@ export async function resolveExperience(scope, device, category = '', now = Date
   let header = theme?.config.header || null;
   if (header?.target === 'campaign' && !await Campaign.exists({ _id: header.campaignId, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } })) header = { ...header, target: 'none', campaignId: '' };
   const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, header, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
-    splash: resolvedCampaigns.find(c => c.config.placement === 'splash') || null,
+    // The splash is a phone app-launch screen; the desktop website opens directly.
+    splash: device === 'mobile' ? resolvedCampaigns.find(c => c.config.placement === 'splash') || null : null,
     announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };
   const version = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 20);
   return { ...data, version, serverTime: new Date(now).toISOString(), validUntil, scheduleUntil, refreshMs: 30000 };

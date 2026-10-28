@@ -15,7 +15,27 @@
     <!-- Google Fonts: Inter and Outfit -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Loaded without blocking the first paint; text shows in a fallback font until the fonts arrive. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
+    <!-- The outline of the home page, drawn the moment the page arrives. The app replaces it
+         with the real home page as soon as it has loaded, so no separate loading screen is seen. -->
+    <style>
+      /* Colours come from the theme this device last showed (see rememberBootLook), else the default. */
+      .boot-home{position:fixed;inset:0;overflow:hidden;background:var(--boot-background,#f8fafc);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+      .boot-home header{background:var(--boot-header,#79000B);padding:14px 16px 16px;color:var(--boot-header-text,#fff);min-height:236px;box-sizing:border-box}
+      @media (min-width:601px){.boot-home header{min-height:200px;padding-top:24px}}
+      .boot-home header strong{display:block;font-size:20px;font-weight:800;margin:0 auto 12px;max-width:1200px}
+      .boot-home header div{max-width:1200px;margin:0 auto;height:44px;border-radius:12px;background:var(--boot-search,#fff)}
+      .boot-home main{max-width:1200px;margin:0 auto;padding:16px}
+      .boot-home i{display:block;border-radius:14px;background:#e9edf2}
+      .boot-home .banner{width:100%;aspect-ratio:2/1;margin-bottom:18px}
+      @media (min-width:601px){.boot-home main{max-width:1064px;padding-top:40px}}
+      .boot-home .row{display:flex;gap:14px;overflow:hidden}
+      .boot-home .row i{flex:0 0 64px;height:64px;border-radius:50%}
+      .boot-home--partner{background:#fff}
+      .boot-home--partner header,.boot-home--partner main{display:none}
+    </style>
     <script>
       // Make User, Seller and Delivery apps behave strictly like native mobile apps (no zooming)
       (function() {
@@ -54,7 +74,37 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-home" aria-busy="true" aria-label="Loading Bulkimart"><header><strong>Bulkimart</strong><div></div></header><main><i class="banner"></i><div class="row"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></main></div></div>
+    <script>
+      // The seller, admin and delivery apps are not the shop: they start on a plain page.
+      if (/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) document.querySelector('.boot-home').classList.add('boot-home--partner');
+      // The shop starts in the theme it last showed (same rules as bootLook in utils/storefront.js).
+      else try {
+        var look = JSON.parse(localStorage.getItem('bulkimart:boot-look')), boot = document.querySelector('.boot-home');
+        if (look && (!look.until || Date.parse(look.until) > Date.now())) [['--boot-header', look.header], ['--boot-header-text', look.headerText], ['--boot-background', look.background], ['--boot-search', look.search]]
+          .forEach(function (pair) { if (typeof pair[1] === 'string' && /^#[0-9a-f]{3,8}$/i.test(pair[1])) boot.style.setProperty(pair[0], pair[1]); });
+      } catch (e) { /* no saved look: default colours */ }
+      // Phones only: ask for the storefront (theme and any splash) now, while the app is still
+      // downloading, and start fetching the splash image as soon as it is known. The app picks this
+      // request up instead of sending its own (takeEarlyExperience in StorefrontContext.jsx).
+      (function () {
+        var mode = { '/': 'quick', '/grocery--home': 'quick', '/ecommerce--smart-buy': 'shop-all' }[location.pathname];
+        if (!mode || !window.matchMedia || !matchMedia('(max-width: 600px)').matches || !window.fetch) return;
+        var unset = function (v) { return !v || v.charAt(0) === '%'; };
+        var base = !unset('%VITE_API_BASE_URL%') ? '%VITE_API_BASE_URL%' : !unset('%VITE_API_URL%') ? '%VITE_API_URL%' : location.origin;
+        base = base.replace(/\/$/, '').replace(/\/api$/, '');
+        var promise = fetch(base + '/api/storefront/experience?scope=' + mode + '&device=mobile&category=', { priority: 'high' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (body) {
+            var banner = body && body.data && body.data.splash && body.data.splash.banner;
+            var art = banner && (banner.mobileImage || banner.image);
+            if (art && /^https:\/\//.test(art)) new Image().src = art;
+            return body;
+          })
+          .catch(function () { return null; });
+        window.__bulkimartEarlyExperience = { key: mode + ':mobile:', promise: promise };
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

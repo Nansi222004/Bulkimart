@@ -60,6 +60,6 @@ test('earnings show admin commission and net earnings without replacing posted b
     assert.match(text(h.tree), /Admin commission/); assert.match(text(h.tree), /Net earning/);
     assert.match(text(row), /₹40.00/); assert.match(text(row), /₹7.20/); assert.match(text(row), /₹452.80/);
     const legacy = h.find(n => n.type === 'tr' && text(n).includes('LEGACY'));
-    assert.match(text(legacy), /—/); assert.match(text(legacy), /no financial snapshot/);
+    assert.match(text(legacy), /—/); assert.match(text(legacy), /original commission details missing/);
   } finally { h.close(); }
 });

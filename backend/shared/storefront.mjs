@@ -75,3 +75,9 @@ export function themeStyle(tokens = {}) {
     '--header-bg': t.header,
     fontFamily: { system: 'system-ui, sans-serif', sans: 'Arial, sans-serif', serif: 'Georgia, serif' }[t.font] || 'system-ui, sans-serif' };
 }
+// How long a splash stays on screen, in seconds. Anything over SPLASH_SKIP_AFTER also gets a Skip
+// button, so a long splash never traps a customer.
+export const SPLASH_DURATION = { min: 2, max: 600, fallback: 5 };
+export const SPLASH_SKIP_AFTER = 15;
+export const splashSeconds = value => { const n = Number(value); return Number.isFinite(n) ? Math.min(SPLASH_DURATION.max, Math.max(SPLASH_DURATION.min, Math.round(n))) : SPLASH_DURATION.fallback; };
+export const splashDurationText = seconds => seconds >= 60 && seconds % 60 === 0 ? `${seconds / 60} ${seconds === 60 ? 'minute' : 'minutes'}` : seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} sec` : `${seconds} seconds`;

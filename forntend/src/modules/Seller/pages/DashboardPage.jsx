@@ -174,17 +174,17 @@ export const DashboardPage = () => {
             </button>
 
             {/* Profile chip — avatar only below 768px, name+role at 768px+ */}
-            <div className="seller-profile-chip">
-              <div className="seller-profile-avatar" style={{ backgroundColor: roleColor }}>
+            <button type="button" className="seller-profile-chip" onClick={() => setActiveTab('profile')} aria-label="Open seller profile">
+              <span className="seller-profile-avatar" style={{ backgroundColor: roleColor }}>
                 {displayInitial}
-              </div>
-              <div className="seller-profile-text">
+              </span>
+              <span className="seller-profile-text">
                 <span className="seller-profile-name">{displayName}</span>
                 <span className="seller-profile-role" style={{ color: roleColor }}>
                   {roleLabel}
                 </span>
-              </div>
-            </div>
+              </span>
+            </button>
 
             {/* Sign Out — icon-only below 768px, label at 768px+ */}
             <button

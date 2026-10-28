@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { Suspense, lazy, useState, useEffect } from 'react'
 import UserRoutes from './modules/User/routes'
-import SellerRoutes from './modules/Seller/routes'
-import AdminRoutes from './modules/Admin/routes'
-import DeliveryRoutes from './modules/Delivery/routes'
 import CustomerSessionGate from './components/CustomerSessionGate'
+
+// Shoppers download only the shop. The seller, admin and delivery apps load when one is opened.
+const SellerRoutes = lazy(() => import('./modules/Seller/routes'))
+const AdminRoutes = lazy(() => import('./modules/Admin/routes'))
+const DeliveryRoutes = lazy(() => import('./modules/Delivery/routes'))
+// A plain page while a partner app loads, as in index.html.
+const PartnerLoading = () => <div className="boot-home boot-home--partner" aria-busy="true" aria-label="Loading Bulkimart" />
 
 function App() {
   const [path, setPath] = useState(window.location.pathname)
@@ -36,15 +40,15 @@ function App() {
   }, [])
 
   if (path === '/delivery' || path.startsWith('/delivery/')) {
-    return <DeliveryRoutes />
+    return <Suspense fallback={<PartnerLoading />}><DeliveryRoutes /></Suspense>
   }
 
   if (path === '/seller' || path.startsWith('/seller/')) {
-    return <SellerRoutes />
+    return <Suspense fallback={<PartnerLoading />}><SellerRoutes /></Suspense>
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {
-    return <AdminRoutes />
+    return <Suspense fallback={<PartnerLoading />}><AdminRoutes /></Suspense>
   }
 
   return <CustomerSessionGate><UserRoutes /></CustomerSessionGate>

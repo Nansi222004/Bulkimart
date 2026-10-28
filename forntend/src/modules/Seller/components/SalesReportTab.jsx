@@ -6,7 +6,8 @@ const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const SalesReportTab = () => {
-  const { orders, ordersLoading, sellerKpis, activeChannel, selectedTypes, activeMode, setActiveMode } = useSeller();
+  const { orders, ordersLoading, sellerKpis, activeChannel, selectedTypes, activeMode, setActiveMode, orderListState } = useSeller();
+  const allStorefronts = orderListState?.scope === 'all';
 
   /** Top products, summed across this seller's line items. */
   const topProducts = useMemo(() => {
@@ -136,7 +137,7 @@ export const SalesReportTab = () => {
       </div>
 
       {/* Mode Switcher Toggle */}
-      {selectedTypes && selectedTypes.includes('ecommerce') && selectedTypes.includes('quick') && (
+      {!allStorefronts && selectedTypes && selectedTypes.includes('ecommerce') && selectedTypes.includes('quick') && (
         <div style={{
           display: 'flex',
           justifyContent: 'center',
@@ -203,6 +204,7 @@ export const SalesReportTab = () => {
       ) : (
         <>
           {/* KPI Summary Cards */}
+          <p style={{ fontSize: 12, color: '#64748b' }}>Summary across all storefronts. Product and daily lists cover {allStorefronts ? 'all storefronts' : activeMode === 'quick' ? 'Quick Commerce' : 'Shop All'}.</p>
           <div className="sales-kpi-grid">
             {[
               { label: 'Gross Revenue', value: money(sellerKpis?.totalRevenue), color: '#10b981', bg: '#dcfce7', icon: '💰' },

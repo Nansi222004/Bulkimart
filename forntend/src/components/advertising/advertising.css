@@ -484,6 +484,7 @@
 
 .ad-modal-header {
   display: flex;
+  flex-shrink: 0;
   align-items: flex-start;
   justify-content: space-between;
   padding: 22px 28px;
@@ -558,9 +559,15 @@
   padding: 24px 28px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 22px;
+}
+
+/* Keep product choices at their natural height; the body owns scrolling. */
+.ad-modal-body > * {
+  flex-shrink: 0;
 }
 
 .ad-form-section {
@@ -686,6 +693,7 @@
 }
 
 .ad-modal-footer {
+  flex-shrink: 0;
   padding: 18px 28px;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
@@ -931,8 +939,6 @@
   flex-direction: column;
   gap: 12px;
   margin-bottom: 16px;
-  max-height: 280px;
-  overflow-y: auto;
   padding-right: 4px;
 }
 

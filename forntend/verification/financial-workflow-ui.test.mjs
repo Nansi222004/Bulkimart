@@ -38,7 +38,7 @@ test('seller earnings shows unposted delivered sales separately from withdrawabl
   const h = hookHarness(Earnings, {}, '/seller/earnings', context);
   try {
     assert.match(body(h), /LEGACY-DELIVERED/); assert.match(body(h), /₹1,150.00/);
-    assert.match(body(h), /no financial snapshot/); assert.match(body(h), /Waiting for payment confirmation/);
+    assert.match(body(h), /original commission details missing/); assert.match(body(h), /Waiting for payment confirmation/);
     assert.match(body(h), /Coupons and coins are paid by Bulkimart/);
     assert.equal(h.find(node => node.type === 'button' && node.props.children === 'Request payout').props.disabled, true);
     assert.equal(h.requests.length, 0);

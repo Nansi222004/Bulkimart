@@ -302,9 +302,13 @@ test('higher priority wins independent of insertion order; lower priority falls 
   const low = await create(promo({ priority: 2 })), high = await create(promo({ priority: 10 })); await transition(low); const published = (await transition(high)).data;
   expect((await publicRead()).splash.id).toBe(high._id); await transition(published, 'pause'); expect((await publicRead()).splash.id).toBe(low._id);
 });
-test('scope and device filter on the server', async () => {
-  const row = await create(promo({ scope: 'shop-all', device: 'desktop' })); await transition(row);
-  expect((await publicRead()).splash).toBeNull(); expect((await resolveExperience('shop-all', 'desktop')).splash.id).toBe(row._id);
+test('scope and device filter on the server; the splash is served to phones only', async () => {
+  const hero = await create(promo({ scope: 'shop-all', device: 'desktop', config: { placement: 'hero', bannerId: String(banner._id) } })); await transition(hero);
+  expect((await publicRead()).banners.map(b => b.id)).not.toContain(String(banner._id));
+  expect((await resolveExperience('shop-all', 'desktop')).banners.map(b => b.id)).toContain(String(banner._id));
+  const splash = await create(promo({ name: 'Phone splash', scope: 'shop-all' })); await transition(splash);
+  expect((await resolveExperience('shop-all', 'mobile')).splash.id).toBe(splash._id);
+  expect((await resolveExperience('shop-all', 'desktop')).splash).toBeNull();
 });
 test('theme resolution is campaign override then scoped then global then defaults', async () => {
   const global = await create(theme()), scoped = await create(theme({ scope: 'quick', priority: 5 })); const g = (await transition(global)).data; await transition(scoped);
@@ -598,4 +602,9 @@ test('main and sub categories can be created and edited with a picture', async (
       .attach('image', png, { filename: 'bags-2.png', contentType: 'image/png' }).expect(200);
     expect((await Category.findById(created._id).lean()).image).toBe('https://res.cloudinary.com/fixture/image/upload/pic-2.jpg');
   } finally { upload.mockRestore(); Object.assign(cloudinaryConfig, old); }
+});
+test('a splash may last from 2 seconds up to ten minutes', () => {
+  const base = { kind: 'campaign', name: 'Splash', scope: 'global', config: { placement: 'splash', bannerId: String(new mongoose.Types.ObjectId()), frequency: 'launch' } };
+  expect(validateExperience({ ...base, config: { ...base.config, duration: 600 } }, 'campaign').config.duration).toBe(600);
+  for (const duration of [1, 601, 2.5]) expect(() => validateExperience({ ...base, config: { ...base.config, duration } }, 'campaign')).toThrow(/Splash duration/);
 });

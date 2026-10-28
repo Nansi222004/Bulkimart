@@ -10,7 +10,7 @@ const settlementStatus = (order) => {
   if (order.financialPosting === 'held') return 'Earned — on hold until the return window ends';
   if (order.financialPosting === 'eligible') return 'Available to withdraw';
   if (order.financialPosting === 'reversed') return 'Refunded to customer';
-  if (order.snapshotVersion !== 2) return 'Older order: no financial snapshot, Bulkimart finance will review it';
+  if (order.snapshotVersion !== 2) return 'Awaiting finance review: original commission details missing for this older order';
   if (order.snapshotState === 'held_discount_policy') return 'On hold: Bulkimart finance is reviewing the discount on this order';
   if (order.snapshotState !== 'configured') return 'On hold: no commission rate was set when ordered';
   return order.paymentMethod === 'cod' ? 'Waiting for the cash to reach Bulkimart' : 'Waiting for payment confirmation';
@@ -21,13 +21,16 @@ export const EarningsTab = () => {
   const balances = financeSummary?.balances || {};
   const sales = financeSummary?.deliveredSales;
   const policy = financeSummary?.payoutPolicy;
+  const metrics = financeSummary?.salesMetrics;
+  const pendingNetOrders = metrics?.netEarningsPendingOrders ?? sales?.orders?.filter(order => !Number.isFinite(order.sellerAmounts?.netEarnings)).length ?? 0;
+  const unpostedOrders = financeSummary?.coverage?.unpostedOrders ?? sales?.orders?.filter(order => !['held', 'eligible', 'reversed'].includes(order.financialPosting)).length ?? 0;
   const main = [
     ['On hold', balances.held, '#d97706', 'Earned, waiting for the return window to end.'],
     ['Available to withdraw', balances.eligible, '#16a34a', 'You can request this now.'],
     ['Paid to you', balances.settled, '#334155', 'Sent to your bank so far.'],
   ];
   const other = [
-    ['Total earned', balances.earnedEarnings], ['Same-day incentives', balances.sameDayIncentives], ['Payout requested', balances.reserved], ['Pending', balances.pending],
+    ['Posted earnings', balances.earnedEarnings], ['Same-day incentives', balances.sameDayIncentives], ['Payout requested', balances.reserved], ['Pending', balances.pending],
   ];
   // Prepaid Shiprocket charges are separate from earnings and never reduce what you can withdraw.
   const courier = balances.courierObligations;
@@ -50,6 +53,18 @@ export const EarningsTab = () => {
       </div>
     </div>
     {financeError && <div style={{ padding: 14, background: '#fef2f2', color: '#991b1b', borderRadius: 10, marginBottom: 14 }}>{financeError}</div>}
+    <section aria-label="Sales and net earnings" className="seller-earnings-summary">
+      <div><h2>Completed product sales</h2><strong>{money(metrics ? metrics.totalRevenue : sales?.grossAmount)}</strong>
+        <p>{metrics?.completedOrders ?? sales?.orderCount ?? 0} delivered orders across all storefronts · {metrics ? 'after customer discounts' : 'before deductions'}</p>
+        {financeSummary?.salesByChannel && <p>Shop All: {money(financeSummary.salesByChannel.ecommerce?.revenue)} · Quick Commerce: {money(financeSummary.salesByChannel.grocery?.revenue)}</p>}
+      </div>
+      <div><h2>Net earnings</h2><strong>{pendingNetOrders > 0 ? 'Awaiting calculation' : money(metrics?.netEarnings)}</strong>
+        {pendingNetOrders > 0 ? <p>{pendingNetOrders} delivered {pendingNetOrders === 1 ? 'order needs' : 'orders need'} original commission details or financial adjustments reviewed. This is not a zero earning.</p> : <p>After the commission and deductions recorded for each completed order. Settlement balances appear below.</p>}
+        {pendingNetOrders > 0 && metrics?.netEarningsCalculatedOrders > 0 && <p>Calculated subtotal: {money(metrics.knownNetEarnings)} from {metrics.netEarningsCalculatedOrders} orders.</p>}
+      </div>
+    </section>
+    {unpostedOrders > 0 && <div role="status" className="seller-earnings-coverage">{unpostedOrders} delivered {unpostedOrders === 1 ? 'order has' : 'orders have'} not been posted to your settlement balance. The amounts below show posted funds only; they do not include these orders. Bulkimart finance must verify the original commission and payment or COD records before posting them.</div>}
+    <h2 style={{ fontSize: 17 }}>Posted settlement balances</h2>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 12 }}>
       {main.map(([title, value, color, help]) => <div key={title} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 16 }}>
         <div style={{ fontSize: 12, color: '#64748b' }}>{title}</div><div style={{ marginTop: 6, fontSize: 23, fontWeight: 800, color }}>{money(value)}</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{help}</div>

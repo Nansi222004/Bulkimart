@@ -81,7 +81,8 @@ beforeEach(async () => {
 
 test.each(['/api/orders','/api/orders/unified'])('pending online checkout %s sends no seller notification and exposes no action',async path=>{
  const order=await placed('online',path);await flushPush();expect(await sellerRows()).toHaveLength(0);expect(emitToSeller.mock.calls.filter(c=>c[1]==='new_order')).toHaveLength(0);expect(push).not.toHaveBeenCalled();
- const detail=await sellerAuth(request(app).get('/api/sellers/orders/'+order._id)).expect(200);expect(detail.body.data.permittedActions).toEqual([]);
+ // Unpaid checkouts are hidden from both seller history and direct details.
+ await sellerAuth(request(app).get('/api/sellers/orders/'+order._id)).expect(404);
  const list=await sellerAuth(request(app).get('/api/sellers/orders?status=placed')).expect(200);expect(list.body.data).toEqual([]);
  await sellerAuth(request(app).patch('/api/sellers/orders/'+order._id+'/status')).send({status:'confirmed'}).expect(409);
  await broadcastNewOrderToRiders(order._id);expect(emitToRider).not.toHaveBeenCalled();

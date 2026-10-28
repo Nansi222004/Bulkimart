@@ -1,6 +1,7 @@
 import ModalPortal from '../../../components/ModalPortal';
 import React, { useState } from 'react';
 import { apiUrl } from '../../../utils/api';
+import { bulkFileError } from '../utils/bulkUploadValidation';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('sellerToken');
@@ -15,6 +16,8 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
   const [uploadProgress, setUploadProgress] = useState('');
   const [uploadResult, setUploadResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [fileErrors, setFileErrors] = useState({});
+  const [rowErrors, setRowErrors] = useState([]);
 
   // Handle template download
   const handleDownloadTemplate = async () => {
@@ -58,29 +61,28 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
   };
 
   // Handle file select
-  const handleExcelChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setExcelFile(e.target.files[0]);
-    }
-  };
-
-  const handleZipChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setZipFile(e.target.files[0]);
-    }
+  const chooseFile = (e, kind) => {
+    const file = e.target.files?.[0] || null;
+    const error = file ? bulkFileError(file, kind) : '';
+    setFileErrors(previous => ({ ...previous, [kind]: error }));
+    setErrorMessage(''); setRowErrors([]);
+    (kind === 'sheet' ? setExcelFile : setZipFile)(error ? null : file);
+    if (error) e.target.value = '';
   };
 
   // Submit bulk upload
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!excelFile) {
-      setErrorMessage('Please select a completed Excel/CSV file.');
+    const sheetError = bulkFileError(excelFile, 'sheet'), zipError = bulkFileError(zipFile, 'zip');
+    if (sheetError || zipError || Object.values(fileErrors).some(Boolean)) {
+      setFileErrors(previous => ({ ...previous, sheet: sheetError || previous.sheet, zip: zipError || previous.zip }));
       return;
     }
 
     try {
       setUploading(true);
       setErrorMessage('');
+      setRowErrors([]);
       setUploadProgress('Extracting ZIP images and parsing spreadsheet...');
 
       const formData = new FormData();
@@ -103,11 +105,12 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        setRowErrors(data.meta?.errors || []);
         throw new Error(data.message || 'Bulk upload failed');
       }
 
       setUploadResult(data);
-      if (onSuccess) onSuccess();
+      if (data.successCount > 0 && onSuccess) onSuccess();
     } catch (err) {
       setErrorMessage(err.message || 'Bulk upload processing failed.');
     } finally {
@@ -116,6 +119,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
     }
   };
 
+  const cannotSubmit = uploading || !excelFile || Object.values(fileErrors).some(Boolean);
   return (
     <ModalPortal style={{
       position: 'fixed',
@@ -180,7 +184,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
         {/* Content */}
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {errorMessage && (
-            <div style={{
+            <div role="alert" style={{
               backgroundColor: '#fef2f2',
               border: '1px solid #fca5a5',
               borderRadius: '12px',
@@ -192,6 +196,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
               ⚠️ {errorMessage}
             </div>
           )}
+          {rowErrors.length > 0 && <div role="alert"><strong>Fix these rows and upload the file again. No products were imported.</strong><ul>{rowErrors.map((error, index) => <li key={index}>Row {error.row}{error.name ? ` (${error.name})` : ''}: {error.reason}</li>)}</ul></div>}
 
           {/* STEP 1: Download Template */}
           <div style={{
@@ -243,9 +248,13 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                   2. Upload Excel / CSV Data Sheet <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
+                  id="bulk-product-sheet"
                   type="file"
-                  accept=".csv, .xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                  onChange={handleExcelChange}
+                  accept=".xlsx,.csv"
+                  aria-label="Product data sheet"
+                  aria-invalid={!!fileErrors.sheet}
+                  aria-describedby="bulk-sheet-help bulk-sheet-error"
+                  onChange={e => chooseFile(e, 'sheet')}
                   disabled={uploading}
                   style={{
                     width: '100%',
@@ -257,6 +266,8 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                     boxSizing: 'border-box'
                   }}
                 />
+                <small id="bulk-sheet-help">Accepted: .xlsx or .csv, up to 10 MB. Use the downloaded template. Product Name, Main Category, Sell Price and Stock are required; stock must be a whole number of zero or more. MRP must be at least the selling price.</small>
+                {fileErrors.sheet && <p id="bulk-sheet-error" role="alert" style={{ color: '#b91c1c' }}>{fileErrors.sheet}</p>}
                 {excelFile && (
                   <span style={{ fontSize: '11px', color: '#1b7a37', fontWeight: '700', marginTop: '4px', display: 'block' }}>
                     Selected: {excelFile.name} ({(excelFile.size / 1024).toFixed(1)} KB)
@@ -270,8 +281,11 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                 </label>
                 <input
                   type="file"
-                  accept=".zip, application/zip, application/x-zip-compressed"
-                  onChange={handleZipChange}
+                  accept=".zip"
+                  aria-label="Product images ZIP"
+                  aria-invalid={!!fileErrors.zip}
+                  aria-describedby="bulk-zip-help bulk-zip-error"
+                  onChange={e => chooseFile(e, 'zip')}
                   disabled={uploading}
                   style={{
                     width: '100%',
@@ -283,6 +297,8 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                     boxSizing: 'border-box'
                   }}
                 />
+                <small id="bulk-zip-help">Accepted: .zip, up to 50 MB. Filenames must match the product sheet.</small>
+                {fileErrors.zip && <p id="bulk-zip-error" role="alert" style={{ color: '#b91c1c' }}>{fileErrors.zip}</p>}
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
                   Image filenames in Excel (e.g. <code>prod1_main.png</code>) will automatically map to images in this ZIP archive.
                 </span>
@@ -329,16 +345,16 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={uploading || !excelFile}
+                  disabled={cannotSubmit}
                   style={{
                     padding: '10px 24px',
                     border: 'none',
                     borderRadius: '10px',
-                    backgroundColor: uploading || !excelFile ? '#94a3b8' : '#1b7a37',
+                    backgroundColor: cannotSubmit ? '#94a3b8' : '#1b7a37',
                     color: '#ffffff',
                     fontSize: '13px',
                     fontWeight: '800',
-                    cursor: uploading || !excelFile ? 'not-allowed' : 'pointer'
+                    cursor: cannotSubmit ? 'not-allowed' : 'pointer'
                   }}
                 >
                   {uploading ? 'Processing Import...' : '🚀 Process & Import Products'}
@@ -355,7 +371,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                 padding: '20px',
                 textAlign: 'center'
               }}>
-                <h4 style={{ margin: 0, fontSize: '18px', color: '#166534', fontWeight: '800' }}>Bulk Listing Complete!</h4>
+                <h4 style={{ margin: 0, fontSize: '18px', color: uploadResult.failedCount ? '#991b1b' : '#166534', fontWeight: '800' }}>{uploadResult.failedCount ? 'Import finished with errors' : 'Bulk Listing Complete!'}</h4>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginTop: '16px' }}>
                   <div>
                     <span style={{ display: 'block', fontSize: '24px', fontWeight: '900', color: '#166534' }}>{uploadResult.successCount}</span>

@@ -11,7 +11,9 @@ import { requireFinanceOperation, financeFlags } from '../services/financeSafety
 import { getFinancePolicy } from '../services/financePolicy.service.js';
 import { createSellerPayoutRequest } from '../services/sellerPayout.service.js';
 import { sellerTaxStatement } from '../services/financeReports.service.js';
-import { sellerFinancialAmounts } from '../services/sellerOrderAmounts.service.js';
+import { sellerOrderAmounts } from '../services/sellerOrderAmounts.service.js';
+import { sellerDashboardMetrics } from '../services/sellerDashboard.service.js';
+import { sellerHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 
 const ownSeller = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
@@ -21,36 +23,46 @@ const ownSeller = async (req) => {
 
 export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
-  const [balances, payouts, sales, policy] = await Promise.all([
+  const [balances, payouts, sales, policy, metrics] = await Promise.all([
     sellerBalances(seller._id),
     SellerPayout.find({ sellerId: seller._id }).sort({ createdAt: -1 }).lean(),
     Order.aggregate([
       { $match: { status: 'delivered', 'items.sellerId': seller._id } },
+      ...sellerHistoryPaymentStages(),
       { $project: { orderNo: 1, createdAt: 1, financialPosting: 1,
+        pricing: 1, items: 1,
         paymentMethod: 1, cashState: '$codFinance.status', snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
         financialSnapshot: { version: '$financialSnapshot.version', lines: { $filter: { input: { $ifNull: ['$financialSnapshot.lines', []] }, as: 'line', cond: { $eq: ['$$line.sellerId', String(seller._id)] } } } },
-        items: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
-      { $set: { grossAmount: { $sum: { $map: { input: '$items', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
+        ownItems: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
+      { $set: { grossAmount: { $sum: { $map: { input: '$ownItems', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
       { $facet: {
         totals: [{ $group: { _id: null, orderCount: { $sum: 1 }, grossAmount: { $sum: '$grossAmount' } } }],
-        orders: [{ $sort: { createdAt: -1, _id: -1 } }, { $limit: 20 }, { $project: { items: 0 } }],
+        orders: [{ $sort: { createdAt: -1, _id: -1 } }, { $limit: 20 }, { $project: { ownItems: 0 } }],
       } },
     ]),
     getFinancePolicy(),
+    sellerDashboardMetrics(seller._id, null),
   ]);
   const flags = financeFlags();
   return ok(res, {
     balances,
+    salesMetrics: metrics.kpis,
+    salesByChannel: metrics.byChannel,
     payouts: payouts.map(payoutPublic),
     deliveredSales: {
       orderCount: sales[0]?.totals[0]?.orderCount || 0,
       grossAmount: Number((sales[0]?.totals[0]?.grossAmount || 0).toFixed(2)),
-      orders: (sales[0]?.orders || []).map(({ financialSnapshot, ...row }) => ({ ...row, sellerAmounts: sellerFinancialAmounts(financialSnapshot, seller._id) })),
+      orders: (sales[0]?.orders || []).map(({ financialSnapshot, items, pricing, ...row }) => ({ ...row, sellerAmounts: sellerOrderAmounts({ financialSnapshot, items, pricing }, seller._id) })),
       limit: 20,
     },
     coverage: {
       authoritativeFrom: 'seller-ledger-v1',
       historicalOrdersIncluded: false,
+      deliveredOrders: metrics.kpis.completedOrders,
+      netEarningsCalculatedOrders: metrics.kpis.netEarningsCalculatedOrders,
+      netEarningsPendingOrders: metrics.kpis.netEarningsPendingOrders,
+      unpostedOrders: metrics.kpis.unpostedOrders,
+      ledgerEntryCount: balances.ledgerEntryCount,
       note: 'Zero posted funds do not establish zero historical entitlement. Historical orders require original payment, COD custody and policy evidence; contact finance support with the order reference.',
     },
     payoutPolicy: { schedule: policy.payoutSchedule, weekday: policy.payoutWeekday, minimum: policy.sellerMinPayout },

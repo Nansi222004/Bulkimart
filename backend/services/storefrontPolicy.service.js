@@ -1,6 +1,6 @@
 import { httpError } from '../utils/response.js';
 import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED, DEFAULT_CUSTOM, CUSTOM_MOTIONS, CUSTOM_SHAPES, MAX_CUSTOM, isCustomId } from '../shared/celebration.mjs';
-import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS } from '../shared/storefront.mjs';
+import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, SPLASH_DURATION } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
@@ -144,7 +144,7 @@ export function validateExperience(input, kind) {
   }
   if (kind === 'campaign') row.config = {
     placement: one(c.placement || 'hero', ['hero', 'splash', 'announcement'], 'placement'), bannerId: ref('bannerId'), themeId: ref('themeId'),
-    frequency: one(c.frequency || 'session', FREQUENCIES, 'frequency'), duration: integer(c.duration ?? 5, 2, 15, 'Splash duration'),
+    frequency: one(c.frequency || 'session', FREQUENCIES, 'frequency'), duration: integer(c.duration ?? SPLASH_DURATION.fallback, SPLASH_DURATION.min, SPLASH_DURATION.max, 'Splash duration'),
     countdown: c.countdown === true,
   };
   if (kind === 'section') row.config = { title: str(c.title || row.name, 100, 'section title'), source: one(c.source || 'recent', SOURCES, 'product source'),

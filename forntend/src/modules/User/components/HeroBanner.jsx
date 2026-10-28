@@ -3,7 +3,7 @@ import { useStorefront } from '../context/StorefrontContext';
 import StorefrontMedia, { useReducedMotion } from './StorefrontMedia';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { apiUrl } from '../../../utils/api';
-import defaultBanner from '../../../assets/banner1.png';
+import defaultBanner from '../../../assets/banner1.webp';
 import Celebration from './Celebration';
 export default function HeroBanner() {
   const { banners, loading, device, now } = useStorefront();

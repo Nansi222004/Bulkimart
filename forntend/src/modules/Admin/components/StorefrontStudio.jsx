@@ -3,7 +3,7 @@ import { adminGet, adminPost, adminPatch, authGet, authPost } from '../../../uti
 import { useAdmin } from '../context/AdminContext';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import ModalPortal from '../../../components/ModalPortal';
-import { PRESETS, PRESET_EFFECTS, DEFAULT_TOKENS, DEFAULT_HEADER, COLOR_KEYS, resolveTokens, themeStyle } from '../../../utils/storefront';
+import { PRESETS, PRESET_EFFECTS, DEFAULT_TOKENS, DEFAULT_HEADER, COLOR_KEYS, resolveTokens, themeStyle, SPLASH_DURATION, SPLASH_SKIP_AFTER, splashDurationText } from '../../../utils/storefront';
 import { DEFAULT_EFFECT, EFFECT_COLORS } from '../../../../../backend/shared/celebration.mjs';
 import StorefrontMedia from '../../User/components/StorefrontMedia';
 import StorefrontMediaFields from './StorefrontMediaFields';
@@ -22,6 +22,24 @@ export const scheduleInput = value => value ? new Date(new Date(value).getTime()
 export const scheduleISO = value => value ? new Date(`${value}:00+05:30`).toISOString() : null;
 const displayDate = value => value ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'No limit';
 function Field({ label, children }) { return <label className="studio-field"><span>{label}</span>{children}</label>; }
+// How long the splash shows, entered in seconds or minutes and always saved as whole seconds.
+export function SplashDurationField({ value, onChange }) {
+  const seconds = Number(value);
+  const [unit, setUnit] = useState(() => seconds >= 60 && seconds % 60 === 0 ? 'minutes' : 'seconds');
+  const minutes = unit === 'minutes', shown = Number.isFinite(seconds) && seconds > 0 ? (minutes ? seconds / 60 : seconds) : '';
+  const valid = Number.isFinite(seconds) && seconds >= SPLASH_DURATION.min && seconds <= SPLASH_DURATION.max;
+  return <div className="studio-field studio-splash-duration">
+    <span>Show for</span>
+    <div className="studio-pair">
+      <input type="number" aria-label="Show for" min={minutes ? 0.5 : SPLASH_DURATION.min} max={minutes ? SPLASH_DURATION.max / 60 : SPLASH_DURATION.max} step={minutes ? 0.5 : 1}
+        value={shown} onChange={e => onChange(e.target.value === '' ? NaN : Math.round(Number(e.target.value) * (minutes ? 60 : 1)))} />
+      <select aria-label="Time unit" value={unit} onChange={e => setUnit(e.target.value)}><option value="seconds">seconds</option><option value="minutes">minutes</option></select>
+    </div>
+    <small className="studio-help" role={valid ? undefined : 'alert'}>{valid
+      ? `Shows for ${splashDurationText(seconds)}.${seconds > SPLASH_SKIP_AFTER ? ' Customers see a Skip button.' : ''}`
+      : `Choose between ${SPLASH_DURATION.min} seconds and ${SPLASH_DURATION.max / 60} minutes.`}</small>
+  </div>;
+}
 export default function StorefrontStudio() {
   const { triggerToast, setActiveTab } = useAdmin(), ui = useFeedback();
   const [kind, setKind] = useState('theme'), [rows, setRows] = useState([]), [search, setSearch] = useState(''), [status, setStatus] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(0);
@@ -60,6 +78,7 @@ export default function StorefrontStudio() {
   useEffect(() => { if (!dirty) return; const warn = e => { e.preventDefault(); e.returnValue = ''; }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
   useEffect(() => () => { if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl); }, [bannerPreviewUrl]);
   const change = patch => { setDirty(true); setForm(f => ({ ...f, ...patch })); };
+  useEffect(() => { if (form?.kind === 'campaign' && form.config.placement === 'splash' && form.device !== 'mobile') setForm(f => ({ ...f, device: 'mobile' })); }, [form?.kind, form?.config?.placement, form?.device]);
   const config = patch => { setDirty(true); setForm(f => ({ ...f, config: { ...f.config, ...patch } })); };
   const cancelBannerUpload = () => { setShowUploadBanner(false); setBannerFile(null); setBannerPreviewUrl(''); setBannerUploadError(''); };
   
@@ -93,6 +112,10 @@ export default function StorefrontStudio() {
     return type || 'General';
   };
 
+  const splashPlacement = form?.kind === 'campaign' && form.config.placement === 'splash';
+  // The preview follows the chosen device; only "all" offers the Mobile/Desktop toggle.
+  const mediaDevice = splashPlacement ? 'mobile' : form?.device || 'all';
+  const previewDevice = mediaDevice === 'all' ? preview : mediaDevice;
   const selectedBanner = banners.find(b => b._id === form?.config.bannerId);
   const requiredType = form?.scope === 'quick' ? 'grocery' : form?.scope === 'shop-all' ? 'ecommerce' : 'general';
   const isBannerMismatched = Boolean(selectedBanner && selectedBanner.type !== 'general' && selectedBanner.type !== requiredType);
@@ -105,6 +128,8 @@ export default function StorefrontStudio() {
     try {
       // Checked before uploading: otherwise the artwork lands in a draft that can never be published.
       if (publish && form.endAt && Date.parse(scheduleISO(form.endAt)) <= Date.now()) throw new Error('The end time has already passed. Set a later end time, then publish.');
+      const splashTime = Number(form.config.duration);
+      if (form.kind === 'campaign' && form.config.placement === 'splash' && !(Number.isInteger(splashTime) && splashTime >= SPLASH_DURATION.min && splashTime <= SPLASH_DURATION.max)) throw new Error(`Choose how long the splash shows: ${SPLASH_DURATION.min} seconds to ${SPLASH_DURATION.max / 60} minutes.`);
       const attachedBanner = showUploadBanner && (bannerFile || newBannerForm.image) ? await uploadBanner() : selectedBanner;
       const bannerId = attachedBanner?._id || form.config.bannerId;
       if (publish && form.kind === 'campaign') {
@@ -155,7 +180,9 @@ export default function StorefrontStudio() {
       fd.append('isActive', 'true');
       fd.append('isDraft', 'false');
       fd.append('image', bannerFile || newBannerForm.image);
-      for (const key of ['mediaType', 'mobileImage', 'video', 'mobileVideo', 'autoplay', 'muted', 'loop', 'playsInline']) if (newBannerForm[key] !== undefined) fd.append(key, String(newBannerForm[key]));
+      // A single-device campaign has one set of artwork; separate phone artwork applies only to "all".
+      const keys = ['mediaType', 'video', 'autoplay', 'muted', 'loop', 'playsInline', ...(mediaDevice === 'all' ? ['mobileImage', 'mobileVideo'] : [])];
+      for (const key of keys) if (newBannerForm[key] !== undefined) fd.append(key, String(newBannerForm[key]));
 
       const result = await authPost('/api/banners', fd);
       const createdBanner = result.data || result;
@@ -235,9 +262,10 @@ export default function StorefrontStudio() {
       <div className="studio-editor"><header><div><span className="studio-kicker">{form.kind.toUpperCase()} EDITOR</span><h2>{form.name || 'Untitled draft'}</h2></div><button disabled={busy || uploadingBanner} onClick={close} aria-label="Close editor">✕</button></header>
       <div className="studio-editor-body"><form id="studio-form" onSubmit={e => { e.preventDefault(); save(false); }}>
         <fieldset disabled={busy || uploadingBanner}>
-        {form.kind === 'campaign' && select('Placement', form.config.placement, [{ value: 'hero', label: 'Homepage banner' }, { value: 'splash', label: 'Splash screen · app launch' }, { value: 'announcement', label: 'Announcement' }], placement => config({ placement }))}
+        {form.kind === 'campaign' && select('Placement', form.config.placement, [{ value: 'hero', label: 'Homepage banner' }, { value: 'splash', label: 'Splash screen · app launch' }, { value: 'announcement', label: 'Announcement' }], placement => { config({ placement }); if (placement === 'splash') change({ device: 'mobile' }); })}
         <Field label="Name"><input required maxLength={100} value={form.name} onChange={e => change({ name: e.target.value })} /></Field><Field label="Internal description"><textarea maxLength={2000} value={form.description} onChange={e => change({ description: e.target.value })} /></Field>
-        <div className="studio-pair">{select('Storefront', form.scope, ['global', 'quick', 'shop-all'], scope => change({ scope }))}{select('Device', form.device, ['all', 'mobile', 'desktop'], device => change({ device }))}</div>
+        <div className="studio-pair">{select('Storefront', form.scope, ['global', 'quick', 'shop-all'], scope => change({ scope }))}{splashPlacement ? select('Device', 'mobile', [{ value: 'mobile', label: 'Mobile (phones only)' }], () => {}) : select('Device', form.device, ['all', 'mobile', 'desktop'], device => change({ device }))}</div>
+        {splashPlacement && <p className="studio-help">The splash screen shows only when the app opens on a phone. The website on a computer opens directly.</p>}
         <div className="studio-pair"><Field label="Start · IST"><input type="datetime-local" value={form.startAt} onChange={e => change({ startAt: e.target.value })} /></Field><Field label="End · IST"><input type="datetime-local" value={form.endAt} onChange={e => change({ endAt: e.target.value })} /></Field></div>
         <Field label="Priority (higher wins)"><input type="number" min="0" max="1000" value={form.priority} onChange={e => change({ priority: Number(e.target.value) })} /></Field>
         {form.kind === 'theme' && <>{select('Apply theme', form.config.application || 'storefront', [{ value: 'storefront', label: 'Storefront default for this scope' }, { value: 'campaign', label: 'Only while a linked campaign is active' }], application => config({ application }))}{select('Theme preset', form.config.preset, Object.keys(PRESETS), applyPreset)}<div className="studio-colors">{COLOR_KEYS.map(key => <Field key={key} label={key.replace(/[A-Z]/g, letter => ' ' + letter.toLowerCase())}><input type="color" value={tokens[key]} onChange={e => config({ tokens: { ...tokens, [key]: e.target.value } })} /></Field>)}</div>
@@ -348,7 +376,7 @@ export default function StorefrontStudio() {
                   </span>
                 </div>
 
-                <Field label="Banner Image (JPEG, PNG, WebP) *">
+                <Field label={`${newBannerForm.mediaType === 'video' ? 'Poster image' : mediaDevice === 'mobile' ? 'Mobile image (tall)' : 'Desktop image (wide)'} · JPEG, PNG or WebP *`}>
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -374,7 +402,7 @@ export default function StorefrontStudio() {
                 </Field>
                 {bannerFile && <p className="studio-help" role="status">Image selected. Save draft or Publish will upload and attach it automatically.</p>}
 
-                <StorefrontMediaFields value={newBannerForm} onBusy={setUploadingBanner} onChange={patch => { setNewBannerForm(f => ({ ...f, ...patch })); setDirty(true); }} />
+                <StorefrontMediaFields value={newBannerForm} device={mediaDevice} desktopImage={false} onBusy={setUploadingBanner} onChange={patch => { setNewBannerForm(f => ({ ...f, ...patch })); setDirty(true); }} />
                 <button type="button" onClick={() => { setBannerFile(null); setBannerPreviewUrl(''); setDirty(true); }}>Remove selected local image</button>
                 <Field label="Banner Title *">
                   <input
@@ -463,7 +491,7 @@ export default function StorefrontStudio() {
         )}
 
         {form.kind === 'campaign' && <>{select('Theme override', form.config.themeId, refs(themes), themeId => config({ themeId }))}
-          {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<Field label="Auto-close after seconds (2–15)"><input type="number" min="2" max="15" value={form.config.duration} onChange={e => config({ duration: Number(e.target.value) })} /></Field><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">The seconds count from when the image has loaded. One splash maximum per app launch: when several splash campaigns are live at the same time, only the one with the highest priority is shown. Changes reach customers only after you publish. Audience: all visitors to the selected storefront.</p></>}
+          {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<SplashDurationField value={form.config.duration} onChange={duration => config({ duration })} /><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">The time counts from when the image has loaded. One splash maximum per app launch: when several splash campaigns are live at the same time, only the one with the highest priority is shown. Changes reach customers only after you publish. Audience: all visitors to the selected storefront.</p></>}
         </>}
         {form.kind === 'section' && <><Field label="Customer-facing title"><input maxLength={100} value={form.config.title} onChange={e => config({ title: e.target.value })} /></Field>{select('Product collection', form.config.source, [{ value: 'recent', label: 'Recently added' }, { value: 'featured', label: 'Featured / curated picks' }, { value: 'category', label: 'Category collection' }, { value: 'price', label: 'Under a price' }, { value: 'campaign', label: 'Flash sale / accepted deal products' }, { value: 'wholesale', label: 'Wholesale discovery' }], source => config({ source }))}
           {form.config.source === 'category' && select('Category', form.config.categoryId, refs(categories), categoryId => config({ categoryId }))}
@@ -476,12 +504,14 @@ export default function StorefrontStudio() {
         {form.kind === 'theme' && <StorefrontHeaderFields value={form.config.header} onChange={header => config({ header })} deals={deals} />}
         {form.kind !== 'section' && <StorefrontEffectFields value={form.config.animation} onChange={animation => config({ animation })} allowBanner={form.kind === 'campaign'} deals={deals} library={customLibrary} />}
         </fieldset>
-      </form><aside className="studio-preview-pane"><div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
-        <div className={`studio-preview studio-preview--${preview} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>
-        {form.kind === 'campaign' && form.config.placement === 'splash' ? <StorefrontSplashPreview banner={previewBanner} config={form.config} device={preview} endAt={form.endAt ? `${form.endAt}:00+05:30` : null} /> : <><div className="studio-preview-header"><Celebration effect={festive ? null : previewEffect} preview />BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
+      </form><aside className="studio-preview-pane">{mediaDevice === 'all'
+        ? <div className="studio-preview-toggle"><button aria-pressed={preview === 'mobile'} onClick={() => setPreview('mobile')}>Mobile</button><button aria-pressed={preview === 'desktop'} onClick={() => setPreview('desktop')}>Desktop</button></div>
+        : <p className="studio-help studio-preview-device" role="status">Previewing on {mediaDevice === 'mobile' ? 'a phone' : 'a computer'}</p>}
+        <div className={`studio-preview studio-preview--${previewDevice} sf-storefront`} style={themeStyle(tokens)} data-decoration={tokens.decoration} data-motion={tokens.motion} data-category={tokens.category} data-product={tokens.product}>
+        {form.kind === 'campaign' && form.config.placement === 'splash' ? <StorefrontSplashPreview banner={previewBanner} config={form.config} device={previewDevice} endAt={form.endAt ? `${form.endAt}:00+05:30` : null} /> : <><div className="studio-preview-header"><Celebration effect={festive ? null : previewEffect} preview />BULKIMART <small>Quick · ShopAll</small><div className="studio-preview-search">Search products and categories</div></div>
           {/* Same bounded hosts as the storefront: festive header first, otherwise the top header. */}
           {festive && <FestiveHeader header={previewHeader} effect={previewEffect} now={clock} preview />}
-          {previewBanner ? <><div className="studio-preview-art"><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={preview} eager /><Celebration effect={previewBanner.animation} preview /></div><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy studio-preview-hero"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
+          {previewBanner ? <><div className="studio-preview-art"><StorefrontMedia banner={{ ...previewBanner, id: previewBanner._id }} device={previewDevice} eager /><Celebration effect={previewBanner.animation} preview /></div><div className="studio-preview-copy"><span className="sf-eyebrow">PREVIEW</span><h2>{previewBanner.title}</h2><p>{previewBanner.subtitle}</p><span className="sf-cta">{previewBanner.cta || 'Explore now'} →</span></div></> : <div className="studio-preview-copy studio-preview-hero"><span className="sf-eyebrow">YOUR STOREFRONT</span><h2>{form.kind === 'section' ? form.config.title || form.name : 'A little more to love.'}</h2><p>Discover your next favourite on Bulkimart.</p><span className="sf-cta">Explore collection →</span><div className="studio-preview-cards"><article className="sf-product"><div className="sf-product-body"><strong>Product preview</strong><span className="sf-rating">Prices and ratings from catalog</span><button type="button" className="sf-add">Add to cart +</button></div></article></div></div>}
         <div className="studio-preview-collection" style={form.kind === 'section' ? { background: form.config.appearance?.background, color: form.config.appearance?.text, borderColor: form.config.appearance?.accent } : undefined}>
 <strong>{form.kind === 'section' ? form.config.title || 'Collection preview' : 'Shop by category'}</strong><div className="studio-preview-category"><span>Category artwork</span></div><small>{form.kind === 'section' ? (form.config.layout || 'rail') + ' layout · live catalog after publication' : 'Published category artwork appears here'}</small></div>
 <div className="studio-preview-nav"><strong>⌂ Home</strong><span>▦ Categories</span><span>♧ Cart</span></div>

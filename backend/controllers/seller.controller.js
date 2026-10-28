@@ -1,3 +1,4 @@
+import { sellerDashboardMetrics, SELLER_PENDING_STATUSES } from '../services/sellerDashboard.service.js';
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
 import { parseGstChoice, createGstRequest } from '../services/gstAssistance.service.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
@@ -450,89 +451,12 @@ export const getDashboard = asyncHandler(async (req, res) => {
     Product.countDocuments({ ...scope, stock: 0 }),
   ]);
 
-  /**
-   * Revenue and order counts, computed from the orders themselves.
-   *
-   * These used to be read off `seller.totalRevenue` / `seller.totalOrders`, which
-   * nothing ever increments — checkout does not touch them. So the dashboard
-   * showed a flat zero to sellers who had genuinely been paid. Deriving the
-   * figures from Order means they cannot drift out of step with reality.
-   *
-   * Two details matter:
-   *  - Only this seller's line items count. An order can hold several sellers'
-   *    goods, and the order total also carries shared delivery and discounts
-   *    that are not any one seller's revenue.
-   *  - The grouping runs in two stages so an order with four of this seller's
-   *    items counts as one order, not four.
-   */
-  const revenueByChannel = await Order.aggregate([
-    { $match: { 'items.sellerId': seller._id, status: { $nin: [ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED, ORDER_STATUS.REFUNDED] } } },
-    { $unwind: '$items' },
-    // Re-filter after unwinding: the first $match kept whole orders, and those
-    // orders may also contain other sellers' items.
-    { $match: { 'items.sellerId': seller._id } },
-    {
-      $group: {
-        _id: { channel: '$type', orderId: '$_id' },
-        lineRevenue: { $sum: { $multiply: ['$items.price', '$items.qty'] } },
-      },
-    },
-    {
-      $group: {
-        _id: '$_id.channel',
-        revenue: { $sum: '$lineRevenue' },
-        orders: { $sum: 1 },
-      },
-    },
-  ]);
-
-  /**
-   * Orders this seller still owes work on.
-   *
-   * "Pending" means not yet handed over — once it is dispatched it is the
-   * courier's problem, not the seller's, so it drops off this counter.
-   */
-  const [pendingOrderCount] = await Order.aggregate([
-    { $match: { 'items.sellerId': seller._id, status: { $in: [ORDER_STATUS.PLACED, ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING] }, ...(channel ? { type: channel } : {}) } },
-    ...eligiblePaymentStages(), { $count: 'count' },
-  ]);
-  const pendingOrders = pendingOrderCount?.count || 0;
-
-  const perChannel = revenueByChannel.reduce(
-    (acc, row) => ({ ...acc, [row._id]: { revenue: row.revenue, orders: row.orders } }),
-    {}
-  );
-
-  const totals = revenueByChannel.reduce(
-    (acc, row) => ({ revenue: acc.revenue + row.revenue, orders: acc.orders + row.orders }),
-    { revenue: 0, orders: 0 }
-  );
-
-  // With ?type= set the KPIs describe that storefront alone; without it they
-  // describe the whole account. Either way `byChannel` carries the split so a
-  // hybrid seller can see both at once.
-  const scoped = channel ? (perChannel[channel] || { revenue: 0, orders: 0 }) : totals;
-
+  const metrics = await sellerDashboardMetrics(seller._id, channel);
   res.status(200).json({
-    success: true,
-    channel,
-    kpis: {
-      rating: seller.rating,
-      totalOrders: scoped.orders,
-      totalRevenue: Number(scoped.revenue.toFixed(2)),
-      // Average order value belongs here rather than in the client, where it was
-      // being rendered as the revenue figure a second time.
-      avgOrderValue: scoped.orders ? Number((scoped.revenue / scoped.orders).toFixed(2)) : 0,
-      pendingOrders,
-      productCount,
-      liveCount,
-      lowStockCount,
-      outOfStockCount,
-    },
-    byChannel: {
-      [CHANNEL.ECOM]: perChannel[CHANNEL.ECOM] || { revenue: 0, orders: 0 },
-      [CHANNEL.GROCERY]: perChannel[CHANNEL.GROCERY] || { revenue: 0, orders: 0 },
-    },
+    success: true, channel,
+    kpis: { ...metrics.kpis, rating: seller.rating, productCount, liveCount, lowStockCount, outOfStockCount },
+    byChannel: metrics.byChannel,
+    salesPerformance: metrics.salesPerformance,
   });
 });
 
@@ -629,10 +553,11 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
     if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid order reference');
     filter._id = new mongoose.Types.ObjectId(req.params.id);
   }
-  if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+  if (req.query.status === 'pending') filter.status = { $in: SELLER_PENDING_STATUSES };
+  else if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
   if (CHANNELS.includes(req.query.type)) filter.type = req.query.type;
 
-  const actionableQueue = req.query.status === ORDER_STATUS.PLACED && !req.params.id;
+  const actionableQueue = ['pending', ORDER_STATUS.PLACED].includes(req.query.status) && !req.params.id;
   const [history] = await Order.aggregate([{ $match: filter },
     ...(actionableQueue ? eligiblePaymentStages() : sellerHistoryPaymentStages()),
     { $facet: { rows: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }], count: [{ $count: 'total' }] } }]);

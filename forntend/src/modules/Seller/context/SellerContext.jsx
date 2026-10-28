@@ -287,6 +287,10 @@ export const SellerProvider = ({ children }) => {
     ecommerce: { revenue: 0, orders: 0 },
     grocery: { revenue: 0, orders: 0 },
   });
+  const [salesPerformance, setSalesPerformance] = useState([]);
+  const [sellerKpisLoading, setSellerKpisLoading] = useState(false);
+  const [sellerKpisError, setSellerKpisError] = useState('');
+  const kpiGeneration = React.useRef(0);
 
   const authHeader = () => {
     const token = localStorage.getItem('sellerToken');
@@ -685,16 +689,32 @@ export const SellerProvider = ({ children }) => {
 
   /** GET /api/sellers/dashboard — real KPIs (zeros for a brand-new store). */
   const fetchSellerKpis = useCallback(async () => {
+    const generation = ++kpiGeneration.current;
+    const token = localStorage.getItem('sellerToken');
+    setSellerKpisLoading(true); setSellerKpisError('');
     try {
-      const res = await fetch(apiUrl(`/api/sellers/dashboard?type=${activeChannel}`), { headers: authHeader() });
-      if (!res.ok) return;
+      const res = await fetch(apiUrl('/api/sellers/dashboard'), { headers: authHeader() });
       const body = await res.json();
+      if (generation !== kpiGeneration.current || token !== localStorage.getItem('sellerToken')) return;
+      if (!res.ok) throw new Error(body.message || 'Could not load dashboard figures');
       if (body.kpis) setSellerKpis(body.kpis);
       // The per-storefront split, so a hybrid seller sees both channels at once
       // rather than only whichever toggle happens to be active.
       if (body.byChannel) setChannelKpis(body.byChannel);
-    } catch { /* leave zeros */ }
-  }, [activeChannel]);
+      setSalesPerformance(body.salesPerformance || []);
+    } catch (error) {
+      if (generation === kpiGeneration.current && token === localStorage.getItem('sellerToken')) setSellerKpisError(error.message || 'Could not load dashboard figures');
+    } finally { if (generation === kpiGeneration.current) setSellerKpisLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || sellerProfile?.status !== 'approved') return;
+    const refresh = () => { void fetchSellerKpis(); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    socket.on('new_order', refresh); socket.on('notification_new', refresh);
+    return () => { window.removeEventListener('focus', refresh); socket.off('new_order', refresh); socket.off('notification_new', refresh); };
+  }, [activeTab, sellerProfile?.status, fetchSellerKpis]);
 
   useEffect(() => {
     if (localStorage.getItem('sellerToken')) {
@@ -716,6 +736,9 @@ export const SellerProvider = ({ children }) => {
    */
   const [orders, setOrders] = useState([]);
   const [orderListState, setOrderListState] = useState({ tab: 'all', search: '' });
+  const orderFilter = React.useRef('all');
+  orderFilter.current = orderListState.tab === 'pending' ? 'pending' : 'all';
+  const orderListGeneration = React.useRef(0);
   const [orderDetailId, setOrderDetailId] = useState(() => window.location.pathname.match(/^\/seller\/orders\/([^/]+)$/)?.[1] || null);
   const [orderDetailLoading, setOrderDetailLoading] = useState(false);
   const [orderDetailError, setOrderDetailError] = useState('');
@@ -805,15 +828,18 @@ export const SellerProvider = ({ children }) => {
 
 
 
-  const fetchSellerOrders = useCallback(async (status = 'all') => {
+  const fetchSellerOrders = useCallback(async (status = orderFilter.current) => {
+    const generation = ++orderListGeneration.current;
+    const token = localStorage.getItem('sellerToken');
     setOrdersLoading(true);
     setOrdersError('');
     try {
       const res = await fetch(
-        apiUrl(`/api/sellers/orders?type=${activeChannel}&status=${status}&limit=100`),
+        apiUrl(`/api/sellers/orders?${orderListState.scope === 'all' ? '' : `type=${activeChannel}&`}status=${status}&limit=100`),
         { headers: authHeader() }
       );
       const body = await res.json().catch(() => ({}));
+      if (generation !== orderListGeneration.current || token !== localStorage.getItem('sellerToken')) return;
       if (!res.ok) {
         setOrdersError(body.message || 'Could not load your orders');
         setOrders([]);
@@ -823,12 +849,13 @@ export const SellerProvider = ({ children }) => {
       setOrders(data);
 
     } catch (err) {
+      if (generation !== orderListGeneration.current || token !== localStorage.getItem('sellerToken')) return;
       setOrdersError(err.message || 'Network error — is the server running?');
       setOrders([]);
     } finally {
-      setOrdersLoading(false);
+      if (generation === orderListGeneration.current) setOrdersLoading(false);
     }
-  }, [activeChannel]);
+  }, [activeChannel, orderListState.scope]);
 
   /**
    * Move an order along — the real thing, not a repainted pill.
@@ -1723,6 +1750,8 @@ export const SellerProvider = ({ children }) => {
         productsError, productListingMode, setProductListingMode,
         fetchMyProducts,
         sellerKpis,
+        salesPerformance,
+        sellerKpisLoading, sellerKpisError,
         channelKpis,
         ordersLoading,
         ordersError,

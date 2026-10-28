@@ -1,7 +1,7 @@
 import WholesaleOfferSelector from './WholesaleOfferSelector';
 import ProductSellingModes from './ProductSellingModes';
 import SellerWholesaleProducts from './SellerWholesaleProducts';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { ProductModal } from './ProductModal';
 import { BulkUploadModal } from './BulkUploadModal';
@@ -84,11 +84,16 @@ export const ProductsTab = () => {
   const lowStockCount = stockedProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
   const outStockCount = stockedProducts.filter(p => p.stock === 0).length;
 
-  // Filter products by searchable columns and local tab filters
+  // The categories this seller actually has products in, for the current mode (Quick Commerce or
+  // E-Commerce), so every option in the filter matches real products.
+  const categoryOptions = [...new Set(products.map(p => p.category).filter(c => c && c !== '—'))].sort((a, b) => a.localeCompare(b));
+  const categoryKey = categoryOptions.join('|');
+  useEffect(() => { if (categoryFilter !== 'All' && !categoryOptions.includes(categoryFilter)) setCategoryFilter('All'); }, [categoryKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const query = search.trim().toLowerCase();
+
+  // Filter products by name, category and the KPI tab
   const filteredProducts = products.filter(p => {
-    const code = getProductCode(p);
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      code.includes(search.toLowerCase());
+    const matchesSearch = !query || p.name.toLowerCase().includes(query);
 
     // Category filter
     const matchesCategory = categoryFilter === 'All' || p.category === categoryFilter;
@@ -532,9 +537,11 @@ export const ProductsTab = () => {
           </svg>
           <input
             type="text"
-            placeholder="Search by name, SKU or slug..."
+            placeholder="Search by product name..."
+            aria-label="Search products by name"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            // No leading spaces, and runs of spaces become one, so spaces alone never count as a search.
+            onChange={(e) => setSearch(e.target.value.replace(/^\s+/, '').replace(/\s{2,}/g, ' '))}
             style={{
               border: 'none',
               background: 'none',
@@ -566,10 +573,7 @@ export const ProductsTab = () => {
             }}
           >
             <option value="All">All Categories</option>
-            <option value="Groceries">Organic Foods</option>
-            <option value="Fashion">Garments & Handlooms</option>
-            <option value="Crafts">Traditional Handicrafts</option>
-            <option value="Cosmetics">Herbal Personal Care</option>
+            {categoryOptions.map(name => <option key={name} value={name}>{name}</option>)}
           </select>
 
           {/* Reset Filters / Filters indicator */}

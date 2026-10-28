@@ -129,7 +129,9 @@ test('campaign placement comes first and selecting Splash swaps the homepage moc
     const artwork = h.find(n => n.type === 'select' && [n.props.children].flat().some(option => option?.props?.value === banner.id));
     artwork.props.onChange({ target: { value: banner.id } }); h.flush();
     assert.equal(h.find(n => n.type === SplashPreview).props.banner._id, banner.id);
-    h.click('Desktop'); assert.equal(h.find(n => n.type === SplashPreview).props.device, 'desktop');
+    assert.equal(h.find(n => n.type === SplashPreview).props.device, 'mobile');
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Desktop'), undefined, 'A splash has no desktop preview');
+    assert.match(text(h.tree), /shows only when the app opens on a phone/);
     placement().props.onChange({ target: { value: 'hero' } }); h.flush();
     assert.equal(h.find(n => n.type === SplashPreview), undefined); assert.match(text(h.tree), /Shop by category/);
     assert.equal(h.requests.some(row => row.options.method && row.options.method !== 'GET'), false);
@@ -428,7 +430,7 @@ test('home content stays unmounted through configuration loading and the splash,
   let h;
   try {
     h = browserHarness(Splash, { children }, context);
-    assert.equal(h.tree.props.className, 'sf-launch-loading');
+    assert.equal(h.tree.props.className, 'boot-home sf-launch-wait');
     assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
     context.loading = false; context.version = 'published'; context.splash = splash('launch'); h.rerender();
     assert.ok(h.find(n => n.type === SplashCard));
@@ -441,7 +443,7 @@ test('home content stays unmounted through configuration loading and the splash,
 
 test('a fresh cached splash opens before background revalidation finishes', () => {
   const children = createElement('main');
-  const context = { loading: true, version: 'fresh-cache', splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const context = { loading: true, version: 'fresh-cache', splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
   const h = browserHarness(Splash, { children }, context);
   try {
     assert.ok(h.find(n => n.type === SplashCard)); assert.notEqual(h.tree, children);
@@ -452,7 +454,7 @@ test('a fresh cached splash opens before background revalidation finishes', () =
 
 for (const reason of ['no campaign', 'already seen', 'future', 'expired']) test(`${reason} releases home without a splash`, () => {
   const children = createElement('main');
-  const context = { loading: true, splash: null, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const context = { loading: true, splash: null, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
   const h = browserHarness(Splash, { children }, context);
   try {
     if (reason !== 'no campaign') {
@@ -467,7 +469,7 @@ for (const reason of ['no campaign', 'already seen', 'future', 'expired']) test(
 
 for (const route of [{ activeNav: 'checkout' }, { activeNav: 'home', productDetailLoading: true }, { activeNav: 'home', selectedCampaignId: 'deal' }, { activeNav: 'home', selectedOrder: {} }]) test(`startup does not block an existing deep link: ${JSON.stringify(route)}`, () => {
   const children = createElement('main');
-  const h = browserHarness(Splash, { children }, { loading: true, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, ...route });
+  const h = browserHarness(Splash, { children }, { loading: true, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, device: 'mobile', ...route });
   try { assert.equal(h.tree, children); } finally { h.close(); }
 });
 
@@ -511,16 +513,16 @@ test('splash auto-closes without Skip and does not reopen after subsequent reren
   } finally { h?.close(); globalThis.setTimeout = originalTimer; }
 });
 test('Escape and expiry dismiss the actual splash', () => {
-  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' }, h = browserHarness(Splash, {}, context);
+  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' }, h = browserHarness(Splash, {}, context);
   try { const event = new Event('keydown'); Object.defineProperty(event, 'key', { value: 'Escape' }); document.dispatchEvent(event); h.flush(); assert.equal(h.tree, null); } finally { h.close(); }
   const h2 = browserHarness(Splash, {}, context); try { context.now += 120000; h2.rerender(); assert.equal(h2.tree, null); } finally { h2.close(); }
 });
 test('no splash on product detail or checkout and a pause dismisses the overlay', () => {
-  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'checkout' }, h = browserHarness(Splash, {}, context);
+  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'checkout', device: 'mobile' }, h = browserHarness(Splash, {}, context);
   try { assert.equal(h.tree, null); context.activeNav = 'home'; context.selectedProduct = {}; h.rerender(); assert.equal(h.tree, null); context.selectedProduct = null; h.rerender(); assert.ok(h.tree); context.splash = null; h.rerender(); assert.equal(h.tree, null); } finally { h.close(); }
 });
 test('splash CTA closes and invokes the supported existing destination', () => {
-  let target; const h = browserHarness(Splash, {}, { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', setActiveNav: value => { target = value; } });
+  let target; const h = browserHarness(Splash, {}, { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile', setActiveNav: value => { target = value; } });
   try { const card = SplashCard(h.find(n => n.type === SplashCard).props); h.find(n => n.props?.className === 'sf-cta', card).props.onClick(); h.flush(); assert.equal(target, 'categories'); assert.equal(h.tree, null); } finally { h.close(); }
 });
 test('reduced motion prevents video creation; image failure produces text fallback', () => {
@@ -545,7 +547,7 @@ test('the default banner is replaced by admin banners and restored when none rem
   const context = { banners: [], device: 'mobile', loading: false, setActiveNav: value => { destination = value; } }, h = browserHarness(Hero, {}, context);
   try {
     assert.equal(h.tree.props['aria-label'], 'Welcome to Bulkimart');
-    assert.match(h.find(n => n.type === 'img').props.src, /banner1\.png/);
+    assert.match(h.find(n => n.type === 'img').props.src, /banner1\.webp/);
     h.find(n => n.props?.['aria-label'] === 'Explore products').props.onClick();
     assert.equal(destination, 'categories');
     assert.doesNotMatch(text(h.tree), /\d+%|sale|ends in/i);
@@ -663,7 +665,7 @@ test('wholesale section reads real catalog, supports retry, and hides an empty c
   try { empty.requests[0].resolve({ data: [] }); await empty.settle(); assert.equal(empty.tree, null); } finally { empty.close(); }
 });
 test('a launch splash does not return when sign-in remounts the storefront in the same launch', () => {
-  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home' };
+  const context = { splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
   const first = browserHarness(Splash, {}, context); let guard;
   try { assert.ok(first.tree, 'Shown on launch'); guard = window.__bulkimartSplashShown; assert.ok(guard); } finally { first.close(); }
   // CustomerSessionGate remounts the tree after login; the page (window) is the same launch.
@@ -931,4 +933,76 @@ test('a header category with a custom image shows it in colour; a picked icon is
     assert.equal(holder(h.tree[1]).props.children.props.source, 'https://cdn.fixture/travel.jpg');
     assert.equal(holder(h.tree[2]).props.className, 'sub-nav-icon sub-nav-icon--category');
   } finally { h.close(); }
+});
+
+test('on a computer the website opens directly: no splash and no launch wait', () => {
+  const children = createElement('main', { id: 'desktop-home' });
+  const context = { loading: true, splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'desktop' };
+  const h = browserHarness(Splash, { children }, context);
+  try {
+    assert.equal(h.tree, children, 'No "Opening your store" wait on desktop');
+    context.loading = false; context.version = 'published'; h.rerender();
+    assert.equal(h.find(n => n.type === SplashCard), undefined); assert.equal(h.tree, children);
+  } finally { h.close(); }
+});
+test('Studio media and preview follow the device: a phone-only campaign asks for one tall image and previews on a phone', async () => {
+  const Fields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontMediaFields.jsx')).default;
+  const labels = device => { const h = browserHarness(Fields, { value: {}, onChange() {}, device, desktopImage: device !== 'studio' }, {}); try { return text(h.tree); } finally { h.close(); } };
+  assert.match(labels('all'), /Desktop image \(required\)/); assert.match(labels('all'), /Mobile image \/ poster/);
+  assert.match(labels('mobile'), /Mobile image \(required\)/); assert.doesNotMatch(labels('mobile'), /Desktop image|Mobile image \/ poster/);
+  assert.match(labels('mobile'), /Tall \(portrait\) artwork for phones/);
+  assert.match(labels('desktop'), /Desktop image \(required\)/); assert.doesNotMatch(labels('desktop'), /Mobile image/);
+});
+test('the first paint remembers the active theme colours, safely and only until the theme ends', () => {
+  const store = new Map(), previous = globalThis.localStorage;
+  globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
+  try {
+    assert.equal(policy.bootLook(), null);
+    policy.rememberBootLook({ header: '#0B2A5B', headerText: '#FFFFFF', background: '#EEF4FF', search: 'url(javascript:alert(1))' }, new Date(Date.now() + 60000).toISOString());
+    assert.deepEqual(policy.bootLook(), { header: '#0B2A5B', headerText: '#FFFFFF', background: '#EEF4FF', search: undefined }, 'Only hex colours are kept');
+    assert.deepEqual(policy.bootLookStyle(policy.bootLook()), { '--boot-header': '#0B2A5B', '--boot-header-text': '#FFFFFF', '--boot-background': '#EEF4FF' });
+    assert.equal(policy.bootLook(Date.now() + 120000), null, 'An ended theme is not shown on the next launch');
+    store.set(policy.BOOT_LOOK_KEY, '{not json'); assert.equal(policy.bootLook(), null);
+  } finally { globalThis.localStorage = previous; }
+});
+test('a long splash runs its full time, up to ten minutes, and can be skipped', () => {
+  const originalTimer = globalThis.setTimeout, callbacks = [];
+  globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
+  const context = { loading: false, version: 'v', splash: { ...splash('launch'), config: { frequency: 'launch', duration: 300 } }, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
+  let h;
+  try {
+    h = browserHarness(Splash, { children: createElement('main') }, context); assert.ok(callbacks.some(c => c.delay === 300000), 'Five minutes');
+    h.find(n => n.type === SplashCard).props.onSkip(); h.flush(); assert.equal(h.find(n => n.type === SplashCard), undefined, 'Skip closes it');
+  }
+  finally { h?.close(); globalThis.setTimeout = originalTimer; }
+});
+test('short splashes have no Skip button; the Studio enters time in seconds or minutes', async () => {
+  const context = { loading: false, version: 'v', splash: { ...splash('launch'), config: { frequency: 'launch', duration: 10 } }, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
+  const h = browserHarness(Splash, { children: createElement('main') }, context);
+  try { assert.equal(h.find(n => n.type === SplashCard).props.onSkip, undefined); } finally { h.close(); }
+  assert.equal(policy.splashDurationText(10), '10 seconds'); assert.equal(policy.splashDurationText(120), '2 minutes'); assert.equal(policy.splashDurationText(90), '1 min 30 sec');
+  const saved = [], field = browserHarness(Studio.SplashDurationField, { value: 120, onChange: v => saved.push(v) }, {});
+  try {
+    assert.equal(field.find(n => n.type === 'select').props.value, 'minutes'); assert.equal(field.find(n => n.type === 'input').props.value, 2);
+    field.find(n => n.type === 'input').props.onChange({ target: { value: '5' } }); assert.deepEqual(saved, [300], 'Minutes are saved as seconds');
+  } finally { field.close(); }
+});
+test('on a phone the storefront uses the request index.html started early, once, instead of asking again', async () => {
+  const data = { version: 'early', theme: { id: 'blue', tokens: policy.PRESETS['Eid Celebration'] }, banners: [], sections: [], serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() };
+  let placed = false;
+  const Early = p => { if (!placed) { placed = true; window.__bulkimartEarlyExperience = { key: 'quick:mobile:', promise: Promise.resolve({ data }) }; } return Provider(p); };
+  const h = browserHarness(Early, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' }, true);
+  try {
+    await h.settle(); await h.settle();
+    assert.equal(h.requests.filter(r => r.url.includes('/api/storefront/experience')).length, 0, 'No second request');
+    assert.equal(h.tree.props.value.theme.id, 'blue'); assert.equal(window.__bulkimartEarlyExperience, null, 'Used only once');
+  } finally { h.close(); }
+});
+test('an early request for another storefront, or none at all, falls back to the normal request', async () => {
+  const Provided = await vite.ssrLoadModule('/src/modules/User/context/StorefrontContext.jsx');
+  globalThis.window ||= {}; window.__bulkimartEarlyExperience = { key: 'shop-all:mobile:', promise: Promise.resolve({}) };
+  assert.equal(Provided.takeEarlyExperience('quick:mobile:'), null); assert.ok(window.__bulkimartEarlyExperience, 'Kept for its own storefront');
+  window.__bulkimartEarlyExperience = { key: 'quick:mobile:', promise: new Promise(() => {}) };
+  const realTimeout = globalThis.setTimeout; globalThis.setTimeout = fn => realTimeout(fn, 0);
+  try { assert.equal(await Provided.takeEarlyExperience('quick:mobile:'), null, 'A stalled request is given up'); } finally { globalThis.setTimeout = realTimeout; window.__bulkimartEarlyExperience = null; }
 });

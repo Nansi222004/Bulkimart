@@ -92,9 +92,26 @@ try{
   const finance=await fetch(`${origin}/api/admin/advertising/finance`,{headers:{Authorization:`Bearer ${fixture.adminToken}`}});const financial=(await finance.json()).data;assert.equal(financial.total,0);assert.equal(financial.totals.receivedPaise,0);assert.equal(financial.totals.recognizedPaise,0);checks.push('no-payment-no-revenue-through-pilot');
   for(const width of [320,390,768,1280]){await command('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await navigate('/acceptance/seller');await waitFor(has('Acceptance campaign'));assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true);}
   checks.push('real-workspace-responsive-layouts');
-  // On a phone the seller's products are listed and visible in step 1 of the campaign wizard.
-  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await navigate('/acceptance/seller');await waitFor(has('Create campaign'));await click('Create campaign');
-  await waitFor(`[...document.querySelectorAll('.ad-product-item')].some(e=>e.textContent.includes('Acceptance product')&&e.getBoundingClientRect().height>20)`);checks.push('mobile-wizard-lists-seller-products');assert.deepEqual(errors,[]);
+  // A product existing in the DOM is insufficient: its checkbox must be reachable
+  // inside the scrollable body and accept a real pointer click above the footer.
+  for(const [width,height] of [[1280,585],[390,844],[320,568]]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<768});await navigate('/acceptance/seller');await waitFor(has('Create campaign'));await click('Create campaign');
+    await waitFor(`!!document.querySelector('.ad-product-item input[type=checkbox]')`);
+    const target=await evaluate(`(()=>{
+      const checkbox=document.querySelector('.ad-product-item input[type=checkbox]');
+      checkbox.scrollIntoView({block:'center'});
+      const rect=checkbox.getBoundingClientRect(),body=document.querySelector('.ad-modal-body').getBoundingClientRect();
+      const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+      return {x,y,reachable:y>=body.top&&y<=body.bottom&&document.elementFromPoint(x,y)===checkbox};
+    })()`);
+    assert.equal(target.reachable,true,`Product checkbox must be reachable at ${width}x${height}`);
+    await command('Input.dispatchMouseEvent',{type:'mousePressed',x:target.x,y:target.y,button:'left',clickCount:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:target.x,y:target.y,button:'left',clickCount:1});
+    await waitFor(`document.querySelector('.ad-product-item.selected input[type=checkbox]')?.checked===true`);
+    assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Continue').disabled`),false);
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true);
+  }
+  checks.push('wizard-products-reachable-and-selectable-on-short-desktop-and-mobile');assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,checks,authenticatedAdvertisingApis:'real local Express/Mongoose',database:'disposable replica set',sessions:'synthetic signed and checked by real middleware',providerCalls:0,providerCheckout:'blocked, not simulated',fullApplicationLogin:'not tested',customerContext:'synthetic navigation adapter',widths:[320,390,768,1280]}));
 }finally{
   socket?.close();browser?.kill();await vite?.close();

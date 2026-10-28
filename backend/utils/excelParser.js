@@ -20,7 +20,8 @@ export const BULK_COLUMNS = [
   'Front Image URL',
   'Back Image URL',
   'Sell Price (₹)',
-  'MRP Price (₹)'
+  'MRP Price (₹)',
+  'Stock'
 ];
 
 /**
@@ -99,10 +100,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
   const headerListFormula = `CategoriesRef!$A$1:$A$${headerNames.length}`;
 
   try {
-    workbook.addDefinedName({
-      name: 'HeaderCategories',
-      formulae: [headerListFormula]
-    });
+    workbook.definedNames.add(headerListFormula, 'HeaderCategories');
     registeredDefinedNames.add('HeaderCategories');
   } catch (e) {
     console.warn('[ExcelJS] Could not add HeaderCategories defined name:', e.message);
@@ -124,10 +122,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
 
       const rangeFormula = `CategoriesRef!$${colLetter}$1:$${colLetter}$${mainList.length}`;
       try {
-        workbook.addDefinedName({
-          name: hDefinedName,
-          formulae: [rangeFormula]
-        });
+        workbook.definedNames.add(rangeFormula, hDefinedName);
         registeredDefinedNames.add(hDefinedName);
       } catch (e) {
         console.warn(`[ExcelJS] Could not add defined name ${hDefinedName}:`, e.message);
@@ -152,10 +147,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
 
         const rangeFormula = `CategoriesRef!$${colLetter}$1:$${colLetter}$${subList.length}`;
         try {
-          workbook.addDefinedName({
-            name: mDefinedName,
-            formulae: [rangeFormula]
-          });
+          workbook.definedNames.add(rangeFormula, mDefinedName);
           registeredDefinedNames.add(mDefinedName);
         } catch (e) {
           console.warn(`[ExcelJS] Could not add defined name ${mDefinedName}:`, e.message);
@@ -184,6 +176,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     { header: 'Back Image URL', key: 'backImageUrl', width: 38 },
     { header: 'Sell Price (₹)', key: 'sellPrice', width: 16 },
     { header: 'MRP Price (₹)', key: 'mrpPrice', width: 16 },
+    { header: 'Stock', key: 'stock', width: 14 },
   ];
   worksheet.columns = columnsList;
 
@@ -266,6 +259,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     'sample-back.jpg',
     99,      // Sell Price example
     149,     // MRP Price example (must be >= Sell Price)
+    10,
   ];
 
   const mockRow = worksheet.getRow(3);
@@ -299,6 +293,7 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
   const unitsFormula = '"kg, g, litre, ml, piece, dozen, pack"';
 
   for (let rowIdx = 4; rowIdx <= 1000; rowIdx++) {
+    worksheet.getCell(`Q${rowIdx}`).dataValidation = { type: 'whole', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: false, showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Invalid Stock', error: 'Stock must be a whole number of zero or more.' };
     // Explicitly unlock every cell in columns 1 to columnsList.length (A to P) so Excel permits editing
     for (let colIdx = 1; colIdx <= columnsList.length; colIdx++) {
       const cell = worksheet.getCell(rowIdx, colIdx);
@@ -398,7 +393,7 @@ export async function parseXLSX(buffer) {
     await workbook.xlsx.load(buffer);
 
     const worksheet = workbook.getWorksheet(1);
-    if (!worksheet) return parseCSV(buffer);
+    if (!worksheet) throw new Error('The workbook has no product sheet.');
 
     const resultRows = [];
     let headers = [];
@@ -436,6 +431,7 @@ export async function parseXLSX(buffer) {
           String(rowValues.join(' ')).includes('BULK PRODUCT UPLOAD TEMPLATE');
 
         if (hasData && !isExampleRow) {
+          rowObj.__rowNumber = rowNumber;
           resultRows.push(rowObj);
         }
       }
@@ -443,8 +439,7 @@ export async function parseXLSX(buffer) {
 
     return resultRows;
   } catch (err) {
-    console.warn('[XLSX Parser] Falling back to CSV parser:', err.message);
-    return parseCSV(buffer);
+    throw new Error(`Invalid .xlsx workbook: ${err.message}`);
   }
 }
 
@@ -452,8 +447,21 @@ export async function parseXLSX(buffer) {
  * Parses a CSV string or buffer into rows of key-value objects.
  */
 export function parseCSV(content) {
-  const text = Buffer.isBuffer(content) ? content.toString('utf-8') : String(content);
-  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+  const text = (Buffer.isBuffer(content) ? content.toString('utf-8') : String(content)).replace(/^\uFEFF/, '');
+  const lines = [], rowNumbers = [];
+  let record = '', quoted = false, physicalRow = 1, recordRow = 1;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') { record += '""'; index++; continue; }
+      quoted = !quoted;
+    }
+    if (char === '\n' && !quoted) { lines.push(record.replace(/\r$/, '')); rowNumbers.push(recordRow); record = ''; recordRow = physicalRow + 1; }
+    else record += char;
+    if (char === '\n') physicalRow++;
+  }
+  if (quoted) throw new Error('CSV contains an unclosed quoted field.');
+  if (record) { lines.push(record.replace(/\r$/, '')); rowNumbers.push(recordRow); }
 
   if (lines.length < 2) return [];
 
@@ -465,6 +473,7 @@ export function parseCSV(content) {
     if (values.length === 0 || (values.length === 1 && !values[0])) continue;
 
     const rowObj = {};
+    rowObj.__rowNumber = rowNumbers[i];
     headers.forEach((h, idx) => {
       rowObj[h.trim()] = values[idx] !== undefined ? values[idx].trim() : '';
     });
@@ -503,7 +512,10 @@ function parseCSVLine(line) {
  * Main parser entry point
  */
 export async function parseSpreadsheet(buffer, originalName = '') {
+  if (!buffer?.length) throw new Error('The product sheet is empty.');
+  if (!/\.(xlsx|csv)$/i.test(originalName)) throw new Error('Use an .xlsx or .csv product sheet.');
   if (originalName.toLowerCase().endsWith('.csv')) {
+    if (buffer.includes(0) || buffer.subarray(0, 2).toString() === 'PK') throw new Error('The file is not a UTF-8 CSV. Save it as CSV UTF-8 or upload .xlsx.');
     return parseCSV(buffer);
   }
   return await parseXLSX(buffer);
@@ -523,7 +535,7 @@ export function generateBulkTemplateCSV(categoriesTree = []) {
     q(sample1.mainName || 'Dairy & Eggs'),
     q(sample1.subName || 'Milk'),
     q('Amul'),
-    q('Gold Milk 500ml'),
+    q('[EXAMPLE] Gold Milk 500ml'),
     q('500ml'),
     q('ml'),
     q('500'),
@@ -532,7 +544,10 @@ export function generateBulkTemplateCSV(categoriesTree = []) {
     q('milk, amul, dairy, fresh milk'),
     q('quickmart-07c8bc-primary.webp'),
     q('quickmart-07c8bc-front.jpg'),
-    q('quickmart-07c8bc-back.jpg')
+    q('quickmart-07c8bc-back.jpg'),
+    q('99'),
+    q('149'),
+    q('10')
   ].join(','));
 
   return lines.join('\n');

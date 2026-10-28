@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import ModalPortal from '../../../components/ModalPortal';
 import { useStorefront } from '../context/StorefrontContext';
 import { useUser } from '../context/UserContext';
-import { eligibleSplash, markSplash, themeStyle } from '../../../utils/storefront';
+import { eligibleSplash, markSplash, themeStyle, bootLook, bootLookStyle, splashSeconds, SPLASH_SKIP_AFTER } from '../../../utils/storefront';
 import SplashCard from './SplashCard';
 import { useMediaReady } from './StorefrontMedia';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
@@ -23,7 +23,10 @@ export default function PromotionalSplash({ children }) {
   const consumed = useRef(false), [open, setOpen] = useState(null);
   const [launchChecked, setLaunchChecked] = useState(false);
   const homeLaunch = activeNav === 'home' && !selectedProduct && !selectedCampaignId && !productDetailLoading && !productDetailError && !selectedOrder && !reviewProductId;
+  // The splash is an app-launch screen for phones. On a desktop the website opens directly.
+  const phone = device === 'mobile';
   useEffect(() => {
+    if (!phone) { setLaunchChecked(true); return; }
     // Decide before mounting the home tree: CSS hiding still starts its requests.
     // A fresh cached version can be used while the provider revalidates it.
     if (homeLaunch && !launchChecked && loading && !version) return;
@@ -33,7 +36,7 @@ export default function PromotionalSplash({ children }) {
     const storage = { now, session, local, consumed: consumed.current || shownThisLaunch(splash) };
     if (eligibleSplash(splash, storage)) { consumed.current = true; rememberLaunch(splash); markSplash(splash, storage); setOpen(splash); }
     setLaunchChecked(true);
-  }, [splash, now, homeLaunch, launchChecked, loading, version]);
+  }, [splash, now, homeLaunch, launchChecked, loading, version, phone]);
   // The launch may open a cached copy while the storefront revalidates. When the refresh brings the
   // same splash republished (e.g. a new duration), switch to it instead of closing after a second.
   useEffect(() => {
@@ -52,17 +55,19 @@ export default function PromotionalSplash({ children }) {
   // The configured seconds count from when the artwork is on screen, not from when it started downloading.
   useEffect(() => {
     if (!open || !artReady) return;
-    const seconds = Number(open.config.duration);
-    const timer = setTimeout(() => setOpen(null), Math.min(15, Math.max(2, Number.isFinite(seconds) ? seconds : 5)) * 1000);
+    const timer = setTimeout(() => setOpen(null), splashSeconds(open.config.duration) * 1000);
     return () => clearTimeout(timer);
   }, [open, artReady]);
-  const visible = open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
+  const visible = phone && open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
   if (!visible) {
-    if (homeLaunch && !launchChecked) return <div className="sf-launch-loading" style={themeStyle(theme.tokens)}><strong>Bulkimart</strong><p role="status">Opening your store…</p></div>;
+    // While the phone checks for a splash, it keeps showing the home-page outline from index.html,
+    // in the theme it last showed, so the order is outline → splash (if any) → home.
+    if (homeLaunch && !launchChecked) return <div className="boot-home sf-launch-wait" style={bootLookStyle(bootLook())} aria-busy="true" aria-label="Loading Bulkimart"><header><strong>Bulkimart</strong><div /></header><main><i className="banner" /><div className="row">{Array.from({ length: 8 }, (_, n) => <i key={n} />)}</div></main></div>;
     return children || null;
   }
   return <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
     <SplashCard banner={open.banner} device={device} now={now} endAt={open.endAt} showCountdown={open.config.countdown}
-      onNavigate={destination => { setOpen(null); navigate(destination); }} />
+      onNavigate={destination => { setOpen(null); navigate(destination); }}
+      onSkip={splashSeconds(open.config.duration) > SPLASH_SKIP_AFTER ? () => setOpen(null) : undefined} />
   </ModalPortal>;
 }

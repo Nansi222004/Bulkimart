@@ -2,12 +2,21 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useUser } from './UserContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
-import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle } from '../../../utils/storefront';
+import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle, rememberBootLook } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
 import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
 const Context = createContext({ ...fallback, now: Date.now(), loading: false });
 export const useStorefront = () => useContext(Context);
+// On a phone, index.html starts the first storefront request while the app downloads. It is used
+// for the matching storefront, given up after 3 seconds so a stalled request cannot block, and
+// cleared once its answer is applied (React may start the first load twice in development).
+export function takeEarlyExperience(key) {
+  const early = typeof window !== 'undefined' && window.__bulkimartEarlyExperience;
+  if (!early || early.key !== key) return null;
+  return Promise.race([early.promise, new Promise(resolve => setTimeout(() => resolve(null), 3000))]);
+}
+const forgetEarlyExperience = () => { if (typeof window !== 'undefined') window.__bulkimartEarlyExperience = null; };
 export function StorefrontProvider({ children }) {
   const user = useUser();
   const { activeMode, activeSubNav } = user;
@@ -30,9 +39,15 @@ export function StorefrontProvider({ children }) {
       pending = true; clearTimeout(timer);
       let delay = 30000;
       try {
-        const response = await boundedFetch(apiUrl(`/api/storefront/experience?${new URLSearchParams({ scope, device, category })}`), { signal: controller.signal, priority: 'high' }, initial ? 3000 : 10000);
-        const body = await response.json();
-        if (!response.ok || !freshExperience(body.data, Date.parse(body.data?.serverTime))) throw new Error('Invalid storefront configuration');
+        const early = initial && takeEarlyExperience(key);
+        let body = early ? await early : null;
+        if (early) forgetEarlyExperience(); // answered (or given up): later loads ask the server
+        if (!body || !freshExperience(body.data, Date.parse(body.data?.serverTime))) {
+          const response = await boundedFetch(apiUrl(`/api/storefront/experience?${new URLSearchParams({ scope, device, category })}`), { signal: controller.signal, priority: 'high' }, initial ? 3000 : 10000);
+          body = await response.json();
+          if (!response.ok) throw new Error('Invalid storefront configuration');
+        }
+        if (!freshExperience(body.data, Date.parse(body.data?.serverTime))) throw new Error('Invalid storefront configuration');
         if (cancelled) return;
         offset.current = Date.parse(body.data.serverTime) - Date.now();
         setData({ ...body.data, key }); setClock(Date.now());
@@ -65,6 +80,8 @@ export function StorefrontProvider({ children }) {
     document.body.style.background = current.theme.tokens.background || DEFAULT_TOKENS.background;
     return () => { document.body.style.background = previous; };
   }, [current.theme.tokens]);
+  // Remember the published look (default included) for the next launch's first paint.
+  useEffect(() => { if (current !== fallback) rememberBootLook(current.theme.tokens, current.theme.endAt); }, [current.theme.tokens, current.theme.endAt]);
   const effect = current.animations?.find(e => effectActive(e, now) && effectApplies(e, user));
   // The page-level effect is rendered by the festive header (or, without one,
   // inside the hero banner). It is never mounted over the whole viewport.

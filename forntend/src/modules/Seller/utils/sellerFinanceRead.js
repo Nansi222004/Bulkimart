@@ -12,6 +12,14 @@ export function readSellerFinances(summaryBody, ledgerBody) {
     throw new Error('Seller balances or payout data is incomplete. Please retry; unavailable amounts are not zero balances.');
   }
   const sales = summary.deliveredSales;
+  const metrics = summary.salesMetrics;
+  if (metrics && ((!finiteAmount(metrics.totalRevenue) && metrics.totalRevenue !== null) ||
+    (!finiteAmount(metrics.netEarnings) && metrics.netEarnings !== null) ||
+    !finiteAmount(metrics.knownNetEarnings) || !finiteAmount(metrics.knownRevenue) ||
+    ['completedOrders', 'netEarningsCalculatedOrders', 'netEarningsPendingOrders', 'unpostedOrders'].some(key => !Number.isSafeInteger(metrics[key]) || metrics[key] < 0) ||
+    metrics.netEarningsCalculatedOrders + metrics.netEarningsPendingOrders !== metrics.completedOrders)) {
+    throw new Error('Seller sales and net earnings coverage is incomplete. Please retry.');
+  }
   if (sales && (!Number.isSafeInteger(sales.orderCount) || sales.orderCount < 0 || !finiteAmount(sales.grossAmount) || sales.grossAmount < 0 ||
     !Array.isArray(sales.orders) || sales.orders.some(o => !o || !o._id || !o.orderNo || !finiteAmount(o.grossAmount) || o.grossAmount < 0))) {
     throw new Error('Delivered sales data is incomplete. Please retry.');

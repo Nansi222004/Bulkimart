@@ -4,7 +4,8 @@ import Seller from '../models/Seller.js';
 import { httpError } from '../utils/response.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
-import { extractZip } from '../utils/zipExtractor.js';
+import JSZip from 'jszip';
+import { validateBulkRows } from '../services/bulkProductValidation.service.js';
 import { parseSpreadsheet, generateBulkTemplateExcelJS, BULK_COLUMNS } from '../utils/excelParser.js';
 
 /**
@@ -134,199 +135,51 @@ export const downloadBulkTemplate = asyncHandler(async (req, res) => {
  * @access  Private (Seller/Admin)
  */
 export const processBulkUpload = asyncHandler(async (req, res) => {
-  if (req.userType !== 'admin') {
-    const seller = req.seller || await Seller.findOne({ userId: req.user._id });
-    if (!seller || seller.status !== 'approved') throw httpError(403, 'Approved seller account required');
-  }
-  const excelFile = req.files?.excelFile?.[0];
-  const zipFile = req.files?.zipFile?.[0];
-
-  if (!excelFile) {
-    res.status(400);
-    throw new Error('Please upload the completed Excel or CSV template file.');
-  }
-
-  // 1. Unzip image archive if provided
-  let imageZipMap = new Map();
-  if (zipFile && zipFile.buffer) {
+  const seller = req.seller || (req.userType !== 'admin' ? await Seller.findOne({ userId: req.user._id }) : null);
+  if (req.userType !== 'admin' && (!seller || seller.status !== 'approved')) throw httpError(403, 'Approved seller account required');
+  const excelFile = req.files?.excelFile?.[0], zipFile = req.files?.zipFile?.[0];
+  if (!excelFile) throw httpError(400, 'Choose a completed .xlsx or .csv product sheet.');
+  if (excelFile.buffer.length > 10 * 1024 * 1024) throw httpError(413, 'Product sheet must be 10 MB or smaller.');
+  if (zipFile && (!/\.zip$/i.test(zipFile.originalname) || !zipFile.buffer.length)) throw httpError(400, 'Choose a non-empty .zip image archive.');
+  const imageMap = new Map();
+  if (zipFile) {
     try {
-      imageZipMap = extractZip(zipFile.buffer);
-      console.log(`[Bulk Upload] Successfully unzipped ${imageZipMap.size} images from archive.`);
-    } catch (err) {
-      console.warn('[Bulk Upload] Error unzipping image file:', err.message);
-    }
+      const archive = await JSZip.loadAsync(zipFile.buffer, { checkCRC32: true });
+      let bytes = 0;
+      for (const file of Object.values(archive.files)) {
+        if (file.dir || !/\.(jpe?g|png|webp|gif|svg)$/i.test(file.name)) continue;
+        const buffer = await file.async('nodebuffer'); bytes += buffer.length;
+        if (bytes > 100 * 1024 * 1024) throw Error('Extracted images exceed 100 MB.');
+        imageMap.set(file.name.toLowerCase(), buffer); imageMap.set(file.name.split('/').pop().toLowerCase(), buffer);
+      }
+    } catch (error) { throw httpError(400, 'Could not read image ZIP. Upload a valid ZIP archive. ' + error.message); }
   }
-
-  // 2. Parse Spreadsheet rows
-  let rows = [];
-  try {
-    rows = await parseSpreadsheet(excelFile.buffer, excelFile.originalname);
-  } catch (err) {
-    res.status(400);
-    throw new Error(`Failed to parse Excel file: ${err.message}`);
-  }
-
-  if (!rows || rows.length === 0) {
-    res.status(400);
-    throw new Error('The uploaded Excel file contains no valid product rows.');
-  }
-
-  // Determine one of the supported Seller storefront channels.
-  const reqMode = String(req.query.mode || req.body?.mode || '').toLowerCase();
-  if (reqMode === 'shg' || req.user?.roleContext === 'shg') {
-    throw new Error('The SHG catalog has been retired');
-  }
-  const isQuick = reqMode === 'quick' || req.user?.roleContext === 'grocery';
-
-  const channelType = isQuick ? 'grocery' : 'ecommerce';
-
-  let sellerId = undefined;
-  sellerId = req.user?.sellerId;
-  if (!sellerId && req.userType === 'user') {
-    const sellerDoc = await Seller.findOne({ userId: req.user._id });
-    if (sellerDoc) sellerId = sellerDoc._id;
-  }
-  if (!sellerId && req.userType !== 'admin') {
-    throw new Error('Approved Seller account required to upload products');
-  }
-
-  // 3. Pre-fetch Categories from Database for lookup
-  let allCategories = await Category.find({ isActive: true, type: channelType }).lean();
-  if (!allCategories || allCategories.length === 0) {
-    allCategories = await Category.find({ isActive: true }).lean();
-  }
-
-  const categoryNameMap = new Map();
-  allCategories.forEach(c => {
-    categoryNameMap.set(c.name.trim().toLowerCase(), c);
-  });
-
-  const successProducts = [];
-  const errors = [];
-
-  // 4. Row-by-Row Processing
-  for (let idx = 0; idx < rows.length; idx++) {
-    const rowNum = idx + 2; // Row 1 is header
-    const row = rows[idx];
-
-    const productName = (row['Product Name'] || row['product name'] || row['Name'] || '').trim();
-    if (!productName || productName.startsWith('#')) {
-      // Skip comment or empty rows
-      continue;
-    }
-
-    const headerName = (row['Header Category'] || row['Header'] || '').trim().toLowerCase();
-    const mainCategoryName = (row['Main Category'] || row['Category'] || '').trim().toLowerCase();
-    const subCategoryName = (row['Sub Category'] || row['Subcategory'] || '').trim().toLowerCase();
-    const brand = (row['Brand'] || '').trim();
-    const variantName = (row['Variant Name'] || '').trim();
-    const description = (row['Product Description'] || row['Description'] || productName).trim();
-    const specifications = (row['Specifications'] || '').trim();
-
-    // Validate Categories
-    let categoryDoc = categoryNameMap.get(mainCategoryName) || categoryNameMap.get(headerName);
-    let subCategoryDoc = categoryNameMap.get(subCategoryName);
-
-    if (!categoryDoc) {
-      // Find fallback default category if specified category not matched
-      categoryDoc = allCategories.find(c => c.parent !== null) || allCategories[0];
-    }
-
-    if (!categoryDoc) {
-      errors.push({ row: rowNum, name: productName, reason: `Invalid category '${mainCategoryName || headerName}'. Category must exist in system.` });
-      continue;
-    }
-
-    // Parse Prices & Stock
-    const price = parseFloat(
-      row['Sell Price (\u20b9)'] || row['Price (\u20b9)'] || row['Price'] || row['price'] || '0'
-    );
-    const mrp = parseFloat(
-      row['MRP Price (\u20b9)'] || row['MRP (\u20b9)'] || row['MRP'] || row['mrp'] || String(price)
-    );
-
-    if (isNaN(price) || price <= 0) {
-      errors.push({ row: rowNum, name: productName, reason: `Sell Price must be a positive number. Found: "${row['Sell Price (\u20b9)'] || row['Price'] || ''}"` });
-      continue;
-    }
-    if (!isNaN(mrp) && mrp < price) {
-      errors.push({ row: rowNum, name: productName, reason: `MRP Price (${mrp}) must be greater than or equal to Sell Price (${price}). MRP is the original / crossed-out price.` });
-      continue;
-    }
-    const stock = parseInt(row['Stock'] || row['stock'] || '100', 10);
-    const unit = (row['Unit'] || 'piece').trim().toLowerCase();
-
-    // Parse Search Tags
-    const rawTags = row['Search Tags'] || row['Tags'] || '';
-    const tags = String(rawTags).split(',').map(t => t.trim()).filter(Boolean);
-
-    // Image Uploads / URLs
-    const imageFields = [
-      'Primary Image URL', 'Primary Image',
-      'Front Image URL', 'Front Image',
-      'Back Image URL', 'Back Image'
-    ];
-    const imageUrls = [];
-
-    for (const field of imageFields) {
-      const imgVal = (row[field] || '').trim();
-      if (!imgVal) continue;
-
-      if (imgVal.startsWith('http://') || imgVal.startsWith('https://')) {
-        imageUrls.push(imgVal);
-      } else if (imageZipMap.has(imgVal.toLowerCase())) {
-        const imgBuffer = imageZipMap.get(imgVal.toLowerCase());
-        try {
-          const cloudUrl = await uploadToCloudinary(imgBuffer, 'products');
-          if (cloudUrl) imageUrls.push(cloudUrl);
-        } catch (uploadErr) {
-          console.warn(`[Bulk Upload] Cloudinary upload failed for ${imgVal}:`, uploadErr.message);
+  let rows;
+  try { rows = await parseSpreadsheet(excelFile.buffer, excelFile.originalname); }
+  catch (error) { throw httpError(400, error.message); }
+  if (!rows.length) throw httpError(400, 'The product sheet contains no product rows. Fill in the latest template before uploading.');
+  const mode = String(req.query.mode || req.body?.mode || 'ecommerce').toLowerCase();
+  if (!['quick', 'grocery', 'ecommerce'].includes(mode)) throw httpError(400, 'Choose Shop All or Quick Commerce.');
+  const type = ['quick', 'grocery'].includes(mode) ? 'grocery' : 'ecommerce';
+  const categories = await Category.find({ isActive: true, type }).lean();
+  const { products, errors } = validateBulkRows(rows, categories, imageMap);
+  if (errors.length) throw httpError(400, 'Product sheet validation failed. Fix the listed rows and upload again. No products were imported.', { errors });
+  if (!products.length) throw httpError(400, 'The sheet contains only examples or comments. Add your product rows.');
+  const created = [], importErrors = [];
+  for (const product of products) {
+    try {
+      const images = [];
+      for (const image of product.images) {
+        if (/^https?:\/\//i.test(image)) images.push(image);
+        else {
+          const url = await uploadToCloudinary(imageMap.get(image.toLowerCase()), 'products');
+          if (!url) throw Error('Image upload failed for ' + image);
+          images.push(url);
         }
       }
-    }
-
-    // Build Product Document
-    try {
-      const newProduct = await Product.create({
-        type: channelType,
-        sellerId: sellerId || undefined,
-        name: productName,
-        brand: brand || undefined,
-        variantName: variantName || undefined,
-        description,
-        specifications: specifications || undefined,
-        category: categoryDoc._id,
-        subCategory: subCategoryDoc ? subCategoryDoc._id : undefined,
-        price,
-        mrp,
-        stock: isNaN(stock) ? 100 : stock,
-        unit: ['kg', 'g', 'litre', 'ml', 'piece', 'dozen', 'pack'].includes(unit) ? unit : 'piece',
-        tags,
-        images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=600'],
-        isActive: true,
-        status: 'approved'
-      });
-
-      successProducts.push({
-        _id: newProduct._id,
-        name: newProduct.name,
-        price: newProduct.price,
-        stock: newProduct.stock,
-        imagesCount: imageUrls.length
-      });
-    } catch (createErr) {
-      errors.push({ row: rowNum, name: productName, reason: createErr.message });
-    }
+      const row = await Product.create({ ...product.data, type, sellerId: seller?._id || req.user?.sellerId, images, isActive: true, status: 'approved' });
+      created.push({ _id: row._id, name: row.name, price: row.price, stock: row.stock, imagesCount: images.length });
+    } catch (error) { importErrors.push({ row: product.row, name: product.data.name, reason: error.message }); }
   }
-
-  res.status(200).json({
-    success: true,
-    totalRows: rows.filter(r => (r['Product Name'] || r['Name']) && !String(r['Product Name'] || r['Name']).startsWith('#')).length,
-    successCount: successProducts.length,
-    failedCount: errors.length,
-    products: successProducts,
-    errors
-  });
+  res.status(200).json({ success: true, totalRows: products.length, successCount: created.length, failedCount: importErrors.length, products: created, errors: importErrors });
 });
-
-

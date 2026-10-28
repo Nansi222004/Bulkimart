@@ -67,7 +67,15 @@ export const uploadReviewImages = (req, res, next) => reviewImageUpload(req, res
   if (['LIMIT_FILE_COUNT', 'LIMIT_UNEXPECTED_FILE'].includes(error?.code)) return next(Object.assign(new Error('You can upload up to 4 review photos.'), { status: 400 }));
   next(error);
 });
-export const uploadBulkFiles = multer({ storage }).fields([
+const bulkFiles = multer({ storage, limits: { fileSize: 50 * 1024 * 1024, files: 2 }, fileFilter: (_req, file, cb) => {
+  const valid = file.fieldname === 'excelFile' ? /\.(xlsx|csv)$/i.test(file.originalname) : file.fieldname === 'zipFile' && /\.zip$/i.test(file.originalname);
+  cb(valid ? null : Object.assign(new Error(file.fieldname === 'excelFile' ? 'Product sheet must be an .xlsx or .csv file.' : 'Product images must be a .zip archive.'), { status: 400 }), valid);
+} }).fields([
   { name: 'excelFile', maxCount: 1 },
   { name: 'zipFile', maxCount: 1 }
 ]);
+export const uploadBulkFiles = (req, res, next) => bulkFiles(req, res, error => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('Image ZIP must be 50 MB or smaller; product sheet must be 10 MB or smaller.'), { status: 413 }));
+  if (!error && req.files?.excelFile?.[0]?.size > 10 * 1024 * 1024) return next(Object.assign(new Error('Product sheet must be 10 MB or smaller.'), { status: 413 }));
+  next(error);
+});

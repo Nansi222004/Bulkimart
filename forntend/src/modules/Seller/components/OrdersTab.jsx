@@ -47,6 +47,7 @@ const byCourier = (order) =>
 export const actionsFor = order => Array.isArray(order.permittedActions) ? order.permittedActions : [];
 const STATUS_TABS = [
   { label: 'All', value: 'all' },
+  { label: 'Pending', value: 'pending' },
   { label: 'New', value: 'placed' },
   { label: 'Confirmed', value: 'confirmed' },
   { label: 'Dispatched', value: 'dispatched' },
@@ -88,6 +89,8 @@ export const OrdersTab = ({ detailPage = false }) => {
   const ui = useFeedback();
   const { orders, ordersLoading, ordersError, fetchSellerOrders, updateOrderStatus, getFulfillmentOptions, selectManualFulfillment, createShiprocketShipment, triggerToast, selectedTypes, activeMode, setActiveMode, selectedOrder: selected, openSellerOrder, closeSellerOrder, orderDetailId, orderDetailLoading, orderDetailError, orderListState, setOrderListState } = useSeller();
   const [tab, setTab] = useState(orderListState?.tab || 'all');
+  const [orderScope, setOrderScope] = useState(orderListState?.scope || 'active');
+  const chooseMode = mode => { setOrderScope('active'); setActiveMode(mode); };
   // Which order is mid-request, so its buttons can be disabled rather than
   // letting an impatient double-tap fire the same transition twice.
   const [busyId, setBusyId] = useState(null);
@@ -121,7 +124,8 @@ export const OrdersTab = ({ detailPage = false }) => {
     else setFulfillmentError(result.message);
   };
 
-  useEffect(() => { if (!detailPage) setOrderListState?.({ tab, search: searchQuery }); }, [tab, searchQuery, detailPage]);
+  useEffect(() => { if (!detailPage) setOrderListState?.({ tab, search: searchQuery, scope: orderScope }); }, [tab, searchQuery, orderScope, detailPage]);
+  useEffect(() => { if (!detailPage) fetchSellerOrders?.(tab === 'pending' ? 'pending' : 'all'); }, [tab, detailPage, fetchSellerOrders]);
   useEffect(() => {
     if (!detailPage || !selected || !actionsFor(selected).some(action => action.setup)) { setFulfilling(null); setFulfillmentOptions(null); return; }
     loadAvailability(selected);
@@ -174,18 +178,19 @@ export const OrdersTab = ({ detailPage = false }) => {
   const activeChannelName = activeMode === 'quick' ? 'grocery' : 'ecommerce';
 
   const channelOrders = (orders || []).filter((o) => {
+    if (orderScope === 'all') return true;
     if (o.channel) return o.channel === activeChannelName;
     if (activeMode === 'quick') return !byCourier(o);
     return byCourier(o);
   });
 
   const totalOrdersCount = channelOrders.length;
-  const pendingOrdersCount = channelOrders.filter(o => o.status === 'placed').length;
+  const pendingOrdersCount = channelOrders.filter(o => ['placed', 'confirmed', 'preparing'].includes(o.status)).length;
   const confirmedOrdersCount = channelOrders.filter(o => o.status === 'confirmed' || o.status === 'preparing').length;
   const deliveredOrdersCount = channelOrders.filter(o => o.status === 'delivered').length;
 
   const shown = channelOrders.filter((o) => {
-    const matchesTab = tab === 'all' ? true : (o.status === tab || (tab === 'confirmed' && o.status === 'preparing'));
+    const matchesTab = tab === 'all' ? true : tab === 'pending' ? ['placed', 'confirmed', 'preparing'].includes(o.status) : (o.status === tab || (tab === 'confirmed' && o.status === 'preparing'));
     const orderNo = (o.orderNo || '').toLowerCase();
     const custName = (o.customer?.name || '').toLowerCase();
     const query = searchQuery.toLowerCase().trim();
@@ -276,11 +281,11 @@ export const OrdersTab = ({ detailPage = false }) => {
             border: '1.5px solid #e2e8f0'
           }}>
             <button 
-              onClick={() => setActiveMode('ecommerce')}
+              onClick={() => chooseMode('ecommerce')}
               style={{
                 border: 'none',
-                background: activeMode === 'ecommerce' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'none',
-                color: activeMode === 'ecommerce' ? '#fff' : '#64748b',
+                background: orderScope !== 'all' && activeMode === 'ecommerce' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'none',
+                color: orderScope !== 'all' && activeMode === 'ecommerce' ? '#fff' : '#64748b',
                 fontSize: '11px',
                 fontWeight: '800',
                 padding: '6px 12px',
@@ -296,11 +301,11 @@ export const OrdersTab = ({ detailPage = false }) => {
               📦 E-Commerce
             </button>
             <button 
-              onClick={() => setActiveMode('quick')}
+              onClick={() => chooseMode('quick')}
               style={{
                 border: 'none',
-                background: activeMode === 'quick' ? 'linear-gradient(135deg, #10b981, #047857)' : 'none',
-                color: activeMode === 'quick' ? '#fff' : '#64748b',
+                background: orderScope !== 'all' && activeMode === 'quick' ? 'linear-gradient(135deg, #10b981, #047857)' : 'none',
+                color: orderScope !== 'all' && activeMode === 'quick' ? '#fff' : '#64748b',
                 fontSize: '11px',
                 fontWeight: '800',
                 padding: '6px 12px',
@@ -315,6 +320,7 @@ export const OrdersTab = ({ detailPage = false }) => {
             >
               ⚡ Quick Commerce
             </button>
+            <button type="button" aria-pressed={orderScope === 'all'} onClick={() => setOrderScope('all')} style={{ border: 0, padding: '6px 12px', borderRadius: 10, background: orderScope === 'all' ? '#073b78' : 'transparent', color: orderScope === 'all' ? '#fff' : '#64748b', cursor: 'pointer', fontWeight: 700 }}>All storefronts</button>
           </div>
         </div>
       )}
@@ -357,8 +363,8 @@ export const OrdersTab = ({ detailPage = false }) => {
         {/* Card 2: Pending */}
         <div 
           className="order-kpi-card" 
-          onClick={() => setTab('placed')}
-          style={{ border: tab === 'placed' ? '1.5px solid #f59e0b' : '1.5px solid #f1f5f9' }}
+          onClick={() => setTab('pending')}
+          style={{ border: tab === 'pending' ? '1.5px solid #f59e0b' : '1.5px solid #f1f5f9' }}
         >
           <div style={{
             width: 42,
