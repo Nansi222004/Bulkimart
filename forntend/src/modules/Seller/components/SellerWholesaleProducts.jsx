@@ -4,7 +4,7 @@ import { eligibleWholesaleProduct, eligibleWholesaleVariant, hasWholesaleAccess 
 
 // Mode-specific rows only. ProductsTab owns the heading, toolbar, tabs and editor.
 export default function SellerWholesaleProducts() {
-  const { products = [], productsLoading, productsError, fetchMyProducts, sellerProfile, profileLoading, fetchSellerProfile, startEditProduct } = useSeller();
+  const { products = [], productsLoading, productsError, fetchMyProducts, sellerProfile, profileLoading, fetchSellerProfile, startEditProduct, requestWholesaleChannel, wholesaleRequestBusy } = useSeller();
   const [search, setSearch] = useState(''), [category, setCategory] = useState(''), [state, setState] = useState('all'), [page, setPage] = useState(1);
   const approved = hasWholesaleAccess(sellerProfile);
   const physical = products.filter(p => p.raw?.fulfillmentType !== 'digital' && ['ecommerce', 'grocery'].includes(p.raw?.type));
@@ -14,7 +14,9 @@ export default function SellerWholesaleProducts() {
   const change = setter => e => { setter(e.target.value); setPage(1); };
   const status = sellerProfile?.wholesaleChannel?.status || 'not_requested';
   return <section className="seller-wholesale-list" aria-label="Wholesale product offers">
-    {!approved ? <div className="seller-products-state" role="status"><p>{profileLoading ? 'Checking Wholesale access…' : status === 'pending' ? 'Wholesale approval pending review.' : status === 'suspended' ? 'Wholesale access is suspended.' : status === 'rejected' ? 'Wholesale access was rejected.' : 'Wholesale access is unavailable or has not been requested.'}</p><p>{sellerProfile?.wholesaleChannel?.rejectionReason || sellerProfile?.wholesaleChannel?.suspensionReason}</p><button className="seller-products-button" onClick={() => fetchSellerProfile({ fresh: true })}>Refresh access</button></div> : <>
+    {!approved ? <div className="seller-products-state" role="status"><p>{profileLoading ? 'Checking Wholesale access…' : status === 'pending' ? 'Wholesale approval pending review.' : status === 'suspended' ? 'Wholesale access is suspended.' : status === 'rejected' ? 'Wholesale access was rejected.' : 'Wholesale access is unavailable or has not been requested.'}</p><p>{sellerProfile?.wholesaleChannel?.rejectionReason || sellerProfile?.wholesaleChannel?.suspensionReason}</p><button className="seller-products-button" onClick={() => fetchSellerProfile({ fresh: true })}>Refresh access</button>
+      {/* Wholesale is requested here, in the Wholesale (B2B) products mode, rather than from a banner on every seller page. */}
+      {!profileLoading && sellerProfile?.status === 'approved' && ['not_requested', 'rejected'].includes(status) && <button className="seller-products-button" onClick={requestWholesaleChannel} disabled={wholesaleRequestBusy}>{wholesaleRequestBusy ? 'Requesting…' : 'Request Wholesale Access'}</button>}</div> : <>
       <div className="seller-products-filters">
         <label className="seller-products-search">Search<input className="onboarding-input" type="search" placeholder="Product, SKU or variant" aria-label="Search Wholesale products" value={search} onChange={change(setSearch)} /></label>
         <label>Category<select className="onboarding-select" aria-label="Wholesale category" value={category} onChange={change(setCategory)}><option value="">All categories</option>{[...new Set(physical.map(p => p.category))].map(c => <option key={c}>{c}</option>)}</select></label>

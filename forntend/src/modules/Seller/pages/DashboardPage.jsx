@@ -65,8 +65,7 @@ export const DashboardPage = () => {
   const {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
-    sellerProfile, userProfile, bizForm, requestWholesaleChannel, wholesaleRequestBusy, fetchSellerProfile, profileLoading,
-    setProductListingMode,
+    sellerProfile, userProfile, bizForm,
   } = useSeller();
   const [showNotifications, setShowNotifications] = useState(false);
   const [returnDetailId, setReturnDetailId] = useState(null);
@@ -206,82 +205,6 @@ export const DashboardPage = () => {
 
         {/* Tab content */}
         <div className="seller-tab-content-container">
-          {/* Wholesale access lives on the dashboard only, not above every seller page. */}
-          {sellerProfile?.status === 'approved' && activeTab === 'dashboard' && (
-            <section aria-label="Wholesale channel access" style={{
-              margin: '0 0 16px', padding: '14px 16px', border: '1px solid #bae6fd',
-              borderRadius: 12, background: '#f0fbff', display: 'flex',
-              alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-            }}>
-              <div>
-                <strong style={{ display: 'block', color: '#073b78', fontSize: 14 }}>Wholesale (B2B)</strong>
-                <span style={{ color: '#64748b', fontSize: 12 }}>
-                  {sellerProfile.wholesaleChannel?.status === 'approved'
-                    ? 'Approved seller channel'
-                    : sellerProfile.wholesaleChannel?.status === 'pending'
-                      ? 'Your request is awaiting admin review'
-                      : sellerProfile.wholesaleChannel?.status === 'rejected'
-                        ? `Rejected${sellerProfile.wholesaleChannel.rejectionReason ? `: ${sellerProfile.wholesaleChannel.rejectionReason}` : ': Your previous request was not approved'}`
-                      : sellerProfile.wholesaleChannel?.status === 'suspended'
-                        ? `Suspended: ${sellerProfile.wholesaleChannel.suspensionReason || 'Contact an administrator to restore Wholesale access.'}`
-                        : 'Request access to prepare quantity-based pricing'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                {sellerProfile.wholesaleChannel?.status === 'approved' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProductListingMode('wholesale');
-                      setActiveTab('products');
-                    }}
-                    style={{
-                      border: '1px solid #0284c7',
-                      borderRadius: 8,
-                      background: '#0284c7',
-                      color: '#fff',
-                      padding: '7px 14px',
-                      fontWeight: 700,
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    Manage Wholesale Offers →
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={profileLoading}
-                  onClick={() => fetchSellerProfile({ fresh: true })}
-                  style={{
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 8,
-                    background: '#fff',
-                    color: '#334155',
-                    padding: '7px 12px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: profileLoading ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {profileLoading ? 'Refreshing access…' : 'Refresh access'}
-                </button>
-                {sellerProfile.wholesaleChannel?.status !== 'approved' && sellerProfile.wholesaleChannel?.status !== 'pending' && sellerProfile.wholesaleChannel?.status !== 'suspended' && (
-                  <button
-                    type="button"
-                    onClick={requestWholesaleChannel}
-                    disabled={wholesaleRequestBusy}
-                    style={{ border: 0, borderRadius: 8, background: '#08b9e8', color: '#fff', padding: '9px 14px', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    {wholesaleRequestBusy ? 'Requesting…' : 'Request Wholesale Access'}
-                  </button>
-                )}
-              </div>
-            </section>
-          )}
           {renderActiveTab()}
         </div>
       </div>
