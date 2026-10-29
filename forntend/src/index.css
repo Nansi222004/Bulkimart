@@ -251,3 +251,11 @@ input[type=number] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* On mobile (<= 768px), hide the storefront launch loader so only the splash screen displays */
+@media (max-width: 768px) {
+  .boot-home:not(.boot-home--partner),
+  .sf-launch-wait {
+    display: none !important;
+  }
+}

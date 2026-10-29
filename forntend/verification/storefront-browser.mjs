@@ -67,7 +67,7 @@ replace('      if (startupOnly) {', `
       if(layoutScenario.startsWith('storefront')){
         if(layoutScenario.includes('splash')){
           await waitFor("!!document.querySelector('.sf-splash-card')");
-          assert.equal(await evaluate("!!document.querySelector('.unified-header-container,.home-feed-scrollable,.sf-product')"),false,'Home discovery remains unmounted during the launch splash');
+          assert.equal(await evaluate("!!document.querySelector('.sf-launch-content[inert][aria-hidden=true] .unified-header-container')"),true,'Home prepares behind the inert splash background');
           await checkSplashGeometry('.sf-splash');
           assert.ok(await evaluate("document.querySelector('.sf-splash').contains(document.activeElement)"),'Splash owns focus');
           await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});

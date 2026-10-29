@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { StorefrontProvider, useStorefront } from '../context/StorefrontContext';
 import { themeStyle, resolveTokens } from '../../../utils/storefront';
-import PromotionalSplash from '../components/PromotionalSplash';
+import PromotionalSplash, { useLaunchSplash } from '../components/PromotionalSplash';
 import StorefrontSections, { StorefrontAnnouncement } from '../components/StorefrontSections';
 import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
@@ -69,6 +69,7 @@ const resolvePopupNav = (route) => {
 const isSlug = (subNav) => /^(grocery|ecommerce)--/.test(subNav || '');
 
 export const LandingPageContent = () => {
+  const launchSplash = useLaunchSplash();
   const experience = useStorefront();
   const {
     activeNav,
@@ -333,7 +334,7 @@ export const LandingPageContent = () => {
       )}
       {/* Global Voice Search Modal */}
       <VoiceSearchModal
-        isOpen={isVoiceModalOpen}
+        isOpen={isVoiceModalOpen && !launchSplash}
         onClose={closeVoiceSearch}
         onSearch={(queryText) => {
           if (queryText && queryText.trim()) {
@@ -344,7 +345,7 @@ export const LandingPageContent = () => {
       />
 
       {/* Location Access & Selection Modal */}
-      <LocationPromptModal />
+      {!launchSplash && <LocationPromptModal />}
     </div>
   );
 };
