@@ -26,15 +26,16 @@
       .boot-home{position:fixed;inset:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;background:var(--boot-header,#79000B);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
       /* The logo sits on a white tile so it reads on any theme colour. */
       .boot-logo{display:block;width:104px;height:104px;padding:16px;box-sizing:border-box;border-radius:26px;background:#fff;object-fit:contain;box-shadow:0 12px 32px rgba(0,0,0,.18)}
-      .boot-spinner{display:block;width:32px;height:32px;box-sizing:border-box;border-radius:50%;border:3px solid rgba(255,255,255,.28);border-top-color:var(--boot-header-text,#fff);animation:boot-spin .8s linear infinite}
+      /* Mobile-first: hide the circular spinner by default so it never flashes on mobile */
+      .boot-spinner{display:none;width:32px;height:32px;box-sizing:border-box;border-radius:50%;border:3px solid rgba(255,255,255,.28);border-top-color:var(--boot-header-text,#fff);animation:boot-spin .8s linear infinite}
       @keyframes boot-spin{to{transform:rotate(360deg)}}
       @media (prefers-reduced-motion:reduce){.boot-spinner{animation-duration:2.4s}}
-      /* Mobile phones: show clean logo splash without web loader spinner */
-      @media (max-width: 768px){.boot-home:not(.boot-home--partner) .boot-spinner{display:none}}
-      /* The seller, admin and delivery apps: only a spinner on a plain page. */
+      /* Desktop website only (screens > 768px): show the loader spinner under the logo */
+      @media (min-width: 769px){.boot-home:not(.boot-home--partner) .boot-spinner{display:block}}
+      /* The seller, admin and delivery apps: always show spinner on a plain page */
       .boot-home--partner{background:#fff}
       .boot-home--partner .boot-logo{display:none}
-      .boot-home--partner .boot-spinner{width:36px;height:36px;border-color:rgba(15,23,42,.1);border-top-color:#0f766e}
+      .boot-home--partner .boot-spinner{display:block;width:36px;height:36px;border-color:rgba(15,23,42,.1);border-top-color:#0f766e}
     </style>
     <script>
       // Make User, Seller and Delivery apps behave strictly like native mobile apps (no zooming)
@@ -78,6 +79,7 @@
     <script>
       // The seller, admin and delivery apps are not the shop: they start on a plain page.
       if (/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) document.querySelector('.boot-home').classList.add('boot-home--partner');
+      else if (window.matchMedia && matchMedia('(max-width: 768px)').matches) { var sp = document.querySelector('.boot-home .boot-spinner'); if (sp) sp.remove(); }
       // The shop starts in the theme it last showed (same rules as bootLook in utils/storefront.js).
       else try {
         var look = JSON.parse(localStorage.getItem('bulkimart:boot-look')), boot = document.querySelector('.boot-home');
