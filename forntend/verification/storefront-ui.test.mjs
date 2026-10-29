@@ -33,6 +33,7 @@ before(async () => {
 after(async () => vite?.close());
 const storage = () => { const values = new Map(); return { getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v) }; };
 const banner = { id: '507f1f77bcf86cd799439011', title: 'Published banner', image: 'https://fixture.test/poster.webp', destination: { type: 'NAV', id: 'categories' }, cta: 'Shop collection' };
+const homeContent = h => h.find(n => n.props?.className === 'sf-launch-content')?.props.children;
 const splash = frequency => ({ id: '507f1f77bcf86cd799439012', revision: 1, banner, config: { frequency, duration: 15 }, endAt: new Date(Date.now() + 60000).toISOString() });
 const text = node => !node ? '' : typeof node !== 'object' ? String(node) : [node.props?.children].flat(Infinity).map(text).join(' ');
 function browserHarness(Component, props, context, reduced = false) {
@@ -422,7 +423,7 @@ test('optional splash countdown and destination remain accessible over the artwo
   } finally { h.close(); }
 });
 
-test('home content stays unmounted through configuration loading and the splash, then mounts after auto-close', () => {
+test('mobile starts with the splash and prepares inert home content until auto-close', () => {
   const originalTimer = globalThis.setTimeout, callbacks = [];
   globalThis.setTimeout = (callback, delay) => { callbacks.push({ callback, delay }); return 999990 + callbacks.length; };
   const children = createElement('main', { id: 'deferred-home' });
@@ -430,14 +431,18 @@ test('home content stays unmounted through configuration loading and the splash,
   let h;
   try {
     h = browserHarness(Splash, { children }, context);
-    assert.equal(h.tree.type.name, 'StoreLoading', 'The outline with its loader');
+    assert.equal(h.tree, null, 'Mobile never renders the logo loader');
     assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
     context.loading = false; context.version = 'published'; context.splash = splash('launch'); h.rerender();
     assert.ok(h.find(n => n.type === SplashCard));
-    assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
+    assert.equal(homeContent(h), children, 'Home mounts behind the splash');
+    const background = h.find(n => n.props?.className === 'sf-launch-content');
+    assert.equal(background.props.inert, true); assert.equal(background.props['aria-hidden'], true);
+    assert.equal(background.props.style.display, 'none');
     assert.equal(callbacks[0].delay, 15000); callbacks[0].callback(); h.flush();
-    assert.equal(h.tree, children);
-    context.now++; context.loading = true; h.rerender(); assert.equal(h.tree, children);
+    assert.equal(homeContent(h), children);
+    assert.equal(h.find(n => n.props?.className === 'sf-launch-content').props.inert, undefined);
+    context.now++; context.loading = true; h.rerender(); assert.equal(homeContent(h), children);
   } finally { h?.close(); globalThis.setTimeout = originalTimer; }
 });
 
@@ -446,10 +451,59 @@ test('a fresh cached splash opens before background revalidation finishes', () =
   const context = { loading: true, version: 'fresh-cache', splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
   const h = browserHarness(Splash, { children }, context);
   try {
+    assert.ok(h.renders[0].props.children[1], 'The cached splash is present on the first render');
     assert.ok(h.find(n => n.type === SplashCard)); assert.notEqual(h.tree, children);
     const event = new Event('keydown'); Object.defineProperty(event, 'key', { value: 'Escape' }); document.dispatchEvent(event); h.flush();
-    assert.equal(h.tree, children);
+    assert.equal(homeContent(h), children);
   } finally { h.close(); }
+});
+
+test('a fresh persistent experience is available on the first provider render and is still revalidated', () => {
+  const cached = { version: 'persisted', banners: [], sections: [], splash: splash('launch'), serverTime: new Date().toISOString(), validUntil: new Date(Date.now() + 30000).toISOString() };
+  let seeded = false;
+  const CachedProvider = props => {
+    if (!seeded) { seeded = true; window.localStorage.setItem('bulkimart:experience:quick:mobile:', JSON.stringify(cached)); }
+    return Provider(props);
+  };
+  const h = browserHarness(CachedProvider, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' }, true);
+  try {
+    assert.equal(h.renders[0].props.value.version, 'persisted');
+    assert.equal(h.renders[0].props.value.splash.id, cached.splash.id);
+    assert.equal(h.requests.length, 1, 'The server still checks publication changes');
+  } finally { h.close(); }
+});
+
+test('persistent startup cache rejects expired, scheduled-out, malformed and inaccessible data', () => {
+  const h = browserHarness(() => null, {}, {});
+  const key = 'quick:mobile:', cacheKey = `bulkimart:experience:${key}`;
+  const data = { version: 'cached', banners: [], sections: [], validUntil: new Date(Date.now() + 30000).toISOString() };
+  try {
+    policy.rememberExperience(key, data);
+    assert.equal(policy.readExperience(key).version, 'cached');
+    assert.equal(policy.readExperience('shop-all:mobile:'), null, 'Caches stay scoped to the storefront');
+    for (const invalid of [{ ...data, validUntil: new Date(Date.now() - 1).toISOString() }, { ...data, scheduleUntil: new Date(Date.now() - 1).toISOString() }]) {
+      policy.rememberExperience(key, invalid); assert.equal(policy.readExperience(key), null);
+    }
+    window.sessionStorage.setItem(cacheKey, '{broken'); window.localStorage.setItem(cacheKey, '{broken');
+    assert.equal(policy.readExperience(key), null);
+    Object.defineProperty(window, 'sessionStorage', { configurable: true, get() { throw new Error('denied'); } });
+    Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('denied'); } });
+    assert.doesNotThrow(() => policy.rememberExperience(key, data)); assert.equal(policy.readExperience(key), null);
+  } finally { h.close(); }
+});
+
+test('mobile never waits for the hero image after the splash closes', () => {
+  const previous = globalThis.Image;
+  globalThis.Image = class {};
+  const children = createElement('main');
+  const context = { loading: false, version: 'live', splash: splash('launch'), banners: [banner], now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'mobile' };
+  let h;
+  try {
+    h = browserHarness(Splash, { children }, context);
+    const event = new Event('keydown'); Object.defineProperty(event, 'key', { value: 'Escape' }); document.dispatchEvent(event); h.flush();
+    assert.equal(homeContent(h), children);
+    assert.equal(h.find(n => n.type?.name === 'StoreLoading'), undefined);
+  } finally { h?.close(); globalThis.Image = previous; }
 });
 
 for (const reason of ['no campaign', 'already seen', 'future', 'expired']) test(`${reason} releases home without a splash`, () => {
@@ -463,14 +517,14 @@ for (const reason of ['no campaign', 'already seen', 'future', 'expired']) test(
       if (reason === 'future') context.splash.startAt = new Date(context.now + 60000).toISOString();
       if (reason === 'expired') context.splash.endAt = new Date(context.now - 1).toISOString();
     }
-    context.loading = false; h.rerender(); assert.equal(h.tree, children);
+    context.loading = false; h.rerender(); assert.equal(homeContent(h), children);
   } finally { h.close(); }
 });
 
 for (const route of [{ activeNav: 'checkout' }, { activeNav: 'home', productDetailLoading: true }, { activeNav: 'home', selectedCampaignId: 'deal' }, { activeNav: 'home', selectedOrder: {} }]) test(`startup does not block an existing deep link: ${JSON.stringify(route)}`, () => {
   const children = createElement('main');
   const h = browserHarness(Splash, { children }, { loading: true, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, device: 'mobile', ...route });
-  try { assert.equal(h.tree, children); } finally { h.close(); }
+  try { assert.equal(homeContent(h), children); } finally { h.close(); }
 });
 
 test('startup configuration times out after three seconds and late responses cannot restore it', async () => {
@@ -944,7 +998,7 @@ test('on a computer the loader shows until the storefront content arrives, then 
   try {
     assert.equal(h.tree.type.name, 'StoreLoading', 'Loader instead of the default look while the content loads');
     context.loading = false; context.version = 'published'; h.rerender();
-    assert.equal(h.find(n => n.type === SplashCard), undefined); assert.equal(h.tree, children);
+    assert.equal(h.find(n => n.type === SplashCard), undefined); assert.equal(homeContent(h), children);
   } finally { h.close(); }
 });
 test('a failed storefront answer ends the loader and shows the website', () => {
@@ -954,7 +1008,7 @@ test('a failed storefront answer ends the loader and shows the website', () => {
   try {
     assert.equal(h.tree.type.name, 'StoreLoading');
     context.loading = false; h.rerender(); // no version: the request failed or timed out
-    assert.equal(h.tree, children);
+    assert.equal(homeContent(h), children);
   } finally { h.close(); }
 });
 test('the loader has a spinner and keeps the remembered theme colours', async () => {
@@ -1025,6 +1079,21 @@ test('an early request for another storefront, or none at all, falls back to the
   const realTimeout = globalThis.setTimeout; globalThis.setTimeout = fn => realTimeout(fn, 0);
   try { assert.equal(await Provided.takeEarlyExperience('quick:mobile:'), null, 'A stalled request is given up'); } finally { globalThis.setTimeout = realTimeout; window.__bulkimartEarlyExperience = null; }
 });
+
+test('a failed early request releases startup without a second blocking request', async () => {
+  let placed = false;
+  const Early = props => {
+    if (!placed) { placed = true; window.__bulkimartEarlyExperience = { key: 'quick:mobile:', promise: Promise.resolve(null) }; }
+    return Provider(props);
+  };
+  const h = browserHarness(Early, {}, { activeMode: 'quick', activeSubNav: 'grocery--home' }, true);
+  try {
+    await h.settle();
+    assert.equal(h.tree.props.value.loading, false);
+    assert.equal(h.tree.props.value.splash, null);
+    assert.equal(h.requests.length, 0, 'Retries happen in the background instead');
+  } finally { h.close(); }
+});
 test('a deal page shows its picture and its details, and opens its category in that category\'s storefront', async () => {
   const Deal = (await vite.ssrLoadModule('/src/modules/User/pages/CampaignLandingPage.jsx')).default;
   const calls = [];
@@ -1062,8 +1131,8 @@ test('the first time, the loader also waits for the main banner picture, then ne
     h = browserHarness(Splash, { children }, context);
     assert.equal(h.tree.type.name, 'StoreLoading', 'Waiting for the banner picture');
     images.find(i => i.src === 'https://cdn.fixture/hero.webp').onload(); h.flush();
-    assert.equal(h.tree, children, 'The page appears once the banner is ready');
+    assert.equal(homeContent(h), children, 'The page appears once the banner is ready');
     context.banners = [{ ...banner, image: 'https://cdn.fixture/other.webp' }]; h.rerender();
-    assert.equal(h.tree, children, 'A later banner change does not bring the loader back');
+    assert.equal(homeContent(h), children, 'A later banner change does not bring the loader back');
   } finally { h?.close(); globalThis.Image = originalImage; }
 });

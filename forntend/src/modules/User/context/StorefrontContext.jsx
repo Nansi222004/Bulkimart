@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useUser } from './UserContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
-import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle, rememberBootLook } from '../../../utils/storefront';
+import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle, rememberBootLook, readExperience, rememberExperience } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
 import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
@@ -20,19 +20,21 @@ const forgetEarlyExperience = () => { if (typeof window !== 'undefined') window.
 export function StorefrontProvider({ children }) {
   const user = useUser();
   const { activeMode, activeSubNav } = user;
-  const [data, setData] = useState(null), [loading, setLoading] = useState(true), [clock, setClock] = useState(Date.now());
+  const [loading, setLoading] = useState(true), [clock, setClock] = useState(Date.now());
   const offset = useRef(0);
-  const [device, setDevice] = useState(() => window.matchMedia('(max-width: 600px)').matches ? 'mobile' : 'desktop');
+  const [device, setDevice] = useState(() => window.matchMedia('(max-width: 768px)').matches ? 'mobile' : 'desktop');
   const scope = activeMode === 'quick' ? 'quick' : 'shop-all';
   const category = ['home', 'grocery--home', 'smart-buy', 'ecommerce--smart-buy'].includes(activeSubNav) ? '' : activeSubNav || '';
   const key = `${scope}:${device}:${category}`;
-  useEffect(() => { const media = window.matchMedia('(max-width: 600px)'); const change = () => setDevice(media.matches ? 'mobile' : 'desktop'); media.addEventListener('change', change); return () => media.removeEventListener('change', change); }, []);
+  const [data, setData] = useState(() => { const cached = readExperience(key); return cached ? { ...cached, key } : null; });
+  useEffect(() => { const media = window.matchMedia('(max-width: 768px)'); const change = () => setDevice(media.matches ? 'mobile' : 'desktop'); media.addEventListener('change', change); return () => media.removeEventListener('change', change); }, []);
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     let cancelled = false, timer, pending = false, queued = false, initial = true;
     const controller = new AbortController();
-    setLoading(true); setData(null);
-    try { const cached = JSON.parse(sessionStorage.getItem(`bulkimart:experience:${key}`)); if (freshExperience(cached)) setData({ ...cached, key }); } catch { /* optional cache */ }
+    setLoading(true);
+    const cached = readExperience(key);
+    setData(cached ? { ...cached, key } : null);
     const refresh = async () => {
       if (cancelled) return;
       if (pending) { queued = true; return; }
@@ -42,6 +44,7 @@ export function StorefrontProvider({ children }) {
         const early = initial && takeEarlyExperience(key);
         let body = early ? await early : null;
         if (early) forgetEarlyExperience(); // answered (or given up): later loads ask the server
+        if (early && !body) throw new Error('Early storefront request failed');
         if (!body || !freshExperience(body.data, Date.parse(body.data?.serverTime))) {
           const response = await boundedFetch(apiUrl(`/api/storefront/experience?${new URLSearchParams({ scope, device, category })}`), { signal: controller.signal, priority: 'high' }, initial ? 3000 : 10000);
           body = await response.json();
@@ -54,7 +57,7 @@ export function StorefrontProvider({ children }) {
         // Refresh a few seconds before the copy expires, so the next one arrives while this one is still current.
         const ttl = Date.parse(body.data.validUntil) - Date.parse(body.data.serverTime);
         delay = Math.max(1000, Math.min(30000, ttl > 10000 ? ttl - 5000 : ttl));
-        try { sessionStorage.setItem(`bulkimart:experience:${key}`, JSON.stringify(body.data)); } catch { /* quota/private mode */ }
+        rememberExperience(key, body.data);
       } catch { delay = 5000; /* Retry soon; the current theme stays during the grace period below. */ }
       finally {
         initial = false;

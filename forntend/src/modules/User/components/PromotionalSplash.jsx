@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import ModalPortal from '../../../components/ModalPortal';
 import { useStorefront } from '../context/StorefrontContext';
 import { useUser } from '../context/UserContext';
@@ -17,6 +17,8 @@ const LAUNCH_GUARD = '__bulkimartSplashShown';
 const splashKey = splash => `${splash.id}:${splash.revision}`;
 const shownThisLaunch = splash => Boolean(splash) && Boolean(window[LAUNCH_GUARD]?.has(splashKey(splash)));
 const rememberLaunch = splash => { (window[LAUNCH_GUARD] ||= new Set()).add(splashKey(splash)); };
+const LaunchContext = createContext(false);
+export const useLaunchSplash = () => useContext(LaunchContext);
 
 // Same markup as the launch screen in index.html (its styles live there): the logo with a spinner on
 // the live theme colour once it is known, otherwise on the theme last shown on this device.
@@ -34,23 +36,28 @@ export default function PromotionalSplash({ children }) {
   const heroReady = useMediaReady(version && !revealed.current ? heroArt : null, 3000);
   const { activeNav, selectedProduct, selectedCampaignId, productDetailLoading, productDetailError, selectedOrder, reviewProductId } = useUser();
   const navigate = usePromotionNavigation();
-  const consumed = useRef(false), [open, setOpen] = useState(null);
-  const [launchChecked, setLaunchChecked] = useState(false);
   const homeLaunch = activeNav === 'home' && !selectedProduct && !selectedCampaignId && !productDetailLoading && !productDetailError && !selectedOrder && !reviewProductId;
   // The splash is an app-launch screen for phones. On a desktop the website opens directly.
   const phone = device === 'mobile';
+  const consumed = useRef(false), [open, setOpen] = useState(() => {
+    if (!phone || !homeLaunch || shownThisLaunch(splash) || document.querySelector('[role="dialog"], [role="alertdialog"]')) return null;
+    let session, local;
+    try { session = window.sessionStorage; local = window.localStorage; } catch { /* storage is optional */ }
+    return eligibleSplash(splash, { now, session, local }) ? splash : null;
+  });
+  const [launchChecked, setLaunchChecked] = useState(false);
   useEffect(() => {
     if (!phone) { setLaunchChecked(true); return; }
-    // Decide before mounting the home tree: CSS hiding still starts its requests.
+    // Decide before mounting the home tree, then prepare it behind the splash.
     // A fresh cached version can be used while the provider revalidates it.
     if (homeLaunch && !launchChecked && loading && !version) return;
-    if (!homeLaunch || document.querySelector('[role="dialog"], [role="alertdialog"]')) { setLaunchChecked(true); return; }
+    if (!homeLaunch || (!open && document.querySelector('[role="dialog"], [role="alertdialog"]'))) { setLaunchChecked(true); return; }
     let session, local;
     try { session = window.sessionStorage; local = window.localStorage; } catch { /* private browsing can deny storage entirely */ }
     const storage = { now, session, local, consumed: consumed.current || shownThisLaunch(splash) };
     if (eligibleSplash(splash, storage)) { consumed.current = true; rememberLaunch(splash); markSplash(splash, storage); setOpen(splash); }
     setLaunchChecked(true);
-  }, [splash, now, homeLaunch, launchChecked, loading, version, phone]);
+  }, [splash, now, homeLaunch, launchChecked, loading, version, phone, open]);
   // The launch may open a cached copy while the storefront revalidates. When the refresh brings the
   // same splash republished (e.g. a new duration), switch to it instead of closing after a second.
   useEffect(() => {
@@ -74,18 +81,22 @@ export default function PromotionalSplash({ children }) {
   }, [open, artReady]);
   const visible = phone && open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
   if (!visible) {
-    // The home-page outline from index.html, with its loader, stays until there is something real to
-    // show: on a phone until the splash check is done (outline → splash, if any → home), and on any
-    // screen until the first storefront answer arrives, so the default look never flashes first.
-    // A failed or slow answer ends the wait (the storefront gives up after 3 seconds). The first time,
-    // it also waits for the main banner picture, so the page appears complete.
-    if (homeLaunch && (!launchChecked || (loading && !version) || (version && !heroReady))) return <StoreLoading tokens={version ? theme.tokens : null} />;
+    // Mobile goes directly to the eligible splash, or home after the bounded
+    // configuration check. Only desktop waits behind the branded image loader.
+    if (homeLaunch && !revealed.current && (!launchChecked || (loading && !version) || (!phone && version && !heroReady))) {
+      return phone ? null : <StoreLoading tokens={version ? theme.tokens : null} />;
+    }
     if (homeLaunch) revealed.current = true;
-    return children || null;
   }
-  return <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
+  if (!visible && !children) return null;
+  // Keep this tree mounted when the overlay closes: its requests and images can
+  // finish in the background, without exposing controls or opening other dialogs.
+  return <>
+    {children && <LaunchContext.Provider value={Boolean(visible)}><div className="sf-launch-content" style={{ display: visible ? 'none' : 'contents' }} inert={visible ? true : undefined} aria-hidden={visible ? true : undefined}>{children}</div></LaunchContext.Provider>}
+    {visible && <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>
     <SplashCard banner={open.banner} device={device} now={now} endAt={open.endAt} showCountdown={open.config.countdown}
       onNavigate={destination => { setOpen(null); navigate(destination); }}
       onSkip={splashSeconds(open.config.duration) > SPLASH_SKIP_AFTER ? () => setOpen(null) : undefined} />
-  </ModalPortal>;
+  </ModalPortal>}
+  </>;
 }

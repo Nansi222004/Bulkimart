@@ -8,6 +8,22 @@ import { DEFAULT_TOKENS } from '../../../backend/shared/storefront.mjs';
 export function freshExperience(data, now = Date.now()) {
   return !!data?.version && Array.isArray(data.banners) && Array.isArray(data.sections) && Number.isFinite(Date.parse(data.validUntil)) && Date.parse(data.validUntil) > now;
 }
+// Only reuse a still-current publication. Persistent storage makes a fresh copy
+// available across app/browser launches; storage denial must never block startup.
+export function readExperience(key) {
+  for (const name of ['sessionStorage', 'localStorage']) {
+    try {
+      const data = JSON.parse(window[name].getItem(`bulkimart:experience:${key}`));
+      if (freshExperience(data) && (!data.scheduleUntil || Date.parse(data.scheduleUntil) > Date.now())) return data;
+    } catch { /* optional cache */ }
+  }
+  return null;
+}
+export function rememberExperience(key, data) {
+  for (const name of ['sessionStorage', 'localStorage']) {
+    try { window[name].setItem(`bulkimart:experience:${key}`, JSON.stringify(data)); } catch { /* optional cache */ }
+  }
+}
 // What the storefront may keep showing. validUntil is only the refresh deadline, so a slow or
 // failed refresh keeps the admin's theme for up to two minutes, but never past a scheduled change.
 export const EXPERIENCE_GRACE_MS = 120000;

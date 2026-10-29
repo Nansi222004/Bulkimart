@@ -37,6 +37,8 @@
       .boot-home--partner{background:#fff;display:flex !important}
       .boot-home--partner .boot-logo{display:none}
       .boot-home--partner .boot-spinner{display:block;width:36px;height:36px;border-color:rgba(15,23,42,.1);border-top-color:#0f766e}
+      .boot-promotion{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:var(--boot-header,#79000B)}
+      @media (min-width:769px){.boot-promotion{display:none}}
     </style>
     <script>
       // Make User, Seller and Delivery apps behave strictly like native mobile apps (no zooming)
@@ -92,16 +94,50 @@
       // request up instead of sending its own (takeEarlyExperience in StorefrontContext.jsx).
       (function () {
         var mode = { '/': 'quick', '/grocery--home': 'quick', '/ecommerce--smart-buy': 'shop-all' }[location.pathname];
-        if (!mode || !window.matchMedia || !matchMedia('(max-width: 600px)').matches || !window.fetch) return;
+        if (!mode || !window.matchMedia || !matchMedia('(max-width: 768px)').matches) return;
         var unset = function (v) { return !v || v.charAt(0) === '%'; };
         var base = !unset('%VITE_API_BASE_URL%') ? '%VITE_API_BASE_URL%' : !unset('%VITE_API_URL%') ? '%VITE_API_URL%' : location.origin;
         base = base.replace(/\/$/, '').replace(/\/api$/, '');
+        var cacheKey = 'bulkimart:experience:' + mode + ':mobile:';
+        var boot = document.querySelector('.boot-home'), preview, previewTimer;
+        var fresh = function (data) {
+          return data && data.version && Array.isArray(data.banners) && Array.isArray(data.sections) && Date.parse(data.validUntil) > Date.now() && (!data.scheduleUntil || Date.parse(data.scheduleUntil) > Date.now());
+        };
+        var preload = function (art) {
+          if (typeof art !== 'string' || !/^(https?:\/\/|\/(?!\/))/.test(art)) return null;
+          var image = new Image(); image.fetchPriority = 'high';
+          image.src = art.indexOf('/uploads/') === 0 ? base + art : art;
+          return image;
+        };
+        var prepare = function (data) {
+          if (!fresh(data)) return;
+          var campaign = data.splash, art = campaign && campaign.banner && (campaign.banner.mobileImage || campaign.banner.image);
+          var image = preload(art);
+          if (data.banners[0]) preload(data.banners[0].mobileImage || data.banners[0].image);
+          // Only a plain home launch gets a boot preview. React owns navigation,
+          // frequency consumption, video, countdown and dismissal after handoff.
+          if (!boot || !boot.isConnected || location.search || location.hash) return;
+          clearTimeout(previewTimer);
+          if (preview) { preview.remove(); preview = null; }
+          if (!image || !campaign.config || (campaign.startAt && Date.parse(campaign.startAt) > Date.now()) || (campaign.endAt && Date.parse(campaign.endAt) <= Date.now())) return;
+          var frequency = campaign.config.frequency, seenKey = 'bulkimart:splash:' + campaign.id + ':' + campaign.revision;
+          if (frequency === 'daily') seenKey += ':' + new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(Date.now());
+          try { if (frequency !== 'launch' && window[frequency === 'session' ? 'sessionStorage' : 'localStorage'].getItem(seenKey)) return; } catch (e) { /* optional storage */ }
+          image.className = 'boot-promotion'; image.alt = campaign.banner.title || 'Bulkimart promotion';
+          boot.parentNode.appendChild(image); preview = image;
+          previewTimer = setTimeout(function () { image.remove(); }, Math.max(0, Math.min(Date.parse(data.validUntil), Date.parse(data.scheduleUntil) || Infinity, Date.parse(campaign.endAt) || Infinity) - Date.now()));
+        };
+        for (var i = 0; i < 2; i++) {
+          try { var cached = JSON.parse(window[i === 0 ? 'sessionStorage' : 'localStorage'].getItem(cacheKey)); if (fresh(cached)) { prepare(cached); break; } } catch (e) { /* optional cache */ }
+        }
+        if (!window.fetch) return;
         var promise = fetch(base + '/api/storefront/experience?scope=' + mode + '&device=mobile&category=', { priority: 'high' })
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (body) {
-            var banner = body && body.data && body.data.splash && body.data.splash.banner;
-            var art = banner && (banner.mobileImage || banner.image);
-            if (art && /^https:\/\//.test(art)) new Image().src = art;
+            if (body && fresh(body.data)) {
+              for (var i = 0; i < 2; i++) { try { window[i === 0 ? 'sessionStorage' : 'localStorage'].setItem(cacheKey, JSON.stringify(body.data)); } catch (e) { /* optional cache */ } }
+              prepare(body.data);
+            }
             return body;
           })
           .catch(function () { return null; });
