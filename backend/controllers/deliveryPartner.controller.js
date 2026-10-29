@@ -681,7 +681,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     distance: legKm,
     etaMin: etaMinutes(legKm),
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
-    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
     totalAmount: order.pricing.totalAmount,
     // The figure the settlement will use, so the offer cannot overstate it.
     // The customer's tip is part of that figure and is quoted here for the
@@ -1226,7 +1226,7 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     // The rider's own accept response never carried a usable code either — and
     // must not, since the whole point is that only the customer has it.
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
-    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
     // Carried on the accept response too, so the job the rider just took keeps
     // showing the same pay — and the same tip — they saw on the offer, without
     // waiting for the next poll of the active-delivery view to tell them again.
@@ -1535,7 +1535,7 @@ export const generateDeliveryOtp = asyncHandler(async (req, res) => {
 // @route   POST /api/delivery/orders/:id/verify-otp
 // @access  Private (Approved riders only)
 export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
-  const { otp } = req.body;
+  const { otp, codCollected } = req.body;
   if (!otp) throw httpError(400, 'OTP is required');
 
   const order = await Order.findById(req.params.id);
@@ -1890,7 +1890,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
       pickupDistance: pickupKm,
       etaMin: etaMinutes(legKm),
       paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
-      codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+      codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
       totalAmount: order.pricing.totalAmount,
       // Computed by the same function that pays out on completion.
       payout: riderPayout(legKm, { mode: payoutModeOf(order), tip: order.pricing?.tipAmount }),
@@ -2082,7 +2082,7 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
 
     items: order.items.map((i) => ({ name: i.name, qty: i.qty })),
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
-    codAmount: order.paymentMethod === 'cod' ? order.pricing.totalAmount : 0,
+    codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
     distance: delivery?.route?.distanceKm,
     payout: riderPayout(delivery?.route?.distanceKm, {
       mode: delivery?.ratesUsed?.mode || payoutModeOf(order),
@@ -2274,7 +2274,7 @@ export const getEarningsSummary = asyncHandler(async (req, res) => {
         amount: amountPaise / 100,
         tip: tipPaise / 100,
         isCod,
-        codAmount: isCod ? Number(order.pricing?.totalAmount) || 0 : 0,
+        codAmount: isCod ? Math.round(Number(order.pricing?.totalAmount) || 0) : 0,
       });
     }
   }

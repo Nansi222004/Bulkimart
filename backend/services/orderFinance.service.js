@@ -168,9 +168,9 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
     } else if (action === 'collect') {
       if (input.method !== 'cash') throw httpError(400, 'Only cash collection is approved by this workflow');
       if (cash.status !== 'expected') throw httpError(409, 'Collection already recorded');
-      // The rider records what the customer actually paid; any shortage stays
-      // visible and is settled at verification or by an approved write-off.
-      if (amountPaise <= 0 || amountPaise > expectedPaise) throw httpError(409, 'Collected amount must be more than zero and at most the order amount');
+      // The rider records the collected cash; allows exact or nearest rounded cash amount.
+      const maxAllowedPaise = Math.max(expectedPaise, Math.round(expectedPaise / 100) * 100);
+      if (amountPaise <= 0 || amountPaise > maxAllowedPaise) throw httpError(409, 'Collected amount must be more than zero and at most the order amount');
       cash.status = 'collected'; cash.collectedPaise = amountPaise; cash.collectedAt = new Date();
       await cashLedger(order, 'credit', 'COLLECTED', actorId, session, amountPaise);
     } else if (action === 'remit') {

@@ -264,7 +264,10 @@ test('rider must enter the COD cash collected, and it is sent with the OTP', asy
     assert.equal(calls.length, 0); assert.match(toasts[0], /cash you collected/);
     const cash = h.find(n => n.type === 'input' && n.props.inputMode === 'decimal'); cash.props.onChange({ target: { value: '480' } }); h.flush();
     await form().props.onSubmit({ preventDefault() {} }); h.flush();
-    assert.deepEqual(calls[0], ['1234', { codCollected: '480' }]);
+    assert.equal(calls.length, 0); assert.match(toasts[1], /Cannot accept less amount/);
+    cash.props.onChange({ target: { value: '500' } }); h.flush();
+    await form().props.onSubmit({ preventDefault() {} }); h.flush();
+    assert.deepEqual(calls[0], ['1234', { codCollected: '500' }]);
   } finally { h.close(); }
 });
 

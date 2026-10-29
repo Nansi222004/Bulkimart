@@ -65,9 +65,17 @@ export const ActiveDeliveryPage = () => {
       return;
     }
     const isCod = activeOrder.paymentMethod === 'COD';
-    if (isCod && (codCollected === '' || !(Number(codCollected) > 0))) {
-      triggerToast('Enter the cash you collected from the customer.');
-      return;
+    if (isCod) {
+      if (codCollected === '' || !(Number(codCollected) > 0)) {
+        triggerToast('Enter the cash you collected from the customer.');
+        return;
+      }
+      const targetCod = Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0));
+      const collected = Math.round(Number(codCollected || 0));
+      if (collected < targetCod) {
+        triggerToast(`Cannot accept less amount. Please collect the full COD cash of ₹${targetCod} from customer.`);
+        return;
+      }
     }
     const success = await verifyOTPAndComplete(otpInput, isCod ? { codCollected } : {});
     if (success) {
@@ -495,23 +503,23 @@ export const ActiveDeliveryPage = () => {
 
               {activeOrder.paymentMethod === 'COD' && (
                 <div className="delivery-cod-alert-box">
-                  💵 <strong>COLLECT COD CASH:</strong> Please collect <strong>₹{activeOrder.codAmount}</strong> in cash from customer before entering OTP.
+                  💵 <strong>COLLECT COD CASH:</strong> Please collect <strong>₹{Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0))}</strong> in cash from customer before entering OTP.
                   <label style={{ display: 'block', marginTop: 10, fontWeight: 700 }}>
                     Cash collected (₹)
                     <input
                       type="number"
                       min="0"
-                      step="0.01"
+                      step="1"
                       inputMode="decimal"
                       className="delivery-otp-digit-input"
-                      placeholder={String(activeOrder.codAmount ?? '')}
+                      placeholder={String(Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0)))}
                       value={codCollected}
                       onChange={(e) => setCodCollected(e.target.value)}
                       style={{ display: 'block', width: '100%', marginTop: 6 }}
                     />
                   </label>
-                  <small style={{ display: 'block', marginTop: 4, fontWeight: 400 }}>
-                    Enter what the customer actually paid, even if it is less. This cash belongs to Bulkimart — hand it over before your next cashout.
+                  <small style={{ display: 'block', marginTop: 4, fontWeight: 500, color: '#334155' }}>
+                    Collect exact cash of ₹{Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0))} (round off). Less amount cannot be verified. This cash belongs to Bulkimart and must be handed over.
                   </small>
                 </div>
               )}
