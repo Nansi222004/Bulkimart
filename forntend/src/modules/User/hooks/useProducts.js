@@ -33,50 +33,55 @@ export async function readCatalog(url, fresh = false) {
  */
 
 /** API product → the shape the existing cards expect. */
-export const normalizeProduct = (p) => ({
-  id: p._id,
-  _id: p._id,
-  name: p.name,
-  description: p.description,
-  brandName: p.brandName,
-  sku: p.sku,
-  detailSource: p.detailSource,
-  retailAvailable: p.retailAvailable,
-  image: p.images?.[0] || '',
-  images: p.images || [],
-  price: p.price,
-  mrp: p.mrp,
-  discountPercent: p.discountPercent,
-  unit: p.unit,
-  // E-books without a seller copy limit never run out.
-  stock: p.fulfillmentType === 'digital' && !p.digital?.stockTracked ? 1 : p.stock,
-  variants: (p.variants || []).map((variant) => ({
-    id: variant._id,
-    name: variant.name,
-    price: variant.price,
-    mrp: variant.mrp,
-    stock: variant.stock,
-    sku: variant.sku,
-    unit: variant.unit,
-    weight: variant.weight,
-    attributes: variant.attributes || [],
-  })),
-  // The store name shown under the product name on cards.
-  sellerName: p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
-  category: p.category?.name || '',
-  categoryId: p.category?._id || p.category,
-  type: p.type,
-  fulfillmentType: p.fulfillmentType || 'physical',
-  digital: p.digital ? {
-    author: p.digital.author,
-    language: p.digital.language,
-    licenseTerms: p.digital.licenseTerms,
-    format: p.digital.format,
-    stockTracked: Boolean(p.digital.stockTracked),
-  } : null,
-  rating: p.ratings?.average || 0,
-  raw: p,
-});
+export const normalizeProduct = (p) => {
+  if (!p) return null;
+  const rawVariants = Array.isArray(p.variants) ? p.variants : Array.isArray(p.raw?.variants) ? p.raw.variants : [];
+  return {
+    id: String(p.id || p._id || ''),
+    _id: String(p._id || p.id || ''),
+    name: p.name || '',
+    description: p.description || '',
+    brandName: p.brandName || '',
+    sku: p.sku || '',
+    detailSource: p.detailSource,
+    retailAvailable: p.retailAvailable,
+    image: p.matchedImageUrl || p.image || p.images?.[0] || '',
+    images: Array.isArray(p.images) && p.images.length ? p.images : p.image ? [p.image] : [],
+    price: p.price,
+    mrp: p.mrp,
+    discountPercent: p.discountPercent,
+    unit: p.unit || 'piece',
+    // E-books without a seller copy limit never run out.
+    stock: p.fulfillmentType === 'digital' && !p.digital?.stockTracked ? 1 : p.stock,
+    variants: rawVariants.map((variant) => ({
+      id: String(variant._id || variant.id || ''),
+      _id: String(variant._id || variant.id || ''),
+      name: variant.name || 'Default',
+      price: variant.price,
+      mrp: variant.mrp,
+      stock: variant.stock,
+      sku: variant.sku,
+      unit: variant.unit,
+      weight: variant.weight,
+      attributes: variant.attributes || [],
+    })),
+    // The store name shown under the product name on cards.
+    sellerName: p.sellerName || p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
+    category: p.category?.name || (typeof p.category === 'string' ? p.category : ''),
+    categoryId: p.category?._id || (typeof p.category === 'string' ? p.category : p.categoryId),
+    type: p.type,
+    fulfillmentType: p.fulfillmentType || 'physical',
+    digital: p.digital ? {
+      author: p.digital.author,
+      language: p.digital.language,
+      licenseTerms: p.digital.licenseTerms,
+      format: p.digital.format,
+      stockTracked: Boolean(p.digital.stockTracked),
+    } : null,
+    rating: p.ratings?.average || 0,
+    raw: p.raw || p,
+  };
+};
 
 /**
  * @param {object} options

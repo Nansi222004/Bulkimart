@@ -715,7 +715,7 @@ const ProductDetailPage = () => {
               {/* Only facts the listing actually carries; rows without data are left out. */}
               {[
                 ['Seller', product.sellerName],
-                ['Category', product.category],
+                ['Category', typeof product.category === 'object' ? product.category?.name : product.category],
                 ['Brand', product.brandName],
                 ['Variant', selectedVariant?.name && selectedVariant.name !== 'Default' ? selectedVariant.name : ''],
                 ['Weight', formatWeight(selectedVariant?.weight)],

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 import { formatCurrency } from '../utils/helpers';
+import { normalizeProduct } from '../hooks/useProducts';
 import ImageSearchSheet, { ImageSearchButton } from '../components/ImageSearchSheet';
 import { searchProductsByImage, validateSearchImage } from '../utils/imageSearch';
 import { createLatestRequest } from '../../../components/services/serviceRequests';
@@ -135,16 +136,10 @@ const SearchPage = () => {
   };
 
   const openProduct = (p) => {
-    rememberSearch(p.name, p.images?.[0]);
-    setSelectedProduct({
-      id: p._id, _id: p._id, name: p.name,
-      image: p.matchedImageUrl || p.images?.[0] || '', images: p.images || [],
-      price: p.price, mrp: p.mrp, discountPercent: p.discountPercent,
-      stock: p.fulfillmentType === 'digital' ? 1 : p.stock, type: p.type,
-      fulfillmentType: p.fulfillmentType || 'physical',
-      digital: p.digital || null,
-      raw: p,
-    });
+    rememberSearch(p.name, p.matchedImageUrl || p.images?.[0]);
+    const normalized = normalizeProduct(p);
+    if (p.matchedImageUrl) normalized.image = p.matchedImageUrl;
+    setSelectedProduct(normalized);
   };
 
   const removeRecent = (label) => {

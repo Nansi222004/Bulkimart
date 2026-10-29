@@ -336,11 +336,12 @@ export const UserProvider = ({ children }) => {
   const setSelectedProduct = useCallback(product => {
     productDetailRequest.current?.abort();
     productDetailRequest.current = null;
-    restoredProduct.current = product;
-    setSelectedProductState(product); setProductDetailError(''); setProductDetailLoading(false);
+    const normalized = product ? (product.variants?.length && product.category !== undefined ? product : normalizeProduct(product?.raw || product)) : null;
+    restoredProduct.current = normalized;
+    setSelectedProductState(normalized); setProductDetailError(''); setProductDetailLoading(false);
     const params = new URLSearchParams(window.location.search);
     const pathname = readProductRoute().wholesalePath ? '/wholesale' : window.location.pathname;
-    if (product?.id) params.set('product', product.id); else params.delete('product');
+    if (normalized?.id) params.set('product', normalized.id); else params.delete('product');
     params.delete('purchase'); params.delete('variant');
     window.history.replaceState(null, '', `${pathname}${params.size ? `?${params}` : ''}${window.location.hash || ''}`);
   }, []);
@@ -361,14 +362,24 @@ export const UserProvider = ({ children }) => {
       if (!present) { restoredProduct.current = null; setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError(''); return; }
       if (!/^[a-f0-9]{24}$/i.test(id)) { setSelectedProductState(null); setProductDetailLoading(false); setProductDetailError('Invalid product link.'); return; }
       const validateVariant = product => {
-        if (variant !== null && !(product.variants || []).some(item => String(item._id || item.id) === variant)) throw new Error('This variant is unavailable. Return to the storefront and select the product again.');
+        const variants = (product.variants && product.variants.length > 0)
+          ? product.variants
+          : (product.raw?.variants || []);
+        if (variant !== null && !variants.some(item => String(item._id || item.id) === variant)) {
+          throw new Error('This variant is unavailable. Return to the storefront and select the product again.');
+        }
       };
       // History changes to the variant do not invalidate essential product data.
       if (restoredProduct.current?.id === id && (restoredProduct.current.detailSource === 'wholesale') === (mode === 'wholesale') && (mode !== 'wholesale' || restoredProduct.current.detailSession === session.token)) {
-        try { validateVariant(restoredProduct.current); setSelectedProductState(restoredProduct.current); setProductDetailError(''); }
-        catch (error) { setSelectedProductState(null); setProductDetailError(error.message); }
-        setProductDetailLoading(false);
-        return;
+        try {
+          validateVariant(restoredProduct.current);
+          setSelectedProductState(restoredProduct.current);
+          setProductDetailError('');
+          setProductDetailLoading(false);
+          return;
+        } catch {
+          // If in-memory cached product lacks the requested variant, fall through to fetch fresh product from API
+        }
       }
       controller = new AbortController();
       requestRoute = route;
