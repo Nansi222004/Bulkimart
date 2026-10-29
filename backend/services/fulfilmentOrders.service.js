@@ -263,11 +263,12 @@ export const createOrdersFromGroups = async ({
        * — so a cancellation, a seller payout or a refund reads one order and
        * gets a figure that means something on its own.
        */
+      productTax: g.productTax,
       pricing: {
         subtotal: g.subtotal,
         discountRepresentation: 'components-v1',
         discount: 0,
-        couponDiscount: 0,
+        couponDiscount: g.couponDiscount || 0,
         cdsDiscount: 0,
         deliveryCharge: g.deliveryCharge,
         tipAmount: thisOrdersTip,

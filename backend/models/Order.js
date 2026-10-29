@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { validateProductTaxSnapshot } from "../services/productGst.service.js";
 import { ORDER_TYPES, DELIVERY_TYPES, DELIVERY_MODES, PAYMENT_METHODS, OFFER_ATTEMPT_STATUSES, COIN_REWARD_STATUSES } from "../constants/enums.js";
 
 const { Schema, model } = mongoose;
@@ -82,6 +83,7 @@ const orderItemSchema = new Schema({
   image:      String,
   qty:        Number,
   price:      Number,
+  productTax: { type: Schema.Types.Mixed },
   wholesaleSnapshot: {
     type: new Schema({
       minimumQuantity: { type: Number, required: true },
@@ -286,6 +288,7 @@ const orderSchema = new Schema(
       locationSource: { type: String, enum: ['gps', 'manual', 'geocoded'] },
     },
 
+    productTax: { type: Schema.Types.Mixed, immutable: true },
     pricing: {
       subtotal:       { type: Number, default: 0 },
       discountRepresentation: { type: String, enum: ['components-v1'] },
@@ -492,16 +495,26 @@ orderSchema.index({ status: 1 });
 // historical order.
 orderSchema.index({ 'items.coinRewardStatus': 1, 'items.coinRewardEligibleAt': 1 });
 
-orderSchema.pre('save', function () {
-  if (!this.isNew && this.isModified('financialSnapshot')) throw new Error('Order financial snapshots are immutable');
+const itemFinancialEvidence = items => JSON.stringify((items || []).map(item => ({ id: String(item._id), product: String(item.productId), seller: String(item.sellerId || ''), variant: String(item.variantId || ''), qty: item.qty, price: item.price, tax: item.productTax })));
+orderSchema.pre('save', async function () {
+  if (!this.isNew && (this.isModified('financialSnapshot') || this.isModified('productTax'))) throw new Error('Order financial snapshots are immutable');
+  if (!this.isNew && this.isModified('items')) {
+    const previous = await this.constructor.findById(this._id).select('items').session(this.$session()).lean();
+    if (itemFinancialEvidence(previous?.items) !== itemFinancialEvidence(this.items)) throw new Error('Order item financial snapshots are immutable');
+  }
 });
 for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate']) {
-  orderSchema.pre(operation, function () {
+  orderSchema.pre(operation, async function () {
     const update = this.getUpdate();
     if (Array.isArray(update)) throw new Error('Order pipeline replacement requires explicit financial history review');
-    const snapshotPath = path => path === 'financialSnapshot' || String(path).startsWith('financialSnapshot.');
+    const snapshotPath = path => ['financialSnapshot', 'productTax'].some(root => path === root || String(path).startsWith(root + '.')) || /^items(?:\.[^.]+)?\.productTax(?:\.|$)/.test(path) || /^items\.[^.]+\.(price|qty|productId|sellerId|variantId)(\.|$)/.test(path);
     for (const [operator, value] of Object.entries(update || {})) {
       const paths = operator.startsWith('$') ? Object.entries(value || {}) : [[operator, value]];
+      for (const [path, target] of paths) if (path === 'items') {
+        if (operator !== '$set' || !Array.isArray(target)) throw new Error('Order items cannot be removed');
+        const previous = await this.model.findOne(this.getFilter()).select('items').session(this.getOptions().session || null).lean();
+        if (previous && itemFinancialEvidence(previous.items) !== itemFinancialEvidence(target)) throw new Error('Order item financial snapshots are immutable');
+      }
       if (paths.some(([path, target]) => snapshotPath(path) || operator === '$rename' && snapshotPath(target))) throw new Error('Order financial snapshots are immutable');
     }
   });
@@ -511,6 +524,7 @@ for (const operation of ['replaceOne', 'findOneAndReplace']) orderSchema.pre(ope
 // Generate orderNo BEFORE validation — `unique` + required checks run at validate time,
 // so a pre('save') hook would fire too late and the first two orders would collide on null.
 orderSchema.pre("validate", async function () {
+  if (this.isNew) validateProductTaxSnapshot(this);
   if (this.isNew && !this.financialSnapshot) {
     const { buildOrderFinancialSnapshot } = await import('../services/vendorCommission.service.js');
     try {

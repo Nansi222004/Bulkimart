@@ -100,7 +100,7 @@ beforeEach(async () => {
   const sellerId = id();
   await Seller.collection.insertOne({ _id: sellerId, userId: sellerUser._id, businessName: 'Fixture Store', status: 'approved', storeDetails: { name: 'Fixture Store', pincode: '400001', city: 'Mumbai', lat: 19.1, lng: 72.9 }, thirdPartyFulfillment: { enabled: true, shiprocketPickupLocation: 'fixture-pickup' } });
   seller = await Seller.findById(sellerId);
-  product = { _id: id(), sellerId, type: 'ecommerce', category: id(), name: 'Fixture item', price: 100, stock: 10, isActive: true, status: 'approved', fulfillmentType: 'physical', images: [], variants: [{ _id: id(), name: 'One pack', sku: 'FIXTURE-1', price: 100, mrp: 100, stock: 10, weight: 500, unit: 'piece' }] };
+  product = { _id: id(), sellerId, type: 'ecommerce', category: id(), name: 'Fixture item', price: 100, stock: 10, isActive: true, status: 'approved', fulfillmentType: 'physical', gstRate: 0, images: [], variants: [{ _id: id(), name: 'One pack', sku: 'FIXTURE-1', price: 100, mrp: 100, stock: 10, weight: 500, unit: 'piece' }] };
   await Product.collection.insertOne(product); await cart();
 });
 
@@ -281,7 +281,8 @@ test('seller notification detail lookup is fresh, owner-scoped and does not expo
   await request(app).get(`/seller/${order._id}`).expect(401);
   await auth(request(app).get(`/seller/${order._id}`), other, 'seller').expect(404);
   await sellerAuth(request(app).get('/seller/not-an-id')).expect(400);
-  await Order.updateOne({ _id: order._id }, { $set: { status: 'preparing' }, $push: { items: { sellerId: otherSellerId, productId: id(), name: 'PRIVATE OTHER SELLER ITEM', qty: 1, price: 999 } } });
+  // Stored-data fixture: a raw write, because order item financial fields are immutable through the app.
+  await Order.collection.updateOne({ _id: order._id }, { $set: { status: 'preparing' }, $push: { items: { sellerId: otherSellerId, productId: id(), name: 'PRIVATE OTHER SELLER ITEM', qty: 1, price: 999 } } });
   await Payment.updateOne({ _id: order.paymentId }, { $set: { status: 'paid' } });
   const detail = await sellerAuth(request(app).get(`/seller/${order._id}`)).expect(200);
   expect(detail.body.data).toMatchObject({ _id: String(order._id), channel: 'ecommerce', status: 'preparing', paymentStatus: 'paid', subtotal: 100 });

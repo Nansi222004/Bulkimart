@@ -1,3 +1,4 @@
+import { summarizeProductGst } from './productGst.service.js';
 import { channelAllowed } from '../utils/productChannels.js';
 import Cart from '../models/Cart.js';
 import { lineMoney, sumMoney } from '../utils/money.js';
@@ -106,7 +107,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * — its price and stock were true when it was added and may not be now.
    */
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
-  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels');
+  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels gstRate gstPriceType');
   if (purchaseMode === 'wholesale') productQuery = Product.find({ _id: { $in: productIds } }).select('+variants.wholesalePricing').populate('category', 'name isActive');
   if (session) productQuery = productQuery.session(session);
   const products = new Map((await productQuery.lean()).map((p) => [String(p._id), p]));
@@ -165,6 +166,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // when it went into the basket — never a cached deal.
       price: wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price),
       wholesaleSnapshot: wholesaleQuote?.wholesaleSnapshot,
+      originalPrice: inventory?.price,
       campaignId: deal ? deal.campaignId : undefined,
       available: Boolean(product && (purchaseMode === 'wholesale' || channelAllowed(product, line.channel)) && product.type === line.channel && product.type !== 'shg' && !product.shgStoreId
         && (includeDigital || product.fulfillmentType !== 'digital') && product.isActive && !product.isDeleted
@@ -279,7 +281,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
        * once, from the products already loaded above, is what lets checkout
        * create N orders without going back to the database per line.
        */
-      items: groupLines.map((l) => ({
+      productTax: pricing.productTax,
+      items: groupLines.map((l, index) => ({
         // The cart line's own id — what PUT /api/cart/:itemId needs when the
         // shopper changes this group's delivery mode.
         itemId: l._id,
@@ -296,7 +299,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         price: l.price,
         wholesaleSnapshot: l.wholesaleSnapshot,
         campaignId: l.campaignId,
-        lineTotal: lineMoney(l.price, l.qty),
+        lineTotal: pricing.productTax.lines[index].grossPaise / 100,
+        productTax: { ...pricing.productTax.lines[index], version: pricing.productTax.version },
         available: l.available,
         fulfillmentType: l.fulfillmentType,
         priceChanged: Number(l.price) !== Number(l.product?.fulfillmentType === 'digital' ? l.price : lines.find(line => String(line._id) === String(l._id))?.price),
@@ -347,6 +351,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   for (const k of Object.keys(totals)) totals[k] = Number(totals[k].toFixed(2));
   if (purchaseMode === 'wholesale' && !Number.isSafeInteger(Math.round(totals.totalAmount * 100))) throw httpError(400, 'Wholesale total exceeds the supported limit');
 
+  totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
   return {
     groups,
     items: groups.flatMap((g) => g.items),

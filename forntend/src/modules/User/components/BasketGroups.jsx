@@ -1,3 +1,4 @@
+import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import React from 'react';
 import { paymentSummary } from '../utils/paymentSummary';
 import { CartIcon, CartSection, CartTotalRow } from './CartUI';
@@ -63,6 +64,7 @@ export function BasketSummary({ data, coinDiscount = 0 }) {
   const { deliveryCharge } = summary;
   return <CartSection title="Order summary">{data?.totals ? <>
     <CartTotalRow label="Items Subtotal" value={basketMoney(summary.subtotal)} />
+    <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
     <CartTotalRow label="Delivery Charges" value={deliveryCharge === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>FREE</span> : basketMoney(deliveryCharge)} />
     {summary.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(summary.sameDayPremium)} />}
     {summary.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(summary.couponDiscount)}`} />}

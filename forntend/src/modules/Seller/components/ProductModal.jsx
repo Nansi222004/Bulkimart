@@ -775,6 +775,17 @@ export const ProductModal = () => {
                   </div>
                 </div>}
 
+                {!isDigital && <div className="onboarding-form-group">
+                  <label className="onboarding-label" htmlFor="product-gst-price-type">GST Price Type</label>
+                  <select id="product-gst-price-type" className="onboarding-input" value={newProductForm.gstPriceType ?? 'inclusive'}
+                    onChange={event => setNewProductForm({ ...newProductForm, gstPriceType: event.target.value })}>
+                    <option value="inclusive">GST inclusive — included in selling price</option>
+                    <option value="exclusive">GST exclusive — added to selling price</option>
+                  </select>
+                  <p style={{ fontSize: 12, lineHeight: 1.5 }}>Inclusive: ₹105 at 5% includes ₹5 GST. Exclusive: ₹100 at 5% becomes ₹105.
+                    This applies to every variant and wholesale tier. Existing products keep inclusive prices. Commission GST is separate.</p>
+                </div>}
+
                 {!isDigital && <div style={S.hintBox}>
                   {wholesaleProductEditor ? 'Configure shared stock and Wholesale MOQ, increments and tier prices in' : 'Selling price, MRP, stock, unit and weight are set per variant — head to the'} <strong>Item Variants</strong> tab.
                 </div>}

@@ -2,6 +2,7 @@ import { discountAllocation } from './orderDiscounts.service.js';
 import { moneyPaise, allocatePaise } from '../utils/financeMoney.js';
 export { moneyPaise, allocatePaise } from '../utils/financeMoney.js';
 import crypto from 'crypto';
+import { itemGrossPaise } from './productGst.service.js';
 import mongoose from 'mongoose';
 import Commission from '../models/Commission.js';
 import CommissionCurrent, { commissionScopeKey } from '../models/CommissionCurrent.js';
@@ -198,10 +199,10 @@ export const calculateCommission = (eligiblePaise, rule) => {
  * withheld on the value excluding the item's GST, and TDS (194-O) on the full
  * item price, at the admin-set rates.
  */
-export const calculateMarketplaceLine = (grossPaise, eligiblePaise, rule, { tcsRatePercent = 0, tdsRatePercent = 0, gstRatePercent = 0 } = {}) => {
+export const calculateMarketplaceLine = (grossPaise, eligiblePaise, rule, { tcsRatePercent = 0, tdsRatePercent = 0, gstRatePercent = 0, taxableValuePaise: frozenTaxableValue } = {}) => {
   if (!Number.isSafeInteger(grossPaise) || grossPaise < eligiblePaise) throw httpError(400, 'Invalid item subtotal');
   const { commissionPaise, taxPaise } = commissionCharge(eligiblePaise, rule);
-  const taxableValuePaise = roundedRatio(grossPaise, 10000, 10000 + moneyPaise(gstRatePercent));
+  const taxableValuePaise = frozenTaxableValue ?? roundedRatio(grossPaise, 10000, 10000 + moneyPaise(gstRatePercent));
   const tcsPaise = roundedRatio(taxableValuePaise, moneyPaise(tcsRatePercent), 10000);
   const tdsPaise = roundedRatio(grossPaise, moneyPaise(tdsRatePercent), 10000);
   const deduction = commissionPaise + taxPaise + tcsPaise + tdsPaise;
@@ -238,7 +239,7 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
   const products = await productQuery;
   const gross = order.items.map(item => {
     if (!Number.isSafeInteger(item.qty) || item.qty <= 0 || !item.sellerId) throw httpError(409, 'Financial snapshots require seller-owned order quantities');
-    const amount = moneyPaise(item.price) * item.qty;
+    const amount = itemGrossPaise(item);
     if (!Number.isSafeInteger(amount)) throw httpError(409, 'Item amount exceeds supported precision');
     return amount;
   });
@@ -256,12 +257,14 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
     const rule = resolveCommissionRule(rules, { vendorType, productId: item.productId, categoryId });
     const allocatedDiscounts = Object.fromEntries(discountKeys.map(key => [key, discounts[key][index]]));
     const eligiblePaise = gross[index] - Object.values(allocatedDiscounts).reduce((a, b) => a + b, 0);
+    const tax = order.productTax?.lines[index];
+    const productTaxFields = tax ? { gstRatePercent: tax.gstRate, gstPriceType: tax.gstPriceType, taxableValuePaise: tax.taxableValuePaise, productGstPaise: tax.gstPaise } : {};
     if (eligiblePaise < 0) throw httpError(409, 'Allocated discounts exceed line subtotal');
     return { itemId: String(item._id), productId: String(item.productId), sellerId: String(item.sellerId), categoryId: categoryId ? String(categoryId) : null,
-      qty: item.qty, grossPaise: gross[index], allocatedDiscounts, eligiblePaise,
+      ...productTaxFields, qty: item.qty, grossPaise: gross[index], allocatedDiscounts, eligiblePaise,
       rule: rule ? { id: String(rule._id), version: rule.version, method: rule.method, value: rule.value, minimum: rule.minimum, maximum: rule.maximum,
         base: rule.base, fixedScope: rule.fixedScope, taxTreatment: rule.taxTreatment, taxRate: rule.taxRate, effectiveDate: rule.effectiveDate } : null,
-      ...(rule ? calculateMarketplaceLine(gross[index], eligiblePaise, rule, { ...withholding, gstRatePercent: productGstRate(product) }) : { platformDiscountPaise: gross[index] - eligiblePaise, gstRatePercent: productGstRate(product), blocker: 'No approved enabled commission rule' }) };
+      ...(rule ? calculateMarketplaceLine(gross[index], eligiblePaise, rule, { ...withholding, gstRatePercent: tax?.gstRate ?? productGstRate(product), taxableValuePaise: tax?.taxableValuePaise }) : { platformDiscountPaise: gross[index] - eligiblePaise, gstRatePercent: tax?.gstRate ?? productGstRate(product), blocker: 'No approved enabled commission rule' }) };
   });
   const expectedPaise = moneyPaise(p.totalAmount);
   const deliveryChargePaise = moneyPaise(p.deliveryCharge || 0);

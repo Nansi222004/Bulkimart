@@ -19,6 +19,7 @@ import Delivery from '../models/Delivery.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
+import { resolveProductGst, calculateProductGst } from '../services/productGst.service.js';
 import { priceOrder, resolveDeliveryType } from '../services/pricing.service.js';
 import { applyCouponCode, redeemCoupon, releaseCoupon } from '../services/coupon.service.js';
 import { resolveTip } from '../services/tip.service.js';
@@ -409,6 +410,8 @@ export const createOrder = asyncHandler(async (req, res) => {
       image: p.images?.[0] || '',
       qty: line.qty,
       price: deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price,
+      ...resolveProductGst(p),
+      originalPrice: inventory.price,
       campaignId: deal ? deal.campaignId : undefined,
       type: p.type,
       sellerId: p.sellerId,
@@ -471,7 +474,8 @@ export const createOrder = asyncHandler(async (req, res) => {
   let applied = null;
   if (req.body.coupon) {
     applied = await applyCouponCode(req.body.coupon, {
-      items: lines, subtotal: base.subtotal, user: req.user, deliveryCharge: base.deliveryCharge,
+      items: lines,
+      subtotal: base.subtotal, user: req.user, deliveryCharge: base.deliveryCharge,
     });
     if (!applied.ok) throw httpError(400, applied.reason);
   }
@@ -621,6 +625,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       userId: req.user._id,
       type: orderType,
       items: lines,
+      productTax: calculateProductGst(lines, { ...pricing, coinDiscount, totalAmount: payableAmount }),
       shippingAddress: address,
       pricing: {
         subtotal: pricing.subtotal,
@@ -795,7 +800,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
         shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
         timeline: o.timeline, createdAt: o.createdAt, items: o.items,
-        pricing: o.pricing, status: o.status,
+        pricing: o.pricing, productTax: o.productTax, status: o.status,
       })),
       payment: { id: replay.paymentId, method: replay.paymentMethod, amount: replay.amount, groupRef: replay.groupRef },
       totals: replay.totals,
@@ -933,7 +938,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
               deliveryMode: o.delivery?.mode || null, delivery: o.delivery,
               shippingAddress: o.shippingAddress, paymentMethod: o.paymentMethod,
               timeline: o.timeline, createdAt: o.createdAt, items: o.items,
-              pricing: o.pricing, status: o.status,
+              pricing: o.pricing, productTax: o.productTax, status: o.status,
             })),
             payment: { id: retry.paymentId, method: retry.paymentMethod, amount: retry.amount, groupRef: retry.groupRef },
             totals: retry.totals, nextStep: retry.nextStep,
@@ -978,7 +983,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
       timeline: o.timeline,
       createdAt: o.createdAt,
       items: o.items,
-      pricing: o.pricing,
+      pricing: o.pricing, productTax: o.productTax,
       status: o.status,
     })),
     payment: { id: payment._id, method: paymentMethod, amount: payment.amount, groupRef },

@@ -209,7 +209,7 @@ const setCart = (channel, { productType = channel, stock = 10, qty = 2 } = {}) =
   const product = {
     _id: productId, type: productType, name: `${channel} fixture`, price: 10.25, mrp: 12,
     stock, unit: 'piece', images: ['https://test.invalid/item.png'], category: new mongoose.Types.ObjectId(),
-    sellerId, isActive: true, isDeleted: false, status: 'approved',
+    sellerId, isActive: true, isDeleted: false, status: 'approved', gstRate: 0,
   };
   productsByChannel.set(channel, product);
   cartsByChannel.set(channel, { userId: shopper._id, channel, items: [{ productId, name: product.name, qty }] });

@@ -1,3 +1,4 @@
+import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import React, { useEffect, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
@@ -27,6 +28,7 @@ export default function OrderFinancialBreakdown({ orderId }) {
   }, [orderId, retry]);
   return <section className="seller-order-section" aria-label="Order financial breakdown"><h3>Your earnings from this order</h3>
     {error ? <p role="alert">{error} <button type="button" onClick={() => setRetry(retry + 1)}>Retry</button></p> : !record ? <p role="status">Loading financial records…</p> : <>
+      <ProductGstBreakdown tax={record.productTax} whenMissing="Product GST was not recorded for this older order." />
       {record.merchandise ? <><p>Status: {{ held: 'Earned — on hold until the return window ends', eligible: 'Available to withdraw', reversed: 'Refunded to customer' }[record.financialPosting] || 'Not added yet — added once the order is delivered and payment is confirmed'}</p>
         {record.merchandise.lines.map(line => {
           const discount = Object.values(line.allocatedDiscounts).reduce((sum, value) => sum + (Number.isSafeInteger(value) ? value : 0), 0);

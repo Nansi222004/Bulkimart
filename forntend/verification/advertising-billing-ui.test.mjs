@@ -101,3 +101,25 @@ test('admin payment panel: plain summary first, terms and payment record folded,
   const review=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review']});
   try{review.requests[0].resolve(envelope(fixture()));await review.settle();assert.doesNotMatch(content(review.tree),/Finance tools/);assert.deepEqual(sections(review),['Terms the seller accepted','Payment record']);}finally{review.close();}
 });
+
+test('a cancelled paid ad tells the seller the refund is reviewed by Bulkimart, then that it is on its way',async()=>{
+  const {sellerPaymentStatus}=await vite.ssrLoadModule('/src/components/advertising/AdvertisingBillingPanel.jsx');
+  const c={review:'APPROVED',funding:'REFUND_PENDING',delivery:'CANCELLED'},refund={remainingPaise:35282,refundedPaise:0,started:false,inProgress:false};
+  assert.equal(sellerPaymentStatus(c,{refund},{refunds:[]}),'Cancelled. Bulkimart will review your refund (up to ₹352.82) to your original payment method.');
+  assert.equal(sellerPaymentStatus(c,{refund:{...refund,started:true,inProgress:true}},{refunds:[{status:'PENDING',amountPaise:25000}]}),'Cancelled. Your refund of ₹250.00 is on its way to your original payment method.');
+  assert.equal(sellerPaymentStatus(c,{refund:{...refund,remainingPaise:0}},{refunds:[]}),'Cancelled. No refund is due under the package terms you accepted.');
+  assert.equal(sellerPaymentStatus({...c,funding:'REFUNDED'},{},{refunds:[]}),'Cancelled.','A finished refund keeps the existing wording');
+});
+test('admin sees a refund waiting with the limit and a suggested amount filled in, and the finance view lists it',async()=>{
+  const f=fixture();f.campaign={...f.campaign,funding:'REFUND_PENDING',delivery:'CANCELLED'};f.payment={...f.payment,receiptPaise:10500};
+  f.refund={reason:'CANCELLED',paidPaise:10500,limitPaise:10500,refundedPaise:0,remainingPaise:10500,suggestedPaise:8167,daysRun:2,durationDays:9,started:false,inProgress:false};
+  const h=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review','advertising_refund'],capabilities:{refundsEnabled:true}});
+  try{h.requests[0].resolve(envelope(f));await h.settle();const text=content(h.tree);
+    assert.match(text,/Refund waiting\.\s+This paid campaign was cancelled\s+and no refund has been sent yet\.\s+Up to ₹105\.00 can be refunded\. Suggested ₹81\.67: the ad ran 2 of 9 days\. You decide the amount\./);
+    const fold=h.find(n=>n.type==='details'&&[n.props.children].flat(Infinity).some(x=>x?.type==='summary'&&content(x).trim()==='Refund the seller'));assert.equal(fold.props.open,true,'The refund section opens by itself');assert.doesNotMatch(text,/Seller can pay/,'A paid, cancelled ad is not offered for payment');
+    assert.equal(h.find(n=>n.type==='input'&&n.props.type==='number').props.value,'81.67','Amount starts at the suggestion');}finally{h.close();}
+  const g=hookHarness(Finance,{permissions:['advertising_refund'],capabilities:{}});
+  try{g.requests[0].resolve(envelope({totals:{receivedPaise:0,refundedPaise:0,recognizedPaise:0},authorizationQueue:[],refundQueue:[{id:'cancelled-campaign',name:'Diwali Sale – Electronics',reason:'CANCELLED',remainingPaise:35282,suggestedPaise:30000}],rows:[],discrepancies:[],total:0,limit:20}));await g.settle();
+    assert.match(content(g.tree),/Refunds waiting \(\s*1\s*\)[\s\S]*Diwali Sale – Electronics[\s\S]*suggested\s+₹300\.00\s+of up to\s+₹352\.82/);
+    g.click('Review refund');assert.equal(g.find(n=>n.type===Billing).props.id,'cancelled-campaign');}finally{g.close();}
+});

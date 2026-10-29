@@ -6,7 +6,8 @@ export const paymentSummary = (pricing = {}, { coinDiscount = 0, tipAmount = 0 }
   pricing = pricing || {};
   const premium = money(pricing.sameDayPremium ?? (Number(pricing.sameDayFee || 0) + Number(pricing.sameDayIncentive || 0)));
   return {
-    subtotal: money(pricing.subtotal),
+    productTax: pricing.productTax,
+    subtotal: pricing.productTax?.version === 'product-gst-v1' ? pricing.productTax.sellingPricePaise / 100 : money(pricing.subtotal),
     deliveryCharge: money(Math.max(0, Number(pricing.deliveryCharge || 0) - premium)),
     sameDayPremium: premium,
     couponDiscount: money(pricing.couponDiscount),

@@ -1366,3 +1366,7 @@
 @media (max-width: 480px) { .ad-billing-states { grid-template-columns: 1fr; } }
 .advertising-workspace .ad-detail-meta-strip .ad-meta-wide { grid-column: 1 / -1; }
 .advertising-workspace .ad-meta-wide p + p { margin-top: 4px; }
+.ad-billing-panel .ad-refund-waiting { padding: 10px 12px; border: 1px solid #fed7aa; border-radius: 12px; background: #fff7ed; color: #9a3412; font-size: 13px; line-height: 1.5; }
+.ad-refund-queue { margin: 10px 0; padding: 10px 12px; border: 1px solid #fed7aa; border-radius: 12px; background: #fff7ed; }
+.ad-refund-queue h4 { margin: 0 0 6px; font-size: 14px; color: #9a3412; }
+.ad-refund-queue p { margin: 4px 0; font-size: 13px; }

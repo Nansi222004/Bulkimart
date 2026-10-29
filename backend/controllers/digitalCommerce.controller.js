@@ -1,3 +1,4 @@
+import { calculateProductGst } from '../services/productGst.service.js';
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
 import Cart from '../models/Cart.js';
@@ -122,6 +123,7 @@ export const createDigitalOrder = asyncHandler(async (req, res) => {
         userId: req.user._id,
         type: 'ecommerce',
         items: lines,
+        productTax: calculateProductGst(lines.map(line => ({ ...line, fulfillmentType: 'digital' })), { subtotal, discount: 0, couponDiscount, totalAmount }),
         pricing: { discountRepresentation: 'components-v1', subtotal, discount: 0, couponDiscount, couponCode: applied?.coupon?.code, deliveryCharge: 0, totalAmount },
         coupon: applied?.coupon?._id,
         paymentMethod: 'online',

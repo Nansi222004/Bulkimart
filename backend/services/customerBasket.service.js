@@ -1,3 +1,4 @@
+import { summarizeProductGst } from './productGst.service.js';
 import { createHash } from 'node:crypto';
 import Cart from '../models/Cart.js';
 import { buildFulfilmentGroups } from './fulfilmentGroups.service.js';
@@ -62,6 +63,7 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
     couponDiscount: sumMoney(total.couponDiscount, group.couponDiscount || 0), totalAmount: sumMoney(total.totalAmount, group.total),
     itemCount: total.itemCount + group.items.reduce((n, item) => n + item.qty, 0),
   }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 }) : null;
+  if (totals) totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
   const basketHash = valid ? createHash('sha256').update(JSON.stringify(groups.map(group => ({
     key: group.key, quote: wholesaleQuoteHash({ groups: [group] }),
     requestedMode: group.requestedMode,

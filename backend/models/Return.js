@@ -120,6 +120,7 @@ const returnSchema = new Schema(
     // every retry — never silently recomputed, so the audited figure never
     // drifts even if pricing code changes later.
     refundBreakdown: {
+      productTax: Schema.Types.Mixed,
       itemGrossAmount:          Number,
       allocatedCouponDiscount:  Number,
       allocatedPromotionDiscount: Number,

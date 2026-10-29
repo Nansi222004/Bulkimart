@@ -6,6 +6,14 @@ const when=d=>new Date(d).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'
 // One sentence telling the seller where the campaign stands and what happens next.
 export function sellerPaymentStatus(c,data,p){
   if(c.pilot?.enabled) return 'A free test run is active. Payment is available after Bulkimart stops the test.';
+  // A stopped paid ad: say plainly that the refund is reviewed by Bulkimart, or that it is on its way.
+  const r=data?.refund;
+  if(r&&c.funding==='REFUND_PENDING'){
+    const stopped={CANCELLED:'Cancelled.',ADMIN_SUSPENDED:'Suspended by Bulkimart.',UNAVAILABLE:'Your ad has stopped because your products cannot be shown.'}[c.delivery]||'Your ad has stopped.';
+    const sending=(p?.refunds||[]).filter(x=>['DISPATCHING','UNKNOWN','PENDING'].includes(x.status)).reduce((sum,x)=>sum+x.amountPaise,0);
+    if(r.inProgress)return `${stopped} Your refund of ${advertisingMoney(sending)} is on its way to your original payment method.`;
+    return r.remainingPaise>0?`${stopped} Bulkimart will review your refund (up to ${advertisingMoney(r.remainingPaise)}) to your original payment method.`:`${stopped} No refund is due under the package terms you accepted.`;
+  }
   const live={ACTIVE:`Live until ${c.paid?.endAt?when(c.paid.endAt):'the end of the package'}.`,SCHEDULED:`Paid. Your ad starts on ${c.paid?.startAt?when(c.paid.startAt):'the start date'}.`,
     SELLER_PAUSED:'Paused.',UNAVAILABLE:'Paused: your products cannot be shown right now (for example, out of stock).',COMPLETED:'Finished.',EXHAUSTED:'Finished.',CANCELLED:'Cancelled.',ADMIN_SUSPENDED:'Suspended by Bulkimart.'}[c.delivery];
   if(live)return live;
@@ -22,7 +30,8 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
   const [capture,setCapture]=useState('');
   const finance=permissions.includes('advertising_finance'),reconcile=permissions.includes('advertising_reconcile'),refund=permissions.includes('advertising_refund');
   useEffect(()=>{let alive=true;generation.current++;setData(null);setError('');setReason('');setInvoice('');setAmount('');setCreditNote('');setEvidence('');setGatewayOrder('');operationKey.current=null;
-    setCapture('');advertisingApi(admin,`/campaigns/${id}/billing`).then(b=>alive&&setData(b.data)).catch(e=>alive&&setError(e.message));return()=>{alive=false;generation.current++;};
+    // The refund amount starts at the server's suggestion (the unused share of the run); the admin can change it.
+    setCapture('');advertisingApi(admin,`/campaigns/${id}/billing`).then(b=>{if(!alive)return;setData(b.data);if(admin&&b.data?.refund?.suggestedPaise>0&&!b.data.refund.started)setAmount(String(b.data.refund.suggestedPaise/100));}).catch(e=>alive&&setError(e.message));return()=>{alive=false;generation.current++;};
   },[id,admin,refresh]);
   async function act(action,body){const current=generation.current;setBusy(true);setError('');try{
     await advertisingApi(admin,`/campaigns/${id}/${action}`,{method:'POST',body});
@@ -54,7 +63,7 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
         {canPay&&!capabilities.paymentsEnabled&&<p>Online payment is not available right now. Please try again later.</p>}
         {canCancel&&<details className="ad-pay-cancel"><summary>Cancel this campaign</summary>
           <label>Why are you cancelling?<textarea maxLength={2000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-          <p>Any refund follows the package terms you accepted.</p>
+          <p>Your ad stops straight away. Bulkimart then reviews your refund{p?.receiptPaise&&q?.policy?.refunds?` (up to ${advertisingMoney(Math.floor(p.receiptPaise*q.policy.refunds.cancellationBps/10000))} under the terms you accepted)`:' under the terms you accepted'} and sends it to your original payment method.</p>
           <button disabled={busy||!reason.trim()} onClick={()=>act('cancel',{version:c.version,reason})}>Cancel campaign</button>
         </details>}
       </>}
@@ -66,6 +75,9 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
   const reasonField=<label className="ad-field"><span className="ad-field-title">Reason</span><textarea maxLength={2000} placeholder="Why are you doing this? It is saved with the action." value={reason} onChange={e=>setReason(e.target.value)}/></label>;
   const canRequestPayment=finance&&q&&c?.review==='APPROVED'&&c?.funding==='UNPAID'&&!data?.paidAuthorization;
   const canCheck=reconcile&&p,canRefund=refund&&p,canEarn=finance&&c?.delivery==='COMPLETED';
+  // A stopped paid ad nobody has refunded yet, with the limit and the suggestion for the unused days.
+  const r=data?.refund,refundWaiting=Boolean(r&&!r.started&&r.remainingPaise>0);
+  const refundNote=r?`Up to ${advertisingMoney(r.remainingPaise)} can be refunded${r.refundedPaise?` (${advertisingMoney(r.refundedPaise)} already refunded)`:''}. Suggested ${advertisingMoney(r.suggestedPaise)}: the ad ran ${r.daysRun} of ${r.durationDays} days${r.daysRun?'':' (it had not started)'}. You decide the amount.`:'';
   return <section className="ad-card ad-billing-panel" aria-label="Payment and ad status">
     <div className="ad-pay-head"><h3>Payment and ad status</h3><button type="button" disabled={busy} onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>
     {error&&<p role="alert" className="ad-error">{error}</p>}
@@ -78,12 +90,13 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
       </ul>
       {q?<p className="ad-billing-line"><strong>{c.terms?.name}</strong> · {STOREFRONT[c.module]||c.module} · {q.taxPaise?<>{advertisingMoney(q.basePaise)} + {advertisingMoney(q.taxPaise)} GST = <strong>{advertisingMoney(q.totalPaise)}</strong></>:<><strong>{advertisingMoney(q.totalPaise)}</strong> (no GST)</>} for {c.terms.durationDays} days</p>
         :<p className="ad-notice" role="alert">The seller cannot pay for this campaign yet: it was submitted when its package had no GST and refund terms saved. Open the package in “Packages and policies”, check the GST and click “Save changes”, then click “Request changes” here so the seller submits the campaign again with the saved terms.</p>}
-      <p className="ad-billing-line">Seller can pay: {data.paidAuthorization?'yes, payment is open':'not yet'}.{c.paid?.startAt?` Paid ad runs ${when(c.paid.startAt)} – ${when(c.paid.endAt)}.`:''}{c.pilot?` Free test run (separate from the paid ad): ${c.pilot.enabled?'on':'stopped'}.`:''}</p>
+      <p className="ad-billing-line">{['UNPAID','PAYMENT_PENDING','PAYMENT_FAILED'].includes(c.funding)?`Seller can pay: ${data.paidAuthorization?'yes, payment is open':'not yet'}.`:''}{c.paid?.startAt?` Paid ad runs ${when(c.paid.startAt)} – ${when(c.paid.endAt)}.`:''}{c.pilot?` Free test run (separate from the paid ad): ${c.pilot.enabled?'on':'stopped'}.`:''}</p>
       {p&&<div className="ad-metrics-tiles" aria-label="Money">
         <div><strong>{advertisingMoney(p.receiptPaise)}</strong><span>Received from seller</span></div>
         <div><strong>{advertisingMoney(p.refundedPaise)}</strong><span>Refunded</span></div>
         <div><strong>{advertisingMoney(p.recognizedPaise)}</strong><span>Counted as earned (after the ad ends)</span></div>
       </div>}
+      {refundWaiting&&<p className="ad-notice ad-refund-waiting" role="alert"><strong>Refund waiting.</strong> {c.delivery==='CANCELLED'?'This paid campaign was cancelled':'This paid ad has stopped'} and no refund has been sent yet. {refundNote}{canRefund?' Use “Refund the seller” below.':' Someone with refund access needs to send it.'}</p>}
 
       {q&&<details className="ad-fold"><summary>Terms the seller accepted</summary>
         <p>Billed by {q.policy.issuer}. GST: {GST_CHOICES[q.policy.taxTreatment]||q.policy.taxTreatment}{q.policy.taxRateBps?` at ${percent(q.policy.taxRateBps)}`:''}. Terms reference: {q.policy.approvalReference}.</p>
@@ -110,8 +123,9 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
           <label className="ad-field"><span className="ad-field-title">Razorpay order ID (only if the order was not recorded)</span><input value={gatewayOrder} onChange={e=>setGatewayOrder(e.target.value)}/></label>
           <button disabled={busy} onClick={()=>act('reconcile',gatewayOrder?{gatewayOrderId:gatewayOrder}:{})}>Check payment with Razorpay</button>
         </details>}
-        {canRefund&&<details className="ad-fold ad-tool"><summary>Refund the seller</summary>
-          <p>Sends money back to the seller’s original payment method and stops the ad. The amount cannot go above the refund limits in the accepted terms.</p>{reasonField}
+        {canRefund&&<details className="ad-fold ad-tool" open={refundWaiting||undefined}><summary>Refund the seller</summary>
+          <p>Sends money back to the seller’s original payment method and stops the ad. The amount cannot go above the refund limits in the accepted terms.</p>
+          {data.refund&&<p>{refundNote}</p>}{reasonField}
           {data.gateway&&<label className="ad-field"><span className="ad-field-title">Payment to refund</span><select value={capture} onChange={e=>setCapture(e.target.value)}><option value="">Main payment</option>{data.gateway.captures.map(r=><option key={r.id} value={r.id}>{r.id} · {advertisingMoney(r.amountPaise)} · {r.disposition}</option>)}</select></label>}
           <div className="ad-form-grid">
             <label className="ad-field"><span className="ad-field-title">Refund amount (₹)</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label>

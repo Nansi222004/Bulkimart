@@ -1,3 +1,4 @@
+import { resolveProductGst, productGstLine } from '../services/productGst.service.js';
 import { buildCustomerBasket } from '../services/customerBasket.service.js';
 import mongoose from 'mongoose';
 import { channelAllowed, retailAllowed } from '../utils/productChannels.js';
@@ -115,6 +116,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       name: product.name,
       image: product.images?.[0] || '',
       price: effectivePrice,
+      ...resolveProductGst(product),
       originalPrice: deal ? inventory.price : undefined,
       campaign: deal ? { id: deal.campaignId, title: deal.campaignTitle, discountValue: deal.discountValue } : undefined,
       mrp: inventory.mrp,
@@ -134,7 +136,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       stock: isUnlimitedDigital(product) ? 1 : inventory.stock,
       deliveryMode: line.deliveryMode,
       additionalMessage: line.additionalMessage || '',
-      lineTotal: Math.round(effectivePrice * line.qty * 100) / 100,
+      lineTotal: productGstLine({ ...resolveProductGst(product), price: effectivePrice, qty: line.qty }).grossPaise / 100,
     };
   });
 

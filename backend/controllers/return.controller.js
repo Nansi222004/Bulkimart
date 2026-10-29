@@ -1,3 +1,4 @@
+import { itemGrossPaise } from '../services/productGst.service.js';
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Return from '../models/Return.js';
@@ -254,7 +255,7 @@ export const getSellerReturn = asyncHandler(async (req, res) => {
       status: order.status,
       paymentMethod: order.paymentMethod,
       deliveredAt: item?.deliveredAt || order.deliveredAt,
-      item: item && { name: item.name, qty: item.qty, price: item.price, lineTotal: item.price * item.qty },
+      item: item && { name: item.name, qty: item.qty, price: item.price, lineTotal: itemGrossPaise(item) / 100 },
       // Pickup location only — the full contact stays with the rider/courier.
       pickupAddress: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, pincode: address.pincode },
     },

@@ -1,3 +1,4 @@
+import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import ModalPortal from '../../../components/ModalPortal';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
 import { committedCheckouts, forgetCommittedCheckout, deferCommittedCheckout } from '../../../utils/committedCheckout';
@@ -1719,8 +1720,9 @@ const CheckoutPage = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
               <span>Items Subtotal</span>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{subtotalVal}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{summary.subtotal.toFixed(2)}</span>
             </div>
+            <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
 
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
               <span>Delivery Charges</span>
@@ -1866,8 +1868,9 @@ const CheckoutPage = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                   <span>Items Subtotal</span>
-                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{subtotalVal}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{summary.subtotal.toFixed(2)}</span>
                 </div>
+                <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                   <span>Delivery Charges</span>
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>

@@ -6,6 +6,8 @@ export default function AdvertisingFinancePanel({permissions,capabilities}){
   useEffect(()=>{let alive=true;setError('');advertisingApi(true,`/finance?page=${page}&limit=20`).then(b=>alive&&setData(b.data)).catch(e=>alive&&setError(e.message));return()=>{alive=false;};},[page,refresh]);
   return <section className="ad-card"><h3>Advertising finance and reconciliation</h3><button onClick={()=>setRefresh(n=>n+1)}>Refresh advertising finance</button>{error&&<p role="alert">{error}</p>}
     {data&&<><p>Collections: {advertisingMoney(data.totals.receivedPaise)} · refunds: {advertisingMoney(data.totals.refundedPaise)} · recognized revenue: {advertisingMoney(data.totals.recognizedPaise)}</p>
+      {data.refundQueue?.length>0&&<div className="ad-refund-queue" aria-label="Refunds waiting"><h4>Refunds waiting ({data.refundQueue.length})</h4>
+        {data.refundQueue.map(c=><p key={c.id}>{c.name}: {c.reason==='CANCELLED'?'cancelled by the seller or Bulkimart':c.reason==='ADMIN_SUSPENDED'?'suspended':'stopped (products unavailable)'} · suggested {advertisingMoney(c.suggestedPaise)} of up to {advertisingMoney(c.remainingPaise)} <button onClick={()=>setId(c.id)}>Review refund</button></p>)}</div>}
       {data.authorizationQueue?.map(c=><p key={c.id}>{c.name}: financial authorization pending <button onClick={()=>setId(c.id)}>Review accepted campaign billing</button></p>)}
       <p>Gateway fees require separate provider-statement review; no expense or net settlement is assumed.</p>
       {data.discrepancies.map((d,i)=><p key={i}>Payment {d.paymentId}: {d.code}</p>)}

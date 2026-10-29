@@ -1,3 +1,4 @@
+import { itemGrossPaise, refundProductGst } from './productGst.service.js';
 import { allocatePaise, cumulativePaise, moneyPaise } from '../utils/financeMoney.js';
 import { discountAllocation } from './orderDiscounts.service.js';
 import mongoose from 'mongoose';
@@ -479,9 +480,10 @@ export const calculateReturnRefund = (returnDoc, order) => {
     const index = order.items.findIndex(item => String(item._id) === String(returnDoc.orderItemId));
     const item = order.items[index];
     if (!item) throw httpError(409, 'Refund item is missing');
-    const gross = order.items.map(row => moneyPaise(row.price) * row.qty);
+    const gross = order.items.map(row => itemGrossPaise(row));
     const allocation = snapshot ? null : discountAllocation(order.pricing, gross);
-    const line = snapshot?.lines.find(row => row.itemId === String(returnDoc.orderItemId));
+    const taxLine = order.productTax?.lines.find(row => row.itemId === String(returnDoc.orderItemId));
+    const line = taxLine ? { ...taxLine, eligiblePaise: taxLine.customerPaidPaise } : snapshot?.lines.find(row => row.itemId === String(returnDoc.orderItemId));
     if (snapshot && !line) throw httpError(409, 'Frozen refund allocation is missing');
     const discounts = line?.allocatedDiscounts || Object.fromEntries(allocation.keys.map(key => [key, allocation.discounts[key][index]]));
     const before = returnDoc.refundAllocationStartQuantity ?? 0;
@@ -489,7 +491,7 @@ export const calculateReturnRefund = (returnDoc, order) => {
     const share = amount => cumulativePaise(amount, after, item.qty) - cumulativePaise(amount, before, item.qty);
     const grossPaise = line?.grossPaise ?? gross[index];
     const eligible = line?.eligiblePaise ?? grossPaise - Object.values(discounts).reduce((a,b) => a+b,0);
-    return { itemGrossAmount: share(grossPaise)/100, allocatedCouponDiscount: share(discounts.couponDiscount || 0)/100,
+    return { productTax: taxLine ? refundProductGst(taxLine, before, returnDoc.quantity) : undefined, itemGrossAmount: share(grossPaise)/100, allocatedCouponDiscount: share(discounts.couponDiscount || 0)/100,
       allocatedPromotionDiscount: share(discounts.discount || 0)/100, allocatedCdsDiscount: share(discounts.cdsDiscount || 0)/100, allocatedLegacyDiscount: share(discounts.cdsDiscount || 0)/100,
       allocatedCoinDiscount: share(discounts.coinDiscount || 0)/100, allocatedCoinsCount: share(allocatePaise(order.pricing.coinsUsed || 0, gross)[index]),
       refundAmount: share(eligible)/100, limitations: ['Frozen conserved merchandise allocation; delivery is excluded.'] };

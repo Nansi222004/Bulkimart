@@ -1,3 +1,4 @@
+import { validateProductGstInput } from '../services/productGst.service.js';
 import { saveSellerWholesaleOffers } from '../services/sellerWholesaleOffers.service.js';
 import { channelVisibility, retailVisibility, retailAllowed, wholesaleOnly } from '../utils/productChannels.js';
 import User from '../models/User.js';
@@ -746,7 +747,7 @@ export const createProduct = asyncHandler(async (req, res) => {
      */
     sameDay: fulfillmentType === 'physical' ? parseProductSameDay(sameDay) : undefined,
     brandName,
-    gstRate: gstRate ? Number(gstRate) : 0,
+    ...validateProductGstInput({ gstRate: gstRate ?? 0, gstPriceType: req.body.gstPriceType ?? 'inclusive', fulfillmentType }),
     isHandmade: isHandmade === true || isHandmade === 'true',
     /**
      * QUICK COMMERCE ONLY — see Product.js's `returnable` field comment.
@@ -991,7 +992,9 @@ export const updateProduct = asyncHandler(async (req, res) => {
   // the frontend — this is only reached if a caller actually sends a new one.
   if (sku) product.sku = sku;
   if (brandName !== undefined) product.brandName = brandName;
-  if (gstRate !== undefined) product.gstRate = Number(gstRate);
+  if (gstRate !== undefined || req.body.gstPriceType !== undefined) {
+    Object.assign(product, validateProductGstInput({ gstRate: gstRate ?? product.gstRate, gstPriceType: req.body.gstPriceType ?? product.gstPriceType ?? 'inclusive', fulfillmentType: product.fulfillmentType }));
+  }
   if (isHandmade !== undefined) product.isHandmade = isHandmade === true || isHandmade === 'true';
 
   /**

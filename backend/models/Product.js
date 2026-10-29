@@ -180,7 +180,8 @@ const productSchema = new Schema(
     brandName: { type: String },
     // 0 is a legal rate (unrated / exempt goods), so this is never left
     // undefined the way an optional field would be.
-    gstRate: { type: Number, default: 0 },
+    gstRate: { type: Number, default: 0, enum: [0, 5, 12, 18, 28] },
+    gstPriceType: { type: String, enum: ['inclusive', 'exclusive'], default: 'inclusive' },
     // Absent = a single-SKU listing, same shape as every product created
     // before variants existed.
     variants: { type: [productVariantSchema], default: undefined },

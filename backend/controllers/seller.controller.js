@@ -1,3 +1,4 @@
+import { itemGrossPaise } from '../services/productGst.service.js';
 import { sellerDashboardMetrics, SELLER_PENDING_STATUSES } from '../services/sellerDashboard.service.js';
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
 import { parseGstChoice, createGstRequest } from '../services/gstAssistance.service.js';
@@ -586,7 +587,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
     const trip = deliveryMap.get(String(o.deliveryId));
     const releasedDelivery = !o.deliveryPartnerId && trip?.status === 'rejected' && String(trip.orderId) === String(o._id);
     const mine = (o.items || []).filter((i) => String(i.sellerId) === String(seller._id));
-    const subtotal = mine.reduce((sum, i) => sum + (i.price || 0) * (i.qty || 0), 0);
+    const subtotal = mine.reduce((sum, i) => sum + itemGrossPaise(i) / 100, 0);
 
     return {
       _id: o._id,
@@ -613,10 +614,11 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
         price: i.price,
         wholesaleSnapshot: i.wholesaleSnapshot,
         additionalMessage: i.additionalMessage || '',
-        lineTotal: Number(((i.price || 0) * (i.qty || 0)).toFixed(2)),
+        lineTotal: Number((itemGrossPaise(i) / 100).toFixed(2)),
       })),
       itemCount: mine.reduce((n, i) => n + (i.qty || 0), 0),
       subtotal: Number(subtotal.toFixed(2)),
+      productTax: o.productTax,
       sellerAmounts: sellerOrderAmounts(o, seller._id),
       customer: {
         name: o.shippingAddress?.name,

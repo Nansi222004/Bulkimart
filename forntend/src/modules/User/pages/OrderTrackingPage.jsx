@@ -1,3 +1,4 @@
+import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import { orderDiscountRows } from '../../../utils/orderDiscounts';
 import ModalPortal from '../../../components/ModalPortal';
 import DeliveryPartnerRating from '../components/DeliveryPartnerRating';
@@ -1024,9 +1025,10 @@ export const OrderTrackingPage = () => {
             Bill Details
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Subtotal (including product GST)</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
           </div>
+          <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.deliveryCharge || 0}</span>

@@ -1,3 +1,4 @@
+import { itemGrossPaise } from './productGst.service.js';
 import { moneyPaise, allocatePaise, cumulativePaise } from '../utils/financeMoney.js';
 import CoinWallet from '../models/CoinWallet.js';
 import CoinTransaction from '../models/CoinTransaction.js';
@@ -349,7 +350,7 @@ export const reconcileWallet = async (userId) => {
 export const computeItemEligibleValue = (order, item) => {
   const pricing = order?.pricing || {};
   if (pricing.discountRepresentation === 'components-v1') {
-    const gross = order.items.map(row => moneyPaise(row.price) * row.qty);
+    const gross = order.items.map(row => itemGrossPaise(row));
     const index = order.items.findIndex(row => String(row._id) === String(item._id));
     if (index < 0) throw httpError(409, 'Coin reward item ownership is missing');
     const discounts = allocatePaise(moneyPaise(pricing.discount || 0) + moneyPaise(pricing.couponDiscount || 0), gross);

@@ -75,8 +75,10 @@ test.each([{lat:null,lng:72},{lat:91,lng:72},{lat:19,lng:181},{lat:'',lng:72},{l
   await request(app).patch('/pin/'+seller._id).send(pin).expect(400);expect(await Delivery.countDocuments()).toBe(0);
 });
 test('wrong store and multi-store orders never borrow another store pin',async()=>{
-  const other=await Seller.create({userId:new mongoose.Types.ObjectId(),businessName:'Unpinned actual store'});await Order.updateOne({_id:order._id},{$set:{'items.0.sellerId':other._id}});await assign().expect(409);
-  await Order.updateOne({_id:order._id},{$push:{items:{sellerId:seller._id,name:'Other store',qty:1,price:10}}});await assign().expect(409);expect(await Delivery.countDocuments()).toBe(0);
+  // Stored-data fixture: a raw write, because order item financial fields are immutable through the app.
+  const other=await Seller.create({userId:new mongoose.Types.ObjectId(),businessName:'Unpinned actual store'});await Order.collection.updateOne({_id:order._id},{$set:{'items.0.sellerId':other._id}});await assign().expect(409);
+  // Stored-data fixture: a raw write, because order item financial fields are immutable through the app.
+  await Order.collection.updateOne({_id:order._id},{$push:{items:{sellerId:seller._id,name:'Other store',qty:1,price:10}}});await assign().expect(409);expect(await Delivery.countDocuments()).toBe(0);
 });
 test('rider accepts point-only pin and active delivery uses the saved pickup snapshot',async()=>{
   await Seller.collection.updateOne({_id:seller._id},{$unset:{'storeDetails.lat':'','storeDetails.lng':''},$set:{'storeDetails.point':{type:'Point',coordinates:[72,19]}}});

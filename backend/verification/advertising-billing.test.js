@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-const orders=new Map(),payments=new Map(),refunds=new Map();let orderCalls=0,refundCalls=0,creationUnknown=false,refundUnknown=false;
+const orders=new Map(),payments=new Map(),refunds=new Map();let orderCalls=0,refundCalls=0,creationUnknown=false,refundUnknown=false,refundStatus='processed';
 const sendPushNotification = jest.fn(async () => ({ success: true }));
 const emitToAdmins = jest.fn(), emitToSeller = jest.fn();
 jest.unstable_mockModule('../services/fcm.service.js', () => ({ sendPushNotification, sendBulkNotification: jest.fn(async () => ({ success: true })) }));
@@ -15,7 +15,7 @@ jest.unstable_mockModule('../services/razorpay.service.js',()=>({...realGateway,
   createRazorpayOrder:async({merchantOrderId,amountPaise,notes})=>{orderCalls++;const id=`order_test${orderCalls}`;
     orders.set(id,{id,receipt:merchantOrderId,amount:amountPaise,currency:'INR',notes});if(creationUnknown)throw Error('Synthetic lost creation response');return {orderId:id,amountPaise,currency:'INR',keyId:'rzp_test_synthetic'};},
   getRazorpayPaymentStatus:async({orderId,paymentId})=>{const p=paymentId?payments.get(paymentId):[...payments.values()].find(p=>p.order_id===orderId);if(!p)return {state:'PENDING',orderId};return {state:p.status==='captured'?'COMPLETED':'FAILED',orderId:p.order_id,paymentId:p.id,amountPaise:p.amount,refundedPaise:p.amount_refunded,currency:p.currency};},
-  createRazorpayRefund:async({paymentId,amountPaise,receipt})=>{refundCalls++;const id=`rfnd_test${refundCalls}`;refunds.set(id,{id,payment_id:paymentId,amount:amountPaise,currency:'INR',receipt,status:'processed'});if(refundUnknown)throw Error('Synthetic lost refund response');return {refundId:id,state:'COMPLETED'};},
+  createRazorpayRefund:async({paymentId,amountPaise,receipt})=>{refundCalls++;const id=`rfnd_test${refundCalls}`;refunds.set(id,{id,payment_id:paymentId,amount:amountPaise,currency:'INR',receipt,status:refundStatus});if(refundUnknown)throw Error('Synthetic lost refund response');return {refundId:id,state:'COMPLETED'};},
   getRazorpayClient:()=>({orders:{fetch:async id=>orders.get(id),fetchPayments:async id=>({items:[...payments.values()].filter(p=>p.order_id===id)})},
     payments:{fetchMultipleRefund:async id=>({items:[...refunds.values()].filter(r=>r.payment_id===id)})},refunds:{fetch:async id=>refunds.get(id)}}),
 }));
@@ -39,7 +39,7 @@ beforeAll(async()=>{db=await MongoMemoryReplSet.create({binary:{version:'7.0.14'
 beforeEach(async()=>{
   Object.assign(process.env,{PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
   delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;delete process.env.ADVERTISING_PRODUCTION_ENABLED;
-  for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});orders.clear();payments.clear();refunds.clear();orderCalls=0;refundCalls=0;creationUnknown=false;refundUnknown=false;
+  for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});orders.clear();payments.clear();refunds.clear();orderCalls=0;refundCalls=0;creationUnknown=false;refundUnknown=false;refundStatus='processed';
   app=express();app.use(express.json({verify:(req,_res,buffer)=>{req.rawBody=buffer;}}));app.use('/api/notifications',notificationRouter);app.use('/seller',advertisingRouter());app.use('/admin',advertisingRouter(true));app.use('/public',advertisingPublicRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
   [user,other]=await User.create([{phone:'9876500931',roles:['seller']},{phone:'9876500932',roles:['seller']}]);seller=await Seller.create({userId:user._id,status:'approved',salesChannels:['ecommerce']});await Seller.create({userId:other._id,status:'approved',salesChannels:['ecommerce']});
   admin={_id:new mongoose.Types.ObjectId(),role:'superAdmin',isActive:true,email:'ad-finance@example.test'};reviewer={_id:new mongoose.Types.ObjectId(),role:'admin',isActive:true,email:'ad-review@example.test',permissions:['advertising_review']};await Admin.collection.insertMany([admin,reviewer].map(a=>({...a,password:'synthetic-fixture-not-used-for-login'})));
@@ -427,4 +427,62 @@ test('paid campaigns from one wizard serve only on their own category pages, kee
   expect((await Promotion.findById(more[1].id)).advertising.delivery).toBe('COMPLETED');
   expect((await Promotion.findById(more[0].id)).advertising.delivery).not.toBe('COMPLETED');
   expect(await Payment.countDocuments({'advertising.campaignId':{$in:[parentCampaign.id,...more.map(r=>r.id)]}})).toBe(3);
+});
+
+test('a seller cancelling a paid ad stops it, refunds nothing automatically, tells admins and the seller, and suggests the unused share',async()=>{
+  await Seller.updateOne({_id:seller._id},{'storeDetails.name':'Sharma Store'});
+  await paid();const day=86400000,start=new Date(Date.now()-2*day-60000);
+  await Promotion.updateOne({_id:campaign.id},{$set:{'advertising.paid.startAt':start,'advertising.paid.endAt':new Date(start.getTime()+9*day)}});
+  let row=await Promotion.findById(campaign.id);
+  await auth(request(app).post(`/seller/campaigns/${campaign.id}/cancel`)).send({version:row.__v,reason:'No longer needed'}).expect(200);
+  row=await Promotion.findById(campaign.id);expect(row.advertising.delivery).toBe('CANCELLED');expect(row.advertising.funding).toBe('REFUND_PENDING');
+  expect(refundCalls).toBe(0);
+  const waiting=await Notification.find({event:'ADVERTISING_REFUND_WAITING'}).lean();
+  expect(waiting.length).toBeGreaterThan(0);expect(waiting[0].message).toBe('Sharma Store cancelled “Synthetic paid category”. A refund up to ₹105.00 is waiting for your review.');
+  expect(waiting[0].route).toBe(`/admin/advertising?campaign=${campaign.id}`);
+  const told=await Notification.findOne({event:'ADVERTISING_CANCELLED'}).lean();
+  expect(told.message).toBe('“Synthetic paid category”: your ad has stopped. Bulkimart will review your refund (up to ₹105.00) to your original payment method.');
+  // Seller sees the limit and progress, not the admin's suggestion; the admin sees the suggestion for 7 unused of 9 days.
+  const own=(await auth(request(app).get(`/seller/campaigns/${campaign.id}/billing`)).expect(200)).body.data.refund;
+  expect(own).toMatchObject({reason:'CANCELLED',paidPaise:10500,limitPaise:10500,refundedPaise:0,remainingPaise:10500,daysRun:2,durationDays:9,started:false,inProgress:false});expect(own.suggestedPaise).toBeUndefined();
+  const adminView=(await auth(request(app).get(`/admin/campaigns/${campaign.id}/billing`),admin,'admin').expect(200)).body.data.refund;
+  expect(adminView.suggestedPaise).toBe(Math.round(10500*(7*day-60000)/(9*day)));
+  let queue=(await auth(request(app).get('/admin/finance'),admin,'admin').expect(200)).body.data.refundQueue;
+  expect(queue).toEqual([{id:campaign.id,name:'Synthetic paid category',reason:'CANCELLED',remainingPaise:10500,suggestedPaise:adminView.suggestedPaise}]);
+  // Once an admin sends a refund it leaves the waiting list and the seller sees it is on its way or done.
+  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'synthetic-refund-key-0099',amountPaise:adminView.suggestedPaise,reason:'Unused days'}).expect(200);expect(refundCalls).toBe(1);
+  queue=(await auth(request(app).get('/admin/finance'),admin,'admin').expect(200)).body.data.refundQueue;expect(queue).toEqual([]);
+  const after=(await auth(request(app).get(`/seller/campaigns/${campaign.id}/billing`)).expect(200)).body.data;
+  expect(after.refund.started).toBe(true);expect(after.payment.refundedPaise+after.payment.refunds.filter(r=>r.status!=='PROCESSED').reduce((s,r)=>s+r.amountPaise,0)).toBe(adminView.suggestedPaise);
+});
+test('cancelling before payment sends no refund notice',async()=>{
+  const row=await Promotion.findById(campaign.id);
+  await auth(request(app).post(`/seller/campaigns/${campaign.id}/cancel`)).send({version:row.__v,reason:'Changed my mind'}).expect(200);
+  expect(await Notification.countDocuments({event:{$in:['ADVERTISING_REFUND_WAITING','ADVERTISING_CANCELLED']}})).toBe(0);
+  expect((await auth(request(app).get(`/seller/campaigns/${campaign.id}/billing`)).expect(200)).body.data.refund).toBeUndefined();
+});
+
+test('refund notifications: completed at once tells the seller once; pending then completed tells started then completed; failed tells admins',async()=>{
+  const cancel=async()=>{const row=await Promotion.findById(campaign.id);await auth(request(app).post(`/seller/campaigns/${campaign.id}/cancel`)).send({version:row.__v,reason:'Stop'}).expect(200);};
+  const notices=async event=>(await Notification.find({event}).lean()).map(n=>n.message);
+  // Razorpay processes the refund straight away (usual in test mode): one "completed" notice, no "started".
+  await paid();await cancel();
+  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'synthetic-refund-key-0101',amountPaise:5000,reason:'Unused days'}).expect(200);
+  expect(await notices('ADVERTISING_REFUND_STARTED')).toEqual([]);
+  expect(await notices('ADVERTISING_REFUNDED')).toEqual(['“Synthetic paid category”: Razorpay has processed your refund of ₹50.00 to your original payment method. Your bank may take a few working days to show it.']);
+  // Reconciling the same refund again does not repeat the notice.
+  await billing.reconcileAdvertisingRefund(campaign.id,undefined,{providerRefundId:'rfnd_test1'});expect(await notices('ADVERTISING_REFUNDED')).toHaveLength(1);
+  // Razorpay accepts a second refund but finishes it later (webhook or "Check this refund"): started, then completed.
+  refundStatus='pending';
+  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'synthetic-refund-key-0102',amountPaise:2000,reason:'More unused days'}).expect(200);
+  expect(await notices('ADVERTISING_REFUND_STARTED')).toEqual(['“Synthetic paid category”: your refund of ₹20.00 has been sent to Razorpay. It usually reaches your original payment method within a few working days.']);
+  refunds.get('rfnd_test2').status='processed';
+  await adminPost(`/campaigns/${campaign.id}/refund-reconcile`,{key:'synthetic-refund-key-0102'}).expect(200);
+  expect(await notices('ADVERTISING_REFUNDED')).toHaveLength(2);expect((await notices('ADVERTISING_REFUNDED'))[1]).toMatch(/₹20\.00/);
+  // A refund Razorpay rejects: admins are told so they can send it again; the seller is not told it was sent.
+  refundStatus='failed';
+  await adminPost(`/campaigns/${campaign.id}/refund`,{key:'synthetic-refund-key-0103',amountPaise:1000,reason:'Last part'}).expect(200);
+  const failed=await notices('ADVERTISING_REFUND_FAILED');expect(failed.length).toBeGreaterThan(0);
+  expect(failed[0]).toBe('The refund of ₹10.00 for “Synthetic paid category” failed at Razorpay. Open the campaign to send it again.');
+  expect(await notices('ADVERTISING_REFUNDED')).toHaveLength(2);expect(refundCalls).toBe(3);
 });

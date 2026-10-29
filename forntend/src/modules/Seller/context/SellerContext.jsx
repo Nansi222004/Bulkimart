@@ -233,7 +233,7 @@ export const SellerProvider = ({ children }) => {
     categoryId: '',      // a real Category _id, never a display name
     desc: '',
     brandName: '',
-    gstRate: 0,
+    gstRate: 0, gstPriceType: 'inclusive',
     ebookPrice: '', ebookMrp: '', ebookStock: '',
     author: '',
     language: '',
@@ -356,6 +356,7 @@ export const SellerProvider = ({ children }) => {
       desc: raw.description || '',
       brandName: raw.brandName || '',
       gstRate: raw.gstRate ?? 0,
+      gstPriceType: raw.gstPriceType ?? 'inclusive',
       ebookPrice: raw.price ?? '',
       ebookMrp: raw.variants?.[0]?.mrp ?? raw.mrp ?? '',
       // Unlimited (older) e-books start with an empty copy limit for the seller to set.
@@ -381,7 +382,7 @@ export const SellerProvider = ({ children }) => {
   const startNewProduct = () => {
     productDraftGeneration.current++;
     setEditingProduct(null); setProductError('');
-    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
+    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
     setShowAddProductModal(true);
   };
 
@@ -397,7 +398,7 @@ export const SellerProvider = ({ children }) => {
   const startNewWholesaleProduct = () => {
     productDraftGeneration.current++;
     setEditingProduct(null); setWholesaleVariantId(null); setProductError('');
-    setNewProductForm({ sellingChannels: ['wholesale'], fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, variants: [{ name: 'Default', price: 0, mrp: 0, stock: '', unit: 'piece', weight: '', wholesalePricing: { enabled: true, minimumQuantity: 1, quantityIncrement: 1, priceTiers: [{ minimumQuantity: 1, unitPrice: '' }] } }] });
+    setNewProductForm({ sellingChannels: ['wholesale'], fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', variants: [{ name: 'Default', price: 0, mrp: 0, stock: '', unit: 'piece', weight: '', wholesalePricing: { enabled: true, minimumQuantity: 1, quantityIncrement: 1, priceTiers: [{ minimumQuantity: 1, unitPrice: '' }] } }] });
     setShowAddProductModal(true);
   };
 
@@ -438,7 +439,8 @@ export const SellerProvider = ({ children }) => {
       fd.append('category', form.categoryId);
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName !== undefined) fd.append('brandName', form.brandName);
-      fd.append('gstRate', form.gstRate || 0);
+      fd.append('gstRate', form.fulfillmentType === 'digital' ? 0 : form.gstRate ?? 0);
+      fd.append('gstPriceType', form.fulfillmentType === 'digital' ? 'inclusive' : form.gstPriceType ?? 'inclusive');
 
       // Wholesale terms have their own narrow endpoint so normal retail
       // product saves cannot accidentally rewrite those fields.
@@ -1393,7 +1395,8 @@ export const SellerProvider = ({ children }) => {
       fd.append('category', form.categoryId);
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName) fd.append('brandName', form.brandName);
-      if (form.gstRate) fd.append('gstRate', form.gstRate);
+      fd.append('gstRate', form.fulfillmentType === 'digital' ? 0 : form.gstRate ?? 0);
+      fd.append('gstPriceType', form.fulfillmentType === 'digital' ? 'inclusive' : form.gstPriceType ?? 'inclusive');
       // A new product's own SKU is never sent — the backend always
       // auto-generates it (see Product.js's pre-validate hook), so a
       // seller can never collide with, or guess, another listing's code.
@@ -1483,7 +1486,7 @@ export const SellerProvider = ({ children }) => {
       setNewProductForm({
         fulfillmentType: 'physical',
         name: '', categoryId: '', desc: '',
-        brandName: '', gstRate: 0,
+        brandName: '', gstRate: 0, gstPriceType: 'inclusive',
         ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '',
         variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }],
         sameDayEnabled: false, processingMinutes: '', returnable: false,

@@ -1,3 +1,4 @@
+import { itemGrossExpression, summarizeProductGst } from '../services/productGst.service.js';
 import { payoutPublic } from '../services/payoutEvidence.service.js';
 import Seller from '../models/Seller.js';
 import Order from '../models/Order.js';
@@ -34,7 +35,7 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
         paymentMethod: 1, cashState: '$codFinance.status', snapshotVersion: '$financialSnapshot.version', snapshotState: '$financialSnapshot.state',
         financialSnapshot: { version: '$financialSnapshot.version', lines: { $filter: { input: { $ifNull: ['$financialSnapshot.lines', []] }, as: 'line', cond: { $eq: ['$$line.sellerId', String(seller._id)] } } } },
         ownItems: { $filter: { input: '$items', as: 'item', cond: { $eq: ['$$item.sellerId', seller._id] } } } } },
-      { $set: { grossAmount: { $sum: { $map: { input: '$ownItems', as: 'item', in: { $multiply: ['$$item.price', '$$item.qty'] } } } } } },
+      { $set: { grossAmount: { $sum: { $map: { input: '$ownItems', as: 'item', in: { $divide: [itemGrossExpression('$$item'), 100] } } } } } },
       { $facet: {
         totals: [{ $group: { _id: null, orderCount: { $sum: 1 }, grossAmount: { $sum: '$grossAmount' } } }],
         orders: [{ $sort: { createdAt: -1, _id: -1 } }, { $limit: 20 }, { $project: { ownItems: 0 } }],
@@ -88,7 +89,7 @@ export const listSellerLedger = asyncHandler(async (req, res) => {
 export const getSellerOrderFinance = asyncHandler(async (req, res) => {
   const seller = await ownSeller(req);
   const order = await Order.findOne({ _id: req.params.id, 'items.sellerId': seller._id })
-    .select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot financialPosting items._id items.name').lean();
+    .select('_id orderNo groupRef type pricing fulfillment shiprocket financialSnapshot productTax financialPosting items._id items.name').lean();
   if (!order) throw httpError(404, 'Order not found');
   const [snapshot, entries] = await Promise.all([
     QuickCommerceFinancialSnapshot.findOne({ orderId: order._id, sellerId: seller._id }).lean(),
@@ -98,7 +99,7 @@ export const getSellerOrderFinance = asyncHandler(async (req, res) => {
   const itemNames = new Map((order.items || []).map(item => [String(item._id), item.name]));
   const merchandise = order.financialSnapshot ? { ...order.financialSnapshot, lines: order.financialSnapshot.lines
     .filter(line => String(line.sellerId) === String(seller._id)).map(line => ({ ...line, itemName: itemNames.get(String(line.itemId)) || null })) } : null;
-  return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, merchandise, financialPosting: order.financialPosting, entries });
+  return ok(res, { orderId: order._id, orderNo: order.orderNo, snapshot, merchandise, productTax: order.productTax ? summarizeProductGst(order.productTax.lines.filter(line => String(line.sellerId) === String(seller._id))) : null, financialPosting: order.financialPosting, entries });
 });
 
 // Monthly TCS/TDS withheld from this seller, for their own GST/income-tax filing.

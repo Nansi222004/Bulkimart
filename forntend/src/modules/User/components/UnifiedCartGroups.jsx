@@ -1,3 +1,4 @@
+import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import { CartTotalRow as Row } from './CartUI';
 import React from 'react';
 import { useUser } from '../context/UserContext';
@@ -164,6 +165,7 @@ export const UnifiedCartGroups = ({ selectable = false, onChange }) => {
 
       <div style={{ borderTop: '1.5px solid var(--border-color)', marginTop: 4, paddingTop: 10 }}>
         <Row label="Subtotal" value={formatCurrency(data.totals.subtotal)} />
+        <ProductGstBreakdown tax={data.totals.productTax} />
         <Row label="Delivery, all groups" value={formatCurrency(data.totals.deliveryCharge)} />
         <Row label="Payable" value={formatCurrency(data.totals.totalAmount)} strong />
       </div>

@@ -1,3 +1,4 @@
+import { itemGrossExpression } from './productGst.service.js';
 import Order from '../models/Order.js';
 
 // Delivered item sales that have not produced a seller earning entry. Gross
@@ -13,7 +14,7 @@ export async function sellerPayoutCoverage(sellerIds) {
         { $eq: ['$metadata.itemId', '$$item'] }] } } }, { $limit: 1 }, { $project: { _id: 1 } },
     ], as: 'earning' } },
     { $match: { earning: { $size: 0 } } },
-    { $project: { sellerId: '$items.sellerId', grossPaise: { $round: [{ $multiply: ['$items.price', '$items.qty', 100] }, 0] },
+    { $project: { sellerId: '$items.sellerId', grossPaise: itemGrossExpression(),
       reason: { $switch: { branches: [
         { case: { $ne: [{ $ifNull: ['$financialSnapshot.version', 0] }, 2] }, then: 'original_terms_missing' },
         { case: { $ne: ['$financialSnapshot.state', 'configured'] }, then: 'commission_terms_missing' },

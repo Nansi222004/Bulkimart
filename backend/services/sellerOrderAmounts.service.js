@@ -1,3 +1,4 @@
+import { itemGrossPaise } from './productGst.service.js';
 import { discountAllocation } from './orderDiscounts.service.js';
 import { moneyPaise } from '../utils/financeMoney.js';
 
@@ -35,7 +36,7 @@ export function sellerOrderAmounts(order, sellerId) {
   const own = items.map((item, index) => String(item.sellerId) === String(sellerId) ? index : -1).filter(index => index >= 0);
   const result = { commission: null, commissionTax: null, tcs: null, tds: null, netEarnings: null, totalDiscount: null, customerItemsTotal: null };
   try {
-    const gross = items.map(item => moneyPaise(item.price) * item.qty);
+    const gross = items.map(item => itemGrossPaise(item));
     const subtotal = own.reduce((total, index) => total + gross[index], 0);
     const { discounts } = discountAllocation(order.pricing, gross);
     const allocated = Object.fromEntries(discountKeys.map(key => [key, own.reduce((total, index) => total + discounts[key][index], 0)]));

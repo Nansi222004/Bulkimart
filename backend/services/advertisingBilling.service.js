@@ -188,19 +188,46 @@ export async function advertisingBillingStatus(id,sellerId) {
   try{quote=adCharge(c.advertising.terms);}catch(error){if(![400,409].includes(error.status))throw error;}
   const journal=!sellerId&&p?await Ledger.find({paymentId:p._id,advertisingCampaignId:c._id}).select('entryNo account type direction amount createdAt').sort({createdAt:1}).limit(501).lean():undefined;
   const gateway=!sellerId&&p?{orderId:p.gateway.orderId,captures:p.captures.map(r=>({id:r.gatewayPaymentId,amountPaise:r.amountPaise,disposition:r.disposition}))}:undefined;
+  // Sellers see the limit and progress of their refund; the suggested amount is for the admin deciding it.
+  const outlook=refundOutlook(c,p),refund=outlook&&sellerId?(({suggestedPaise,...rest})=>rest)(outlook):outlook;
   return {campaign:campaignDTO(c),payment:view(p),quote,paidAuthorization:advertisingBillingAuthorized(c.advertising),
-    ...(gateway?{gateway}:{}),
+    ...(refund?{refund}:{}),...(gateway?{gateway}:{}),
     ...(journal?{journal:journal.slice(0,500).map(e=>({id:e._id,entryNo:e.entryNo,account:e.account,type:e.type,direction:e.direction,amountPaise:Math.round(e.amount*100),at:e.createdAt})),journalTruncated:journal.length>500}:{})};
 }
+// What a stopped, paid campaign can get back: the accepted policy's limit for why it stopped, what was
+// already refunded, and a suggestion for the share of the run the ad did not get. Nothing is refunded
+// here; an admin with refund permission decides the amount (within the limit) and sends it.
+const REFUND_KIND={CANCELLED:'cancellationBps',ADMIN_SUSPENDED:'suspensionBps',UNAVAILABLE:'unavailableBps'};
+export function refundOutlook(c,p,now=new Date()){
+  const a=c.advertising;if(!p?.advertising?.primaryCaptureId||!REFUND_KIND[a.delivery])return null;
+  let charge;try{charge=adCharge(a.terms);}catch{return null;}
+  const capture=p.captures.find(r=>r.gatewayPaymentId===p.advertising.primaryCaptureId);if(!capture)return null;
+  const refunds=p.advertising.refunds.filter(r=>r.paymentId===capture.gatewayPaymentId);
+  const refundedPaise=refunds.filter(r=>r.status==='PROCESSED').reduce((sum,r)=>sum+r.amountPaise,0);
+  const limitPaise=capture.disposition==='refund_required'?capture.amountPaise:Math.floor(capture.amountPaise*charge.policy.refunds[REFUND_KIND[a.delivery]]/10000);
+  const remainingPaise=Math.max(0,limitPaise-refundedPaise);
+  const stoppedAt=[...a.history].reverse().find(h=>['cancel','suspend'].includes(h.action))?.at||now;
+  const start=a.paid?.startAt?new Date(a.paid.startAt):null,end=a.paid?.endAt?new Date(a.paid.endAt):null,total=start&&end?end-start:0;
+  const ranMs=total?Math.min(total,Math.max(0,new Date(stoppedAt)-start)):0,unusedShare=total?(total-ranMs)/total:1;
+  return {reason:a.delivery,paidPaise:capture.amountPaise,limitPaise,refundedPaise,remainingPaise,
+    suggestedPaise:Math.max(0,Math.min(remainingPaise,Math.round(capture.amountPaise*unusedShare)-refundedPaise)),
+    daysRun:Math.min(a.terms.durationDays,Math.round(ranMs/8640000)/10),durationDays:a.terms.durationDays,
+    started:refunds.some(r=>r.status!=='FAILED'),inProgress:refunds.some(r=>['DISPATCHING','UNKNOWN','PENDING'].includes(r.status))};
+}
 export async function cancelAdvertisingCampaign(id,sellerId,actor,input) {
-  return financialTransaction(async session=>{
+  let cancelled,outlook;
+  const result=await financialTransaction(async session=>{
     const {c,p}=await paymentForCampaign(id,sellerId,session);
     if(c.__v!==advertisingVersion(input.version))fail('Campaign changed; refresh');
     reason(input);if(['COMPLETED','CANCELLED','ADMIN_SUSPENDED'].includes(c.advertising.delivery))fail('Campaign cannot be cancelled');
     c.advertising.delivery='CANCELLED';if(c.advertising.pilot)c.advertising.pilot.enabled=false;
     if(p?.advertising.primaryCaptureId)c.advertising.funding='REFUND_PENDING';
-    audit(c,'cancel',actor,reason(input),sellerId?'seller':'admin');await saveCampaign(c,session);return campaignDTO(c);
+    audit(c,'cancel',actor,reason(input),sellerId?'seller':'admin');await saveCampaign(c,session);
+    cancelled=c;outlook=refundOutlook(c,p);return campaignDTO(c);
   });
+  // After commit: a paid cancellation tells admins a refund is waiting and tells the seller what happens next.
+  if(outlook)await notifyAdvertisingChange(cancelled,'cancel',{refundPaise:outlook.remainingPaise,bySeller:Boolean(sellerId)}).catch(()=>{});
+  return result;
 }
 export async function reconcileAdvertisingPayment(id,actor,input={}) {
   const {p}=await paymentForCampaign(id);if(!p)fail('Advertising payment not found',404);paymentGateway(p);
@@ -327,7 +354,13 @@ export async function requestAdvertisingRefund(id,actor,input) {
   try {
     const result=await createRazorpayRefund({paymentId:claim.refund.paymentId,amountPaise:claim.refund.amountPaise,receipt:claim.refund.receipt,notes:{purpose:'ADVERTISING_V2',advertisingPaymentId:String(claim.p._id)}});
     await Payment.updateOne({_id:claim.p._id,'advertising.refunds':{$elemMatch:{key:input.key,status:{$in:['DISPATCHING','UNKNOWN']}}}},{$set:{'advertising.refunds.$.providerRefundId':result.refundId,'advertising.refunds.$.status':'PENDING','advertising.refundBusy':false}});
-    return reconcileAdvertisingRefund(id,actor,{providerRefundId:result.refundId});
+    const out=await reconcileAdvertisingRefund(id,actor,{providerRefundId:result.refundId});
+    // Razorpay accepted the refund but has not finished it yet: tell the seller it is on its way.
+    // (A refund Razorpay finishes at once is announced as completed by the reconciliation instead.)
+    if(out.refunds.find(r=>r.key===input.key)?.status==='PENDING'){
+      const c=await Promotion.findById(id);if(c)await notifyAdvertisingChange(c,'refund-started',{amountPaise:claim.refund.amountPaise,refundId:result.refundId}).catch(()=>{});
+    }
+    return out;
   }catch(error){await Payment.updateOne({_id:claim.p._id,'advertising.refunds':{$elemMatch:{key:input.key,status:{$in:['DISPATCHING','PENDING','UNKNOWN']}}}},{$set:{'advertising.refunds.$.status':'UNKNOWN','advertising.refundBusy':false,'advertising.reconciliation':'REFUND_RESULT_UNKNOWN'}});throw httpError(503,'Refund result is uncertain; reconcile before retrying');}
 }
 export async function reconcileAdvertisingRefund(id,actor,input) {
@@ -344,12 +377,15 @@ export async function reconcileAdvertisingRefund(id,actor,input) {
     await holdForReconciliation(id,'UNAUTHORIZED_OR_MISMATCHED_REFUND');
     fail('Gateway refund does not match an authorized advertising refund; service is held for review');
   }
-  return financialTransaction(async session=>{
+  let notice;
+  const out=await financialTransaction(async session=>{
     const {c,p:fresh}=await paymentForCampaign(id,undefined,session),a=fresh.advertising;
     const r=a.refunds.find(r=>r.receipt===live.receipt||r.providerRefundId===live.id);
     if(!r||r.paymentId!==live.payment_id||r.amountPaise!==live.amount||live.currency!=='INR'||r.receipt!==live.receipt||(r.providerRefundId&&r.providerRefundId!==live.id))fail('Gateway refund does not match an authorized advertising refund');
     if(r.status==='PROCESSED')return view(fresh);
+    const before=r.status;
     r.providerRefundId=live.id;r.status=live.status==='processed'?'PROCESSED':live.status==='failed'?'FAILED':'PENDING';
+    if(r.status!==before&&['PROCESSED','FAILED'].includes(r.status))notice={c,action:r.status==='PROCESSED'?'refund-processed':'refund-failed',amountPaise:r.amountPaise,refundId:live.id};
     if(r.status==='PROCESSED'){
       const capture=fresh.captures.find(row=>row.gatewayPaymentId===r.paymentId),extra=capture.disposition==='refund_required';
       const previous=a.refunds.filter(row=>row!==r&&row.paymentId===r.paymentId&&row.status==='PROCESSED').reduce((sum,row)=>sum+row.amountPaise,0);
@@ -367,6 +403,9 @@ export async function reconcileAdvertisingRefund(id,actor,input) {
     } else if(r.status==='FAILED'){a.reconciliation='REFUND_FAILED';r.resolvedAt=new Date();}
     a.refundBusy=false;await fresh.save({session});return view(fresh);
   });
+  // After commit, once per refund: the seller hears it is done; admins hear it failed so they can retry.
+  if(notice)await notifyAdvertisingChange(notice.c,notice.action,{amountPaise:notice.amountPaise,refundId:notice.refundId}).catch(()=>{});
+  return out;
 }
 export async function recognizeAdvertisingRevenue(id,actor,input) {
   reason(input);await refreshAdvertisingLifecycle(id);
@@ -393,5 +432,10 @@ export async function advertisingFinanceReport(query) {
     if(p.advertising.creation!=='ISSUED'||!['MATCHED',undefined].includes(p.advertising.reconciliation))discrepancies.push({paymentId:p._id,code:p.advertising.reconciliation||'CREATION_UNRESOLVED'});
     if(!await Promotion.exists({_id:p.advertising.campaignId,advertisingVersion:2}))discrepancies.push({paymentId:p._id,code:'ORPHANED_PAYMENT'});
   }
-  return {rows:rows.map(view),authorizationQueue:authorizationQueue.map(c=>({id:c._id,name:c.title})),webhooks,total,authorizationTotal,webhookTotal,page,limit,totals:totals[0]||{receivedPaise:0,refundedPaise:0,recognizedPaise:0},discrepancies};
+  // Refunds waiting: stopped paid campaigns where nobody has sent a refund yet.
+  const stopped=await Promotion.find({advertisingVersion:2,'advertising.funding':'REFUND_PENDING','advertising.delivery':{$in:Object.keys(REFUND_KIND)}}).sort({updatedAt:1}).limit(50);
+  const refundQueue=[];
+  for(const c of stopped){const outlook=refundOutlook(c,await Payment.findOne({_id:c.advertising.paid?.paymentId,'advertising.campaignId':c._id}));
+    if(outlook&&!outlook.started&&outlook.remainingPaise>0)refundQueue.push({id:c._id,name:c.title,reason:outlook.reason,remainingPaise:outlook.remainingPaise,suggestedPaise:outlook.suggestedPaise});}
+  return {rows:rows.map(view),authorizationQueue:authorizationQueue.map(c=>({id:c._id,name:c.title})),refundQueue,webhooks,total,authorizationTotal,webhookTotal,page,limit,totals:totals[0]||{receivedPaise:0,refundedPaise:0,recognizedPaise:0},discrepancies};
 }

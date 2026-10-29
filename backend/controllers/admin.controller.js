@@ -1,3 +1,5 @@
+import { itemGrossExpression } from '../services/productGst.service.js';
+import { itemGrossPaise } from '../services/productGst.service.js';
 import { moneyPaise as dashboardMoneyPaise } from '../utils/financeMoney.js';
 import { resolveVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
 import { requireFinanceOperation } from '../services/financeSafety.service.js';
@@ -115,7 +117,7 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
     { $unwind: '$items' },
     { $match: { 'items.sellerId': seller._id } },
     { $group: { _id: '$_id', status: { $first: '$status' },
-      grossPaise: { $sum: { $round: [{ $multiply: ['$items.price', '$items.qty', 100] }, 0] } } } },
+      grossPaise: { $sum: itemGrossExpression() } } },
     { $group: { _id: null, totalOrders: { $sum: 1 },
       deliveredOrders: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] } },
       revenuePaise: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, '$grossPaise', 0] } } } },
@@ -2202,7 +2204,7 @@ export const vendorDashboard = asyncHandler(async (req, res) => {
           sales: {
             $sum: {
               $cond: [{ $eq: ['$status', 'delivered'] },
-                { $multiply: [{ $ifNull: ['$items.price', 0] }, { $ifNull: ['$items.qty', 0] }] }, 0],
+                { $divide: [itemGrossExpression(), 100] }, 0],
             },
           },
           // Orders, not lines — two of a seller's items in one basket is one
@@ -2229,7 +2231,7 @@ export const vendorDashboard = asyncHandler(async (req, res) => {
       {
         $group: {
           _id: '$items.sellerId',
-          sales: { $sum: { $multiply: [{ $ifNull: ['$items.price', 0] }, { $ifNull: ['$items.qty', 0] }] } },
+          sales: { $sum: { $divide: [itemGrossExpression(), 100] } },
           orders: { $addToSet: '$_id' },
           units: { $sum: { $ifNull: ['$items.qty', 0] } },
         },
@@ -2906,7 +2908,7 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
         st.orderIds ||= new Set();
         st.orderIds.add(String(o._id)); st.ordersCount = st.orderIds.size;
         st.unitsSold += item.qty || 1;
-        st.grossSales += (item.price || 0) * (item.qty || 1);
+        st.grossSales += itemGrossPaise(item) / 100;
       }
     });
   });
@@ -2994,7 +2996,7 @@ export const getVendorPayoutsAdmin = asyncHandler(async (req, res) => {
     (o.items || []).forEach((item) => {
       if (item.sellerId) {
         const sId = String(item.sellerId);
-        salesBySeller.set(sId, (salesBySeller.get(sId) || 0) + (item.price || 0) * (item.qty || 1));
+        salesBySeller.set(sId, (salesBySeller.get(sId) || 0) + itemGrossPaise(item) / 100);
       }
     });
   });

@@ -1,3 +1,4 @@
+import { productGstLine } from './productGst.service.js';
 import Coupon, { DISCOUNT_TYPE } from '../models/Coupon.js';
 import CouponRedemption from '../models/CouponRedemption.js';
 import Order from '../models/Order.js';
@@ -93,7 +94,7 @@ export const evaluateCoupon = async (coupon, {
     return fail('This coupon does not apply to the items in your cart.');
   }
   const eligibleSubtotal = round2(
-    eligible.reduce((s, i) => s + Number(i.price) * Number(i.qty), 0)
+    eligible.reduce((s, i) => s + productGstLine(i).grossPaise / 100, 0)
   );
 
   // ---- reward -------------------------------------------------------------

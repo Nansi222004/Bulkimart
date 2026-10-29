@@ -1,3 +1,4 @@
+import { calculateProductGst, productGstLine } from './productGst.service.js';
 import {
   CHANNEL,
   carrierForMode,
@@ -49,7 +50,7 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
   // when nothing has been set.
   const { flatFee: DEFAULT_DELIVERY_CHARGE, distanceRates } = getDeliveryChargeSetting();
 
-  const subtotal = sumMoney(...items.map(item => lineMoney(item.price ?? 0, Number(item.qty))));
+  const subtotal = fromPaise(items.map(productGstLine).reduce((sum, line) => sum + line.grossPaise, 0));
 
   // ---- coupon --------------------------------------------------------------
   const couponOk = Boolean(applied?.ok);
@@ -130,7 +131,9 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
 
   const totalAmount = fromPaise(Math.max(toPaise(subtotal) - toPaise(discount) - toPaise(couponDiscount) - toPaise(cdsDiscount) + toPaise(deliveryCharge) + toPaise(tipAmount), 0));
 
+  const productTax = calculateProductGst(items, { subtotal, discountRepresentation: 'components-v1', discount, couponDiscount, cdsDiscount, deliveryCharge, tipAmount, totalAmount });
   return {
+    productTax,
     subtotal,
     discount,
     couponDiscount,

@@ -1,3 +1,4 @@
+import { itemGrossPaise } from './productGst.service.js';
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
@@ -87,7 +88,7 @@ const measure = () => ({ subtotal: 0, invalid: 0 });
 const addMoney = (m, value) => { try { m.subtotal += moneyPaise(value); return true; } catch { m.invalid++; return false; } };
 const addPaise = (m, value) => { if (Number.isSafeInteger(value) && value >= 0) { m.subtotal += value; return true; } m.invalid++; return false; };
 const result = (m, basis) => ({ amountPaise: m.invalid ? null : m.subtotal, status: m.invalid ? 'incomplete' : 'complete', verifiedSubtotalPaise: m.subtotal, invalidRecords: m.invalid, basis });
-const linePaise = item => { const unit = moneyPaise(item.price); if (!Number.isSafeInteger(item.qty) || item.qty < 1) throw Error('Invalid quantity'); return unit * item.qty; };
+const linePaise = item => itemGrossPaise(item);
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const maskPhone = phone => { const digits = String(phone || '').replace(/\D/g, ''); return digits.length >= 6 ? `${digits.slice(0, 2)}${'•'.repeat(digits.length - 4)}${digits.slice(-2)}` : ''; };
 
