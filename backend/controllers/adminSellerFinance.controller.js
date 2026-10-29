@@ -14,6 +14,7 @@ import { getQuickCommerceConfig, saveQuickCommerceDraft } from '../services/quic
 import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.service.js';
 import { requireFinanceOperation, financeFlags, financialTransaction } from '../services/financeSafety.service.js';
 import { getFinancePolicy, BANK_VERIFICATION_PROCESS_ID } from '../services/financePolicy.service.js';
+import { sellerDashboardMetrics } from '../services/sellerDashboard.service.js';
 
 export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
   return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
@@ -69,12 +70,15 @@ export const getSellerBalancesAdmin = asyncHandler(async (req, res) => {
   const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name').lean();
   const { sellerPayoutCoverage } = await import('../services/sellerPayoutCoverage.service.js');
   const coverage = new Map((await sellerPayoutCoverage(sellers.map(seller => seller._id))).map(row => [String(row.sellerId), row]));
-  const rows = await Promise.all(sellers.map(async (seller) => ({
-    sellerId: seller._id, businessName: seller.businessName,
-    storeName: seller.storeDetails?.name || seller.businessName,
-    balances: await sellerBalances(seller._id),
-    unpostedSales: coverage.get(String(seller._id)) || { orderCount: 0, grossPaise: 0, reasons: [] },
-  })));
+  const rows = await Promise.all(sellers.map(async seller => {
+    // The seller home, seller Earnings and Finance Center share one definition
+    // of completed sales, payment eligibility and allocated customer discounts.
+    const [balances, sales] = await Promise.all([sellerBalances(seller._id), sellerDashboardMetrics(seller._id, null)]);
+    return { sellerId: seller._id, businessName: seller.businessName,
+      storeName: seller.storeDetails?.name || seller.businessName, balances,
+      salesMetrics: sales.kpis, salesByChannel: sales.byChannel,
+      unpostedSales: coverage.get(String(seller._id)) || { orderCount: 0, grossPaise: 0, reasons: [] } };
+  }));
   return ok(res, { rows, coverage: { historicalOrdersIncluded: false, authoritativeFrom: 'seller-ledger-v1' } });
 });
 

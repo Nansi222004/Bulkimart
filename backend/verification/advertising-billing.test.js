@@ -388,3 +388,43 @@ test('admin device ownership transfers only within admin accounts and rejects in
   await Admin.updateOne({_id:reviewer._id},{$set:{isActive:false}});
   await register(reviewer).expect(403);
 });
+
+test('paid campaigns from one wizard serve only on their own category pages, keep separate analytics, and expire independently',async()=>{
+  const child=await Category.create({name:'Fixture child',slug:'billing-fixture-child',type:'ecommerce',parent:category._id});
+  const other=await Category.create({name:'Fixture other',slug:'billing-fixture-other',type:'ecommerce'});
+  const make=extra=>Product.create({sellerId:seller._id,type:'ecommerce',price:10,mrp:12,stock:8,unit:'piece',status:'approved',isActive:true,...extra});
+  const shirt=await make({name:'Fixture shirt',category:category._id,subCategory:child._id}),lamp=await make({name:'Fixture lamp',category:other._id});
+  const parentCampaign=campaign,more=[];
+  for(const [c,p,key] of [[child,shirt,'synthetic-builder-key-child'],[other,lamp,'synthetic-builder-key-other']]){
+    let row=(await auth(request(app).post('/seller/campaigns')).send({name:`Diwali Sale – ${c.name}`,module:'ECOMMERCE',categoryId:String(c._id),items:[{productId:String(p._id),variantId:String(p.variants[0]._id)}],packageId:pack.id,requestedStartAt:new Date(Date.now()+3600000).toISOString(),requestKey:key}).expect(201)).body.data;
+    row=(await auth(request(app).post(`/seller/campaigns/${row.id}/submit`)).send({version:row.version,packageVersion:1}).expect(200)).body.data;
+    more.push((await adminPost(`/campaigns/${row.id}/approve`,{version:row.version,reason:'Synthetic approval'},reviewer).expect(200)).body.data);
+  }
+  const page=c=>request(app).get('/public/placements').query({type:'ecommerce',category:String(c._id)}).expect(200).then(r=>r.body.data.map(x=>x.product.name).sort());
+  // Approved but unpaid: nothing is advertised anywhere.
+  for(const c of [category,child,other])expect(await page(c)).toEqual([]);
+  await paid();
+  for(const [i,row] of more.entries()){campaign=row;const order=(await init({idempotencyKey:`synthetic-idempotency-000${i+2}`}).expect(200)).body.data;capture(order.checkout.razorpayOrderId,`pay_test${i+2}`);await verify(order.checkout.razorpayOrderId,`pay_test${i+2}`).expect(200);}
+  campaign=parentCampaign;
+  // Paid but not started yet: still nothing.
+  for(const c of [category,child,other])expect(await page(c)).toEqual([]);
+  await Promotion.updateMany({_id:{$in:[parentCampaign.id,...more.map(r=>r.id)]}},{$set:{'advertising.paid.startAt':new Date(Date.now()-1000)}});
+  expect(await page(other)).toEqual(['Fixture lamp']);
+  expect(await page(child)).toEqual(['Fixture shirt']);
+  expect(await page(category)).toEqual(['Fixture product','Fixture shirt']);
+  expect((await request(app).get('/public/placements').query({type:'grocery',category:String(category._id)}).expect(200)).body.data).toEqual([]);
+  // Views and clicks count against the campaign that served the product, never its siblings.
+  const served=(await request(app).get('/public/placements').query({type:'ecommerce',category:String(other._id)})).body.data[0];
+  await request(app).post('/public/events').send({token:served.serveToken,type:'IMPRESSION'}).expect(200);
+  await request(app).post('/public/events').send({token:served.serveToken,type:'CLICK'}).expect(200);
+  const stats=async id=>(await auth(request(app).get(`/seller/campaigns/${id}/analytics`)).expect(200)).body.data.rows;
+  expect((await stats(more[1].id)).map(r=>[r.type,r.count]).sort()).toEqual([['CLICK',1],['IMPRESSION',1]]);
+  expect(await stats(more[0].id)).toEqual([]);expect(await stats(parentCampaign.id)).toEqual([]);
+  // One campaign ending stops only its own placement.
+  await Promotion.updateOne({_id:more[1].id},{$set:{'advertising.paid.startAt':new Date(Date.now()-10*86400000),'advertising.paid.endAt':new Date(Date.now()-1000)}});
+  expect(await page(other)).toEqual([]);expect(await page(child)).toEqual(['Fixture shirt']);
+  await billing.sweepAdvertisingLifecycle();
+  expect((await Promotion.findById(more[1].id)).advertising.delivery).toBe('COMPLETED');
+  expect((await Promotion.findById(more[0].id)).advertising.delivery).not.toBe('COMPLETED');
+  expect(await Payment.countDocuments({'advertising.campaignId':{$in:[parentCampaign.id,...more.map(r=>r.id)]}})).toBe(3);
+});

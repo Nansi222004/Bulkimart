@@ -39,7 +39,13 @@ test('seller checkout uses backend amount and dedicated verification; pending ga
 
 test('billing without a policy cannot offer usable checkout or invented taxes',async()=>{
   const h=hookHarness(Billing,{id:'campaign-fixture',capabilities:{paymentsEnabled:true}});
-  try{const f=fixture();delete f.quote;h.requests[0].resolve(envelope(f));await h.settle();assert.equal(h.find(n=>n.type==='button'&&/^Pay/.test(content(n))),undefined,'No price, no payment button');assert.doesNotMatch(content(h.tree),/configured rate:|GST\)/);}finally{h.close();}
+  try{const f=fixture();delete f.quote;h.requests[0].resolve(envelope(f));await h.settle();assert.equal(h.find(n=>n.type==='button'&&/^Pay/.test(content(n))),undefined,'No price, no payment button');assert.doesNotMatch(content(h.tree),/configured rate:|GST at|GST\)/);}finally{h.close();}
+  // The admin is told in plain words why the seller cannot pay and how to fix it.
+  const a=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review','advertising_finance']});
+  try{const f=fixture();delete f.quote;a.requests[0].resolve(envelope(f));await a.settle();const text=content(a.tree);
+    assert.match(text,/The seller cannot pay for this campaign yet: it was submitted when its package had no GST and refund terms saved\./);assert.match(text,/Packages and policies/);
+    assert.doesNotMatch(text,/versioned|UNPAID|NOT_SCHEDULED|PENDING_REVIEW|Funding:|Delivery:/);
+    assert.equal(a.find(n=>n.type==='button'&&n.props.children==='Request seller payment'),undefined,'No payment request without a price');}finally{a.close();}
 });
 
 test('finance-only workspace exposes authorization queue and backend discrepancies',async()=>{
@@ -49,7 +55,7 @@ test('finance-only workspace exposes authorization queue and backend discrepanci
 
 test('review permission does not expose financial authorization, reconciliation or refund actions',async()=>{
   const h=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review']});
-  try{h.requests[0].resolve(envelope(fixture()));await h.settle();assert.equal(h.find(n=>n.type==='button'&&['Authorize accepted billing policy','Request authorized refund','Reconcile gateway payment'].includes(n.props.children)),undefined);}finally{h.close();}
+  try{h.requests[0].resolve(envelope(fixture()));await h.settle();assert.equal(h.find(n=>n.type==='button'&&['Request seller payment','Request refund','Check payment with Razorpay','Check this refund with Razorpay','Mark ad money as earned'].includes(n.props.children)),undefined);}finally{h.close();}
 });
 
 test('viewability requires continuous half-visible time in a visible document and deduplicates one card',()=>{
@@ -79,4 +85,18 @@ test('actual sponsored link records an independent click and navigates even when
 test('telemetry summary displays paid and pilot counts separately without conversions or fabricated ROAS',async()=>{
   const h=hookHarness(Metrics,{id:'campaign-fixture'});
   try{h.requests[0].resolve(envelope({rows:[{mode:'PAID_CATEGORY',type:'IMPRESSION',count:4},{mode:'PAID_CATEGORY',type:'CLICK',count:1},{mode:'NON_BILLABLE_PILOT',type:'IMPRESSION',count:9}],note:'Retention bounded synthetic event counts'}));await h.settle();assert.match(content(h.tree),/4/);assert.match(content(h.tree),/9/);assert.match(content(h.tree),/25/);assert.doesNotMatch(content(h.tree),/ROAS:\s*[0-9]/);}finally{h.close();}
+});
+
+test('admin payment panel: plain summary first, terms and payment record folded, each finance tool in its own section by permission',async()=>{
+  const sections=h=>{const found=[];const walk=n=>{if(!n||typeof n!=='object')return;if(n.type==='summary')found.push(content(n).trim());[n.props?.children].flat(Infinity).forEach(walk);};walk(h.tree);return found;};
+  const all=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review','advertising_finance','advertising_reconcile','advertising_refund'],capabilities:{refundsEnabled:true}});
+  try{const f=fixture();f.campaign.funding='FUNDED';f.campaign.delivery='SCHEDULED';f.payment.receiptPaise=10500;all.requests[0].resolve(envelope(f));await all.settle();const text=content(all.tree);
+    assert.match(text,/Review\s+Approved[\s\S]*Payment\s+Paid[\s\S]*Ad\s+Scheduled/);
+    assert.match(text,/₹100\.00\s+\+\s+₹5\.00\s+GST\s+=\s+₹105\.00\s+for\s+9\s+days/);
+    assert.match(text,/₹105\.00\s+Received from seller[\s\S]*Refunded[\s\S]*Counted as earned \(after the ad ends\)/);
+    assert.deepEqual(sections(all),['Terms the seller accepted','Payment record','Check a payment with Razorpay','Refund the seller']);
+    assert.match(text,/Use only if a payment looks stuck or wrong/);assert.match(text,/Sends money back to the seller’s original payment method and stops the ad/);
+    assert.doesNotMatch(text,/UNPAID|NOT_SCHEDULED|PENDING_REVIEW|FUNDED/);}finally{all.close();}
+  const review=hookHarness(Billing,{id:'campaign-fixture',admin:true,permissions:['advertising_review']});
+  try{review.requests[0].resolve(envelope(fixture()));await review.settle();assert.doesNotMatch(content(review.tree),/Finance tools/);assert.deepEqual(sections(review),['Terms the seller accepted','Payment record']);}finally{review.close();}
 });

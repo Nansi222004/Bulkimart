@@ -22,8 +22,10 @@ Observed causes
 
 Local changes
 
-- Admin now shows gross delivered sales lacking an earning entry, the affected
-  order counts and the reason, separately from actual payable balances.
+- Finance Center and seller Earnings now use the same completed-sales calculation
+  after customer discounts. Both show gross sales and discounts as a breakdown.
+  Orders without posted earnings remain a separate diagnostic, with their counts
+  and reasons, alongside actual payable balances.
 - The seller ledger list excludes entries without a seller, so platform service
   fees and rider/parcel entries do not appear as seller earnings.
 - Rider eligibility is calculated from the verified ledger even when the profile
@@ -57,3 +59,16 @@ refresh. The frontend production build and diff whitespace check passed.
 The browser layout runner could not complete: both Chrome and Edge timed out
 on the initial DevTools `Page.enable` command, before opening the app. Browser
 layout verification therefore remains outstanding. Changes are not deployed.
+
+Consistency follow-up
+
+Always's ₹5,300 gross minus ₹500 customer discounts equals ₹4,800 completed
+product sales (Shop All ₹2,200, Quick Commerce ₹2,600). Finance Center previously
+used `sellerPayoutCoverage.grossPaise` as its headline; seller Earnings used
+`sellerDashboardMetrics.totalRevenue`. Finance Center now consumes that same
+metrics service and presents ₹4,800 as Completed product sales, with gross and
+discounts explicitly labelled. Posted and unposted order subsets no longer
+change the definition of the completed-sales headline. Ledger funds are unchanged.
+
+The follow-up passed 125 backend tests, 98 frontend checks across the affected
+suites, the frontend production build and the diff whitespace check.

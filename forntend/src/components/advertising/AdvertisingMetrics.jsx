@@ -22,7 +22,9 @@ export default function AdvertisingMetrics({id,admin=false}){
           <div><strong>{views?`${(clicks/views*100).toFixed(1)}%`:'—'}</strong><span>Click rate</span></div>
         </div>
       </div>;})}
-    {data&&<p className="ad-metrics-note">{admin
+    {data&&<p className="ad-metrics-note">{data.started===false
+      ?<>{admin?'Not shown to customers yet.':'Views and clicks are counted once your campaign starts showing.'}</>
+      :admin
       ?<>{new Date(data.from).toLocaleString()} – {new Date(data.to).toLocaleString()}. Retention: {data.retentionDays?`${data.retentionDays} days`:'not configured'}. {data.note}</>
       :<>Counted {day(data.from)} – {day(data.to)}. A view counts when your product is on screen for at least a second.</>}</p>}
   </section>;

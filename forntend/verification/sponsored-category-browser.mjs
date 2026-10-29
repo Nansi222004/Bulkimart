@@ -34,7 +34,7 @@ const vite=await createServer({define:{'import.meta.env.VITE_API_BASE_URL':'""',
         return res.end(JSON.stringify({success:scenario!=='telemetry-error',data:{accepted:true}}));
       }
       assert.match(req.url,/^\/api\/advertising\/placements\?/);
-      assert.match(req.url,/exclude=507f1f77bcf86cd799439012/);
+      assert.doesNotMatch(req.url,/exclude=/,'Products in the page list are not left out of the Sponsored row');
       res.setHeader('Content-Type','application/json');res.statusCode=scenario==='error'?503:200;
       const paid=['paid-telemetry','telemetry-error'].includes(scenario);
       const row={product:{_id:scenario==='duplicate'?'507f1f77bcf86cd799439012':productId,name:'Synthetic sponsored product',images:['/fixture.svg'],price:22,stock:3,type:'ecommerce',variants:[{_id:variantId,name:'Selected',price:22,stock:3}]},variantId,disclosure:'Sponsored',mode:paid?'PAID_CATEGORY':'NON_BILLABLE_PILOT',expiresAt:new Date(Date.now()+3600000).toISOString(),...(paid?{serveToken:'fixture-only-serving-token'}:{})};
@@ -71,11 +71,15 @@ try{
     await evaluate('document.querySelector(".grid-product-add-btn").click()');
     assert.equal(await evaluate('document.querySelector("#added").textContent'),`${productId}:1:${variantId}`);
   }
-  for(const mode of ['error','disabled','duplicate']){
+  for(const mode of ['error','disabled']){
     scenario=mode;await command('Page.navigate',{url:origin+'/pilot'});await waitFor('!!document.querySelector("#organic")');await delay(500);
     assert.equal(await evaluate('document.querySelector(".sponsored-category-block")'),null);
     assert.equal(await evaluate('document.querySelector("#organic").innerText'),'Organic products\n\nOriginal first product\n\nOriginal second product');
   }
+  // An advertised product that is also in the page's own list is shown as Sponsored, once: the list leaves it out.
+  scenario='duplicate';await command('Page.navigate',{url:origin+'/pilot'});await waitFor('!!document.querySelector(".sponsored-category-block")');
+  await waitFor(`document.querySelector("#organic").innerText==='Organic products\\n\\nOriginal second product'`);
+  assert.equal(await evaluate('document.querySelectorAll(".sponsored-category-item").length'),1);
   assert.equal(writes,0);assert.deepEqual(errors,[]);
   for(const width of [320,390,768,1280]){
     scenario='paid-telemetry';events.length=0;

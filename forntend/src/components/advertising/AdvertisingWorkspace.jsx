@@ -1,22 +1,40 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { advertisingApi, advertisingMoney, blankPackageForm, campaignLabel, packageFormFromRow, packagePayload } from './advertisingApi';
+import { advertisingApi, advertisingMoney, blankPackageForm, campaignLabel, packageFormFromRow, packagePayload, plainStatus } from './advertisingApi';
 import './advertising.css';
 import AdvertisingBillingPanel from './AdvertisingBillingPanel';
 import AdvertisingFinancePanel from './AdvertisingFinancePanel';
 import AdvertisingMetrics from './AdvertisingMetrics';
 import AdvertisingPackageForm from './AdvertisingPackageForm';
 import { advertisingNotificationId } from './advertisingNotifications';
+import CampaignBuilder from './CampaignBuilder';
+import { TERM_LABELS, earliestStart, localInput } from './campaignGroups';
 
 const reviews = { DRAFT: 'Draft', PENDING_REVIEW: 'Waiting for review', CHANGES_REQUESTED: 'Changes requested', APPROVED: 'Approved', REJECTED: 'Rejected' };
 const STOREFRONT = { ECOMMERCE: 'Shop All', QUICK: 'Quick Commerce' };
+// Admin only: the store that sent the campaign, as the server names it.
+const sellerName = seller => seller?.storeName || seller?.businessName || 'Unknown seller';
 const STEPS = ['Products', 'Category', 'Package', 'Review'];
 // Seller-facing names for the package terms shown before submitting.
 // Plain names for campaign history entries; unknown actions fall back to their own name.
 const HISTORY_LABELS = { create: 'Campaign created', edit: 'Campaign edited', submit: 'Submitted for review', approve: 'Approved by Bulkimart',
   'request-changes': 'Changes requested', reject: 'Not approved', cancel: 'Cancelled', suspend: 'Suspended by Bulkimart', pilot: 'Free trial run updated',
   'billing-authorize': 'Payment opened', 'payment-captured': 'Payment received', refund: 'Refund started', recognize: 'Campaign completed' };
-const TERM_LABELS = { sellerPause: 'Pausing', cancellation: 'Cancelling', rejection: 'If rejected', suspension: 'Suspension', unusedService: 'If your ad cannot be shown', refunds: 'Refunds' };
-const freshCampaign = () => ({ name: '', module: 'ECOMMERCE', categoryId: '', packageId: '', requestedStartAt: '', items: [] });
+// The category a campaign runs in, with its parent when the server names one.
+const categoryText = c => !c ? '—' : c.parentName ? `${c.parentName} › ${c.name}` : c.name;
+const dateText = value => new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+// Where shoppers see the campaign: its category page (and the page of the category above it, which
+// lists its sub-categories' products) in its storefront, limited to shoppers the seller delivers to.
+const placementText = c => `In the “Sponsored” row at the top of ${c.category ? `the “${c.category.name}” category page` : 'its category page'}${c.category?.parentName ? ` and the “${c.category.parentName}” page` : ''} in ${STOREFRONT[c.module] || c.module}, for shoppers the seller delivers to.`;
+// When it shows, from the campaign's own state and dates.
+function timingText(c) {
+  const now = Date.now(), start = c.paid?.startAt && new Date(c.paid.startAt), end = c.paid?.endAt && new Date(c.paid.endAt);
+  if (c.pilot?.enabled && new Date(c.pilot.endAt) > now) return `Free test run until ${dateText(c.pilot.endAt)}.`;
+  if (['COMPLETED', 'EXHAUSTED', 'CANCELLED', 'ADMIN_SUSPENDED', 'SELLER_PAUSED', 'UNAVAILABLE'].includes(c.delivery)) return `Not showing: ${plainStatus('delivery', c.delivery).toLowerCase()}.`;
+  if (start && end) return start <= now && now < end ? `Showing now, until ${dateText(end)}.` : start > now ? `Starts ${dateText(start)} and runs until ${dateText(end)}.` : `Ended ${dateText(end)}.`;
+  if (c.review === 'APPROVED') return `Starts once the seller pays: on ${c.requestedStartAt ? dateText(c.requestedStartAt) : 'the chosen start date'}, or on the payment date if that is later${c.terms?.durationDays ? `, for ${c.terms.durationDays} days` : ''}.`;
+  if (c.review === 'REJECTED') return 'Not showing: not approved.';
+  return 'Not showing yet: it starts after Bulkimart approves it and the seller pays.';
+}
 
 export default function AdvertisingWorkspace({ admin = false }) {
   const [cap, setCap] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
@@ -25,7 +43,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
   const [tab, setTab] = useState('campaigns'), [rows, setRows] = useState([]), [meta, setMeta] = useState({ page: 1, pages: 1, total: 0 });
   const [page, setPage] = useState(1), [review, setReview] = useState(''), [refresh, setRefresh] = useState(0), [detail, setDetail] = useState(null);
   const [reason, setReason] = useState(''), [packageForm, setPackageForm] = useState(null), [draft, setDraft] = useState(null), [step, setStep] = useState(0);
-  const [paymentNotice, setPaymentNotice] = useState('');
+  const [paymentNotice, setPaymentNotice] = useState(''), [building, setBuilding] = useState(false);
   const [submissionOffer, setSubmissionOffer] = useState(null);
   const [pilotStart, setPilotStart] = useState(''), [pilotEnd, setPilotEnd] = useState('');
   const [products, setProducts] = useState([]), [productPage, setProductPage] = useState(1), [productPages, setProductPages] = useState(1), [packages, setPackages] = useState([]);
@@ -109,13 +127,18 @@ export default function AdvertisingWorkspace({ admin = false }) {
     return () => { window.removeEventListener('advertising-campaign-open', fromLink); window.removeEventListener('popstate', fromLink); };
   }, [admin, token, cap, canReview]);
 
+  // Decision responses carry the campaign only; the names (seller, category, products) stay on screen.
+  const showUpdate = next => setDetail(current => next && current?.id === next.id
+    ? { ...next, ...Object.fromEntries(['seller', 'category', 'products'].filter(key => current[key] !== undefined && next[key] === undefined).map(key => [key, current[key]])) }
+    : next);
+
   const change = (action) => perform(async () => {
     const path = admin ? `/campaigns/${detail.id}/${action}` : `/campaigns/${detail.id}/${action === 'submit' ? 'submit' : 'actions'}`;
     const b = await advertisingApi(admin, path, {
       method: 'POST',
       body: { version: detail.version, ...(admin ? { reason } : action === 'submit' ? { packageVersion: submissionOffer?.version } : { action }) }
     });
-    setDetail(b.data); setSubmissionOffer(null);
+    showUpdate(b.data); setSubmissionOffer(null);
   });
 
   const savePilot = enabled => perform(async () => {
@@ -124,16 +147,22 @@ export default function AdvertisingWorkspace({ admin = false }) {
       ...(enabled ? { startAt: new Date(pilotStart).toISOString(), endAt: new Date(pilotEnd).toISOString() } : {})
     };
     const b = await advertisingApi(true, `/campaigns/${detail.id}/pilot`, { method: 'POST', body });
-    setDetail(b.data);
+    showUpdate(b.data);
   });
 
-  const candidates = packages.filter(p => p.module === draft?.module && p.isActive && !p.archivedAt && (!p.categories.length || p.categories.includes(draft?.categoryId)));
+  const offered = packages.filter(p => p.module === draft?.module && p.isActive && !p.archivedAt);
+  const inCategory = offered.filter(p => !p.categories.length || p.categories.includes(draft?.categoryId));
+  // A package can only be chosen when its "Products per ad" covers the ticked products.
+  const candidates = inCategory.filter(p => p.maxProducts >= (draft?.items.length || 0));
   const chosen = candidates.find(p => p.id === draft?.packageId);
+  // Ticking stops at the most products any package for this storefront allows.
+  const productLimit = offered.length ? Math.max(...offered.map(p => p.maxProducts)) : 0;
+  const overLimit = productLimit > 0 && (draft?.items.length || 0) > productLimit;
   // Only categories every ticked product belongs to: the server rejects a product outside the
   // campaign's category. A ticked product's categories are remembered when it is ticked, so a
   // tick on another page of the product list still counts; otherwise the loaded list is used.
   const pickedIds = [...new Set((draft?.items || []).map(i => i.productId))];
-  const pickedLists = pickedIds.map(id => draft?.pickedCategories?.[id] || products.find(p => p.id === id)?.categories).filter(Boolean);
+  const pickedLists = pickedIds.map(id => draft?.pickedCategories?.[id] || (p => p?.adCategories || p?.categories)(products.find(p => p.id === id))).filter(Boolean);
   const categories = pickedLists.length ? pickedLists.reduce((common, list) => common.filter(c => list.some(x => x.id === c.id)), [...new Map(pickedLists[0].map(c => [c.id, c])).values()]) : [];
   const categoryKey = categories.map(c => c.id).join('|');
   // One shared category is chosen for the seller; a choice that no longer fits is cleared.
@@ -211,7 +240,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                 </label>
               )}
               {!admin && (
-                <button className="ad-primary" onClick={() => { setDraft(freshCampaign()); setStep(0); setDetail(null); }}>
+                <button className="ad-primary" onClick={() => { setBuilding(true); setDraft(null); setDetail(null); }}>
                   Create campaign
                 </button>
               )}
@@ -261,8 +290,9 @@ export default function AdvertisingWorkspace({ admin = false }) {
                 <h3 className="ad-card-title">{row.name}</h3>
                 {tab === 'campaigns' ? (
                   <>
+                    {admin && <p className="ad-card-seller">Seller: <strong>{sellerName(row.seller)}</strong>{row.seller?.city ? ` · ${row.seller.city}` : ''}</p>}
                     <div className="ad-card-meta">
-                      <span className="ad-placement-tag">{row.module} · Sponsored category</span>
+                      <span className="ad-placement-tag">{STOREFRONT[row.module] || row.module} · {row.category ? categoryText(row.category) : 'Sponsored category'}</span>
                       <span className="ad-price-tag">{advertisingMoney(row.terms?.amountPaise)}</span>
                     </div>
                     <div className="ad-card-footer">
@@ -301,13 +331,34 @@ export default function AdvertisingWorkspace({ admin = false }) {
                       {campaignLabel(detail)}
                     </span>
                     <h3>{detail.name}</h3>
-                    {admin && <p className="ad-detail-sub">Revision {detail.revision} · Funding: {detail.funding} · Delivery: {detail.delivery}</p>}
+                    {admin && <p className="ad-detail-sub">Version {detail.revision} · Payment: {plainStatus('funding', detail.funding)} · Ad: {plainStatus('delivery', detail.delivery)}</p>}
                   </div>
                   <button type="button" className="ad-modal-close-btn" aria-label="Close details" onClick={() => { detailGeneration.current++; setDetail(null); }}>✕</button>
                 </div>
 
                 <div className="ad-modal-body">
                   <div className="ad-detail-meta-strip">
+                    {admin && (
+                      <div className="ad-meta-item">
+                        <span className="ad-meta-label">Seller</span>
+                        <p>{sellerName(detail.seller)}{detail.seller?.businessName && detail.seller.businessName !== detail.seller.storeName ? ` (${detail.seller.businessName})` : ''}{detail.seller?.city ? ` · ${detail.seller.city}` : ''}</p>
+                      </div>
+                    )}
+                    <div className="ad-meta-item">
+                      <span className="ad-meta-label">Storefront and category</span>
+                      <p>{STOREFRONT[detail.module] || detail.module} · {categoryText(detail.category)}</p>
+                    </div>
+                    <div className="ad-meta-item ad-meta-wide">
+                      <span className="ad-meta-label">Where and when it shows</span>
+                      <p>{placementText(detail)}</p>
+                      <p>{timingText(detail)}</p>
+                    </div>
+                    {detail.products?.length > 0 && (
+                      <div className="ad-meta-item">
+                        <span className="ad-meta-label">Products ({detail.products.length})</span>
+                        <p>{detail.products.map(p => p.variant && p.variant !== 'Standard' ? `${p.name} (${p.variant})` : p.name).join(', ')}</p>
+                      </div>
+                    )}
                     <div className="ad-meta-item">
                       <span className="ad-meta-label">Start date</span>
                       <p>{detail.requestedStartAt ? new Date(detail.requestedStartAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Not selected'}{!admin && ' (or when your payment is received, if later)'}</p>
@@ -315,7 +366,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     {detail.terms && (
                       <div className="ad-meta-item">
                         <span className="ad-meta-label">Package</span>
-                        <p>{detail.terms.name}: {advertisingMoney(detail.terms.amountPaise)} for {detail.terms.durationDays} days</p>
+                        <p>{detail.terms.name}: {advertisingMoney(detail.terms.amountPaise)} for {detail.terms.durationDays} days · up to {detail.terms.maxProducts === 1 ? '1 product' : `${detail.terms.maxProducts} products`} per ad</p>
                       </div>
                     )}
                   </div>
@@ -378,7 +429,8 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     </ul>
                   </div>
 
-                  {!admin && ['DRAFT', 'CHANGES_REQUESTED'].includes(detail.review) && detail.delivery === 'NOT_SCHEDULED' && (
+                  {/* Hidden while the terms are open, and gone once the campaign is submitted (waiting for review). */}
+                  {!admin && !submissionOffer && ['DRAFT', 'CHANGES_REQUESTED'].includes(detail.review) && detail.delivery === 'NOT_SCHEDULED' && (
                     <div className="ad-toolbar">
                       <button
                         disabled={busy}
@@ -386,7 +438,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                           setDraft({
                             ...detail,
                             items: detail.items.map(i => ({ productId: i.productId, ...(i.variantId ? { variantId: i.variantId } : {}) })),
-                            requestedStartAt: detail.requestedStartAt ? new Date(new Date(detail.requestedStartAt).getTime() - new Date(detail.requestedStartAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''
+                            requestedStartAt: detail.requestedStartAt ? localInput(new Date(detail.requestedStartAt)) : ''
                           });
                           setStep(0);
                         }}
@@ -443,7 +495,15 @@ export default function AdvertisingWorkspace({ admin = false }) {
             </div>
           )}
 
-          {/* Campaign Creation Wizard Modal */}
+          {/* New campaigns: products from several categories become one campaign per category. */}
+          {building && !admin && (
+            <CampaignBuilder
+              onClose={changed => { setBuilding(false); if (changed) setRefresh(n => n + 1); }}
+              onOpen={campaign => { setBuilding(false); setRefresh(n => n + 1); void open(campaign); }}
+            />
+          )}
+
+          {/* Editing a saved campaign (one category) */}
           {draft && (
             <div className="ad-modal-backdrop" role="dialog" aria-modal="true" onClick={() => setDraft(null)}>
               <div className="ad-modal-dialog" onClick={e => e.stopPropagation()}>
@@ -471,7 +531,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         ...(draft.id ? { version: draft.version } : {})
                       };
                       const b = await advertisingApi(false, `/campaigns${draft.id ? `/${draft.id}` : ''}`, { method: draft.id ? 'PATCH' : 'POST', body });
-                      setDetail(b.data); setSubmissionOffer(null); setDraft(null);
+                      setSubmissionOffer(null); setDraft(null); void open(b.data);
                     });
                   }}
                 >
@@ -504,6 +564,8 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         <div className="ad-section-divider">
                           <h4>Choose products</h4>
                           <p className="ad-section-hint">Tick the products to advertise. Only approved products that are in stock can be picked.</p>
+                          {productLimit > 0 && <p className="ad-section-hint" role="status">Products per ad: up to {productLimit}. Picked {draft.items.length}.</p>}
+                          {overLimit && <p className="ad-notice" role="alert">Packages allow up to {productLimit} {productLimit === 1 ? 'product' : 'products'} per ad. Untick {draft.items.length - productLimit} to continue.</p>}
                         </div>
 
                         {productsError && (
@@ -540,14 +602,14 @@ export default function AdvertisingWorkspace({ admin = false }) {
                                   <label key={v.id || 'standard'} className="ad-variant-choice">
                                     <input
                                       type="checkbox"
-                                      disabled={!p.eligible || v.stock < 1}
+                                      disabled={!p.eligible || v.stock < 1 || (productLimit > 0 && draft.items.length >= productLimit && !draft.items.some(i => i.productId === p.id))}
                                       checked={draft.items.some(i => i.productId === p.id && i.variantId === v.id)}
                                       onChange={e => setDraft({
                                         ...draft,
                                         items: e.target.checked
                                           ? [...draft.items.filter(i => i.productId !== p.id), { productId: p.id, ...(v.id ? { variantId: v.id } : {}) }]
                                           : draft.items.filter(i => i.productId !== p.id),
-                                        pickedCategories: { ...draft.pickedCategories, [p.id]: p.categories }
+                                        pickedCategories: { ...draft.pickedCategories, [p.id]: p.adCategories || p.categories }
                                       })}
                                     />
                                     <span>{v.name} · ₹{v.price} · {v.stock} available</span>
@@ -585,17 +647,19 @@ export default function AdvertisingWorkspace({ admin = false }) {
                         <div className="ad-form-grid">
                           <label className="ad-field">
                             <span className="ad-field-title">Start date</span>
-                            <input required type="datetime-local" value={draft.requestedStartAt} onChange={e => setDraft({ ...draft, requestedStartAt: e.target.value })} />
+                            <input required type="datetime-local" min={earliestStart()} value={draft.requestedStartAt} onChange={e => setDraft({ ...draft, requestedStartAt: e.target.value })} />
                           </label>
                           <label className="ad-field">
                             <span className="ad-field-title">Package</span>
-                            <select required value={draft.packageId} onChange={e => setDraft({ ...draft, packageId: e.target.value })}>
+                            <select required value={chosen ? draft.packageId : ''} onChange={e => setDraft({ ...draft, packageId: e.target.value })}>
                               <option value="">Choose a package</option>
-                              {candidates.map(p => <option key={p.id} value={p.id}>{p.name} · {p.durationDays} days · {advertisingMoney(p.amountPaise)}</option>)}
+                              {candidates.map(p => <option key={p.id} value={p.id}>{p.name} · {p.durationDays} days · up to {p.maxProducts} {p.maxProducts === 1 ? 'product' : 'products'} · {advertisingMoney(p.amountPaise)}</option>)}
                             </select>
                           </label>
                         </div>
-                        {!candidates.length && <p className="ad-notice">No package is available for this category yet. Please check again later.</p>}
+                        {!inCategory.length && <p className="ad-notice">No package is available for this category yet. Please check again later.</p>}
+                        {inCategory.length > 0 && !candidates.length && <p className="ad-notice" role="alert">You picked {draft.items.length} products, but packages for this category allow up to {Math.max(...inCategory.map(p => p.maxProducts))} per ad. Go back and untick some products.</p>}
+                        {candidates.length > 0 && inCategory.length > candidates.length && <p className="ad-section-hint">Packages that allow fewer than {draft.items.length} products per ad are not shown.</p>}
                       </>
                     )}
 
@@ -619,7 +683,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     <button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
                     <div className="ad-modal-buttons">
                       {step > 0 && <button type="button" onClick={() => setStep(s => s - 1)}>Back</button>}
-                      <button className="ad-primary" disabled={busy || (step === 0 && !draft.items.length) || (step === 3 && !chosen)}>
+                      <button className="ad-primary" disabled={busy || (step === 0 && (!draft.items.length || overLimit)) || (step === 3 && !chosen)}>
                         {step === 3 ? 'Save campaign draft' : 'Continue'}
                       </button>
                     </div>

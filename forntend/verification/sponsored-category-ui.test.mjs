@@ -15,20 +15,24 @@ const props = () => ({ channel:'ecommerce', categoryId:'507f1f77bcf86cd799439011
 const row = (id = '507f1f77bcf86cd799439013') => ({ product:{_id:id,name:'Synthetic sponsored product',images:['/test.png'],price:22,stock:3,type:'ecommerce',variants:[{_id:'v1',name:'First',price:11,stock:1},{_id:'v2',name:'Promoted',price:22,stock:3}]}, variantId:'v2',disclosure:'Sponsored',mode:'NON_BILLABLE_PILOT',expiresAt:new Date(Date.now()+3600000).toISOString() });
 const response = rows => ({success:true,data:rows,meta:{mode:'NON_BILLABLE_PILOT',billable:false}});
 const context = extra => ({getDeliveryPoint:()=>({lat:12,lng:77}),setSelectedProduct:()=>{},addToCart:()=>{},...extra});
-test('optional placement fetch includes context/exclusions but sends no user token or identity', async () => {
+test('optional placement fetch includes context but sends no user token or identity, and never leaves out the page\'s own products', async () => {
   const h=hookHarness(Block,props(),'/categories',context());
   try {
-    const req=h.requests[0];assert.match(req.url,/advertising\/placements/);assert.match(req.url,/exclude=507f1f77bcf86cd799439012/);assert.match(req.url,/lat=12/);
+    const req=h.requests[0];assert.match(req.url,/advertising\/placements/);assert.doesNotMatch(req.url,/exclude=/);assert.match(req.url,/lat=12/);
     assert.equal(req.options.headers,undefined);assert.equal(h.tree,null);
     req.resolve(response([row()]));await h.settle();assert.match(text(h.tree),/Sponsored/);assert.match(text(h.tree),/Non-billable pilot/);
   } finally {h.close();}
 });
-test('duplicates are omitted from the sponsored block without mutating organic results', async () => {
-  const p=props(),before=JSON.stringify(p.organicProducts),h=hookHarness(Block,p,'/categories',context());
+test('an advertised product that is also in the page list is still sponsored; the block reports it so the page lists it once', async () => {
+  const shown=[],p={...props(),onShown:ids=>shown.push(ids)},listed=p.organicProducts[0]._id,h=hookHarness(Block,p,'/categories',context());
   try {
-    h.requests[0].resolve(response([row(p.organicProducts[0]._id),row(),row()]));await h.settle();
-    const result=unique([row(p.organicProducts[0]._id),row(),row()],p.organicProducts.map(p=>p._id));assert.equal(result.length,1);
-    assert.equal(JSON.stringify(p.organicProducts),before);
+    assert.deepEqual(shown,[[]],'Nothing is reported before the placements arrive');
+    h.requests[0].resolve(response([row(listed),row(),row()]));await h.settle();
+    const items=[];const walk=n=>{if(!n||typeof n!=='object')return;if(n.props?.className==='sponsored-category-item')items.push(n);[n.props?.children].flat(Infinity).forEach(walk);};walk(h.tree);
+    assert.equal(items.length,2,'The listed product is shown as Sponsored too');
+    assert.deepEqual(shown.at(-1),[listed,'507f1f77bcf86cd799439013'],'Both sponsored products, repeated ones once');
+    assert.equal(unique([row(listed),row(),row()]).length,2);
+    p.categoryId='507f1f77bcf86cd799439014';h.rerender();assert.deepEqual(shown.at(-1),[],'A new page starts with nothing hidden');
   } finally {h.close();}
 });
 test('network failure, disabled flags and server errors leave the optional block absent', async () => {

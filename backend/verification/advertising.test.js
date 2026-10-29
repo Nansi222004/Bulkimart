@@ -12,6 +12,7 @@ import Category from '../models/Category.js';
 import Promotion from '../models/SellerPromotion.js';
 import Package from '../models/PromotionPackage.js';
 import Payment from '../models/Payment.js';
+import Notification from '../models/Notification.js';
 import { advertisingRouter } from '../routes/advertising.routes.js';
 import { advertisingPublicRouter } from '../routes/advertisingPublic.routes.js';
 import { advertisingPilotCapabilities } from '../services/advertisingPolicy.service.js';
@@ -292,4 +293,106 @@ test('the simple admin package form payload is accepted and quotes GST on top of
   const saved = (await auth(request(app).post('/admin/packages'), admin, 'admin').send(body).expect(201)).body.data;
   expect(saved.billingQuote).toMatchObject({ basePaise: 99900, taxPaise: 17982, totalPaise: 117882 });
   expect(saved.policyApproval).toBe('CONFIGURED_REQUIRES_CAMPAIGN_AUTHORIZATION');
+});
+test('admins see which seller sent each campaign; sellers never receive seller details', async () => {
+  await Seller.updateOne({ _id: seller._id }, { businessName: 'Synthetic Traders Pvt Ltd', 'storeDetails.name': 'Synthetic Store', 'storeDetails.city': 'Indore' });
+  const row = await submit(await make());
+  const expected = { id: String(seller._id), storeName: 'Synthetic Store', businessName: 'Synthetic Traders Pvt Ltd', city: 'Indore' };
+  const listed = (await auth(request(app).get('/admin/campaigns'), reviewer, 'admin').expect(200)).body.data;
+  expect(listed.find(c => c.id === row.id).seller).toEqual(expected);
+  expect((await auth(request(app).get(`/admin/campaigns/${row.id}`), reviewer, 'admin').expect(200)).body.data.seller).toEqual(expected);
+  expect((await auth(request(app).get('/seller/campaigns')).expect(200)).body.data[0].seller).toBeUndefined();
+  expect((await auth(request(app).get(`/seller/campaigns/${row.id}`)).expect(200)).body.data.seller).toBeUndefined();
+  const notice = await Notification.findOne({ event: 'ADVERTISING_SUBMITTED' }).lean();
+  expect(notice.message).toBe('Synthetic Store submitted “Synthetic category campaign”. Open the campaign to review it.');
+});
+test('saving enforces the package products per ad and a start date from now onwards', async () => {
+  const extra = await Product.create(['Second', 'Third'].map(name => ({ sellerId: seller._id, name: `Synthetic ${name}`, type: 'ecommerce', category: category._id, price: 10, mrp: 12, stock: 8, unit: 'piece', status: 'approved', isActive: true })));
+  const items = [product, ...extra].map(p => ({ productId: String(p._id), ...(p.variants?.length ? { variantId: String(p.variants[0]._id) } : {}) }));
+  const tooMany = await auth(request(app).post('/seller/campaigns')).send({ ...input(), items }).expect(400);
+  expect(tooMany.body.message).toBe('This package allows up to 2 products per ad');
+  const row = await make({ ...input(), items: items.slice(0, 2) });
+  const edit = await auth(request(app).patch(`/seller/campaigns/${row.id}`)).send({ version: row.version, items }).expect(400);
+  expect(edit.body.message).toBe('This package allows up to 2 products per ad');
+  const past = await auth(request(app).post('/seller/campaigns')).send({ ...input(), requestedStartAt: new Date(Date.now() - 86400000).toISOString() }).expect(400);
+  expect(past.body.message).toBe('Choose a start date and time from now onwards');
+  await auth(request(app).post('/seller/campaigns')).send({ ...input(), requestedStartAt: new Date(Date.now() + 120000).toISOString() }).expect(201);
+});
+test('views and clicks cover the campaign run, not the last 30 days', async () => {
+  const row = await make();
+  const before = (await auth(request(app).get(`/seller/campaigns/${row.id}/analytics`)).expect(200)).body.data;
+  expect(before).toMatchObject({ started: false, from: null, to: null, rows: [] });
+  const startAt = new Date(Date.now() - 2 * 86400000), endAt = new Date(Date.now() + 5 * 86400000);
+  await Promotion.updateOne({ _id: row.id }, { 'advertising.pilot': { enabled: true, revision: 1, startAt, endAt, approvedBy: admin._id, approvedAt: startAt } });
+  const during = (await auth(request(app).get(`/seller/campaigns/${row.id}/analytics`)).expect(200)).body.data;
+  expect(during.started).toBe(true); expect(new Date(during.from).getTime()).toBe(startAt.getTime());
+  expect(Date.now() - new Date(during.to).getTime()).toBeLessThan(60000);
+});
+
+// Multi-category builder support: categories per product, safe create retries, independent campaigns.
+const sellerProduct = extra => Product.create({ sellerId: seller._id, type: 'ecommerce', price: 10, mrp: 12, stock: 8, unit: 'piece', status: 'approved', isActive: true, ...extra });
+const itemOf = p => ({ productId: String(p._id), ...(p.variants?.length ? { variantId: String(p.variants[0]._id) } : {}) });
+test('the seller product list names every category a campaign may use (most specific first), with search and a category filter', async () => {
+  const child = await Category.create({ name: 'Synthetic child', slug: 'synthetic-ads-child', type: 'ecommerce', parent: category._id });
+  const other = await Category.create({ name: 'Synthetic other', slug: 'synthetic-ads-other', type: 'ecommerce' });
+  const shirt = await sellerProduct({ name: 'Synthetic Shirt', sku: 'SHIRT-ONE', category: category._id, subCategory: child._id });
+  const lamp = await sellerProduct({ name: 'Synthetic Lamp', category: other._id });
+  const get = query => auth(request(app).get('/seller/products').query({ module: 'ECOMMERCE', ...query })).expect(200).then(r => r.body.data);
+  const row = (await get({})).find(p => p.id === String(shirt._id));
+  expect(row.adCategories).toEqual([{ id: String(child._id), name: 'Synthetic child', parentId: String(category._id), parentName: 'Synthetic category' },
+    { id: String(category._id), name: 'Synthetic category', parentId: null, parentName: '' }]);
+  expect(row.categories).toEqual([{ id: String(category._id), name: 'Synthetic category' }]);
+  expect((await get({ q: 'shirt' })).map(p => p.id)).toEqual([String(shirt._id)]);
+  expect((await get({ q: 'shirt-one' })).map(p => p.id)).toEqual([String(shirt._id)]);
+  expect(await get({ q: 'a.*(' })).toEqual([]);
+  expect((await get({ category: String(child._id) })).map(p => p.id)).toEqual([String(shirt._id)]);
+  expect((await get({ category: String(other._id) })).map(p => p.id)).toEqual([String(lamp._id)]);
+  expect((await get({ category: String(category._id) })).map(p => p.id).sort()).toEqual([String(product._id), String(shirt._id)].sort());
+  await auth(request(app).get('/seller/products').query({ module: 'ECOMMERCE', q: 'x'.repeat(101) })).expect(400);
+  // A campaign may run in the product's sub-category or its category; never in an unrelated one.
+  await make({ ...input(), categoryId: String(child._id), items: [itemOf(shirt)] });
+  await make({ ...input(), categoryId: String(category._id), items: [itemOf(shirt)] });
+  await auth(request(app).post('/seller/campaigns')).send({ ...input(), categoryId: String(other._id), items: [itemOf(shirt)] }).expect(409);
+});
+test('a create request key returns the campaign already created instead of a duplicate, also when retries race', async () => {
+  const first = await make({ ...input(), requestKey: 'synthetic-request-key-0001' });
+  const again = await make({ ...input(), requestKey: 'synthetic-request-key-0001' });
+  expect(again.id).toBe(first.id); expect(await Promotion.countDocuments({ advertisingVersion: 2 })).toBe(1);
+  const racing = await Promise.all([1, 2, 3].map(() => auth(request(app).post('/seller/campaigns')).send({ ...input(), requestKey: 'synthetic-request-key-0002' })));
+  expect(racing.map(r => r.status)).toEqual([201, 201, 201]);
+  expect(new Set(racing.map(r => r.body.data.id)).size).toBe(1); expect(await Promotion.countDocuments({ advertisingVersion: 2 })).toBe(2);
+  // Another seller's identical key never returns this seller's campaign.
+  const foreign = await auth(request(app).post('/seller/campaigns'), other).send({ ...input(), requestKey: 'synthetic-request-key-0001' });
+  expect(foreign.status).not.toBe(201); expect(foreign.body.data?.id).not.toBe(first.id);
+  await auth(request(app).post('/seller/campaigns')).send({ ...input(), requestKey: 'short' }).expect(400);
+  await make(input()); expect(await Promotion.countDocuments({ advertisingVersion: 2 })).toBe(3);
+});
+test('campaigns from one wizard are independent: admin sees each with seller, category and products and decides each separately', async () => {
+  await Seller.updateOne({ _id: seller._id }, { businessName: 'Sharma Traders', 'storeDetails.name': 'Sharma Store' });
+  const categories = await Category.create(['Mens', 'Womens', 'Gadgets'].map(name => ({ name: `Synthetic ${name}`, slug: `synthetic-ads-${name.toLowerCase()}`, type: 'ecommerce' })));
+  const products = await Promise.all(categories.map((c, i) => sellerProduct({ name: `Synthetic product ${i}`, category: c._id })));
+  const rows = [];
+  for (const [i, c] of categories.entries()) rows.push(await submit(await make({ ...input(), name: `Diwali Sale – ${c.name}`, categoryId: String(c._id), items: [itemOf(products[i])], requestKey: `synthetic-wizard-key-000${i}` })));
+  const listed = (await auth(request(app).get('/admin/campaigns').query({ review: 'PENDING_REVIEW' }), reviewer, 'admin').expect(200)).body.data;
+  expect(listed).toHaveLength(3);
+  for (const [i, c] of categories.entries()) {
+    const card = listed.find(r => r.id === rows[i].id);
+    expect(card).toMatchObject({ name: `Diwali Sale – ${c.name}`, module: 'ECOMMERCE', category: { name: c.name }, products: [{ id: String(products[i]._id), name: `Synthetic product ${i}` }], seller: { storeName: 'Sharma Store' } });
+    expect(card.terms).toMatchObject({ name: pack.name, durationDays: pack.durationDays, maxProducts: pack.maxProducts, amountPaise: pack.amountPaise });
+  }
+  const [approved, changes, rejected] = await Promise.all([decide(rows[0], 'approve'), decide(rows[1], 'request-changes'), decide(rows[2], 'reject')]);
+  expect([approved.status, changes.status, rejected.status]).toEqual([200, 200, 200]);
+  const detail = id => auth(request(app).get(`/admin/campaigns/${id}`), reviewer, 'admin').expect(200).then(r => r.body.data);
+  const after = await Promise.all(rows.map(r => detail(r.id)));
+  expect(after.map(r => r.review)).toEqual(['APPROVED', 'CHANGES_REQUESTED', 'REJECTED']);
+  after.forEach((r, i) => { expect(r.products.map(p => p.id)).toEqual([String(products[i]._id)]); expect(r.category.name).toBe(categories[i].name); });
+  const notices = await Notification.find({ event: 'ADVERTISING_SUBMITTED' }).lean();
+  // One notification per campaign for every active admin, each naming the seller and that campaign.
+  const activeAdmins = await Admin.countDocuments({ isActive: true });
+  expect(notices).toHaveLength(3 * activeAdmins);
+  expect([...new Set(notices.map(n => n.message))].sort()).toEqual(categories.map(c => `Sharma Store submitted “Diwali Sale – ${c.name}”. Open the campaign to review it.`).sort());
+  for (const row of rows) expect(notices.filter(n => String(n.metadata?.campaignId) === row.id)).toHaveLength(activeAdmins);
+  // The seller sees each outcome on its own campaign.
+  const own = (await auth(request(app).get('/seller/campaigns')).expect(200)).body.data;
+  expect(Object.fromEntries(own.map(r => [r.name, r.review]))).toEqual(Object.fromEntries(categories.map((c, i) => [`Diwali Sale – ${c.name}`, after[i].review])));
 });

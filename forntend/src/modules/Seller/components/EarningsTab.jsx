@@ -56,6 +56,7 @@ export const EarningsTab = () => {
     <section aria-label="Sales and net earnings" className="seller-earnings-summary">
       <div><h2>Completed product sales</h2><strong>{money(metrics ? metrics.totalRevenue : sales?.grossAmount)}</strong>
         <p>{metrics?.completedOrders ?? sales?.orderCount ?? 0} delivered orders across all storefronts · {metrics ? 'after customer discounts' : 'before deductions'}</p>
+        {Number.isFinite(metrics?.grossSales) && Number.isFinite(metrics?.customerDiscounts) && <p>Gross product sales: {money(metrics.grossSales)} · Customer discounts: {money(metrics.customerDiscounts)}</p>}
         {financeSummary?.salesByChannel && <p>Shop All: {money(financeSummary.salesByChannel.ecommerce?.revenue)} · Quick Commerce: {money(financeSummary.salesByChannel.grocery?.revenue)}</p>}
       </div>
       <div><h2>Net earnings</h2><strong>{pendingNetOrders > 0 ? 'Awaiting calculation' : money(metrics?.netEarnings)}</strong>

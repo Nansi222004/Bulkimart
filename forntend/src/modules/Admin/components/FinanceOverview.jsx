@@ -48,7 +48,7 @@ export default function FinanceOverview({ onNavigate }) {
         <div><dt>On hold (return window)</dt><dd>{money(t.sellersOnHold)}</dd></div><div><dt>Available to pay</dt><dd>{money(t.sellersAvailable)}</dd></div>
         <div><dt>Payout requested</dt><dd>{money(t.sellersRequested)}</dd></div><div><dt>Paid so far</dt><dd>{money(t.sellersPaid)}</dd></div>
         <div><dt>Same-day incentives credited</dt><dd>{money(t.sellerSameDayIncentives)}</dd></div></dl>
-        {data.unpostedSellerSales?.length > 0 && <div role="status"><p><strong>{money(data.unpostedSellerSales.reduce((sum, row) => sum + row.grossPaise, 0))} delivered item sales await calculation.</strong> These sales have no posted seller earning yet. The net payout amount needs the original terms and payment checks.</p><button type="button" onClick={() => onNavigate('earnings')}>See missing seller earnings</button></div>}
+        {data.unpostedSellerSales?.length > 0 && <div role="status"><p>Some delivered sales have no posted seller earning yet. Open Seller balances to see completed product sales after customer discounts and the missing financial checks. Net payout amounts need the original terms and payment checks.</p><button type="button" onClick={() => onNavigate('earnings')}>See missing seller earnings</button></div>}
       </div>
       <div className="finance-panel"><h3>Seller Shiprocket charges (prepaid)</h3><dl>
         <div><dt>Charged</dt><dd>{money(t.sellerCourierCharged)}</dd></div><div><dt>Paid by sellers</dt><dd>{money(t.sellerCourierPaid)}</dd></div>

@@ -45,11 +45,23 @@ export async function recordAdvertisingEvent(input) {
     at:new Date(),expiresAt:new Date(Date.now()+config.retentionDays*86400000)});return {accepted:true,duplicate:false};}
   catch(error){if(error.code===11000)return {accepted:true,duplicate:true};throw error;}
 }
-export async function advertisingEventSummary(campaignId,from,to) {
-  const start=from===undefined?new Date(Date.now()-30*86400000):new Date(from),end=to===undefined?new Date():new Date(to);
+// The time a campaign has actually been shown: from its first paid or trial run to now, or to the end of
+// its last run (at most 366 days). Null until it has started showing, so no unrelated dates are reported.
+export const campaignRun=c=>{
+  const now=Date.now(),runs=[c.advertising?.paid,c.advertising?.pilot].filter(r=>r?.startAt&&+new Date(r.startAt)<=now);
+  if(!runs.length)return null;
+  const start=Math.min(...runs.map(r=>+new Date(r.startAt))),end=Math.min(now,Math.max(...runs.map(r=>r.endAt?+new Date(r.endAt):now)));
+  return {start:new Date(Math.max(start,end-366*86400000)),end:new Date(end)};
+};
+const SUMMARY_NOTE='Client-reported viewability, signed serving linkage and deduplicated submissions; not verified human reach. Counts are limited by retention. No conversions or ROAS.';
+// Without an explicit range, a campaign's figures cover its run (see campaignRun); callers that pass no
+// run keep the last 30 days.
+export async function advertisingEventSummary(campaignId,from,to,run) {
+  const retentionDays=advertisingTelemetryConfig().retentionDays||null;
+  if(run===null&&from===undefined&&to===undefined)return {from:null,to:null,started:false,retentionDays,rows:[],note:SUMMARY_NOTE};
+  const start=from!==undefined?new Date(from):run?run.start:new Date(Date.now()-30*86400000),end=to!==undefined?new Date(to):run?run.end:new Date();
   if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||start>end||end-start>366*86400000)throw httpError(400,'Invalid reporting range (maximum 366 days)');
   const rows=await AdEvent.aggregate([{$match:{campaignId,at:{$gte:start,$lte:end},expiresAt:{$gt:new Date()}}},{$group:{_id:{mode:'$mode',type:'$type'},count:{$sum:1}}}]);
-  return {from:start,to:end,retentionDays:advertisingTelemetryConfig().retentionDays||null,
-    rows:rows.map(r=>({mode:r._id.mode,type:r._id.type,count:r.count})),
-    note:'Client-reported viewability, signed serving linkage and deduplicated submissions; not verified human reach. Counts are limited by retention. No conversions or ROAS.'};
+  return {from:start,to:end,started:true,retentionDays,
+    rows:rows.map(r=>({mode:r._id.mode,type:r._id.type,count:r.count})),note:SUMMARY_NOTE};
 }

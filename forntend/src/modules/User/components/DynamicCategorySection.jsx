@@ -58,6 +58,9 @@ const DynamicCategorySection = ({ channel, slug }) => {
 
   // Which sections the shopper has expanded, keyed by category id.
   const [expandedSections, setExpandedSections] = useState({});
+  // Products shown in the Sponsored row above; the lists below leave them out so none appears twice.
+  const [sponsoredIds, setSponsoredIds] = useState([]);
+  const listed = useMemo(() => products.filter((p) => !sponsoredIds.includes(String(p.id || p._id))), [products, sponsoredIds]);
 
   const level2Categories = category?.children || [];
   const isHeaderCategory = level2Categories.length > 0;
@@ -67,24 +70,24 @@ const DynamicCategorySection = ({ channel, slug }) => {
    * it. Empty sections are dropped.
    */
   const groupedSections = useMemo(() => {
-    if (!isHeaderCategory || products.length === 0) return [];
+    if (!isHeaderCategory || listed.length === 0) return [];
 
     const claimed = new Set();
 
     const sections = level2Categories.map((l2Node) => {
       const l2Ids = new Set(descendantIds(l2Node).map(String));
-      const sectionProducts = products.filter((p) => l2Ids.has(String(p.categoryId)));
+      const sectionProducts = listed.filter((p) => l2Ids.has(String(p.categoryId)));
       sectionProducts.forEach((p) => claimed.add(p.id || p._id));
       return { category: l2Node, products: sectionProducts };
     }).filter((section) => section.products.length > 0);
 
-    const unclaimed = products.filter((p) => !claimed.has(p.id || p._id));
+    const unclaimed = listed.filter((p) => !claimed.has(p.id || p._id));
     if (unclaimed.length > 0) {
       sections.push({ category, products: unclaimed });
     }
 
     return sections;
-  }, [isHeaderCategory, level2Categories, products, category]);
+  }, [isHeaderCategory, level2Categories, listed, category]);
 
   const openProduct = (product) => setSelectedProduct(product);
   const addProduct = (product) => addToCart(product);
@@ -118,7 +121,7 @@ const DynamicCategorySection = ({ channel, slug }) => {
 
   return (
     <div className="landing-section-container" style={{ padding: '0 12px 20px 12px', boxSizing: 'border-box' }}>
-      <SponsoredCategoryBlock channel={channel} categoryId={category._id} organicProducts={products} ready={!loading} />
+      <SponsoredCategoryBlock channel={channel} categoryId={category._id} ready={!loading} onShown={setSponsoredIds} />
       {loading ? (
         <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b', fontSize: 13 }}>
           Loading products...
@@ -161,7 +164,7 @@ const DynamicCategorySection = ({ channel, slug }) => {
       ) : (
         /* A Main or Sub category selected directly — nothing to group by. */
         <div style={{ marginTop: 16 }}>
-          <ProductGrid products={products} onOpen={openProduct} onAdd={addProduct} />
+          <ProductGrid products={listed} onOpen={openProduct} onAdd={addProduct} />
         </div>
       )}
     </div>

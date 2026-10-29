@@ -159,3 +159,54 @@ test('categories grid opens each category as its own products page and back step
     assert.equal(chosen.at(-1), null);
   } finally { h.close(); }
 });
+
+test('a product shown in the Sponsored row is left out of the category list below, and returns when the ad stops', async () => {
+  const context = { activeMode: 'quick', setSelectedCategoryFilter() {}, setSelectedProduct() {}, addToCart() {} };
+  const h = hookHarness(Categories, {}, '/categories', context);
+  try {
+    const adLeaf = { ...leaf, _id: 'ad-leaf', slug: 'grocery--fresh--fruit--ad', name: 'Ad leaf' }, adMain = { ...main, _id: 'ad-main', slug: 'grocery--fresh--adfruit', name: 'Ad fruit', children: [adLeaf] };
+    treeRequest(h).resolve([{ ...root, _id: 'ad-root', slug: 'grocery--adfresh', children: [adMain] }]); await h.settle();
+    h.find(node => node.props?.className === 'all-category-main').props.onClick(); h.flush();
+    button(h, 'Ad fruit').props.onClick(); h.flush(); button(h, 'Ad leaf').props.onClick(); h.flush();
+    h.requests.find(request => request.url.includes('/products?') && new URL(request.url, 'http://fixture').searchParams.get('category') === 'ad-leaf').resolve({ products: [{ _id: 'advertised', name: 'Advertised amla', price: 500, images: [], type: 'grocery' }, { _id: 'plain', name: 'Plain amla', price: 400, images: [], type: 'grocery' }] }); await h.settle();
+    const block = () => h.find(node => typeof node.type === 'function' && node.props?.onShown);
+    assert.equal(block().props.categoryId, 'ad-leaf'); assert.equal(block().props.organicProducts, undefined, 'The page list is not sent to be left out of the ads');
+    const listed = () => text(h.find(node => node.props?.className === 'category-products-grid'));
+    assert.match(listed(), /Advertised amla[\s\S]*Plain amla/);
+    block().props.onShown(['advertised']); h.flush();
+    assert.doesNotMatch(listed(), /Advertised amla/); assert.match(listed(), /Plain amla/);
+    block().props.onShown([]); h.flush();
+    assert.match(listed(), /Advertised amla/);
+  } finally { h.close(); }
+});
+
+test('home-page category section: the Sponsored row asks for this category, its products leave every section below, and come back when the ad stops', async () => {
+  const Dynamic = (await vite.ssrLoadModule('/src/modules/User/components/DynamicCategorySection.jsx')).default;
+  const earbuds = { _id: 'home-earbuds', slug: 'grocery--home-travel--earbuds', name: 'Home earbuds', type: 'grocery', children: [] };
+  const cloth = { _id: 'home-cloth', slug: 'grocery--home-travel--cloth', name: 'Home cloth', type: 'grocery', children: [] };
+  const travel = { _id: 'home-travel', slug: 'grocery--home-travel', name: 'Home travel', type: 'grocery', children: [earbuds, cloth] };
+  const h = hookHarness(Dynamic, { channel: 'grocery', slug: 'grocery--home-travel' }, '/grocery--home-travel', { addToCart() {}, setSelectedProduct() {} });
+  try {
+    treeRequest(h).resolve([travel]); await h.settle();
+    const productsRequest = h.requests.find(request => request.url.includes('/products?') && new URL(request.url, 'http://fixture').searchParams.get('category') === 'home-travel,home-earbuds,home-cloth');
+    assert.ok(productsRequest, 'The section loads its whole branch');
+    const block = () => h.find(node => typeof node.type === 'function' && node.props?.onShown);
+    assert.equal(block().props.ready, false, 'The Sponsored row waits until the section has loaded');
+    productsRequest.resolve({ products: [
+      { _id: 'home-buds', name: 'Home wireless earbuds', price: 450, images: [], type: 'grocery', category: { _id: 'home-earbuds' } },
+      { _id: 'home-dress', name: 'Home dress', price: 999, images: [], type: 'grocery', category: { _id: 'home-cloth' } },
+      { _id: 'home-scarf', name: 'Home scarf', price: 199, images: [], type: 'grocery', category: { _id: 'home-cloth' } },
+    ] }); await h.settle();
+    assert.equal(block().props.categoryId, 'home-travel'); assert.equal(block().props.channel, 'grocery'); assert.equal(block().props.ready, true);
+    assert.equal(block().props.organicProducts, undefined, 'The section list is not sent to be left out of the ads');
+    // Names of the products each grid below the Sponsored row receives, plus the section titles.
+    const below = () => { const out = []; const walk = n => { if (!n || typeof n !== 'object') return; if (Array.isArray(n.props?.products)) out.push(...n.props.products.map(x => x.name)); if (n.props?.className === 'section-title') out.push(text(n)); [n.props?.children].flat(Infinity).forEach(walk); }; walk(h.tree); return out.join(' | '); };
+    assert.match(below(), /Home wireless earbuds/); assert.match(below(), /Home dress[\s\S]*Home scarf|Home scarf[\s\S]*Home dress/);
+    block().props.onShown(['home-buds', 'home-dress']); h.flush();
+    assert.doesNotMatch(below(), /Home wireless earbuds|Home dress/, 'Sponsored products appear once, in the Sponsored row');
+    assert.match(below(), /Home scarf/, 'Other products stay listed'); assert.doesNotMatch(below(), /Home earbuds/, 'An emptied section is not shown');
+    assert.doesNotMatch(text(h.tree), /No products listed here yet/, 'The section is not shown as empty');
+    block().props.onShown([]); h.flush();
+    assert.match(below(), /Home wireless earbuds/); assert.match(below(), /Home dress/);
+  } finally { h.close(); }
+});

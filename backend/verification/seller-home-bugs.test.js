@@ -12,6 +12,7 @@ import Category from '../models/Category.js';
 import { getDashboard, getSellerOrders } from '../controllers/seller.controller.js';
 import { getSellerFinanceSummary } from '../controllers/sellerFinance.controller.js';
 import Ledger from '../models/SellerLedgerEntry.js';
+import { getSellerBalancesAdmin } from '../controllers/adminSellerFinance.controller.js';
 import { processBulkUpload } from '../controllers/bulkProduct.controller.js';
 import { uploadBulkFiles } from '../middlewares/upload.middleware.js';
 import { errorHandler } from '../middlewares/error.middleware.js';
@@ -22,6 +23,7 @@ const app = express();
 app.use((req, _res, next) => { req.user = { _id: userId }; req.seller = seller; req.userType = 'user'; next(); });
 app.get('/dashboard', getDashboard); app.get('/orders', getSellerOrders);
 app.get('/finances', getSellerFinanceSummary);
+app.get('/admin-balances', getSellerBalancesAdmin);
 app.post('/bulk', uploadBulkFiles, processBulkUpload); app.use(errorHandler);
 beforeAll(async () => { db = await MongoMemoryReplSet.create({ binary: { version: '7.0.14' }, replSet: { count: 1 } }); await mongoose.connect(db.getUri()); });
 afterAll(async () => { await mongoose.disconnect(); await db?.stop(); });
@@ -124,4 +126,26 @@ test('missing image filenames produce row errors and generated template includes
   expect(workbook.getWorksheet(1).getCell('Q2').value).toBe('Stock');
   expect(workbook.getWorksheet(1).getCell('Q4').dataValidation.type).toBe('whole');
   expect(workbook.definedNames.model.some(name => name.name === 'HeaderCategories')).toBe(true);
+});
+
+test('Finance Center and seller Earnings share sales, discounts, storefronts and scope even after some earnings are posted', async()=>{
+ for(const [type,price,discount] of [['ecommerce',1300,200],['ecommerce',500,100],['grocery',1800,50],['ecommerce',200,0],['grocery',500,100],['ecommerce',500,0],['grocery',500,50]]){
+  await order('delivered',{type,items:[item(seller._id,price)],pricing:{subtotal:price,couponDiscount:discount,totalAmount:price-discount}});
+ }
+ const sellerView=(await request(app).get('/finances').expect(200)).body.data;
+ let adminView=(await request(app).get('/admin-balances').expect(200)).body.data.rows[0];
+ expect(adminView.salesMetrics).toEqual(sellerView.salesMetrics);
+ expect(adminView.salesMetrics).toMatchObject({grossSales:5300,customerDiscounts:500,totalRevenue:4800,completedOrders:7});
+ expect(adminView.salesByChannel.ecommerce).toMatchObject({revenue:2200,grossSales:2500,customerDiscounts:300});
+ expect(adminView.salesByChannel.grocery).toMatchObject({revenue:2600,grossSales:2800,customerDiscounts:200});
+ expect(adminView.balances.eligible).toBe(0);expect(adminView.unpostedSales.orderCount).toBe(7);
+ expect(sellerView.payoutActionsEnabled).toBe(false);expect(await Ledger.countDocuments()).toBe(0);
+ // A posted order still contributes to completed sales on both screens, while
+ // the unposted-order diagnostic remains a separate subset of those sales.
+ await order('delivered',{financialPosting:'eligible',items:[item(seller._id,700)],pricing:{subtotal:700,totalAmount:700}});
+ await Ledger.collection.insertOne({sellerId:seller._id,account:'seller_payable',type:'order_earning',direction:'credit',bucket:'eligible',amount:630,currency:'INR'});
+ adminView=(await request(app).get('/admin-balances').expect(200)).body.data.rows[0];
+ const after=(await request(app).get('/finances').expect(200)).body.data;
+ expect(adminView.salesMetrics).toEqual(after.salesMetrics);expect(adminView.salesMetrics.totalRevenue).toBe(5500);expect(adminView.salesMetrics.completedOrders).toBe(8);
+ expect(adminView.unpostedSales.orderCount).toBe(7);expect(adminView.balances.eligible).toBe(630);expect(after.balances.eligible).toBe(630);expect(await Ledger.countDocuments()).toBe(1);
 });

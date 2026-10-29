@@ -205,6 +205,6 @@ test('reports area lists tax and accounting sections',()=>{
 test('overview explains unposted delivered sales without increasing payable money',async()=>{
  const h=hookHarness(Overview,{onNavigate:()=>{}});try{
   h.requests[0].resolve({data:{flags:{},policy:{},todo:{},totalsPaise:{sellersAvailable:0},unpostedSellerSales:[{grossPaise:205000,orderCount:3}]}});await h.settle();
-  assert.match(text(h),/₹2,050.00/);assert.match(text(h),/no posted seller earning/);assert.ok(h.find(n=>n.type==='button'&&n.props.children==='See missing seller earnings'));
+  assert.doesNotMatch(text(h),/₹2,050.00/);assert.match(text(h),/no posted seller earning/);assert.ok(h.find(n=>n.type==='button'&&n.props.children==='See missing seller earnings'));
  }finally{h.close();}
 });

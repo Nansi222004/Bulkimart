@@ -101,6 +101,8 @@ const sellerPromotionSchema = new Schema(
 );
 
 sellerPromotionSchema.index({ sellerId: 1, module: 1, status: 1 });
+sellerPromotionSchema.index({ sellerId: 1, 'advertising.requestKey': 1 }, { unique: true,
+  partialFilterExpression: { 'advertising.requestKey': { $type: 'string' } } });
 sellerPromotionSchema.pre('validate', function () {
   if (this.advertisingVersion === 2 && (!this.advertising || this.status !== 'DISABLED')) {
     this.invalidate('advertising', 'Versioned advertising requires its isolated state and a disabled legacy status');

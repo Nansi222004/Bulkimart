@@ -7,8 +7,8 @@ import { normalizeProduct } from '../../modules/User/hooks/useProducts';
 import ProductCard from '../../modules/User/components/CategoryProductCard';
 import './advertising.css';
 
-export function uniqueSponsoredProducts(rows, organicIds) {
-  const seen = new Set(organicIds.map(String)), result = [];
+export function uniqueSponsoredProducts(rows, skipIds = []) {
+  const seen = new Set(skipIds.map(String)), result = [];
   for (const row of rows || []) {
     const id = row.product?._id;
     if (!id || seen.has(String(id)) || !['NON_BILLABLE_PILOT','PAID_CATEGORY'].includes(row.mode) || row.disclosure !== 'Sponsored') continue;
@@ -18,12 +18,14 @@ export function uniqueSponsoredProducts(rows, organicIds) {
 }
 
 // Optional independent read. Organic rendering never waits on this request.
-export default function SponsoredCategoryBlock({ channel, categoryId, organicProducts = [], ready = true }) {
+// An advertised product usually also belongs to the page's own product list, so it is never left
+// out here: the page hides the products reported through onShown from its list instead, and each
+// product still appears once.
+export default function SponsoredCategoryBlock({ channel, categoryId, ready = true, onShown }) {
   const { getDeliveryPoint, setSelectedProduct, addToCart } = useUser();
   const point = getDeliveryPoint?.();
   const lat = point?.lat, lng = point?.lng;
-  const organicKey = organicProducts.map(p => String(p.id || p._id)).sort().join(',');
-  const context = `${channel}:${categoryId}:${lat}:${lng}:${organicKey}`;
+  const context = `${channel}:${categoryId}:${lat}:${lng}`;
   const [result, setResult] = useState(null), [tick, setTick] = useState(0);
   const blockRef=useRef(null);
   useEffect(() => {
@@ -32,13 +34,12 @@ export default function SponsoredCategoryBlock({ channel, categoryId, organicPro
     setResult(null);
     const controller = new AbortController();
     const query = new URLSearchParams({ type: channel, category: categoryId });
-    if (organicKey) query.set('exclude', organicKey);
     if (Number.isFinite(lat) && Number.isFinite(lng)) { query.set('lat', String(lat)); query.set('lng', String(lng)); }
     boundedFetch(apiUrl(`/api/advertising/placements?${query}`), { signal: controller.signal, cache: 'no-store' }, 4000)
       .then(async response => {
         const body = await response.json();
         if (alive && response.ok && ['NON_BILLABLE_PILOT','SPONSORED_CATEGORY'].includes(body.meta?.mode)) {
-          setResult({ context, rows: uniqueSponsoredProducts(body.data, organicKey ? organicKey.split(',') : []) });
+          setResult({ context, rows: uniqueSponsoredProducts(body.data) });
         }
       }).catch(() => {});
     // Refresh live eligibility; merely returning cards never records a view.
@@ -54,6 +55,8 @@ export default function SponsoredCategoryBlock({ channel, categoryId, organicPro
   }, [result]);
   useEffect(()=>observeAdImpressions(blockRef.current,ready&&result?.context===context?result.rows:[]),[result,context,ready]);
   const rows = ready && result?.context === context ? result.rows : [];
+  const shownKey = rows.map(row => String(row.product._id)).join(',');
+  useEffect(() => { onShown?.(shownKey ? shownKey.split(',') : []); }, [shownKey]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!rows.length) return null;
   return <section ref={blockRef} className="sponsored-category-block" aria-label="Sponsored products">
     <header><h2>Sponsored</h2><span>{rows.every(r=>r.mode==='NON_BILLABLE_PILOT')?'Non-billable pilot':'Sponsored category'}</span></header>

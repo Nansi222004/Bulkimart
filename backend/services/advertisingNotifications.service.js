@@ -1,4 +1,11 @@
+import Seller from '../models/Seller.js';
 import { notifyAllAdmins, notifySeller } from './notification.service.js';
+
+// The store name admins see in the review notification; a failed lookup keeps the generic wording.
+const storeName = async sellerId => {
+  const seller = await Seller.findById(sellerId).select('businessName storeDetails.name').lean().catch(() => null);
+  return seller?.storeDetails?.name || seller?.businessName || '';
+};
 
 // Call only after the campaign transaction commits. Versioned keys suppress
 // duplicate deliveries without suppressing a later resubmission or decision.
@@ -8,7 +15,7 @@ export async function notifyAdvertisingChange(row, action) {
   const dedupeKey = `advertising:${id}:${row.__v}:${action}`;
   if (action === 'submit') return notifyAllAdmins({
     event: 'ADVERTISING_SUBMITTED', title: 'Advertising campaign awaiting review',
-    message: `A seller submitted “${row.title}”. Open the campaign to review it.`,
+    message: `${await storeName(row.sellerId) || 'A seller'} submitted “${row.title}”. Open the campaign to review it.`,
     metadata, dedupeKey, route: `/admin/advertising?campaign=${id}`,
   });
   const payable = a.review === 'APPROVED' && a.approvedRevision === a.revision && a.paid?.authorizedBy && a.paid.revision === a.revision;

@@ -9,9 +9,9 @@ import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, httpError } from '../utils/response.js';
 import { advertisingCapabilities, advertisingPermission, requireAdvertisingManagement, advertisingUnavailable } from '../services/advertisingPolicy.service.js';
-import { advertisingCampaign, campaignDTO, createAdvertisingCampaign, changeAdvertisingCampaign, requestAdvertisingPayment, listAdvertisingCampaigns, packageDTO, saveAdvertisingPackage, advertisingPagination } from '../services/advertising.service.js';
+import { advertisingCampaign, campaignDTO, createAdvertisingCampaign, changeAdvertisingCampaign, requestAdvertisingPayment, listAdvertisingCampaigns, campaignViews, packageDTO, saveAdvertisingPackage, advertisingPagination } from '../services/advertising.service.js';
 import * as billing from '../services/advertisingBilling.service.js';
-import { advertisingEventSummary } from '../services/advertisingTelemetry.service.js';
+import { advertisingEventSummary, campaignRun } from '../services/advertisingTelemetry.service.js';
 
 export function advertisingRouter(admin = false) {
   const router = express.Router();
@@ -32,7 +32,7 @@ export function advertisingRouter(admin = false) {
   router.get('/campaigns/:id/billing',...financeRead,asyncHandler(async(req,res)=>ok(res,await billing.advertisingBillingStatus(req.params.id,admin?undefined:req.seller._id))));
   router.get('/campaigns/:id/analytics',...(admin?[advertisingPermission('advertising_review')]:[]),asyncHandler(async(req,res)=>{
     const c=await advertisingCampaign(req.params.id,admin?undefined:req.seller._id);
-    return ok(res,await advertisingEventSummary(c._id,req.query.from,req.query.to));
+    return ok(res,await advertisingEventSummary(c._id,req.query.from,req.query.to,campaignRun(c)));
   }));
   if(admin){
     router.post('/campaigns/:id/refund',advertisingPermission('advertising_refund'),asyncHandler(async(req,res)=>ok(res,await billing.requestAdvertisingRefund(req.params.id,req.user._id,req.body))));
@@ -48,7 +48,10 @@ export function advertisingRouter(admin = false) {
   router.get('/campaigns', ...review, asyncHandler(async (req, res) => {
     const { rows, ...meta } = await listAdvertisingCampaigns(scope(req), req.query); return paginated(res, rows, meta);
   }));
-  router.get('/campaigns/:id', ...review, asyncHandler(async (req, res) => ok(res, campaignDTO(await advertisingCampaign(req.params.id, scope(req))))));
+  router.get('/campaigns/:id', ...review, asyncHandler(async (req, res) => {
+    const row = await advertisingCampaign(req.params.id, scope(req));
+    return ok(res, (await campaignViews([row], { admin }))[0]);
+  }));
   router.get('/packages', ...config, asyncHandler(async (req, res) => {
     const { page, limit, skip } = advertisingPagination(req.query);
     const filter = { advertisingVersion: 2, ...(!admin ? { isActive: true, 'advertising.archivedAt': null } : {}) };
@@ -77,12 +80,35 @@ export function advertisingRouter(admin = false) {
       const { page, limit, skip } = advertisingPagination(req.query);
       const channel = advertisingChannel(req.query.module);
       const filter = { sellerId: req.seller._id, isDeleted: false, $and: [channelVisibility(channel), { $or: [{ type: channel }, { channels: { $elemMatch: { type: channel, isActive: { $ne: false } } } }] }] };
+      // Optional search by name or SKU, and a category filter matching the category rule of campaigns.
+      if (req.query.q !== undefined) {
+        if (typeof req.query.q !== 'string' || req.query.q.length > 100) throw httpError(400, 'Invalid product search');
+        const words = req.query.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (words) filter.$and.push({ $or: [{ name: { $regex: words, $options: 'i' } }, { sku: { $regex: words, $options: 'i' } }] });
+      }
+      if (req.query.category !== undefined) {
+        const category = advertisingId(req.query.category);
+        filter.$and.push({ $or: [{ type: channel, $or: [{ category }, { subCategory: category }] }, { channels: { $elemMatch: { type: channel, isActive: { $ne: false }, $or: [{ category }, { subCategory: category }] } } }] });
+      }
       const [rows, total] = await Promise.all([Product.find(filter).select('name images sku price stock variants category subCategory channels type status isActive fulfillmentType')
-        .populate('category', 'name').populate('channels.category', 'name').sort({ _id: -1 }).skip(skip).limit(limit).lean(), Product.countDocuments(filter)]);
+        .populate('category', 'name parent').populate('subCategory', 'name parent').populate('channels.category', 'name parent').populate('channels.subCategory', 'name parent')
+        .sort({ _id: -1 }).skip(skip).limit(limit).lean(), Product.countDocuments(filter)]);
+      const placements = p => [...(p.type === channel ? [p] : []), ...(p.channels || []).filter(c => c.type === channel && c.isActive !== false)];
+      // Every category a campaign may use for this product (its category or sub-category in this
+      // storefront), most specific first, each with its parent so the seller can merge groups.
+      const adCategories = p => {
+        const seen = new Map();
+        for (const { category, subCategory } of placements(p)) for (const c of [subCategory, category]) if (c?._id && !seen.has(String(c._id))) {
+          const parent = c === subCategory && category?._id && String(category._id) === String(c.parent) ? category : null;
+          seen.set(String(c._id), { id: c._id, name: c.name, parentId: c.parent || null, parentName: parent?.name || '' });
+        }
+        return [...seen.values()];
+      };
       const data = rows.map(p => ({ id: p._id, name: p.name, image: p.images?.[0], sku: p.sku,
         eligible: p.status === 'approved' && p.isActive && p.fulfillmentType !== 'digital' && p.stock > 0,
         reason: p.status !== 'approved' ? 'Product is not approved' : !p.isActive ? 'Product is inactive' : p.fulfillmentType === 'digital' ? 'Digital ads are outside this release' : p.stock < 1 ? 'Out of stock' : '',
-        categories: [...(p.type === channel ? [p.category] : []), ...(p.channels || []).filter(c => c.type === channel && c.isActive !== false).map(c => c.category)].filter(c => c?._id).map(c => ({ id: c._id, name: c.name })),
+        categories: placements(p).map(c => c.category).filter(c => c?._id).map(c => ({ id: c._id, name: c.name })),
+        adCategories: adCategories(p),
         variants: (p.variants?.length ? p.variants : [{ name: 'Standard', price: p.price, stock: p.stock }]).map(v => ({ id: v._id, name: v.name, price: v.price, stock: v.stock })),
       }));
       return paginated(res, data, { page, limit, total });

@@ -1,5 +1,6 @@
 import React, {useEffect,useRef,useState} from 'react';
-import {advertisingApi,advertisingMoney} from './advertisingApi';
+import {advertisingApi,advertisingMoney,plainStatus,GST_CHOICES} from './advertisingApi';
+const STOREFRONT={ECOMMERCE:'Shop All',QUICK:'Quick Commerce'};
 import {openRazorpayCheckout} from '../../utils/razorpayCheckout';
 const when=d=>new Date(d).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
 // One sentence telling the seller where the campaign stands and what happens next.
@@ -59,35 +60,72 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
       </>}
     </section>;
   }
-  return <section className="ad-card" aria-label="Advertising billing">
-    <h3>Campaign billing and service</h3>{error&&<p role="alert">{error}</p>}
-    <button disabled={busy} onClick={()=>setRefresh(n=>n+1)}>Refresh billing status</button>
-    {!data&&!error&&<p role="status">Loading billing evidence…</p>}
+  // Admin view: a short summary first; the accepted terms, payment record and each finance action
+  // sit in their own folded sections, opened only when needed.
+  const percent=bps=>`${bps/100}%`;
+  const reasonField=<label className="ad-field"><span className="ad-field-title">Reason</span><textarea maxLength={2000} placeholder="Why are you doing this? It is saved with the action." value={reason} onChange={e=>setReason(e.target.value)}/></label>;
+  const canRequestPayment=finance&&q&&c?.review==='APPROVED'&&c?.funding==='UNPAID'&&!data?.paidAuthorization;
+  const canCheck=reconcile&&p,canRefund=refund&&p,canEarn=finance&&c?.delivery==='COMPLETED';
+  return <section className="ad-card ad-billing-panel" aria-label="Payment and ad status">
+    <div className="ad-pay-head"><h3>Payment and ad status</h3><button type="button" disabled={busy} onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>
+    {error&&<p role="alert" className="ad-error">{error}</p>}
+    {!data&&!error&&<p role="status">Loading payment details…</p>}
     {data&&<>
-      <p>Review: {c.review} · Funding: {c.funding} · Delivery: {c.delivery}</p>
-      <p>{c.terms?.name} · Sponsored category · {c.module}</p>
-      {q?<><p>Base: {advertisingMoney(q.basePaise)} · Tax: {advertisingMoney(q.taxPaise)} · Total: <strong>{advertisingMoney(q.totalPaise)}</strong> · {c.terms.durationDays} days</p>
-        <p>Accepted policy {q.policy.approvalReference}; issuer: {q.policy.issuer}. Tax treatment: {q.policy.taxTreatment}; configured rate: {q.policy.taxRateBps/100}%.</p>
-        <p>Service starts at verified payment or the requested future start, whichever is later. Interruptions stop delivery for review; no automatic extension.</p>
-        <p>Approved maximum refund limits: cancellation {q.policy.refunds.cancellationBps/100}%, suspension {q.policy.refunds.suspensionBps/100}%, unavailable service {q.policy.refunds.unavailableBps/100}%, unused service {q.policy.refunds.unusedBps/100}%. Refunds require authorized review.</p>
-      </>:<p>Billing is blocked: an accepted versioned tax, invoice, refund and service policy is required.</p>}
-      {c.paid?.startAt&&<p>Paid service: {new Date(c.paid.startAt).toLocaleString()} – {new Date(c.paid.endAt).toLocaleString()}</p>}
-      {c.pilot&&<p>Pilot authorization is separate from paid service: {c.pilot.enabled?'enabled':'stopped'}.</p>}
-      <p>Financial authorization: {data.paidAuthorization?'recorded':'pending'}.</p>
-      {p&&<><p>Payment {p.reference}: {p.status} · order creation {p.creation}{p.checkoutExpired?' · checkout expired':''} · reconciliation {p.reconciliation||'pending'}</p>
-        {p.gatewayFeePaise!==undefined&&<p>Observed provider fee {advertisingMoney(p.gatewayFeePaise)} · provider tax field {advertisingMoney(p.gatewayFeeTaxPaise)}. Expense and bank settlement review are separate.</p>}
-        <p>Received {advertisingMoney(p.receiptPaise)} · refunded {advertisingMoney(p.refundedPaise)} · recognized revenue {advertisingMoney(p.recognizedPaise)}</p>
-        {p.invoiceReference&&<p>Approved external invoice reference: {p.invoiceReference}</p>}
-        {p.refunds.map(r=><div key={r.key}><p>Refund {advertisingMoney(r.amountPaise)}: {r.status} · {r.reason}{r.creditNoteReference?` · Credit note ${r.creditNoteReference}`:''}</p>{admin&&reconcile&&['UNKNOWN','PENDING','DISPATCHING'].includes(r.status)&&<button disabled={busy} onClick={()=>act('refund-reconcile',{key:r.key})}>Reconcile this refund</button>}</div>)}
-      </>}
-      {admin&&data.journal&&<details><summary>Immutable advertising accounting events</summary><ul>{data.journal.map(e=><li key={e.id}>{e.entryNo} · {e.account} · {e.direction} · {advertisingMoney(e.amountPaise)} · {new Date(e.at).toLocaleString()}</li>)}</ul>{data.journalTruncated&&<p>Journal display is bounded. Further financial evidence requires an authorized export review.</p>}</details>}
-      <label>Action reason<textarea maxLength={2000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
-      {admin&&finance&&q&&c.review==='APPROVED'&&c.funding==='UNPAID'&&!data.paidAuthorization&&<><label>Approved external invoice reference (when required)<input maxLength={200} value={invoice} onChange={e=>setInvoice(e.target.value)}/></label><button disabled={busy||!reason.trim()} onClick={()=>act('billing-authorize',{version:c.version,reason,invoiceReference:invoice})}>Request seller payment</button></>}
-      {admin&&reconcile&&p&&<><label>Gateway order ID for uncertain creation<input value={gatewayOrder} onChange={e=>setGatewayOrder(e.target.value)}/></label><button disabled={busy} onClick={()=>act('reconcile',gatewayOrder?{gatewayOrderId:gatewayOrder}:{})}>Reconcile gateway payment</button></>}
-      {admin&&refund&&p&&<>
-        {data.gateway&&<label>Captured payment for refund<select value={capture} onChange={e=>setCapture(e.target.value)}><option value="">Primary capture</option>{data.gateway.captures.map(r=><option key={r.id} value={r.id}>{r.id} · {advertisingMoney(r.amountPaise)} · {r.disposition}</option>)}</select></label>}
-        <label>Refund amount (INR)<input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label><label>Approved credit-note reference (when required)<input maxLength={200} value={creditNote} onChange={e=>setCreditNote(e.target.value)}/></label><button disabled={busy||!reason.trim()||!amount||!capabilities.refundsEnabled} onClick={()=>{operationKey.current ||= crypto.randomUUID();return act('refund',{key:operationKey.current,amountPaise:Math.round(Number(amount)*100),reason,creditNoteReference:creditNote,...(capture?{captureId:capture}:{})});}}>Request authorized refund</button></>}
-      {admin&&finance&&c.delivery==='COMPLETED'&&<><label>Service-delivery finance review evidence<input maxLength={200} value={evidence} onChange={e=>setEvidence(e.target.value)}/></label><button disabled={busy||!evidence||!reason.trim()} onClick={()=>act('recognize',{reason,evidenceReference:evidence})}>Recognize reviewed service revenue</button></>}
+      <ul className="ad-billing-states" aria-label="Campaign state">
+        <li><span>Review</span><strong>{plainStatus('review',c.review)}</strong></li>
+        <li><span>Payment</span><strong>{plainStatus('funding',c.funding)}</strong></li>
+        <li><span>Ad</span><strong>{plainStatus('delivery',c.delivery)}</strong></li>
+      </ul>
+      {q?<p className="ad-billing-line"><strong>{c.terms?.name}</strong> · {STOREFRONT[c.module]||c.module} · {q.taxPaise?<>{advertisingMoney(q.basePaise)} + {advertisingMoney(q.taxPaise)} GST = <strong>{advertisingMoney(q.totalPaise)}</strong></>:<><strong>{advertisingMoney(q.totalPaise)}</strong> (no GST)</>} for {c.terms.durationDays} days</p>
+        :<p className="ad-notice" role="alert">The seller cannot pay for this campaign yet: it was submitted when its package had no GST and refund terms saved. Open the package in “Packages and policies”, check the GST and click “Save changes”, then click “Request changes” here so the seller submits the campaign again with the saved terms.</p>}
+      <p className="ad-billing-line">Seller can pay: {data.paidAuthorization?'yes, payment is open':'not yet'}.{c.paid?.startAt?` Paid ad runs ${when(c.paid.startAt)} – ${when(c.paid.endAt)}.`:''}{c.pilot?` Free test run (separate from the paid ad): ${c.pilot.enabled?'on':'stopped'}.`:''}</p>
+      {p&&<div className="ad-metrics-tiles" aria-label="Money">
+        <div><strong>{advertisingMoney(p.receiptPaise)}</strong><span>Received from seller</span></div>
+        <div><strong>{advertisingMoney(p.refundedPaise)}</strong><span>Refunded</span></div>
+        <div><strong>{advertisingMoney(p.recognizedPaise)}</strong><span>Counted as earned (after the ad ends)</span></div>
+      </div>}
+
+      {q&&<details className="ad-fold"><summary>Terms the seller accepted</summary>
+        <p>Billed by {q.policy.issuer}. GST: {GST_CHOICES[q.policy.taxTreatment]||q.policy.taxTreatment}{q.policy.taxRateBps?` at ${percent(q.policy.taxRateBps)}`:''}. Terms reference: {q.policy.approvalReference}.</p>
+        <p>The ad starts when the seller has paid, or on the chosen start date if that is later. If the ad has to stop, it stays stopped until Bulkimart checks it, and the lost days are not added back automatically.</p>
+        <p>Most that can be refunded: {percent(q.policy.refunds.cancellationBps)} if cancelled, {percent(q.policy.refunds.suspensionBps)} if suspended, {percent(q.policy.refunds.unavailableBps)} if the ad cannot be shown, {percent(q.policy.refunds.unusedBps)} of unused days. Every refund needs approval.</p>
+      </details>}
+      {p&&<details className="ad-fold"><summary>Payment record</summary>
+        <p>Payment {p.reference}: {p.status}{p.checkoutExpired?' · payment time ran out':''} · Razorpay order: {p.creation} · Checked with Razorpay: {p.reconciliation||'not yet'}</p>
+        {p.gatewayFeePaise!==undefined&&<p>Razorpay fee: {advertisingMoney(p.gatewayFeePaise)} (tax on the fee: {advertisingMoney(p.gatewayFeeTaxPaise)}). The bank payout is checked separately.</p>}
+        {p.invoiceReference&&<p>Invoice number: {p.invoiceReference}</p>}
+        {p.refunds.map(r=><div key={r.key}><p>Refund {advertisingMoney(r.amountPaise)}: {r.status} · {r.reason}{r.creditNoteReference?` · Credit note ${r.creditNoteReference}`:''}</p>{reconcile&&['UNKNOWN','PENDING','DISPATCHING'].includes(r.status)&&<button disabled={busy} onClick={()=>act('refund-reconcile',{key:r.key})}>Check this refund with Razorpay</button>}</div>)}
+        {data.journal&&<details className="ad-fold"><summary>Accounting entries (cannot be changed)</summary><ul>{data.journal.map(e=><li key={e.id}>{e.entryNo} · {e.account} · {e.direction} · {advertisingMoney(e.amountPaise)} · {new Date(e.at).toLocaleString()}</li>)}</ul>{data.journalTruncated&&<p>Only the latest entries are shown. Ask finance for a full export.</p>}</details>}
+      </details>}
+
+      {(canRequestPayment||canCheck||canRefund||canEarn)&&<div className="ad-billing-tools">
+        <h4>Finance tools</h4>
+        {canRequestPayment&&<details className="ad-fold ad-tool"><summary>Open payment for the seller</summary>
+          <p>Lets the seller pay for this approved campaign.</p>{reasonField}
+          <label className="ad-field"><span className="ad-field-title">Invoice number (only if this package needs one)</span><input maxLength={200} value={invoice} onChange={e=>setInvoice(e.target.value)}/></label>
+          <button className="ad-primary" disabled={busy||!reason.trim()} onClick={()=>act('billing-authorize',{version:c.version,reason,invoiceReference:invoice})}>Request seller payment</button>
+        </details>}
+        {canCheck&&<details className="ad-fold ad-tool"><summary>Check a payment with Razorpay</summary>
+          <p>Use only if a payment looks stuck or wrong, for example the seller paid but it still shows “Payment in progress”. Bulkimart asks Razorpay what really happened and updates the campaign.</p>
+          <label className="ad-field"><span className="ad-field-title">Razorpay order ID (only if the order was not recorded)</span><input value={gatewayOrder} onChange={e=>setGatewayOrder(e.target.value)}/></label>
+          <button disabled={busy} onClick={()=>act('reconcile',gatewayOrder?{gatewayOrderId:gatewayOrder}:{})}>Check payment with Razorpay</button>
+        </details>}
+        {canRefund&&<details className="ad-fold ad-tool"><summary>Refund the seller</summary>
+          <p>Sends money back to the seller’s original payment method and stops the ad. The amount cannot go above the refund limits in the accepted terms.</p>{reasonField}
+          {data.gateway&&<label className="ad-field"><span className="ad-field-title">Payment to refund</span><select value={capture} onChange={e=>setCapture(e.target.value)}><option value="">Main payment</option>{data.gateway.captures.map(r=><option key={r.id} value={r.id}>{r.id} · {advertisingMoney(r.amountPaise)} · {r.disposition}</option>)}</select></label>}
+          <div className="ad-form-grid">
+            <label className="ad-field"><span className="ad-field-title">Refund amount (₹)</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
+            <label className="ad-field"><span className="ad-field-title">Credit note number (only if needed)</span><input maxLength={200} value={creditNote} onChange={e=>setCreditNote(e.target.value)}/></label>
+          </div>
+          {!capabilities.refundsEnabled&&<p>Refunds are not available right now.</p>}
+          <button className="ad-danger" disabled={busy||!reason.trim()||!amount||!capabilities.refundsEnabled} onClick={()=>{operationKey.current ||= crypto.randomUUID();return act('refund',{key:operationKey.current,amountPaise:Math.round(Number(amount)*100),reason,creditNoteReference:creditNote,...(capture?{captureId:capture}:{})});}}>Request refund</button>
+        </details>}
+        {canEarn&&<details className="ad-fold ad-tool"><summary>Mark ad money as earned</summary>
+          <p>The ad has finished. After finance has checked it ran, this records the payment as Bulkimart’s income.</p>{reasonField}
+          <label className="ad-field"><span className="ad-field-title">Finance check reference (proof the ad ran)</span><input maxLength={200} value={evidence} onChange={e=>setEvidence(e.target.value)}/></label>
+          <button className="ad-primary" disabled={busy||!evidence||!reason.trim()} onClick={()=>act('recognize',{reason,evidenceReference:evidence})}>Mark ad money as earned</button>
+        </details>}
+      </div>}
     </>}
   </section>;
 }

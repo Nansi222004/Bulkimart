@@ -28,6 +28,8 @@ export const advertisingCampaignSchema = new Schema({
   categoryId: id('Category'),
   items: [{ _id: false, productId: id('Product'), variantId: Schema.Types.ObjectId }],
   requestedStartAt: Date,
+  // Client key of the create request, so a retried save returns the campaign instead of a duplicate.
+  requestKey: String,
   approvedRevision: Number,
   paid: { type: new Schema({ paymentId: id('Payment'), revision: Number, startAt: Date, endAt: Date,
     authorizedBy: id('Admin'), authorizedAt: Date, invoiceReference: String, lastEligibilityCheckAt: Date }, { _id: false }), default: undefined },

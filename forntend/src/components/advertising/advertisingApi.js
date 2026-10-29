@@ -20,6 +20,15 @@ export const campaignLabel = row => {
   if (row.review) return String(row.review).replaceAll('_', ' ');
   return 'DRAFT';
 };
+// Plain words for the campaign's review, payment and ad states (unknown codes are shown as they are).
+const PLAIN = {
+  review: { DRAFT: 'Draft', PENDING_REVIEW: 'Waiting for review', CHANGES_REQUESTED: 'Changes requested', APPROVED: 'Approved', REJECTED: 'Not approved' },
+  funding: { UNPAID: 'Not paid', PAYMENT_PENDING: 'Payment in progress', FUNDED: 'Paid', PAYMENT_FAILED: 'Payment failed', REFUND_PENDING: 'Refund in progress',
+    PARTIALLY_REFUNDED: 'Partly refunded', REFUNDED: 'Refunded', RECONCILIATION_REQUIRED: 'Payment needs checking' },
+  delivery: { NOT_SCHEDULED: 'Not scheduled', SCHEDULED: 'Scheduled', ACTIVE: 'Live', SELLER_PAUSED: 'Paused by seller', UNAVAILABLE: 'Paused (products unavailable)',
+    EXHAUSTED: 'Finished', COMPLETED: 'Finished', CANCELLED: 'Cancelled', ADMIN_SUSPENDED: 'Suspended by Bulkimart' },
+};
+export const plainStatus = (kind, value) => PLAIN[kind]?.[value] || String(value ?? '—').replaceAll('_', ' ').toLowerCase();
 // The package form asks only for what an admin decides: name, storefront, categories, price, days,
 // product limit and GST. Billing rules, refund limits, sales tracking and the seller-facing terms
 // get standard values here; an edited package keeps any it already had.

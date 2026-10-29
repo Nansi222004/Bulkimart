@@ -80,6 +80,8 @@ export default function AdvertisingPackageForm({ value, busy, onCancel, onSave }
             </div>
             {charge && <p className="ad-package-summary" role="status">Seller pays <strong>{advertisingMoney(charge.totalPaise)}</strong>
               {charge.taxPaise ? ` (${advertisingMoney(charge.basePaise)} + ${advertisingMoney(charge.taxPaise)} GST)` : ''} to show up to {form.maxProducts || '…'} products for {form.durationDays || '…'} days.</p>}
+            {/* An older package can have a price but no saved GST and refund terms; the fields above then show defaults. */}
+            {form.id && !form.policies?.billing && <p className="ad-notice" role="alert">This package has no GST and refund terms saved yet, so sellers cannot pay for it. The GST shown above is a suggestion: check it and click “Save changes” to save it.</p>}
           </div>
 
           <div className="ad-toggle-cards">

@@ -34,6 +34,8 @@ const CategoriesPage = () => {
   const { tree, loading, error, retry } = useCategoryTree(channel);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
+  // Products shown in the Sponsored row above; the list below leaves them out so none appears twice.
+  const [sponsoredIds, setSponsoredIds] = useState([]);
   const categoryIds = selected ? descendantIds(selected).join(',') : null;
   const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({
     type: channel, category: categoryIds, limit: 60, enabled: selected?.type === channel && !loading,
@@ -92,7 +94,7 @@ const CategoriesPage = () => {
       )}
       <section className="category-results-section" aria-label={`Products in ${selected.name}`}>
         {!productsLoading && !productsError && products.length > 0 && <p className="category-detail-count">{products.length} {products.length === 1 ? 'product' : 'products'}</p>}
-        <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} organicProducts={products} ready={!productsLoading && !productsError} />
+        <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} />
         {productsLoading ? (
           <div className="category-products-grid">{Array.from({ length: 4 }, (_, index) => <div className="category-result-card skeleton" key={index} />)}</div>
         ) : productsError ? (
@@ -101,7 +103,7 @@ const CategoriesPage = () => {
           <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
         ) : (
           <div className="category-products-grid">
-            {products.map((product) => (
+            {products.filter((product) => !sponsoredIds.includes(String(product._id))).map((product) => (
               <article className="category-result-card" key={product._id}>
                 <button type="button" className="category-result-open" onClick={() => setSelectedProduct(product)}>
                   <img src={product.images?.[0] || ''} alt={product.name} loading="lazy" />

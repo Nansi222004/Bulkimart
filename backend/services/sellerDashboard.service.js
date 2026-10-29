@@ -5,7 +5,7 @@ import { sellerOrderAmounts } from './sellerOrderAmounts.service.js';
 export const SELLER_PENDING_STATUSES = ['placed', 'confirmed', 'preparing'];
 const dayFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
 const dayKey = date => dayFormatter.format(new Date(date));
-const empty = () => ({ revenue: 0, revenuePendingOrders: 0, orders: 0, deliveredOrders: 0, netEarnings: 0, netEarningsPendingOrders: 0, netEarningsCalculatedOrders: 0, unpostedOrders: 0 });
+const empty = () => ({ revenue: 0, grossSales: 0, customerDiscounts: 0, revenuePendingOrders: 0, orders: 0, deliveredOrders: 0, netEarnings: 0, netEarningsPendingOrders: 0, netEarningsCalculatedOrders: 0, unpostedOrders: 0 });
 
 // Read historical order terms, including allocated discounts. Checkout attempts
 // and other sellers' goods must never contribute to the seller's sales figures.
@@ -30,6 +30,8 @@ export async function sellerDashboardMetrics(sellerId, channel, now = new Date()
     if (Number.isFinite(amounts.customerItemsTotal) && !hasReturns) {
       const amount = Math.round(amounts.customerItemsTotal * 100);
       totals.revenue += amount;
+      totals.grossSales += Math.round(amounts.subtotal * 100);
+      totals.customerDiscounts += Math.round(amounts.totalDiscount * 100);
       const deliveredAt = order.items.find(item => String(item.sellerId) === String(sellerId) && item.deliveredAt)?.deliveredAt
         || order.timeline?.find(event => event.status === 'delivered')?.timestamp || order.createdAt;
       const day = days.get(dayKey(deliveredAt));
@@ -50,13 +52,17 @@ export async function sellerDashboardMetrics(sellerId, channel, now = new Date()
   ]);
   return {
     kpis: { totalOrders: scoped.orders, totalRevenue: scoped.revenuePendingOrders ? null : scoped.revenue / 100,
+      grossSales: scoped.revenuePendingOrders ? null : scoped.grossSales / 100,
+      customerDiscounts: scoped.revenuePendingOrders ? null : scoped.customerDiscounts / 100,
       knownRevenue: scoped.revenue / 100, revenuePendingOrders: scoped.revenuePendingOrders,
       avgOrderValue: scoped.revenuePendingOrders ? null : scoped.deliveredOrders ? Math.round(scoped.revenue / scoped.deliveredOrders) / 100 : 0,
       netEarnings: scoped.netEarningsPendingOrders ? null : scoped.netEarnings / 100,
       knownNetEarnings: scoped.netEarnings / 100, netEarningsPendingOrders: scoped.netEarningsPendingOrders,
       netEarningsCalculatedOrders: scoped.netEarningsCalculatedOrders, completedOrders: scoped.deliveredOrders, unpostedOrders: scoped.unpostedOrders,
       pendingOrders: pending?.count || 0 },
-    byChannel: Object.fromEntries(Object.entries(byChannel).map(([key, value]) => [key, { ...value, revenue: value.revenuePendingOrders ? null : value.revenue / 100, netEarnings: value.netEarningsPendingOrders ? null : value.netEarnings / 100 }])),
+    byChannel: Object.fromEntries(Object.entries(byChannel).map(([key, value]) => [key, { ...value, revenue: value.revenuePendingOrders ? null : value.revenue / 100,
+      grossSales: value.revenuePendingOrders ? null : value.grossSales / 100, customerDiscounts: value.revenuePendingOrders ? null : value.customerDiscounts / 100,
+      netEarnings: value.netEarningsPendingOrders ? null : value.netEarnings / 100 }])),
     salesPerformance: [...days].map(([date, amounts]) => ({ date, revenue: (channel ? amounts[channel] : amounts.ecommerce + amounts.grocery) / 100 })),
   };
 }

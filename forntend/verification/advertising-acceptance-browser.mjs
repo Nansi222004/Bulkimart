@@ -32,9 +32,9 @@ try{
     transform(_code,id){if(id.replaceAll('\\','/').endsWith('/modules/User/context/UserContext.jsx'))return 'export const useUser=()=>window.__advertisingAcceptanceCustomer;';},
     configureServer(server){server.middlewares.use(async(req,res,next)=>{
       if(req.url==='/acceptance-product.svg'){res.setHeader('Content-Type','image/svg+xml');return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"><rect width="50" height="50" fill="#08b9e8"/></svg>');}
-      if(['/acceptance/admin','/acceptance/seller','/acceptance/customer'].includes(req.url)){
+      if(['/acceptance/admin','/acceptance/seller','/acceptance/customer'].includes(new URL(req.url,'http://acceptance.local').pathname)){
         // Browser fixtures contain only short-lived synthetic local sessions.
-        const setup=JSON.stringify({categoryId:fixture.categoryId});
+        const setup=JSON.stringify({categoryId:fixture.categoryId,otherId:fixture.otherId,lampId:fixture.lampId});
         const session=`localStorage.setItem('sellerToken',${JSON.stringify(fixture.sellerToken)});localStorage.setItem('adminToken',${JSON.stringify(fixture.adminToken)});window.__acceptance=${setup};window.__acceptanceEventBodies={};const originalFetch=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/api/advertising/events')&&options?.body){const body=JSON.parse(options.body);window.__acceptanceEventBodies[body.type]=body;}return originalFetch(url,options);};`;
         res.setHeader('Content-Type','text/html');return res.end(await server.transformIndexHtml(req.url,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><div id="root"></div><script>${session}</script><script type="module" src="/verification/advertising-acceptance-entry.jsx"></script></body></html>`));
       }next();
@@ -55,15 +55,45 @@ try{
   for(const [key,value]of [['Package name','Acceptance package'],['Price (₹)','1'],['Runs for (days)','3'],['Products per ad (1–20)','1'],['GST','NONE']])await field(key,value);
   await waitFor(has('Seller pays ₹1.00'));await click('Save package');await waitFor(`${has('Acceptance package')}&&!document.querySelector('form')`);checks.push('admin-package-form-real-api');
 
-  await navigate('/acceptance/seller');await waitFor(has('Create campaign'));await click('Create campaign');await waitFor(has('Acceptance product'));await field('Campaign name','Acceptance campaign');
-  await evaluate(`document.querySelector('form input[type=checkbox]').click()`);await click('Continue');await waitFor(has('Step 2 of 4'));await field('Category',fixture.categoryId);await click('Continue');await waitFor(has('Step 3 of 4'));
+  // One wizard, three categories of one storefront: a category, its sub-category and an unrelated one.
+  const NAMES={category:'Acceptance campaign – Acceptance category',child:'Acceptance campaign – Acceptance child',other:'Acceptance campaign – Acceptance other'};
+  const tickProduct=name=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ad-product-item')].find(i=>i.querySelector('strong')?.textContent===${JSON.stringify(name)});item.querySelector('input[type=checkbox]').click();})()`);
+  const openCampaign=async name=>{await waitFor(`[...document.querySelectorAll('.ad-campaign-card')].some(c=>c.querySelector('.ad-card-title')?.textContent===${JSON.stringify(name)})`);await evaluate(`[...document.querySelectorAll('.ad-campaign-card')].find(c=>c.querySelector('.ad-card-title').textContent===${JSON.stringify(name)}).querySelector('.ad-view-btn').click()`);await waitFor(`document.querySelector('.ad-modal-header h3')?.textContent===${JSON.stringify(name)}`);};
+  const builderShots=resolve('test-artifacts/advertising-builder');await mkdir(builderShots,{recursive:true});const snap=async name=>{await evaluate("document.querySelector('.ad-modal-body')&&(document.querySelector('.ad-modal-body').scrollTop=0)");const shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(builderShots,name+'.png'),Buffer.from(shot.data,'base64'));};
+  const campaignsVia=async(token,path)=>(await(await fetch(`${origin}/api/${path}/advertising/campaigns?limit=50`,{headers:{Authorization:`Bearer ${token}`}})).json()).data;
+  await navigate('/acceptance/seller');await waitFor(has('Create campaign'));await click('Create campaign');await waitFor(has('Acceptance lamp'));await field('Campaign name','Acceptance campaign');
+  for(const name of ['Acceptance product','Acceptance shirt','Acceptance lamp'])await tickProduct(name);
+  await waitFor(has('Picked 3 products in 3 categories'));await snap('1-products');await click('Continue');await waitFor(has('Step 2 of 5'));
+  for(const name of Object.values(NAMES))assert.equal(await evaluate(has(name)),true,`${name} is its own group`);
+  await snap('2-groups');await click('Continue');await waitFor(has('Step 3 of 5'));
   const start=new Date(Date.now()+3600000),localStart=new Date(start.getTime()-start.getTimezoneOffset()*60000).toISOString().slice(0,16);
-  await field('Start date',localStart);
-  await evaluate(`(()=>{const s=[...document.querySelectorAll('select')].find(s=>s.closest('label').textContent.startsWith('Package'));const o=[...s.options].find(o=>o.textContent.includes('Acceptance package'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,o.value);s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await click('Continue');await waitFor(has('Step 4 of 4'));await click('Save campaign draft');await waitFor(has('Submit for review'));await click('Submit for review');await waitFor(has('Confirm terms and submit'));await click('Confirm terms and submit');await waitFor(has('PENDING REVIEW'));await waitFor(has('Waiting for Bulkimart to review your campaign.'));checks.push('seller-four-step-draft-and-versioned-submission-real-api');
+  await field('Start date for all campaigns',localStart);
+  for(const name of Object.values(NAMES))await evaluate(`(()=>{const s=document.querySelector('section[aria-label=${JSON.stringify('Campaign '+name)}] select');const o=[...s.options].find(o=>o.textContent.includes('Acceptance package'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,o.value);s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await snap('3-packages');await click('Continue');await waitFor(has('Step 4 of 5'));await waitFor(has('Total for 3 campaigns: ₹3.00'));await waitFor(has('Each campaign is reviewed and paid separately. You pay only for campaigns approved by Bulkimart.'));
+  await snap('4-review');await click('Save 3 campaigns');await waitFor(has('All 3 campaigns are saved as drafts'));
+  assert.equal((await campaignsVia(fixture.sellerToken,'sellers')).length,3,'Exactly one campaign per group');
+  await click('Submit all for review');await waitFor(has('Confirm terms and submit 3 campaigns'));await click('Confirm terms and submit 3 campaigns');
+  await waitFor(`[...document.querySelectorAll('.ad-builder .ad-status-pill')].filter(p=>p.textContent==='Waiting for review').length===3`);
+  await snap('5-submitted');await click('Close');await waitFor(`document.querySelectorAll('.ad-campaign-card').length===3`);
+  const submitted=await campaignsVia(fixture.sellerToken,'sellers');
+  assert.deepEqual(submitted.map(c=>c.name).sort(),Object.values(NAMES).sort());assert.equal(submitted.every(c=>c.review==='PENDING_REVIEW'&&c.funding==='UNPAID'),true);
+  assert.deepEqual(Object.fromEntries(submitted.map(c=>[c.name,[c.category.id,c.products.map(p=>p.name)]])),{[NAMES.category]:[fixture.categoryId,['Acceptance product']],[NAMES.child]:[fixture.childId,['Acceptance shirt']],[NAMES.other]:[fixture.otherId,['Acceptance lamp']]});
+  checks.push('seller-multi-category-wizard-creates-and-submits-one-campaign-per-category-real-api');
 
-  await navigate('/acceptance/admin');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Decision reason'));await field('Decision reason','Synthetic approval via real review interface');await click('Approve & request payment');await waitFor(has('APPROVED AWAITING PAYMENT'));checks.push('admin-review-real-api');
-  await waitFor(has('Financial authorization: recorded'));
+  // Every campaign reaches Admin → Advertising on its own, named with its seller, category and products.
+  await navigate('/acceptance/admin');for(const name of Object.values(NAMES))await waitFor(has(name));
+  assert.equal(await evaluate(`[...document.querySelectorAll('.ad-campaign-card')].every(c=>c.textContent.includes('Seller: Acceptance Store · Indore'))`),true);
+  assert.equal(await evaluate(`[...document.querySelectorAll('.ad-campaign-card')].find(c=>c.querySelector('.ad-card-title').textContent===${JSON.stringify(NAMES.child)}).textContent.includes('Shop All · Acceptance category › Acceptance child')`),true);
+  await openCampaign(NAMES.other);await waitFor(has('Decision reason'));
+  for(const text of ['Acceptance Store (Acceptance Traders) · Indore','Shop All · Acceptance other','Acceptance lamp','Acceptance package: ₹1.00 for 3 days · up to 1 product per ad'])assert.equal(await evaluate(has(text)),true,`Admin detail shows ${text}`);
+  assert.equal(await evaluate(has('Acceptance shirt')),false,'No product of another campaign is shown');
+  await field('Decision reason','Synthetic approval via real review interface');await click('Approve & request payment');await waitFor(has('APPROVED AWAITING PAYMENT'));
+  assert.equal(await evaluate(has('Acceptance lamp')),true,'Names stay after the decision');checks.push('admin-review-real-api');checks.push('admin-sees-each-campaign-with-seller-category-products');
+  await waitFor(has('Seller can pay: yes, payment is open'));
+  assert.equal(await evaluate(has('In the “Sponsored” row at the top of the “Acceptance other” category page in Shop All, for shoppers the seller delivers to.')),true);
+  assert.equal(await evaluate(has('Starts once the seller pays')),true);
+  const panelShot=async name=>{await evaluate(`document.querySelector(${JSON.stringify(name==='admin-where'?'.ad-meta-wide':'section[aria-label="Payment and ad status"]')}).scrollIntoView({block:'start'})`);await delay(100);const shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(builderShots,name+'.png'),Buffer.from(shot.data,'base64'));};
+  await panelShot('admin-where');await panelShot('admin-payment-panel');
   assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Authorize accepted billing policy')`),false);
   checks.push('approval-opens-standard-payment-without-second-finance-action');
   const screenshots=resolve('test-artifacts/advertising-review');await mkdir(screenshots,{recursive:true});
@@ -79,18 +109,31 @@ try{
   checks.push('campaign-review-close-button-payment-guidance-and-controls-responsive');
   await command('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
 
-  await navigate('/acceptance/seller');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Approved. Pay to start your ad.'));
+  // Decisions are independent: changes for one campaign, the third stays waiting.
+  await navigate('/acceptance/admin');await openCampaign(NAMES.category);await waitFor(has('Decision reason'));await field('Decision reason','Synthetic change request');await click('Request changes');await waitFor(has('CHANGES REQUESTED'));
+  const reviewed=Object.fromEntries((await campaignsVia(fixture.adminToken,'admin')).map(c=>[c.name,c.review]));
+  assert.deepEqual(reviewed,{[NAMES.other]:'APPROVED',[NAMES.category]:'CHANGES_REQUESTED',[NAMES.child]:'PENDING_REVIEW'});checks.push('admin-decisions-are-independent-per-campaign');
+
+  await navigate('/acceptance/seller');await openCampaign(NAMES.other);await waitFor(has('Approved. Pay to start your ad.'));
   assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^Pay ₹/.test(b.textContent));return b.disabled;})()`),true);
-  const id=await evaluate(`(async()=>{const r=await fetch('/api/sellers/advertising/campaigns',{headers:{Authorization:'Bearer '+localStorage.getItem('sellerToken')}});return(await r.json()).data[0].id;})()`);
+  const id=(await campaignsVia(fixture.sellerToken,'sellers')).find(c=>c.name===NAMES.other).id;
   // Back-end checks the same gate even if a client bypasses the disabled button.
   const blocked=await evaluate(`(async()=>{const r=await fetch('/api/sellers/advertising/campaigns/${id}/payment-attempts',{method:'POST',headers:{Authorization:'Bearer '+localStorage.getItem('sellerToken'),'Content-Type':'application/json'},body:JSON.stringify({version:0,idempotencyKey:'acceptance-boundary-only'})});return r.status;})()`);assert.equal(blocked,503);checks.push('external-checkout-boundary-fails-closed');
   const other=await fetch(`${origin}/api/sellers/advertising/campaigns/${id}`,{headers:{Authorization:`Bearer ${fixture.otherToken}`}});assert.equal(other.status,404);checks.push('real-authenticated-seller-isolation');
 
   // Authorize and view the free pilot through actual review/customer interfaces.
-  await navigate('/acceptance/admin');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Authorize non-billable pilot'));await field('Decision reason','Synthetic pilot distinct from unpaid billing');
+  await navigate('/acceptance/admin');await openCampaign(NAMES.other);await waitFor(has('Authorize non-billable pilot'));await field('Decision reason','Synthetic pilot distinct from unpaid billing');
   const localDate=value=>new Date(value.getTime()-value.getTimezoneOffset()*60000).toISOString().slice(0,16);
   await field('Pilot start',localDate(new Date(Date.now()-60000)));await field('Pilot end',localDate(new Date(Date.now()+3600000)));await click('Authorize non-billable pilot');await waitFor(has('Separate non-billable pilot: Authorized'));checks.push('admin-explicit-unpaid-pilot-real-api');
-  await navigate('/acceptance/customer');await waitFor('!!document.querySelector(".sponsored-category-item")');assert.equal(await evaluate(has('Non-billable pilot')),true);
+  // The storefront: only the approved campaign's own category page shows its product as sponsored.
+  for(const page of [fixture.categoryId,fixture.childId]){await navigate(`/acceptance/customer?category=${page}`);await waitFor(has('Organic results remain available'));await delay(500);assert.equal(await evaluate('!!document.querySelector(".sponsored-category-block")'),false,'Campaigns not approved show nowhere, and the lamp is not shown in other categories');}
+  checks.push('unapproved-and-unrelated-category-pages-show-no-sponsored-products');
+  await navigate(`/acceptance/customer?category=${fixture.otherId}`);await waitFor('!!document.querySelector(".sponsored-category-item")');assert.equal(await evaluate(has('Non-billable pilot')),true);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.sponsored-category-item')].map(i=>i.textContent.includes('Acceptance lamp'))`),[true],'Only the campaign product is sponsored on its category page');
+  assert.equal(await evaluate(`/Acceptance (product|shirt)/.test(document.querySelector('.sponsored-category-block').textContent)`),false);
+  assert.equal(await evaluate(`document.querySelector('.sponsored-category-block').textContent.includes('Sponsored')`),true,'Sponsored label shown');checks.push('approved-campaign-sponsored-on-its-own-category-page');
+  // The lamp is also in this page's own product list: it is shown once, as Sponsored, and left out below.
+  await waitFor(`document.querySelectorAll('#organic .organic-product').length===0`);checks.push('advertised-product-in-page-list-shown-once-as-sponsored');
   await delay(1400);await evaluate('document.querySelector(".sponsored-product-link").click()');await waitFor('document.querySelector("#opened").textContent.length>0');
   const analytics=async()=>{const r=await fetch(`${origin}/api/sellers/advertising/campaigns/${id}/analytics`,{headers:{Authorization:`Bearer ${fixture.sellerToken}`}});return(await r.json()).data;};
   let summary;for(let i=0;i<30;i++){summary=await analytics();if(summary.rows.some(r=>r.type==='CLICK'))break;await delay(100);}
@@ -99,9 +142,10 @@ try{
   assert.equal(retries,true);summary=await analytics();assert.equal(summary.rows.find(r=>r.type==='IMPRESSION').count,1);assert.equal(summary.rows.find(r=>r.type==='CLICK').count,1);checks.push('concurrent-browser-event-retries-deduplicated-in-real-database');
   await command('Fetch.disable');await command('Fetch.enable',{patterns:[{urlPattern:'*'}]});
   // Disable advertising from its existing admin interface by stopping the pilot.
-  await navigate('/acceptance/admin');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Stop non-billable pilot'));await field('Decision reason','End synthetic pilot');await click('Stop non-billable pilot');await waitFor(has('Separate non-billable pilot: Stopped'));
-  await navigate('/acceptance/customer');await waitFor(has('Organic results remain available'));await delay(300);assert.equal(await evaluate('!!document.querySelector(".sponsored-category-block")'),false);checks.push('stopped-pilot-organic-fallback');
-  failPlacements=true;await navigate('/acceptance/customer');await waitFor(has('Organic results remain available'));await delay(300);assert.equal(await evaluate('!!document.querySelector(".sponsored-category-block")'),false);failPlacements=false;checks.push('advertising-transport-failure-preserves-organic-content');
+  await navigate('/acceptance/admin');await openCampaign(NAMES.other);await waitFor(has('Stop non-billable pilot'));await field('Decision reason','End synthetic pilot');await click('Stop non-billable pilot');await waitFor(has('Separate non-billable pilot: Stopped'));
+  await navigate(`/acceptance/customer?category=${fixture.otherId}`);await waitFor(has('Organic results remain available'));await delay(300);assert.equal(await evaluate('!!document.querySelector(".sponsored-category-block")'),false);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('#organic .organic-product')].map(p=>p.textContent)`),['Acceptance lamp'],'Once the ad stops, the lamp is back in the normal list');checks.push('stopped-pilot-organic-fallback');
+  failPlacements=true;await navigate(`/acceptance/customer?category=${fixture.otherId}`);await waitFor(has('Organic results remain available'));await delay(300);assert.equal(await evaluate('!!document.querySelector(".sponsored-category-block")'),false);failPlacements=false;checks.push('advertising-transport-failure-preserves-organic-content');
   const finance=await fetch(`${origin}/api/admin/advertising/finance`,{headers:{Authorization:`Bearer ${fixture.adminToken}`}});const financial=(await finance.json()).data;assert.equal(financial.total,0);assert.equal(financial.totals.receivedPaise,0);assert.equal(financial.totals.recognizedPaise,0);checks.push('no-payment-no-revenue-through-pilot');
   for(const width of [320,390,768,1280]){await command('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});await navigate('/acceptance/seller');await waitFor(has('Acceptance campaign'));assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true);}
   checks.push('real-workspace-responsive-layouts');
@@ -109,7 +153,7 @@ try{
   // inside the scrollable body and accept a real pointer click above the footer.
   for(const [width,height] of [[1280,585],[390,844],[320,568]]){
     await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<768});await navigate('/acceptance/seller');await waitFor(has('Create campaign'));await click('Create campaign');
-    await waitFor(`!!document.querySelector('.ad-product-item input[type=checkbox]')`);
+    await waitFor(`!!document.querySelector('.ad-product-item input[type=checkbox]')`);await field('Campaign name','Reachability check');
     const target=await evaluate(`(()=>{
       const checkbox=document.querySelector('.ad-product-item input[type=checkbox]');
       checkbox.scrollIntoView({block:'center'});

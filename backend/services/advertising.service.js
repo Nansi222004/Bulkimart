@@ -1,6 +1,8 @@
 import SellerPromotion from '../models/SellerPromotion.js';
+import Seller from '../models/Seller.js';
 import PromotionPackage from '../models/PromotionPackage.js';
 import Category from '../models/Category.js';
+import Product from '../models/Product.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { advertisingId, advertisingChannel, validateAdvertisingSelection } from './advertisingEligibility.service.js';
 import { httpError } from '../utils/response.js';
@@ -32,6 +34,32 @@ export const campaignDTO = row => {
       invoiceReference:r.advertising.paid.invoiceReference,authorized:advertisingBillingAuthorized(r.advertising)} : undefined,
     history: (r.advertising.history || []).map(({ actorId, ...event }) => event) };
 };
+// Campaign screens name the category and products; admin views also name the seller who sent each
+// campaign. Seller responses never carry another seller's details.
+const sellerSummary = s => ({ id: s._id, storeName: s.storeDetails?.name || s.businessName || '', businessName: s.businessName || '', city: s.storeDetails?.city || '' });
+const distinct = values => [...new Set(values.filter(Boolean).map(String))];
+export async function campaignViews(rows, { admin = false } = {}) {
+  const categoryIds = distinct(rows.map(r => r.advertising?.categoryId));
+  const productIds = distinct(rows.flatMap(r => (r.advertising?.items || []).map(i => i.productId)));
+  const sellerIds = admin ? distinct(rows.map(r => r.sellerId)) : [];
+  const [categories, products, sellers] = await Promise.all([
+    categoryIds.length ? Category.find({ _id: { $in: categoryIds } }).select('name parent').populate('parent', 'name').lean() : [],
+    productIds.length ? Product.find({ _id: { $in: productIds } }).select('name variants._id variants.name').lean() : [],
+    sellerIds.length ? Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails.name storeDetails.city').lean() : [],
+  ]);
+  const byId = list => new Map(list.map(x => [String(x._id), x]));
+  const categoryOf = byId(categories), productOf = byId(products), sellerOf = byId(sellers);
+  return rows.map(r => {
+    const c = categoryOf.get(String(r.advertising?.categoryId)), s = sellerOf.get(String(r.sellerId));
+    return { ...campaignDTO(r),
+      category: c ? { id: c._id, name: c.name, parentName: c.parent?.name || '' } : null,
+      products: (r.advertising?.items || []).map(i => {
+        const p = productOf.get(String(i.productId)), v = i.variantId && p?.variants?.find(x => String(x._id) === String(i.variantId));
+        return { id: i.productId, name: p?.name || 'Unavailable product', variant: v?.name || '' };
+      }),
+      ...(admin ? { seller: s ? sellerSummary(s) : null } : {}) };
+  });
+}
 export const packageDTO = row => ({ id: row._id, name: row.name, module: row.module,
   placement: row.placement, durationDays: row.durationDays, maxProducts: row.maxProducts,
   isActive: row.isActive, version: row.advertising.version,
@@ -61,6 +89,7 @@ const setCampaignFields = (campaign, input) => {
     if (typeof input.requestedStartAt !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(input.requestedStartAt)) throw httpError(400, 'Start date must include a timezone');
     const date = new Date(input.requestedStartAt);
     if (!Number.isFinite(date.getTime())) throw httpError(400, 'Invalid start date');
+    if (date < new Date(Date.now() - 60000)) throw httpError(400, 'Choose a start date and time from now onwards');
     a.requestedStartAt = date;
   }
 };
@@ -73,18 +102,31 @@ const editable = row => {
   if (!['DRAFT', 'CHANGES_REQUESTED'].includes(row.advertising.review) || row.advertising.funding !== 'UNPAID' || row.advertising.delivery !== 'NOT_SCHEDULED') throw httpError(409, 'Campaign cannot be edited in its current state');
 };
 export async function createAdvertisingCampaign(sellerId, actorId, input) {
-  fields(input, ['name', 'module', 'categoryId', 'items', 'packageId', 'requestedStartAt', 'version']);
-  advertisingChannel(input.module);
-  const row = new SellerPromotion({ advertisingVersion: 2, sellerId, module: input.module,
-    title: text(input.name, 'Campaign name'), status: 'DISABLED', advertising: {
+  fields(input, ['name', 'module', 'categoryId', 'items', 'packageId', 'requestedStartAt', 'version', 'requestKey']);
+  const { requestKey, ...campaignInput } = input;
+  if (requestKey !== undefined && (typeof requestKey !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(requestKey))) throw httpError(400, 'Invalid request key');
+  // A retried save with the same key returns the campaign it already created instead of a second one.
+  const earlier = () => requestKey ? SellerPromotion.findOne({ sellerId, advertisingVersion: 2, 'advertising.requestKey': requestKey }) : null;
+  const saved = await earlier();
+  if (saved) return campaignDTO(saved);
+  advertisingChannel(campaignInput.module);
+  const row = new SellerPromotion({ advertisingVersion: 2, sellerId, module: campaignInput.module,
+    title: text(campaignInput.name, 'Campaign name'), status: 'DISABLED', advertising: {
       revision: 1, review: 'DRAFT', funding: 'UNPAID', delivery: 'NOT_SCHEDULED',
-      placement: 'CATEGORY_SPONSORED', items: [], history: [],
+      placement: 'CATEGORY_SPONSORED', items: [], history: [], ...(requestKey ? { requestKey } : {}),
     } });
-  setCampaignFields(row, input); audit(row, 'create', actorId, 'seller');
-  return financialTransaction(async session => {
-    if (row.advertising.items.length) await validateAdvertisingSelection(row, session);
-    await row.save({ session }); return campaignDTO(row);
-  });
+  setCampaignFields(row, campaignInput); audit(row, 'create', actorId, 'seller');
+  try {
+    return await financialTransaction(async session => {
+      if (row.advertising.items.length) await validateAdvertisingSelection(row, session);
+      await checkProductLimit(row, session);
+      await row.save({ session }); return campaignDTO(row);
+    });
+  } catch (error) {
+    // Two identical retries racing: the unique key lets one through and the other returns it.
+    if ((error?.code === 11000 || error?.cause?.code === 11000) && requestKey) { const winner = await earlier(); if (winner) return campaignDTO(winner); }
+    throw error;
+  }
 }
 export async function advertisingCampaign(id, sellerId, session = null) {
   const row = await SellerPromotion.findOne({ _id: advertisingId(id), advertisingVersion: 2,
@@ -92,11 +134,18 @@ export async function advertisingCampaign(id, sellerId, session = null) {
   if (!row?.advertising) throw httpError(404, 'Advertising campaign not found');
   return row;
 }
+const productLimitError = max => httpError(400, `This package allows up to ${max} ${max === 1 ? 'product' : 'products'} per ad`);
+// The chosen package's "Products per ad" applies from the first save, not only at submission.
+async function checkProductLimit(row, session) {
+  if (!row.packageId || !row.advertising.items.length) return;
+  const p = await PromotionPackage.findOne({ _id: row.packageId, advertisingVersion: 2 }).select('maxProducts').session(session);
+  if (p && row.advertising.items.length > p.maxProducts) throw productLimitError(p.maxProducts);
+}
 async function commercialTerms(row, session) {
   const a = row.advertising;
   const p = row.packageId && await PromotionPackage.findOne({ _id: row.packageId, advertisingVersion: 2, isActive: true, module: row.module, placement: a.placement }).session(session);
   if (!p?.advertising || p.advertising.archivedAt) throw httpError(409, 'Select a current enabled advertising package');
-  if (a.items.length > p.maxProducts) throw httpError(400, 'Package product limit exceeded');
+  if (a.items.length > p.maxProducts) throw productLimitError(p.maxProducts);
   if (p.advertising.categories.length && !p.advertising.categories.some(id => String(id) === String(a.categoryId))) throw httpError(400, 'Package does not support this category');
   return { packageId: p._id, packageVersion: p.advertising.version, name: p.name,
     amountPaise: p.advertising.amountPaise, durationDays: p.durationDays,
@@ -116,6 +165,7 @@ export async function changeAdvertisingCampaign({ id, sellerId, actorId, admin =
       editable(row); setCampaignFields(row, input); a.revision += 1;
       a.review = 'DRAFT'; a.terms = undefined; a.approvedRevision = undefined; a.pilot = undefined; a.paid = undefined;
       if (a.items.length) await validateAdvertisingSelection(row, session);
+      await checkProductLimit(row, session);
     } else {
       fields(input, action === 'submit' ? ['version', 'packageVersion'] : action === 'pilot' ? ['version', 'reason', 'enabled', 'startAt', 'endAt'] : ['version', 'reason']);
       if (action === 'submit') {
@@ -205,7 +255,7 @@ export async function listAdvertisingCampaigns(sellerId, query) {
     filter[`advertising.${key}`] = query[key];
   }
   const [rows, total] = await Promise.all([SellerPromotion.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit), SellerPromotion.countDocuments(filter)]);
-  return { rows: rows.map(campaignDTO), page, limit, total };
+  return { rows: await campaignViews(rows, { admin: !sellerId }), page, limit, total };
 }
 const parsePolicies = input => {
   if (input === undefined) return undefined;
