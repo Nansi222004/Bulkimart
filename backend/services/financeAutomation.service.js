@@ -29,17 +29,24 @@ let lastRun = 0, running = false;
 
 const operationsEnabled = flags => flags.operations && flags.policyApproved && flags.testsApproved;
 const payoutsEnabled = flags => flags.payouts && flags.policyApproved && flags.testsApproved;
-const due = now => ({ $or: [{ 'financeAutomation.lastError': { $exists: false } }, { 'financeAutomation.lastAttemptAt': { $lt: new Date(now - RETRY_MS) } }] });
+// Seller and rider money wait on different things (the seller on the return window, the rider only on
+// payment), so each side backs off on its own failures and never on the other side's.
+const SELLER_STEPS = ['post', 'refund', 'release'], RIDER_STEPS = ['rider_release'];
+const stepsOf = step => RIDER_STEPS.includes(step) ? RIDER_STEPS : SELLER_STEPS;
+const due = (now, steps = SELLER_STEPS) => ({ $or: [{ 'financeAutomation.lastError': { $exists: false } }, { 'financeAutomation.step': { $nin: steps } },
+  { 'financeAutomation.lastAttemptAt': { $lt: new Date(now - RETRY_MS) } }] });
 const cashSettled = { $or: [{ paymentMethod: { $ne: 'cod' } }, { 'codFinance.status': { $in: ['verified', 'allocated'] } }] };
 
 const attempt = async (orderId, step, work, summary) => {
   try {
     await work();
-    await Order.updateOne({ _id: orderId, 'financeAutomation.lastError': { $exists: true } }, { $unset: { financeAutomation: 1 } });
+    await Order.updateOne({ _id: orderId, 'financeAutomation.lastError': { $exists: true }, 'financeAutomation.step': { $in: stepsOf(step) } }, { $unset: { financeAutomation: 1 } });
     summary[step] = (summary[step] || 0) + 1;
     return true;
   } catch (error) {
-    await Order.updateOne({ _id: orderId }, { $set: { financeAutomation: { step, lastError: error.message, status: error.status || 500, lastAttemptAt: new Date() } } });
+    // A seller-side problem stays on record over a rider one: it is the one an admin must act on.
+    const keepSellerError = RIDER_STEPS.includes(step) ? { 'financeAutomation.step': { $nin: SELLER_STEPS } } : {};
+    await Order.updateOne({ _id: orderId, ...keepSellerError }, { $set: { financeAutomation: { step, lastError: error.message, status: error.status || 500, lastAttemptAt: new Date() } } });
     summary.failed = (summary.failed || 0) + 1;
     return false;
   }
@@ -106,7 +113,7 @@ export const runFinanceAutomationOnce = async ({ now = Date.now() } = {}) => {
   for (const { _id } of toRelease) await attempt(_id, 'release', () => releaseOrderFinance(_id, null), summary);
 
   const heldRides = await Delivery.find({ financialEarningStatus: 'held' }).select('orderId').limit(BATCH * 4).lean();
-  const riderOrders = await Order.find({ _id: { $in: heldRides.map(row => row.orderId) }, ...snapshot, status: 'delivered', $and: [cashSettled, due(now)] }).select('_id').limit(BATCH).lean();
+  const riderOrders = await Order.find({ _id: { $in: heldRides.map(row => row.orderId) }, ...snapshot, status: 'delivered', $and: [cashSettled, due(now, RIDER_STEPS)] }).select('_id').limit(BATCH).lean();
   for (const { _id } of riderOrders) await attempt(_id, 'rider_release', () => releaseDeliveryEarning(_id, null), summary);
 
   if (payoutsEnabled(flags)) await createWeeklyPayouts(await getFinancePolicy(), now, summary);

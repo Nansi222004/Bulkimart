@@ -1,4 +1,5 @@
 import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
+import OrderInvoices from '../../../components/finance/OrderInvoices';
 import { orderDiscountRows } from '../../../utils/orderDiscounts';
 import ModalPortal from '../../../components/ModalPortal';
 import DeliveryPartnerRating from '../components/DeliveryPartnerRating';
@@ -1029,8 +1030,16 @@ export const OrderTrackingPage = () => {
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
           </div>
           <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
+          {selectedOrder.productTax && (selectedOrder.deliveredAt || currentStatus === 'delivered') && (
+            <OrderInvoices label="View / download invoice" buttonClassName="order-action-btn-sm" buttonStyle={{ alignSelf: 'flex-start' }} load={async () => {
+              const res = await fetch(apiUrl(`/api/orders/${selectedOrder._id}/invoices`), { headers: { Authorization: 'Bearer ' + localStorage.getItem('userToken') } });
+              const body = await res.json().catch(() => ({}));
+              if (!res.ok || body.success === false || !Array.isArray(body.data)) throw new Error(body.message || 'Could not load the invoice');
+              return body.data;
+            }} />
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge (no GST)</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.deliveryCharge || 0}</span>
           </div>
           {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => (

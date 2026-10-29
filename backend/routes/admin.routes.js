@@ -17,7 +17,7 @@ import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, li
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
   listSellers, getSellerDetail, approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerThirdPartyFulfillment, decideSellerWholesaleChannel, getWholesaleManagementSummary, getCaptureRefundObligations,
-  vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin, getVendorPayoutsAdmin, settleVendorPayoutAdmin,
+  vendorDashboard, getVendorOrdersAdmin, getVendorSalesAdmin, getVendorEarningsAdmin,
   listProducts, getProductDetailAdmin, reviewDigitalProductFile, approveProduct, rejectProduct, featureProduct, deleteProductAdmin,
   listUsers, setUserStatus, getConsumerLocations,
   getPendingCounts,

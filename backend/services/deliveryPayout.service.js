@@ -73,7 +73,7 @@ export const requestVerifiedRiderPayout = async ({ partnerId, userId, amount, ke
       if (existing.amount !== amount) throw httpError(409, 'Payout key reused with a different amount');
       return { payout: existing, earnings: partner.earnings };
     }
-    if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) throw httpError(400, 'Verified payout destination is required');
+    if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) throw httpError(400, 'Add your bank account or UPI ID in your profile before requesting a payout');
     if (await DeliveryPayout.exists({ partnerId, status: 'pending' }).session(session)) throw httpError(409, 'A payout request is already pending');
     if (await Order.exists({ deliveryPartnerId: partnerId, 'codFinance.status': { $in: ['disputed','discrepancy'] } }).session(session)) throw httpError(409, 'Disputed COD cash blocks rider payout');
     if (await Order.exists({ deliveryPartnerId: partnerId, paymentMethod: 'cod', 'financialSnapshot.version': { $ne: 2 }, 'codFinance.status': { $in: ['collected', 'remittance_reported'] } }).session(session)) throw httpError(409, 'Older COD collections need finance reconciliation before payout');

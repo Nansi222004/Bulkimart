@@ -8,7 +8,8 @@ const priced = (items, couponDiscount = 0) => { const gross = items.reduce((n, i
   return { discountRepresentation: 'components-v1', subtotal: gross / 100, discount: 0, couponDiscount, cdsDiscount: 0, coinDiscount: 0, deliveryCharge: 0, tipAmount: 0, totalAmount: (gross - Math.round(couponDiscount * 100)) / 100 }; };
 const line = (price, qty, gstRate, gstPriceType, extra = {}) => productGstLine({ productId: 'p', price, qty, gstRate, gstPriceType, fulfillmentType: 'physical', ...extra });
 
-describe('inclusive and exclusive product GST at every supported rate', () => {
+// New products are always inclusive; exclusive maths is kept only to re-check lines already recorded on orders.
+describe('inclusive product GST at every supported rate (and recorded exclusive lines)', () => {
   test.each(PRODUCT_GST_RATES)('inclusive %s%%: the price already contains the GST', rate => {
     const row = line(100 + rate, 1, rate, 'inclusive');
     expect(row).toMatchObject({ sellingPricePaise: (100 + rate) * 100, taxableValuePaise: 10000, gstPaise: rate * 100, grossPaise: (100 + rate) * 100,
@@ -80,17 +81,19 @@ describe('mixed rates, totals and discounts', () => {
 describe('configuration: supported values, legacy products and digital goods', () => {
   test('a product without a GST price type keeps its historical inclusive interpretation', () => {
     expect(resolveProductGst({ gstRate: 5 })).toEqual({ gstRate: 5, gstPriceType: 'inclusive', gstConfigurationSource: 'legacy_inclusive' });
-    expect(resolveProductGst({ gstRate: 5, gstPriceType: 'exclusive' })).toEqual({ gstRate: 5, gstPriceType: 'exclusive', gstConfigurationSource: 'explicit' });
+    expect(resolveProductGst({ gstRate: 5, gstPriceType: 'inclusive' })).toEqual({ gstRate: 5, gstPriceType: 'inclusive', gstConfigurationSource: 'explicit' });
+    expect(() => resolveProductGst({ gstRate: 5, gstPriceType: 'exclusive' })).toThrow('Product GST price type needs seller review before checkout');
   });
   test('a missing or unsupported rate is never treated as 0%: checkout stops for seller review', () => {
     for (const gstRate of [undefined, null, '', 7, -5, 'abc']) expect(() => resolveProductGst({ gstRate })).toThrow('Product GST rate needs seller review before checkout');
     expect(() => resolveProductGst({ gstRate: 5, gstPriceType: 'mixed' })).toThrow('Product GST price type needs seller review before checkout');
   });
   test('seller input is validated on the server', () => {
-    expect(validateProductGstInput({ gstRate: '18', gstPriceType: 'exclusive' })).toEqual({ gstRate: 18, gstPriceType: 'exclusive' });
+    expect(validateProductGstInput({ gstRate: '18' })).toEqual({ gstRate: 18, gstPriceType: 'inclusive' });
+    expect(() => validateProductGstInput({ gstRate: 18, gstPriceType: 'exclusive' })).toThrow('Product prices must include GST');
     expect(() => validateProductGstInput({ gstRate: 15, gstPriceType: 'inclusive' })).toThrow('Select a supported product GST rate');
-    expect(() => validateProductGstInput({ gstRate: 5, gstPriceType: 'both' })).toThrow('Select GST inclusive or GST exclusive');
-    expect(() => validateProductGstInput({ gstRate: 5, gstPriceType: 'inclusive', fulfillmentType: 'digital' })).toThrow('only supported for physical products');
+    expect(() => validateProductGstInput({ gstRate: 5, gstPriceType: 'both' })).toThrow('Product prices must include GST');
+    expect(() => validateProductGstInput({ gstRate: 5, fulfillmentType: 'digital' })).toThrow('only supported for physical products');
   });
   test('digital products are unchanged: no product GST is added or extracted', () => {
     expect(productGstLine({ productId: 'e', price: 99, qty: 1, gstRate: 18, gstPriceType: 'exclusive', fulfillmentType: 'digital' }))

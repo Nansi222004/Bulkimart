@@ -92,3 +92,18 @@ test('rider inbox restores a missed cash settlement and opens earnings using the
     assert.deepEqual(navigated, ['/delivery/earnings']);
   } finally { h.close(); }
 });
+
+test('profile payout card shows only the rider’s own bank details and the real payout schedule — never placeholder values', () => {
+  const none = hookHarness(Profile, {}, '/delivery/profile', fixture({ rating: 0, ratingCount: 0, finance: { payoutSchedule: 'on_request' } }));
+  try {
+    const shown = text(none.tree);
+    assert.doesNotMatch(shown, /Cooperative Bank of India|COOP0001420|4321|Weekly Direct Settlement/);
+    assert.match(shown, /Bank Name\s+Not added/); assert.match(shown, /Account Number\s+Not added/); assert.match(shown, /IFSC Code\s+Not added/);
+    assert.match(shown, /Payout Cycle\s+When you request it from Earnings/);
+  } finally { none.close(); }
+  const own = hookHarness(Profile, {}, '/delivery/profile', fixture({ rating: 0, ratingCount: 0, bankDetails: { bankName: 'State Bank', accountNo: '123456789012', ifsc: 'SBIN0000001' }, finance: { payoutSchedule: 'weekly' } }));
+  try {
+    const shown = text(own.tree);
+    assert.match(shown, /State Bank/); assert.match(shown, /•••• 9012/); assert.match(shown, /SBIN0000001/); assert.match(shown, /Weekly, sent automatically/);
+  } finally { own.close(); }
+});

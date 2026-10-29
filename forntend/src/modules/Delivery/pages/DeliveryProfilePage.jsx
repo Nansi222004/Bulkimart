@@ -217,23 +217,24 @@ export const DeliveryProfilePage = () => {
         <div className="profile-data-list">
           <div className="profile-data-row">
             <span>Bank Name</span>
-            <strong>{riderProfile?.bankDetails?.bankName || onboardingForm.bankName || 'Cooperative Bank of India'}</strong>
+            {/* Only the rider's own saved details are shown; nothing is filled in when they are missing. */}
+            <strong>{riderProfile?.bankDetails?.bankName || onboardingForm.bankName || 'Not added'}</strong>
           </div>
           <div className="profile-data-row">
             <span>Account Number</span>
             <strong>
-              {riderProfile?.bankDetails?.accountNo 
-                ? `•••• ${riderProfile.bankDetails.accountNo.slice(-4)}` 
-                : (onboardingForm.bankAccount ? `•••• ${onboardingForm.bankAccount.slice(-4)}` : '•••• 4321')}
+              {riderProfile?.bankDetails?.accountNo
+                ? `•••• ${riderProfile.bankDetails.accountNo.slice(-4)}`
+                : (onboardingForm.bankAccount ? `•••• ${onboardingForm.bankAccount.slice(-4)}` : 'Not added')}
             </strong>
           </div>
           <div className="profile-data-row">
             <span>IFSC Code</span>
-            <strong>{riderProfile?.bankDetails?.ifsc || onboardingForm.bankIfsc || 'COOP0001420'}</strong>
+            <strong>{riderProfile?.bankDetails?.ifsc || onboardingForm.bankIfsc || 'Not added'}</strong>
           </div>
           <div className="profile-data-row">
             <span>Payout Cycle</span>
-            <strong style={{ color: 'var(--primary)' }}>Weekly Direct Settlement</strong>
+            <strong style={{ color: 'var(--primary)' }}>{riderProfile?.finance?.payoutSchedule === 'weekly' ? 'Weekly, sent automatically' : riderProfile?.finance?.payoutSchedule ? 'When you request it from Earnings' : '—'}</strong>
           </div>
         </div>
       </div>

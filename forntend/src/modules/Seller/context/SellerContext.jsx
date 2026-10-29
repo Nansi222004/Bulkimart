@@ -356,7 +356,7 @@ export const SellerProvider = ({ children }) => {
       desc: raw.description || '',
       brandName: raw.brandName || '',
       gstRate: raw.gstRate ?? 0,
-      gstPriceType: raw.gstPriceType ?? 'inclusive',
+      gstPriceType: 'inclusive',
       ebookPrice: raw.price ?? '',
       ebookMrp: raw.variants?.[0]?.mrp ?? raw.mrp ?? '',
       // Unlimited (older) e-books start with an empty copy limit for the seller to set.
@@ -440,7 +440,7 @@ export const SellerProvider = ({ children }) => {
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName !== undefined) fd.append('brandName', form.brandName);
       fd.append('gstRate', form.fulfillmentType === 'digital' ? 0 : form.gstRate ?? 0);
-      fd.append('gstPriceType', form.fulfillmentType === 'digital' ? 'inclusive' : form.gstPriceType ?? 'inclusive');
+      fd.append('gstPriceType', 'inclusive'); // Prices always include GST.
 
       // Wholesale terms have their own narrow endpoint so normal retail
       // product saves cannot accidentally rewrite those fields.
@@ -1396,7 +1396,7 @@ export const SellerProvider = ({ children }) => {
       if (form.desc) fd.append('description', form.desc);
       if (form.brandName) fd.append('brandName', form.brandName);
       fd.append('gstRate', form.fulfillmentType === 'digital' ? 0 : form.gstRate ?? 0);
-      fd.append('gstPriceType', form.fulfillmentType === 'digital' ? 'inclusive' : form.gstPriceType ?? 'inclusive');
+      fd.append('gstPriceType', 'inclusive'); // Prices always include GST.
       // A new product's own SKU is never sent — the backend always
       // auto-generates it (see Product.js's pre-validate hook), so a
       // seller can never collide with, or guess, another listing's code.

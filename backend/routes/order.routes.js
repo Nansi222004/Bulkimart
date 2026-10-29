@@ -12,6 +12,7 @@ import {
 import { getOrderItemReturnEligibility } from '../controllers/return.controller.js';
 import { abandonCheckoutPayment } from '../controllers/checkoutCancellation.controller.js';
 import { rateDeliveryPartner } from '../controllers/deliveryRating.controller.js';
+import { getOrderInvoices } from '../controllers/taxInvoice.controller.js';
 import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -29,6 +30,7 @@ router.post('/checkout-status', getCheckoutStatus);
 
 router.get('/:id', getOrderById);
 router.get('/:id/track', trackOrder);
+router.get('/:id/invoices', getOrderInvoices);
 router.post('/:id/delivery-rating', rateDeliveryPartner);
 router.patch('/:id/cancel', cancelOrder);
 router.post('/:id/abandon-payment', abandonCheckoutPayment);

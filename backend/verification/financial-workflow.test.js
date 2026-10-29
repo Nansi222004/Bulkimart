@@ -866,6 +866,21 @@ test('automation posts, releases seller and rider earnings, reverses refunds and
   expect((await DeliveryPayout.find({})).map(row => row.amount)).toEqual([40]);
 });
 
+test('rider earnings are released while the seller side is still waiting (e.g. return window open)', async () => {
+  enable();
+  await financialTransaction(session => recordDeliveryEarning({ order, delivery, settlement: { total: 40, tip: 0, base: 20, perKm: 10, distanceKm: 2 }, session }));
+  await Partner.updateOne({ _id: partner._id }, { $set: { 'earnings.held': 40, 'earnings.total': 40 } });
+  await verifyCash(); await postOrderFinance(order._id, admin._id);
+  const sellerWait = { step: 'release', lastError: 'Delivery evidence, return hold or financial reconciliation has not cleared', status: 409, lastAttemptAt: new Date() };
+  await Order.collection.updateOne({ _id: order._id }, { $set: { financeAutomation: sellerWait } });
+  const summary = await runFinanceAutomationOnce();
+  expect(summary).toMatchObject({ rider_release: 1 }); expect(summary).not.toHaveProperty('release');
+  expect((await Delivery.findById(delivery._id)).financialEarningStatus).toBe('eligible');
+  expect(await sellerBalances(seller._id)).toMatchObject({ eligible: 0 });
+  // The seller's reason stays on record for the admin, and its retry timer is not reset.
+  expect((await queryOrder()).financeAutomation).toMatchObject({ step: 'release', lastError: sellerWait.lastError });
+});
+
 test('automation records why an order still needs an admin and retries later', async () => {
   enable(); await prepaidFixture('online'); await Payment.updateOne({ _id: payment._id }, { $set: { captures: [] } });
   const now = Date.now();
@@ -1062,4 +1077,13 @@ test('unversioned COD custody remains a cashout blocker even with verified ledge
  const {riderFinancialSummary}=await import('../services/deliveryPayout.service.js');const summary=await riderFinancialSummary(await Partner.findById(partner._id));
  expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('legacy_cod_review');
  await expect(requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:100,key:'legacy-custody'})).rejects.toThrow(/Older COD/);
+});
+
+test('a rider without a bank account or UPI ID is told plainly to add one; the legacy payout handlers with placeholder bank details are gone', async () => {
+  enable(); await fundedRider();
+  await Partner.updateOne({ _id: partner._id }, { $unset: { bankDetails: 1 } });
+  await expect(requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'no-destination' }))
+    .rejects.toMatchObject({ status: 400, message: 'Add your bank account or UPI ID in your profile before requesting a payout' });
+  const admin = await import('../controllers/admin.controller.js');
+  expect(admin.getVendorPayoutsAdmin).toBeUndefined(); expect(admin.settleVendorPayoutAdmin).toBeUndefined();
 });

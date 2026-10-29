@@ -1,6 +1,9 @@
 import ModalPortal from '../../../components/ModalPortal';
 import ShiprocketFeePayment from './ShiprocketFeePayment';
 import OrderFinancialBreakdown from './OrderFinancialBreakdown';
+import OrderInvoices from '../../../components/finance/OrderInvoices';
+import { apiUrl } from '../../../utils/api';
+import { getPortalToken } from '../../../utils/portalSession';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
@@ -735,6 +738,12 @@ export const OrdersTab = ({ detailPage = false }) => {
       {detailPage && selected && (
         <section aria-label="Order details">
           <OrderFinancialBreakdown orderId={selected._id} />
+          {(selected.deliveredAt || selected.status === 'delivered') && <OrderInvoices label="View / print invoice" buttonClassName="order-action-btn-sm" load={async () => {
+            const res = await fetch(apiUrl(`/api/sellers/orders/${selected._id}/invoice`), { headers: { Authorization: `Bearer ${getPortalToken('seller')}` } });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok || body.success === false || !body.data) throw new Error(body.message || 'Could not load the invoice');
+            return [body.data];
+          }} />}
           <div className="seller-order-page-content">
             {orderDetailSections(selected)}
             {actionsFor(selected).some(action => action.to === 'ready_for_pickup') && <p>Mark this parcel Ready for pickup to see both delivery methods and their eligibility.</p>}

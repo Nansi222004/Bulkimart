@@ -67,11 +67,16 @@ Run on 29 Oct 2026 against database `bulkimart` (36 orders):
 4. Verify: re-run the dry run (those orders must now be `complete`); for each, `productTax.grossPaise === round(pricing.subtotal × 100)` and `Σ rates.gstPaise === productTax.gstPaise`.
 5. Rollback: `$unset` `productTax` and `items.$[].productTax` for exactly the backfilled ids (the backup holds the before-image). Nothing else is touched, so no compensating ledger entry is needed.
 
-## 5. Open policy questions (need an accountant / business decision)
+## 5. Policy decisions (29 Oct 2026)
 
-- **Q1 — CGST/SGST vs IGST.** Place of supply needs the seller's registered state (only `Seller.gstin` text exists, not always present) and the delivery state. Until confirmed, orders store the total GST rate and amount with `jurisdictionStatus: unverified`; no component split is invented.
-- **Q2 — Bulkimart-funded discounts.** Today the seller is paid on the full price and Bulkimart books the discount as its expense, so the product taxable value is not reduced by coupons/coins. Whether that is the correct GST transaction value for these discounts must be confirmed.
-- **Q3 — Delivery charges.** Delivery fees carry no GST today (`deliveryTax.status: unconfigured`). Confirm whether Bulkimart's delivery fee is taxable and at what rate.
-- **Q4 — TCS base.** TCS is withheld on the frozen product taxable value. Confirm this is the intended base under section 52.
-- **Q5 — Tax invoices.** The app issues no product tax invoice (checkout shows a bill summary only). Sellers registered for GST may need invoices generated from the stored snapshot.
-- **Q6 — Wholesale tiers.** The product's GST price type applies to all variants and wholesale tier prices. Confirm wholesale buyers expect the same treatment.
+- **Prices always include GST.** Sellers can no longer choose "GST exclusive"; the seller form, API (`Product prices must include GST`) and Product schema accept only `inclusive`. This covers every variant and wholesale tier price. A product somehow stored as `exclusive` is not sold until the seller reviews it (409 `Product GST price type needs seller review before checkout`). Orders already recorded as exclusive are still re-checked with their recorded maths; none exist today.
+- **Bulkimart-funded discounts.** Coupons and coins are paid by Bulkimart, the seller is paid the full price, so GST stays on the full price (`taxBasis: seller_consideration_before_platform_discounts`). This is how marketplaces usually treat platform-funded discounts (the platform's payment counts towards the seller's price). Invoices show the full price, then the Bulkimart discount and what the customer paid.
+- **Delivery charges carry no GST.** Recorded on every new snapshot as `deliveryTax: { status: 'not_charged', amountPaise: 0, treatment: 'none' }`, shown to customers as "Delivery Charge (no GST)", and noted on every invoice.
+- **TCS** stays at 1% of the product taxable value, i.e. excluding GST (section 52), withheld from the seller's payout. No change.
+- **Invoices.** Each seller on a delivered order gets their own invoice (`TaxInvoice` model, `services/taxInvoice.service.js`), built once from the frozen GST snapshot and never edited.
+  - GSTIN on file → "Tax Invoice" with taxable value, rate and CGST + SGST (seller's GSTIN state = delivery state) or IGST (different states). If a state cannot be recognised the GST is shown in total only.
+  - No GSTIN → plain "Invoice" without GST lines.
+  - Numbers `INV<FY>-NNNNNN` (e.g. `INV2627-000001`, ≤16 characters) run per seller per financial year (April–March, India time), issued in a transaction so numbers never skip or repeat.
+  - Customer: "View / download invoice" on a delivered order (`GET /api/orders/:id/invoices`). Seller: "View / print invoice" on the order detail (`GET /api/sellers/orders/:id/invoice`). Printing opens a clean page, so "Save as PDF" works.
+  - Orders placed before GST snapshots get no invoice.
+- **Still open:** products have no HSN code (registered sellers normally need it on invoices); returns do not yet issue credit notes; checkout shows a GST breakdown even for sellers without a GSTIN.

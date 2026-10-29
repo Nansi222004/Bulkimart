@@ -26,3 +26,4 @@ tests/
 # Local-only QA sources and reports
 /forntend/tests/
 
+/backend/backups/finance-cleanup/

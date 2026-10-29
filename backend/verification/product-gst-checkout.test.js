@@ -47,19 +47,19 @@ beforeEach(async () => {
   seller = await makeSeller('GST Store', '9876500001'); otherSeller = await makeSeller('Other Store', '9876500002');
 });
 
-test('mixed inclusive and exclusive products: basket, orders and payment all use the same server amounts', async () => {
+test('mixed GST rates: basket, orders and payment all use the same server amounts', async () => {
   const amla = await makeProduct(seller, 'Amla', 105, { gstRate: 5 });                                     // legacy: no type saved, read as inclusive
-  const cream = await makeProduct(seller, 'Ice cream', 100, { gstRate: 18, gstPriceType: 'exclusive' });
+  const cream = await makeProduct(seller, 'Ice cream', 118, { gstRate: 18, gstPriceType: 'inclusive' });
   const plain = await makeProduct(otherSeller, 'Plain', 50, { gstRate: 0, gstPriceType: 'inclusive' });
   await Product.collection.updateOne({ _id: amla._id }, { $unset: { gstPriceType: '' } });
   await fill([[amla, 2], [cream, 1], [plain, 1]]);
   const basket = await buildCustomerBasket({ userId: buyer._id, user: buyer, destination: address });
-  expect(basket.totals.productTax).toMatchObject({ sellingPricePaise: 36000, taxableValuePaise: 35000, gstPaise: 2800, grossPaise: 37800, addedGstPaise: 1800, includedGstPaise: 1000 });
+  expect(basket.totals.productTax).toMatchObject({ sellingPricePaise: 37800, taxableValuePaise: 35000, gstPaise: 2800, grossPaise: 37800, addedGstPaise: 0, includedGstPaise: 2800 });
   const res = await place(); expect(res.status).toBe(201);
   const orders = await ordersOf(res); expect(orders).toHaveLength(2); // one per seller
   const lines = orders.flatMap(o => o.productTax.lines);
   expect(lines.map(l => [l.gstRate, l.gstPriceType, l.gstConfigurationSource, l.taxableValuePaise, l.gstPaise, l.grossPaise]).sort()).toEqual([
-    [0, 'inclusive', 'explicit', 5000, 0, 5000], [18, 'exclusive', 'explicit', 10000, 1800, 11800], [5, 'inclusive', 'legacy_inclusive', 20000, 1000, 21000]].sort());
+    [0, 'inclusive', 'explicit', 5000, 0, 5000], [18, 'inclusive', 'explicit', 10000, 1800, 11800], [5, 'inclusive', 'legacy_inclusive', 20000, 1000, 21000]].sort());
   for (const order of orders) {
     expect(Math.round(order.pricing.subtotal * 100)).toBe(order.productTax.grossPaise);
     expect(order.items.every((item, index) => item.productTax.gstPaise === order.productTax.lines[index].gstPaise)).toBe(true);
@@ -73,7 +73,7 @@ test('mixed inclusive and exclusive products: basket, orders and payment all use
 });
 
 test('editing the product afterwards never changes the order; snapshots cannot be rewritten', async () => {
-  const cream = await makeProduct(seller, 'Ice cream', 100, { gstRate: 18, gstPriceType: 'exclusive' });
+  const cream = await makeProduct(seller, 'Ice cream', 118, { gstRate: 18, gstPriceType: 'inclusive' });
   await fill([[cream, 3]]); const [order] = await ordersOf(await place('/api/orders'));
   const before = JSON.stringify(order.productTax);
   await Product.updateOne({ _id: cream._id }, { gstRate: 5, gstPriceType: 'inclusive', 'variants.0.price': 999 });
@@ -115,12 +115,24 @@ test('a repeated checkout request creates one order with one snapshot', async ()
 });
 
 test('returns refund from the stored snapshot, not the current product, and partial returns add up', async () => {
-  const cream = await makeProduct(seller, 'Ice cream', 100, { gstRate: 18, gstPriceType: 'exclusive' });
+  const cream = await makeProduct(seller, 'Ice cream', 118, { gstRate: 18, gstPriceType: 'inclusive' });
   await fill([[cream, 3]]); const [order] = await ordersOf(await place('/api/orders'));
   await Product.updateOne({ _id: cream._id }, { gstRate: 0, gstPriceType: 'inclusive' });
   const item = order.items[0], part = (before, quantity) => calculateReturnRefund({ orderItemId: item._id, quantity, refundAllocationStartQuantity: before }, order);
   const one = part(0, 1), two = part(1, 2);
-  expect(one.productTax).toMatchObject({ gstRate: 18, gstPriceType: 'exclusive', grossPaise: 11800, taxableValuePaise: 10000, gstPaise: 1800 });
+  expect(one.productTax).toMatchObject({ gstRate: 18, gstPriceType: 'inclusive', grossPaise: 11800, taxableValuePaise: 10000, gstPaise: 1800 });
   expect(Math.round((one.refundAmount + two.refundAmount) * 100)).toBe(order.productTax.lines[0].customerPaidPaise);
   expect(one.productTax.gstPaise + two.productTax.gstPaise).toBe(order.productTax.gstPaise);
+});
+
+test('prices must include GST: sellers cannot choose exclusive, and a stored exclusive product is held for review', async () => {
+  const { validateProductGstInput } = await import('../services/productGst.service.js');
+  expect(() => validateProductGstInput({ gstRate: 5, gstPriceType: 'exclusive' })).toThrow('Product prices must include GST');
+  expect(validateProductGstInput({ gstRate: '5' })).toEqual({ gstRate: 5, gstPriceType: 'inclusive' });
+  await expect(makeProduct(seller, 'Rejected', 100, { gstRate: 5, gstPriceType: 'exclusive' })).rejects.toThrow();
+  const p = await makeProduct(seller, 'Legacy exclusive', 100, { gstRate: 5 });
+  await Product.collection.updateOne({ _id: p._id }, { $set: { gstPriceType: 'exclusive' } });
+  await fill([[p, 1]]);
+  const res = await place('/api/orders');
+  expect(res.status).toBe(409); expect(res.body.message).toBe('Product GST price type needs seller review before checkout');
 });

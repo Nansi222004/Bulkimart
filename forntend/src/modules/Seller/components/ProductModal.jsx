@@ -776,14 +776,9 @@ export const ProductModal = () => {
                 </div>}
 
                 {!isDigital && <div className="onboarding-form-group">
-                  <label className="onboarding-label" htmlFor="product-gst-price-type">GST Price Type</label>
-                  <select id="product-gst-price-type" className="onboarding-input" value={newProductForm.gstPriceType ?? 'inclusive'}
-                    onChange={event => setNewProductForm({ ...newProductForm, gstPriceType: event.target.value })}>
-                    <option value="inclusive">GST inclusive — included in selling price</option>
-                    <option value="exclusive">GST exclusive — added to selling price</option>
-                  </select>
-                  <p style={{ fontSize: 12, lineHeight: 1.5 }}>Inclusive: ₹105 at 5% includes ₹5 GST. Exclusive: ₹100 at 5% becomes ₹105.
-                    This applies to every variant and wholesale tier. Existing products keep inclusive prices. Commission GST is separate.</p>
+                  <span className="onboarding-label">GST Price Type</span>
+                  <p style={{ fontSize: 12, lineHeight: 1.5 }}><strong>Your prices include GST.</strong> Enter the final price the customer pays:
+                    at 5% GST, a ₹105 price includes ₹5 GST. This applies to every variant and wholesale price. Commission GST is separate.</p>
                 </div>}
 
                 {!isDigital && <div style={S.hintBox}>

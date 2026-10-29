@@ -4,6 +4,8 @@ import { discountAllocation } from './orderDiscounts.service.js';
 import { httpError } from '../utils/response.js';
 
 export const PRODUCT_GST_RATES = Object.freeze([0, 5, 12, 18, 28]);
+// Business policy: every product price includes GST. Exclusive pricing is not offered.
+export const PRODUCT_GST_PRICE_TYPES = Object.freeze(['inclusive']);
 export const PRODUCT_GST_VERSION = 'product-gst-v1';
 const ratio = (amount, numerator, denominator) => Number((BigInt(amount) * BigInt(numerator) * 2n + BigInt(denominator)) / (2n * BigInt(denominator)));
 
@@ -19,23 +21,33 @@ export function resolveProductGst(product) {
     throw httpError(409, 'Product GST rate needs seller review before checkout');
   }
   const treatment = gstPriceType ?? 'inclusive';
-  if (!['inclusive', 'exclusive'].includes(treatment)) throw httpError(409, 'Product GST price type needs seller review before checkout');
+  // Anything other than inclusive (e.g. a stored "exclusive") is not sold until the seller reviews it.
+  if (!PRODUCT_GST_PRICE_TYPES.includes(treatment)) throw httpError(409, 'Product GST price type needs seller review before checkout');
   return { gstRate: Number(gstRate), gstPriceType: treatment,
     gstConfigurationSource: gstPriceType == null ? 'legacy_inclusive' : 'explicit' };
 }
 
-export function validateProductGstInput({ gstRate, gstPriceType, fulfillmentType = 'physical' }) {
+// What a line recorded on an order says, for re-checking stored snapshots; never used for new pricing.
+const recordedGst = ({ gstRate, gstPriceType }) => {
+  if (!PRODUCT_GST_RATES.includes(Number(gstRate)) || !['inclusive', 'exclusive'].includes(gstPriceType ?? 'inclusive')) throw httpError(409, 'Invalid recorded product GST');
+  return { gstRate: Number(gstRate), gstPriceType: gstPriceType ?? 'inclusive' };
+};
+
+export function validateProductGstInput({ gstRate, gstPriceType = 'inclusive', fulfillmentType = 'physical' }) {
   if (gstRate === null || gstRate === '' || !PRODUCT_GST_RATES.includes(Number(gstRate))) throw httpError(400, 'Select a supported product GST rate');
-  if (!['inclusive', 'exclusive'].includes(gstPriceType)) throw httpError(400, 'Select GST inclusive or GST exclusive');
-  if (fulfillmentType === 'digital' && (Number(gstRate) !== 0 || gstPriceType !== 'inclusive')) throw httpError(400, 'Product GST settings are only supported for physical products');
+  if (!PRODUCT_GST_PRICE_TYPES.includes(gstPriceType)) throw httpError(400, 'Product prices must include GST');
+  if (fulfillmentType === 'digital' && Number(gstRate) !== 0) throw httpError(400, 'Product GST settings are only supported for physical products');
   return { gstRate: Number(gstRate), gstPriceType };
 }
 
 // Round once per line, half up, in integer paise. Keep the entered unit price
 // unchanged; a rounded line total is not always divisible by its quantity.
 export function productGstLine(item) {
-  const config = item.product ? resolveProductGst(item.product) : resolveProductGst({ gstRate: item.gstRate ?? 0,
-    gstPriceType: item.gstPriceType, fulfillmentType: item.fulfillmentType });
+  // A product is resolved under the current policy; a line already carrying its GST (resolved at
+  // checkout, or recorded on an order) is re-used as recorded.
+  const config = item.product ? resolveProductGst(item.product)
+    : item.fulfillmentType === 'digital' ? resolveProductGst({ fulfillmentType: 'digital' })
+      : { ...recordedGst({ gstRate: item.gstRate ?? 0, gstPriceType: item.gstPriceType }), gstConfigurationSource: item.gstConfigurationSource ?? (item.gstPriceType == null ? 'legacy_inclusive' : 'explicit') };
   const sellingPricePaise = toPaise(lineMoney(item.price, Number(item.qty)));
   const taxableValuePaise = config.gstPriceType === 'inclusive'
     ? ratio(sellingPricePaise, 100, 100 + config.gstRate) : sellingPricePaise;
@@ -62,7 +74,8 @@ export function summarizeProductGst(lines) {
   return { version: PRODUCT_GST_VERSION, currency: 'INR', rounding: 'line_half_up_paise',
     discountFunding: 'platform', taxBasis: 'seller_consideration_before_platform_discounts',
     jurisdictionStatus: 'unverified', components: null,
-    deliveryTax: { status: 'unconfigured', amountPaise: null, treatment: null },
+    // Business policy: Bulkimart does not charge GST on delivery fees.
+    deliveryTax: { status: 'not_charged', amountPaise: 0, treatment: 'none' },
     ...totals, rates: [...rates.values()].sort((a, b) => a.gstRate - b.gstRate || a.gstPriceType.localeCompare(b.gstPriceType)), lines };
 }
 
