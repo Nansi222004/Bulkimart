@@ -28,6 +28,7 @@ import SellerOrderAlerts from '../components/SellerOrderAlerts';
 import SellerReturnAlerts from '../components/SellerReturnAlerts';
 import SellerPushControl from '../components/SellerPushControl';
 import NotificationPopup from '../../../components/NotificationPopup';
+import { openAdvertisingNotification } from '../../../components/advertising/advertisingNotifications';
 import { isSellerReturnNotification, openSellerReturn } from '../utils/returnNotification';
 
 /** Maps an Admin/business-event deep link (always `/seller/...` per
@@ -216,6 +217,7 @@ export const DashboardPage = () => {
       {/* Orders and new return requests have persistent alerts above.
           Other updates use the shared floating notification. */}
       <NotificationPopup excludeSellerOrders excludeSellerReturns onNavigate={(route, notification) => {
+        if (openAdvertisingNotification(notification || { route }, setActiveTab)) return;
         if (isSellerReturnNotification(notification)) return openSellerReturn(setActiveTab, notification);
         if (notification?.metadata?.orderId) return openSellerOrder(notification.metadata.orderId);
         const tab = resolvePopupNav(route); if (tab) setActiveTab(tab);

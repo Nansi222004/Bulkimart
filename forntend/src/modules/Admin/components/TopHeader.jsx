@@ -3,6 +3,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAdmin } from '../context/AdminContext';
 import { createAdminNotificationOpener } from '../utils/serviceNotifications';
 import { adminGet } from '../../../utils/adminApi';
+import SellerPushControl from '../../Seller/components/SellerPushControl';
+import { initPushNotifications } from '../../../utils/firebaseMessaging';
+
+const registerAdminPush = options => initPushNotifications(options, 'admin');
 
 const pageTitles = {
   overview: 'Dashboard', dashboard: 'Dashboard', reports: 'Reports',
@@ -111,6 +115,7 @@ export const TopHeader = ({ onLogout }) => {
                   Notifications {adminUnreadCount > 0 && <span style={{ color: '#dc2626' }}>({adminUnreadCount})</span>}
                 </div>
                 <div style={{ overflowY: 'auto', flex: 1 }}>
+                  <div style={{ padding: 14 }}><SellerPushControl register={registerAdminPush} label="Admin notification settings" buttonLabel="Enable push notifications" /></div>
                   {adminNotifError && <div role="alert" style={{ padding: 14, color: '#991b1b' }}>{adminNotifError} <button type="button" onClick={() => fetchAdminNotifications()}>Retry notifications</button></div>}
                   {adminNotifLoading ? (
                     <div style={{ padding: 20, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>Loading…</div>

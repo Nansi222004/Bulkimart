@@ -8,6 +8,7 @@ const adminSchema = new mongoose.Schema(
     password:    { type: String, required: true },
     role:        { type: String, enum: ["superAdmin", "admin", "moderator"], default: "admin" },
     permissions: [String], // e.g. ['manage_sellers','manage_orders','view_reports']
+    pushTokens: { type: [{ token: String, platform: { type: String, enum: ['web', 'app'] }, active: { type: Boolean, default: true }, lastUsedAt: Date, sessionRoles: [String] }], default: [], select: false },
     avatar:      String,
     lastLogin:   Date,
     isActive:    { type: Boolean, default: true },

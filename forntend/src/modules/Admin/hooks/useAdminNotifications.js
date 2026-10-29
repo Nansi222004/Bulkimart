@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminGet, adminPatch } from '../../../utils/adminApi';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
+import { initPushNotifications, onForegroundMessage } from '../../../utils/firebaseMessaging';
 
 export default function useAdminNotifications() {
   const [adminNotifications, setNotifications] = useState([]);
@@ -53,8 +54,8 @@ export default function useAdminNotifications() {
       if (!session || session !== token()) return;
       reconcile();
       // Existing feedback gives a visible foreground alert as well as the bell.
-      if (payload?.metadata?.applicationId || /^\/admin\/services(?:[?/#]|$)/.test(payload?.route || '')) {
-        const key = payload._id || `${payload.metadata?.applicationId}:${payload.title}:${payload.message}:${payload.createdAt}`;
+      if (payload?.metadata?.applicationId || payload?.metadata?.campaignId || /^\/admin\/services(?:[?/#]|$)/.test(payload?.route || '')) {
+        const key = payload.eventId || payload._id || `${payload.metadata?.campaignId || payload.metadata?.applicationId}:${payload.title}:${payload.message}:${payload.createdAt}`;
         if (!seen.has(key)) {
           seen.add(key); if (seen.size > 200) seen.delete(seen.values().next().value);
           feedbackRef.current.notify([payload.title || 'Service request update', payload.message].filter(Boolean).join(': '), { type: 'info' });
@@ -69,6 +70,13 @@ export default function useAdminNotifications() {
       else disconnectSocket();
     };
     const onVisible = () => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') reconcile(); };
+    let disposed = false, stopPush;
+    if (session) {
+      void initPushNotifications({ requestPermission: false }, 'admin');
+      void onForegroundMessage(payload => onNew({ ...payload.data, _id: payload.data?.notificationId,
+        title: payload.notification?.title || payload.data?.title, message: payload.notification?.body || payload.data?.body,
+        metadata: payload.data })).then(stop => { if (disposed) stop(); else stopPush = stop; }).catch(() => {});
+    }
     socket.on('notification_new', onNew); socket.on('connect', reconcile);
     window.addEventListener('focus', reconcile); window.addEventListener('online', reconcile);
     window.addEventListener('storage', onSession); window.addEventListener('bulkimart:admin-session-changed', onSession);
@@ -76,6 +84,7 @@ export default function useAdminNotifications() {
     if (session) { connectSocket(session, 'admin'); reconcile(); }
     const timer = setInterval(onVisible, 30000);
     return () => {
+      disposed = true; stopPush?.();
       alive.current = false; listGeneration.current++; countGeneration.current++;
       clearInterval(timer);
       socket.off('notification_new', onNew); socket.off('connect', reconcile);

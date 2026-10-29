@@ -55,7 +55,8 @@ export const registerTokenWithBackend = async (token, authToken = getPortalToken
     if (!identityResponse.ok) return;
     const identity = await identityResponse.json();
     const expectedRole = scope === 'customer' ? 'buyer' : scope;
-    if (!identity.success || identity.userType !== 'user' || identity.sessionRole !== expectedRole || !identity.profile?._id || !current()) return;
+    const matchingIdentity = scope === 'admin' ? identity.userType === 'admin' : identity.userType === 'user' && identity.sessionRole === expectedRole;
+    if (!identity.success || !matchingIdentity || !identity.profile?._id || !current()) return;
     const response = await boundedFetch(apiUrl('/api/notifications/tokens'), {
       method: 'POST', signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -158,7 +159,7 @@ export const deregisterPushToken = async (scope = portalScope()) => {
     // for this logged-out role. Revoke it locally and restore only the roles
     // still signed in, using fresh subscriptions and server authentication.
     await subscriptionCleanup;
-    const activeScopes = () => ['customer', 'seller', 'delivery'].filter(other => other !== scope && getPortalToken(other) && getPushSession(other));
+    const activeScopes = () => ['customer', 'seller', 'delivery', 'admin'].filter(other => other !== scope && getPortalToken(other) && getPushSession(other));
     if (activeScopes().length) {
       await unsubscribe(true).catch(() => {});
       const restore = () => { for (const other of activeScopes()) {

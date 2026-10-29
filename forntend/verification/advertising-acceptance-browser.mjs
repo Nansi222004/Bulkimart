@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdtemp,mkdir,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {join,resolve,dirname,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -62,10 +62,23 @@ try{
   await evaluate(`(()=>{const s=[...document.querySelectorAll('select')].find(s=>s.closest('label').textContent.startsWith('Package'));const o=[...s.options].find(o=>o.textContent.includes('Acceptance package'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,o.value);s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await click('Continue');await waitFor(has('Step 4 of 4'));await click('Save campaign draft');await waitFor(has('Submit for review'));await click('Submit for review');await waitFor(has('Confirm terms and submit'));await click('Confirm terms and submit');await waitFor(has('PENDING REVIEW'));await waitFor(has('Waiting for Bulkimart to review your campaign.'));checks.push('seller-four-step-draft-and-versioned-submission-real-api');
 
-  await navigate('/acceptance/admin');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Decision reason'));await field('Decision reason','Synthetic approval via real review interface');await click('approve');await waitFor(has('APPROVED AWAITING PAYMENT'));checks.push('admin-review-real-api');
+  await navigate('/acceptance/admin');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Decision reason'));await field('Decision reason','Synthetic approval via real review interface');await click('Approve & request payment');await waitFor(has('APPROVED AWAITING PAYMENT'));checks.push('admin-review-real-api');
   await waitFor(has('Financial authorization: recorded'));
   assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Authorize accepted billing policy')`),false);
   checks.push('approval-opens-standard-payment-without-second-finance-action');
+  const screenshots=resolve('test-artifacts/advertising-review');await mkdir(screenshots,{recursive:true});
+  for(const width of [320,390,1280]){
+    await command('Emulation.setDeviceMetricsOverride',{width,height:585,deviceScaleFactor:1,mobile:width<600});
+    await delay(120);
+    const layout=await evaluate(`(()=>{const dialog=document.querySelector('.ad-modal-dialog'),body=dialog.querySelector('.ad-modal-body'),close=dialog.querySelector('[aria-label="Close details"]');body.scrollTop=0;return {overflow:dialog.scrollWidth>dialog.clientWidth+1,closeText:close.textContent.trim(),closeWidth:close.getBoundingClientRect().width,bodyHeight:body.clientHeight};})()`);
+    assert.equal(layout.overflow,false,'review dialog fits width '+width);assert.equal(layout.closeText,'✕');assert.ok(layout.closeWidth>=32);assert.ok(layout.bodyHeight>100);
+    const shot=await command('Page.captureScreenshot',{format:'png'});await writeFile(join(screenshots,'review-'+width+'.png'),Buffer.from(shot.data,'base64'));
+    await evaluate(`document.querySelector('.ad-review-actions textarea').scrollIntoView({block:'center'})`);
+    assert.equal(await evaluate(`(()=>{const e=document.querySelector('.ad-review-actions textarea'),r=e.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===e;})()`),true,'review reason reachable '+width);
+  }
+  checks.push('campaign-review-close-button-payment-guidance-and-controls-responsive');
+  await command('Emulation.setDeviceMetricsOverride',{width:1280,height:1000,deviceScaleFactor:1,mobile:false});
+
   await navigate('/acceptance/seller');await waitFor(has('Acceptance campaign'));await click('View campaign');await waitFor(has('Approved. Pay to start your ad.'));
   assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>/^Pay ₹/.test(b.textContent));return b.disabled;})()`),true);
   const id=await evaluate(`(async()=>{const r=await fetch('/api/sellers/advertising/campaigns',{headers:{Authorization:'Bearer '+localStorage.getItem('sellerToken')}});return(await r.json()).data[0].id;})()`);

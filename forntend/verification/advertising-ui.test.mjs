@@ -62,9 +62,9 @@ test('review-only admin has review controls without package configuration', asyn
     h.requests[1].resolve(list([campaign()])); await h.settle();
     assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Packages and policies'), undefined);
     h.click('View campaign'); h.requests[2].resolve({ success: true, data: campaign() }); await h.settle();
-    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'approve').props.disabled, true);
+    assert.equal(h.find(n => n.type === 'button' && n.props.children === 'Approve campaign').props.disabled, true);
     h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Verified eligibility' } }); h.flush();
-    h.click('approve'); const sent = h.requests[3];
+    h.click('Approve campaign'); const sent = h.requests[3];
     assert.match(sent.url, /admin\/advertising\/campaigns\/campaign-id\/approve/);
     assert.deepEqual(JSON.parse(sent.options.body), { version: 4, reason: 'Verified eligibility' });
     sent.resolve({ success: true, data: campaign({ review: 'APPROVED', version: 5 }) }); await h.settle();
@@ -165,7 +165,7 @@ test('moderation refreshes the billing panel for the new campaign version',async
     h.requests[1].resolve(list([campaign()]));await h.settle();h.click('View campaign');
     h.requests[2].resolve({success:true,data:campaign()});await h.settle();
     const before=h.find(n=>n.type===Billing);assert.equal(before.key,'campaign-id:4');
-    h.find(n=>n.type==='textarea').props.onChange({target:{value:'Synthetic review approval'}});h.flush();h.click('approve');
+    h.find(n=>n.type==='textarea').props.onChange({target:{value:'Synthetic review approval'}});h.flush();h.click('Approve campaign');
     h.requests.at(-1).resolve({success:true,data:campaign({review:'APPROVED',version:5})});await h.settle();
     const after=h.find(n=>n.type===Billing);assert.equal(after.key,'campaign-id:5');assert.notEqual(after.key,before.key);
   }finally{h.close();}
@@ -191,4 +191,31 @@ test('the category step offers only categories every ticked product belongs to, 
     options = [categorySelect().props.children].flat(Infinity).filter(o => o?.props?.value).map(o => o.props.value);
     assert.deepEqual(options, []); assert.match(text(h.tree), /different categories/);
   } finally { h.close(); }
+});
+
+for (const admin of [true,false]) test((admin?'admin':'seller')+' campaign notification opens its authenticated detail and handles another notification',async()=>{
+ const id='507f1f77bcf86cd799439011', next='507f1f77bcf86cd799439012';
+ const h=hookHarness(Workspace,{admin},'/'+(admin?'admin':'seller')+'/advertising?campaign='+id);
+ try {
+  h.requests[0].resolve(capabilities(admin?['advertising_review']:[]));await h.settle();
+  const detail=h.requests.find(r=>r.url.endsWith('/campaigns/'+id));assert.ok(detail);
+  detail.resolve({success:true,data:campaign({id})});await h.settle();
+  assert.equal(h.find(n=>n.props?.['aria-label']==='Close details').props.children,'✕');
+  const helper=await vite.ssrLoadModule('/src/components/advertising/advertisingNotifications.js');
+  const tabs=[];helper.openAdvertisingNotification({route:'/'+(admin?'admin':'seller')+'/advertising?campaign='+next,metadata:{campaignId:next}},tab=>tabs.push(tab),admin);
+  await h.settle();assert.deepEqual(tabs,['advertising']);assert.ok(h.requests.some(r=>r.url.endsWith('/campaigns/'+next)));
+  assert.equal(helper.openAdvertisingNotification({route:'https://evil.example/?campaign='+id},()=>assert.fail('external navigation'),admin),false);
+ }finally{h.close();}
+});
+
+test('approved campaign exposes a versioned payment reminder without finance permission or a new payment attempt',async()=>{
+ const h=hookHarness(Workspace,{admin:true});
+ try{
+  const cap=capabilities(['advertising_review']);cap.data.paymentsEnabled=true;h.requests[0].resolve(cap);await h.settle();
+  h.requests[1].resolve(list([campaign()]));await h.settle();h.click('View campaign');
+  h.requests[2].resolve({success:true,data:campaign({review:'APPROVED',paid:{authorized:true}})});await h.settle();
+  h.click('Send payment reminder');const sent=h.requests[3];assert.match(sent.url,/request-payment$/);assert.deepEqual(JSON.parse(sent.options.body),{version:4});
+  sent.resolve({success:true});await h.settle();assert.match(text(h.tree),/Payment reminder sent/);
+  assert.equal(h.requests.some(r=>r.url.includes('payment-attempts')),false);
+ }finally{h.close();}
 });

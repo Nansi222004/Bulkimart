@@ -99,3 +99,9 @@ test('a push pops up only in its own app: a customer parcel update never shows o
   // With no Bulkimart page open, every signed-in app still gets its notifications.
   open = []; await h.background({ data: customer }); assert.equal(h.shown.length, 3);
 });
+
+for (const scope of ['admin','seller']) test(scope+' advertising push opens the exact campaign instead of the orders page', async()=>{
+ const id='507f1f77bcf86cd799439011', h=harness({[scope]:{recipientId:'fixture-account'}});
+ const data={audience:scope,recipientId:'fixture-account',campaignId:id,event:scope==='admin'?'ADVERTISING_SUBMITTED':'ADVERTISING_APPROVE',route:'/'+scope+'/advertising?campaign='+id,title:'Campaign update',body:'Review the campaign'};
+ await h.background({data});await h.click(data);assert.equal(h.shown.length,1);assert.deepEqual(h.opened,[data.route]);
+});

@@ -176,3 +176,15 @@ test('a new login enables push again after a previous logout', async () => {
     assert.ok(await f.cache.match(pushState.pushSessionPath('delivery')));
   } finally { f.close(); }
 });
+
+test('admin push validates an Admin identity and keeps its device session separate from the seller', async()=>{
+ const f=fixture('admin');
+ try{
+  localStorage.setItem('adminToken','admin-session');backend.bindSessionBackend('admin');
+  globalThis.fetch=async(url,options)=>{f.calls.push({url,options});return new Response(JSON.stringify(url.endsWith('/api/auth/me')?{success:true,userType:'admin',profile:{_id:'admin-id'}}:{success:true}));};
+  assert.equal(await push.registerTokenWithBackend('admin-device'),true);
+  assert.equal(pushState.getPushSession('admin').recipientId,'admin-id');assert.equal(pushState.getPushSession('seller'),null);
+  assert.equal(f.calls[1].options.headers.Authorization,'Bearer admin-session');
+  await push.deregisterPushToken('admin');assert.match(f.calls.at(-1).url,/tokens\/admin-device$/);assert.equal(pushState.getPushSession('admin'),null);
+ }finally{f.close();}
+});

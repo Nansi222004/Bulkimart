@@ -64,3 +64,16 @@ test('both new customer links and older generic paid-service alerts open Custome
     assert.match(window.location.search, /legalRequest=/); assert.deepEqual(calls, ['services', 'services']);
   } finally { h.close(); }
 });
+
+test('advertising alerts refresh the admin bell and open the campaign; duplicate transports show one alert',async()=>{
+ feedback.clear();const h=hookHarness(useNotifications,{},'/admin/advertising');
+ const id='507f1f77bcf86cd799439033', n={_id:'ad-notification',eventId:'advertising:'+id+':1:submit',event:'ADVERTISING_SUBMITTED',title:'Campaign awaiting review',message:'Review this campaign',metadata:{campaignId:id},route:'/admin/advertising?campaign='+id};
+ try{
+  await answer(h,h.requests);emit('notification_new',n);await answer(h,h.requests.slice(-2),1,[n]);
+  emit('notification_new',n);await answer(h,h.requests.slice(-2),1,[n]);assert.equal(feedback.getSnapshot().toasts.length,1);
+  const calls=[];await opener()(n,{markRead:async()=>calls.push('read'),setTab:tab=>calls.push(tab),close:()=>calls.push('close'),toast:()=>assert.fail('unexpected navigation error')});
+  assert.deepEqual(calls,['read','advertising','close']);assert.equal(window.location.search,'?campaign='+id);
+  const previousToast=feedback.getSnapshot().toasts[0].id;
+  emit('notification_new',{...n,eventId:'advertising:'+id+':2:submit'});await answer(h,h.requests.slice(-2),2,[n]);assert.notEqual(feedback.getSnapshot().toasts[0].id,previousToast,'a later resubmission creates a fresh alert even when its message is unchanged');
+ }finally{h.close();feedback.clear();}
+});

@@ -12,6 +12,7 @@ import { adCharge, advertisingProduction, requireAdvertisingGateway, requireAdve
 import { paidAdvertisingEnabled } from './advertisingPaidEligibility.service.js';
 import { createRazorpayOrder, getRazorpayPaymentStatus, verifyRazorpayPaymentSignature, getRazorpayClient, validateRazorpayConfig, createRazorpayRefund } from './razorpay.service.js';
 import { httpError } from '../utils/response.js';
+import { notifyAdvertisingChange } from './advertisingNotifications.service.js';
 
 const fail = (message,status=409) => { throw httpError(status,message); };
 // A seller has 30 minutes to finish paying for an advertising campaign before the checkout expires.
@@ -80,7 +81,7 @@ async function eligibleToPay(c,session) {
   return charge;
 }
 export async function authorizeAdvertisingBilling(id,actor,input) {
-  return financialTransaction(async session=>{
+  const updated = await financialTransaction(async session=>{
     const c=await advertisingCampaign(id,undefined,session),a=c.advertising;
     if(c.__v!==advertisingVersion(input.version))fail('Campaign changed; refresh');
     reason(input);
@@ -89,8 +90,10 @@ export async function authorizeAdvertisingBilling(id,actor,input) {
     if(policy.invoiceMode==='EXTERNAL_REFERENCE' && (typeof input.invoiceReference!=='string'||!input.invoiceReference.trim()||input.invoiceReference.length>200))fail('Approved external invoice reference required',400);
     await validateAdvertisingSelection(c,session);
     a.paid={revision:a.revision,authorizedBy:actor,authorizedAt:new Date(),invoiceReference:input.invoiceReference || undefined};
-    audit(c,'billing-authorize',actor,reason(input));await saveCampaign(c,session);return campaignDTO(c);
+    audit(c,'billing-authorize',actor,reason(input));await saveCampaign(c,session);return c;
   });
+  await notifyAdvertisingChange(updated, 'billing-authorize');
+  return campaignDTO(updated);
 }
 export async function initiateAdvertisingPayment(id,sellerId,userId,input) {
   requireAdvertisingGateway();

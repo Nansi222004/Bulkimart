@@ -6,6 +6,10 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 const orders=new Map(),payments=new Map(),refunds=new Map();let orderCalls=0,refundCalls=0,creationUnknown=false,refundUnknown=false;
+const sendPushNotification = jest.fn(async () => ({ success: true }));
+const emitToAdmins = jest.fn(), emitToSeller = jest.fn();
+jest.unstable_mockModule('../services/fcm.service.js', () => ({ sendPushNotification, sendBulkNotification: jest.fn(async () => ({ success: true })) }));
+jest.unstable_mockModule('../socket/rooms.js', () => ({ emitToAdmins, emitToSeller, emitToUser: jest.fn(), emitToRider: jest.fn() }));
 const realGateway=await import('../services/razorpay.service.js');
 jest.unstable_mockModule('../services/razorpay.service.js',()=>({...realGateway,
   createRazorpayOrder:async({merchantOrderId,amountPaise,notes})=>{orderCalls++;const id=`order_test${orderCalls}`;
@@ -18,6 +22,8 @@ jest.unstable_mockModule('../services/razorpay.service.js',()=>({...realGateway,
 const [{advertisingRouter},{advertisingPublicRouter},{razorpayWebhook},{errorHandler},{JWT_SECRET},{default:User},{default:Seller},{default:Admin},{default:Category},{default:Product},{default:Promotion},{default:Package},{default:Payment},{default:Ledger},{default:Receipt},{default:Event},billing,telemetry]=await Promise.all([
   import('../routes/advertising.routes.js'),import('../routes/advertisingPublic.routes.js'),import('../controllers/payment.controller.js'),import('../middlewares/error.middleware.js'),import('../config/jwt.js'),
   import('../models/User.js'),import('../models/Seller.js'),import('../models/Admin.js'),import('../models/Category.js'),import('../models/Product.js'),import('../models/SellerPromotion.js'),import('../models/PromotionPackage.js'),import('../models/Payment.js'),import('../models/SellerLedgerEntry.js'),import('../models/AdWebhookReceipt.js'),import('../models/AdEvent.js'),import('../services/advertisingBilling.service.js'),import('../services/advertisingTelemetry.service.js')]);
+const { default: Notification } = await import('../models/Notification.js');
+const { default: notificationRouter } = await import('../routes/notification.routes.js');
 let db,app,user,other,seller,admin,reviewer,category,product,pack,campaign;
 const policy=()=>({approvalReference:'SYNTHETIC-TEST-POLICY-NOT-LEGAL-APPROVAL',issuer:'Synthetic fixture issuer',taxTreatment:'EXCLUSIVE',taxRateBps:500,taxRecognition:'ON_RECEIPT',invoiceMode:'NOT_REQUIRED',creditNoteMode:'NOT_REQUIRED',startCondition:'VERIFIED_PAYMENT_OR_REQUESTED_START',interruption:'STOP_AND_REVIEW',refunds:{cancellationBps:10000,suspensionBps:10000,unavailableBps:10000,unusedBps:10000},recognition:'MANUAL_AFTER_COMPLETION'});
 const auth=(r,u=user,type='user')=>r.set('Authorization',`Bearer ${jwt.sign({id:String(u._id),type,role:'seller'},JWT_SECRET)}`);
@@ -29,14 +35,14 @@ const signature=(orderId,paymentId)=>crypto.createHmac('sha256',process.env.RAZO
 const verify=(orderId,paymentId='pay_test1',extra={})=>auth(request(app).post(`/seller/campaigns/${campaign.id}/payment-verification`)).send({razorpay_order_id:orderId,razorpay_payment_id:paymentId,razorpay_signature:signature(orderId,paymentId),...extra});
 async function paid(){const order=await checkout();capture(order.checkout.razorpayOrderId);await verify(order.checkout.razorpayOrderId).expect(200);return order;}
 const webhook=(p,event='payment.captured',id='evt_synthetic1')=>{const body={event,payload:{payment:{entity:p}}},raw=JSON.stringify(body);return request(app).post('/webhook').set('x-razorpay-event-id',id).set('x-razorpay-signature',crypto.createHmac('sha256',process.env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex')).set('Content-Type','application/json').send(raw);};
-beforeAll(async()=>{db=await MongoMemoryReplSet.create({binary:{version:'7.0.14'},replSet:{count:1}});await mongoose.connect(db.getUri('advertising-billing-isolated'));for(const model of [User,Seller,Admin,Category,Product,Promotion,Package,Payment,Ledger,Receipt,Event])await model.init();});
+beforeAll(async()=>{db=await MongoMemoryReplSet.create({binary:{version:'7.0.14'},replSet:{count:1}});await mongoose.connect(db.getUri('advertising-billing-isolated'));for(const model of [User,Seller,Admin,Category,Product,Promotion,Package,Payment,Ledger,Receipt,Event,Notification])await model.init();});
 beforeEach(async()=>{
   Object.assign(process.env,{PAYMENT_GATEWAY:'razorpay',RAZORPAY_MODE:'test',RAZORPAY_KEY_ID:'rzp_test_synthetic',RAZORPAY_KEY_SECRET:'synthetic-test-only-key',RAZORPAY_WEBHOOK_SECRET:'synthetic-webhook-only-key',ADVERTISING_EVENT_RETENTION_DAYS:'7',ADVERTISING_TOKEN_SECRET:'synthetic-test-signing-key-at-least-thirty-two-characters'});
   delete process.env.ADVERTISING_CATEGORY_PILOT_ENABLED;delete process.env.ADVERTISING_PRODUCTION_ENABLED;
   for(const c of Object.values(mongoose.connection.collections))await c.deleteMany({});orders.clear();payments.clear();refunds.clear();orderCalls=0;refundCalls=0;creationUnknown=false;refundUnknown=false;
-  app=express();app.use(express.json({verify:(req,_res,buffer)=>{req.rawBody=buffer;}}));app.use('/seller',advertisingRouter());app.use('/admin',advertisingRouter(true));app.use('/public',advertisingPublicRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
+  app=express();app.use(express.json({verify:(req,_res,buffer)=>{req.rawBody=buffer;}}));app.use('/api/notifications',notificationRouter);app.use('/seller',advertisingRouter());app.use('/admin',advertisingRouter(true));app.use('/public',advertisingPublicRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
   [user,other]=await User.create([{phone:'9876500931',roles:['seller']},{phone:'9876500932',roles:['seller']}]);seller=await Seller.create({userId:user._id,status:'approved',salesChannels:['ecommerce']});await Seller.create({userId:other._id,status:'approved',salesChannels:['ecommerce']});
-  admin={_id:new mongoose.Types.ObjectId(),role:'superAdmin',isActive:true,email:'ad-finance@example.test'};reviewer={_id:new mongoose.Types.ObjectId(),role:'admin',isActive:true,email:'ad-review@example.test',permissions:['advertising_review']};await Admin.collection.insertMany([admin,reviewer]);
+  admin={_id:new mongoose.Types.ObjectId(),role:'superAdmin',isActive:true,email:'ad-finance@example.test'};reviewer={_id:new mongoose.Types.ObjectId(),role:'admin',isActive:true,email:'ad-review@example.test',permissions:['advertising_review']};await Admin.collection.insertMany([admin,reviewer].map(a=>({...a,password:'synthetic-fixture-not-used-for-login'})));
   category=await Category.create({name:'Fixture',slug:'billing-fixture',type:'ecommerce'});product=await Product.create({sellerId:seller._id,name:'Fixture product',type:'ecommerce',category:category._id,price:10,mrp:12,stock:8,unit:'piece',status:'approved',isActive:true});
   pack=(await adminPost('/packages',{name:'Synthetic fixed offer',module:'ECOMMERCE',durationDays:9,maxProducts:2,amountPaise:10000,categories:[],isActive:true,reason:'Synthetic policy test',policies:{billing:policy()}}).expect(201)).body.data;
   campaign=(await auth(request(app).post('/seller/campaigns')).send({name:'Synthetic paid category',module:'ECOMMERCE',categoryId:String(category._id),items:[{productId:String(product._id),variantId:String(product.variants[0]._id)}],packageId:pack.id,requestedStartAt:new Date(Date.now()+3600000).toISOString()}).expect(201)).body.data;
@@ -327,10 +333,58 @@ test('configured external invoice and credit-note obligations cannot be bypassed
   const row=await Promotion.findById(campaign.id);
   await adminPost(`/campaigns/${campaign.id}/billing-authorize`,{version:row.__v,reason:'Synthetic required invoice'}).expect(400);
   campaign=(await adminPost(`/campaigns/${campaign.id}/billing-authorize`,{version:row.__v,reason:'Synthetic required invoice',invoiceReference:'SYNTHETIC-EXTERNAL-INVOICE'}).expect(200)).body.data;
+  expect(await Notification.countDocuments({'metadata.campaignId':campaign.id,event:'ADVERTISING_BILLING_AUTHORIZE',audience:'seller'})).toBe(1);
   await paid();const active=await Promotion.findById(campaign.id);await adminPost(`/campaigns/${campaign.id}/cancel`,{version:active.__v,reason:'Synthetic cancellation'}).expect(200);
   const refund={key:'external-credit-note-key-0001',amountPaise:10500,reason:'Synthetic reviewed refund'};
   await adminPost(`/campaigns/${campaign.id}/refund`,refund).expect(400);expect(refundCalls).toBe(0);
   await adminPost(`/campaigns/${campaign.id}/refund`,{...refund,creditNoteReference:'SYNTHETIC-EXTERNAL-CREDIT-NOTE'}).expect(200);
   const sellerView=await auth(request(app).get(`/seller/campaigns/${campaign.id}/billing`)).expect(200);
   expect(sellerView.body.data.payment.invoiceReference).toBe('SYNTHETIC-EXTERNAL-INVOICE');expect(sellerView.body.data.payment.refunds[0].creditNoteReference).toBe('SYNTHETIC-EXTERNAL-CREDIT-NOTE');
+});
+
+// Real persistence, authentication and campaign transitions; only outbound
+// gateway, Socket.io and Firebase transports are isolated test doubles.
+test('campaign submission and approval deliver persisted, live and push alerts to the correct portals', async () => {
+  const register = (account, type, token) => auth(request(app).post('/api/notifications/tokens'), account, type).send({ token, platform: 'web' });
+  await register(admin, 'admin', 'admin-browser-fixture').expect(200);
+  await register(user, 'user', 'seller-browser-fixture').expect(200);
+  const inactive = { _id: new mongoose.Types.ObjectId(), email: 'inactive@example.test', isActive: false, role: 'admin', pushTokens: [{ token: 'inactive-device', active: true, platform: 'web', sessionRoles: ['admin'] }] };
+  await Admin.collection.insertOne(inactive);
+  expect((await Admin.findById(admin._id)).pushTokens).toBeUndefined(); // never disclose devices through profile
+  sendPushNotification.mockClear(); emitToAdmins.mockClear(); emitToSeller.mockClear();
+  let c = (await auth(request(app).post('/seller/campaigns')).send({name:'Notification fixture',module:'ECOMMERCE',categoryId:String(category._id),items:[{productId:String(product._id),variantId:String(product.variants[0]._id)}],packageId:pack.id,requestedStartAt:new Date(Date.now()+3600000).toISOString()}).expect(201)).body.data;
+  const version = c.version;
+  c = (await auth(request(app).post('/seller/campaigns/'+c.id+'/submit')).send({version,packageVersion:pack.version}).expect(200)).body.data;
+  await auth(request(app).post('/seller/campaigns/'+c.id+'/submit')).send({version,packageVersion:pack.version}).expect(409);
+  const adminRows = await Notification.find({'metadata.campaignId':c.id,recipientModel:'Admin'});
+  expect(adminRows).toHaveLength(2);expect(adminRows.every(n=>n.route==='/admin/advertising?campaign='+c.id && !n.isRead)).toBe(true);
+  expect(adminRows.some(n=>String(n.userId)===String(inactive._id))).toBe(false);
+  c = (await adminPost('/campaigns/'+c.id+'/approve',{version:c.version,reason:'Notification test'},reviewer).expect(200)).body.data;
+  const sellerRow = await Notification.findOne({'metadata.campaignId':c.id,audience:'seller'});
+  expect(String(sellerRow.userId)).toBe(String(user._id));expect(sellerRow.event).toBe('ADVERTISING_APPROVE');
+  expect(sellerRow.route).toBe('/seller/advertising?campaign='+c.id);
+  const inbox = (await auth(request(app).get('/api/notifications')).expect(200)).body.data;
+  expect(inbox.some(n=>n._id===String(sellerRow._id))).toBe(true);
+  for(let i=0;i<100 && sendPushNotification.mock.calls.length<2;i++) await new Promise(r=>setTimeout(r,10));
+  expect(emitToAdmins).toHaveBeenCalledWith('notification_new',expect.objectContaining({event:'ADVERTISING_SUBMITTED'}));
+  expect(emitToSeller).toHaveBeenCalledWith(String(seller._id),'notification_new',expect.objectContaining({event:'ADVERTISING_APPROVE'}));
+  expect(sendPushNotification).toHaveBeenCalledWith('admin-browser-fixture',expect.objectContaining({web:true,data:expect.objectContaining({audience:'admin',recipientId:String(admin._id),route:'/admin/advertising?campaign='+c.id})}));
+  expect(sendPushNotification).toHaveBeenCalledWith('seller-browser-fixture',expect.objectContaining({web:true,data:expect.objectContaining({audience:'seller',recipientId:String(user._id),route:'/seller/advertising?campaign='+c.id})}));
+  expect(sendPushNotification).not.toHaveBeenCalledWith('inactive-device',expect.anything());
+  await adminPost('/campaigns/'+c.id+'/request-payment',{version:c.version}).expect(200);
+  await adminPost('/campaigns/'+c.id+'/request-payment',{version:c.version}).expect(200);
+  expect(await Notification.countDocuments({'metadata.campaignId':c.id,event:'ADVERTISING_REQUEST_PAYMENT'})).toBe(1);
+  expect(await Payment.countDocuments()).toBe(0);expect(await Ledger.countDocuments()).toBe(0);
+  await adminPost('/campaigns/'+c.id+'/request-payment',{version:c.version-1}).expect(409);
+  await auth(request(app).delete('/api/notifications/tokens/admin-browser-fixture'),admin,'admin').expect(200);
+  expect((await Admin.findById(admin._id).select('+pushTokens')).pushTokens).toHaveLength(0);
+});
+
+test('admin device ownership transfers only within admin accounts and rejects inactive sessions', async () => {
+  const register = account => auth(request(app).post('/api/notifications/tokens'),account,'admin').send({token:'shared-admin-browser',platform:'web'});
+  await register(admin).expect(200);await register(reviewer).expect(200);
+  expect((await Admin.findById(admin._id).select('+pushTokens')).pushTokens).toHaveLength(0);
+  expect((await Admin.findById(reviewer._id).select('+pushTokens')).pushTokens).toHaveLength(1);
+  await Admin.updateOne({_id:reviewer._id},{$set:{isActive:false}});
+  await register(reviewer).expect(403);
 });

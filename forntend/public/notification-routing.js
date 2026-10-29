@@ -7,7 +7,8 @@ self.notificationTarget = function (data = {}) {
     if (/^[a-f\d]{24}$/i.test(String(data.notificationId || ''))) params.set('notification', data.notificationId);
     return '/seller/item-returns' + (params.size ? '?' + params : '');
   }
-  if (data.audience === 'seller' || data.event === 'ORDER_CREATED' && String(data.route || '').startsWith('/seller')) {
+  if ((data.audience === 'seller' || String(data.route || '').startsWith('/seller/'))
+    && (data.event === 'ORDER_CREATED' || data.orderId || /^\/seller\/orders(?:[/?]|$)/.test(data.route || ''))) {
     if (!/^[a-f\d]{24}$/i.test(String(data.orderId || ''))) return '/seller/orders';
     const params = new URLSearchParams();
     if (/^[a-f\d]{24}$/i.test(String(data.notificationId || ''))) params.set('notification', data.notificationId);

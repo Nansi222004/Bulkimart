@@ -9,7 +9,7 @@ import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, httpError } from '../utils/response.js';
 import { advertisingCapabilities, advertisingPermission, requireAdvertisingManagement, advertisingUnavailable } from '../services/advertisingPolicy.service.js';
-import { advertisingCampaign, campaignDTO, createAdvertisingCampaign, changeAdvertisingCampaign, listAdvertisingCampaigns, packageDTO, saveAdvertisingPackage, advertisingPagination } from '../services/advertising.service.js';
+import { advertisingCampaign, campaignDTO, createAdvertisingCampaign, changeAdvertisingCampaign, requestAdvertisingPayment, listAdvertisingCampaigns, packageDTO, saveAdvertisingPackage, advertisingPagination } from '../services/advertising.service.js';
 import * as billing from '../services/advertisingBilling.service.js';
 import { advertisingEventSummary } from '../services/advertisingTelemetry.service.js';
 
@@ -63,6 +63,7 @@ export function advertisingRouter(admin = false) {
   }));
   // Rate limits are an additional process-local control, never a financial lock.
   if (admin) {
+    router.post('/campaigns/:id/request-payment', advertisingPermission('advertising_review'), asyncHandler(async(req,res)=>ok(res, await requestAdvertisingPayment(req.params.id, req.body))));
     router.post('/campaigns/:id/billing-authorize',advertisingPermission('advertising_finance'),asyncHandler(async(req,res)=>ok(res,await billing.authorizeAdvertisingBilling(req.params.id,req.user._id,req.body))));
     router.post('/campaigns/:id/recognize',advertisingPermission('advertising_finance'),asyncHandler(async(req,res)=>ok(res,await billing.recognizeAdvertisingRevenue(req.params.id,req.user._id,req.body))));
     router.post('/campaigns/:id/cancel',advertisingPermission('advertising_review'),asyncHandler(async(req,res)=>ok(res,await billing.cancelAdvertisingCampaign(req.params.id,undefined,req.user._id,req.body))));

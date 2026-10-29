@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import Admin from "../models/Admin.js";
 import Notification from "../models/Notification.js";
 import Order from '../models/Order.js';
 import Seller from '../models/Seller.js';
@@ -62,11 +63,11 @@ async function visibleNotificationFilter(req) {
 // @access  Private
 export const saveFcmToken = asyncHandler(async (req, res) => {
   const { token, platform } = req.body;
-  if (!token) {
+  if (typeof token !== 'string' || !token.trim() || token.length > 4096) {
     res.status(400);
     throw new Error("Please provide a push token");
   }
-  const tokenPlatform = await registerPushToken(req.user._id, token, platform, req.tokenRole || (req.userType === 'user' ? 'buyer' : undefined));
+  const tokenPlatform = await (req.userType === 'admin' ? registerPushToken(req.user._id, token, platform, 'admin', Admin) : registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer'));
   ok(res, { platform: tokenPlatform }, "Push token saved");
 });
 
@@ -75,7 +76,8 @@ export const saveFcmToken = asyncHandler(async (req, res) => {
 // @route   DELETE /api/notifications/tokens/:token
 // @access  Private
 export const deleteFcmToken = asyncHandler(async (req, res) => {
-  await removePushToken(req.user._id, req.params.token, req.tokenRole || (req.userType === 'user' ? 'buyer' : undefined));
+  if (req.userType === 'admin') await removePushToken(req.user._id, req.params.token, 'admin', Admin);
+  else await removePushToken(req.user._id, req.params.token, req.tokenRole || 'buyer');
   ok(res, {}, "Push token removed");
 });
 

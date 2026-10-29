@@ -5,6 +5,7 @@ import { useNotifications } from '../../../utils/useNotifications';
 import { isRetiredSellerNotification } from '../utils/retiredFeatures';
 import { orderReference } from './SellerOrderAlerts';
 import { isSellerReturnNotification, openSellerReturn } from '../utils/returnNotification';
+import { openAdvertisingNotification } from '../../../components/advertising/advertisingNotifications';
 
 export const NotificationDrawer = ({ isOpen, onClose }) => {
   const { triggerToast, openSellerOrder, setActiveTab } = useSeller();
@@ -28,6 +29,7 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
       else {
         if (!notification.isRead) await markRead(notification._id);
         const route = notification.route || '';
+        if (openAdvertisingNotification(notification, setActiveTab)) return;
         const tab = route.startsWith('/seller/') ? route.split('/')[2].split('?')[0] : route === '/orders' ? 'orders' : null;
         if (['orders', 'services', 'products', 'stock', 'support', 'item-returns', 'dashboard', 'earnings', 'paymenthistory', 'moneyrequest'].includes(tab)) setActiveTab(tab);
         else if (notification.type === 'order') triggerToast('This order notification has no valid order reference. Open Orders to review.');

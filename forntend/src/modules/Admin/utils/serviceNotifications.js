@@ -1,4 +1,5 @@
 import { serviceApplicationId } from '../../../components/services/serviceRequests';
+import { openAdvertisingNotification } from '../../../components/advertising/advertisingNotifications';
 
 const openCustomerRequest = (id, actions) => {
   actions.setTab('services'); actions.close();
@@ -20,6 +21,7 @@ export function createAdminNotificationOpener() {
         marked.add(key);
         await actions.markRead(n._id);
       }
+      if (openAdvertisingNotification(n, actions.setTab, true)) { actions.close(); return; }
       if (n.metadata?.ticketId) {
         actions.setTab('tickets'); actions.close();
         await actions.openTicket({ id: n.metadata.ticketId, ticketNumber: n.metadata.ticketId, userName: '', requesterRole: '', subject: n.title, category: '' });

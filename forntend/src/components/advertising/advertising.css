@@ -1189,3 +1189,32 @@
 .ad-pay-cancel { margin-top: 14px; }
 .ad-pay-cancel summary { cursor: pointer; color: #b91c1c; font-weight: 600; font-size: 14px; }
 .ad-pay-cancel label { display: block; margin: 10px 0 6px; font-size: 13px; }
+/* Campaign views and clicks */
+.ad-metrics-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.ad-metrics-tiles > div { padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ad-metrics-tiles strong { font-size: 22px; font-weight: 800; color: #0f172a; }
+.ad-metrics-tiles span { font-size: 12px; color: #64748b; }
+.ad-metrics-mode { margin: 14px 0 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .04em; }
+.ad-metrics-note { margin: 12px 0 0; font-size: 12px; line-height: 1.5; color: #64748b; }
+@media (max-width: 420px) { .ad-metrics-tiles { gap: 6px; } .ad-metrics-tiles > div { padding: 10px; } .ad-metrics-tiles strong { font-size: 18px; } }
+.advertising-workspace .ad-cancel-campaign { width: auto; padding: 0 18px; min-height: 40px; color: #b91c1c; border-color: #fecaca; }
+
+/* Campaign review: keep controls readable inside the shared admin/seller shell. */
+.advertising-workspace .ad-modal-header > div { min-width: 0; }
+.advertising-workspace .ad-modal-header h3 { overflow-wrap: anywhere; }
+.advertising-workspace .ad-modal-body { overscroll-behavior: contain; }
+.advertising-workspace .ad-detail-meta-strip { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); margin-bottom: 0; }
+.advertising-workspace .ad-payment-request { padding: 18px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 14px; }
+.advertising-workspace .ad-payment-request h4 { margin: 0 0 8px; color: #0c4a6e; font-size: 17px; }
+.advertising-workspace .ad-payment-request p { margin: 8px 0 14px; font-size: 14px; line-height: 1.6; }
+.advertising-workspace .ad-review-actions { display: grid; gap: 16px; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+.advertising-workspace .ad-review-actions label { display: grid; gap: 10px; font-size: 14px; font-weight: 600; }
+.advertising-workspace .ad-review-actions textarea { width: 100%; min-height: 100px; resize: vertical; box-sizing: border-box; }
+.advertising-workspace .ad-decision-buttons { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
+.advertising-workspace .ad-decision-buttons button { width: auto; min-height: 44px; white-space: normal; text-transform: none; }
+.advertising-workspace button.ad-danger { color: #b91c1c; border-color: #fecaca; background: #fff; }
+.advertising-workspace .ad-history-list li { overflow-wrap: anywhere; line-height: 1.6; }
+@media (max-width: 540px) {
+  .advertising-workspace .ad-decision-buttons button { flex: 1 1 100%; }
+  .advertising-workspace .ad-payment-request { padding: 14px; }
+}

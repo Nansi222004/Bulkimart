@@ -147,25 +147,25 @@ const stringifyData = (obj = {}) => {
   return out;
 };
 
-const deactivateToken = async (userId, token) => {
+const deactivateToken = async (userId, token, Model = User) => {
   try {
-    await User.updateOne(
+    await Model.updateOne(
       { _id: userId, 'pushTokens.token': token },
       { $set: { 'pushTokens.$.active': false } }
     );
-    await User.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '' } });
+    await Model.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '' } });
     console.log(`[NOTIFICATION] deactivated invalid token for user ${userId}`);
   } catch (err) {
     console.error('[NOTIFICATION] failed to deactivate invalid token:', err.message);
   }
 };
 
-export const pushToUser = async (userId, { title, message, data, image }) => {
+export const pushToUser = async (userId, { title, message, data, image }, Model = User) => {
   try {
-    const user = await User.findById(userId).select('pushTokens fcmToken fcmPlatform');
+    const user = await Model.findById(userId).select(Model === Admin ? '+pushTokens' : 'pushTokens fcmToken fcmPlatform');
     if (!user) return;
 
-    const role = { user: 'buyer', buyer: 'buyer', customer: 'buyer', seller: 'seller', rider: 'delivery', delivery: 'delivery' }[data?.audience];
+    const role = { user: 'buyer', buyer: 'buyer', customer: 'buyer', seller: 'seller', rider: 'delivery', delivery: 'delivery', admin: 'admin' }[data?.audience];
     let tokens = [...new Set((user.pushTokens || []).filter(t => t.active
       && (!Array.isArray(t.sessionRoles) || t.sessionRoles.includes(role))).map(t => t.token))];
     if (tokens.length === 0 && user.fcmToken && !user.pushTokens?.some(t => t.token === user.fcmToken)) tokens = [user.fcmToken];
@@ -180,7 +180,7 @@ export const pushToUser = async (userId, { title, message, data, image }) => {
         const result = await sendPushNotification(group[0], { title, body: message, data: fcmData, image, web });
         if (!result.success) {
           console.error('[NOTIFICATION] FCM send failed:', result.errorCode || 'delivery_failed');
-          if (INVALID_TOKEN_CODES.has(result.errorCode)) await deactivateToken(userId, group[0]);
+          if (INVALID_TOKEN_CODES.has(result.errorCode)) await deactivateToken(userId, group[0], Model);
         }
       } else {
         const result = await sendBulkNotification(group, { title, body: message, data: fcmData, image, web });
@@ -188,7 +188,7 @@ export const pushToUser = async (userId, { title, message, data, image }) => {
           console.error('[NOTIFICATION] FCM bulk send failed:', result.errorCode || 'delivery_failed');
         } else if (result.responses) {
           result.responses.forEach((r, i) => {
-            if (!r.success && INVALID_TOKEN_CODES.has(r.errorCode)) deactivateToken(userId, group[i]).catch(() => {});
+            if (!r.success && INVALID_TOKEN_CODES.has(r.errorCode)) deactivateToken(userId, group[i], Model).catch(() => {});
           });
         }
       }
@@ -267,13 +267,10 @@ const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
  * live ping is just "something changed, maybe refresh" and doesn't need a
  * per-admin room.
  *
- * FCM is deliberately not attempted here: the Admin model has no device-
- * token field or registration endpoint (unlike User.pushTokens) — there is
- * no token lifecycle to send to. Building one is out of scope for this
- * change; DB + Socket are the two channels Admin actually has today.
+ * Admin devices use the same authenticated token lifecycle, stored on Admin.
  */
 export const notifyAllAdmins = async (opts = {}) => {
-  const { event, title, message, metadata = {}, route } = opts;
+  const { event, title, message, metadata = {}, route, dedupeKey } = opts;
   if (event === 'SELLER_PROMOTION_UPDATE') return [];
   if (!title || !message) return [];
 
@@ -282,15 +279,22 @@ export const notifyAllAdmins = async (opts = {}) => {
   try {
     const admins = await Admin.find({ isActive: true }).select('_id');
     if (admins.length === 0) return [];
-    records = await Notification.insertMany(
-      admins.map((a) => ({ userId: a._id, recipientModel: 'Admin', type, event, title, message, metadata, route }))
-    );
+    const entries = admins.map(a => ({ userId: a._id, recipientModel: 'Admin', audience: 'admin', type, event, title, message, metadata, route }));
+    if (dedupeKey) {
+      for (const entry of entries) {
+        try { records.push(await Notification.create({ ...entry, dedupeKey: dedupeKey + ':' + entry.userId })); }
+        catch (error) { if (error.code !== 11000) throw error; }
+      }
+    } else records = await Notification.insertMany(entries);
   } catch (err) {
     console.error('[NOTIFICATION] admin persist failed:', err.message);
   }
 
+  if (dedupeKey && !records.length) return [];
+  const eventId = dedupeKey || records[0]?._id?.toString();
+  for (const record of records) void pushToUser(record.userId, { title, message, data: { event, eventId, route, ...metadata, notificationId: record._id, audience: 'admin' } }, Admin);
   emitBestEffort('admin', 'all', 'notification_new', {
-    event, type, title, message, route, metadata, createdAt: new Date(),
+    event, eventId, type, title, message, route, metadata, createdAt: new Date(),
   });
 
   return records;
@@ -301,22 +305,22 @@ export const notifyAllAdmins = async (opts = {}) => {
  * (legacy) and `POST /api/notifications/tokens` (canonical) both call this
  * instead of each upserting the User document themselves.
  */
-export const registerPushToken = async (userId, token, platform, sessionRole) => {
+export const registerPushToken = async (userId, token, platform, sessionRole, Model = User) => {
   const tokenPlatform = platform === 'web' ? 'web' : 'app';
 
   // One browser/app installation must belong to only the currently signed-in
   // account. This prevents a stale token from receiving another account's
   // notifications after logout/account switching on the same device.
-  await User.updateMany(
+  await Model.updateMany(
     { _id: { $ne: userId }, 'pushTokens.token': token },
     { $pull: { pushTokens: { token } } },
   );
-  await User.updateMany(
+  await Model.updateMany(
     { _id: { $ne: userId }, fcmToken: token },
     { $unset: { fcmToken: '', fcmPlatform: '' } },
   );
 
-  const user = await User.findById(userId);
+  const user = await Model.findById(userId).select('+pushTokens');
   if (!user) return null;
 
   const existing = user.pushTokens.find((t) => t.token === token);
@@ -328,25 +332,24 @@ export const registerPushToken = async (userId, token, platform, sessionRole) =>
   } else {
     user.pushTokens.push({ token, platform: tokenPlatform, active: true, lastUsedAt: new Date(), ...(sessionRole ? { sessionRoles: [sessionRole] } : {}) });
   }
-  user.fcmToken = token;
-  user.fcmPlatform = tokenPlatform;
+  if (Model === User) { user.fcmToken = token; user.fcmPlatform = tokenPlatform; }
   await user.save();
   return tokenPlatform;
 };
 
 /** Remove one device's token — logout for that device, other devices unaffected. */
-export const removePushToken = async (userId, token, sessionRole) => {
+export const removePushToken = async (userId, token, sessionRole, Model = User) => {
   // Atomic updates avoid restoring tokens from a stale document while a
   // different device signs in or out at the same time.
   if (sessionRole) {
-    await User.updateOne({ _id: userId }, { $pull: { 'pushTokens.$[device].sessionRoles': sessionRole } }, { arrayFilters: [{ 'device.token': token }] });
-    await User.updateOne({ _id: userId }, { $pull: { pushTokens: { token, $or: [
+    await Model.updateOne({ _id: userId }, { $pull: { 'pushTokens.$[device].sessionRoles': sessionRole } }, { arrayFilters: [{ 'device.token': token }] });
+    await Model.updateOne({ _id: userId }, { $pull: { pushTokens: { token, $or: [
       { sessionRoles: { $exists: false } }, { sessionRoles: { $size: 0 } },
     ] } } });
   } else {
-    await User.updateOne({ _id: userId }, { $pull: { pushTokens: { token } } });
+    await Model.updateOne({ _id: userId }, { $pull: { pushTokens: { token } } });
   }
-  await User.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '', fcmPlatform: '' } });
+  await Model.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '', fcmPlatform: '' } });
 };
 
 export const notifyUser = (userId, opts) => notifyCore(userId, 'user', userId, opts);

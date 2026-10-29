@@ -14,7 +14,7 @@ const messages = {
   timeout: 'Notification setup timed out. Check your connection and retry.',
 };
 
-export default function SellerPushControl({ register = initPushNotifications }) {
+export default function SellerPushControl({ register = initPushNotifications, label = 'Order notification settings', buttonLabel = 'Enable order notifications' }) {
   const [state, setState] = useState({ status: 'idle' });
   const busy = useRef(false);
   const alive = useRef(false);
@@ -41,12 +41,12 @@ export default function SellerPushControl({ register = initPushNotifications }) 
   // This browser or in-app view cannot receive push at all; a button and a
   // warning would only be noise, since there is nothing the user can change.
   if (state.status === 'unsupported') return null;
-  return <section className="seller-push-control" aria-label="Order notification settings" aria-busy={pending}>
+  return <section className="seller-push-control" aria-label={label} aria-busy={pending}>
     {state.status === 'enabled'
       ? <span className="seller-push-enabled" role="status">Notifications enabled</span>
       : <>
         <button className="seller-push-enable" type="button" disabled={pending} onClick={() => run(true)}>
-          {pending ? 'Enabling notifications…' : 'Enable order notifications'}
+          {pending ? 'Enabling notifications…' : buttonLabel}
         </button>
         <span className="seller-push-status" role="status" data-push-error={state.code || ''}>
           {pending ? 'Connecting this device…' : messages[state.status] || ''}

@@ -5,11 +5,16 @@ import AdvertisingBillingPanel from './AdvertisingBillingPanel';
 import AdvertisingFinancePanel from './AdvertisingFinancePanel';
 import AdvertisingMetrics from './AdvertisingMetrics';
 import AdvertisingPackageForm from './AdvertisingPackageForm';
+import { advertisingNotificationId } from './advertisingNotifications';
 
 const reviews = { DRAFT: 'Draft', PENDING_REVIEW: 'Waiting for review', CHANGES_REQUESTED: 'Changes requested', APPROVED: 'Approved', REJECTED: 'Rejected' };
 const STOREFRONT = { ECOMMERCE: 'Shop All', QUICK: 'Quick Commerce' };
 const STEPS = ['Products', 'Category', 'Package', 'Review'];
 // Seller-facing names for the package terms shown before submitting.
+// Plain names for campaign history entries; unknown actions fall back to their own name.
+const HISTORY_LABELS = { create: 'Campaign created', edit: 'Campaign edited', submit: 'Submitted for review', approve: 'Approved by Bulkimart',
+  'request-changes': 'Changes requested', reject: 'Not approved', cancel: 'Cancelled', suspend: 'Suspended by Bulkimart', pilot: 'Free trial run updated',
+  'billing-authorize': 'Payment opened', 'payment-captured': 'Payment received', refund: 'Refund started', recognize: 'Campaign completed' };
 const TERM_LABELS = { sellerPause: 'Pausing', cancellation: 'Cancelling', rejection: 'If rejected', suspension: 'Suspension', unusedService: 'If your ad cannot be shown', refunds: 'Refunds' };
 const freshCampaign = () => ({ name: '', module: 'ECOMMERCE', categoryId: '', packageId: '', requestedStartAt: '', items: [] });
 
@@ -20,6 +25,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
   const [tab, setTab] = useState('campaigns'), [rows, setRows] = useState([]), [meta, setMeta] = useState({ page: 1, pages: 1, total: 0 });
   const [page, setPage] = useState(1), [review, setReview] = useState(''), [refresh, setRefresh] = useState(0), [detail, setDetail] = useState(null);
   const [reason, setReason] = useState(''), [packageForm, setPackageForm] = useState(null), [draft, setDraft] = useState(null), [step, setStep] = useState(0);
+  const [paymentNotice, setPaymentNotice] = useState('');
   const [submissionOffer, setSubmissionOffer] = useState(null);
   const [pilotStart, setPilotStart] = useState(''), [pilotEnd, setPilotEnd] = useState('');
   const [products, setProducts] = useState([]), [productPage, setProductPage] = useState(1), [productPages, setProductPages] = useState(1), [packages, setPackages] = useState([]);
@@ -84,12 +90,24 @@ export default function AdvertisingWorkspace({ admin = false }) {
   }
 
   async function open(row) {
-    const seq = ++detailGeneration.current; setSubmissionOffer(null); setError('');
+    const seq = ++detailGeneration.current; setSubmissionOffer(null); setError(''); setPaymentNotice('');
     try {
       const b = await advertisingApi(admin, `/campaigns/${row.id}`);
       if (seq === detailGeneration.current) { setDetail(b.data); setReason(''); }
-    } catch (e) { setError(e.message); }
+    } catch (e) { if (seq === detailGeneration.current) setError(e.message); }
   }
+
+  useEffect(() => {
+    if (!cap?.managementEnabled || !canReview) return;
+    const fromLink = () => {
+      const id = advertisingNotificationId({ route: window.location.pathname + window.location.search }, admin);
+      if (id) { setTab('campaigns'); setDraft(null); void open({ id }); }
+    };
+    fromLink();
+    window.addEventListener('advertising-campaign-open', fromLink);
+    window.addEventListener('popstate', fromLink);
+    return () => { window.removeEventListener('advertising-campaign-open', fromLink); window.removeEventListener('popstate', fromLink); };
+  }, [admin, token, cap, canReview]);
 
   const change = (action) => perform(async () => {
     const path = admin ? `/campaigns/${detail.id}/${action}` : `/campaigns/${detail.id}/${action === 'submit' ? 'submit' : 'actions'}`;
@@ -148,7 +166,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
         </div>
         <div className="ad-policy-text">
           <strong className="ad-policy-title">Compliance & Financial Snapshot</strong>
-          <p className="ad-notice">Billing and paid delivery require enabled capabilities, an approved policy snapshot and explicit campaign financial authorization. Pilot service is separate. No revenue is recognized automatically.</p>
+          <p className="ad-notice">Review the seller’s campaign and accepted package. Approval opens payment for standard packages and notifies the seller. Packages requiring an external invoice need finance to enter the invoice reference first.</p>
         </div>
       </div>}
 
@@ -285,7 +303,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     <h3>{detail.name}</h3>
                     {admin && <p className="ad-detail-sub">Revision {detail.revision} · Funding: {detail.funding} · Delivery: {detail.delivery}</p>}
                   </div>
-                  <button className="ad-close-btn ad-modal-close-btn" onClick={() => { detailGeneration.current++; setDetail(null); }}>Close details</button>
+                  <button type="button" className="ad-modal-close-btn" aria-label="Close details" onClick={() => { detailGeneration.current++; setDetail(null); }}>✕</button>
                 </div>
 
                 <div className="ad-modal-body">
@@ -297,11 +315,26 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     {detail.terms && (
                       <div className="ad-meta-item">
                         <span className="ad-meta-label">Package</span>
-                        <p>{admin ? <>Accepted package version {detail.terms.packageVersion}: {advertisingMoney(detail.terms.amountPaise)} / {detail.terms.durationDays} days. {detail.terms.policies?.billing ? 'Operational policy is recorded; financial authorization is separate.' : 'Tax/invoice treatment pending approval.'}</> : <>{detail.terms.name}: {advertisingMoney(detail.terms.amountPaise)} for {detail.terms.durationDays} days</>}</p>
+                        <p>{detail.terms.name}: {advertisingMoney(detail.terms.amountPaise)} for {detail.terms.durationDays} days</p>
                       </div>
                     )}
                   </div>
 
+                  {admin && detail.review === 'APPROVED' && ['UNPAID', 'PAYMENT_FAILED'].includes(detail.funding) && detail.delivery === 'NOT_SCHEDULED' && (
+                    <section className="ad-payment-request" aria-label="Request seller payment">
+                      <h4>{detail.paid?.authorized ? 'Awaiting seller payment' : 'Payment setup required'}</h4>
+                      <p>{detail.paid?.authorized ? 'The seller can open Advertising, select this campaign and pay online. Send a reminder if payment is still pending.' : detail.terms?.policies?.billing?.invoiceMode === 'EXTERNAL_REFERENCE' ? 'Finance must add the external invoice reference in Campaign billing below, then request payment.' : 'The accepted package has incomplete billing terms. Request a new campaign with a configured package before collecting payment.'}</p>
+                      {detail.paid?.authorized && canReview && <button className="ad-primary" disabled={busy || !!paymentNotice || !!detail.pilot?.enabled || !cap.paymentsEnabled} onClick={() => perform(async () => {
+                        await advertisingApi(true, `/campaigns/${detail.id}/request-payment`, { method: 'POST', body: { version: detail.version } });
+                        setPaymentNotice('Payment reminder sent to the seller’s notifications.');
+                      })}>Send payment reminder</button>}
+                      {!cap.paymentsEnabled && <p>Online payments are currently unavailable. Configure and enable advertising payments before collecting payment.</p>}
+                      {detail.pilot?.enabled && <p>Stop the free trial run before requesting payment.</p>}
+                      {!detail.paid?.authorized && !canFinanceRead && <p>An administrator with advertising finance permission can complete payment setup.</p>}
+                      {paymentNotice && <p role="status">{paymentNotice}</p>}
+                    </section>
+                  )}
+                  {error && <p role="alert" className="ad-error">{error}</p>}
                   {(!admin || canFinanceRead) && (
                     <AdvertisingBillingPanel
                       key={`${detail.id}:${detail.version}`}
@@ -340,7 +373,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     <h4>History</h4>
                     <ul className="ad-history-list">
                       {detail.history.map((h, i) => (
-                        <li key={i}>{new Date(h.at).toLocaleString()} · {h.action} · {h.reason}</li>
+                        <li key={i}>{new Date(h.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · {HISTORY_LABELS[h.action] || String(h.action).replaceAll('-', ' ')}{h.reason ? ` · ${h.reason}` : ''}</li>
                       ))}
                     </ul>
                   </div>
@@ -385,24 +418,25 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   )}
 
                   {!admin && detail.funding === 'UNPAID' && detail.delivery === 'NOT_SCHEDULED' && (
-                    <button disabled={busy} onClick={() => change('cancel')}>Cancel campaign</button>
+                    <button className="ad-cancel-campaign" disabled={busy} onClick={() => change('cancel')}>Cancel campaign</button>
                   )}
 
                   {admin && canReview && (
-                    <>
-                      <label>Decision reason<textarea value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></label>
-                      <div className="ad-toolbar">
+                    <section className="ad-review-actions" aria-label="Campaign decision">
+                      <label>Decision reason<textarea placeholder="Explain your decision to the seller" value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></label>
+                      <div className="ad-decision-buttons">
                         {(detail.review === 'PENDING_REVIEW' ? ['approve', 'request-changes', 'reject', 'suspend', 'cancel'] : ['suspend', 'cancel']).map(action => (
                           <button
                             key={action}
+                            className={action === 'approve' ? 'ad-primary' : ['reject', 'cancel', 'suspend'].includes(action) ? 'ad-danger' : ''}
                             disabled={busy || !reason.trim() || ['ADMIN_SUSPENDED', 'CANCELLED', 'COMPLETED'].includes(detail.delivery)}
                             onClick={() => change(action)}
                           >
-                            {action.replaceAll('-', ' ')}
+                            {{ approve: detail.terms?.policies?.billing && detail.terms.policies.billing.invoiceMode !== 'EXTERNAL_REFERENCE' ? 'Approve & request payment' : 'Approve campaign', 'request-changes': 'Request changes', reject: 'Reject campaign', suspend: 'Suspend campaign', cancel: 'Cancel campaign' }[action]}
                           </button>
                         ))}
                       </div>
-                    </>
+                    </section>
                   )}
                 </div>
               </div>

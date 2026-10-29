@@ -6,6 +6,7 @@ import { advertisingId, advertisingChannel, validateAdvertisingSelection } from 
 import { httpError } from '../utils/response.js';
 import { advertisingPilotCapabilities } from './advertisingPolicy.service.js';
 import { validateAdBillingPolicy, adCharge } from './advertisingBillingPolicy.service.js';
+import { notifyAdvertisingChange } from './advertisingNotifications.service.js';
 
 export const advertisingVersion = value => {
   if (!Number.isSafeInteger(value) || value < 0) throw httpError(400, 'A current integer version is required');
@@ -106,7 +107,7 @@ async function commercialTerms(row, session) {
 }
 export async function changeAdvertisingCampaign({ id, sellerId, actorId, admin = false, input, action }) {
   if (!input || typeof input !== 'object') throw httpError(400, 'Advertising payload is required');
-  return financialTransaction(async session => {
+  const updated = await financialTransaction(async session => {
     const row = await advertisingCampaign(id, sellerId, session);
     const version = advertisingVersion(input.version);
     if (row.__v !== version) throw httpError(409, 'Campaign changed; refresh before continuing');
@@ -175,8 +176,20 @@ export async function changeAdvertisingCampaign({ id, sellerId, actorId, admin =
       $set: { title: row.title, selectedProducts: row.selectedProducts, packageId: row.packageId, advertising: a.toObject() }, $inc: { __v: 1 },
     }, { session, returnDocument: 'after', runValidators: true });
     if (!updated) throw httpError(409, 'Campaign changed; refresh before continuing');
-    return campaignDTO(updated);
+    return updated;
   });
+  await notifyAdvertisingChange(updated, action);
+  return campaignDTO(updated);
+}
+
+export async function requestAdvertisingPayment(id, input) {
+  fields(input, ['version']);
+  const row = await advertisingCampaign(id);
+  if (row.__v !== advertisingVersion(input.version)) throw httpError(409, 'Campaign changed; refresh before continuing');
+  if (!advertisingBillingAuthorized(row.advertising) || !['UNPAID', 'PAYMENT_FAILED'].includes(row.advertising.funding)
+    || row.advertising.delivery !== 'NOT_SCHEDULED' || row.advertising.pilot?.enabled) throw httpError(409, 'Payment is not available for this campaign');
+  await notifyAdvertisingChange(row, 'request-payment');
+  return campaignDTO(row);
 }
 export function advertisingPagination(query) {
   const page = query.page === undefined ? 1 : Number(query.page);
