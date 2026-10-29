@@ -1113,61 +1113,138 @@
   }
 }
 
-/* Sponsored Category Block on User Side */
+/* Sponsored products on category pages: a light header and a swipeable row of product cards that
+   follow the storefront theme (heading in the header colour, actions in the action colour). */
 .sponsored-category-block {
-  margin: 20px 0;
-  padding: 20px;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f0fdf4 100%);
-  color: #1e293b;
+  margin: 12px 0 20px;
+  min-width: 0;
+  color: var(--sf-text, #1e293b);
 }
 
-.sponsored-category-block > header {
+.sponsored-head { margin: 0 0 12px; padding: 0 2px; }
+.sponsored-head h2 {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.sponsored-category-block h2 {
-  font-size: 18px;
+  gap: 8px;
   margin: 0;
-  color: #0f172a;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--sf-header, #0f2f5f);
 }
-
-.sponsored-category-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
-  gap: 14px;
-}
-
-.sponsored-disclosure {
-  display: inline-block;
-  background: #fff7ed;
-  color: #c2410c;
-  border: 1px solid #ffedd5;
-  border-radius: 6px;
-  padding: 3px 8px;
-  margin-bottom: 6px;
-  font-size: 11px;
+.sponsored-head p { margin: 2px 0 0; font-size: 12px; color: var(--sf-muted, #64748b); }
+.sponsored-ad-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--sf-product-border, #e2e8f0);
+  border-radius: 5px;
+  background: var(--sf-surface, #fff);
+  color: var(--sf-muted, #64748b);
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.sponsored-product-link {
-  background: transparent;
-  border: 0;
-  color: #0284c7;
-  text-decoration: underline;
-  padding: 8px 0;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
+/* About 1.7 cards on a phone, so the next one peeks in; fixed widths on larger screens. */
+.sponsored-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 58%;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 2px;
+  padding: 2px 2px 10px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.sponsored-rail::-webkit-scrollbar { display: none; }
+@media (min-width: 601px) { .sponsored-rail { grid-auto-columns: 200px; gap: 14px; scrollbar-width: thin; } }
+@media (min-width: 1024px) { .sponsored-rail { grid-auto-columns: 216px; } }
+
+.sponsored-category-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  scroll-snap-align: start;
+  overflow: hidden;
+  background: var(--sf-surface, #fff);
+  border: 1px solid var(--sf-product-border, #e2e8f0);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+.sponsored-category-item:hover { box-shadow: 0 8px 22px rgba(15, 23, 42, 0.09); transform: translateY(-2px); }
+
+.sponsored-media {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+}
+.sponsored-media img { width: 86%; height: 86%; object-fit: contain; }
+.sponsored-no-image { font-size: 11px; color: var(--sf-muted, #64748b); }
+.sponsored-disclosure {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.sponsored-category-item .sponsored-wishlist { position: absolute !important; right: 6px; top: 6px; }
+
+.sponsored-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 12px; flex: 1; min-width: 0; }
+.sponsored-category-item .sponsored-product-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  min-height: 35px;
+  color: var(--sf-text, #0f172a);
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.sponsored-category-item .sponsored-product-link:focus-visible { outline: 2px solid var(--sf-header, #0f2f5f); outline-offset: 2px; border-radius: 4px; }
+.sponsored-seller { font-size: 11px; color: var(--sf-muted, #64748b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sponsored-pilot { font-size: 10px; color: var(--sf-muted, #64748b); }
+.sponsored-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: auto; padding-top: 4px; }
+.sponsored-price strong { font-size: 16px; font-weight: 800; color: var(--sf-text, #0f172a); }
+.sponsored-price del { font-size: 11px; color: var(--sf-muted, #64748b); }
+.sponsored-price span { font-size: 10.5px; font-weight: 750; color: #15803d; }
+.sponsored-add {
+  margin-top: 6px;
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: var(--sf-button-radius, 10px);
+  background: var(--primary, var(--sf-action, #D91430));
+  color: var(--sf-action-text, #fff);
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.sponsored-add:hover:not(:disabled) { background: var(--primary-hover, var(--sf-action-hover, #B50918)); }
+.sponsored-add:disabled { opacity: 0.6; cursor: default; }
+.sponsored-message { font-size: 11px; color: var(--sf-muted, #64748b); }
 
 /* Simple package form */
 .ad-segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: #f1f5f9; }

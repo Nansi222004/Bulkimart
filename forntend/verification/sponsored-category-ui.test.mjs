@@ -6,8 +6,7 @@ let vite, Block, Card, unique;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   const module = await vite.ssrLoadModule('/src/components/advertising/SponsoredCategoryBlock.jsx');
-  Block = module.default; unique = module.uniqueSponsoredProducts;
-  Card = (await vite.ssrLoadModule('/src/modules/User/components/CategoryProductCard.jsx')).default;
+  Block = module.default; unique = module.uniqueSponsoredProducts; Card = module.SponsoredProductCard;
 });
 after(async () => vite.close());
 const text = node => node == null ? '' : typeof node !== 'object' ? String(node) : [node.props?.children].flat(Infinity).map(text).join(' ');
@@ -28,7 +27,7 @@ test('an advertised product that is also in the page list is still sponsored; th
   try {
     assert.deepEqual(shown,[[]],'Nothing is reported before the placements arrive');
     h.requests[0].resolve(response([row(listed),row(),row()]));await h.settle();
-    const items=[];const walk=n=>{if(!n||typeof n!=='object')return;if(n.props?.className==='sponsored-category-item')items.push(n);[n.props?.children].flat(Infinity).forEach(walk);};walk(h.tree);
+    const items=[];const walk=n=>{if(!n||typeof n!=='object')return;if(n.type===Card)items.push(n);[n.props?.children].flat(Infinity).forEach(walk);};walk(h.tree);
     assert.equal(items.length,2,'The listed product is shown as Sponsored too');
     assert.deepEqual(shown.at(-1),[listed,'507f1f77bcf86cd799439013'],'Both sponsored products, repeated ones once');
     assert.equal(unique([row(listed),row(),row()]).length,2);
@@ -54,14 +53,43 @@ test('organic loading and unsupported channels do not trigger sponsored requests
     const h=hookHarness(Block,p,'/categories',context());try{assert.equal(h.requests.length,0);assert.equal(h.tree,null);}finally{h.close();}
   }
 });
-test('shared card navigation and add-to-cart preserve real product and variant identity', async () => {
-  const opened=[],added=[],h=hookHarness(Block,props(),'/categories',context({setSelectedProduct:p=>opened.push(p),addToCart:(...args)=>added.push(args)}));
+test('card navigation and cart actions preserve real product and promoted variant identity', async () => {
+  const opened=[],added=[],h=hookHarness(Block,props(),'/categories',context({setSelectedProduct:p=>opened.push(p),addToCart:async(...args)=>{added.push(args);return {ok:true};}}));
   try {
     h.requests[0].resolve(response([row()]));await h.settle();
-    h.find(n=>n.type==='button' && n.props.className==='sponsored-product-link').props.onClick();assert.equal(opened[0].id,row().product._id);assert.equal(opened[0].variants[0].id,'v2');
-    const card=h.find(n=>n.type===Card);assert.ok(card);card.props.onAdd();
-    assert.equal(added[0][1],1);assert.equal(added[0][2],'v2');
-    assert.equal(h.requests.length,1,'No event, payment or attribution request is emitted');
+    const element=h.find(n=>n.type===Card);assert.ok(element);assert.equal(element.props.variantId,'v2');
+    element.props.onOpen();assert.equal(opened[0].id,row().product._id);assert.equal(opened[0].variants[0].id,'v2','Details open on the promoted variant');
+    assert.equal(h.requests.length,1,'No event, payment or attribution request is emitted for a pilot');
+    // Two variants: the action opens the product to choose, it does not add a guessed variant.
+    const choose=hookHarness(Card,element.props);
+    try{const action=choose.find(n=>n.props?.className==='sponsored-add');assert.equal(action.props.children,'Choose options');
+      await action.props.onClick({stopPropagation(){}});assert.equal(opened.length,2);assert.equal(added.length,0);}finally{choose.close();}
+    // One variant: the action adds the promoted variant directly and confirms it.
+    const single={...element.props,product:{...element.props.product,variants:[element.props.product.variants[0]]}};
+    const direct=hookHarness(Card,single);
+    try{const action=direct.find(n=>n.props?.className==='sponsored-add');assert.equal(action.props.children,'Add to cart');
+      let stopped=false;await action.props.onClick({stopPropagation(){stopped=true;}});direct.flush();
+      assert.equal(stopped,true,'The button does not also open the card');assert.deepEqual(added[0].slice(1),[1,'v2']);
+      assert.match(text(direct.tree),/Added to cart/);assert.equal(opened.length,2);}finally{direct.close();}
+  } finally {h.close();}
+});
+test('sponsored section shows a clear heading, one small Ad indicator and complete product cards', async () => {
+  const h=hookHarness(Block,props(),'/categories',context());
+  try {
+    h.requests[0].resolve({success:true,data:[{...row(),mode:'PAID_CATEGORY',serveToken:'t',product:{...row().product,mrp:30,sellerId:{storeDetails:{name:'Neelam store'}}}}],meta:{mode:'SPONSORED_CATEGORY'}});await h.settle();
+    const head=text(h.find(n=>n.props?.className==='sponsored-head'));
+    assert.match(head,/Sponsored for you\s+Ad/);assert.match(head,/Promoted products in this category/);assert.doesNotMatch(head,/Sponsored category|pilot/);
+    assert.equal(h.find(n=>n.props?.className==='sponsored-rail').props.role,'list');
+    const card=hookHarness(Card,h.find(n=>n.type===Card).props);
+    try{const t=text(card.tree);
+      assert.match(t,/Sponsored/);assert.match(t,/Synthetic sponsored product/);assert.match(t,/Neelam store/);
+      assert.match(t,/₹22\s+₹30\s+26\s*% off/);
+      const img=card.find(n=>n.type==='img');assert.equal(img.props.src,'/test.png');assert.equal(img.props.alt,'Synthetic sponsored product');
+      img.props.onError();card.flush();assert.equal(card.find(n=>n.type==='img'),undefined);assert.match(text(card.tree),/Image unavailable/);
+      assert.equal(card.find(n=>n.props?.className==='sponsored-wishlist').props.productId,row().product._id);
+    }finally{card.close();}
+    const out=hookHarness(Card,{...h.find(n=>n.type===Card).props,product:{...h.find(n=>n.type===Card).props.product,stock:0}});
+    try{const action=out.find(n=>n.props?.className==='sponsored-add');assert.equal(action.props.children,'Out of stock');assert.equal(action.props.disabled,true);}finally{out.close();}
   } finally {h.close();}
 });
 test('visible pilot clears at schedule expiry', async () => {

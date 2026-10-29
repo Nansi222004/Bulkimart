@@ -75,7 +75,8 @@ test('actual sponsored link records an independent click and navigates even when
   const opened=[],productId='507f1f77bcf86cd799439013';
   const h=hookHarness(Block,{channel:'ecommerce',categoryId:'507f1f77bcf86cd799439011',organicProducts:[]},'/categories',{getDeliveryPoint:()=>null,setSelectedProduct:p=>opened.push(p),addToCart:()=>{}});
   try{h.requests[0].resolve({success:true,data:[{product:{_id:productId,name:'Fixture',price:10,stock:1,type:'ecommerce',variants:[{_id:'v1',price:10,stock:1}]},variantId:'v1',disclosure:'Sponsored',mode:'PAID_CATEGORY',serveToken:'signed-fixture',expiresAt:new Date(Date.now()+60000).toISOString()}],meta:{mode:'SPONSORED_CATEGORY'}});await h.settle();
-    h.find(n=>n.type==='button'&&n.props.className==='sponsored-product-link').props.onClick();
+    // The card opens the product through the block's open handler (name, image or anywhere on the card).
+    h.find(n=>typeof n.type==='function'&&n.props?.onOpen&&n.props?.product).props.onOpen();
     assert.equal(opened[0].id,productId);assert.equal(opened[0].variants[0].id,'v1');assert.equal(h.requests.length,2);
     assert.deepEqual(JSON.parse(h.requests[1].options.body),{token:'signed-fixture',type:'CLICK'});assert.equal(h.requests[1].options.credentials,'omit');
     h.requests[1].reject(Error('Telemetry offline'));await h.settle();assert.equal(opened.length,1);

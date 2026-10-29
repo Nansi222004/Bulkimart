@@ -68,8 +68,16 @@ try{
     assert.equal(await evaluate('document.activeElement.className'),'sponsored-product-link');
     await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
     await waitFor(`document.querySelector('#opened').textContent==='${productId}'`);
-    await evaluate('document.querySelector(".grid-product-add-btn").click()');
-    assert.equal(await evaluate('document.querySelector("#added").textContent'),`${productId}:1:${variantId}`);
+    await evaluate('document.querySelector("#opened").textContent=""');
+    await evaluate('document.querySelector(".sponsored-add").click()');
+    await waitFor(`document.querySelector("#added").textContent==='${productId}:1:${variantId}'`);
+    assert.equal(await evaluate('document.querySelector("#opened").textContent'),'','Adding to cart does not also open the product');
+    // Carousel: about 1.5-1.8 cards per phone screen, fixed card widths on larger screens, scrolling kept inside the row.
+    const layout=await evaluate(`(()=>{const rail=document.querySelector('.sponsored-rail'),card=document.querySelector('.sponsored-category-item'),img=card.querySelector('.sponsored-media');
+      return {perView:rail.clientWidth/card.getBoundingClientRect().width,cardWidth:card.getBoundingClientRect().width,overflowX:getComputedStyle(rail).overflowX,imageSquare:Math.abs(img.clientWidth-img.clientHeight)<=1};})()`);
+    if(width<=600)assert.ok(layout.perView>=1.5&&layout.perView<=1.8,`About 1.7 cards per view at ${width}px, got ${layout.perView}`);
+    else assert.ok(layout.cardWidth>=190&&layout.cardWidth<=220,`Fixed card width at ${width}px, got ${layout.cardWidth}`);
+    assert.equal(layout.overflowX,'auto');assert.equal(layout.imageSquare,true);
   }
   for(const mode of ['error','disabled']){
     scenario=mode;await command('Page.navigate',{url:origin+'/pilot'});await waitFor('!!document.querySelector("#organic")');await delay(500);

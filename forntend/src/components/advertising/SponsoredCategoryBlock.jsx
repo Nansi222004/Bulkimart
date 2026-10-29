@@ -4,7 +4,7 @@ import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import { useUser } from '../../modules/User/context/UserContext';
 import { normalizeProduct } from '../../modules/User/hooks/useProducts';
-import ProductCard from '../../modules/User/components/CategoryProductCard';
+import WishlistHeartButton from '../../modules/User/components/WishlistHeartButton';
 import './advertising.css';
 
 export function uniqueSponsoredProducts(rows, skipIds = []) {
@@ -22,7 +22,7 @@ export function uniqueSponsoredProducts(rows, skipIds = []) {
 // out here: the page hides the products reported through onShown from its list instead, and each
 // product still appears once.
 export default function SponsoredCategoryBlock({ channel, categoryId, ready = true, onShown }) {
-  const { getDeliveryPoint, setSelectedProduct, addToCart } = useUser();
+  const { getDeliveryPoint, setSelectedProduct, addToCart, setActiveNav } = useUser();
   const point = getDeliveryPoint?.();
   const lat = point?.lat, lng = point?.lng;
   const context = `${channel}:${categoryId}:${lat}:${lng}`;
@@ -58,21 +58,65 @@ export default function SponsoredCategoryBlock({ channel, categoryId, ready = tr
   const shownKey = rows.map(row => String(row.product._id)).join(',');
   useEffect(() => { onShown?.(shownKey ? shownKey.split(',') : []); }, [shownKey]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!rows.length) return null;
-  return <section ref={blockRef} className="sponsored-category-block" aria-label="Sponsored products">
-    <header><h2>Sponsored</h2><span>{rows.every(r=>r.mode==='NON_BILLABLE_PILOT')?'Non-billable pilot':'Sponsored category'}</span></header>
-    <div className="sponsored-category-grid">
+  return <section ref={blockRef} className="sponsored-category-block" aria-labelledby="sponsored-for-you">
+    <header className="sponsored-head">
+      <h2 id="sponsored-for-you">Sponsored for you <span className="sponsored-ad-pill" title="These products are promoted by sellers">Ad</span></h2>
+      <p>{rows.every(r=>r.mode==='NON_BILLABLE_PILOT') ? 'Non-billable pilot' : 'Promoted products in this category'}</p>
+    </header>
+    <div className="sponsored-rail" role="list">
       {rows.map((row,index) => {
         const product = normalizeProduct(row.product);
         // Preserve the promoted variant through the existing detail selection.
         product.variants.sort((a, b) => Number(b.id === row.variantId) - Number(a.id === row.variantId));
         const open = () => {sendAdEvent(row.serveToken,'CLICK');setSelectedProduct(product);};
-        return <article key={product.id} data-ad-index={index} className="sponsored-category-item">
-          <span className="sponsored-disclosure">Sponsored</span>
-          {row.mode==='NON_BILLABLE_PILOT'&&<small> Non-billable pilot</small>}
-          <ProductCard product={product} onOpen={open} onAdd={() => addToCart(product, 1, row.variantId || undefined)} />
-          <button className="sponsored-product-link" type="button" onClick={open}>View {product.name}</button>
-        </article>;
+        return <SponsoredProductCard key={product.id} index={index} product={product} variantId={row.variantId} pilot={row.mode==='NON_BILLABLE_PILOT'}
+          onOpen={open} addToCart={addToCart} onSignIn={() => setActiveNav?.('account')} />;
       })}
     </div>
   </section>;
+}
+
+const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+// One sponsored product, shaped like the storefront's product cards (MerchandisingCard): the whole
+// card opens the product; the cart and wishlist buttons act on their own. A product with several
+// variants opens its details to choose one, as elsewhere in the shop; otherwise the promoted
+// variant is added directly.
+export function SponsoredProductCard({ product, variantId, index, pilot = false, onOpen, addToCart, onSignIn }) {
+  const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [failed, setFailed] = useState(false);
+  const available = product.fulfillmentType === 'digital' || product.stock > 0;
+  const choose = product.variants.length > 1;
+  const discount = Number(product.mrp) > Number(product.price) ? Math.floor((product.mrp - product.price) / product.mrp * 100) : 0;
+  const image = product.image && !failed ? (product.image.startsWith('/uploads/') ? apiUrl(product.image) : product.image) : '';
+  const add = async event => {
+    event.stopPropagation();
+    if (busy) return;
+    if (choose) { onOpen(); return; }
+    setBusy(true); setMessage('');
+    try {
+      const result = await addToCart(product, 1, variantId || undefined);
+      if (result?.ok) setMessage('Added to cart');
+      else if (/sign in/i.test(result?.message || '')) onSignIn?.();
+      else if (result?.message) setMessage(result.message);
+    } catch { setMessage('Could not add item. Try again.'); } finally { setBusy(false); }
+  };
+  return <article data-ad-index={index} className="sponsored-category-item" role="listitem" onClick={onOpen}>
+    <div className="sponsored-media">
+      {image ? <img src={image} alt={product.name} loading="lazy" onError={() => setFailed(true)} /> : <span className="sponsored-no-image">Image unavailable</span>}
+      <span className="sponsored-disclosure">Sponsored</span>
+      <WishlistHeartButton productId={product.id} size={16} className="sponsored-wishlist" />
+    </div>
+    <div className="sponsored-body">
+      <button className="sponsored-product-link" type="button" onClick={event => { event.stopPropagation(); onOpen(); }}>{product.name}</button>
+      {product.sellerName && <span className="sponsored-seller">{product.sellerName}</span>}
+      {pilot && <small className="sponsored-pilot">Non-billable pilot</small>}
+      <div className="sponsored-price">
+        <strong>{money(product.price)}</strong>
+        {discount > 0 && <><del>{money(product.mrp)}</del><span>{discount}% off</span></>}
+      </div>
+      <button type="button" className="sponsored-add" disabled={!available || busy} onClick={add}>
+        {!available ? 'Out of stock' : busy ? 'Adding…' : choose ? 'Choose options' : 'Add to cart'}
+      </button>
+      {message && <small className="sponsored-message" role="status">{message}</small>}
+    </div>
+  </article>;
 }
