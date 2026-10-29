@@ -29,6 +29,8 @@
       .boot-spinner{display:block;width:32px;height:32px;box-sizing:border-box;border-radius:50%;border:3px solid rgba(255,255,255,.28);border-top-color:var(--boot-header-text,#fff);animation:boot-spin .8s linear infinite}
       @keyframes boot-spin{to{transform:rotate(360deg)}}
       @media (prefers-reduced-motion:reduce){.boot-spinner{animation-duration:2.4s}}
+      /* Mobile phones: show clean logo splash without web loader spinner */
+      @media (max-width: 768px){.boot-home:not(.boot-home--partner) .boot-spinner{display:none}}
       /* The seller, admin and delivery apps: only a spinner on a plain page. */
       .boot-home--partner{background:#fff}
       .boot-home--partner .boot-logo{display:none}
