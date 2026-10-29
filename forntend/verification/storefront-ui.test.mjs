@@ -2,7 +2,7 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { createServer } from 'vite';
-import { hookHarness, registerFeedback } from '../tests/service-hookHarness.mjs';
+import { hookHarness, registerFeedback } from './componentHarness.mjs';
 import { DEFAULT_EFFECT } from '../../backend/shared/celebration.mjs';
 let Celebration, EffectFields, MediaFields, Festive, HeaderFields, LAYER;
 let vite, policy, Splash, SplashCard, SplashPreview, Media, Hero, HeaderCategories, BottomNav, Card, Section, navigateHook, Provider, Studio, Coupons, catalog;
