@@ -7,7 +7,7 @@ const money = paise => `₹${(Number(paise || 0) / 100).toFixed(2)}`;
 const BUCKETS = { held: 'On hold (waiting for payment check)', eligible: 'Available to withdraw', reserved: 'Payout requested', settled: 'Paid to you', pending: 'Pending' };
 const CASH = { expected: 'Collect cash', collected: 'Cash with you — hand it over', remittance_reported: 'Handed over — Bulkimart is checking', verified: 'Cash received by Bulkimart', allocated: 'Cash received by Bulkimart', discrepancy: 'Amount mismatch — Bulkimart will contact you', disputed: 'Under review' };
 const small = text => <small style={{ display: 'block', color: '#52657b', fontSize: 12, marginTop: 4 }}>{text}</small>;
-export default function DeliveryFinancePanel() {
+export default function DeliveryFinancePanel({ onChanged }) {
   const generation = useRef(0);
   const [cash, setCash] = useState([]), [ledger, setLedger] = useState([]), [balances, setBalances] = useState([]);
   const [trips, setTrips] = useState([]);
@@ -50,6 +50,7 @@ export default function DeliveryFinancePanel() {
       const order = selected;
       await request(`/orders/${order._id}/cod/${order.cash.status === 'collected' ? 'remit' : 'collect'}`, { ...proof, amount: Number(proof.amount), method: 'cash' });
       setSelected(null); await load();
+      await onChanged?.();
       setNotice({ tone: 'success', text: order.cash.status === 'collected'
         ? `Submitted ✓ Handover of ₹${Number(proof.amount).toFixed(2)} for ${order.orderNo} sent to Bulkimart. You will be notified once they confirm receipt.`
         : `Submitted ✓ Collection of ₹${Number(proof.amount).toFixed(2)} for ${order.orderNo} recorded. Hand the cash over and report it next.` });

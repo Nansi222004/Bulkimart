@@ -430,7 +430,7 @@ test('home content stays unmounted through configuration loading and the splash,
   let h;
   try {
     h = browserHarness(Splash, { children }, context);
-    assert.equal(h.tree.props.className, 'boot-home sf-launch-wait');
+    assert.equal(h.tree.type.name, 'StoreLoading', 'The outline with its loader');
     assert.equal(h.find(n => n.props?.id === 'deferred-home'), undefined);
     context.loading = false; context.version = 'published'; context.splash = splash('launch'); h.rerender();
     assert.ok(h.find(n => n.type === SplashCard));
@@ -908,10 +908,12 @@ test('the splash counts its seconds from when the image has loaded and stays ope
   try {
     h = browserHarness(Splash, { children: createElement('main') }, context);
     assert.ok(h.find(n => n.type === SplashCard));
+    // The home banner is preloaded meanwhile (its own 3 s wait); only the splash's timers matter here.
+    const splashTimers = () => callbacks.map(c => c.delay).filter(d => d !== 3000);
     // Only the 4 s image-wait fallback is pending; the 10 s close timer waits for the artwork.
-    assert.deepEqual(callbacks.map(c => c.delay), [4000]);
-    images[0].onload(); h.flush();
-    assert.deepEqual(callbacks.map(c => c.delay), [4000, 10000]);
+    assert.deepEqual(splashTimers(), [4000]);
+    images.find(i => i.src === context.splash.banner.image).onload(); h.flush();
+    assert.deepEqual(splashTimers(), [4000, 10000]);
     // The fresh response republished the same splash with a new duration: it stays open with the new one.
     context.splash = { ...context.splash, revision: 2, config: { frequency: 'launch', duration: 12 } }; h.rerender(); h.flush();
     assert.ok(h.find(n => n.type === SplashCard), 'A newer revision of the open splash does not close it');
@@ -935,15 +937,32 @@ test('a header category with a custom image shows it in colour; a picked icon is
   } finally { h.close(); }
 });
 
-test('on a computer the website opens directly: no splash and no launch wait', () => {
+test('on a computer the loader shows until the storefront content arrives, then the website opens with no splash', () => {
   const children = createElement('main', { id: 'desktop-home' });
   const context = { loading: true, splash: splash('launch'), now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'desktop' };
   const h = browserHarness(Splash, { children }, context);
   try {
-    assert.equal(h.tree, children, 'No "Opening your store" wait on desktop');
+    assert.equal(h.tree.type.name, 'StoreLoading', 'Loader instead of the default look while the content loads');
     context.loading = false; context.version = 'published'; h.rerender();
     assert.equal(h.find(n => n.type === SplashCard), undefined); assert.equal(h.tree, children);
   } finally { h.close(); }
+});
+test('a failed storefront answer ends the loader and shows the website', () => {
+  const children = createElement('main', { id: 'home' });
+  const context = { loading: true, splash: null, now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'desktop' };
+  const h = browserHarness(Splash, { children }, context);
+  try {
+    assert.equal(h.tree.type.name, 'StoreLoading');
+    context.loading = false; h.rerender(); // no version: the request failed or timed out
+    assert.equal(h.tree, children);
+  } finally { h.close(); }
+});
+test('the loader has a spinner and keeps the remembered theme colours', async () => {
+  const { StoreLoading } = await vite.ssrLoadModule('/src/modules/User/components/PromotionalSplash.jsx');
+  const html = (await import('react-dom/server')).renderToStaticMarkup(createElement(StoreLoading));
+  assert.match(html, /class="boot-spinner"/); assert.match(html, /role="status"/); assert.match(html, /aria-busy="true"/);
+  assert.match(html, /class="boot-logo"/, 'The launch screen shows the logo');
+  assert.doesNotMatch(html, /<header|<main/, 'No empty header, search bar or page outline');
 });
 test('Studio media and preview follow the device: a phone-only campaign asks for one tall image and previews on a phone', async () => {
   const Fields = (await vite.ssrLoadModule('/src/modules/Admin/components/StorefrontMediaFields.jsx')).default;
@@ -1032,4 +1051,19 @@ test('tapping a promotion banner picture opens it, like its button', () => {
     art.props.onClick({ target: { tagName: 'IMG' } }); assert.equal(opened, 'deal');
     opened = undefined; art.props.onClick({ target: { tagName: 'VIDEO' } }); assert.equal(opened, undefined, 'Video controls do not navigate');
   } finally { h.close(); globalThis.fetch = realFetch; }
+});
+test('the first time, the loader also waits for the main banner picture, then never comes back', () => {
+  const originalImage = globalThis.Image, images = [];
+  globalThis.Image = class { constructor() { images.push(this); } };
+  const children = createElement('main', { id: 'home' });
+  const context = { loading: false, version: 'v1', splash: null, banners: [{ ...banner, image: 'https://cdn.fixture/hero.webp' }], now: Date.now(), theme: { tokens: policy.DEFAULT_TOKENS }, activeNav: 'home', device: 'desktop' };
+  let h;
+  try {
+    h = browserHarness(Splash, { children }, context);
+    assert.equal(h.tree.type.name, 'StoreLoading', 'Waiting for the banner picture');
+    images.find(i => i.src === 'https://cdn.fixture/hero.webp').onload(); h.flush();
+    assert.equal(h.tree, children, 'The page appears once the banner is ready');
+    context.banners = [{ ...banner, image: 'https://cdn.fixture/other.webp' }]; h.rerender();
+    assert.equal(h.tree, children, 'A later banner change does not bring the loader back');
+  } finally { h?.close(); globalThis.Image = originalImage; }
 });

@@ -1023,3 +1023,43 @@ test('an order whose breakdown cannot be frozen is still placed and flagged for 
   const overview = await request(app).get('/api/admin/finance/overview').set('Authorization', bearer(admin, 'admin'));
   expect(overview.body.data.todo.snapshotFailed).toBe(1);
 });
+
+test('rider eligibility uses verified funds without a workflow marker and refreshes after COD confirmation', async()=>{
+ const {riderFinancialSummary}=await import('../services/deliveryPayout.service.js');
+ await fundedRider();let summary=await riderFinancialSummary(await Partner.findById(partner._id));
+ expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(true);
+ await cod('collect');await cod('remit');summary=await riderFinancialSummary(await Partner.findById(partner._id));
+ expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('cod_outstanding');
+ await expect(requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:300,key:'payout-refresh'})).rejects.toThrow(/confirmation/);
+ await cod('verify');summary=await riderFinancialSummary(await Partner.findById(partner._id));expect(summary.payoutActionsEnabled).toBe(true);
+ const first=await requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:300,key:'payout-refresh'});
+ const second=await requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:300,key:'payout-refresh'});expect(String(first.payout._id)).toBe(String(second.payout._id));
+ summary=await riderFinancialSummary(await Partner.findById(partner._id));expect(summary.payoutBlockers.map(b=>b.code)).toContain('request_pending');
+});
+
+test('zero minimum does not enable zero cashout, and cash disputes and missing destinations are explicit blockers',async()=>{
+ const {riderFinancialSummary}=await import('../services/deliveryPayout.service.js');await setPolicy({riderMinPayout:0});
+ let summary=await riderFinancialSummary(await Partner.findById(partner._id));expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('no_available_earnings');
+ await fundedRider();await Partner.updateOne({_id:partner._id},{$unset:{bankDetails:1}});await Order.updateOne({_id:order._id},{$set:{'codFinance.status':'disputed'}});
+ summary=await riderFinancialSummary(await Partner.findById(partner._id));expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toEqual(expect.arrayContaining(['destination_missing','cod_disputed']));
+});
+
+test('admin seller coverage reports only own unposted delivered sales and never credits a payout',async()=>{
+ const legacy={...order.toObject(),_id:id(),orderNo:'COVERAGE-LEGACY'};delete legacy.financialSnapshot;delete legacy.financialPosting;
+ legacy.items=[{...order.items[0].toObject(),_id:id(),price:250,qty:1}];await Order.collection.insertOne(legacy);
+ const secondSeller=id();await Order.collection.updateOne({_id:legacy._id},{$push:{items:{_id:id(),sellerId:secondSeller,price:9999,qty:1}}});
+ const {sellerPayoutCoverage}=await import('../services/sellerPayoutCoverage.service.js');
+ const rows=await sellerPayoutCoverage([seller._id]);expect(rows).toHaveLength(1);expect(rows[0].grossPaise).toBe(35000);expect(rows[0].orderCount).toBe(2);
+ expect(rows[0].reasons).toEqual(expect.arrayContaining([expect.objectContaining({code:'original_terms_missing',grossPaise:25000}),expect.objectContaining({code:'cod_confirmation_pending',grossPaise:10000})]));
+ expect(await Ledger.countDocuments({account:'seller_payable'})).toBe(0);
+ const response=await request(app).get('/api/admin/seller-balances').set('Authorization',bearer(admin,'admin')).expect(200);
+ expect(response.body.data.rows[0].unpostedSales.grossPaise).toBe(35000);expect(response.body.data.rows[0].balances.eligible).toBe(0);
+ await verifyCash();await postOrderFinance(order._id,admin._id);const after=await sellerPayoutCoverage([seller._id]);expect(after[0].grossPaise).toBe(25000);expect(after[0].orderCount).toBe(1);
+});
+
+test('unversioned COD custody remains a cashout blocker even with verified ledger earnings',async()=>{
+ await fundedRider();await Order.collection.updateOne({_id:order._id},{$unset:{financialSnapshot:1},$set:{codFinance:{status:'collected',collectedPaise:10000}}});
+ const {riderFinancialSummary}=await import('../services/deliveryPayout.service.js');const summary=await riderFinancialSummary(await Partner.findById(partner._id));
+ expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('legacy_cod_review');
+ await expect(requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:100,key:'legacy-custody'})).rejects.toThrow(/Older COD/);
+});

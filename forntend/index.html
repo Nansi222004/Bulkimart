@@ -18,23 +18,21 @@
     <!-- Loaded without blocking the first paint; text shows in a fallback font until the fonts arrive. -->
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-    <!-- The outline of the home page, drawn the moment the page arrives. The app replaces it
-         with the real home page as soon as it has loaded, so no separate loading screen is seen. -->
+    <!-- The launch screen, drawn the moment the page arrives: the logo with a spinner under it on the
+         theme colour. It stays until the app and its storefront content have loaded (see StoreLoading
+         in PromotionalSplash.jsx), so no empty header or search bar is ever shown. -->
     <style>
       /* Colours come from the theme this device last showed (see rememberBootLook), else the default. */
-      .boot-home{position:fixed;inset:0;overflow:hidden;background:var(--boot-background,#f8fafc);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-      .boot-home header{background:var(--boot-header,#79000B);padding:14px 16px 16px;color:var(--boot-header-text,#fff);min-height:236px;box-sizing:border-box}
-      @media (min-width:601px){.boot-home header{min-height:200px;padding-top:24px}}
-      .boot-home header strong{display:block;font-size:20px;font-weight:800;margin:0 auto 12px;max-width:1200px}
-      .boot-home header div{max-width:1200px;margin:0 auto;height:44px;border-radius:12px;background:var(--boot-search,#fff)}
-      .boot-home main{max-width:1200px;margin:0 auto;padding:16px}
-      .boot-home i{display:block;border-radius:14px;background:#e9edf2}
-      .boot-home .banner{width:100%;aspect-ratio:2/1;margin-bottom:18px}
-      @media (min-width:601px){.boot-home main{max-width:1064px;padding-top:40px}}
-      .boot-home .row{display:flex;gap:14px;overflow:hidden}
-      .boot-home .row i{flex:0 0 64px;height:64px;border-radius:50%}
+      .boot-home{position:fixed;inset:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;background:var(--boot-header,#79000B);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+      /* The logo sits on a white tile so it reads on any theme colour. */
+      .boot-logo{display:block;width:104px;height:104px;padding:16px;box-sizing:border-box;border-radius:26px;background:#fff;object-fit:contain;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+      .boot-spinner{display:block;width:32px;height:32px;box-sizing:border-box;border-radius:50%;border:3px solid rgba(255,255,255,.28);border-top-color:var(--boot-header-text,#fff);animation:boot-spin .8s linear infinite}
+      @keyframes boot-spin{to{transform:rotate(360deg)}}
+      @media (prefers-reduced-motion:reduce){.boot-spinner{animation-duration:2.4s}}
+      /* The seller, admin and delivery apps: only a spinner on a plain page. */
       .boot-home--partner{background:#fff}
-      .boot-home--partner header,.boot-home--partner main{display:none}
+      .boot-home--partner .boot-logo{display:none}
+      .boot-home--partner .boot-spinner{width:36px;height:36px;border-color:rgba(15,23,42,.1);border-top-color:#0f766e}
     </style>
     <script>
       // Make User, Seller and Delivery apps behave strictly like native mobile apps (no zooming)
@@ -74,7 +72,7 @@
     </script>
   </head>
   <body>
-    <div id="root"><div class="boot-home" aria-busy="true" aria-label="Loading Bulkimart"><header><strong>Bulkimart</strong><div></div></header><main><i class="banner"></i><div class="row"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></main></div></div>
+    <div id="root"><div class="boot-home" role="status" aria-busy="true" aria-label="Loading Bulkimart"><img class="boot-logo" src="/src/assets/logo-icon-transparent.png" alt="" width="104" height="104"><b class="boot-spinner"></b></div></div>
     <script>
       // The seller, admin and delivery apps are not the shop: they start on a plain page.
       if (/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) document.querySelector('.boot-home').classList.add('boot-home--partner');

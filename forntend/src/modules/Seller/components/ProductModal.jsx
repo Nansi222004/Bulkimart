@@ -601,27 +601,22 @@ export const ProductModal = () => {
                   <div className="onboarding-form-group">
                     <span className="onboarding-label">What are you adding? *</span>
                     <div role="group" aria-label="Listing type" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {[['physical', '📦 Add Physical Product'], ['digital', '📚 Add E-book']].map(([value, text]) => {
+                      {[['physical', '📦 Add Physical Product'], ...(activeChannel === 'ecommerce' ? [['digital', '📚 Add E-book']] : [])].map(([value, text]) => {
                         const active = (newProductForm.fulfillmentType || 'physical') === value;
-                        const blocked = value === 'digital' && (activeChannel === 'quick' || activeChannel === 'grocery');
                         return (
-                          <button key={value} type="button" aria-pressed={active} disabled={blocked}
-                            title={blocked ? 'E-books are listed in Shop All' : undefined}
+                          <button key={value} type="button" aria-pressed={active}
                             onClick={() => {
                               if (active) return;
                               resetCategoryPicks();
                               setNewProductForm((prev) => ({ ...prev, fulfillmentType: value, categoryId: '' }));
                               setActiveTab('general');
                             }}
-                            style={{ ...S.gstBtn, ...(active ? S.gstBtnActive : {}), ...(blocked ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>
+                            style={{ ...S.gstBtn, ...(active ? S.gstBtnActive : {}) }}>
                             {text}
                           </button>
                         );
                       })}
                     </div>
-                    {(activeChannel === 'quick' || activeChannel === 'grocery') && (
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>E-books are added from Shop All.</span>
-                    )}
                   </div>
                 )}
 

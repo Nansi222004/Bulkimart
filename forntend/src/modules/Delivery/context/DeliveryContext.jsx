@@ -740,6 +740,17 @@ export const DeliveryProvider = ({ children }) => {
     setEarningsSummaryVersion((version) => version + 1);
   }, []);
   const [earningsSummaryVersion, setEarningsSummaryVersion] = useState(0);
+  const financeReadGeneration = useRef(0);
+  const refreshRiderFinances = useCallback(async () => {
+    const token = localStorage.getItem('deliveryToken');
+    if (!token) return;
+    const generation = ++financeReadGeneration.current;
+    const response = await boundedFetch(apiUrl('/api/delivery/me'), { headers: { Authorization: `Bearer ${token}` } });
+    const body = await response.json();
+    if (generation !== financeReadGeneration.current || token !== localStorage.getItem('deliveryToken')) return;
+    if (!response.ok || !body.data?.finance) throw new Error(body.message || 'Could not refresh payout eligibility.');
+    setRiderProfile(body.data); hydrateEarnings(body.data);
+  }, [hydrateEarnings]);
 
   /**
    * Today's and this week's earnings, from the rider's completed deliveries on
@@ -1567,6 +1578,7 @@ export const DeliveryProvider = ({ children }) => {
       payoutHistory,
       payoutRequesting,
       payoutActionsEnabled,
+      refreshRiderFinances,
       fetchPayoutHistory,
       activeOrder,
       setActiveOrder,

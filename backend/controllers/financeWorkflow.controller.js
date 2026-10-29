@@ -238,6 +238,7 @@ export const saveFinancePolicySettings = asyncHandler(async (req, res) => ok(res
 
 // One read for the Finance Center home: what needs attention and where money stands.
 export const getFinanceOverview = asyncHandler(async (req, res) => {
+  const { sellerPayoutCoverage } = await import('../services/sellerPayoutCoverage.service.js');
   const v2 = { 'financialSnapshot.version': 2 };
   const count = filter => Order.countDocuments({ ...v2, ...filter });
   const snapshotFailed = await Order.countDocuments({ 'financialSnapshotError.message': { $exists: true } });
@@ -263,6 +264,7 @@ export const getFinanceOverview = asyncHandler(async (req, res) => {
   const [courier, commission] = await Promise.all([courierCostSummary(), describeCurrentCommissionRules()]);
   return ok(res, {
     flags: financeFlags(),
+    unpostedSellerSales: await sellerPayoutCoverage(),
     policy: { payoutSchedule: policy.payoutSchedule, payoutWeekday: policy.payoutWeekday, tcsRatePercent: policy.tcsRatePercent, tdsRatePercent: policy.tdsRatePercent,
       sellerMinPayout: policy.sellerMinPayout, riderMinPayout: policy.riderMinPayout, configured: policy.configured, bankVerificationConfigured: Boolean(policy.bankVerificationMethod) },
     // Configured only when a current, switched-on rule actually covers a channel.

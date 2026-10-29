@@ -6,8 +6,8 @@ import CustomerSessionGate from './components/CustomerSessionGate'
 const SellerRoutes = lazy(() => import('./modules/Seller/routes'))
 const AdminRoutes = lazy(() => import('./modules/Admin/routes'))
 const DeliveryRoutes = lazy(() => import('./modules/Delivery/routes'))
-// A plain page while a partner app loads, as in index.html.
-const PartnerLoading = () => <div className="boot-home boot-home--partner" aria-busy="true" aria-label="Loading Bulkimart" />
+// A spinner on a plain page while a partner app loads, as in index.html.
+const PartnerLoading = () => <div className="boot-home boot-home--partner" role="status" aria-busy="true" aria-label="Loading Bulkimart"><b className="boot-spinner" /></div>
 
 function App() {
   const [path, setPath] = useState(window.location.pathname)

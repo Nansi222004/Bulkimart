@@ -1376,6 +1376,7 @@ export const SellerProvider = ({ children }) => {
 
     try {
       if (!token) throw new Error('Your session expired. Please sign in again.');
+      if (form.fulfillmentType === 'digital' && activeChannel !== 'ecommerce') throw new Error('E-books can only be added from Shop All.');
       if (!form.categoryId) throw new Error('Please select a category.');
       if (!files || files.length === 0) throw new Error('Please add at least one product image.');
       if (form.fulfillmentType !== 'digital' && (!Array.isArray(form.variants) || form.variants.length === 0)) {

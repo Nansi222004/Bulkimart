@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import DepositModal from '../components/DepositModal';
 import DeliveryFinancePanel from '../components/DeliveryFinancePanel';
+import { socket } from '../../../utils/socket';
 
 export const EarningsPage = () => {
   const {
@@ -10,6 +11,7 @@ export const EarningsPage = () => {
     payoutHistory,
     payoutRequesting,
     payoutActionsEnabled,
+    refreshRiderFinances,
     fetchPayoutHistory,
     debitWallet,
     settleDebitWallet,
@@ -19,6 +21,20 @@ export const EarningsPage = () => {
 
   const [period, setPeriod] = useState('daily'); // daily, weekly, lifetime
   const [showDeposit, setShowDeposit] = useState(false);
+  const [financeError, setFinanceError] = useState('');
+  const [refreshingFinance, setRefreshingFinance] = useState(false);
+  const refreshFinance = async () => {
+    setRefreshingFinance(true); setFinanceError('');
+    try { await refreshRiderFinances?.(); } catch (error) { setFinanceError(error.message); }
+    finally { setRefreshingFinance(false); }
+  };
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => { try { await refreshRiderFinances?.(); if (active) setFinanceError(''); } catch (error) { if (active) setFinanceError(error.message); } };
+    const onNew = payload => { if (payload?.event === 'COD_CASH_SETTLED' || /^PAYOUT_/.test(payload?.event || '')) refresh(); };
+    refresh(); window.addEventListener?.('focus', refresh); socket.on('notification_new', onNew);
+    return () => { active = false; window.removeEventListener?.('focus', refresh); socket.off('notification_new', onNew); };
+  }, [refreshRiderFinances]);
 
   useEffect(() => { fetchPayoutHistory(); }, [fetchPayoutHistory]);
 
@@ -44,26 +60,32 @@ export const EarningsPage = () => {
 
   return (
     <div className="delivery-earnings-wrapper">
-      <DeliveryFinancePanel />
+      <div id="rider-cod-records"><DeliveryFinancePanel onChanged={refreshFinance} /></div>
       {/* Payout balance top card */}
       <div className="delivery-card delivery-payout-balance-card">
         <span className="delivery-card-title" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Payout Balance</span>
         <div className="delivery-payout-row">
-          <span className="delivery-payout-amount">₹{payoutBalance}</span>
+          <span className="delivery-payout-amount">{riderProfile?.finance ? `₹${payoutBalance}` : '—'}</span>
           <button
             className="delivery-cashout-btn"
             onClick={cashoutEarnings}
-            disabled={!payoutActionsEnabled || payoutBalance === 0 || payoutRequesting || hasPendingRequest}
+            disabled={!!financeError || !riderProfile?.finance || !payoutActionsEnabled || payoutBalance <= 0 || payoutRequesting || hasPendingRequest}
           >
             {payoutRequesting ? 'Requesting…' : hasPendingRequest ? 'Request pending' : 'Cashout to Bank'}
           </button>
         </div>
         <p className="delivery-payout-footer-label">
-          Linked Bank: {riderProfile?.bankDetails?.bankName
-            ? `${riderProfile.bankDetails.bankName} (•••• ${riderProfile.bankDetails.accountNo ? riderProfile.bankDetails.accountNo.slice(-4) : '4321'})`
-            : 'No bank/UPI on file — add one before requesting a payout'}
+          {riderProfile?.bankDetails?.accountNo
+            ? `Linked bank: ${riderProfile.bankDetails.bankName || 'Bank account'} (•••• ${riderProfile.bankDetails.accountNo.slice(-4)})`
+            : riderProfile?.bankDetails?.upiId ? 'UPI account linked' : 'No bank/UPI on file — add one before requesting a payout'}
         </p>
-        {!payoutActionsEnabled && !hasPendingRequest && riderProfile?.finance && (
+        <button type="button" className="delivery-secondary-action-btn" disabled={refreshingFinance || payoutRequesting} onClick={refreshFinance}>{refreshingFinance ? 'Refreshing…' : 'Refresh payout status'}</button>
+        {financeError && <p role="alert">{financeError}</p>}
+        {riderProfile?.finance?.payoutBlockers?.length > 0 && <ul aria-label="Why cashout is unavailable">{riderProfile.finance.payoutBlockers.map(blocker => <li key={blocker.code}>{blocker.message}</li>)}</ul>}
+        {riderProfile?.finance?.balances && <p className="delivery-payout-footer-label">On hold: ₹{riderProfile.finance.balances.onHold.toFixed(2)} · Payout requested: ₹{riderProfile.finance.balances.requested.toFixed(2)} · Paid: ₹{riderProfile.finance.balances.paid.toFixed(2)}</p>}
+        {riderProfile?.finance?.legacyUnverified > 0 && <p className="delivery-payout-footer-label">₹{riderProfile.finance.legacyUnverified.toFixed(2)} in older earnings needs finance review before it can be withdrawn.</p>}
+        {riderProfile?.finance?.payoutBlockers?.some(blocker => ['cod_outstanding', 'cod_disputed'].includes(blocker.code)) && <a className="delivery-payout-footer-label" href="#rider-cod-records">Open COD records and handover status</a>}
+        {!payoutActionsEnabled && !hasPendingRequest && riderProfile?.finance && !riderProfile.finance.payoutBlockers && (
           <p className="delivery-payout-footer-label">
             {riderProfile.finance.payoutSchedule === 'weekly' ? 'Payouts are sent automatically once a week — no request needed.'
               : riderProfile.finance.reportedCodOutstanding > 0 ? `Hand over the ₹${riderProfile.finance.reportedCodOutstanding} COD cash you are holding before cashing out.`

@@ -6,6 +6,8 @@ import { eligibleSplash, markSplash, themeStyle, bootLook, bootLookStyle, splash
 import SplashCard from './SplashCard';
 import { useMediaReady } from './StorefrontMedia';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
+import defaultBanner from '../../../assets/banner1.webp';
+import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
 
 // "Once per launch" must outlive this component: signing in or out remounts
 // the whole customer tree (CustomerSessionGate keys it by session), which used
@@ -16,8 +18,20 @@ const splashKey = splash => `${splash.id}:${splash.revision}`;
 const shownThisLaunch = splash => Boolean(splash) && Boolean(window[LAUNCH_GUARD]?.has(splashKey(splash)));
 const rememberLaunch = splash => { (window[LAUNCH_GUARD] ||= new Set()).add(splashKey(splash)); };
 
+// Same markup as the launch screen in index.html (its styles live there): the logo with a spinner on
+// the live theme colour once it is known, otherwise on the theme last shown on this device.
+export const StoreLoading = ({ tokens }) => <div className="boot-home sf-launch-wait" style={bootLookStyle(tokens ? { header: tokens.header, headerText: tokens.headerText } : bootLook())} role="status" aria-busy="true" aria-label="Loading Bulkimart">
+  <img className="boot-logo" src={bulkimartIcon} alt="" width="104" height="104" />
+  <b className="boot-spinner" />
+</div>;
+
 export default function PromotionalSplash({ children }) {
-  const { splash, now, device, theme, loading, version } = useStorefront();
+  const { splash, now, device, theme, loading, version, banners = [] } = useStorefront();
+  // The first screen is ready when its main banner picture is: the loader waits for it once (given
+  // up after 3 seconds), so the page does not appear with an empty grey banner.
+  const revealed = useRef(false);
+  const heroArt = banners.length ? (device === 'mobile' && banners[0].mobileImage || banners[0].image) : defaultBanner;
+  const heroReady = useMediaReady(version && !revealed.current ? heroArt : null, 3000);
   const { activeNav, selectedProduct, selectedCampaignId, productDetailLoading, productDetailError, selectedOrder, reviewProductId } = useUser();
   const navigate = usePromotionNavigation();
   const consumed = useRef(false), [open, setOpen] = useState(null);
@@ -60,9 +74,13 @@ export default function PromotionalSplash({ children }) {
   }, [open, artReady]);
   const visible = phone && open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
   if (!visible) {
-    // While the phone checks for a splash, it keeps showing the home-page outline from index.html,
-    // in the theme it last showed, so the order is outline → splash (if any) → home.
-    if (homeLaunch && !launchChecked) return <div className="boot-home sf-launch-wait" style={bootLookStyle(bootLook())} aria-busy="true" aria-label="Loading Bulkimart"><header><strong>Bulkimart</strong><div /></header><main><i className="banner" /><div className="row">{Array.from({ length: 8 }, (_, n) => <i key={n} />)}</div></main></div>;
+    // The home-page outline from index.html, with its loader, stays until there is something real to
+    // show: on a phone until the splash check is done (outline → splash, if any → home), and on any
+    // screen until the first storefront answer arrives, so the default look never flashes first.
+    // A failed or slow answer ends the wait (the storefront gives up after 3 seconds). The first time,
+    // it also waits for the main banner picture, so the page appears complete.
+    if (homeLaunch && (!launchChecked || (loading && !version) || (version && !heroReady))) return <StoreLoading tokens={version ? theme.tokens : null} />;
+    if (homeLaunch) revealed.current = true;
     return children || null;
   }
   return <ModalPortal className="sf-splash" style={{ ...themeStyle(theme.tokens), ...(art ? { '--sf-splash-art': `url(${JSON.stringify(art)})` } : {}) }} role="dialog" aria-modal="true" aria-label={open.banner.title || 'Promotion'}>

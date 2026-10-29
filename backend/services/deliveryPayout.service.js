@@ -13,8 +13,6 @@ import { NOTIFICATION_EVENT, notifyRider } from './notification.service.js';
 
 // COD cash the rider has collected but Bulkimart has not yet received. It is
 // customer money in the rider's hands, so no earnings are paid out against it.
-const CASH_IN_HAND = ['collected', 'remittance_reported'];
-
 /**
  * A rider's money, read only from the ledger: the single source for every
  * payout decision and every balance shown. `DeliveryPartner.earnings` is kept
@@ -32,16 +30,30 @@ export const riderLedgerBalances = async (partnerId, { session = null } = {}) =>
 export const riderFinancialSummary = async (partner) => {
   const flags = financeFlags();
   const { riderMinPayout, payoutSchedule, payoutWeekday } = await getFinancePolicy();
-  if (partner.financialWorkflowVersion !== 2) return { verifiedPayable: 0, reportedCodOutstanding: 0, payoutActionsEnabled: false, historicalCashIncluded: false, minimumPayout: riderMinPayout, payoutSchedule, payoutWeekday };
-  const ledger = await riderLedgerBalances(partner._id);
-  const cash = await riderCodCashBalances([partner._id]);
+  const [ledger, cash, pending, disputed, legacyCash] = await Promise.all([
+    riderLedgerBalances(partner._id), riderCodCashBalances([partner._id]),
+    DeliveryPayout.exists({ partnerId: partner._id, status: 'pending' }),
+    Order.exists({ deliveryPartnerId: partner._id, 'codFinance.status': { $in: ['disputed', 'discrepancy'] } }),
+    Order.exists({ deliveryPartnerId: partner._id, paymentMethod: 'cod', 'financialSnapshot.version': { $ne: 2 }, 'codFinance.status': { $in: ['collected', 'remittance_reported'] } }),
+  ]);
   const outstanding = (cash.get(String(partner._id)) || 0) / 100;
   const verifiedPayable = Math.max(0, ledger.eligible) / 100;
   // Pre-ledger earnings still on the old counter; shown, never paid from here.
   const legacyUnverified = Math.max(0, Math.round((partner.earnings?.pending || 0) * 100) - Math.max(0, ledger.eligible)) / 100;
+  const payoutBlockers = [
+    ...(!(flags.payouts && flags.policyApproved && flags.testsApproved) ? [{ code: 'payouts_unavailable', message: 'Payout processing is unavailable. Contact support.' }] : []),
+    ...(partner.status !== 'approved' ? [{ code: 'rider_not_approved', message: 'Your rider account must be approved before cashout.' }] : []),
+    ...(payoutSchedule !== 'on_request' ? [{ code: 'weekly_schedule', message: 'Payouts are created automatically on the weekly payout day.' }] : []),
+    ...(pending ? [{ code: 'request_pending', message: 'A payout request is already awaiting processing.' }] : []),
+    ...(!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo ? [{ code: 'destination_missing', message: 'Add your bank account or UPI ID in Profile before cashing out.' }] : []),
+    ...(disputed ? [{ code: 'cod_disputed', message: 'A COD cash record is disputed or has an amount mismatch. Admin must reconcile it before cashout.' }] : []),
+    ...(legacyCash ? [{ code: 'legacy_cod_review', message: 'An older COD collection needs finance reconciliation before cashout.' }] : []),
+    ...(outstanding > 0 ? [{ code: 'cod_outstanding', message: `₹${outstanding.toFixed(2)} COD cash still needs admin receipt confirmation. Report the handover in COD records, then wait for confirmation.` }] : []),
+    ...(verifiedPayable <= 0 ? [{ code: 'no_available_earnings', message: 'No verified earnings are available for withdrawal yet.' }] : verifiedPayable < riderMinPayout ? [{ code: 'below_minimum', message: `Minimum cashout is ₹${riderMinPayout.toFixed(2)}. Available earnings are ₹${verifiedPayable.toFixed(2)}.` }] : []),
+  ];
   return { verifiedPayable, reportedCodOutstanding: outstanding, historicalCashIncluded: false, minimumPayout: riderMinPayout, payoutSchedule, payoutWeekday,
     balances: { onHold: ledger.held / 100, available: verifiedPayable, requested: ledger.reserved / 100, paid: ledger.settled / 100 }, legacyUnverified,
-    payoutActionsEnabled: flags.payouts && flags.policyApproved && flags.testsApproved && payoutSchedule === 'on_request' && outstanding === 0 && verifiedPayable >= riderMinPayout,
+    payoutActionsEnabled: payoutBlockers.length === 0, payoutBlockers,
     balanceMismatch: Math.round((partner.earnings?.pending || 0) * 100) !== ledger.eligible };
 };
 
@@ -64,7 +76,9 @@ export const requestVerifiedRiderPayout = async ({ partnerId, userId, amount, ke
     if (!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo) throw httpError(400, 'Verified payout destination is required');
     if (await DeliveryPayout.exists({ partnerId, status: 'pending' }).session(session)) throw httpError(409, 'A payout request is already pending');
     if (await Order.exists({ deliveryPartnerId: partnerId, 'codFinance.status': { $in: ['disputed','discrepancy'] } }).session(session)) throw httpError(409, 'Disputed COD cash blocks rider payout');
-    if (await Order.exists({ deliveryPartnerId: partnerId, paymentMethod: 'cod', 'codFinance.status': { $in: CASH_IN_HAND } }).session(session)) throw httpError(409, 'Hand over all collected COD cash before requesting a payout');
+    if (await Order.exists({ deliveryPartnerId: partnerId, paymentMethod: 'cod', 'financialSnapshot.version': { $ne: 2 }, 'codFinance.status': { $in: ['collected', 'remittance_reported'] } }).session(session)) throw httpError(409, 'Older COD collections need finance reconciliation before payout');
+    const cash = await riderCodCashBalances([partnerId], { session });
+    if ((cash.get(String(partnerId)) || 0) > 0) throw httpError(409, 'Hand over all collected COD cash and wait for admin receipt confirmation before requesting a payout');
     const { eligible: payable } = await riderLedgerBalances(partnerId, { session });
     if (paise > payable) throw httpError(409, 'Payout exceeds verified payable balance; legacy earnings require reconciliation');
     const [payout] = await DeliveryPayout.create([{ partnerId, userId, amount, status: 'pending', financeVersion: 2, idempotencyKey, payoutMethod: partner.bankDetails }], { session });

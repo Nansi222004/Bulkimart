@@ -53,7 +53,7 @@ export const updateQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, r
 export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
-  const query = {advertisingCampaignId:{$exists:false}};
+  const query = { sellerId: { $exists: true }, advertisingCampaignId: { $exists: false } };
   if (mongoose.Types.ObjectId.isValid(req.query.sellerId)) query.sellerId = req.query.sellerId;
   if (req.query.bucket) query.bucket = req.query.bucket;
   if (req.query.type) query.type = req.query.type;
@@ -67,10 +67,13 @@ export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {
 
 export const getSellerBalancesAdmin = asyncHandler(async (req, res) => {
   const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name').lean();
+  const { sellerPayoutCoverage } = await import('../services/sellerPayoutCoverage.service.js');
+  const coverage = new Map((await sellerPayoutCoverage(sellers.map(seller => seller._id))).map(row => [String(row.sellerId), row]));
   const rows = await Promise.all(sellers.map(async (seller) => ({
     sellerId: seller._id, businessName: seller.businessName,
     storeName: seller.storeDetails?.name || seller.businessName,
     balances: await sellerBalances(seller._id),
+    unpostedSales: coverage.get(String(seller._id)) || { orderCount: 0, grossPaise: 0, reasons: [] },
   })));
   return ok(res, { rows, coverage: { historicalOrdersIncluded: false, authoritativeFrom: 'seller-ledger-v1' } });
 });
