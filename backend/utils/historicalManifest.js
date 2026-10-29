@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { codCashDuePaise } from './financeMoney.js';
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const historicalManifestRow = ({ order, item, payment, deliveries = [], returns = [], entries = [], policies = [], payouts = [], unscopedEntries = [] }) => {
   const reasons = [];
@@ -6,7 +7,7 @@ export const historicalManifestRow = ({ order, item, payment, deliveries = [], r
   if (!payment?.userId || !order.userId || String(payment.userId) !== String(order.userId) || payment.method !== order.paymentMethod) reasons.push('missing_payment_evidence');
   if (order.paymentMethod === 'online' && !payment?.captures?.some(row => row.disposition === 'settled' && row.gatewayPaymentId && row.currency === 'INR' && row.amountPaise === Math.round(payment.amount * 100))) reasons.push('missing_payment_evidence');
   if (order.paymentMethod === 'wallet') reasons.push('wallet_debit_requires_review');
-  if (order.paymentMethod === 'cod' && (!['verified', 'allocated'].includes(order.codFinance?.status) || !order.codFinance?.verifiedAt || order.codFinance.verifiedPaise !== Math.round(order.pricing.totalAmount * 100))) reasons.push('missing_cod_custody_evidence');
+  if (order.paymentMethod === 'cod' && (!['verified', 'allocated'].includes(order.codFinance?.status) || !order.codFinance?.verifiedAt || order.codFinance.verifiedPaise !== codCashDuePaise(Math.round(order.pricing.totalAmount * 100)))) reasons.push('missing_cod_custody_evidence');
   // Current Commission documents cannot establish a historical agreement.
   reasons.push('missing_historical_commission_policy');
   if (!item.deliveredAt || order.status !== 'delivered') reasons.push('incomplete_delivery_evidence');

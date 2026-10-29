@@ -194,7 +194,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     setMessage(''); setSelection(row);
     setAction(kind);
     const suggestedAmount = kind === 'cod/verify' && row.cash
-      ? String(((row.cash.reportedPaise || row.cash.expectedPaise || 0) / 100).toFixed(2)).replace(/\.00$/, '')
+      ? String(((row.cash.reportedPaise || (row.cash.duePaise ?? row.cash.expectedPaise) || 0) / 100).toFixed(2)).replace(/\.00$/, '')
       : '';
     setProof({ amount: suggestedAmount, reference: '', reason: '', verified: false });
   };
@@ -203,7 +203,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
         {action === 'cod/writeoff' && <p>{`Bulkimart absorbs the ${rupees(selection.cash.shortagePaise)} shortage so the seller and rider can be paid in full. This is recorded as a COD shortage expense.`}</p>}
         {action === 'cod/dispute' && <p>Blocks payouts linked to this order until you confirm the cash again.</p>}
         {['allocate', 'release', 'release-rider'].includes(action) && <p>Review the payment and earnings information before confirming this action.</p>}
-        {action === 'cod/verify' && <label>Cash received (₹)<input required type="number" min="0" step="0.01" value={proof.amount} onChange={e => setProof({ ...proof, amount: e.target.value })} />{hint('What actually reached Bulkimart’s bank or cash desk, not what the rider reported. A different amount marks the order “Amount mismatch”.', String((selection.cash?.expectedPaise || 0) / 100))}</label>}
+        {action === 'cod/verify' && <label>Cash received (₹)<input required type="number" min="0" step="0.01" value={proof.amount} onChange={e => setProof({ ...proof, amount: e.target.value })} />{hint('What actually reached Bulkimart’s bank or cash desk, not what the rider reported. COD cash is due rounded to the nearest rupee; a different amount marks the order “Amount mismatch”.', String(((selection.cash?.duePaise ?? selection.cash?.expectedPaise) || 0) / 100))}</label>}
         <label>{action === 'complete' ? 'Bank reference (UTR)' : 'Evidence reference'}<input required={action !== 'reject'} minLength={4} value={proof.reference} autoComplete="off" onChange={e => setProof({ ...proof, reference: e.target.value })} />{hint(action === 'complete' ? 'From your bank statement, after the transfer succeeded.' : 'Deposit slip, bank UTR or cash-desk receipt number.', action === 'complete' ? 'UTR 412345678901' : 'Deposit slip 0098')}</label>
         <label>Reason<input required minLength={5} value={proof.reason} autoComplete="off" onChange={e => setProof({ ...proof, reason: e.target.value })} />{hint('Kept with the order’s history.', action === 'cod/writeoff' ? 'Customer paid ₹20 less at the door' : 'Counted at the cash desk on 23 Oct')}</label>
         {action === 'complete' && <label className="finance-check"><input required type="checkbox" checked={proof.verified} onChange={e => setProof({ ...proof, verified: e.target.checked })} />I checked the bank statement: the transfer succeeded</label>}
@@ -334,6 +334,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
             </section>}
             {detailRow.paymentMethod === 'cod' && <section className="finance-order-section"><h3>Where the cash stands</h3><p className="finance-muted">The delivery partner reports the collection and handover. Bulkimart confirms the amount it actually receives.</p>
               <dl className="finance-order-cash-totals">
+                <div><dt>Cash due (rounded)</dt><dd>{rupees(detailRow.cash.duePaise ?? detailRow.cash.expectedPaise)}</dd></div>
                 <div><dt>Collected from customer</dt><dd>{rupees(detailRow.cash.collectedPaise)}</dd></div>
                 <div><dt>Handover reported</dt><dd>{rupees(detailRow.cash.reportedPaise)}</dd></div>
                 <div><dt>Confirmed by Bulkimart</dt><dd>{rupees(detailRow.cash.verifiedPaise)}</dd></div>

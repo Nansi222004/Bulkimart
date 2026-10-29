@@ -1,5 +1,5 @@
 import { verifyReturnCashEvidence, verifyRefundedFunding } from './refundFunding.service.js';
-import { cumulativePaise } from '../utils/financeMoney.js';
+import { cumulativePaise, codCashDuePaise } from '../utils/financeMoney.js';
 import mongoose from 'mongoose';
 import crypto from 'node:crypto';
 import Order from '../models/Order.js';
@@ -72,6 +72,8 @@ const releaseSameDayIncentive = async (order, actorId, session) => {
 // Cash Bulkimart accepts as settled: what was verified plus any shortage the
 // platform has written off under the approved "platform absorbs" policy.
 export const codSettledPaise = cash => (cash?.verifiedPaise || 0) + (cash?.writtenOffPaise || 0);
+// Settled means the rounded cash due was received (or its shortage written off).
+const codCashSettled = (cash, expectedPaise) => ['verified', 'allocated'].includes(cash?.status) && codSettledPaise(cash) === codCashDuePaise(expectedPaise);
 const lockOrder = async (id, session, review) => {
   if (!mongoose.isValidObjectId(id)) throw httpError(400, 'Invalid order reference');
   const order = await Order.findOneAndUpdate({ _id: id }, { $inc: { financialRevision: 1 } }, { session, returnDocument: 'after' });
@@ -106,7 +108,9 @@ const markCodPaymentIfSettled = async (order, expectedPaise, session) => {
   const siblings = await Order.find(payment.groupRef ? { groupRef: payment.groupRef, paymentId: payment._id } : { _id: payment.orderId, paymentId: payment._id }).session(session);
   if (!siblings.some(sibling => String(sibling._id) === String(order._id))) throw httpError(409, 'COD order is not associated with payment');
   const settled = sibling => ['verified', 'allocated'].includes(sibling.codFinance?.status);
-  const paidPaise = siblings.reduce((sum, sibling) => sum + (String(sibling._id) === String(order._id) ? expectedPaise : settled(sibling) ? codSettledPaise(sibling.codFinance) : 0), 0);
+  // A settled sibling paid its whole order total; the cash itself was the
+  // rounded rupee amount, so the frozen total is what counts toward the payment.
+  const paidPaise = siblings.reduce((sum, sibling) => sum + (String(sibling._id) === String(order._id) ? expectedPaise : settled(sibling) ? snapshotOf(sibling).expectedPaise : 0), 0);
   if (paidPaise === moneyPaise(payment.amount) && siblings.every(sibling => String(sibling._id) === String(order._id) || settled(sibling))) {
     // A return already refunded to the wallet while the cash was unconfirmed
     // keeps its refund state rather than being overwritten as fully paid.
@@ -134,6 +138,9 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
     const delivery = await Delivery.findOne({ _id: order.deliveryId, orderId: order._id, partnerId: order.deliveryPartnerId }).session(session);
     if (!delivery || delivery.direction === 'return_pickup' || delivery.status !== 'delivered' || !delivery.otpVerified || action === 'collect' && order.status !== 'delivered') throw httpError(409, 'Verified completed delivery is required');
     const expectedPaise = snapshotOf(order).expectedPaise;
+    // Cash changes hands in whole rupees, so collection limits, verification
+    // and shortage/excess are all measured against the rounded amount.
+    const duePaise = codCashDuePaise(expectedPaise);
     const cash = order.codFinance || { expectedPaise, status: 'expected', events: [] };
     const amountPaise = typedPaise ?? (action === 'writeoff' ? cash.shortagePaise || 0 : expectedPaise);
     // Replays must agree with the original immutable evidence.
@@ -153,7 +160,7 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
       // and rider settlement can continue. Excess cash is never written off.
       if (cash.status !== 'discrepancy' || !(cash.shortagePaise > 0) || cash.excessPaise > 0 || cash.writtenOffPaise) throw httpError(409, 'Only a verified cash shortage can be written off');
       if (amountPaise !== cash.shortagePaise) throw httpError(409, 'Write-off must equal the verified shortage');
-      const custodyLeft = Math.max(0, (cash.collectedPaise || 0) - Math.min(expectedPaise, cash.verifiedPaise || 0));
+      const custodyLeft = Math.max(0, (cash.collectedPaise || 0) - Math.min(duePaise, cash.verifiedPaise || 0));
       const custodyPaise = Math.min(amountPaise, custodyLeft);
       if (custodyPaise) await cashLedger(order, 'debit', 'SHORTAGE_WRITEOFF', actorId, session, custodyPaise, 'cod_custody', proof.reference);
       await postLedgerEntry({ idempotencyKey: `COD:${order._id}:SHORTAGE_EXPENSE`, orderId: order._id, partnerId: order.deliveryPartnerId, paymentId: order.paymentId,
@@ -169,7 +176,7 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
       if (input.method !== 'cash') throw httpError(400, 'Only cash collection is approved by this workflow');
       if (cash.status !== 'expected') throw httpError(409, 'Collection already recorded');
       // The rider records the collected cash; allows exact or nearest rounded cash amount.
-      const maxAllowedPaise = Math.max(expectedPaise, Math.round(expectedPaise / 100) * 100);
+      const maxAllowedPaise = Math.max(expectedPaise, duePaise);
       if (amountPaise <= 0 || amountPaise > maxAllowedPaise) throw httpError(409, 'Collected amount must be more than zero and at most the order amount');
       cash.status = 'collected'; cash.collectedPaise = amountPaise; cash.collectedAt = new Date();
       await cashLedger(order, 'credit', 'COLLECTED', actorId, session, amountPaise);
@@ -187,14 +194,14 @@ export const recordCodEvent = async ({ orderId, partnerId, actorId, action, inpu
       await DeliveryPartner.updateOne({ _id: order.deliveryPartnerId }, { $inc: { __v: 1 } }, { session });
       const previousVerified = cash.verifiedPaise || 0;
       const receiptKey = crypto.createHash('sha256').update(proof.reference).digest('hex');
-      const custodyDelta = Math.min(expectedPaise, amountPaise) - Math.min(expectedPaise, previousVerified);
+      const custodyDelta = Math.min(duePaise, amountPaise) - Math.min(duePaise, previousVerified);
       if (custodyDelta) await cashLedger(order, custodyDelta > 0 ? 'debit' : 'credit', `RECEIPT:${receiptKey}`, actorId, session, Math.abs(custodyDelta), 'cod_custody', proof.reference);
-      const excessDelta = Math.max(0, amountPaise - expectedPaise) - Math.max(0, previousVerified - expectedPaise);
+      const excessDelta = Math.max(0, amountPaise - duePaise) - Math.max(0, previousVerified - duePaise);
       if (excessDelta) await cashLedger(order, excessDelta > 0 ? 'credit' : 'debit', `EXCESS:${receiptKey}`, actorId, session, Math.abs(excessDelta), 'cod_excess_liability', proof.reference);
       cash.verifiedPaise = amountPaise;
-      cash.shortagePaise = Math.max(0, expectedPaise - amountPaise);
-      cash.excessPaise = Math.max(0, amountPaise - expectedPaise);
-      cash.status = amountPaise === expectedPaise ? 'verified' : 'discrepancy';
+      cash.shortagePaise = Math.max(0, duePaise - amountPaise);
+      cash.excessPaise = Math.max(0, amountPaise - duePaise);
+      cash.status = amountPaise === duePaise ? 'verified' : 'discrepancy';
       if (cash.status === 'verified' && order.financialPosting) cash.status = 'allocated';
       // Receipt changes above are append-only deltas. Re-verifying the same
       // amount appends evidence without posting a second cash receipt.
@@ -221,7 +228,7 @@ const notifyCodEvent = (action, { orderId, orderNo, partnerId, status, amountPai
       metadata, route: '/admin/finance-center?area=orders&view=cod' }).catch(() => {});
   }
   const riderMessage = action === 'dispute' ? `Your cash report for ${orderNo} is under review. Bulkimart will contact you.`
-    : status === 'discrepancy' ? `Bulkimart received ${rupeeText(amountPaise)} for ${orderNo}, but ${rupeeText(expectedPaise)} was due. Bulkimart will contact you.`
+    : status === 'discrepancy' ? `Bulkimart received ${rupeeText(amountPaise)} for ${orderNo}, but ${rupeeText(codCashDuePaise(expectedPaise))} was due. Bulkimart will contact you.`
     : ['verify', 'writeoff'].includes(action) && ['verified', 'allocated'].includes(status) ? `Your COD cash for ${orderNo} is settled. Bulkimart confirmed receipt.` : null;
   if (riderMessage && partnerId) return notifyRider(partnerId, { event: NOTIFICATION_EVENT.COD_CASH_SETTLED,
     title: status === 'discrepancy' || action === 'dispute' ? 'COD cash needs attention' : 'COD cash settled',
@@ -232,7 +239,7 @@ const ensurePayment = async (order, session, allowCompensatedRefunds = false) =>
   if (snapshotOf(order).paymentMethod !== order.paymentMethod) throw httpError(409, 'Payment method differs from frozen financial snapshot');
   if (snapshotOf(order).paymentId !== String(order.paymentId)) throw httpError(409, 'Payment association differs from frozen financial snapshot');
   if (order.paymentMethod === 'cod') {
-    if (!['verified', 'allocated'].includes(order.codFinance?.status) || codSettledPaise(order.codFinance) !== snapshotOf(order).expectedPaise) throw httpError(409, 'COD cash is not verified');
+    if (!codCashSettled(order.codFinance, snapshotOf(order).expectedPaise)) throw httpError(409, 'COD cash is not verified');
     return;
   }
   const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });

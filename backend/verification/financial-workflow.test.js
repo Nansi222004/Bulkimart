@@ -215,6 +215,31 @@ test.each([90,110])('shortage/excess %i remains disputed and cannot allocate', a
   await cod('verify',100,{ reference:'CORRECTED-HANDOVER', reason:'Additional cash independently received' });
   expect((await queryOrder()).codFinance.events).toHaveLength(4);
 });
+test.each([[839.2, 839], [839.6, 840], [839.5, 840]])('COD total %f is settled by the rounded cash %i without an amount mismatch', async (total, cashDue) => {
+  enable();
+  payment = await Payment.create({ userId: user._id, amount: total, method: 'cod', status: 'pending' });
+  order = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId: product._id, sellerId: seller._id, type: 'grocery', name: 'Fixture', qty: 1, price: total, deliveredAt: new Date('2020-01-01') }],
+    paymentMethod: 'cod', paymentId: payment._id, status: 'delivered', pricing: { subtotal: total, totalAmount: total } });
+  payment.orderId = order._id; await payment.save();
+  delivery = await Delivery.create({ orderId: order._id, partnerId: partner._id, status: 'delivered', otpVerified: true, direction: 'forward', route: { distanceKm: 2 }, ratesUsed: { base: 20, perKm: 10, rateId: id(), mode: 'quick' }, partnerEarnings: 40 });
+  await Order.updateOne({ _id: order._id }, { $set: { deliveryId: delivery._id, deliveryPartnerId: partner._id } }); order = await queryOrder();
+  // The frozen order total keeps its paise; only the cash comparison rounds.
+  expect(order.financialSnapshot.expectedPaise).toBe(Math.round(total * 100));
+  await cod('collect', cashDue); await cod('remit', cashDue);
+  // An amount other than the rounded figure is still a mismatch.
+  await cod('verify', cashDue - 1, { reference: 'SHORT-COUNT', reason: 'First count found one rupee less' });
+  expect((await queryOrder()).codFinance).toMatchObject({ status: 'discrepancy', shortagePaise: 100 });
+  await cod('verify', cashDue);
+  const cash = (await queryOrder()).codFinance;
+  expect(cash).toMatchObject({ status: 'verified', verifiedPaise: cashDue * 100, shortagePaise: 0, excessPaise: 0 });
+  expect((await Payment.findById(payment._id)).status).toBe('paid');
+  const custody = await Ledger.find({ account: 'cod_custody', orderId: order._id });
+  expect(custody.reduce((sum, row) => sum + (row.direction === 'credit' ? row.amount : -row.amount), 0)).toBe(0);
+  expect(await Ledger.countDocuments({ account: 'cod_excess_liability' })).toBe(0);
+  await postOrderFinance(order._id, admin._id);
+  const report = await financialReconciliation();
+  expect(report.exceptions.filter(row => String(row.orderId) === String(order._id) && /^(cod_|cash_)/.test(row.code))).toEqual([]);
+});
 test('a rider cannot report handing over more cash than they collected', async () => {
   enable(); await cod('collect', 80);
   await expect(cod('remit', 90)).rejects.toThrow(/at most the ₹80.00 you collected/);

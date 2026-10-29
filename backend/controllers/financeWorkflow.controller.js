@@ -1,7 +1,7 @@
 import { historicalExceptions, listHistoricalBatches, createHistoricalBatch, reviewHistoricalBatch, applyHistoricalBatch, releaseHistoricalBatch } from '../services/historicalFinance.service.js';
 import mongoose from 'mongoose';
 import Return from '../models/Return.js';
-import { cumulativePaise } from '../utils/financeMoney.js';
+import { cumulativePaise, codCashDuePaise } from '../utils/financeMoney.js';
 import Commission from '../models/Commission.js';
 import Order from '../models/Order.js';
 import Delivery from '../models/Delivery.js';
@@ -114,7 +114,7 @@ export const listFinanceOrders = asyncHandler(async (req, res) => {
       actors: Object.fromEntries((order.codFinance?.events || []).map(event => [String(event.actorId), actors.get(String(event.actorId)) || null])),
     } } : {}),
     ...(rider ? { financialSnapshot: { expectedPaise: order.financialSnapshot.expectedPaise }, financialReturnQuantities: undefined, paymentId: undefined } : {}),
-    cash: { expectedPaise: order.financialSnapshot.expectedPaise,
+    cash: { expectedPaise: order.financialSnapshot.expectedPaise, duePaise: codCashDuePaise(order.financialSnapshot.expectedPaise),
       collectedPaise: order.codFinance?.collectedPaise || 0, reportedPaise: order.codFinance?.reportedPaise || 0,
       verifiedPaise: order.codFinance?.verifiedPaise || 0,
       shortagePaise: order.codFinance?.shortagePaise || 0, writtenOffPaise: order.codFinance?.writtenOffPaise || 0,

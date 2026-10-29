@@ -22,3 +22,8 @@ export const cumulativePaise = (amount, quantity, totalQuantity) => {
  if (![amount, quantity, totalQuantity].every(Number.isSafeInteger) || amount < 0 || quantity < 0 || totalQuantity <= 0 || quantity > totalQuantity) throw httpError(409, 'Invalid cumulative allocation');
  return Number((BigInt(amount) * BigInt(quantity) * 2n + BigInt(totalQuantity)) / (2n * BigInt(totalQuantity)));
 };
+
+// COD cash is handed over in whole rupees: the amount due is the order total
+// rounded to the nearest rupee (₹839.20 → ₹839, ₹839.50 → ₹840). Every COD
+// collection, verification and mismatch check compares against this figure.
+export const codCashDuePaise = expectedPaise => Math.round(expectedPaise / 100) * 100;

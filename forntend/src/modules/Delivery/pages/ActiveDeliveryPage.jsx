@@ -65,19 +65,20 @@ export const ActiveDeliveryPage = () => {
       return;
     }
     const isCod = activeOrder.paymentMethod === 'COD';
+    // COD cash is counted in whole rupees; the rounded figure is what is recorded.
+    const collected = Math.round(Number(codCollected || 0));
     if (isCod) {
       if (codCollected === '' || !(Number(codCollected) > 0)) {
         triggerToast('Enter the cash you collected from the customer.');
         return;
       }
       const targetCod = Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0));
-      const collected = Math.round(Number(codCollected || 0));
       if (collected < targetCod) {
         triggerToast(`Cannot accept less amount. Please collect the full COD cash of ₹${targetCod} from customer.`);
         return;
       }
     }
-    const success = await verifyOTPAndComplete(otpInput, isCod ? { codCollected } : {});
+    const success = await verifyOTPAndComplete(otpInput, isCod ? { codCollected: String(collected) } : {});
     if (success) {
       setOtpInput('');
       setCodCollected('');

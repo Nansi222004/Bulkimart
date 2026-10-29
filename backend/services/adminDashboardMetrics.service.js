@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
 import Return from '../models/Return.js';
 import Ledger from '../models/SellerLedgerEntry.js';
-import { moneyPaise } from '../utils/financeMoney.js';
+import { moneyPaise, codCashDuePaise } from '../utils/financeMoney.js';
 
 const id = value => String(value || '');
 const integer = value => { if (!Number.isSafeInteger(value) || value < 0) throw Error('Invalid journal amount'); return value; };
@@ -58,8 +58,8 @@ export function addOrderCollection(metric, payment, orders, returns, seenCapture
           const expected = moneyPaise(order.pricing?.totalAmount);
           const remit = cash.events?.find(row => row.action === 'remit');
           const verified = cash.events?.filter(row => row.action === 'verify').at(-1);
-          if (!expected || order.financialSnapshot?.version !== 2 || order.financialSnapshot.expectedPaise !== expected || cash.verifiedPaise !== expected
-            || !remit?.actorId || !verified?.actorId || id(remit.actorId) === id(verified.actorId) || verified.amountPaise !== expected || !verified.reference) throw Error('Unverified cash');
+          if (!expected || order.financialSnapshot?.version !== 2 || order.financialSnapshot.expectedPaise !== expected || cash.verifiedPaise !== codCashDuePaise(expected)
+            || !remit?.actorId || !verified?.actorId || id(remit.actorId) === id(verified.actorId) || verified.amountPaise !== codCashDuePaise(expected)|| !verified.reference) throw Error('Unverified cash');
           let refunds = 0;
           for (const ret of returns.filter(row => id(row.orderId) === id(order._id) && row.status === 'REFUNDED')) {
             const amount = moneyPaise(ret.refundAmount);

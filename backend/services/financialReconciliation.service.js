@@ -5,6 +5,7 @@ import Ledger from '../models/SellerLedgerEntry.js';
 import Partner from '../models/DeliveryPartner.js';
 import { effectiveAccountExpr } from './sellerLedger.service.js';
 import { deliverySplit } from './orderFinance.service.js';
+import { codCashDuePaise } from '../utils/financeMoney.js';
 
 const cents = value => Math.round(Number(value || 0) * 100);
 export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => {
@@ -37,7 +38,7 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
       if (['cancelled','returned','refunded'].includes(order.status) && order.codFinance?.collectedPaise) issue('terminal_order_cash_review', 'Cash custody and customer refund require separate reconciliation');
       if (!['verified', 'allocated'].includes(order.codFinance?.status)) issue('cod_unverified', 'Cash remains unavailable for settlement');
       const cash = entries.filter(row => row.account === 'cod_custody').reduce((sum,row) => sum + (row.direction === 'credit' ? 1 : -1) * cents(row.amount),0);
-      const expectedCustody = Math.max(0, (order.codFinance?.collectedPaise || 0) - Math.min(snapshot.expectedPaise, order.codFinance?.verifiedPaise || 0) - (order.codFinance?.writtenOffCustodyPaise || 0));
+      const expectedCustody = Math.max(0, (order.codFinance?.collectedPaise || 0) - Math.min(codCashDuePaise(snapshot.expectedPaise), order.codFinance?.verifiedPaise || 0) - (order.codFinance?.writtenOffCustodyPaise || 0));
       if (cash !== expectedCustody) issue('cod_custody_mismatch', `Ledger ${cash} paise; expected custody ${expectedCustody} paise`);
       if (order.codFinance?.status === 'discrepancy') issue('cash_discrepancy', `Shortage ${order.codFinance.shortagePaise} paise; excess ${order.codFinance.excessPaise} paise`);
       if (order.codFinance?.status === 'disputed') issue('cash_disputed', 'Cash receipt is under investigation; settlement is blocked');

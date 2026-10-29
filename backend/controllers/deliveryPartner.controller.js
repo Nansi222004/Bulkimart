@@ -1738,7 +1738,8 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
   if (order.paymentMethod === 'cod' && order.financialSnapshot?.version === 2 && req.body.codCollected != null && req.body.codCollected !== '') {
     try {
       await recordCodEvent({ orderId: order._id, partnerId: req.partner._id, actorId: req.user._id, action: 'collect',
-        input: { amount: Number(req.body.codCollected), method: 'cash', reference: `OTP-${delivery._id}`, reason: 'Recorded by the rider at OTP delivery' } });
+        // Cash is counted in whole rupees, matching the rounded COD amount shown to the rider.
+        input: { amount: Math.round(Number(req.body.codCollected)), method: 'cash', reference: `OTP-${delivery._id}`, reason: 'Recorded by the rider at OTP delivery' } });
       codCollection = { recorded: true };
     } catch (error) {
       codCollection = { recorded: false, message: error.message };
