@@ -572,10 +572,11 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
                       {r.productName} × {r.quantity}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
-                      {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt).toLocaleDateString('en-IN')}
+                      {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}
                     </div>
                     {r.customerDescription && (
-                      <div className="seller-return-description" style={{ fontSize: 12, color: '#334155', marginTop: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, overflowWrap: 'anywhere' }}>
+                      <div className="seller-return-description" style={{ fontSize: 12, color: '#334155', marginTop: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, overflowWrap: 'anywhere', border: '1px solid #e2e8f0' }}>
+                        <span style={{ fontWeight: 700, color: '#64748b' }}>Description: </span>
                         “{r.customerDescription}”
                       </div>
                     )}
@@ -663,9 +664,15 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
       </section>
       {pickupPanel(r)}
       <div className="seller-order-detail-sections seller-return-sections">
-      <Section title="Customer's reason">
+      <Section title="Customer's return reason">
         <Row label="Reason">{r.reason?.replace(/_/g, ' ')}</Row>
-        {r.customerDescription && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#334155' }}>{r.customerDescription}</p>}
+        <Row label="Description">{r.customerDescription || 'No description provided'}</Row>
+        {r.customerDescription && (
+          <div style={{ marginTop: 8, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#334155', lineHeight: 1.5 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>Customer Description:</span>
+            “{r.customerDescription}”
+          </div>
+        )}
         {r.attachments?.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             {r.attachments.map(file => file.mimeType === 'application/pdf'

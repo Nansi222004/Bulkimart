@@ -49,6 +49,20 @@ export const TrackOrderTab = () => {
   const atStoreCount = channelOrders.filter(o => ['placed', 'confirmed', 'preparing'].includes(o.status)).length;
   const completedTodayCount = channelOrders.filter(o => o.status === 'delivered' && isToday(deliveredAtOf(o))).length;
 
+  const getPartnerName = (o) => {
+    return o.deliveryPartner?.name ||
+      o.deliveryAssignment?.rider?.name ||
+      o.shiprocket?.courier ||
+      o.fulfillment?.courierName ||
+      o.fulfillment?.trackingPartner ||
+      o.fulfillment?.partnerName ||
+      (o.deliveryType === 'shiprocket' ? 'Shiprocket' : '') ||
+      '';
+  };
+  const getPartnerPhone = (o) => {
+    return o.deliveryPartner?.phone || o.deliveryAssignment?.rider?.phone || '';
+  };
+
   // Filtered Tracking List
   const filteredOrders = channelOrders.filter((o) => {
     let matchesTab = true;
@@ -59,11 +73,14 @@ export const TrackOrderTab = () => {
     }
 
     const query = searchQuery.toLowerCase().trim();
+    const partnerName = getPartnerName(o).toLowerCase();
+    const partnerPhone = getPartnerPhone(o);
     const matchesSearch = !query ||
       (o.orderNo || '').toLowerCase().includes(query) ||
       (o.customer?.name || '').toLowerCase().includes(query) ||
       (o.shippingAddress?.city || '').toLowerCase().includes(query) ||
-      (o.deliveryAssignment?.rider?.name || '').toLowerCase().includes(query);
+      partnerName.includes(query) ||
+      partnerPhone.includes(query);
 
     return matchesTab && matchesSearch;
   });
@@ -419,6 +436,12 @@ export const TrackOrderTab = () => {
                     <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, fontWeight: 500 }}>
                       {o.itemCount} item{o.itemCount === 1 ? '' : 's'} · ₹{Number(o.subtotal).toLocaleString('en-IN')}
                     </div>
+                    {getPartnerName(o) && (
+                      <div style={{ fontSize: 11, color: '#0369a1', marginTop: 4, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span>🚚</span>
+                        <span>Partner: <strong>{getPartnerName(o)}</strong>{getPartnerPhone(o) ? ` (${getPartnerPhone(o)})` : ''}</span>
+                      </div>
+                    )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 20, backgroundColor: '#f1f5f9', color: '#0f172a' }}>
@@ -457,17 +480,30 @@ export const TrackOrderTab = () => {
                       </div>
                     )}
 
-                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
-                      <div style={{ fontSize: 9, color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>
-                        Deliver to
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>
+                          Deliver to
+                        </div>
+                        <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, lineHeight: 1.5 }}>
+                          {o.shippingAddress?.line1}
+                          {o.shippingAddress?.line2 ? `, ${o.shippingAddress.line2}` : ''}
+                          <br />
+                          {o.shippingAddress?.city} {o.shippingAddress?.pincode}
+                          {o.shippingAddress?.phone ? ` · ${o.shippingAddress.phone}` : ''}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, lineHeight: 1.5 }}>
-                        {o.shippingAddress?.line1}
-                        {o.shippingAddress?.line2 ? `, ${o.shippingAddress.line2}` : ''}
-                        <br />
-                        {o.shippingAddress?.city} {o.shippingAddress?.pincode}
-                        {o.shippingAddress?.phone ? ` · ${o.shippingAddress.phone}` : ''}
-                      </div>
+                      {getPartnerName(o) && (
+                        <div>
+                          <div style={{ fontSize: 9, color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>
+                            Delivery Partner
+                          </div>
+                          <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, lineHeight: 1.5 }}>
+                            <strong>{getPartnerName(o)}</strong>
+                            {getPartnerPhone(o) ? <><br /><span>📞 {getPartnerPhone(o)}</span></> : ''}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

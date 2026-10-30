@@ -85,7 +85,8 @@ export async function preflightApplicationUpload(req, _res, next) {
 const STATUS_WORDS = { submitted: 'submitted', under_review: 'is being reviewed', information_required: 'needs more information from you', in_progress: 'is in progress', completed: 'is completed', rejected: 'was rejected' };
 async function notify(application, isAdmin, action) {
   const name = application.snapshot?.name || 'Service';
-  const opts = { event: 'SYSTEM', title: 'Service application update', message: `${name} ${isAdmin ? STATUS_WORDS[action] || action.replaceAll('_', ' ') : action.replaceAll('_', ' ')}`, metadata: { applicationId: String(application._id) },
+  const ready = isAdmin && action === 'completed' && application.files?.some(f => f.kind === 'deliverable');
+  const opts = { event: 'SYSTEM', title: ready ? 'Your documents are ready' : 'Service application update', message: ready ? `${name} is completed. Your documents are ready to download in Services.` : `${name} ${isAdmin ? STATUS_WORDS[action] || action.replaceAll('_', ' ') : action.replaceAll('_', ' ')}`, metadata: { applicationId: String(application._id) },
     route: !isAdmin ? `/admin/services?${application.applicantType === 'customer' ? 'legalRequest' : 'application'}=${application._id}` : application.applicantType === 'customer' ? `/legal-services/requests/${application._id}` : '/seller/services' };
   if (!isAdmin) await notifyAllAdmins(opts);
   else if (application.applicantType === 'customer') await notifyUser(String(application.user), opts);
@@ -153,8 +154,9 @@ export async function listApplications(req, res) {
   if (req.query.service) query.service = oid(req.query.service);
   for (const key of ['from', 'to']) if (req.query[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(req.query[key]) || !Number.isFinite(Date.parse(req.query[key])))) fail('Invalid date filter');
   if (req.query.from || req.query.to) query.createdAt = { ...(req.query.from ? { $gte: new Date(req.query.from) } : {}), ...(req.query.to ? { $lt: new Date(Date.parse(req.query.to) + 86400000) } : {}) };
-  const [items, total] = await Promise.all([Application.find(query).select('snapshot.name snapshot.pricing status billing createdAt vendor service').sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Application.countDocuments(query)]);
-  send(res, items, { total, page, limit });
+  const [items, total] = await Promise.all([Application.find(query).select('snapshot.name snapshot.pricing status billing createdAt vendor service files').sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Application.countDocuments(query)]);
+  // Only the delivered documents are listed here; the full file list stays on the application itself.
+  send(res, items.map(item => { const { files = [], ...row } = item.toObject(); return { ...row, deliverables: files.filter(f => f.kind === 'deliverable').map(({ fileId, name, sizeBytes }) => ({ fileId, name, sizeBytes })) }; }), { total, page, limit });
 }
 export async function getApplication(req, res) { send(res, publicApplication(await ownedApplication(req))); }
 export async function payApplication(req, res) {

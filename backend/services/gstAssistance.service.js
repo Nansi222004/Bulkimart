@@ -47,9 +47,9 @@ export function gstRequestDTO(row, admin = false) {
   const dto = { _id: r._id, vendorId: r.vendorId, status: r.status, version: r.__v, details: r.details,
     consent: r.consent, submittedAt: r.submittedAt, updatedAt: r.updatedAt, gstinStatusAtSubmission: r.gstinStatusAtSubmission,
     requestedCorrections: r.requestedCorrections, verification: r.verification ? { gstin: r.verification.gstin, verifiedAt: r.verification.verifiedAt } : undefined,
-    files: r.files.filter(f => admin || f.kind !== 'verification_evidence').map(f => ({ fileId: f.fileId, name: f.name, sizeBytes: f.sizeBytes, kind: f.kind, uploadedAt: f.uploadedAt })),
+    files: r.files.map(f => ({ fileId: f.fileId, name: f.name, sizeBytes: f.sizeBytes, kind: f.kind, sharedWithVendor: Boolean(f.sharedWithVendor), uploadedAt: f.uploadedAt })),
     events: r.events.map(e => admin ? e : { action: e.action, from: e.from, to: e.to, at: e.at, vendorMessage: e.vendorMessage }) };
   if (r.billing) dto.billing = { amountPaise: r.billing.amountPaise, currency: r.billing.currency, terms: r.billing.terms, version: r.billing.version, status: r.billing.status, reviewRequired: r.billing.reviewRequired };
-  if (admin) Object.assign(dto, { userId: r.userId, reviewerId: r.reviewerId, verification: r.verification });
+  if (admin) Object.assign(dto, { userId: r.userId, verification: r.verification });
   return dto;
 }

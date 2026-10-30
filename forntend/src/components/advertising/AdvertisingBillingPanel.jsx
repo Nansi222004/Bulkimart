@@ -6,6 +6,8 @@ const when=d=>new Date(d).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'
 // One sentence telling the seller where the campaign stands and what happens next.
 export function sellerPaymentStatus(c,data,p){
   if(c.pilot?.enabled) return 'A free test run is active. Payment is available after Bulkimart stops the test.';
+  if(c.funding==='REFUNDED') return 'Cancelled. Refunded to original payment method.';
+  if(c.funding==='PARTIALLY_REFUNDED') return 'Cancelled. Partly refunded to original payment method.';
   // A stopped paid ad: say plainly that the refund is reviewed by Bulkimart, or that it is on its way.
   const r=data?.refund;
   if(r&&c.funding==='REFUND_PENDING'){
@@ -85,7 +87,7 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
     {data&&<>
       <ul className="ad-billing-states" aria-label="Campaign state">
         <li><span>Review</span><strong>{plainStatus('review',c.review)}</strong></li>
-        <li><span>Payment</span><strong>{plainStatus('funding',c.funding)}</strong></li>
+        <li><span>Payment</span><strong className={c.funding==='REFUNDED'||c.funding==='PARTIALLY_REFUNDED'?'ad-status-refunded-text':''}>{plainStatus('funding',c.funding)}</strong></li>
         <li><span>Ad</span><strong>{plainStatus('delivery',c.delivery)}</strong></li>
       </ul>
       {q?<p className="ad-billing-line"><strong>{c.terms?.name}</strong> · {STOREFRONT[c.module]||c.module} · {q.taxPaise?<>{advertisingMoney(q.basePaise)} + {advertisingMoney(q.taxPaise)} GST = <strong>{advertisingMoney(q.totalPaise)}</strong></>:<><strong>{advertisingMoney(q.totalPaise)}</strong> (no GST)</>} for {c.terms.durationDays} days</p>
@@ -96,6 +98,8 @@ export default function AdvertisingBillingPanel({id,admin=false,permissions=[],c
         <div><strong>{advertisingMoney(p.refundedPaise)}</strong><span>Refunded</span></div>
         <div><strong>{advertisingMoney(p.recognizedPaise)}</strong><span>Counted as earned (after the ad ends)</span></div>
       </div>}
+      {c.funding==='REFUNDED'&&<p className="ad-notice ad-refund-completed" role="status"><strong>Campaign cancelled and refunded.</strong> {p?.refundedPaise?`${advertisingMoney(p.refundedPaise)} was refunded to the seller’s original payment method.`:'Amount has been refunded to the seller.'}</p>}
+      {c.funding==='PARTIALLY_REFUNDED'&&<p className="ad-notice ad-refund-completed" role="status"><strong>Campaign cancelled and partly refunded.</strong> {p?.refundedPaise?`${advertisingMoney(p.refundedPaise)} was refunded to the seller.`:'Partial refund completed.'}</p>}
       {refundWaiting&&<p className="ad-notice ad-refund-waiting" role="alert"><strong>Refund waiting.</strong> {c.delivery==='CANCELLED'?'This paid campaign was cancelled':'This paid ad has stopped'} and no refund has been sent yet. {refundNote}{canRefund?' Use “Refund the seller” below.':' Someone with refund access needs to send it.'}</p>}
 
       {q&&<details className="ad-fold"><summary>Terms the seller accepted</summary>

@@ -421,6 +421,47 @@
   border-color: #fecaca;
 }
 
+.ad-status-refunded,
+.ad-status-partially_refunded {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-color: #ddd6fe;
+}
+
+.ad-status-refund_pending {
+  background: #fffbeb;
+  color: #d97706;
+  border-color: #fde68a;
+}
+
+.ad-status-cancelled {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #cbd5e1;
+}
+
+.ad-status-refunded-text {
+  color: #7c3aed !important;
+}
+
+.ad-refund-completed {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  color: #5b21b6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+
+.ad-refund-completed strong {
+  color: #4c1d95;
+}
+
+.ad-detail-refunded-badge {
+  color: #7c3aed;
+  font-weight: 700;
+}
+
 .ad-module-pill {
   font-size: 11px;
   font-weight: 700;

@@ -15,6 +15,7 @@ import { postLedgerEntry, sellerBalances } from '../services/sellerLedger.servic
 import { requireFinanceOperation, financeFlags, financialTransaction } from '../services/financeSafety.service.js';
 import { getFinancePolicy, BANK_VERIFICATION_PROCESS_ID } from '../services/financePolicy.service.js';
 import { sellerDashboardMetrics } from '../services/sellerDashboard.service.js';
+import { notifySeller, NOTIFICATION_EVENT } from '../services/notification.service.js';
 
 export const getQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
   return ok(res, await getQuickCommerceConfig(), 'Quick Commerce third-party configuration');
@@ -190,6 +191,18 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
       await payout.save({ session });
     });
   } finally { await session.endSession(); }
+
+  if (payout?.status === 'APPROVED') {
+    const amountText = `₹${Number(payout.amount).toFixed(2)}`;
+    notifySeller(payout.sellerId, {
+      event: NOTIFICATION_EVENT.PAYOUT_COMPLETED,
+      title: 'Payout Processed',
+      message: `Your payout of ${amountText} has been transferred to your bank account. Ref: ${transactionRef}.`,
+      metadata: { payoutId: payout._id, transactionRef },
+      route: '/seller/earnings',
+    }).catch((err) => console.error('[NOTIFICATION] notifySeller (payout settled) failed:', err.message));
+  }
+
   return ok(res, payoutPublic(payout), 'External transfer evidence reconciled; no transfer initiated by this application');
 });
 
@@ -216,6 +229,18 @@ export const rejectSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
     payout.status = 'REJECTED'; payout.rejectionReason = reason; payout.processedBy = req.user._id; payout.processedAt = new Date();
     payout.ledgerEntryIds.push(...entries); await payout.save({ session }); return payout;
   });
+
+  if (payout?.status === 'REJECTED') {
+    const amountText = `₹${Number(payout.amount).toFixed(2)}`;
+    notifySeller(payout.sellerId, {
+      event: NOTIFICATION_EVENT.PAYOUT_REJECTED,
+      title: 'Payout Request Rejected',
+      message: `Your payout request for ${amountText} was not processed: ${reason}. The amount has been credited back to your balance.`,
+      metadata: { payoutId: payout._id, reason },
+      route: '/seller/earnings',
+    }).catch((err) => console.error('[NOTIFICATION] notifySeller (payout rejected) failed:', err.message));
+  }
+
   return ok(res, payoutPublic(payout), 'Payout rejected; reservation returned through compensating entries');
 });
 

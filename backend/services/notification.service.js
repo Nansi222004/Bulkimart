@@ -185,8 +185,8 @@ export const pushToUser = async (userId, { title, message, data, image }, Model 
     const eligible = [...deviceMap.values(), ...untracked];
     eligible.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
 
-    // Cap active web tokens to at most 2 most recently used to eliminate stale sessions
-    const webTokens = eligible.filter(t => t.platform === 'web').slice(0, 2);
+    // Cap active web tokens to at most 1 most recently used to eliminate duplicate tab alerts
+    const webTokens = eligible.filter(t => t.platform === 'web').slice(0, 1);
     const appTokens = eligible.filter(t => t.platform !== 'web');
 
     let tokens = [...new Set([...webTokens, ...appTokens].map(t => t.token))];
@@ -427,17 +427,18 @@ export const registerPushToken = async (userId, token, platform, sessionRole, Mo
     });
   }
 
-  // Deactivate older duplicate tokens to prevent unbounded accumulation
+  // Deactivate older duplicate tokens to prevent duplicate push notifications
   const activeWeb = user.pushTokens.filter(t => t.active && t.platform === 'web');
-  if (activeWeb.length > 2) {
+  if (activeWeb.length > 1) {
     activeWeb.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
-    for (let i = 2; i < activeWeb.length; i++) {
+    for (let i = 1; i < activeWeb.length; i++) {
       activeWeb[i].active = false;
     }
   }
 
   if (Model === User) { user.fcmToken = token; user.fcmPlatform = tokenPlatform; }
-  await user.save();
+  // Validate only what changed: an older account document missing some field must not block push registration.
+  await user.save({ validateModifiedOnly: true });
   return tokenPlatform;
 };
 

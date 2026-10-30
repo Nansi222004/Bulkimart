@@ -66,11 +66,14 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 const getNotificationTag = (data) => {
-  if (data?.event === 'ORDER_CREATED' && /^[a-f\d]{24}$/i.test(data.orderId || '')) {
-    return `seller-order-${data.orderId}`;
+  if (['RIDER_PING', 'RIDER_REQUESTED'].includes(data?.event) && data?.orderId) {
+    return `rider-offer-${data.orderId}`;
   }
-  if (data?.notificationId && /^[a-f\d]{24}$/i.test(String(data.notificationId))) {
-    return `bulkimart-notif-${data.notificationId}`;
+  if (data?.event === 'ORDER_CREATED' && /^[a-f\d]{24}$/i.test(data.orderId || '')) {
+    return `order-created-${data.orderId}`;
+  }
+  if (['PAYOUT_REQUESTED', 'PAYOUT_COMPLETED', 'PAYOUT_REJECTED'].includes(data?.event) && data?.payoutId) {
+    return `payout-${data.event}-${data.payoutId}`;
   }
   if (data?.orderId && /^[a-f\d]{24}$/i.test(String(data.orderId))) {
     return `bulkimart-order-${data.event || 'update'}-${data.orderId}`;
@@ -86,6 +89,9 @@ const getNotificationTag = (data) => {
   }
   if (data?.eventId) {
     return `bulkimart-event-${data.eventId}`;
+  }
+  if (data?.notificationId && /^[a-f\d]{24}$/i.test(String(data.notificationId))) {
+    return `bulkimart-notif-${data.notificationId}`;
   }
   if (data?.event) {
     return `bulkimart-${data.event}-${data.recipientId || ''}`;

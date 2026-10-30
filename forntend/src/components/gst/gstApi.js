@@ -13,8 +13,11 @@ export async function gstApi(admin, path = '', options = {}) {
   return body.data;
 }
 export const gstLabels = { pending: 'Pending assistance review', under_review: 'Assistance under review',
-  additional_information_required: 'Additional information required', approved: 'Assistance accepted — not government approval',
+  additional_information_required: 'Additional information required', approved: 'Approved — GST work in progress',
   rejected: 'Assistance request rejected', completed: 'Assistance completed — GSTIN independently reviewed by admin', cancelled: 'Assistance request cancelled' };
+// What each choice does, for the admin's "Move to" list.
+export const gstActionLabels = { under_review: 'Move back to review', additional_information_required: 'Ask the seller for more information',
+  approved: 'Approve — start the GST work', completed: 'Mark as completed', rejected: 'Reject the request', cancelled: 'Cancel the request' };
 export const gstTransitions = { pending: ['under_review', 'rejected', 'cancelled'], under_review: ['additional_information_required', 'approved', 'rejected', 'cancelled'],
   additional_information_required: ['under_review', 'rejected', 'cancelled'], approved: ['additional_information_required', 'completed', 'rejected', 'cancelled'] };
 export function gstDecisionValid(value) {

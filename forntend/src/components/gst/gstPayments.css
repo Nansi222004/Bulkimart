@@ -274,3 +274,22 @@
     margin-right: 0;
   }
 }
+
+.gst-compact-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 12px; padding: 10px 14px; border: 1px solid #bae6fd; border-radius: 12px; background: #f0f9ff; color: #0f172a; font-size: 13px; }
+.gst-compact-banner button { padding: 6px 12px; border: 1.5px solid #0284c7; border-radius: 8px; background: #fff; color: #0369a1; font-weight: 700; cursor: pointer; }
+
+.gst-admin-form { display: grid; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
+.gst-admin-form h4 { margin: 8px 0 0; font-size: 15px; }
+.gst-admin-form label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+.gst-admin-form small { font-weight: 400; color: #64748b; }
+.gst-admin-form .gst-check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.gst-admin-form textarea { min-height: 84px; }
+.gst-admin-form .gst-primary-action { justify-self: start; }
+.gst-history { padding-left: 18px; display: grid; gap: 10px; }
+.gst-history time { display: block; font-size: 12px; color: #64748b; }
+.gst-history p { margin: 4px 0 0; }
+.gst-history .gst-internal { color: #92400e; }
+
+.gst-header-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1.5px solid #bae6fd; border-radius: 999px; background: #f0f9ff; color: #0369a1; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.gst-header-chip.needs-action { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+@media (max-width: 480px) { .gst-header-chip { padding: 6px 8px; font-size: 11px; } }

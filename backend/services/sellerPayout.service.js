@@ -8,6 +8,7 @@ import { destinationFingerprint } from './payoutEvidence.service.js';
 import { getFinancePolicy } from './financePolicy.service.js';
 import { moneyPaise } from '../utils/financeMoney.js';
 import { httpError } from '../utils/response.js';
+import { notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
 
 /**
  * Reserve settlement-eligible seller funds for a manual bank transfer. Used by
@@ -69,5 +70,19 @@ export const createSellerPayoutRequest = async ({ sellerId, userId = null, amoun
   } finally {
     await session.endSession();
   }
+
+  if (payout) {
+    Seller.findById(sellerId).select('storeDetails businessName').lean().then((sellerDoc) => {
+      const sellerName = sellerDoc?.storeDetails?.name || sellerDoc?.businessName || 'Seller';
+      notifyAllAdmins({
+        event: NOTIFICATION_EVENT.PAYOUT_REQUESTED,
+        title: 'New Seller Payout Request',
+        message: `${sellerName} requested a payout of ₹${Number(amount).toFixed(2)}.`,
+        metadata: { payoutId: payout._id, sellerId, amount },
+        route: '/admin/finance-payouts',
+      }).catch((e) => console.error('[NOTIFICATION] notifyAllAdmins (seller payout) failed:', e.message));
+    }).catch(() => {});
+  }
+
   return { payout, alreadyProcessed: false };
 };

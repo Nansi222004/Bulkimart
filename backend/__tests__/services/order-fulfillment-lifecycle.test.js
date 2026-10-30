@@ -20,8 +20,9 @@ describe('order fulfillment lifecycle safeguards', () => {
     expect(transitions[ORDER_STATUS.CONFIRMED]).not.toContain(ORDER_STATUS.DISPATCHED);
   });
 
-  test('rider assignment is impossible before ready-for-pickup for every channel', () => {
-    expect(riderClaimableStatuses('grocery')).toEqual([ORDER_STATUS.DISPATCHED]);
+  test('rider assignment statuses differ between quick commerce and ecommerce', () => {
+    expect(riderClaimableStatuses('grocery')).toContain(ORDER_STATUS.PLACED);
+    expect(riderClaimableStatuses('grocery')).toContain(ORDER_STATUS.DISPATCHED);
     expect(riderClaimableStatuses('ecommerce')).toEqual([ORDER_STATUS.DISPATCHED]);
   });
 

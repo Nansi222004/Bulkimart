@@ -12,7 +12,6 @@ const schema = new mongoose.Schema({
   consent: { accepted: Boolean, version: String, acceptedAt: Date },
   submittedAt: { type: Date, required: true },
   status: { type: String, enum: GST_ASSISTANCE_STATUSES, default: 'pending' },
-  reviewerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
   requestedCorrections: String,
   files: { type: [mongoose.Schema.Types.Mixed], default: [] },
   verification: mongoose.Schema.Types.Mixed,

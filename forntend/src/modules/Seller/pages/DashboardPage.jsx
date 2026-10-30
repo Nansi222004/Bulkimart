@@ -1,10 +1,11 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import ServicesPanel from '../../../components/services/ServicesPanel';
 import PageErrorBoundary from '../../../components/PageErrorBoundary';
 import GstAssistance from '../../../components/gst/GstAssistance';
+import GstStatusChip from '../../../components/gst/GstStatusChip';
 import { useSeller } from '../context/SellerContext';
 import { useNotifications } from '../../../utils/useNotifications';
 import LeftNav from '../components/LeftNav';
@@ -114,6 +115,8 @@ export const DashboardPage = () => {
   };
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => window.innerWidth < 768);
+  // Every page starts at its top: the tab area is one scroll box and would otherwise keep the previous page's position.
+  useEffect(() => { if (typeof document !== 'undefined') document.querySelector('.seller-tab-content-container')?.scrollTo?.({ top: 0 }); }, [activeTab]);
 
   return (
     <div className={`seller-dashboard-layout ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -127,7 +130,7 @@ export const DashboardPage = () => {
       <LeftNav isCollapsed={isSidebarCollapsed} onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
 
       <div className="seller-main-content">
-        <GstAssistance />
+        <GstAssistance compact onlyWhenActionNeeded />
         <RealtimeNotice />
         {/* Header — layout lives in Seller.css (.seller-header-row etc.) */}
         <div className="seller-header-row">
@@ -155,6 +158,7 @@ export const DashboardPage = () => {
           </div>
 
           <div className="seller-header-actions">
+            <GstStatusChip onOpen={() => { try { sessionStorage.setItem('seller-services-tab', 'applications'); } catch { /* optional shortcut */ } setActiveTab('services'); }} />
             <button
               className="seller-header-btn"
               onClick={() => setShowNotifications(true)}

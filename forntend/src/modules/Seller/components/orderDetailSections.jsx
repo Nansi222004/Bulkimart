@@ -20,6 +20,21 @@ export function orderDetailSections(order) {
       <p>Placed: {date(order.placedAt)}<br />Status: {statusText(order.displayStatus || order.status)}<br />
         {order.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}<br />Payment: {order.paymentMethod} · {order.paymentStatus}</p>
       {order.cancellationReason && <p>Cancellation/rejection reason: {order.cancellationReason}</p>}
+      {(order.returnReason || order.returnDescription || order.returnRequest) && (
+        <div style={{ margin: '8px 0', padding: '10px 12px', backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8 }}>
+          <strong style={{ color: '#c2410c', display: 'block', marginBottom: 4 }}>Customer Return Request:</strong>
+          {(order.returnReason || order.returnRequest?.reason) && (
+            <p style={{ margin: 0, fontSize: 12, color: '#431407' }}>
+              <strong>Reason:</strong> {String(order.returnReason || order.returnRequest?.reason).replace(/_/g, ' ')}
+            </p>
+          )}
+          {(order.returnDescription || order.returnRequest?.customerDescription) && (
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#431407' }}>
+              <strong>Description:</strong> “{order.returnDescription || order.returnRequest?.customerDescription}”
+            </p>
+          )}
+        </div>
+      )}
       {order.customerInstructions && <p>Customer instructions: {order.customerInstructions}</p>}
       <dl>{sellerPricingRows(order).map(([label, value]) => <React.Fragment key={label}><dt className={label === 'Order total' ? 'seller-detail-pricing-total' : undefined}>{label}</dt><dd className={label === 'Order total' ? 'seller-detail-pricing-total' : undefined}>{label.toLowerCase().includes('discount') ? '−' : ''}{money(value)}</dd></React.Fragment>)}</dl>
       {!order.pricing && <p>Full basket pricing is withheld for multi-store orders.</p>}

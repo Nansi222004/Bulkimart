@@ -9,7 +9,7 @@ import Order from '../models/Order.js';
 import { financeFlags } from './financeSafety.service.js';
 import { getFinancePolicy } from './financePolicy.service.js';
 import { riderCodCashBalances } from './riderCashEligibility.service.js';
-import { NOTIFICATION_EVENT, notifyRider } from './notification.service.js';
+import { NOTIFICATION_EVENT, notifyRider, notifyAllAdmins } from './notification.service.js';
 
 // COD cash the rider has collected but Bulkimart has not yet received. It is
 // customer money in the rider's hands, so no earnings are paid out against it.
@@ -64,7 +64,7 @@ export const requestVerifiedRiderPayout = async ({ partnerId, userId, amount, ke
   if (payoutSchedule === 'weekly' && !automatic) throw httpError(409, 'Payouts are created automatically every week; manual requests are turned off');
   if (amount < riderMinPayout) throw httpError(400, `Minimum payout amount is ₹${riderMinPayout}`);
   if (paise <= 0 || !/^[\w:.-]{8,100}$/.test(key || '')) throw httpError(400, 'Positive amount and an Idempotency-Key of 8–100 characters are required');
-  return financialTransaction(async session => {
+  const result = await financialTransaction(async session => {
     const partner = await DeliveryPartner.findOneAndUpdate({ _id: partnerId, userId, status: 'approved' }, { $inc: { __v: 1 } }, { session, returnDocument: 'after' });
     if (!partner) throw httpError(404, 'Approved rider not found');
     const idempotencyKey = `RIDER:${partnerId}:${key}`;
@@ -89,8 +89,23 @@ export const requestVerifiedRiderPayout = async ({ partnerId, userId, amount, ke
     }, { session });
     // Mirror for older screens; may differ only by pre-ledger history.
     await DeliveryPartner.updateOne({ _id: partnerId }, { $inc: { 'earnings.pending': -amount, 'earnings.reserved': amount } }, { session });
-    return { payout, earnings: { ...partner.earnings.toObject?.() || partner.earnings, pending: partner.earnings.pending - amount } };
+    return { payout, earnings: { ...partner.earnings.toObject?.() || partner.earnings, pending: partner.earnings.pending - amount }, isNew: true };
   });
+
+  if (result?.payout && result?.isNew) {
+    DeliveryPartner.findById(partnerId).populate('userId', 'name').lean().then(partnerDoc => {
+      const riderName = partnerDoc?.userId?.name || 'Delivery partner';
+      notifyAllAdmins({
+        event: NOTIFICATION_EVENT.PAYOUT_REQUESTED,
+        title: 'New Rider Payout Request',
+        message: `${riderName} requested a payout of ₹${Number(amount).toFixed(2)}.`,
+        metadata: { payoutId: result.payout._id, partnerId, amount },
+        route: '/admin/delivery-payouts',
+      }).catch((e) => console.error('[NOTIFICATION] notifyAllAdmins (rider payout) failed:', e.message));
+    }).catch(() => {});
+  }
+
+  return { payout: result.payout, earnings: result.earnings };
 };
 
 export const resolveVerifiedRiderPayout = async ({ payoutId, actorId, complete, input }) => {

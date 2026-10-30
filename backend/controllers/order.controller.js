@@ -706,6 +706,10 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
 
     await publishEligibleSellerOrder(order._id);
+    if (paymentMethod !== 'online' && order.deliveryType !== 'shiprocket' && order.type === CHANNEL.GROCERY) {
+      const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
+      broadcastNewOrderToRiders(order._id).catch(console.error);
+    }
   } catch {
     console.warn('[NOTIFICATION] Eligible order notification reconciliation will retry.');
   }
@@ -928,7 +932,26 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   const { orders, payment, groupRef } = result;
 
   try {
-    for (const order of orders) await publishEligibleSellerOrder(order._id);
+    const { emitToUser } = await import('../socket/rooms.js');
+    for (const order of orders) {
+      await publishEligibleSellerOrder(order._id);
+      emitToUser(req.user._id, 'order_created', { orderId: order._id, orderNo: order.orderNo });
+      if (paymentMethod !== 'online') {
+        notifyUser(req.user._id, {
+          event: NOTIFICATION_EVENT.ORDER_CREATED,
+          dedupeKey: `buyer-order-${order._id}`,
+          title: 'Order Placed Successfully!',
+          message: `Order #${order.orderNo} has been placed.`,
+          metadata: { orderId: order._id },
+          route: '/orders',
+        }).catch((e) => console.error('[NOTIFICATION] notifyUser (unified order) failed:', e.message));
+
+        if (order.deliveryType !== 'shiprocket' && order.type === CHANNEL.GROCERY) {
+          const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
+          broadcastNewOrderToRiders(order._id).catch(console.error);
+        }
+      }
+    }
   } catch { console.warn('[NOTIFICATION] Eligible seller order delivery will retry.'); }
 
   return created(res, {

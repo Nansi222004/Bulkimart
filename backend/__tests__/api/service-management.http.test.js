@@ -109,8 +109,11 @@ test('full review, information response, processing and deliverable completion l
   a = (await auth(request(app).post(`/admin/applications/${a._id}/transition`), 'admin').field('version', a.__v).field('status', 'completed').attach('files', pdf, 'result.pdf').expect(200)).body.data;
   expect(a.status).toBe('completed'); expect(a.completedAt).toBeTruthy(); expect(a.files[2].kind).toBe('deliverable');
   await auth(request(app).get(`/vendor/applications/${a._id}/files/${a.files[2].fileId}`)).expect(200);
+  const listed = (await auth(request(app).get('/vendor/applications')).expect(200)).body.data.find(row => String(row._id) === String(a._id));
+  expect(listed.deliverables).toEqual([expect.objectContaining({ fileId: a.files[2].fileId, name: 'result.pdf' })]); expect(listed.files).toBeUndefined();
   expect(a.events.map(e => e.action)).toEqual(['submitted', 'under_review', 'information_required', 'vendor_response', 'response_documents_added', 'in_progress', 'completed', 'deliverables_added']);
   expect(notifyUser).toHaveBeenCalled(); expect(notifyAllAdmins).toHaveBeenCalled();
+  expect(notifyUser).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ title: 'Your documents are ready', route: '/seller/services' }));
   await auth(request(app).post(`/admin/applications/${a._id}/transition`), 'admin').field('version', a.__v).field('status', 'under_review').expect(409);
 });
 test('invalid transitions, empty reasons, early vendor responses and stale updates fail without events', async () => {

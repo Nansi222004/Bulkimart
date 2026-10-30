@@ -31,6 +31,7 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
   const ownerName = d.account?.name || d.bank?.holderName || '—';
   const phone = d.account?.phone || d.business?.store?.phone || '—';
   const email = d.account?.email || '—';
+  const storeDescription = d.business?.store?.description || d.storeDetails?.description || d.description || '';
 
   const rawDate = d.registeredAt || d.submittedAt || d.createdAt || d.updatedAt;
   const applicationDate = rawDate
@@ -206,6 +207,14 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, color: '#475569', lineHeight: 1.4 }}>
                     <span style={{ fontSize: 14, width: 18, marginTop: 1 }}>📍</span>
                     <span>{fullAddress}</span>
+                  </div>
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, marginTop: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4 }}>
+                      Store Description
+                    </span>
+                    <p style={{ margin: 0, fontSize: 12, color: storeDescription ? '#334155' : '#94a3b8', lineHeight: 1.5, fontStyle: storeDescription ? 'normal' : 'italic' }}>
+                      {storeDescription || 'No description provided'}
+                    </p>
                   </div>
                 </div>
               </div>

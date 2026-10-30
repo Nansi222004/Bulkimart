@@ -79,6 +79,7 @@ const returnSchema = new Schema(
 
     reason:              { type: String, enum: RETURN_REASONS, required: true },
     customerDescription: String,
+    requestedAt:         { type: Date, default: Date.now },
     attachments: [
       {
         _id: false,

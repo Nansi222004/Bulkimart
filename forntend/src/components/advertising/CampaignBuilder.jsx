@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { advertisingApi, advertisingMoney } from './advertisingApi';
-import { TERM_LABELS, campaignGroups, campaignName, earliestStart, packagePrice, packagesFor, requestKey, validStart } from './campaignGroups';
+import { TERM_LABELS, campaignGroups, campaignName, earliestStart, packagePrice, packagesFor, requestKey, validStart, defaultCategory } from './campaignGroups';
 
 const STOREFRONT = { ECOMMERCE: 'Shop All', QUICK: 'Quick Commerce' };
 const STEPS = ['Products', 'Groups', 'Packages', 'Review', 'Save & submit'];
@@ -18,7 +18,7 @@ export default function CampaignBuilder({ onClose, onOpen }) {
   const [loading, setLoading] = useState(false), [loadError, setLoadError] = useState(''), [reload, setReload] = useState(0), [packages, setPackages] = useState([]);
   const [sameDate, setSameDate] = useState(true), [sharedStart, setSharedStart] = useState(''), [dateOf, setDateOf] = useState({}), [packageOf, setPackageOf] = useState({});
   const [results, setResults] = useState({}), [submits, setSubmits] = useState({}), [terms, setTerms] = useState({}), [confirming, setConfirming] = useState(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [limitNotice, setLimitNotice] = useState('');
   const keys = useRef({});
 
   useEffect(() => { const timer = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 300); return () => clearTimeout(timer); }, [search]);
@@ -53,10 +53,40 @@ export default function CampaignBuilder({ onClose, onOpen }) {
   const locked = Object.keys(results).length > 0;
   const total = plans.reduce((sum, p) => sum + p.price.total, 0), totalTax = plans.reduce((sum, p) => sum + (p.price.tax || 0), 0);
 
-  const switchModule = next => { setModule(next); setSelected([]); setAssigned({}); setPackageOf({}); setDateOf({}); setPage(1); setCategoryFilter(''); setKnownCategories({}); setPendingModule(''); };
-  const tick = (product, variant, checked) => setSelected(list => checked
-    ? [...list.filter(i => i.product.id !== product.id), { product, variantId: variant.id }]
-    : list.filter(i => i.product.id !== product.id));
+  const switchModule = next => { setModule(next); setSelected([]); setAssigned({}); setPackageOf({}); setDateOf({}); setPage(1); setCategoryFilter(''); setKnownCategories({}); setPendingModule(''); setLimitNotice(''); };
+
+  const categoryLimitFor = (product) => {
+    const catId = defaultCategory(product);
+    const inCategory = packages.filter(p =>
+      p.module === module &&
+      p.isActive &&
+      !p.archivedAt &&
+      (!p.categories?.length || p.categories.map(String).includes(String(catId)))
+    );
+    if (inCategory.length) return Math.max(...inCategory.map(p => p.maxProducts || 1));
+    const inMod = packages.filter(p => p.module === module && p.isActive && !p.archivedAt);
+    if (inMod.length) return Math.max(...inMod.map(p => p.maxProducts || 1));
+    return 0;
+  };
+
+  const tick = (product, variant, checked) => {
+    setLimitNotice('');
+    if (checked) {
+      const catId = defaultCategory(product);
+      const isAlready = selected.some(i => i.product.id === product.id);
+      if (!isAlready) {
+        const limit = categoryLimitFor(product);
+        const inCatCount = selected.filter(i => defaultCategory(i.product) === catId).length;
+        if (limit > 0 && inCatCount >= limit) {
+          setLimitNotice(`Packages for this category allow up to ${plural(limit, 'product')} per ad. You cannot select more than ${limit} products for this category.`);
+          return;
+        }
+      }
+      setSelected(list => [...list.filter(i => i.product.id !== product.id), { product, variantId: variant.id }]);
+    } else {
+      setSelected(list => list.filter(i => i.product.id !== product.id));
+    }
+  };
   const removeProducts = ids => setSelected(list => list.filter(i => !ids.includes(i.product.id)));
   const moveGroup = (group, categoryId) => setAssigned(a => ({ ...a, ...Object.fromEntries(group.items.map(i => [i.product.id, categoryId])) }));
 
@@ -150,6 +180,7 @@ export default function CampaignBuilder({ onClose, onOpen }) {
             <h4>Choose products</h4>
             <p className="ad-section-hint">Tick products from any categories in {STOREFRONT[module]}. Each category becomes its own campaign. Only approved products that are in stock can be picked.</p>
             {selected.length > 0 && <p className="ad-section-hint" role="status">Picked {plural(selected.length, 'product')} in {plural(groups.length, 'category')}.</p>}
+            {limitNotice && <div className="ad-notice" role="alert" style={{ marginTop: 8 }}><p>{limitNotice}</p></div>}
           </div>
           <div className="ad-form-grid">
             <label className="ad-field"><span className="ad-field-title">Search products</span><input type="search" placeholder="Name or SKU" value={search} onChange={e => setSearch(e.target.value)} /></label>
@@ -163,23 +194,35 @@ export default function CampaignBuilder({ onClose, onOpen }) {
           {loading && <div className="ad-products-loading">Loading your products…</div>}
           {!loading && !products.length && !loadError && <div className="ad-no-products"><p><strong>No products found in {STOREFRONT[module]}.</strong></p><small>Try another search or category, or switch the storefront above.</small></div>}
           <div className="ad-product-selection-list">
-            {products.map(p => <div key={p.id} className={`ad-product-item ${selected.some(i => i.product.id === p.id) ? 'selected' : ''}`}>
-              <div className="ad-product-row">
-                {p.image && <img src={p.image} alt="" className="ad-product-img" />}
-                <div className="ad-product-info">
-                  <strong>{p.name}</strong>{p.sku && <> · <span className="ad-sku">{p.sku}</span></>}
-                  <span className="ad-product-categories">{STOREFRONT[module]} · {categoryLabel((p.adCategories || p.categories || [])[0])}</span>
-                  {p.reason && <span className="ad-product-ineligible"> ({p.reason})</span>}
+            {products.map(p => {
+              const catId = defaultCategory(p);
+              const limit = categoryLimitFor(p);
+              const inCatCount = selected.filter(i => defaultCategory(i.product) === catId).length;
+              const isSelected = selected.some(i => i.product.id === p.id);
+              const limitReached = limit > 0 && inCatCount >= limit && !isSelected;
+
+              return (
+                <div key={p.id} className={`ad-product-item ${isSelected ? 'selected' : ''}`}>
+                  <div className="ad-product-row">
+                    {p.image && <img src={p.image} alt="" className="ad-product-img" />}
+                    <div className="ad-product-info">
+                      <strong>{p.name}</strong>{p.sku && <> · <span className="ad-sku">{p.sku}</span></>}
+                      <span className="ad-product-categories">{STOREFRONT[module]} · {categoryLabel((p.adCategories || p.categories || [])[0])}</span>
+                      {limit > 0 && <span className="ad-product-categories" style={{ color: '#0369a1', marginLeft: 8 }}>· Max {limit} per ad</span>}
+                      {p.reason && <span className="ad-product-ineligible"> ({p.reason})</span>}
+                      {limitReached && <span className="ad-product-ineligible" style={{ color: '#b45309' }}> (Limit reached: max {limit} per ad)</span>}
+                    </div>
+                  </div>
+                  <div className="ad-variant-options">
+                    {p.variants.map(v => <label key={v.id || 'standard'} className="ad-variant-choice">
+                      <input type="checkbox" disabled={!p.eligible || v.stock < 1 || !(p.adCategories || p.categories || []).length || limitReached}
+                        checked={selected.some(i => i.product.id === p.id && i.variantId === v.id)} onChange={e => tick(p, v, e.target.checked)} />
+                      <span>{v.name} · ₹{v.price} · {v.stock} available</span>
+                    </label>)}
+                  </div>
                 </div>
-              </div>
-              <div className="ad-variant-options">
-                {p.variants.map(v => <label key={v.id || 'standard'} className="ad-variant-choice">
-                  <input type="checkbox" disabled={!p.eligible || v.stock < 1 || !(p.adCategories || p.categories || []).length}
-                    checked={selected.some(i => i.product.id === p.id && i.variantId === v.id)} onChange={e => tick(p, v, e.target.checked)} />
-                  <span>{v.name} · ₹{v.price} · {v.stock} available</span>
-                </label>)}
-              </div>
-            </div>)}
+              );
+            })}
           </div>
           {pages > 1 && <div className="ad-toolbar ad-product-nav">
             <button type="button" disabled={page <= 1} onClick={() => setPage(n => n - 1)}>Previous products</button><span>Product page {page} of {pages}</span>

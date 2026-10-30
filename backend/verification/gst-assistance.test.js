@@ -109,13 +109,13 @@ test('optional seller status returns a private empty response without creating a
   await auth(request(app).get(`/admin/gst-assistance/${seller._id}`), admin, 'admin').expect(404);
   await request(app).get('/sellers/gst-assistance/me').expect(401);
 });
-test('review transitions, internal notes, self-assignment and additional-information response have an audit trail', async () => {
+test('review transitions, status changes and additional-information response have an audit trail', async () => {
   await submit().expect(200);
-  expect((await adminAction('assign', { reviewerId: 'self' })).status).toBe(200);
-  expect((await adminAction('note', { internalNote: 'PRIVATE REVIEW NOTE' })).status).toBe(200);
+  expect((await adminAction('assign', { reviewerId: 'self' })).status).toBe(400); // assignment was retired
+  expect((await adminAction('note', { internalNote: 'x' })).status).toBe(400); // private notes were retired
   expect((await adminAction('transition', { status: 'under_review', message: 'Review started' })).status).toBe(200);
   expect((await adminAction('transition', { status: 'additional_information_required', message: 'Please provide requested business evidence' })).status).toBe(200);
-  const d = await detail(); expect(JSON.stringify(d)).not.toContain('PRIVATE REVIEW NOTE'); expect(d.reviewerId).toBeUndefined();
+  const d = await detail(); expect(d.reviewerId).toBeUndefined();
   const r = await auth(request(app).post('/sellers/gst-assistance/me/actions')).field('version', d.version).field('action', 'respond').field('message', 'Requested evidence attached').attach('documents', pdf.bytes, { filename: pdf.name, contentType: pdf.mime }).expect(200);
   expect(r.body.data.status).toBe('under_review'); expect(r.body.data.events.at(-1).action).toBe('respond'); expect(r.body.data.files).toHaveLength(1);
 });
@@ -145,9 +145,29 @@ test('completion requires independently reviewed evidence and never sets or veri
   await submit().expect(200); await adminAction('transition', { status: 'under_review', message: 'Review' }); await adminAction('transition', { status: 'approved', message: 'Assistance accepted; not government approval' });
   expect((await adminAction('transition', { status: 'completed', message: 'Complete', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true, verificationReference: 'SYNTHETIC VERIFICATION' })).status).toBe(400);
   const result = await adminAction('transition', { status: 'completed', message: 'Synthetic independently reviewed evidence', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true, verificationReference: 'SYNTHETIC ONLY — NOT A GOVERNMENT REFERENCE' }, [pdf]);
-  expect(result.status).toBe(200); expect((await detail()).files).toEqual([]); expect((await Seller.findById(seller._id)).gstin).toBe('');
+  expect(result.status).toBe(200); expect((await detail()).files).toHaveLength(1); expect((await Seller.findById(seller._id)).gstin).toBe('');
   const stored = await Gst.findById(seller._id); expect(stored.verification.method).toBe('admin_attested_independent_review');
-  await auth(request(app).get(`/sellers/gst-assistance/me/files/${stored.files[0].fileId}`)).expect(404);
+  await auth(request(app).get(`/sellers/gst-assistance/me/files/${stored.files[0].fileId}`)).expect(200);
+});
+test('a document the admin attaches is visible to the owning seller only', async () => {
+  await submit().expect(200); await adminAction('transition', { status: 'under_review', message: 'Review' }); await adminAction('transition', { status: 'approved', message: 'Assistance accepted; not government approval' });
+  const done = await adminAction('transition', { status: 'completed', message: 'Certificate attached', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true, verificationReference: 'SYNTHETIC ONLY' }, [pdf]);
+  expect(done.status).toBe(200);
+  const seen = (await detail()).files; expect(seen).toHaveLength(1); expect(seen[0]).toMatchObject({ name: pdf.name });
+  const stored = await Gst.findById(seller._id);
+  expect((await auth(request(app).get(`/sellers/gst-assistance/me/files/${stored.files[0].fileId}`)).expect(200)).headers['content-disposition']).toContain('attachment');
+  await auth(request(app).get(`/sellers/gst-assistance/me/files/${stored.files[0].fileId}`), other).expect(404);
+});
+test('approving needs no typed message and tells the seller the work has started', async () => {
+  await submit().expect(200); await adminAction('transition', { status: 'under_review', message: 'Review' });
+  expect((await adminAction('transition', { status: 'approved' })).status).toBe(200);
+  expect((await detail()).events.at(-1).vendorMessage).toMatch(/approved.*started the work/i);
+});
+test('completing needs only the GSTIN, the evidence file and the attestation', async () => {
+  await submit().expect(200); await adminAction('transition', { status: 'under_review', message: 'Review' }); await adminAction('transition', { status: 'approved', message: 'Assistance accepted; not government approval' });
+  expect((await adminAction('transition', { status: 'completed', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true }, [pdf])).status).toBe(200);
+  const stored = await Gst.findById(seller._id);
+  expect(stored.verification.reference).toBe(`Uploaded evidence: ${pdf.name}`); expect(stored.events.at(-1).vendorMessage).toBe('GST registration assistance completed.');
 });
 test('malformed files and stale writes do not leave orphan private documents', async () => {
   await submit().expect(200); await adminAction('transition', { status: 'under_review', message: 'Review' });
@@ -155,7 +175,7 @@ test('malformed files and stale writes do not leave orphan private documents', a
   expect((await adminAction('transition', { status: 'approved', message: 'Bad file' }, [{ ...pdf, bytes: Buffer.from('not a pdf') }])).status).toBe(400);
   expect((await readdir(root)).length).toBe(before);
   const version = (await detail()).version;
-  await adminAction('note', { internalNote: 'New version' });
+  await adminAction('transition', { status: 'additional_information_required', message: 'Need one more document' });
   await auth(request(app).post(`/admin/gst-assistance/${seller._id}/actions`), admin, 'admin').field('version', version).field('action', 'transition').field('status', 'approved').field('message', 'Stale').attach('documents', pdf.bytes, { filename: pdf.name, contentType: pdf.mime }).expect(409);
   expect((await readdir(root)).length).toBe(before);
 });
@@ -223,11 +243,10 @@ test('registration, admin queue, verified payment and evidenced GST completion w
   expect(queue.body.data.requests[0].billing).toMatchObject({ amountPaise: 10000, status: 'unpaid' });
   const payment = (await checkout().expect(200)).body.data; capture(payment);
   await verify(payment).expect(200);
-  expect((await adminAction('assign', { reviewerId: 'self' })).status).toBe(200);
   expect((await adminAction('transition', { status: 'under_review', message: 'Review documents' })).status).toBe(200);
   expect((await adminAction('transition', { status: 'approved', message: 'Paid assistance work accepted' })).status).toBe(200);
   expect((await adminAction('transition', { status: 'completed', message: 'GSTIN independently reviewed', verifiedGstin: '29ABCDE1234F1Z5', independentlyVerified: true, verificationReference: 'SYNTHETIC TEST EVIDENCE' }, [pdf])).status).toBe(200);
-  expect(await detail()).toMatchObject({ status: 'completed', billing: { status: 'paid' }, verification: { gstin: '29ABCDE1234F1Z5' }, files: [] });
+  expect(await detail()).toMatchObject({ status: 'completed', billing: { status: 'paid' }, verification: { gstin: '29ABCDE1234F1Z5' } }); expect((await detail()).files).toHaveLength(1);
   expect((await Seller.findById(seller._id)).status).toBe('pending');
   expect((await Seller.findById(seller._id)).gstin).toBe('');
   expect(await Ledger.countDocuments({ account: 'gst_assistance_collections' })).toBe(1);

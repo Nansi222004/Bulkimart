@@ -120,7 +120,10 @@ export const VENDOR_CANCELLABLE_STATUSES = [
 // explicitly marked the parcel ready. This is intentionally the same for
 // Quick and Shop All manual delivery; early offer/claim made assignment look
 // successful while the parcel was still being packed.
-export const riderClaimableStatuses = () => [ORDER_STATUS.DISPATCHED];
+export const riderClaimableStatuses = (channel) =>
+  channel === CHANNEL.GROCERY
+    ? [ORDER_STATUS.PLACED, ORDER_STATUS.CONFIRMED, ORDER_STATUS.PREPARING, ORDER_STATUS.DISPATCHED]
+    : [ORDER_STATUS.DISPATCHED];
 
 /**
  * One rider's response to being offered one order — distinct from

@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
-import Admin from '../models/Admin.js';
 import Request, { GST_ASSISTANCE_STATUSES } from '../models/GstAssistanceRequest.js';
 import { boundedText, gstRequestDTO, GSTIN_FORMAT } from '../services/gstAssistance.service.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
@@ -75,10 +74,11 @@ export async function act(req, res) {
   const version = Number(body.version);
   if (!Number.isSafeInteger(version) || version < 0 || body.version === '') throw httpError(400, 'An integer request version is required');
   const action = body.action;
-  const allowed = admin ? ['transition', 'note', 'assign'] : ['respond', 'cancel'];
+  const allowed = admin ? ['transition'] : ['respond', 'cancel'];
   if (!allowed.includes(action)) throw httpError(400, 'Unsupported GST assistance action');
-  const message = boundedText(body.message, 'Vendor-visible next steps', 2000, action === 'respond' || (action === 'transition'));
-  const note = admin ? boundedText(body.internalNote, 'Internal note') : '';
+  // Approving or completing needs no write-up: a short default message is used when none is typed.
+  const defaultMessage = admin && action === 'transition' ? { completed: 'GST registration assistance completed.', approved: 'Your GST assistance request is approved. We have started the work and will update you here.' }[body.status] : undefined;
+  const message = boundedText(body.message, 'Vendor-visible next steps', 2000, action === 'respond' || (action === 'transition' && !defaultMessage)) || defaultMessage || '';
   const files = req.files || [];
   if (files.some(f => f.fieldname !== 'documents') || files.length > 3) throw httpError(400, 'Upload at most three documents');
   if ((!admin && action !== 'respond') || (admin && action !== 'transition')) {
@@ -99,14 +99,6 @@ export async function act(req, res) {
         if (action === 'respond' && row.status !== 'additional_information_required') throw httpError(409, 'Additional information has not been requested');
         row.status = action === 'cancel' ? 'cancelled' : 'under_review';
         if (action === 'respond') row.requestedCorrections = '';
-      } else if (action === 'assign') {
-        if (body.reviewerId === 'self') body.reviewerId = String(req.user._id);
-        if (!mongoose.isValidObjectId(body.reviewerId)) throw httpError(400, 'Select an authorized reviewer');
-        const reviewer = await Admin.findOne({ _id: body.reviewerId, isActive: true }).session(session);
-        if (!reviewer || (reviewer.role !== 'superAdmin' && !reviewer.permissions?.includes('manage_sellers'))) throw httpError(400, 'Reviewer needs vendor management permission');
-        row.reviewerId = reviewer._id;
-      } else if (action === 'note') {
-        if (!note) throw httpError(400, 'An internal note is required');
       } else {
         if (!transitions[row.status]?.includes(body.status)) throw httpError(409, 'This assistance status transition is not allowed');
         if (['approved','completed'].includes(body.status) && (row.billing || await currentGstFee(session)) && (row.billing?.status !== 'paid' || row.billing?.reviewRequired)) throw httpError(409, 'Verified service payment without financial holds is required before starting or completing GST assistance');
@@ -117,14 +109,14 @@ export async function act(req, res) {
           const gstin = boundedText(body.verifiedGstin, 'Independently verified GSTIN', 15, true);
           const evidence = [...row.files, ...stored].find(f => f.fileId === body.evidenceFileId || (stored.length === 1 && !body.evidenceFileId && f.fileId === stored[0].fileId));
           if (!GSTIN_FORMAT.test(gstin) || body.independentlyVerified !== 'true' || evidence?.kind !== 'verification_evidence') throw httpError(400, 'Completion requires GSTIN format, private verification evidence and explicit independent-verification attestation');
-          row.verification = { gstin, source: 'GST portal taxpayer search', reference: boundedText(body.verificationReference, 'Verification evidence reference', 500, true),
+          row.verification = { gstin, source: 'GST portal taxpayer search', reference: boundedText(body.verificationReference, 'Verification evidence reference', 500) || `Uploaded evidence: ${evidence.name}`,
             evidenceFileId: evidence.fileId, verifiedBy: req.user._id, verifiedAt: new Date(), method: 'admin_attested_independent_review' };
         }
       }
       if (admin && ['rejected','cancelled'].includes(row.status) && row.billing?.paymentId) row.billing.reviewRequired = true;
       row.files.push(...stored);
       row.events.push({ action, from, to: row.status, actorType: admin ? 'admin' : 'vendor', actorId: req.user._id,
-        at: new Date(), vendorMessage: message, ...(admin ? { internalNote: note, reviewerId: row.reviewerId } : {}),
+        at: new Date(), vendorMessage: message, 
         fileIds: stored.map(f => f.fileId) });
       row.markModified('files'); row.markModified('events'); await row.save({ session }); return row;
     });
@@ -133,14 +125,14 @@ export async function act(req, res) {
   const notification = { event: NOTIFICATION_EVENT.SYSTEM, title: 'GST assistance update',
     message: 'Your GST assistance request has an update. Open your vendor application for details.',
     route: '/seller', dedupeKey: `gst-assistance:${saved._id}:${saved.__v}` };
-  try { if (admin && action !== 'note' && action !== 'assign') await notifySeller(saved.vendorId, notification);
+  try { if (admin) await notifySeller(saved.vendorId, notification);
     else if (!admin) await notifyAllAdmins({ ...notification, message: 'A GST assistance request needs review.', route: '/admin' });
   } catch { /* committed state is authoritative; notifications are best effort */ }
   return ok(res, gstRequestDTO(saved, admin));
 }
 export async function download(req, res) {
   const row = await owned(req), file = row.files.find(f => f.fileId === req.params.fileId);
-  if (!file || (!isAdmin(req) && file.kind === 'verification_evidence')) throw httpError(404, 'Document not found');
+  if (!file) throw httpError(404, 'Document not found');
   const bytes = await readServiceFile(file);
   res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "sandbox; default-src 'none'",
     'Content-Type': { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg' }[file.format],

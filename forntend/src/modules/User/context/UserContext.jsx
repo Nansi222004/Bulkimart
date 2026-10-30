@@ -285,6 +285,10 @@ export const UserProvider = ({ children }) => {
     if (currentUser) initPushNotifications().catch(() => {});
   }, [currentUser]);
 
+  const requestPushPermission = async () => {
+    return initPushNotifications({ requestPermission: true }).catch(() => false);
+  };
+
   /**
    * The delivery location shown in the header.
    *
@@ -1663,6 +1667,7 @@ export const UserProvider = ({ children }) => {
       clearCheckoutKey('single');
       setCouponCode('');
       setAppliedCoupon(null);
+      void initPushNotifications({ requestPermission: true }).catch(() => {});
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
       if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
       return { ok: true, checkoutKey: requestHeaders['Idempotency-Key'], order: body.data.order, message: body.message };
@@ -1724,6 +1729,7 @@ export const UserProvider = ({ children }) => {
 
       if (checkoutPayload.paymentMethod === 'online') rememberCommittedCheckout(currentUser?._id || currentUser?.id, 'unified', requestHeaders['Idempotency-Key']);
       clearCheckoutKey(['wholesale', 'basket'].includes(options.purchaseMode) ? options.purchaseMode : 'unified');
+      void initPushNotifications({ requestPermission: true }).catch(() => {});
       window.dispatchEvent(new Event('cart:changed'));
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders()]);
       if (!isCurrentUserSession(wholesaleSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
@@ -1975,6 +1981,7 @@ export const UserProvider = ({ children }) => {
         // Notifications
         notifications, setNotifications,
         markAllNotificationsRead, getUnreadCount,
+        requestPushPermission,
       }}
     >
       {children}

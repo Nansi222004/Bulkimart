@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { advertisingApi, advertisingMoney, blankPackageForm, campaignLabel, packageFormFromRow, packagePayload, plainStatus } from './advertisingApi';
+import { advertisingApi, advertisingMoney, blankPackageForm, campaignLabel, campaignStatusClass, packageFormFromRow, packagePayload, plainStatus } from './advertisingApi';
 import './advertising.css';
 import AdvertisingBillingPanel from './AdvertisingBillingPanel';
 import AdvertisingFinancePanel from './AdvertisingFinancePanel';
@@ -29,6 +29,8 @@ const placementText = c => `In the “Sponsored” row at the top of ${c.categor
 function timingText(c) {
   const now = Date.now(), start = c.paid?.startAt && new Date(c.paid.startAt), end = c.paid?.endAt && new Date(c.paid.endAt);
   if (c.pilot?.enabled && new Date(c.pilot.endAt) > now) return `Free test run until ${dateText(c.pilot.endAt)}.`;
+  if (c.delivery === 'CANCELLED' && c.funding === 'REFUNDED') return 'Not showing: cancelled and refunded.';
+  if (c.delivery === 'CANCELLED' && c.funding === 'PARTIALLY_REFUNDED') return 'Not showing: cancelled and partly refunded.';
   if (['COMPLETED', 'EXHAUSTED', 'CANCELLED', 'ADMIN_SUSPENDED', 'SELLER_PAUSED', 'UNAVAILABLE'].includes(c.delivery)) return `Not showing: ${plainStatus('delivery', c.delivery).toLowerCase()}.`;
   if (start && end) return start <= now && now < end ? `Showing now, until ${dateText(end)}.` : start > now ? `Starts ${dateText(start)} and runs until ${dateText(end)}.` : `Ended ${dateText(end)}.`;
   if (c.review === 'APPROVED') return `Starts once the seller pays: on ${c.requestedStartAt ? dateText(c.requestedStartAt) : 'the chosen start date'}, or on the payment date if that is later${c.terms?.durationDays ? `, for ${c.terms.durationDays} days` : ''}.`;
@@ -68,7 +70,11 @@ export default function AdvertisingWorkspace({ admin = false }) {
   useEffect(() => {
     if (!cap?.managementEnabled || (tab === 'campaigns' ? !canReview : !canConfigure)) return;
     const current = ++generation.current; setBusy(true); setError(''); setRows([]);
-    advertisingApi(admin, `/${tab}?page=${page}&limit=20${tab === 'campaigns' && review ? `&review=${review}` : ''}`)
+    const filterParam = !review ? ''
+      : review === 'REFUNDED' ? 'funding=REFUNDED'
+      : review === 'CANCELLED' ? 'delivery=CANCELLED'
+      : `review=${review}`;
+    advertisingApi(admin, `/${tab}?page=${page}&limit=20${tab === 'campaigns' && filterParam ? `&${filterParam}` : ''}`)
       .then(b => { if (current === generation.current) { setRows(b.data); setMeta(b.meta); } })
       .catch(e => { if (current === generation.current) setError(e.message); }).finally(() => { if (current === generation.current) setBusy(false); });
     return () => { generation.current++; };
@@ -240,6 +246,8 @@ export default function AdvertisingWorkspace({ admin = false }) {
                   <select value={review} onChange={e => { setReview(e.target.value); setPage(1); }}>
                     <option value="">All campaigns</option>
                     {Object.entries(reviews).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    <option value="CANCELLED">Cancelled</option>
+                    <option value="REFUNDED">Refunded</option>
                   </select>
                 </label>
               )}
@@ -286,7 +294,7 @@ export default function AdvertisingWorkspace({ admin = false }) {
             {rows.map(row => (
               <article className="ad-card ad-campaign-card" key={row.id}>
                 <div className="ad-card-header">
-                  <span className={`ad-status-pill ad-status-${(tab === 'campaigns' ? (row.review || 'draft') : (row.isActive ? 'approved' : 'draft')).toLowerCase()}`}>
+                  <span className={`ad-status-pill ad-status-${tab === 'campaigns' ? campaignStatusClass(row) : (row.isActive ? 'approved' : 'draft')}`}>
                     {tab === 'campaigns' ? campaignLabel(row) : (row.archivedAt ? 'Archived' : row.isActive ? 'Available for submission' : 'Inactive')}
                   </span>
                   <span className="ad-module-pill">{row.module}</span>
@@ -331,11 +339,17 @@ export default function AdvertisingWorkspace({ admin = false }) {
               <div className="ad-modal-dialog" onClick={e => e.stopPropagation()}>
                 <div className="ad-modal-header">
                   <div className="ad-modal-header-text">
-                    <span className={`ad-status-pill ad-status-${(detail.review || 'draft').toLowerCase()}`}>
+                    <span className={`ad-status-pill ad-status-${campaignStatusClass(detail)}`}>
                       {campaignLabel(detail)}
                     </span>
                     <h3>{detail.name}</h3>
-                    {admin && <p className="ad-detail-sub">Version {detail.revision} · Payment: {plainStatus('funding', detail.funding)} · Ad: {plainStatus('delivery', detail.delivery)}</p>}
+                    {admin && (
+                      <p className="ad-detail-sub">
+                        Version {detail.revision} · Payment: {plainStatus('funding', detail.funding)} · Ad: {plainStatus('delivery', detail.delivery)}
+                        {detail.funding === 'REFUNDED' && <strong className="ad-detail-refunded-badge"> · Refunded</strong>}
+                        {detail.funding === 'PARTIALLY_REFUNDED' && <strong className="ad-detail-refunded-badge"> · Partly refunded</strong>}
+                      </p>
+                    )}
                   </div>
                   <button type="button" className="ad-modal-close-btn" aria-label="Close details" onClick={() => { detailGeneration.current++; setDetail(null); }}>✕</button>
                 </div>

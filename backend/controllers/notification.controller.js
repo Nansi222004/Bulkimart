@@ -95,8 +95,8 @@ export const getMyNotifications = asyncHandler(async (req, res) => {
   if (req.query.isRead === "true") filter.isRead = true;
   if (req.query.isRead === "false") filter.isRead = false;
   if (req.query.event) {
-    if (req.query.event !== 'ORDER_CREATED') throw httpError(400, 'Unsupported notification event filter');
-    filter.event = 'ORDER_CREATED';
+    if (!['ORDER_CREATED', 'RETURN_REQUESTED'].includes(req.query.event)) throw httpError(400, 'Unsupported notification event filter');
+    filter.event = req.query.event;
   }
 
   const [items, total] = await Promise.all([

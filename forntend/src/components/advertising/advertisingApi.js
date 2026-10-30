@@ -15,10 +15,23 @@ export async function advertisingApi(admin, path, options = {}) {
 export const advertisingMoney = paise => Number.isSafeInteger(paise) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(paise / 100) : 'Not configured';
 export const campaignLabel = row => {
   if (!row) return 'UNKNOWN';
+  if (row.funding === 'REFUNDED') return 'REFUNDED';
+  if (row.funding === 'PARTIALLY_REFUNDED') return 'PARTIALLY REFUNDED';
   if (row.delivery && row.delivery !== 'NOT_SCHEDULED') return String(row.delivery).replaceAll('_', ' ');
   if (row.review === 'APPROVED') return 'APPROVED AWAITING PAYMENT';
   if (row.review) return String(row.review).replaceAll('_', ' ');
   return 'DRAFT';
+};
+export const campaignStatusClass = row => {
+  if (!row) return 'draft';
+  if (row.funding === 'REFUNDED') return 'refunded';
+  if (row.funding === 'PARTIALLY_REFUNDED') return 'partially_refunded';
+  if (row.funding === 'REFUND_PENDING') return 'refund_pending';
+  if (row.delivery === 'ACTIVE') return 'active';
+  if (row.delivery === 'CANCELLED') return 'cancelled';
+  if (row.delivery === 'ADMIN_SUSPENDED') return 'rejected';
+  if (row.delivery && row.delivery !== 'NOT_SCHEDULED') return String(row.delivery).toLowerCase();
+  return (row.review || 'draft').toLowerCase();
 };
 // Plain words for the campaign's review, payment and ad states (unknown codes are shown as they are).
 const PLAIN = {

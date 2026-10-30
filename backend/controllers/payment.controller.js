@@ -22,7 +22,7 @@ import {
   verifyRazorpayWebhookSignature,
 } from '../services/razorpay.service.js';
 import { getPaymentGateway } from '../config/runtime.js';
-import { ORDER_STATUS, PAYMENT_STATUS } from '../constants/enums.js';
+import { ORDER_STATUS, PAYMENT_STATUS, CHANNEL } from '../constants/enums.js';
 import { settleSellerPromotionPayment } from './sellerPromotion.controller.js';
 import { settlePackagingOrderPayment } from './packaging.controller.js';
 import { settleWalletTopupPayment } from './wallet.controller.js';
@@ -213,6 +213,18 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
           }).catch((e) => console.error('[NOTIFICATION] notifyUser (paid order) failed:', e.message));
         }
       } catch { /* buyer notification failure is non-fatal */ }
+
+      try {
+        const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
+        const paidOrders = payment.groupRef
+          ? await Order.find({ groupRef: payment.groupRef, status: { $ne: ORDER_STATUS.CANCELLED } })
+          : (payment.orderId ? await Order.find({ _id: payment.orderId, status: { $ne: ORDER_STATUS.CANCELLED } }) : []);
+        for (const o of paidOrders) {
+          if (o.deliveryType !== 'shiprocket' && o.type === CHANNEL.GROCERY) {
+            broadcastNewOrderToRiders(o._id).catch(console.error);
+          }
+        }
+      } catch { /* rider broadcast failure is non-fatal */ }
     }
   }
   return result;

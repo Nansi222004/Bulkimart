@@ -587,6 +587,15 @@ export const OrdersTab = ({ detailPage = false }) => {
                   </div>
                 )}
 
+                {(order.returnReason || order.returnDescription || order.returnRequest) && (
+                  <div className="order-f-customer" style={{ paddingTop: 0 }}>
+                    <p style={{ fontSize: 11, color: '#c2410c', background: '#fff7ed', padding: '6px 10px', borderRadius: 8, margin: '4px 0', border: '1px solid #fed7aa', lineHeight: 1.4 }}>
+                      ↩️ <strong>Return requested:</strong> {String(order.returnReason || order.returnRequest?.reason || '').replace(/_/g, ' ')}
+                      {(order.returnDescription || order.returnRequest?.customerDescription) ? ` — “${order.returnDescription || order.returnRequest?.customerDescription}”` : ''}
+                    </p>
+                  </div>
+                )}
+
                 <div className="order-f-actions">
                   <button className="order-action-btn-sm details" onClick={() => openSellerOrder(order._id)}>
                     Details

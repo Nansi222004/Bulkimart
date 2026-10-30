@@ -144,7 +144,30 @@ test('formatters do not fabricate unconfigured amounts or mislabel approval as a
   assert.equal(helpers.advertisingMoney(undefined), 'Not configured');
   assert.equal(helpers.campaignLabel(campaign({ review:'APPROVED' })), 'APPROVED AWAITING PAYMENT');
   assert.equal(helpers.campaignLabel(campaign({ delivery:'ADMIN_SUSPENDED' })), 'ADMIN SUSPENDED');
+  assert.equal(helpers.campaignLabel(campaign({ delivery:'CANCELLED', funding:'REFUNDED' })), 'REFUNDED');
+  assert.equal(helpers.campaignLabel(campaign({ delivery:'CANCELLED', funding:'PARTIALLY_REFUNDED' })), 'PARTIALLY REFUNDED');
+  assert.equal(helpers.campaignStatusClass(campaign({ delivery:'CANCELLED', funding:'REFUNDED' })), 'refunded');
+  assert.equal(helpers.campaignStatusClass(campaign({ delivery:'CANCELLED', funding:'PARTIALLY_REFUNDED' })), 'partially_refunded');
 });
+test('cancelled advertising with refunded amount displays refunded status and badge in admin panel', async () => {
+  const h = hookHarness(Workspace, { admin: true });
+  try {
+    h.requests[0].resolve(capabilities(['advertising_review', 'advertising_finance'])); await h.settle();
+    h.requests[1].resolve(list([campaign({ name: 'Summer Campaign', delivery: 'CANCELLED', funding: 'REFUNDED', review: 'APPROVED' })])); await h.settle();
+    assert.match(text(h.tree), /Summer Campaign/);
+    assert.match(text(h.tree), /REFUNDED/);
+    const pill = h.find(n => n.type === 'span' && typeof n.props.className === 'string' && n.props.className.includes('ad-status-pill'));
+    assert.ok(pill);
+    assert.equal(pill.props.className, 'ad-status-pill ad-status-refunded');
+    assert.equal(text(pill), 'REFUNDED');
+    h.click('View campaign');
+    h.requests[2].resolve({ success: true, data: campaign({ name: 'Summer Campaign', delivery: 'CANCELLED', funding: 'REFUNDED', review: 'APPROVED' }) }); await h.settle();
+    assert.match(text(h.tree), /Payment:\s+Refunded/);
+    assert.match(text(h.tree), /Ad:\s+Cancelled/);
+    assert.match(text(h.tree), /Not showing:\s+cancelled and refunded\./);
+  } finally { h.close(); }
+});
+
 test('admin pilot authorization uses versioned explicit dates and never claims funding', async () => {
   const h = hookHarness(Workspace, {admin:true});
   try {
@@ -542,3 +565,21 @@ test('the campaign detail says where and when the ad shows, in plain words', asy
     } finally { h.close(); }
   }
 });
+
+test('builder Step 0: products per ad stops ticking at package limit in same category and shows notice', async () => {
+  const p1 = { id: 'p1', name: 'Shirt A', eligible: true, reason: '', categories: [{ id: 'mens', name: "Men's Wear" }], variants: [{ id: 'v1', name: 'M', price: 500, stock: 3 }] };
+  const p2 = { id: 'p2', name: 'Shirt B', eligible: true, reason: '', categories: [{ id: 'mens', name: "Men's Wear" }], variants: [{ id: 'v2', name: 'L', price: 500, stock: 3 }] };
+  const p3 = { id: 'p3', name: 'Shirt C', eligible: true, reason: '', categories: [{ id: 'mens', name: "Men's Wear" }], variants: [{ id: 'v3', name: 'XL', price: 500, stock: 3 }] };
+  const packTwo = offer('pack-two', 2, ['mens']);
+  const { h, tick } = builder([p1, p2, p3], [packTwo]);
+  try {
+    await h.settle();
+    tick('Shirt A');
+    tick('Shirt B');
+    assert.match(text(h.tree), /Picked\s+2 products/);
+    const boxC = h.find(n => n.type === 'input' && n.props.type === 'checkbox', h.find(n => n.type === 'div' && /ad-product-item/.test(n.props.className || '') && text(n).includes('Shirt C')));
+    assert.equal(boxC.props.disabled, true, 'A third product in the same category cannot be ticked when max is 2');
+    assert.match(text(h.tree), /Limit reached: max\s+2\s+per ad/);
+  } finally { h.close(); }
+});
+

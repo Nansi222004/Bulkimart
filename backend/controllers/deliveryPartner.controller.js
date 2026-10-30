@@ -747,6 +747,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     if (announce) {
       notifyRider(String(r._id), {
         event: requested ? NOTIFICATION_EVENT.RIDER_REQUESTED : NOTIFICATION_EVENT.RIDER_PING,
+        dedupeKey: `rider-offer:${order._id}:${r._id}`,
         title: requested ? `${payload.merchantName || 'A store'} assigned order ${order.orderNo} to you — accept now`
           : payload.payout?.tip > 0 ? `New order offer — ₹${payload.payout.tip} tip` : 'New order offer',
         /**

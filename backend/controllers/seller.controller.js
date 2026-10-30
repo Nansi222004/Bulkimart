@@ -6,11 +6,13 @@ import { financialTransaction } from '../services/financeSafety.service.js';
 import { storePickup, pickupLocationError, pickupCoordinates } from '../services/storePickup.service.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
 import { parseStoreProfile } from '../services/sellerProfile.service.js';
-import { notifyAllAdmins } from '../services/notification.service.js';
+import { notifyAllAdmins, notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { sellerOrderActions, shipmentLocked } from '../services/sellerOrderActions.service.js';
 import { sellerOrderAmounts } from '../services/sellerOrderAmounts.service.js';
 import { eligiblePaymentStages, orderPaymentReady, sellerHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 import Delivery from '../models/Delivery.js';
+import DeliveryPartner from '../models/DeliveryPartner.js';
+import Return from '../models/Return.js';
 import mongoose from 'mongoose';
 import Seller from '../models/Seller.js';
 import User from '../models/User.js';
@@ -27,7 +29,6 @@ import {
 import { parseLocation } from '../utils/geo.js';
 import { parseSellerSameDay } from '../services/sameDay.service.js';
 import { getRadiusSetting } from '../services/radiusSetting.service.js';
-import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { httpError } from '../utils/response.js';
 
 // Helper to notify admins
@@ -581,10 +582,36 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
    * hand over the parcel, so those stay. Nothing else about the shopper does.
    */
   const deliveryIds = orders.map(o => o.deliveryId).filter(Boolean);
-  const deliveries = deliveryIds.length ? await Delivery.find({ _id: { $in: deliveryIds } }).populate({ path: 'partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } }).lean() : [];
+  const partnerIds = orders.map(o => o.deliveryPartnerId).filter(Boolean);
+  const returnOrderIds = orders.filter(o => ['return_requested', 'returned', 'refunded'].includes(o.status) || o.returnReason).map(o => o._id).filter(Boolean);
+  const isDbConnected = mongoose.connection?.readyState === 1;
+
+  const [deliveries, partners, returns] = await Promise.all([
+    deliveryIds.length && isDbConnected ? Delivery.find({ _id: { $in: deliveryIds } }).populate({ path: 'partnerId', select: 'userId', populate: { path: 'userId', select: 'name phone' } }).lean().catch(() => []) : [],
+    partnerIds.length && isDbConnected ? DeliveryPartner.find({ _id: { $in: partnerIds } }).populate({ path: 'userId', select: 'name phone' }).lean().catch(() => []) : [],
+    returnOrderIds.length && isDbConnected ? Return.find({ orderId: { $in: returnOrderIds } }).select('orderId reason customerDescription status createdAt returnNumber').lean().catch(() => []) : [],
+  ]);
+
   const deliveryMap = new Map(deliveries.map(d => [String(d._id), d]));
+  const partnerMap = new Map(partners.map(p => [String(p._id), p]));
+  const returnMap = new Map();
+  for (const r of returns) {
+    const k = String(r.orderId);
+    if (!returnMap.has(k)) returnMap.set(k, []);
+    returnMap.get(k).push(r);
+  }
+
   const rows = orders.map((o) => {
     const trip = deliveryMap.get(String(o.deliveryId));
+    const directPartner = partnerMap.get(String(o.deliveryPartnerId));
+    const rider = trip?.partnerId?.userId || directPartner?.userId;
+    const riderName = rider?.name || null;
+    const riderPhone = rider?.phone || null;
+    const courierName = o.shiprocket?.courier || o.fulfillment?.courierName || o.fulfillment?.trackingPartner || (o.deliveryType === 'shiprocket' ? 'Shiprocket' : null);
+
+    const orderReturns = returnMap.get(String(o._id)) || [];
+    const latestReturn = orderReturns[orderReturns.length - 1];
+
     const releasedDelivery = !o.deliveryPartnerId && trip?.status === 'rejected' && String(trip.orderId) === String(o._id);
     const mine = (o.items || []).filter((i) => String(i.sellerId) === String(seller._id));
     const subtotal = mine.reduce((sum, i) => sum + itemGrossPaise(i) / 100, 0);
@@ -597,7 +624,29 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       pricing: (o.items || []).every(i => String(i.sellerId) === String(seller._id)) ? o.pricing : undefined,
       store: { name: seller.storeDetails?.name || seller.businessName, pickupAddress: seller.storeDetails, pickupLocation: seller.thirdPartyFulfillment?.shiprocketPickupLocation, pickupEnabled: seller.thirdPartyFulfillment?.enabled },
       cancellationReason: o.cancelReason || o.vendorDecision?.reason,
-      deliveryAssignment: (() => { const d = deliveryMap.get(String(o.deliveryId)); return d && String(d.orderId) === String(o._id) ? { status: d.status, assignedAt: d.createdAt, completedAt: d.endTime, otpVerified: d.otpVerified, rider: { name: d.partnerId?.userId?.name, phone: d.partnerId?.userId?.phone }, timeline: d.timeline } : null; })(),
+      returnRequest: latestReturn ? {
+        returnNumber: latestReturn.returnNumber,
+        reason: latestReturn.reason,
+        customerDescription: latestReturn.customerDescription,
+        status: latestReturn.status,
+        createdAt: latestReturn.createdAt,
+      } : null,
+      returnReason: latestReturn?.reason || o.returnReason || null,
+      returnDescription: latestReturn?.customerDescription || o.returnDescription || null,
+      deliveryAssignment: (() => {
+        if (trip && String(trip.orderId) === String(o._id)) {
+          return { status: trip.status, assignedAt: trip.createdAt, completedAt: trip.endTime, otpVerified: trip.otpVerified, rider: { name: riderName, phone: riderPhone }, timeline: trip.timeline };
+        }
+        if (riderName) {
+          return { status: o.status === 'delivered' ? 'completed' : 'assigned', rider: { name: riderName, phone: riderPhone } };
+        }
+        return null;
+      })(),
+      deliveryPartner: {
+        name: riderName || courierName || null,
+        phone: riderPhone || null,
+        type: riderName ? 'rider' : (courierName ? 'courier' : null),
+      },
       orderNo: o.orderNo,
       channel: o.type,
       salesChannel: o.salesChannel || 'retail',

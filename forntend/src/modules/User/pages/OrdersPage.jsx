@@ -40,11 +40,15 @@ const STATUS_CLASS = {
 };
 
 const OrdersPage = () => {
-  const { setActiveNav, orders, ordersLoading, ordersError, setSelectedOrder, fetchOrders } = useUser();
+  const { setActiveNav, orders, ordersLoading, ordersError, setSelectedOrder, fetchOrders, requestPushPermission } = useUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
+  const [pushDismissed, setPushDismissed] = useState(() => {
+    return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('push_prompt_dismissed') === 'true' : false;
+  });
+  const showPushPrompt = typeof window !== 'undefined' && typeof Notification !== 'undefined' && Notification.permission === 'default' && !pushDismissed;
 
   // Razorpay checkout returns here only after the authenticated backend
   // verification call. The query is a UX cue, never payment proof.
@@ -151,6 +155,60 @@ const OrdersPage = () => {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {showPushPrompt && (
+        <div
+          style={{
+            margin: '10px 16px 0',
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            background: 'linear-gradient(135deg, rgba(20, 110, 180, 0.08), rgba(20, 110, 180, 0.15))',
+            border: '1px solid rgba(20, 110, 180, 0.3)',
+            color: '#0369a1',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🔔</span>
+            <span>Enable notifications to get real-time order updates & delivery alerts.</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={async () => {
+                await requestPushPermission?.();
+                setPushDismissed(true);
+              }}
+              style={{
+                border: 'none',
+                background: '#0284c7',
+                color: '#fff',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 12,
+                padding: '4px 10px',
+                borderRadius: 6,
+              }}
+            >
+              Enable
+            </button>
+            <button
+              onClick={() => {
+                setPushDismissed(true);
+                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('push_prompt_dismissed', 'true');
+              }}
+              style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 

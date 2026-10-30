@@ -175,7 +175,7 @@ test('admin workspace filters statuses and uses only authorized request details'
   try {
     assert.match(h.requests[0].url, /admin\/gst-assistance\?page=1&status=/);
     h.requests[0].resolve({ success: true, data: { requests: [row('approved')] } }); await h.settle();
-    assert.match(text(h.tree), /Assistance accepted — not government approval/);
+    assert.match(text(h.tree), /Approved — GST work in progress/);
     h.find(n => n.type === 'select').props.onChange({ target: { value: 'under_review' } }); h.flush();
     assert.match(h.requests.at(-1).url, /status=under_review/);
   } finally { h.close(); requests.clearPortalRequests(); }
@@ -235,7 +235,7 @@ test('admin detail failures stay in the popup and retry loads the selected reque
     const dialog = h.find(n => n.props?.role === 'dialog');
     assert.match(text(dialog), /Could not load this request/);
     const retry = h.click('Retry request'); h.requests[2].resolve({ data: row() }); await retry; await h.settle();
-    assert.match(text(h.find(n => n.props?.role === 'dialog')), /Status history/);
+    assert.match(text(h.find(n => n.props?.role === 'dialog')), /What happened/);
     assert.equal(h.find(n => n.props?.role === 'alert'), undefined);
     assert.equal([h.tree.props.children].flat(Infinity).some(n => n?.props?.className === 'gst-request-detail'), false);
   } finally { h.close(); requests.clearPortalRequests(); }
@@ -249,9 +249,9 @@ test('saving an admin review keeps its popup open and updates the filtered queue
     h.requests[1].resolve({ data: { requests: [row()] } }); await h.settle();
     const pending = h.find(n => n.type === 'button' && n.props['aria-haspopup'] === 'dialog').props.onClick();
     h.requests[2].resolve({ data: row() }); await pending; await h.settle();
-    h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Review started' } });
-    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'under_review' } }); h.flush();
-    const saving = h.click('Save assistance status');
+    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose the next step…').props.onChange({ target: { value: 'under_review' } }); h.flush();
+    h.find(n => n.type === 'textarea').props.onChange({ target: { value: 'Review started' } }); h.flush();
+    const saving = h.click('Update status');
     assert.equal(h.find(n => n.props?.['aria-label'] === 'Close GST assistance details').props.disabled, true);
     assert.equal(h.requests[3].options.body.get('action'), 'transition');
     assert.equal(h.requests[3].options.body.get('version'), '2');
@@ -294,15 +294,13 @@ test('switching admin request clears completion GSTIN, evidence reference and ve
     h.requests[0].resolve({ success: true, data: { requests: [a, b] } }); await h.settle();
     const first = h.find(n => n.type === 'button' && text(n).includes('Fixture'));
     const pendingA = first.props.onClick(); h.requests[1].resolve({ success: true, data: a }); await pendingA; await h.settle();
-    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'completed' } }); h.flush();
+    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose the next step…').props.onChange({ target: { value: 'completed' } }); h.flush();
     h.find(n => n.type === 'input' && n.props.maxLength === 15).props.onChange({ target: { value: '29ABCDE1234F1Z5' } });
-    h.find(n => n.type === 'input' && n.props.maxLength === 500).props.onChange({ target: { value: 'Private evidence reference' } });
     h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); h.flush();
     const second = h.find(n => n.type === 'button' && text(n).includes('Second vendor'));
     const pendingB = second.props.onClick(); h.requests[2].resolve({ success: true, data: b }); await pendingB; await h.settle();
-    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose a transition').props.onChange({ target: { value: 'completed' } }); h.flush();
+    h.find(n => n.type === 'select' && n.props.children?.[0]?.props?.children === 'Choose the next step…').props.onChange({ target: { value: 'completed' } }); h.flush();
     assert.equal(h.find(n => n.type === 'input' && n.props.maxLength === 15).props.value, '');
-    assert.equal(h.find(n => n.type === 'input' && n.props.maxLength === 500).props.value, '');
     assert.equal(h.find(n => n.type === 'input' && n.props.type === 'checkbox').props.checked, false);
   } finally { h.close(); requests.clearPortalRequests(); }
 });
