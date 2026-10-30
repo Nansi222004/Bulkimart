@@ -341,13 +341,16 @@ export const getWallet = asyncHandler(async (req, res) => {
 // token service (services/notification.service.js) instead of duplicating
 // the upsert logic. Prefer POST /api/notifications/tokens for new code.
 export const updateFCMToken = asyncHandler(async (req, res) => {
-  const { fcmToken } = req.body;
+  const { fcmToken, platform } = req.body;
+  const deviceId = req.body.deviceId || req.headers['x-device-id'];
   if (!fcmToken) {
     res.status(400);
     throw new Error('Please provide an FCM token');
   }
 
-  await registerPushToken(req.user._id, fcmToken, undefined, req.tokenRole || 'buyer');
+  await (deviceId
+    ? registerPushToken(req.user._id, fcmToken, platform || 'web', req.tokenRole || 'buyer', User, deviceId)
+    : registerPushToken(req.user._id, fcmToken, platform || 'web', req.tokenRole || 'buyer'));
 
   res.status(200).json({
     success: true,

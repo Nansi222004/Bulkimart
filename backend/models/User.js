@@ -87,6 +87,7 @@ const userSchema = new Schema(
       token:      { type: String, required: true },
       platform:   { type: String, enum: ["app", "web"], default: "web" },
       active:     { type: Boolean, default: true },
+      deviceId:   { type: String },
       // Missing on legacy installations; new registrations bind to the signed
       // entry-point roles so one portal can log out without silencing another.
       sessionRoles: { type: [String], enum: ['buyer', 'seller', 'delivery'], default: undefined },

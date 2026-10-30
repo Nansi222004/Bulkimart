@@ -205,6 +205,7 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
         if (targetOrder && targetOrder.status !== ORDER_STATUS.CANCELLED) {
           notifyUser(payment.userId, {
             event: NOTIFICATION_EVENT.ORDER_CREATED,
+            dedupeKey: `buyer-order-${targetOrder._id}`,
             title: 'Order Placed Successfully!',
             message: `Order #${targetOrder.orderNo} has been placed.`,
             metadata: { orderId: targetOrder._id },

@@ -697,6 +697,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     if (paymentMethod !== 'online') {
       notifyUser(req.user._id, {
         event: NOTIFICATION_EVENT.ORDER_CREATED,
+        dedupeKey: `buyer-order-${order._id}`,
         title: 'Order Placed Successfully!',
         message: `Order #${order.orderNo} has been placed.`,
         metadata: { orderId: order._id },

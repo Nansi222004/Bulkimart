@@ -65,6 +65,34 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+const getNotificationTag = (data) => {
+  if (data?.event === 'ORDER_CREATED' && /^[a-f\d]{24}$/i.test(data.orderId || '')) {
+    return `seller-order-${data.orderId}`;
+  }
+  if (data?.notificationId && /^[a-f\d]{24}$/i.test(String(data.notificationId))) {
+    return `bulkimart-notif-${data.notificationId}`;
+  }
+  if (data?.orderId && /^[a-f\d]{24}$/i.test(String(data.orderId))) {
+    return `bulkimart-order-${data.event || 'update'}-${data.orderId}`;
+  }
+  if (data?.returnId && /^[a-f\d]{24}$/i.test(String(data.returnId))) {
+    return `bulkimart-return-${data.event || 'update'}-${data.returnId}`;
+  }
+  if (data?.ticketId && /^[a-f\d]{24}$/i.test(String(data.ticketId))) {
+    return `bulkimart-ticket-${data.event || 'update'}-${data.ticketId}`;
+  }
+  if (data?.parcelDeliveryId && /^[a-f\d]{24}$/i.test(String(data.parcelDeliveryId))) {
+    return `bulkimart-parcel-${data.event || 'update'}-${data.parcelDeliveryId}`;
+  }
+  if (data?.eventId) {
+    return `bulkimart-event-${data.eventId}`;
+  }
+  if (data?.event) {
+    return `bulkimart-${data.event}-${data.recipientId || ''}`;
+  }
+  return undefined;
+};
+
 messaging.onBackgroundMessage(async (payload) => {
   const { title, body, image } = payload.notification || {};
   const data = payload.data || {};
@@ -72,6 +100,8 @@ messaging.onBackgroundMessage(async (payload) => {
   // need manual display, avoiding duplicate background notifications.
   if (payload.notification) return;
   if (!await allowedPush(data) || !await pushFitsOpenApps(data)) return;
+
+  const tag = getNotificationTag(data);
 
   // `image` is only ever present on an Admin broadcast with media attached
   // (backend/services/fcm.service.js) — absent on every event-driven push,
@@ -83,7 +113,7 @@ messaging.onBackgroundMessage(async (payload) => {
     icon: '/favicon.svg',
     ...(data.image || image ? { image: data.image || image } : {}),
     data,
-    ...(data.event === 'ORDER_CREATED' && /^[a-f\d]{24}$/i.test(data.orderId || '') ? { tag: `seller-order-${data.orderId}`, renotify: false } : {}),
+    ...(tag ? { tag, renotify: false } : {}),
   });
 });
 

@@ -166,8 +166,30 @@ export const pushToUser = async (userId, { title, message, data, image }, Model 
     if (!user) return;
 
     const role = { user: 'buyer', buyer: 'buyer', customer: 'buyer', seller: 'seller', rider: 'delivery', delivery: 'delivery', admin: 'admin' }[data?.audience];
-    let tokens = [...new Set((user.pushTokens || []).filter(t => t.active
-      && (!Array.isArray(t.sessionRoles) || t.sessionRoles.includes(role))).map(t => t.token))];
+    const allTokens = (user.pushTokens || []).filter(t => t.active
+      && (!Array.isArray(t.sessionRoles) || t.sessionRoles.includes(role)));
+
+    // Deduplicate tokens by deviceId when available (keeping latest lastUsedAt per device)
+    const deviceMap = new Map();
+    const untracked = [];
+    for (const t of allTokens) {
+      if (t.deviceId) {
+        const prev = deviceMap.get(t.deviceId);
+        if (!prev || new Date(t.lastUsedAt || 0) > new Date(prev.lastUsedAt || 0)) {
+          deviceMap.set(t.deviceId, t);
+        }
+      } else {
+        untracked.push(t);
+      }
+    }
+    const eligible = [...deviceMap.values(), ...untracked];
+    eligible.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
+
+    // Cap active web tokens to at most 2 most recently used to eliminate stale sessions
+    const webTokens = eligible.filter(t => t.platform === 'web').slice(0, 2);
+    const appTokens = eligible.filter(t => t.platform !== 'web');
+
+    let tokens = [...new Set([...webTokens, ...appTokens].map(t => t.token))];
     if (tokens.length === 0 && user.fcmToken && !user.pushTokens?.some(t => t.token === user.fcmToken)) tokens = [user.fcmToken];
     if (tokens.length === 0) return;
 
@@ -194,7 +216,7 @@ export const pushToUser = async (userId, { title, message, data, image }, Model 
       }
     }
   } catch (err) {
-    console.error('[NOTIFICATION] push delivery failed:', err.code || 'delivery_failed');
+    console.error('[NOTIFICATION] push delivery failed:', err.message || err.code || 'delivery_failed');
   }
 };
 
@@ -208,6 +230,23 @@ const emitBestEffort = async (roomKind, roomId, socketEvent, payload) => {
   } catch (err) {
     console.error('[NOTIFICATION] socket emit failed:', err.message);
   }
+};
+
+const recentNotifications = new Map();
+
+const isRecentDuplicate = (key) => {
+  if (!key) return false;
+  const now = Date.now();
+  const last = recentNotifications.get(key);
+  if (last && now - last < 4000) {
+    return true;
+  }
+  recentNotifications.set(key, now);
+  if (recentNotifications.size > 500) {
+    const oldest = recentNotifications.keys().next().value;
+    recentNotifications.delete(oldest);
+  }
+  return false;
 };
 
 /**
@@ -224,15 +263,36 @@ const notifyCore = async (userId, roomKind, roomId, opts = {}) => {
   if (event === 'SELLER_PROMOTION_UPDATE') return null;
   if (!userId || !title || !message) return null;
 
+  const entityId = metadata?.orderId || metadata?.returnId || metadata?.ticketId || metadata?.parcelDeliveryId || metadata?.applicationId || '';
+  const statusPart = metadata?.status ? `:${metadata.status}` : '';
+  const effectiveDedupeKey = dedupeKey || (entityId && event ? `${roomKind}:${userId}:${event}:${entityId}${statusPart}` : null);
+
+  const debounceKey = `${userId}:${roomKind}:${event}:${title}:${message}:${entityId}${statusPart}`;
+  if (isRecentDuplicate(debounceKey)) {
+    return null;
+  }
+
   const type = EVENT_CATEGORY[event] || 'system';
   let record = null;
   try {
-    record = await Notification.create({ userId, audience: roomKind, type, event, title, message, metadata, route, expiresAt, media, ...(dedupeKey ? { dedupeKey } : {}) });
+    record = await Notification.create({
+      userId,
+      audience: roomKind,
+      type,
+      event,
+      title,
+      message,
+      metadata,
+      route,
+      expiresAt,
+      media,
+      ...(effectiveDedupeKey ? { dedupeKey: effectiveDedupeKey } : {}),
+    });
   } catch (err) {
-    if (dedupeKey && err.code === 11000) return null;
+    if ((dedupeKey || effectiveDedupeKey) && err.code === 11000) return null;
     console.error('[NOTIFICATION] persist failed:', err.message);
   }
-  if (dedupeKey && !record) return null;
+  if ((dedupeKey || effectiveDedupeKey) && !record) return null;
 
   // A lightweight, uniform signal the notification drawer/unread-count
   // listens for — separate from whatever specific event (new_order,
@@ -274,10 +334,17 @@ export const notifyAllAdmins = async (opts = {}) => {
   if (event === 'SELLER_PROMOTION_UPDATE') return [];
   if (!title || !message) return [];
 
+  const entityId = metadata?.orderId || metadata?.returnId || metadata?.ticketId || metadata?.parcelDeliveryId || metadata?.applicationId || '';
+  const debounceKey = `admin:all:${event}:${title}:${message}:${entityId}`;
+  if (isRecentDuplicate(debounceKey)) {
+    return [];
+  }
+
   const type = EVENT_CATEGORY[event] || 'system';
   let records = [];
+  let admins = [];
   try {
-    const admins = await Admin.find({ isActive: true }).select('_id');
+    admins = await Admin.find({ isActive: true }).select('_id');
     if (admins.length === 0) return [];
     const entries = admins.map(a => ({ userId: a._id, recipientModel: 'Admin', audience: 'admin', type, event, title, message, metadata, route }));
     if (dedupeKey) {
@@ -292,7 +359,9 @@ export const notifyAllAdmins = async (opts = {}) => {
 
   if (dedupeKey && !records.length) return [];
   const eventId = dedupeKey || records[0]?._id?.toString();
-  for (const record of records) void pushToUser(record.userId, { title, message, data: { event, eventId, route, ...metadata, notificationId: record._id, audience: 'admin' } }, Admin);
+  for (const record of records) {
+    void pushToUser(record.userId, { title, message, data: { event, eventId, route, ...metadata, notificationId: record._id, audience: 'admin' } }, Admin);
+  }
   emitBestEffort('admin', 'all', 'notification_new', {
     event, eventId, type, title, message, route, metadata, createdAt: new Date(),
   });
@@ -305,7 +374,7 @@ export const notifyAllAdmins = async (opts = {}) => {
  * (legacy) and `POST /api/notifications/tokens` (canonical) both call this
  * instead of each upserting the User document themselves.
  */
-export const registerPushToken = async (userId, token, platform, sessionRole, Model = User) => {
+export const registerPushToken = async (userId, token, platform, sessionRole, Model = User, deviceId = null) => {
   const tokenPlatform = platform === 'web' ? 'web' : 'app';
 
   // One browser/app installation must belong to only the currently signed-in
@@ -319,19 +388,54 @@ export const registerPushToken = async (userId, token, platform, sessionRole, Mo
     { _id: { $ne: userId }, fcmToken: token },
     { $unset: { fcmToken: '', fcmPlatform: '' } },
   );
+  if (deviceId) {
+    await Model.updateMany(
+      { _id: { $ne: userId }, 'pushTokens.deviceId': deviceId },
+      { $pull: { pushTokens: { deviceId } } },
+    );
+  }
 
   const user = await Model.findById(userId).select('+pushTokens');
   if (!user) return null;
+
+  user.pushTokens = user.pushTokens || [];
+
+  // If a deviceId is supplied, replace/deactivate any existing token for that device.
+  if (deviceId) {
+    for (const t of user.pushTokens) {
+      if (t.deviceId === deviceId && t.token !== token) {
+        t.active = false;
+      }
+    }
+  }
 
   const existing = user.pushTokens.find((t) => t.token === token);
   if (existing) {
     existing.active = true;
     existing.platform = tokenPlatform;
     existing.lastUsedAt = new Date();
+    if (deviceId) existing.deviceId = deviceId;
     if (sessionRole) existing.sessionRoles = [...new Set([...(existing.sessionRoles || []), sessionRole])];
   } else {
-    user.pushTokens.push({ token, platform: tokenPlatform, active: true, lastUsedAt: new Date(), ...(sessionRole ? { sessionRoles: [sessionRole] } : {}) });
+    user.pushTokens.push({
+      token,
+      platform: tokenPlatform,
+      active: true,
+      lastUsedAt: new Date(),
+      ...(deviceId ? { deviceId } : {}),
+      ...(sessionRole ? { sessionRoles: [sessionRole] } : {}),
+    });
   }
+
+  // Deactivate older duplicate tokens to prevent unbounded accumulation
+  const activeWeb = user.pushTokens.filter(t => t.active && t.platform === 'web');
+  if (activeWeb.length > 2) {
+    activeWeb.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
+    for (let i = 2; i < activeWeb.length; i++) {
+      activeWeb[i].active = false;
+    }
+  }
+
   if (Model === User) { user.fcmToken = token; user.fcmPlatform = tokenPlatform; }
   await user.save();
   return tokenPlatform;

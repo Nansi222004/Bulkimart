@@ -63,11 +63,14 @@ async function visibleNotificationFilter(req) {
 // @access  Private
 export const saveFcmToken = asyncHandler(async (req, res) => {
   const { token, platform } = req.body;
+  const deviceId = req.body.deviceId || req.headers['x-device-id'];
   if (typeof token !== 'string' || !token.trim() || token.length > 4096) {
     res.status(400);
     throw new Error("Please provide a push token");
   }
-  const tokenPlatform = await (req.userType === 'admin' ? registerPushToken(req.user._id, token, platform, 'admin', Admin) : registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer'));
+  const tokenPlatform = await (req.userType === 'admin'
+    ? (deviceId ? registerPushToken(req.user._id, token, platform, 'admin', Admin, deviceId) : registerPushToken(req.user._id, token, platform, 'admin', Admin))
+    : (deviceId ? registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer', User, deviceId) : registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer')));
   ok(res, { platform: tokenPlatform }, "Push token saved");
 });
 

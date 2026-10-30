@@ -42,6 +42,16 @@ const getMessagingInstance = async () => {
   return messagingInstance;
 };
 
+export const getPushDeviceId = () => {
+  if (typeof localStorage === 'undefined') return undefined;
+  let id = localStorage.getItem('bulkimart_push_device_id');
+  if (!id) {
+    id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `dev-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    localStorage.setItem('bulkimart_push_device_id', id);
+  }
+  return id;
+};
+
 export const registerTokenWithBackend = async (token, authToken = getPortalToken(), { signal, isCurrent = () => true, scope = portalScope() } = {}) => {
   const revision = pushSessionRevision(scope);
   const current = () => isCurrent() && revision === pushSessionRevision(scope) && authToken === getPortalToken(scope);
@@ -57,9 +67,14 @@ export const registerTokenWithBackend = async (token, authToken = getPortalToken
     const expectedRole = scope === 'customer' ? 'buyer' : scope;
     const matchingIdentity = scope === 'admin' ? identity.userType === 'admin' : identity.userType === 'user' && identity.sessionRole === expectedRole;
     if (!identity.success || !matchingIdentity || !identity.profile?._id || !current()) return;
+    const deviceId = getPushDeviceId();
     const response = await boundedFetch(apiUrl('/api/notifications/tokens'), {
       method: 'POST', signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+        ...(deviceId ? { 'X-Device-Id': deviceId } : {}),
+      },
       body: JSON.stringify({ token, platform: 'web' }),
     });
     if (!response.ok) throw new Error('Backend rejected the push token');
