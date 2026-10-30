@@ -206,7 +206,7 @@ export function OrderBreakdown({ order: r }) {
     <div className="sa-order-split">
       <section><h4>Customer paid</h4><dl>
         {item('Items', money(r.merchandisePaise))}{item('Discounts', r.discountPaise === null ? '—' : `− ${money(r.discountPaise)}`)}
-        {item('Delivery fee', money(r.deliveryFeePaise))}{r.tipPaise > 0 && item('Tip for rider', money(r.tipPaise))}{r.donationPaise > 0 && item('Donation', money(r.donationPaise))}
+        {item('Delivery fee', money(r.deliveryFeePaise))}{r.tipPaise > 0 && item('Tip for rider', money(r.tipPaise))}
         {item(<strong>Total paid</strong>, <strong>{money(r.paidPaise)}</strong>)}{r.refundsPaise > 0 && item('Refunded', `− ${money(r.refundsPaise)}`)}
       </dl></section>
       <section><h4>Where it goes</h4><dl>
@@ -371,7 +371,18 @@ export default function ReportsTab() {
     setData(previous => previous?.scopeKey === scopeKey ? previous : null);
     adminGet(`/reports/${tab}${qs({ ...rangeQuery, ...tableQuery })}`, { signal: controller.signal })
       .then(body => { if (request === generation.current) setData({ ...body.data, scopeKey }); })
-      .catch(err => { if (request === generation.current && err.name !== 'AbortError') { setError(err.message || 'Could not load the report.'); setData(null); } })
+      .catch(err => {
+        if (request === generation.current && err.name !== 'AbortError') {
+          // Bug #194 fix: show a clear, actionable message for permission errors
+          const msg = err.message || '';
+          if (msg.includes('403') || msg.toLowerCase().includes('manage_finance') || msg.toLowerCase().includes('permission')) {
+            setError('You do not have permission to view reports. Ask a Super Admin to grant you the “manage_finance” permission.');
+          } else {
+            setError(msg || 'Could not load the report. Please try again.');
+          }
+          setData(null);
+        }
+      })
       .finally(() => { if (request === generation.current) setLoading(false); });
     return () => controller.abort();
   }, [queryKey]);
@@ -422,7 +433,11 @@ export default function ReportsTab() {
 
     <div id="report-panel" role="tabpanel" aria-labelledby={`report-tab-${tab}`} aria-busy={loading}>
       {current && <p className="sa-report-period">{dayLabel(current.range.from)} – {dayLabel(current.range.to)} · {current.range.days} day{current.range.days === 1 ? '' : 's'} · India time · generated {dateTime(current.asOf)}</p>}
-      {error ? <div className="sa-report-card sa-report-error-card" role="alert"><strong>The report could not be loaded.</strong><p>{error}</p><button type="button" className="sa-report-secondary" onClick={() => setReload(n => n + 1)}>Try again</button></div>
+      {error ? <div className="sa-report-card sa-report-error-card" role="alert">
+          <strong>The report could not be loaded.</strong>
+          <p>{error}</p>
+          <button type="button" className="sa-report-secondary" onClick={() => setReload(n => n + 1)}>Try again</button>
+        </div>
         : !rangeQuery ? null
         : !current ? <div className="sa-report-kpis" aria-label="Loading report">{Array.from({ length: 8 }, (_, i) => <div key={i} className="sa-report-kpi is-skeleton"><span /><strong /></div>)}</div>
         : tab === 'overview' ? <Overview data={current} />

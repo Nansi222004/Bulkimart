@@ -24,7 +24,14 @@ export function createAdminNotificationOpener() {
       if (openAdvertisingNotification(n, actions.setTab, true)) { actions.close(); return; }
       if (n.metadata?.ticketId) {
         actions.setTab('tickets'); actions.close();
-        await actions.openTicket({ id: n.metadata.ticketId, ticketNumber: n.metadata.ticketId, userName: '', requesterRole: '', subject: n.title, category: '' });
+        await actions.openTicket({
+          id: n.metadata.ticketId,
+          ticketNumber: n.metadata.ticketNumber || n.metadata.ticketId,
+          userName: n.metadata.userName || '',
+          requesterRole: n.metadata.requesterRole || 'customer',
+          subject: n.metadata.subject || n.title || 'Support Request',
+          category: n.metadata.category || 'General',
+        });
       } else if (/^\/admin\/services\?legalRequest=[a-f\d]{24}$/i.test(n.route || '') && serviceApplicationId(n.metadata?.applicationId) === new URLSearchParams(n.route.split('?')[1]).get('legalRequest')) {
         openCustomerRequest(serviceApplicationId(n.metadata.applicationId), actions);
       } else if (/^\/admin\/parcel-delivery(\?parcel=[a-f\d]{24})?$/i.test(n.route || '')) {

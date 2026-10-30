@@ -1,6 +1,8 @@
 .seller-order-page { color: var(--text-primary); line-height: 1.5; }
 .seller-order-page *, .seller-delivery-methods * { box-sizing: border-box; }
 .seller-order-topbar { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+/* Back and Refresh stay in view while the order details scroll underneath. */
+.seller-order-page > .seller-order-topbar { position: sticky; top: 0; z-index: 20; padding: 8px 0; margin-bottom: 8px; background: var(--bg-page, #f8fafc); }
 .seller-order-page .order-action-btn-sm { min-height: 44px; padding: 10px 14px; font-size: 13px; border-radius: 10px; cursor: pointer; }
 .seller-order-page button:disabled { opacity: .6; cursor: not-allowed; }
 .seller-order-page :is(button, a, input):focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }

@@ -13,7 +13,7 @@ import '../components/CartCheckout.css';
 export default function CartPage() {
   const { getDeliveryPoint, getPricingPoint, setActiveNav, refreshCart, addToWishlist,
     couponCode, appliedCoupon, availableCoupons, removeCoupon, couponNotice, serverCart, cartChannel, switchCartChannel,
-    cartLoading, useCoinsSelected } = useUser();
+    cartLoading } = useUser();
   const navigate = usePromotionNavigation();
   const basket = useUnifiedCart((getPricingPoint || getDeliveryPoint)?.(), couponCode, 'basket');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -27,10 +27,9 @@ export default function CartPage() {
   const singleRetail = groups.length === 1 && groups[0].salesChannel !== 'wholesale';
   const channelQuoteReady = singleRetail && groups[0].channel === cartChannel && serverCart?.channel === cartChannel
     && serverCart.items?.length > 0 && Boolean(serverCart.pricing);
-  // Single retail checkout reads /api/cart, including the selected Coins
-  // discount. Use that same quote instead of changing totals on navigation.
+  // Single retail checkout reads /api/cart. Use that same quote instead of
+  // changing totals on navigation.
   const summaryData = singleRetail ? { ...data, totals: channelQuoteReady && data?.totals ? serverCart.pricing : null } : data;
-  const coinDiscount = channelQuoteReady && useCoinsSelected ? serverCart.coins?.coinDiscount || 0 : 0;
   const pricingPending = singleRetail && (cartLoading || !channelQuoteReady);
   const refreshPrices = async () => { await Promise.all([basket.reload(), refreshCart?.()]); };
   useEffect(() => {
@@ -87,7 +86,7 @@ export default function CartPage() {
           onWishlist={async (item, section) => { const result = await addToWishlist(item.productId); if (result.ok) await remove(item, section); else setError(result.message); }}
           onMode={async (section, mode) => { const result = await basket.setGroupMode(section, mode); if (!result.ok) setError(result.message); else await refreshCart?.(); }}
         /></div>)}</div>
-        <aside className="basket-summary-column"><BasketSummary data={summaryData} coinDiscount={coinDiscount} />{pricingPending && <p role="status" className="basket-summary-note">Updating payment summary…</p>}{singleRetail && groups[0].channel === cartChannel && <>
+        <aside className="basket-summary-column"><BasketSummary data={summaryData} />{pricingPending && <p role="status" className="basket-summary-note">Updating payment summary…</p>}{singleRetail && groups[0].channel === cartChannel && <>
           <CouponThresholdProgress offers={availableCoupons} appliedCode={appliedCoupon?.code} onShopMore={shopMore} />
           {couponNotice && <p role="status" className="coupon-cart-notice">{couponNotice}</p>}
           {appliedCoupon && <div className="coupon-cart-applied"><strong>{appliedCoupon.code} applied</strong><span>{serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`}</span><button type="button" onClick={removeCoupon}>Remove</button></div>}

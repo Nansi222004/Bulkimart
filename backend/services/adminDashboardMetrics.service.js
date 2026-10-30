@@ -186,7 +186,7 @@ export async function getAdminFinancialMetrics() {
       for await (const payment of Payment.aggregate(pipeline).session(session).cursor()) addOrderCollection(collections,payment,payment.orders,payment.returns,seenCaptures,seenRefunds);
       for await (const entry of Ledger.find({account:{$in:['commission_revenue','parcel_revenue','advertising_revenue']}}).select('account amount currency direction type metadata serviceApplicationId parcelDeliveryId advertisingCampaignId paymentId').session(session).lean().cursor()) addPostedRevenue(commission, entry);
       result = {version:1,currency:'INR',unit:'paise',scope:'all-time',timezone:'Asia/Kolkata',asOf:new Date().toISOString(),
-        orderValue:{...finish(orderValue),basis:'Gross completed order value before subsequent item refunds; includes customer delivery, tip and donation.'},
+        orderValue:{...finish(orderValue),basis:'Gross completed order value before subsequent item refunds; includes customer delivery and tip.'},
         collections:{...finish(collections),basis:'Net verified external order collections after verified completed refunds. Wallet transfers excluded; not bank settlement.'},
         platformRevenue:{...finish(commission),basis:'Net posted order commissions, earned parcel income and recognized advertising income, after posted reversals. Taxes, seller/rider payables, pending legal commissions and other unrecognized fees excluded.',scope:'posted-platform-income'}};
     }, {readConcern:{level:'snapshot'},readPreference:'primary'});

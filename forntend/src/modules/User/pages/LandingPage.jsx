@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StorefrontProvider, useStorefront } from '../context/StorefrontContext';
 import { themeStyle, resolveTokens } from '../../../utils/storefront';
 import PromotionalSplash, { useLaunchSplash } from '../components/PromotionalSplash';
@@ -102,6 +102,38 @@ export const LandingPageContent = () => {
       meta.setAttribute('content', resolveTokens(experience.theme.tokens).header);
     }
   }, [experience.theme.tokens]);
+  // Back on the Home feed asks before leaving the app. A guard history entry sits above Home; when
+  // the phone's back button pops it (and nothing else is open), we confirm and put the guard back.
+  const [confirmExit, setConfirmExit] = useState(false);
+  const lastPath = useRef(window.location.pathname);
+  useEffect(() => {
+    const onHome = () => window.location.pathname === '/' && !window.location.search.includes('product=');
+    if (activeNav === 'home' && onHome() && !window.history.state?.exitGuard) window.history.pushState({ exitGuard: true }, '');
+    const onPop = () => {
+      const cameFromHome = lastPath.current === '/';
+      lastPath.current = window.location.pathname;
+      if (cameFromHome && onHome() && !window.history.state?.exitGuard) {
+        window.history.pushState({ exitGuard: true }, '');
+        setConfirmExit(true);
+      }
+    };
+    const track = () => { lastPath.current = window.location.pathname; };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('app:locationchange', track);
+    return () => { window.removeEventListener('popstate', onPop); window.removeEventListener('app:locationchange', track); };
+  }, [activeNav]);
+  const exitApp = () => {
+    setConfirmExit(false);
+    // Leave the guard entry and Home behind; fall back to closing the tab/app window.
+    window.history.go(-2);
+    setTimeout(() => window.close(), 200);
+  };
+
+  // The tab bodies share one scroll area, so a new tab (e.g. Home after the order-placed screen)
+  // must not inherit the previous tab's scroll position.
+  useEffect(() => {
+    document.querySelector('.user-main-content')?.scrollTo?.({ top: 0 });
+  }, [activeNav]);
   useEffect(()=>{
     if(!currentUser && productRoute.present && productRoute.mode==='wholesale')rememberWholesaleReturn(productRoute.id,productRoute.variant);
   },[currentUser,productRoute.id,productRoute.variant,productRoute.mode]);
@@ -298,6 +330,17 @@ export const LandingPageContent = () => {
           </div>
         </div>
       )}
+
+      {confirmExit && <div role="dialog" aria-modal="true" aria-label="Exit app" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 320, textAlign: 'center' }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Exit Bulkimart?</h3>
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>Do you want to close the app?</p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button type="button" onClick={() => setConfirmExit(false)} style={{ flex: 1, padding: 12, borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', fontWeight: 700, cursor: 'pointer' }}>Stay</button>
+            <button type="button" onClick={exitApp} style={{ flex: 1, padding: 12, borderRadius: 12, border: 0, background: 'var(--primary)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Exit</button>
+          </div>
+        </div>
+      </div>}
 
       {/* Fixed Bottom Nav Bar */}
       <BottomNav />

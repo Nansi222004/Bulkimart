@@ -27,7 +27,7 @@ export default function CommissionSimulation({ rule }) {
   return <details className="finance-panel"><summary>Try it — what one item would earn</summary>
     <p className="finance-muted">A quick preview using the rule above. Nothing is saved.</p>
     <div className="finance-grid"><label>Item price (₹)<input type="number" min="0" step="0.01" value={subtotal} onChange={e => setSubtotal(e.target.value)} />{hint('Full price of the item line.', '100')}</label>
-      <label>Coupon / coins on this item (₹)<input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} />{hint('Bulkimart pays this discount, so the seller is not charged for it.', '10')}</label></div>
+      <label>Coupon on this item (₹)<input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} />{hint('Bulkimart pays this discount, so the seller is not charged for it.', '10')}</label></div>
     {!result ? <p>Fill in the rule above and both amounts to see the result.</p> : result.blocked ? <p role="alert">Commission and GST would be more than the item price.</p> : <dl>{Object.entries(result).map(([key, value]) => <div key={key}><dt>{names[key]}</dt><dd>₹{(value / 100).toFixed(2)}</dd></div>)}</dl>}
   </details>;
 }

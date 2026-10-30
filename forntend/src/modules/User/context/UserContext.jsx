@@ -858,15 +858,6 @@ export const UserProvider = ({ children }) => {
   const [cartSummaryReady, setCartSummaryReady] = useState(false);
   const cartRequest = useRef(0);
 
-  /**
-   * "Use Coins" is intent only — the server decides everything else
-   * (eligibility, max redemption, actual discount; see serverCart.coins,
-   * populated by GET /api/cart). This flag just controls whether the next
-   * cart fetch asks the server to apply the discount or not; it is never
-   * itself the discount amount.
-   */
-  const [useCoinsSelected, setUseCoinsSelected] = useState(false);
-
   const isSignedIn = () => (!restoredSession || restoredSession.verified) && Boolean(localStorage.getItem('userToken'));
 
   const refreshCartSummary = useCallback(async () => {
@@ -925,7 +916,6 @@ export const UserProvider = ({ children }) => {
       const point = getPricingPoint();
       if (point) { qs.set('lat', String(point.lat)); qs.set('lng', String(point.lng)); }
       if (wantMode) qs.set('deliveryMode', wantMode);
-      if (useCoinsSelected) qs.set('useCoins', 'true');
 
       const res = await fetch(apiUrl(`/api/cart?${qs}`), { headers: authHeaders(false) });
       if (res.status === 401) {
@@ -974,10 +964,7 @@ export const UserProvider = ({ children }) => {
     // adding a useCallback to another's dep array rebuilds the outer one
     // every time the inner rebuilds, which was the original loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartChannel, couponCode, deliveryMode, selectedAddressId, pricingPinKey, useCoinsSelected]);
-
-  /** Toggling re-fetches the cart so the discount shown is always server-calculated, never guessed client-side. */
-  const toggleUseCoins = (next) => setUseCoinsSelected(Boolean(next));
+  }, [cartChannel, couponCode, deliveryMode, selectedAddressId, pricingPinKey]);
 
   /**
    * Choose how this order should arrive, and re-price it.
@@ -1648,7 +1635,6 @@ export const UserProvider = ({ children }) => {
         coupon: couponCode || undefined,
         paymentMethod: PAYMENT_CODE[paymentMethod] || 'cod',
         deliveryMode: cartChannel === 'ecommerce' ? (deliveryMode || serverCart?.items?.[0]?.deliveryMode || undefined) : undefined,
-        useCoins: useCoinsSelected,
         tipAmount: tipAmount || undefined,
         addressId: addr._id || addr.id || undefined,
         shippingAddress: {
@@ -1677,10 +1663,9 @@ export const UserProvider = ({ children }) => {
       clearCheckoutKey('single');
       setCouponCode('');
       setAppliedCoupon(null);
-      setUseCoinsSelected(false);
       await Promise.allSettled([refreshCart(cartChannel, ''), fetchOrders(), fetchWalletBalance()]);
       if (!isCurrentUserSession(checkoutSession)) return { ok: false, message: 'Your customer session changed. Sign in again to review your order.' };
-      return { ok: true, checkoutKey: requestHeaders['Idempotency-Key'], order: body.data.order, coinsUsed: body.data.coinsUsed, coinDiscount: body.data.coinDiscount, message: body.message };
+      return { ok: true, checkoutKey: requestHeaders['Idempotency-Key'], order: body.data.order, message: body.message };
     } catch (err) {
       return { ok: false, operation: 'single', code: 'CHECKOUT_OUTCOME_UNCERTAIN', message: 'We could not confirm the checkout result. Check its status before trying again.' };
     }
@@ -1939,7 +1924,6 @@ export const UserProvider = ({ children }) => {
         // Cart — server-backed, one basket per storefront
         cart: serverCart,
         serverCart, cartChannel, switchCartChannel, cartSummary, cartLoading, refreshCart,
-        useCoinsSelected, toggleUseCoins,
         deliveryMode, setDeliveryMode,
         addToCart, removeFromCart, clearCart,
         setCartItemQty, deleteCartItem,

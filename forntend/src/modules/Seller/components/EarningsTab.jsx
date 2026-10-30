@@ -44,7 +44,7 @@ export const EarningsTab = () => {
   return <div style={{ padding: '0 4px 40px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
       <div><h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>Earnings & settlements</h1>
-        <p style={{ color: '#64748b', fontSize: 13 }}>For each item you get the full item price minus Bulkimart’s commission, GST on that commission, and any TCS/TDS. Coupons and coins are paid by Bulkimart, not by you.</p></div>
+        <p style={{ color: '#64748b', fontSize: 13 }}>For each item you get the full item price minus Bulkimart’s commission, GST on that commission, and any TCS/TDS. Coupons are paid by Bulkimart, not by you.</p></div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={fetchSellerFinances} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 9, background: '#fff' }}>Refresh</button>
         <button disabled={!financeSummary?.payoutActionsEnabled} onClick={() => setActiveTab('moneyrequest')}
@@ -84,10 +84,12 @@ export const EarningsTab = () => {
       <p style={{ color: '#64748b', fontSize: 13 }}>Full item prices, before commission and refunds.</p>
       <p style={{ color: '#64748b', fontSize: 13 }}>Net earning includes the commission and tax deductions saved for each order. Refunds and settlement changes appear in your statement.</p>
       {sales.orders?.length ? <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 13, textAlign: 'left' }}>
-        <thead><tr>{['Order', 'Item sales', 'Customer discount', 'Admin commission', 'GST on commission', 'TCS', 'TDS', 'Net earning', 'Where your money is'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
+        <thead><tr>{['Order', 'Item sales', 'Customer discount', 'Product GST (in price)', 'Admin commission', 'GST on commission', 'TCS', 'TDS', 'Net earning', 'Where your money is'].map(title => <th key={title} style={{ padding: 8 }}>{title}</th>)}</tr></thead>
         <tbody>{sales.orders.map(order => <tr key={order._id}>
           <td style={{ padding: 8 }}>{order.orderNo}</td><td style={{ padding: 8 }}>{money(order.grossAmount)}</td>
-          {['totalDiscount', 'commission', 'commissionTax', 'tcs', 'tds', 'netEarnings'].map(key => <td key={key} style={{ padding: 8 }}>{money(order.sellerAmounts?.[key])}</td>)}
+          <td style={{ padding: 8 }}>{money(order.sellerAmounts?.totalDiscount)}</td>
+          <td style={{ padding: 8 }}>{money(order.productGst)}</td>
+          {['commission', 'commissionTax', 'tcs', 'tds', 'netEarnings'].map(key => <td key={key} style={{ padding: 8 }}>{money(order.sellerAmounts?.[key])}</td>)}
           <td style={{ padding: 8 }}>{settlementStatus(order)}</td>
         </tr>)}</tbody>
       </table>{sales.orderCount > sales.orders.length && <p>Showing the latest {sales.orders.length} delivered orders. See Orders for the full list.</p>}</div> : <p>No delivered orders yet.</p>}

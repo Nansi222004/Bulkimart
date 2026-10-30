@@ -48,25 +48,25 @@ const checkoutAmount = (h, label) => {
   return row ? amount(row.props.children[1]) : 0;
 };
 
-for (const options of [{}, { coupon: 100 }, { coupon: 100, coins: 25 }, { freeDelivery: true, coins: 50 }]) {
+for (const options of [{}, { coupon: 100 }, { freeDelivery: true }]) {
   test(`Quick cart and checkout show the same server subtotal, delivery, discounts, and payable amount ${JSON.stringify(options)}`, async () => {
     const { context, basket, pricing } = fixture(options);
     // A second quote can be older while the channel quote includes the latest
-    // coupon/Coins state. Navigation must not switch which quote is displayed.
+    // coupon state. Navigation must not switch which quote is displayed.
     basket.data.totals = { ...basket.data.totals, subtotal: 999, totalAmount: 1039 };
     const cart = hookHarness(Cart, {}, '/cart', context);
     let rows;
     try {
       await load(cart, basket); rows = cartRows(cart);
       assert.equal(rows['Items Subtotal'], 500);
-      assert.equal(rows['Grand Total'], pricing.totalAmount - (options.coins || 0));
-      assert.equal(rows['Bulkimart Coins'] || 0, options.coins || 0);
+      assert.equal(rows['Grand Total'], pricing.totalAmount);
+      assert.equal(rows['Bulkimart Coins'], undefined);
       assert.equal(cart.find(node => node.props?.className === 'pd-add-to-cart-btn').props.disabled, false);
     } finally { cart.close(); }
     const checkout = hookHarness(Checkout, {}, '/checkout', context);
     try {
       await load(checkout, basket);
-      for (const label of ['Items Subtotal', 'Delivery Charges', 'Coupon Discount', 'Bulkimart Coins']) assert.equal(checkoutAmount(checkout, label), rows[label] || 0, label);
+      for (const label of ['Items Subtotal', 'Delivery Charges', 'Coupon Discount']) assert.equal(checkoutAmount(checkout, label), rows[label] || 0, label);
       assert.equal(checkoutAmount(checkout, 'Total Amount to Pay'), rows['Grand Total']);
     } finally { checkout.close(); }
   });
@@ -102,16 +102,16 @@ test('cart waits for its own channel quote and refresh prices reloads both quote
 });
 
 test('placed-order confirmation keeps the persisted payable amount after the cart is cleared', async () => {
-  const { context, basket, pricing } = fixture({ coupon: 100, coins: 25 });
+  const { context, basket, pricing } = fixture({ coupon: 100 });
   context.placeOrder = async () => {
     context.serverCart = { channel: 'grocery', items: [], pricing: { totalAmount: 0 } };
     return { ok: true, order: { _id: 'placed', orderNo: 'ORD-FIXTURE', status: 'placed', paymentMethod: 'cod', shippingAddress: address,
-      items: [], timeline: [], pricing: { ...pricing, coinDiscount: 25, totalAmount: 415 } } };
+      items: [], timeline: [], pricing: { ...pricing, totalAmount: 440 } } };
   };
   const checkout = hookHarness(Checkout, {}, '/checkout', context);
   try {
-    await load(checkout, basket); assert.equal(checkoutAmount(checkout, 'Total Amount to Pay'), 415);
+    await load(checkout, basket); assert.equal(checkoutAmount(checkout, 'Total Amount to Pay'), 440);
     await checkout.find(node => node.props?.className === 'pd-add-to-cart-btn').props.onClick(); checkout.flush();
-    assert.equal(checkoutAmount(checkout, 'Order Amount'), 415);
+    assert.equal(checkoutAmount(checkout, 'Order Amount'), 440);
   } finally { checkout.close(); }
 });

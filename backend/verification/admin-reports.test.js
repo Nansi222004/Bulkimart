@@ -221,7 +221,7 @@ describe('order payments report', () => {
     const csv = await request(app).get(`/api/admin/reports/export?report=orders&${SEPT}`).set('Authorization', finance).expect(200);
     expect(csv.headers['content-disposition']).toMatch(/bulkimart-order-payments-2026-09-01-to-2026-09-30\.csv/);
     expect(csv.text).toMatch(/Admin earning \(INR\)/);
-    expect(csv.text).toMatch(/"ORD-A".*1015,1000,20,30,5,0,110\.58,869\.36,40,98,17\.64,5,10,20,68,0,"posted"/);
+    expect(csv.text).toMatch(/"ORD-A".*1015,1000,20,30,5,110\.58,869\.36,40,98,17\.64,5,10,20,68,0,"posted"/);
   });
   test('orders without a usable checkout snapshot show an unavailable split instead of failing', async () => {
     await seed();

@@ -119,6 +119,20 @@ const ProfilePage = () => {
 
   const [activeSection, setActiveSection] = useState(() => new URLSearchParams(window.location.search).get('section') === 'wallet' ? 'real-wallet' : null);
 
+  // Each Account section gets its own history entry, so the phone's back button closes the
+  // section and lands on the Account menu instead of leaving the page for Home.
+  useEffect(() => {
+    const onPop = () => setActiveSection(window.history.state?.accountSection || null);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  useEffect(() => {
+    const entry = window.history.state?.accountSection || null;
+    if (activeSection && entry !== activeSection) window.history.pushState({ ...(window.history.state || {}), accountSection: activeSection }, '');
+    // Closed with the in-page back arrow: drop the section's history entry too.
+    else if (!activeSection && entry) window.history.back();
+  }, [activeSection]);
+
   // Sub-Section states
   const [profileName, setProfileName] = useState(currentUser?.name || '');
   const [profileEmail, setProfileEmail] = useState(currentUser?.email || '');
@@ -312,44 +326,10 @@ const ProfilePage = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [langSelection, setLangSelection] = useState('English');
 
-  // NHCONE Coins — real balance/history from CoinWallet/CoinTransaction
-  // (GET /api/coins, /api/coins/history). This used to be a fabricated
-  // local number (`useState(2450)`) with a client-side "+Add Coins" button
-  // that let a user mint their own Coins with zero backend validation —
-  // removed entirely; Coins are earned automatically, never self-credited.
-  const [coinBalance, setCoinBalance] = useState(null);
-  const [coinHistory, setCoinHistory] = useState([]);
-  const [loadingCoins, setLoadingCoins] = useState(false);
-
   const { data: realWalletData, transactions: realWalletTxns, loading: loadingRealWallet,
     error: realWalletError, refresh: loadRealWalletDetails } = useCustomerWallet({
     active: activeSection === 'real-wallet', userId: currentUser?._id || currentUser?.id, onBalance: setWalletBalance,
   });
-
-  const loadCoinWallet = async () => {
-    setLoadingCoins(true);
-    try {
-      const authHeader = { Authorization: 'Bearer ' + localStorage.getItem('userToken') };
-      const [walletRes, historyRes] = await Promise.all([
-        fetch(apiUrl('/api/coins'), { headers: authHeader }).then((r) => r.json()),
-        fetch(apiUrl('/api/coins/history?limit=20'), { headers: authHeader }).then((r) => r.json()),
-      ]);
-      setCoinBalance(walletRes?.data?.availableCoins ?? 0);
-      setCoinHistory(historyRes?.data || []);
-    } catch (err) {
-      setCoinBalance(0);
-      setCoinHistory([]);
-    } finally {
-      setLoadingCoins(false);
-    }
-  };
-
-  // Loaded once on mount (drives the sidebar badge) and refreshed whenever
-  // the Coins section itself is opened, so the history list is always current.
-  useEffect(() => { loadCoinWallet(); }, []);
-  useEffect(() => {
-    if (activeSection === 'wallet') loadCoinWallet();
-  }, [activeSection]);
 
   // Dynamic Privacy Policy states
   const [privacyTab, setPrivacyTab] = useState('user-policy');
@@ -492,29 +472,6 @@ const ProfilePage = () => {
         </span>
       ),
       action: () => setActiveSection('real-wallet')
-    },
-    {
-      id: 'wallet',
-      label: 'Coins',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v10M9 9.5a2.5 2.5 0 0 1 5 0c0 1.5-1 2.5-2.5 3s-2.5 1.5-2.5 3a2.5 2.5 0 0 0 5 0" />
-        </svg>
-      ),
-      badge: (
-        <span className="menu-badge wallet-badge" style={{
-          backgroundColor: 'rgba(234, 179, 8, 0.15)',
-          color: '#d97706',
-          fontSize: '11px',
-          fontWeight: '800',
-          padding: '2px 8px',
-          borderRadius: '20px'
-        }}>
-          🪙 {coinBalance ?? '—'} Coins
-        </span>
-      ),
-      action: () => setActiveSection('wallet')
     },
     {
       id: 'orders',
@@ -759,7 +716,7 @@ const ProfilePage = () => {
       case 'real-wallet':
         return (
           <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            <p style={{ margin: 0, fontSize: '13px' }}>Bulkimart Wallet holds money in rupees for payments and refunds. Parcel refunds sent to your wallet appear here. Coins are earned rewards for discounts on eligible orders.</p>
+            <p style={{ margin: 0, fontSize: '13px' }}>Bulkimart Wallet holds money in rupees for payments and refunds. Parcel refunds sent to your wallet appear here.</p>
             {realWalletError && <p role="alert">{realWalletError} {realWalletData && 'The balance below was last loaded successfully and may be outdated.'}</p>}
             <button type="button" onClick={loadRealWalletDetails} disabled={loadingRealWallet}>{loadingRealWallet ? 'Refreshing wallet…' : 'Refresh wallet'}</button>
             {topupAlert && (
@@ -1011,64 +968,6 @@ const ProfilePage = () => {
                     </div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-        );
-
-      case 'wallet':
-        return (
-          <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, #fffbe6 0%, #fef3c7 100%)',
-              border: '1.5px solid #fde68a',
-              borderRadius: '16px',
-              padding: '24px',
-              textAlign: 'center',
-              boxShadow: '0 4px 12px rgba(217, 119, 6, 0.08)'
-            }}>
-              <span style={{ fontSize: '12px', color: '#b45309', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>Available Coins</span>
-              <h2 style={{ fontSize: '36px', fontWeight: '900', margin: '8px 0 16px 0', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                🪙 {loadingCoins ? '…' : (coinBalance ?? 0).toLocaleString('en-IN')} <span style={{ fontSize: '18px', color: '#b45309', fontWeight: '700' }}>Coins</span>
-              </h2>
-              <p style={{ margin: 0, fontSize: '12px', color: '#92400e', lineHeight: '1.4' }}>
-                Earned automatically on delivered orders, once each item's return window closes. Use Coins for discounts on eligible orders. Parcel wallet refunds appear in Bulkimart Wallet.
-              </p>
-            </div>
-
-            <h4 style={{ margin: '12px 0 0 0', fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Transaction History</h4>
-            {loadingCoins ? (
-              <p style={{ fontSize: '13px', color: '#64748b' }}>Loading...</p>
-            ) : coinHistory.length === 0 ? (
-              <div style={{ padding: '20px', background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>No Coin activity yet.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {coinHistory.map(tx => (
-                  <div key={tx._id} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '14px 16px',
-                    backgroundColor: '#ffffff',
-                    borderRadius: '14px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-                  }}>
-                    <div>
-                      <span style={{ fontSize: '13px', fontWeight: '700', display: 'block', color: '#0f172a' }}>{tx.description || tx.type}</span>
-                      <span style={{ fontSize: '11px', color: '#64748b' }}>{new Date(tx.createdAt).toLocaleString('en-IN')}</span>
-                    </div>
-                    <span style={{
-                      fontSize: '14px',
-                      fontWeight: '800',
-                      color: ['EARN', 'REFUND', 'RELEASE'].includes(tx.type) ? '#16a34a' : '#ef4444'
-                    }}>
-                      {['EARN', 'REFUND', 'RELEASE'].includes(tx.type) ? '+' : '-'} {tx.amount} Coins
-                    </span>
-                  </div>
-                ))}
               </div>
             )}
           </div>

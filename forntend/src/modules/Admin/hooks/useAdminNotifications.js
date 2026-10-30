@@ -42,6 +42,15 @@ export default function useAdminNotifications() {
     setNotifications(rows => rows.map(row => row._id === id ? { ...row, isRead: true } : row));
     await fetchAdminUnreadCount();
   }, [fetchAdminUnreadCount]);
+  const markAllAdminNotificationsRead = useCallback(async () => {
+    const session = token(); if (!session) return;
+    try {
+      await adminPatch('/notifications/read-all', {});
+      if (!current(session)) return;
+      setNotifications(rows => rows.map(row => ({ ...row, isRead: true })));
+      setCount(0);
+    } catch { /* non-critical */ }
+  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -94,5 +103,5 @@ export default function useAdminNotifications() {
       disconnectSocket();
     };
   }, [fetchAdminNotifications, fetchAdminUnreadCount]);
-  return { adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError, fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead };
+  return { adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError, fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead, markAllAdminNotificationsRead };
 }

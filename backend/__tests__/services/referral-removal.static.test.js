@@ -46,12 +46,11 @@ test('customer registration and profile source no longer carries invite state or
   expect(customerSource).not.toMatch(/pendingReferralCode|\/api\/referrals|referralCode|Refer & Earn|Invite Friends/i);
 });
 
-test('generic Coins and wallet modules remain present', () => {
+test('generic wallet and historical Coins modules remain present', () => {
   [
     'backend/services/coin.service.js',
     'backend/models/CoinTransaction.js',
     'backend/models/CoinWallet.js',
-    'backend/routes/coin.routes.js',
     'backend/routes/wallet.routes.js',
   ].forEach((relativePath) => {
     expect(fs.existsSync(path.join(repoRoot, relativePath))).toBe(true);

@@ -5,6 +5,9 @@ import { enterCustomerSession } from '../../../utils/userSession';
 import ServiceAreaEditor from '../components/ServiceAreaEditor';
 import { riderRatingSummary } from '../utils/riderRating';
 
+// India's national emergency number; the SOS button places a real call to it.
+const EMERGENCY_HELPLINE = '112';
+
 export const DeliveryProfilePage = () => {
   const ui = useFeedback();
   const { onboardingForm, logoutDelivery, triggerToast, earningsData, riderName, riderProfile,
@@ -267,13 +270,13 @@ export const DeliveryProfilePage = () => {
         }}>{switching ? 'Opening shop…' : 'Shop as customer'}</button>
         <button 
           className="profile-support-btn"
-          onClick={() => triggerToast('Dialing Emergency Helpline (Mock Call)...')}
+          onClick={() => ui.perform('Call the emergency helpline (112) now?', async () => { window.location.href = `tel:${EMERGENCY_HELPLINE}`; })}
         >
           🚨 SOS Emergency Helpline
         </button>
         <button 
           className="profile-support-btn outline"
-          onClick={() => triggerToast('Connecting with Partner Support Chat...')}
+          onClick={() => { window.history.pushState(null, '', '/delivery/support'); window.dispatchEvent(new PopStateEvent('popstate')); }}
         >
           💬 Chat with Support Helpdesk
         </button>

@@ -2518,3 +2518,13 @@ input[type="checkbox"] { accent-color: #08b9e8; }
 .delivery-return-otp input { width: 100%; min-height: 52px; box-sizing: border-box; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 0 14px; font-size: 22px !important; font-weight: 800; letter-spacing: .5em; text-align: center; color: #0f172a; }
 .delivery-return-otp input:focus-visible { outline: 3px solid #0ea5c6; outline-offset: 1px; }
 .delivery-return-note { margin: 0; padding: 12px 14px; border-radius: 12px; background: #dcfce7; color: #166534; font-size: 13px; font-weight: 700; }
+
+.delivery-notifications-read-all { margin: 10px 0 4px auto; display: block; padding: 8px 14px; border: 1.5px solid #0f9f91; border-radius: 10px; background: #fff; color: #0f766e; font-size: 13px; font-weight: 700; cursor: pointer; }
+.delivery-notifications-read-all:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Tighter footer: keep the menu close to the phone's own footer instead of reserving the whole safe-area band under it. */
+.delivery-navbar-bottom {
+  height: calc(58px + min(env(safe-area-inset-bottom, 0px), 10px));
+  padding-bottom: min(env(safe-area-inset-bottom, 0px), 10px);
+}
+.delivery-main-viewport { padding-bottom: calc(72px + min(env(safe-area-inset-bottom, 0px), 10px)); }

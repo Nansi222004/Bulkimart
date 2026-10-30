@@ -28,18 +28,42 @@ const timeAgo = (iso) => {
   return `${Math.floor(hrs / 24)}d ago`;
 };
 
+// Resolve search query to best matching admin tab
+const resolveSearchTab = (query) => {
+  const q = query.toLowerCase().trim();
+  if (!q) return null;
+  if (/user|customer|buyer/.test(q)) return 'user-dashboard';
+  if (/seller|vendor|store/.test(q)) return 'vendor-dashboard';
+  if (/order|purchase/.test(q)) return 'user-orders';
+  if (/product|item|inventory/.test(q)) return 'products';
+  if (/delivery|rider|dispatch/.test(q)) return 'delivery-dashboard';
+  if (/ticket|support/.test(q)) return 'tickets';
+  if (/report|analytics/.test(q)) return 'reports';
+  if (/banner|advertis/.test(q)) return 'banners';
+  if (/category|categor/.test(q)) return 'categories-all';
+  if (/payout|payment|financ|wallet/.test(q)) return 'finance-center';
+  if (/coupon|promo|campaign/.test(q)) return 'campaigns';
+  if (/notification|broadcast/.test(q)) return 'notifications';
+  if (/return|refund/.test(q)) return 'returns';
+  if (/review|rating/.test(q)) return 'user-reviews';
+  return null;
+};
+
 export const TopHeader = ({ onLogout }) => {
   const ui = useFeedback();
   const {
     triggerToast, activeTab, setActiveTab,
     adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
-    fetchAdminNotifications, markAdminNotificationRead,
+    fetchAdminNotifications, markAdminNotificationRead, markAllAdminNotificationsRead,
     openTicketDetail,
   } = useAdmin();
   const pageTitle = pageTitles[activeTab] || String(activeTab || 'Dashboard').split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
   const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const panelRef = useRef(null);
+  const profileRef = useRef(null);
   const notificationOpener = useRef(createAdminNotificationOpener());
 
   useEffect(() => {
@@ -49,6 +73,7 @@ export const TopHeader = ({ onLogout }) => {
   useEffect(() => {
     const onClickOutside = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) setShowNotifPanel(false);
+      if (profileRef.current && !profileRef.current.contains(e.target)) setShowProfileModal(false);
     };
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
@@ -64,6 +89,27 @@ export const TopHeader = ({ onLogout }) => {
     },
   });
 
+  // Bug #186 fix: universal search actually navigates
+  const handleSearch = (e) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      const targetTab = resolveSearchTab(searchQuery);
+      if (targetTab) {
+        setActiveTab(targetTab);
+        triggerToast(`Navigating to ${pageTitles[targetTab] || targetTab} for "${searchQuery}"`);
+      } else {
+        triggerToast(`No matching section found for "${searchQuery}". Try: users, orders, sellers, delivery, reports…`);
+      }
+      setSearchQuery('');
+    }
+  };
+
+  let adminInfo = null;
+  try { adminInfo = JSON.parse(localStorage.getItem('adminUser') || '{}'); } catch { adminInfo = null; }
+  const displayName = adminInfo?.name || 'Super Admin';
+  const displayEmail = adminInfo?.email || 'admin@bulkimart.in';
+  const displayRole = adminInfo?.role || 'superAdmin';
+  const initials = displayName.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'SA';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       {/* Sticky top raw header row */}
@@ -75,7 +121,7 @@ export const TopHeader = ({ onLogout }) => {
           <span className="sa-header-subtitle">{activeTab === 'overview' ? 'Overview of Bulkimart platform performance' : `Manage ${pageTitle.toLowerCase()} in Bulkimart`}</span>
         </div>
 
-        {/* Center global search bar */}
+        {/* Center global search bar — Bug #185: removed Ctrl+K badge; Bug #186: navigates on Enter */}
         <div className="sa-search-wrapper">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -83,19 +129,17 @@ export const TopHeader = ({ onLogout }) => {
           <input
             type="text"
             className="sa-search-input"
-            placeholder="Search users, orders, products, sellers..."
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                triggerToast(`Searching for "${e.target.value}"...`);
-              }
-            }}
+            placeholder="Search users, orders, products, sellers…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearch}
           />
-          <span className="sa-search-badge">Ctrl + K</span>
         </div>
 
         {/* Right utility buttons */}
         <div className="sa-header-right">
           
+          {/* Bug #187 fix: notification panel with "Mark All Read" button */}
           <div ref={panelRef} style={{ position: 'relative' }}>
             <button className="sa-header-action-btn" aria-label="Notifications" onClick={() => setShowNotifPanel((v) => !v)}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -111,8 +155,19 @@ export const TopHeader = ({ onLogout }) => {
                 background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
                 boxShadow: '0 12px 32px rgba(15,23,42,0.15)', zIndex: 200, display: 'flex', flexDirection: 'column',
               }}>
-                <div style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9', fontWeight: 800, fontSize: 15 }}>
-                  Notifications {adminUnreadCount > 0 && <span style={{ color: '#dc2626' }}>({adminUnreadCount})</span>}
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontWeight: 800, fontSize: 15 }}>
+                    Notifications {adminUnreadCount > 0 && <span style={{ color: '#dc2626' }}>({adminUnreadCount})</span>}
+                  </span>
+                  {adminUnreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => markAllAdminNotificationsRead()}
+                      style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 6, whiteSpace: 'nowrap' }}
+                    >
+                      Mark all read
+                    </button>
+                  )}
                 </div>
                 <div style={{ overflowY: 'auto', flex: 1 }}>
                   <div style={{ padding: 14 }}><SellerPushControl register={registerAdminPush} label="Admin notification settings" buttonLabel="Enable push notifications" /></div>
@@ -142,35 +197,64 @@ export const TopHeader = ({ onLogout }) => {
 
           <div className="sa-header-divider" />
 
-          {/* Admin Avatar section */}
-          {(() => {
-            let adminInfo = null;
-            try { adminInfo = JSON.parse(localStorage.getItem('adminUser') || '{}'); } catch { adminInfo = null; }
-            const displayName = adminInfo?.name || 'Super Admin';
-            const initials = displayName.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'SA';
-            return (
-              <div 
-                className="sa-user-badge" role="button" tabIndex={0} aria-label="Log out of admin"
-                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click(); } }}
-                onClick={async () => {
-                  return ui.perform("Are you sure you want to log out?", async () => {
-                    return await onLogout();
-                  });
-                }}
-                style={{ cursor: 'pointer' }}
-                title="Click to Log Out"
-              >
-                <div className="sa-avatar">{initials}</div>
-                <div className="sa-user-info">
-                  <span className="sa-user-name">{displayName}</span>
-                  <span className="sa-user-role">Logout</span>
-                </div>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
+          {/* Bug #188 fix: clicking avatar opens profile modal, not immediate logout */}
+          <div ref={profileRef} style={{ position: 'relative' }}>
+            <div
+              className="sa-user-badge" role="button" tabIndex={0} aria-label="View admin profile"
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setShowProfileModal(v => !v); } }}
+              onClick={() => setShowProfileModal(v => !v)}
+              style={{ cursor: 'pointer' }}
+              title="Click to view profile"
+            >
+              <div className="sa-avatar">{initials}</div>
+              <div className="sa-user-info">
+                <span className="sa-user-name">{displayName}</span>
+                <span className="sa-user-role">View Profile</span>
               </div>
-            );
-          })()}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sa-text-muted)" strokeWidth="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+
+            {showProfileModal && (
+              <div style={{
+                position: 'absolute', top: '120%', right: 0, width: 'min(280px, calc(100vw - 32px))',
+                background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                boxShadow: '0 12px 32px rgba(15,23,42,0.15)', zIndex: 200, overflow: 'hidden',
+              }}>
+                {/* Profile header */}
+                <div style={{ padding: '18px 16px 14px', background: 'linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)', textAlign: 'center' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900, color: '#fff', margin: '0 auto 10px' }}>{initials}</div>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: '#fff' }}>{displayName}</div>
+                  <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>{displayEmail}</div>
+                </div>
+                {/* Profile details */}
+                <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {[['Role', displayRole.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())], ['Platform', 'Bulkimart Admin'], ['Session', 'Active']].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>{label}</span>
+                      <span style={{ fontWeight: 800, color: '#0f172a' }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Logout button */}
+                <div style={{ padding: '0 12px 12px' }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setShowProfileModal(false);
+                      return ui.perform('Are you sure you want to log out?', async () => {
+                        return await onLogout();
+                      });
+                    }}
+                    style={{ width: '100%', padding: '8px 0', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}
+                  >
+                    🚪 Log Out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
         </div>
       </div>

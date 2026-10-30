@@ -91,6 +91,9 @@ export const ProductsTab = () => {
   useEffect(() => { if (categoryFilter !== 'All' && !categoryOptions.includes(categoryFilter)) setCategoryFilter('All'); }, [categoryKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const query = search.trim().toLowerCase();
 
+  // Anything that narrows or reorders the list lights the dot on the Filters button.
+  const hasActiveFilter = search.trim() !== '' || categoryFilter !== 'All' || sortBy !== 'Newest' || activeProductTab !== 'All';
+
   // Filter products by name, category and the KPI tab
   const filteredProducts = products.filter(p => {
     const matchesSearch = !query || p.name.toLowerCase().includes(query);
@@ -597,8 +600,10 @@ export const ProductsTab = () => {
               fontWeight: '700',
               color: '#475569',
               cursor: 'pointer',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              position: 'relative'
             }}
+            aria-label={hasActiveFilter ? 'Filters (filters applied — click to clear)' : 'Filters'}
             onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
             onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fff'}
           >
@@ -606,6 +611,7 @@ export const ProductsTab = () => {
               <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             Filters
+            {hasActiveFilter && <span data-testid="filter-active-dot" aria-hidden="true" style={{ position: 'absolute', top: 6, right: 6, width: 9, height: 9, borderRadius: '50%', backgroundColor: '#ef4444', border: '1.5px solid #fff' }} />}
           </button>
 
           {/* Sort Selection dropdown */}

@@ -70,7 +70,7 @@ test('sales chart supports hover/focus values and 7 day switching without sample
 });
 test('pending orders tab displays only the three actionable stages and requests the pending list', () => {
   const requests = [], h = hookHarness(Orders, {}, '/seller/orders', context({ orderListState: { tab: 'pending' }, fetchSellerOrders: status => requests.push(status), orders: ['placed', 'confirmed', 'preparing', 'dispatched'].map((status, index) => ({ _id: `${index}`, orderNo: `TEST-${status}`, channel: 'ecommerce', status, items: [], customer: {}, shippingAddress: {} })) }));
-  try { assert.deepEqual(requests, ['pending']); assert.doesNotMatch(text(h.tree), /TEST-dispatched/); assert.match(text(h.tree), /TEST-preparing/); }
+  try { assert.deepEqual(requests, ['all']); assert.doesNotMatch(text(h.tree), /TEST-dispatched/); assert.match(text(h.tree), /TEST-preparing/); }
   finally { h.close(); }
 });
 test('bulk upload validates file extension, empty content and limits before making a request', () => {

@@ -195,10 +195,10 @@ export const DeliveryDashboardPage = () => {
         <div className="delivery-kpi-card">
           <span className="delivery-kpi-label">Total Earnings</span>
           <span className="delivery-kpi-val">
-            {earningsData.lifetime.available ? `₹${earningsData.lifetime.total}` : '—'}
+            {earningsData.lifetime.available ? `₹${Math.round((earningsData.lifetime.total + (earningsData.parcels?.lifetimeTotal || 0)) * 100) / 100}` : '—'}
           </span>
           <span className="delivery-kpi-sub">
-            {earningsData.lifetime.trips} delivered all time
+            {earningsData.lifetime.trips + (earningsData.parcels?.lifetimeTrips || 0)} delivered all time
           </span>
         </div>
       </div>

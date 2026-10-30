@@ -155,9 +155,6 @@ export default function AdvertisingWorkspace({ admin = false }) {
   // A package can only be chosen when its "Products per ad" covers the ticked products.
   const candidates = inCategory.filter(p => p.maxProducts >= (draft?.items.length || 0));
   const chosen = candidates.find(p => p.id === draft?.packageId);
-  // Ticking stops at the most products any package for this storefront allows.
-  const productLimit = offered.length ? Math.max(...offered.map(p => p.maxProducts)) : 0;
-  const overLimit = productLimit > 0 && (draft?.items.length || 0) > productLimit;
   // Only categories every ticked product belongs to: the server rejects a product outside the
   // campaign's category. A ticked product's categories are remembered when it is ticked, so a
   // tick on another page of the product list still counts; otherwise the loaded list is used.
@@ -165,6 +162,13 @@ export default function AdvertisingWorkspace({ admin = false }) {
   const pickedLists = pickedIds.map(id => draft?.pickedCategories?.[id] || (p => p?.adCategories || p?.categories)(products.find(p => p.id === id))).filter(Boolean);
   const categories = pickedLists.length ? pickedLists.reduce((common, list) => common.filter(c => list.some(x => x.id === c.id)), [...new Map(pickedLists[0].map(c => [c.id, c])).values()]) : [];
   const categoryKey = categories.map(c => c.id).join('|');
+  // Ticking stops at the "Products per ad" of the package that will apply: the chosen one, else the
+  // largest among packages that serve the ticked products' categories (not every package in the storefront).
+  const chosenPackage = offered.find(p => p.id === draft?.packageId);
+  const applicable = draft?.categoryId ? inCategory
+    : offered.filter(p => !p.categories.length || !categories.length || categories.some(c => p.categories.includes(c.id)));
+  const productLimit = chosenPackage ? chosenPackage.maxProducts : applicable.length ? Math.max(...applicable.map(p => p.maxProducts)) : 0;
+  const overLimit = productLimit > 0 && (draft?.items.length || 0) > productLimit;
   // One shared category is chosen for the seller; a choice that no longer fits is cleared.
   useEffect(() => {
     if (!draft) return;

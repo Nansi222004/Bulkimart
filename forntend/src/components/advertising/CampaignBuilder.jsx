@@ -85,7 +85,7 @@ export default function CampaignBuilder({ onClose, onOpen }) {
     setBusy(true); setConfirming(null);
     for (const id of ids) {
       const result = results[id], campaign = result?.campaign;
-      if (result?.status !== 'saved' || submits[id]?.status === 'submitted') continue;
+      if (result?.status !== 'saved' || isSubmitted(id)) continue;
       setSubmits(s => ({ ...s, [id]: { status: 'submitting' } }));
       try {
         const b = await advertisingApi(false, `/campaigns/${campaign.id}/submit`, { method: 'POST', body: { version: campaign.version, packageVersion: terms[campaign.packageId]?.version } });
@@ -96,7 +96,9 @@ export default function CampaignBuilder({ onClose, onOpen }) {
   }
 
   const failedSaves = plans.filter(p => results[p.categoryId]?.status === 'failed');
-  const waiting = saved.filter(p => submits[p.categoryId]?.status !== 'submitted').map(p => p.categoryId);
+  // Submitted means this session sent it, or the server already moved it past draft.
+  const isSubmitted = id => submits[id]?.status === 'submitted' || (Boolean(results[id]?.campaign?.review) && !['DRAFT', 'CHANGES_REQUESTED'].includes(results[id].campaign.review));
+  const waiting = saved.filter(p => !isSubmitted(p.categoryId)).map(p => p.categoryId);
   const canContinue = step === 0 ? name.trim() && selected.length > 0 : step === 1 ? groups.length > 0 : step === 2 ? plans.every(p => !p.problem) : true;
 
   const groupFacts = plan => <>
@@ -233,8 +235,8 @@ export default function CampaignBuilder({ onClose, onOpen }) {
             const result = results[plan.categoryId] || {}, sent = submits[plan.categoryId] || {};
             return <section key={plan.categoryId} className="ad-group-card" aria-label={`Result ${plan.name}`}>
               <div className="ad-group-head"><h4>{plan.name}</h4>
-                <span className={`ad-status-pill ad-status-${sent.status === 'submitted' ? 'pending_review' : result.status === 'failed' ? 'rejected' : 'draft'}`}>
-                  {sent.status === 'submitted' ? 'Waiting for review' : sent.status === 'submitting' ? 'Submitting…' : result.status === 'saved' ? 'Draft saved' : result.status === 'failed' ? 'Not saved' : 'Saving…'}
+                <span className={`ad-status-pill ad-status-${isSubmitted(plan.categoryId) ? 'pending_review' : result.status === 'failed' ? 'rejected' : 'draft'}`}>
+                  {isSubmitted(plan.categoryId) ? 'Waiting for review' : sent.status === 'submitting' ? 'Submitting…' : result.status === 'saved' ? 'Draft saved' : result.status === 'failed' ? 'Not saved' : 'Saving…'}
                 </span></div>
               {groupFacts(plan)}
               {result.status === 'failed' && <>
@@ -244,7 +246,7 @@ export default function CampaignBuilder({ onClose, onOpen }) {
               </>}
               {sent.status === 'failed' && <p role="alert" className="ad-error">{sent.error}</p>}
               {result.status === 'saved' && <div className="ad-toolbar">
-                {sent.status !== 'submitted' && <button type="button" disabled={busy} onClick={() => sent.status === 'failed' && terms[result.campaign.packageId] ? submit([plan.categoryId]) : review([plan.categoryId])}>{sent.status === 'failed' ? 'Retry submit' : 'Submit for review'}</button>}
+                {!isSubmitted(plan.categoryId) && <button type="button" disabled={busy} onClick={() => sent.status === 'failed' && terms[result.campaign.packageId] ? submit([plan.categoryId]) : review([plan.categoryId])}>{sent.status === 'failed' ? 'Retry submit' : 'Submit for review'}</button>}
                 <button type="button" onClick={() => onOpen(result.campaign)}>Open campaign</button>
               </div>}
             </section>;

@@ -44,12 +44,12 @@ test('wishlist displays saved e-books directly without a truncated catalog fetch
   } finally { h.close(); }
 });
 
-test('the parcel refund wallet link opens the rupee wallet and explains coins separately', async () => {
+test('the parcel refund wallet link opens the rupee wallet', async () => {
   const previous = globalThis.document;
   globalThis.document = { getElementById: () => ({}) };
   const h = hookHarness(Profile, {}, '/account?section=wallet', { currentUser: { name: 'Buyer' }, savedAddresses: [] });
   try {
-    assert.match(text(h.tree), /Bulkimart Wallet Balance/); assert.match(text(h.tree), /Coins are earned rewards/);
+    assert.match(text(h.tree), /Bulkimart Wallet Balance/); assert.doesNotMatch(text(h.tree), /Coins/);
     h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: true, data: { balance: 20.4 } });
     h.requests.findLast(r => r.url.includes('/wallet/transactions')).resolve({ success: true, data: [{ _id: 'parcel-refund', direction: 'credit', amount: 20.4, description: 'Refund for cancelled parcel #TEST' }] });
     await h.settle();

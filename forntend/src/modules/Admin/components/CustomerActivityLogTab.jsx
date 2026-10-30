@@ -4,29 +4,20 @@ import { useAdmin } from '../context/AdminContext';
 
 /**
  * Customer Activity & Security Audit Log — a REAL feed (wallet transactions
- * + profile/address updates, off admin.controller.js::getCustomerActivityLog),
- * so this got its own component rather than staying inside
- * SectionModuleTab's generic dummy-table shell:
- *   - "+ Add New Entry" made no sense here — nobody manually authors an
- *     audit log row — so it's gone.
- *   - "Export CSV" now actually writes a file, off exactly the rows on
- *     screen (respecting the active search/action/location filters).
- *   - Location now shows the buyer's real default-address city/state
- *     (server-resolved) instead of the previous "Not tracked" placeholder.
- *     Device/IP stays "Not tracked" — that one's honest: no request-level
- *     IP/device capture exists anywhere in this codebase.
- *   - Same State/City geographic filter as the Consumer Users directory
- *     (UsersTab.jsx), matched against each buyer's DEFAULT address only.
+ * + profile/address updates, off admin.controller.js::getCustomerActivityLog).
  */
 
-// Table columns dropped the visible "Action" badge and "Device / IP" (the
-// latter was always "Not tracked" — no capture path exists). The action
-// label itself is kept for the "All Actions" filter, the CSV export, and
-// the detail modal — dropping the column didn't drop the underlying data.
 const ACTION_LABELS = {
   wallet_credit: 'Wallet Credit',
   wallet_debit: 'Wallet Debit',
   account_update: 'Profile Updated',
+};
+
+// Bug #195 fix: meaningful status configurations based on event type
+const STATUS_CONFIG = {
+  wallet_credit: { label: 'Credited', bg: '#dcfce7', color: '#15803d' },
+  wallet_debit: { label: 'Debited', bg: '#e0f2fe', color: '#0369a1' },
+  account_update: { label: 'Updated', bg: '#ede9fe', color: '#6d28d9' },
 };
 
 /** Minimal, dependency-free CSV — quotes only the cells that need it. */
@@ -40,8 +31,8 @@ const toCsv = (rows, columns) => {
   return [header, ...lines].join('\r\n');
 };
 
-const downloadCsv = (filename, csvString) => {
-  const blob = new Blob([`﻿${csvString}`], { type: 'text/csv;charset=utf-8;' }); // BOM so Excel opens ₹/non-ASCII correctly
+const downloadCsv = (filename, csvContent) => {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -74,22 +65,40 @@ export const CustomerActivityLogTab = () => {
     });
   }, [stateFilter, districtFilter, fetchCustomerActivityLog]);
 
-  const districtOptions = stateFilter === 'All' ? [] : (consumerLocations.districtsByState[stateFilter] || []);
+  // Bug #196 fix: if no state is selected, gather all known districts across all states
+  // so the dropdown is always clickable and functional.
+  const allDistricts = useMemo(() => {
+    const set = new Set();
+    Object.values(consumerLocations.districtsByState || {}).forEach((arr) => {
+      (arr || []).forEach((d) => set.add(d));
+    });
+    return Array.from(set).sort();
+  }, [consumerLocations.districtsByState]);
 
-  const rows = useMemo(() => activityLogs.map((a, i) => ({
-    id: `EVT-${String(i + 1).padStart(4, '0')}`,
-    userName: a.userName || a.userPhone || 'Buyer',
-    userPhone: a.userPhone || '—',
-    actionKey: a.type,
-    action: ACTION_LABELS[a.type] || 'Profile Updated',
-    description: a.description || '—',
-    amount: a.amount,
-    device: 'Not tracked',
-    timestampLabel: a.timestamp
-      ? new Date(a.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      : '—',
-    location: a.location || 'Not tracked',
-  })), [activityLogs]);
+  const districtOptions = stateFilter === 'All'
+    ? allDistricts
+    : (consumerLocations.districtsByState[stateFilter] || []);
+
+  const rows = useMemo(() => activityLogs.map((a, i) => {
+    const statusCfg = STATUS_CONFIG[a.type] || { label: 'Completed', bg: '#f1f5f9', color: '#475569' };
+    return {
+      id: `EVT-${String(i + 1).padStart(4, '0')}`,
+      userName: a.userName || a.userPhone || 'Buyer',
+      userPhone: a.userPhone || '—',
+      actionKey: a.type,
+      action: ACTION_LABELS[a.type] || 'Profile Updated',
+      status: statusCfg.label,
+      statusBg: statusCfg.bg,
+      statusColor: statusCfg.color,
+      description: a.description || '—',
+      amount: a.amount,
+      device: 'Not tracked',
+      timestampLabel: a.timestamp
+        ? new Date(a.timestamp).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '—',
+      location: a.location || 'Not tracked',
+    };
+  }), [activityLogs]);
 
   const filteredRows = rows.filter((r) => {
     const matchesSearch = !search || `${r.userName} ${r.userPhone}`.toLowerCase().includes(search.toLowerCase());
@@ -112,7 +121,7 @@ export const CustomerActivityLogTab = () => {
       { label: 'Device / IP', value: (r) => r.device },
       { label: 'Timestamp', value: (r) => r.timestampLabel },
       { label: 'Location', value: (r) => r.location },
-      { label: 'Status', value: () => 'Logged' },
+      { label: 'Status', value: (r) => r.status },
     ]);
     downloadCsv(`customer-activity-log-${new Date().toISOString().slice(0, 10)}.csv`, csv);
     triggerToast(`Exported ${filteredRows.length} record(s) to CSV.`);
@@ -173,8 +182,13 @@ export const CustomerActivityLogTab = () => {
           {consumerLocations.states.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
 
-        <select className="sa-select" value={districtFilter} onChange={(e) => setDistrictFilter(e.target.value)} disabled={stateFilter === 'All'}>
-          <option value="All">{stateFilter === 'All' ? 'Select a state first' : 'All Cities'}</option>
+        {/* Bug #196 fix: always clickable, shows All Cities instead of unclickable disabled state */}
+        <select
+          className="sa-select"
+          value={districtFilter}
+          onChange={(e) => setDistrictFilter(e.target.value)}
+        >
+          <option value="All">All Cities</option>
           {districtOptions.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
@@ -212,8 +226,21 @@ export const CustomerActivityLogTab = () => {
                     <td style={{ padding: '12px 16px', color: row.location === 'Not tracked' ? 'var(--sa-text-muted)' : 'var(--sa-text-secondary)', fontStyle: row.location === 'Not tracked' ? 'italic' : 'normal', fontWeight: 600 }}>
                       {row.location}
                     </td>
+                    {/* Bug #195 fix: dynamic status pill based on event type */}
                     <td style={{ padding: '12px 16px' }}>
-                      <span className="sa-status-pill logged" style={{ backgroundColor: '#f1f5f9', color: '#475569' }}>Logged</span>
+                      <span
+                        className="sa-status-pill"
+                        style={{
+                          backgroundColor: row.statusBg,
+                          color: row.statusColor,
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          fontWeight: 700,
+                          fontSize: 11,
+                        }}
+                      >
+                        {row.status}
+                      </span>
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                       <button className="sa-action-btn" style={{ display: 'inline-flex', width: 'auto', padding: '4px 10px', fontSize: 10 }} onClick={() => setSelectedRow(row)}>
@@ -240,6 +267,7 @@ export const CustomerActivityLogTab = () => {
                 ['Customer', selectedRow.userName],
                 ['Phone', selectedRow.userPhone],
                 ['Action', selectedRow.action],
+                ['Status', selectedRow.status],
                 ['Description', selectedRow.description],
                 ...(selectedRow.amount != null ? [['Amount', `₹${selectedRow.amount}`]] : []),
                 ['Device / IP', selectedRow.device],

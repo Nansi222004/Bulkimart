@@ -94,7 +94,7 @@ export const AdminProvider = ({ children }) => {
   const [ticketReply, setTicketReply] = useState('');
 
   const { adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
-    fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead } = useAdminNotifications();
+    fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead, markAllAdminNotificationsRead } = useAdminNotifications();
 
   // Toast Trigger Helper
   const triggerToast = (message, options) => ui.notify(message, options);
@@ -487,12 +487,12 @@ export const AdminProvider = ({ children }) => {
   const mapTicketRow = (t) => ({
     id: t._id,
     ticketNumber: t.ticketNumber || t._id,
-    userName: t.userName,
-    userEmail: t.userEmail || '',
-    requesterRole: t.requesterRole || 'customer',
-    category: t.category || '—',
-    subject: t.subject,
-    desc: t.description,
+    userName: t.userName || t.userId?.name || 'Anonymous',
+    userEmail: t.userEmail || t.userId?.email || '',
+    requesterRole: t.requesterRole || t.userId?.role || 'customer',
+    category: t.category || 'General',
+    subject: t.subject || t.description?.slice(0, 50) || 'Support Request',
+    desc: t.description || t.desc || '',
     status: t.status,
     reply: t.reply || '',
     assignedAdmin: t.assignedAdmin || null,
@@ -523,6 +523,9 @@ export const AdminProvider = ({ children }) => {
       const { data } = await adminGet(`/tickets/${ticketRow.id}`);
       setTicketDetail(data.ticket);
       setTicketMessages(data.messages || []);
+      if (data?.ticket) {
+        setSelectedTicket(mapTicketRow(data.ticket));
+      }
     } catch (err) {
       triggerToast(err.message, {type:'error'});
     } finally {
@@ -534,6 +537,9 @@ export const AdminProvider = ({ children }) => {
     const { data } = await adminGet(`/tickets/${id}`);
     setTicketDetail(data.ticket);
     setTicketMessages(data.messages || []);
+    if (data?.ticket) {
+      setSelectedTicket(mapTicketRow(data.ticket));
+    }
     await fetchTickets(filterStatus === 'All' ? 'all' : filterStatus, searchQuery, ticketCategoryFilter === 'All' ? 'all' : ticketCategoryFilter, ticketRoleFilter === 'All' ? 'all' : ticketRoleFilter);
   };
 
@@ -570,7 +576,6 @@ export const AdminProvider = ({ children }) => {
   };
 
   const changeTicketStatus = async (id, status) => {
-    return ui.perform({title:'Update this support ticket?',message:`Confirm update this support ticket (reference ${id})? Existing server validation still applies.`,confirmLabel:'Update this support ticket'}, async () => {
     try {
       await adminPatch(`/tickets/${id}/status`, { status });
       addLog(`Support ticket ${id} status changed to ${status}.`);
@@ -579,12 +584,9 @@ export const AdminProvider = ({ children }) => {
     } catch (err) {
       triggerToast(err.message, {type:'error'});
     }
-
-    });
   };
 
   const resolveTicket = async (id, reply) => {
-    return ui.perform({title:'Resolve this support ticket?',message:`Confirm resolve this support ticket (reference ${id})? Existing server validation still applies.`,confirmLabel:'Resolve this support ticket'}, async () => {
     try {
       await adminPatch(`/tickets/${id}/resolve`, { reply });
       triggerToast(`Ticket has been marked RESOLVED.`);
@@ -595,8 +597,6 @@ export const AdminProvider = ({ children }) => {
     } catch (err) {
       triggerToast(err.message, {type:'error'});
     }
-
-    });
   };
 
   // 5. USERS STATE — live from GET /api/admin/users
@@ -1209,7 +1209,7 @@ export const AdminProvider = ({ children }) => {
       selectedPayout,
       setSelectedPayout,
       adminNotifications, adminUnreadCount, adminNotifLoading, adminNotifError,
-      fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead,
+      fetchAdminNotifications, fetchAdminUnreadCount, markAdminNotificationRead, markAllAdminNotificationsRead,
       selectedTicket,
       setSelectedTicket,
       ticketReply,

@@ -91,23 +91,26 @@ export const SuperAdminDashboard = () => {
       <section className="sa-overview-section" aria-labelledby="sa-activity-heading">
       <div className="sa-section-heading"><h3 id="sa-activity-heading">Platform activity</h3><p>Orders, customers and sellers</p></div>
       <div className="sa-kpi-grid sa-activity-grid">
-        <div className="sa-kpi-card">
+        {/* Bug #189: made clickable -> navigates to all orders */}
+        <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('user-orders')}>
           <span className="sa-kpi-title">Total Orders</span>
           <span className="sa-kpi-value">{ov?.totalOrders || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'All-time' : 'Loading…'}</span>
-        </div>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>View all orders →</span>
+        </button>
 
-        <div className="sa-kpi-card ecom">
+        {/* Bug #189: made clickable → navigates to ecom orders */}
+        <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('ecom-orders')}>
           <span className="sa-kpi-title">E-Commerce</span>
           <span className="sa-kpi-value" style={{ color: 'var(--sa-ecom)' }}>{ov?.ecommerceOrders || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Orders' : 'Loading…'}</span>
-        </div>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>Orders →</span>
+        </button>
 
-        <div className="sa-kpi-card qcom">
+        {/* Bug #189: made clickable → navigates to qcom orders */}
+        <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('qcom-orders')}>
           <span className="sa-kpi-title">Quick Commerce</span>
           <span className="sa-kpi-value" style={{ color: 'var(--sa-success)' }}>{ov?.groceryOrders || 0}</span>
-          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>{ov ? 'Orders' : 'Loading…'}</span>
-        </div>
+          <span className="sa-kpi-trend" style={{ color: 'var(--sa-text-muted)' }}>Orders →</span>
+        </button>
 
         <button type="button" className="sa-kpi-card sa-kpi-link" onClick={() => setActiveTab('users')}>
           <span className="sa-kpi-title">Total Users</span>
@@ -189,7 +192,8 @@ export const SuperAdminDashboard = () => {
         <div className="sa-widget-card">
           <div className="sa-card-header">
             <h3 className="sa-card-title">Sellers Registered</h3>
-            <button className="sa-collapse-btn" onClick={() => setActiveTab('sellers')}>Approve</button>
+            {/* Bug #190: changed button label from "Approve" to "View All Sellers" */}
+          <button className="sa-collapse-btn" onClick={() => setActiveTab('sellers')}>View All Sellers</button>
           </div>
           <div className="sa-widget-list">
             {sellerRegistrations.length === 0 ? (
@@ -266,17 +270,18 @@ export const SuperAdminDashboard = () => {
       <div className="sa-quick-actions-bar">
         <h4 className="sa-card-title" style={{ fontSize: 10.5, marginBottom: 4 }}>Platform Quick Actions</h4>
         <div className="sa-quick-actions-grid">
+          {/* Bug #191: quick action buttons now navigate to real admin tabs */}
           {[
-            { id: 'act1', label: 'Add Banner', icon: '➕ Banners' },
-            { id: 'act2', label: 'Add Category', icon: '📁 Categories' },
-            { id: 'act3', label: 'Add Product', icon: '📦 Products' },
-            { id: 'act4', label: 'Approve Sellers', icon: '✓ Verify Sellers' },
-            { id: 'act6', label: 'Create Promo', icon: '🔥 Campaigns' },
-            { id: 'act7', label: 'Send Notice', icon: '✉ Notifications' },
-            { id: 'act8', label: 'View Reports', icon: '📊 Analytics' }
+            { id: 'act1', label: 'Add Banner', icon: '➕', tab: 'banners' },
+            { id: 'act2', label: 'Add Category', icon: '📁', tab: 'categories-all' },
+            { id: 'act3', label: 'Add Product', icon: '📦', tab: 'products' },
+            { id: 'act4', label: 'Approve Sellers', icon: '✓', tab: 'sellers' },
+            { id: 'act6', label: 'Create Promo', icon: '🔥', tab: 'campaigns' },
+            { id: 'act7', label: 'Send Notice', icon: '✉', tab: 'notifications' },
+            { id: 'act8', label: 'View Reports', icon: '📊', tab: 'reports' }
           ].map(act => (
-            <button key={act.id} className="sa-action-btn" onClick={() => triggerToast(`Opening execution form: ${act.label}`)}>
-              <span style={{ fontSize: 14 }}>{act.icon.split(' ')[0]}</span>
+            <button key={act.id} className="sa-action-btn" onClick={() => setActiveTab(act.tab)}>
+              <span style={{ fontSize: 14 }}>{act.icon}</span>
               <span>{act.label}</span>
             </button>
           ))}

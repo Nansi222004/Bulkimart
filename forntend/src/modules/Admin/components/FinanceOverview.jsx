@@ -59,7 +59,7 @@ export default function FinanceOverview({ onNavigate }) {
         <div><dt>Payout requested</dt><dd>{money(t.ridersRequested)}</dd></div><div><dt>Paid so far</dt><dd>{money(t.ridersPaid)}</dd></div></dl></div>
       <div className="finance-panel"><h3>Bulkimart</h3><dl>
         <div><dt>Commission earned</dt><dd>{money(t.commission)}</dd></div><div><dt>GST on commission</dt><dd>{money(t.commissionGst)}</dd></div>
-        <div><dt>Coupons & coins paid by Bulkimart</dt><dd>{money(t.platformDiscounts)}</dd></div><div><dt>COD shortages absorbed</dt><dd>{money(t.codShortages)}</dd></div>
+        <div><dt>Coupons paid by Bulkimart</dt><dd>{money(t.platformDiscounts)}</dd></div><div><dt>COD shortages absorbed</dt><dd>{money(t.codShortages)}</dd></div>
         <div><dt>TCS withheld ({policy.tcsRatePercent}%)</dt><dd>{money(t.tcs)}</dd></div><div><dt>TDS withheld ({policy.tdsRatePercent}%)</dt><dd>{money(t.tds)}</dd></div>
         <div><dt>COD cash still with riders</dt><dd>{money(t.codCashWithRiders)}</dd></div>
         <div><dt>Customer delivery charges</dt><dd>{money(t.customerDelivery)}</dd></div>

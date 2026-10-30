@@ -59,8 +59,8 @@ export function BasketGroups({ groups, busy, onMode, showTotals = true, ...actio
   </CartSection>)}</div>;
 }
 
-export function BasketSummary({ data, coinDiscount = 0 }) {
-  const summary = paymentSummary(data?.totals, { coinDiscount });
+export function BasketSummary({ data }) {
+  const summary = paymentSummary(data?.totals);
   const { deliveryCharge } = summary;
   return <CartSection title="Order summary">{data?.totals ? <>
     <CartTotalRow label="Items Subtotal" value={basketMoney(summary.subtotal)} />
@@ -68,7 +68,6 @@ export function BasketSummary({ data, coinDiscount = 0 }) {
     <CartTotalRow label="Delivery Charges" value={deliveryCharge === 0 ? <span style={{ color: '#16a34a', fontWeight: 700 }}>FREE</span> : basketMoney(deliveryCharge)} />
     {summary.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(summary.sameDayPremium)} />}
     {summary.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(summary.couponDiscount)}`} />}
-    {summary.coinDiscount > 0 && <CartTotalRow label="Bulkimart Coins" value={`−${basketMoney(summary.coinDiscount)}`} />}
     <CartTotalRow label="Grand Total" value={basketMoney(summary.totalAmount)} strong />
   </> : <p className="basket-note">Please resolve unavailable items before checkout.</p>}</CartSection>;
 }

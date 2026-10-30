@@ -462,10 +462,6 @@ export const getAdminWalletOverview = async () => {
     if (t === "refund" || t.includes("refund")) refundCredits += item.totalAmount;
   });
 
-  const totalDonationReceived = 0;
-  const totalDonationCount = 0;
-  const todayDonationReceived = 0;
-
   return {
     totalUsers,
     usersWithWallet: usersWithWalletRes,
@@ -478,9 +474,6 @@ export const getAdminWalletOverview = async () => {
     userTopups,
     adminCredits,
     refundCredits,
-    totalDonationReceived,
-    totalDonationCount,
-    todayDonationReceived,
   };
 };
 

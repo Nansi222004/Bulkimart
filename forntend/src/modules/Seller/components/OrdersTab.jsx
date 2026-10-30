@@ -128,7 +128,9 @@ export const OrdersTab = ({ detailPage = false }) => {
   };
 
   useEffect(() => { if (!detailPage) setOrderListState?.({ tab, search: searchQuery, scope: orderScope }); }, [tab, searchQuery, orderScope, detailPage]);
-  useEffect(() => { if (!detailPage) fetchSellerOrders?.(tab === 'pending' ? 'pending' : 'all'); }, [tab, detailPage, fetchSellerOrders]);
+  // Always load every status: the summary cards count this list, and the tabs
+  // filter it locally. Fetching only pending orders zeroed the other cards.
+  useEffect(() => { if (!detailPage) fetchSellerOrders?.('all'); }, [detailPage, fetchSellerOrders]);
   useEffect(() => {
     if (!detailPage || !selected || !actionsFor(selected).some(action => action.setup)) { setFulfilling(null); setFulfillmentOptions(null); return; }
     loadAvailability(selected);

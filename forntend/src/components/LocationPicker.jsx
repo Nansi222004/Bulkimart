@@ -119,8 +119,8 @@ export const LocationPicker = ({
         setLocating(false);
         setNotice('');
         const messages = {
-          1: 'You blocked location access. Allow it in your browser settings, or type the address below.',
-          2: 'Your location could not be determined right now. Please type the address below.',
+          1: 'Location access is required. Please allow location permission for this site and turn on your device location, then try again — or type the address below.',
+          2: 'Location is required. Your device location looks turned off — please turn it on (GPS / Location) and try again, or type the address below.',
           3: 'Finding your location took too long. Try again, or type the address below.',
         };
         setError(messages[err.code] || 'Could not get your location. Please type the address below.');

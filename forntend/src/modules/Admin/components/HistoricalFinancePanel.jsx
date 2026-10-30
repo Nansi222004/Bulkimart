@@ -46,7 +46,7 @@ export default function HistoricalFinancePanel() {
     <button disabled={loading || !report || page * report.limit >= report.totalOrders} onClick={() => setPage(page + 1)}>Next</button>
 
     {draft.length > 0 && <form className="finance-panel finance-review" onSubmit={prepare}><h3>New batch ({draft.length} item{draft.length === 1 ? '' : 's'})</h3>
-      <p className="finance-muted">Bulkimart pays any coupon or coin discount, so the seller gets the item price minus the commission and GST you enter.</p>
+      <p className="finance-muted">Bulkimart pays any coupon discount, so the seller gets the item price minus the commission and GST you enter.</p>
       {draft.map((row, index) => <fieldset key={row.itemId} className="finance-panel"><legend>{`${row.orderNo} · item price ${money(row.grossPaise)}`}</legend>
         <div className="finance-grid">
           {field(index, 'commission', 'Commission (₹)', 'The commission agreed with the seller at the time of this order.', '10', 'number')}

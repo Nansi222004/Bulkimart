@@ -39,7 +39,6 @@ export default function QuickCommerceOrderDetails({ order }) {
       ['Items subtotal', money(pricing.subtotal)], ...discounts.map(([label, amount]) => [label, `−${money(amount)}`]),
       ['Delivery charge', money(pricing.deliveryCharge)],
       ...(pricing.tipAmount > 0 ? [['Tip', money(pricing.tipAmount)]] : []),
-      ...(pricing.donationAmount > 0 ? [['Donation', money(pricing.donationAmount)]] : []),
       ['Total Amount', row.amount],
     ]} /></section>
     <section><h4>Delivery partner & progress</h4><Rows values={[

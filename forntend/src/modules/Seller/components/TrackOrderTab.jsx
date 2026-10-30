@@ -25,6 +25,11 @@ const STATUS_LABEL = {
 const fmt = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
 
+// When the order was actually delivered: the rider's completion time, else the delivered step in the status trail.
+const deliveredAtOf = (o) => o.deliveryAssignment?.completedAt
+  || [...(o.timeline || [])].reverse().find((t) => t.status === 'delivered')?.timestamp;
+const isToday = (d) => Boolean(d) && new Date(d).toDateString() === new Date().toDateString();
+
 export const TrackOrderTab = () => {
   const { orders, ordersLoading, selectedTypes, activeMode, setActiveMode } = useSeller();
   const [openId, setOpenId] = useState(null);
@@ -42,7 +47,7 @@ export const TrackOrderTab = () => {
   // KPI Calculations
   const onTheWayCount = channelOrders.filter(o => ['dispatched', 'out_for_delivery'].includes(o.status)).length;
   const atStoreCount = channelOrders.filter(o => ['placed', 'confirmed', 'preparing'].includes(o.status)).length;
-  const completedTodayCount = channelOrders.filter(o => o.status === 'delivered').length;
+  const completedTodayCount = channelOrders.filter(o => o.status === 'delivered' && isToday(deliveredAtOf(o))).length;
 
   // Filtered Tracking List
   const filteredOrders = channelOrders.filter((o) => {
@@ -57,7 +62,8 @@ export const TrackOrderTab = () => {
     const matchesSearch = !query ||
       (o.orderNo || '').toLowerCase().includes(query) ||
       (o.customer?.name || '').toLowerCase().includes(query) ||
-      (o.shippingAddress?.city || '').toLowerCase().includes(query);
+      (o.shippingAddress?.city || '').toLowerCase().includes(query) ||
+      (o.deliveryAssignment?.rider?.name || '').toLowerCase().includes(query);
 
     return matchesTab && matchesSearch;
   });

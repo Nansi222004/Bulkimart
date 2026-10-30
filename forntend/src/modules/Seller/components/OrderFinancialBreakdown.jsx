@@ -37,7 +37,7 @@ export default function OrderFinancialBreakdown({ orderId }) {
           return <div key={line.itemId} style={{ padding: 12, borderBottom: '1px solid #cde9ed', overflowWrap: 'anywhere' }}>
           <p><strong>{line.itemName || 'Product'}</strong>{line.qty ? ` × ${line.qty}` : ''}</p>
           <p>Item price: {money(line.grossPaise)}</p>
-          {discount > 0 && <p>Customer discount (coupon / coins): {money(discount)}{funded ? ' — paid by Bulkimart, not cut from your earnings' : ''}. Customer paid {money(line.eligiblePaise)} for this item.</p>}
+          {discount > 0 && <p>Customer discount: {money(discount)}{funded ? ' — paid by Bulkimart, not cut from your earnings' : ''}. Customer paid {money(line.eligiblePaise)} for this item.</p>}
           {line.blocker && <p role="status">On hold: {line.blocker}. Nothing has been deducted from you.</p>}{line.rule ? <>
             <p>Bulkimart commission ({rate}): −{money(line.commissionPaise)}</p>
             {line.taxPaise > 0 && <p>GST on commission: −{money(line.taxPaise)}</p>}
@@ -48,10 +48,10 @@ export default function OrderFinancialBreakdown({ orderId }) {
         {(() => {
           // The customer's full payment, so the item amounts above are not
           // mistaken for the order total shown elsewhere.
-          const { merchandisePaise = record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0), deliveryPaise = 0, sellerIncentivePaise = 0, tipPaise = 0, donationPaise = 0 } = record.merchandise.components;
+          const { merchandisePaise = record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0), deliveryPaise = 0, sellerIncentivePaise = 0, tipPaise = 0 } = record.merchandise.components;
           const customerDeliveryPaise = deliveryPaise + sellerIncentivePaise;
-          const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise + donationPaise;
-          return <p><strong>Customer paid for the whole order: {money(totalPaise)}</strong> = items {money(merchandisePaise)} + delivery {money(customerDeliveryPaise)}{tipPaise ? ` + rider tip ${money(tipPaise)}` : ''}{donationPaise ? ` + donation ${money(donationPaise)}` : ''}. Your item earnings above are worked out on the items only.{record.snapshot ? ' Courier charges are shown below.' : ''}</p>;
+          const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise;
+          return <p><strong>Customer paid for the whole order: {money(totalPaise)}</strong> = items {money(merchandisePaise)} + delivery {money(customerDeliveryPaise)}{tipPaise ? ` + rider tip ${money(tipPaise)}` : ''}. Your item earnings above are worked out on the items only.{record.snapshot ? ' Courier charges are shown below.' : ''}</p>;
         })()}
       </> : <p>This is an older order, so a per-item earnings breakdown is not available. Nothing has been recalculated or deducted.</p>}
       {record.snapshot && <p>Courier charge {money(record.snapshot.quotedCourierFreight * 100)} · Your share of courier charge {money(record.snapshot.vendorFreightShare * 100)} · Shipping service fee {money(record.snapshot.serviceFee?.amount * 100)} · Tax on fee {money(record.snapshot.serviceFee?.taxAmount * 100)}</p>}

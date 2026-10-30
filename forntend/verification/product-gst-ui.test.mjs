@@ -50,10 +50,10 @@ test('missing or inconsistent server data is never shown as zero GST', () => {
 test('checkout rows add up to the amount charged: items before added GST + added GST + delivery − discounts', () => {
   const productTax = tax([[5, 'inclusive', 20000, 1000], [18, 'exclusive', 10000, 1800]]); // items ₹310 shown, ₹328 charged for goods
   const server = { subtotal: productTax.grossPaise / 100, deliveryCharge: 40, couponDiscount: 10, totalAmount: (productTax.grossPaise + 4000 - 1000) / 100, productTax };
-  const summary = paymentSummary(server, { coinDiscount: 5, tipAmount: 20 });
+  const summary = paymentSummary(server, { tipAmount: 20 });
   assert.equal(summary.subtotal, 310);
-  assert.equal(summary.totalAmount, 328 + 40 - 10 - 5 + 20);
-  assert.equal(Math.round((summary.subtotal + productTax.addedGstPaise / 100 + summary.deliveryCharge - summary.couponDiscount - summary.coinDiscount + summary.tipAmount) * 100), Math.round(summary.totalAmount * 100));
+  assert.equal(summary.totalAmount, 328 + 40 - 10 + 20);
+  assert.equal(Math.round((summary.subtotal + productTax.addedGstPaise / 100 + summary.deliveryCharge - summary.couponDiscount + summary.tipAmount) * 100), Math.round(summary.totalAmount * 100));
   // Older responses without product GST keep showing their own subtotal.
   assert.equal(paymentSummary({ subtotal: 99.5, totalAmount: 99.5 }).subtotal, 99.5);
 });

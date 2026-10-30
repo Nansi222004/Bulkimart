@@ -48,8 +48,6 @@ const CheckoutPage = () => {
     couponCode,
     couponNotice,
     tipSetting,
-    useCoinsSelected,
-    toggleUseCoins,
     walletBalance,
     fetchWalletBalance,
     currentUser,
@@ -279,12 +277,7 @@ const CheckoutPage = () => {
    * per-channel cart total would only ever describe one of them, and showing it
    * would understate the bill on the screen where the bill matters most.
    */
-  // NHCONE Coins — `coins.finalPayable` is the one server-calculated figure
-  // that already accounts for the discount; only read when the toggle is
-  // actually on and the server actually applied one (0 otherwise, so an
-  // order without Coins is byte-for-byte the pre-Coins total).
-  const coinDiscountVal = (!isUnified && useCoinsSelected) ? (serverCart?.coins?.coinDiscount || 0) : 0;
-  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { coinDiscount: coinDiscountVal, tipAmount });
+  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { tipAmount });
   const grandTotalVal = summary.totalAmount;
   const channelItems = getCartItems();
   const items = unified.data ? unified.basketItems : channelItems;
@@ -1379,56 +1372,8 @@ const CheckoutPage = () => {
             </div>
           )}
         </div>}
-        {isUnified && <div className="profile-menu-card" style={{ padding: 16 }}><p>Coupons and Coins are available only in eligible single retail checkout.</p>{(appliedCoupon || couponCode) && <button className="cart-secondary-btn" onClick={removeCoupon}>Remove retail coupon to continue</button>}</div>}
+        {isUnified && <div className="profile-menu-card" style={{ padding: 16 }}><p>Coupons are available only in eligible single retail checkout.</p>{(appliedCoupon || couponCode) && <button className="cart-secondary-btn" onClick={removeCoupon}>Remove retail coupon to continue</button>}</div>}
 
-
-        {/*
-          NHCONE Coins — server-calculated only. `serverCart.coins` comes
-          straight from GET /api/cart (cart.controller.js::shape()); nothing
-          here computes eligibility, the cap, or the discount itself.
-
-          Hidden for the unified (multi-seller, several-deliveries) basket —
-          Coins redemption is only wired into the single-channel checkout
-          that produces `serverCart` (order.controller.js::createOrder), not
-          the unified/grouped one, so showing the toggle there would offer
-          something checkout can't actually apply.
-        */}
-        {!isUnified && serverCart?.coins && (
-          <div className="profile-menu-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 20 }}>🪙</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>Bulkimart Coins</p>
-                <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                  Available: {serverCart.coins.availableCoins} Coins
-                </p>
-              </div>
-            </div>
-
-            {!serverCart.coins.eligibleForCoins ? (
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
-                Coins can be used on orders of ₹500 or more.
-              </p>
-            ) : (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={useCoinsSelected}
-                  onChange={(e) => toggleUseCoins(e.target.checked)}
-                  disabled={serverCart.coins.availableCoins <= 0}
-                  style={{ width: 16, height: 16 }}
-                />
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {serverCart.coins.availableCoins <= 0
-                    ? 'You have no Coins yet'
-                    : useCoinsSelected && serverCart.coins.coinsToUse > 0
-                      ? `Using ${serverCart.coins.coinsToUse} Coins — you're saving ₹${serverCart.coins.coinDiscount}`
-                      : `Use Coins — save up to ₹${serverCart.coins.maxCoinsAllowed}`}
-                </span>
-              </label>
-            )}
-          </div>
-        )}
 
         {/* Tip your delivery partner */}
         {canTip && Boolean(tipSetting?.isEnabled) && (tipOptions.length > 0 || tipSetting?.allowCustom) && (
@@ -1747,13 +1692,6 @@ const CheckoutPage = () => {
               </div>
             )}
 
-            {coinDiscountVal > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 600 }}>
-                <span>Bulkimart Coins ({serverCart.coins.coinsToUse} used)</span>
-                <span>-₹{coinDiscountVal}</span>
-              </div>
-            )}
-
             {tipAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                 <span>Delivery Partner Tip</span>
@@ -1892,7 +1830,7 @@ const CheckoutPage = () => {
                   </div>
                 )}
 
-                {coinDiscountVal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>Bulkimart Coins</span><span>−₹{coinDiscountVal}</span></div>}
+
 
                 {tipAmount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>

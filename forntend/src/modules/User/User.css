@@ -6355,3 +6355,8 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
 .category-detail-chips > button img { width: 100%; height: 100%; object-fit: cover; }
 .category-detail-page > .category-results-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .category-detail-count { margin: 0 0 10px; color: var(--text-secondary); font-size: 12.5px; font-weight: 700; }
+
+/* Keep the last of the home feed clear of the bottom navigation and the phone's own footer. */
+@media (max-width: 768px) {
+  .user-main-content.page-home { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+}

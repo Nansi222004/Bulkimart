@@ -20,6 +20,6 @@ export default function ProductGstBreakdown({ tax, subtotalIncludesAddedGst = tr
   return <div className="product-gst-breakdown" aria-label="Product GST breakdown">
     {row('Taxable product value (before platform discounts)', tax.taxableValuePaise, 'base')}
     {tax.rates.map(rate => row(`${rate.gstPriceType === 'inclusive' ? 'Included GST' : 'GST added'} (${rate.gstRate}%)${rate.gstPriceType === 'exclusive' && subtotalIncludesAddedGst ? ' · included in subtotal' : ''}`, rate.gstPaise, `${rate.gstRate}:${rate.gstPriceType}`))}
-    {tax.discountPaise > 0 && <small>Coupons and coins are funded by Bulkimart; they reduce what you pay.</small>}
+    {tax.discountPaise > 0 && <small>Coupons are funded by Bulkimart; they reduce what you pay.</small>}
   </div>;
 }

@@ -1047,12 +1047,6 @@ export const OrderTrackingPage = () => {
               <span>{title}</span><span>-₹{amount.toFixed(2)}</span>
             </div>
           ))}
-          {selectedOrder.pricing?.donationAmount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
-              <span>{selectedOrder.pricing.donationTitle || 'Social Work Contribution'}</span>
-              <span>+₹{selectedOrder.pricing.donationAmount}</span>
-            </div>
-          )}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14 }}>
             <span style={{ color: 'var(--text-primary)' }}>Total Amount</span>

@@ -73,7 +73,14 @@ export const getLiveDispatch = asyncHandler(async (req, res) => {
       .populate(partnerPopulate).populate(orderPopulate).populate(returnPopulate)
       .lean(),
     Delivery.aggregate([
-      { $match: { status: { $in: FINISHED_STATUSES }, endTime: { $gte: todayStart } } },
+      // Bug #193: some trips reach a finished status without endTime being written.
+      // Fall back to updatedAt so deliveredToday / failedToday counts are accurate.
+      {
+        $match: {
+          status: { $in: FINISHED_STATUSES },
+          $or: [{ endTime: { $gte: todayStart } }, { updatedAt: { $gte: todayStart } }],
+        },
+      },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
     DeliveryPartner.find({ status: 'approved', isAvailable: true }).select('_id').lean(),

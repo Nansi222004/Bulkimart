@@ -54,7 +54,15 @@ export const UsersTab = ({ defaultStatusFilter }) => {
   // that cannot co-occur.
   React.useEffect(() => { setDistrictFilter('All'); }, [stateFilter]);
 
-  const districtOptions = stateFilter === 'All' ? [] : (consumerLocations.districtsByState[stateFilter] || []);
+  const allDistricts = React.useMemo(() => {
+    const set = new Set();
+    Object.values(consumerLocations.districtsByState || {}).forEach((arr) => {
+      (arr || []).forEach((d) => set.add(d));
+    });
+    return Array.from(set).sort();
+  }, [consumerLocations.districtsByState]);
+
+  const districtOptions = stateFilter === 'All' ? allDistricts : (consumerLocations.districtsByState[stateFilter] || []);
 
   // Status ("active"/"inactive"/"blocked") is filtered server-side now — see
   // GET /api/admin/users?status= — since "inactive" means something the
@@ -117,9 +125,8 @@ export const UsersTab = ({ defaultStatusFilter }) => {
           className="admin-filter-select"
           value={districtFilter}
           onChange={(e) => setDistrictFilter(e.target.value)}
-          disabled={stateFilter === 'All'}
         >
-          <option value="All">{stateFilter === 'All' ? 'Select a state first' : 'All Cities'}</option>
+          <option value="All">All Cities</option>
           {districtOptions.map((d) => (
             <option key={d} value={d}>{d}</option>
           ))}

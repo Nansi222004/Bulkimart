@@ -700,7 +700,14 @@ export const getConsumerOrdersSummary = asyncHandler(async (req, res) => {
 
   const rows = await Order.aggregate([
     { $match: { createdAt: { $gte: startOfMonth } } },
-    { $group: { _id: '$type', count: { $sum: 1 }, revenue: { $sum: '$pricing.totalAmount' } } },
+    {
+      $group: {
+        _id: '$type',
+        count: { $sum: 1 },
+        // Bug #192: fallback chain covers different field locations across order schema versions
+        revenue: { $sum: { $ifNull: ['$pricing.totalAmount', { $ifNull: ['$pricing.total', { $ifNull: ['$totalAmount', 0] }] }] } },
+      },
+    },
   ]);
 
   const byChannel = {};
@@ -1959,11 +1966,27 @@ export const getTickets = asyncHandler(async (req, res) => {
   }
 
   const [tickets, total] = await Promise.all([
-    Ticket.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).populate('assignedAdmin', 'name email').lean(),
+    Ticket.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('userId', 'name email role phone')
+      .populate('assignedAdmin', 'name email')
+      .lean(),
     Ticket.countDocuments(filter),
   ]);
 
-  return paginated(res, tickets.map(normalizeStatus), { page, limit, total });
+  const normalizeTicket = (t) => {
+    const mapped = normalizeStatus(t);
+    if (!mapped.userName && mapped.userId?.name) mapped.userName = mapped.userId.name;
+    if (!mapped.userEmail && mapped.userId?.email) mapped.userEmail = mapped.userId.email;
+    if (!mapped.requesterRole && (mapped.userId?.role || mapped.role)) mapped.requesterRole = mapped.userId?.role || mapped.role;
+    if (!mapped.category) mapped.category = 'General';
+    if (!mapped.subject) mapped.subject = mapped.description?.slice(0, 50) || 'Support Request';
+    return mapped;
+  };
+
+  return paginated(res, tickets.map(normalizeTicket), { page, limit, total });
 });
 
 // @desc    Ticket detail — requester, related entities, full conversation
@@ -1973,14 +1996,22 @@ export const getTickets = asyncHandler(async (req, res) => {
 export const getTicketDetailAdmin = asyncHandler(async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid ticket id');
   const ticket = await Ticket.findById(req.params.id)
+    .populate('userId', 'name email role phone')
     .populate('assignedAdmin', 'name email')
     .populate('relatedOrder', 'orderNo status pricing')
     .populate('relatedProduct', 'name images')
     .populate('relatedDelivery', 'status');
   if (!ticket) throw httpError(404, 'Ticket not found');
 
+  const ticketObj = normalizeStatus(ticket.toObject());
+  if (!ticketObj.userName && ticketObj.userId?.name) ticketObj.userName = ticketObj.userId.name;
+  if (!ticketObj.userEmail && ticketObj.userId?.email) ticketObj.userEmail = ticketObj.userId.email;
+  if (!ticketObj.requesterRole && (ticketObj.userId?.role || ticketObj.role)) ticketObj.requesterRole = ticketObj.userId?.role || ticketObj.role;
+  if (!ticketObj.category) ticketObj.category = 'General';
+  if (!ticketObj.subject) ticketObj.subject = ticketObj.description?.slice(0, 50) || 'Support Request';
+
   const messages = await TicketMessage.find({ ticketId: ticket._id }).sort({ createdAt: 1 }).lean();
-  return ok(res, { ticket: normalizeStatus(ticket.toObject()), messages });
+  return ok(res, { ticket: ticketObj, messages });
 });
 
 // @desc    Admin reply — visible to the requester, notifies them.

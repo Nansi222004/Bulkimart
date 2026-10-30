@@ -104,13 +104,25 @@ const placedOrders = (range, project) => Order.aggregate([
   { $match: { createdAt: { $gte: range.from, $lt: range.to } } }, ...securedOrderStages(), { $project: project },
 ]).allowDiskUse(true);
 // Completed = status delivered; completion time = latest "delivered" timeline entry,
-// else the latest item deliveredAt. Delivered orders with neither are unattributed.
+// else the latest item deliveredAt, else updatedAt (Bug #194 fix: orders marked
+// delivered without timeline or per-item date are no longer silently excluded).
 const completedAtExpr = { $ifNull: [
   { $max: { $map: { input: { $filter: { input: { $ifNull: ['$timeline', []] }, cond: { $eq: ['$$this.status', 'delivered'] } } }, in: '$$this.timestamp' } } },
   { $max: '$items.deliveredAt' },
+  '$updatedAt',
 ] };
 const completedOrders = (range, project) => Order.aggregate([
-  { $match: { status: 'delivered', $or: [{ timeline: { $elemMatch: { status: 'delivered', timestamp: { $gte: range.from, $lt: range.to } } } }, { 'items.deliveredAt': { $gte: range.from, $lt: range.to } }] } },
+  {
+    $match: {
+      status: 'delivered',
+      $or: [
+        { timeline: { $elemMatch: { status: 'delivered', timestamp: { $gte: range.from, $lt: range.to } } } },
+        { 'items.deliveredAt': { $gte: range.from, $lt: range.to } },
+        // Bug #194 fix: fall back to updatedAt for orders that lack timeline/deliveredAt
+        { timeline: { $not: { $elemMatch: { status: 'delivered' } } }, 'items.deliveredAt': { $exists: false }, updatedAt: { $gte: range.from, $lt: range.to } },
+      ],
+    },
+  },
   ...securedOrderStages(),
   { $addFields: { _completedAt: completedAtExpr } },
   { $match: { _completedAt: { $gte: range.from, $lt: range.to } } },
@@ -218,7 +230,7 @@ export async function overviewReport({ range }) {
   }
   const deliveries = await Delivery.aggregate([{ $match: { endTime: { $gte: range.from, $lt: range.to }, status: { $in: ['delivered', 'failed'] } } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
   const delivered = deliveries.find(row => row._id === 'delivered')?.count || 0, failed = deliveries.find(row => row._id === 'failed')?.count || 0;
-  const completedSales = result(completed, 'Completed orders: saved order total (incl. delivery, tip, donation; after checkout discounts) of orders delivered in the period, by delivery time.');
+  const completedSales = result(completed, 'Completed orders: saved order total (incl. delivery and tip; after checkout discounts) of orders delivered in the period, by delivery time.');
   const refundResult = { ...result(refunds, 'Completed refunds in the period: item return refunds by refund time, plus verified whole-order online refunds by verification time.'), count: refundRows.length };
   const netSales = completedSales.amountPaise === null || refundResult.amountPaise === null ? null : completedSales.amountPaise - refundResult.amountPaise;
   const sellerNames = await Seller.find({ _id: { $in: [...vendors.keys()].filter(key => mongoose.isValidObjectId(key)) } }).select('businessName storeDetails.name').lean();
@@ -469,7 +481,7 @@ export async function ordersReport(params, { all = false } = {}) {
     return { id: key, orderNo: order.orderNo || key.slice(-8).toUpperCase(), placedAt: order.createdAt, status: order.status, paymentMethod: order.paymentMethod || 'unknown', basis,
       customer: user.name || 'Customer', customerPhone: maskPhone(user.phone), sellers: [...new Set(lines.length ? lines.map(line => line.seller) : (order.items || []).map(item => sellerName.get(id(item.sellerId)) || 'Removed seller'))],
       riderName: rider ? partnerName.get(rider.partnerId) || 'Delivery partner' : null, riderBasis: cancelled ? 'cancelled' : rider ? 'paid on delivery' : quoted !== null ? 'quoted' : 'not assigned',
-      paidPaise: orderMoney(p.totalAmount), merchandisePaise: orderMoney(p.subtotal), deliveryFeePaise: orderMoney(p.deliveryCharge), tipPaise: orderMoney(p.tipAmount), donationPaise: orderMoney(p.donationAmount),
+      paidPaise: orderMoney(p.totalAmount), merchandisePaise: orderMoney(p.subtotal), deliveryFeePaise: orderMoney(p.deliveryCharge), tipPaise: orderMoney(p.tipAmount),
       discountPaise: lines.length ? sumPaise(lines, 'discountPaise') : null, productGstPaise: lines.length && lines.every(line => line.productGstPaise !== null) ? sumPaise(lines, 'productGstPaise') : null,
       sellerEarningPaise: split ? split.seller : null, commissionPaise: split ? split.commission : null, commissionGstPaise: split ? split.commissionGst : null, tcsPaise: split ? split.tcs : null, tdsPaise: split ? split.tds : null,
       platformDiscountPaise: split ? split.platformDiscount : null, deliveryIncomePaise: split ? split.deliveryIncome : null, riderEarningPaise: riderPaise, riderTipPaise: cancelled ? 0 : rider ? rider.tipPaise : orderMoney(p.tipAmount),
@@ -491,12 +503,12 @@ export async function ordersReport(params, { all = false } = {}) {
   list.sort(sorter(sortKey, params.dir));
   const table = all ? { rows: list, meta: { page: 1, limit: list.length, total: list.length, pages: 1 } } : page(list, params);
   return envelope('orders', range, { totals, ...table, definitions: {
-    customerPaid: 'The order total the customer paid (after discounts and coins, including delivery fee, tip and donation).',
+    customerPaid: 'The order total the customer paid (after discounts, including delivery fee and tip).',
     sellerEarning: 'What the seller(s) earn: item prices minus commission, GST on commission, TCS and TDS, plus any same-day incentive. Posted orders include later refund reversals.',
     deliveryPartnerEarning: 'The delivery partner’s trip pay for the order, excluding the customer’s tip (shown separately and paid to the rider in full). Before delivery this is the quoted pay.',
     commission: 'Platform commission on the order’s items. GST on commission is collected by the platform and owed to the government.',
     taxes: 'Product GST is included in item prices and is the seller’s tax. TCS and TDS are withheld from the seller’s payout and deposited with the government.',
-    adminEarning: 'What the platform keeps: commission + delivery fee income − delivery partner pay − discounts funded by Bulkimart. Excludes GST, TCS/TDS, tips and donations, which belong to others.',
+    adminEarning: 'What the platform keeps: commission + delivery fee income − delivery partner pay − discounts funded by Bulkimart. Excludes GST, TCS/TDS and tips, which belong to others.',
     basis: 'Posted: read from the finance ledger after delivery. Expected: from the order’s checkout snapshot, before delivery or posting. Cancelled orders earn nothing.',
     totals: 'Earning, commission and tax totals cover completed (delivered) orders only.' } });
 }
@@ -540,9 +552,9 @@ export async function exportReport(report, params) {
   }
   if (report === 'orders') {
     const data = await ordersReport(params, { all: true });
-    return { filename: `bulkimart-order-payments-${stamp}.csv`, csv: toCsv(['Order', 'Placed (IST)', 'Status', 'Payment method', 'Customer', 'Sellers', 'Delivery partner', 'Customer paid (INR)', 'Items (INR)', 'Discounts (INR)', 'Delivery fee (INR)', 'Tip (INR)', 'Donation (INR)',
+    return { filename: `bulkimart-order-payments-${stamp}.csv`, csv: toCsv(['Order', 'Placed (IST)', 'Status', 'Payment method', 'Customer', 'Sellers', 'Delivery partner', 'Customer paid (INR)', 'Items (INR)', 'Discounts (INR)', 'Delivery fee (INR)', 'Tip (INR)',
       'Product GST in prices (INR)', 'Seller earning (INR)', 'Delivery partner earning (INR)', 'Platform commission (INR)', 'GST on commission (INR)', 'TCS (INR)', 'TDS (INR)', 'Discounts funded by Bulkimart (INR)', 'Admin earning (INR)', 'Refunds (INR)', 'Figures'],
-      data.rows.map(r => [r.orderNo, date(r.placedAt), r.status, r.paymentMethod, r.customer, r.sellers.join('; '), r.riderName || r.riderBasis, inr(r.paidPaise), inr(r.merchandisePaise), inr(r.discountPaise), inr(r.deliveryFeePaise), inr(r.tipPaise), inr(r.donationPaise),
+      data.rows.map(r => [r.orderNo, date(r.placedAt), r.status, r.paymentMethod, r.customer, r.sellers.join('; '), r.riderName || r.riderBasis, inr(r.paidPaise), inr(r.merchandisePaise), inr(r.discountPaise), inr(r.deliveryFeePaise), inr(r.tipPaise),
         inr(r.productGstPaise), inr(r.sellerEarningPaise), inr(r.riderEarningPaise), inr(r.commissionPaise), inr(r.commissionGstPaise), inr(r.tcsPaise), inr(r.tdsPaise), inr(r.platformDiscountPaise), inr(r.adminEarningPaise), inr(r.refundsPaise), r.basis])) };
   }
   throw httpError(400, 'Unknown report');

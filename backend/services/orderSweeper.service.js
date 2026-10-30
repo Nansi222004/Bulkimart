@@ -2,7 +2,6 @@ import { sweepSellerPickupSync } from './sellerPickupSync.service.js';
 import { sweepParcelsOnce } from './parcelAssignment.service.js';
 import Order from '../models/Order.js';
 import { cancelOrderAndRestore } from '../controllers/order.controller.js';
-import { processReturnWindowRewards } from './coin.service.js';
 import { sweepScheduledBroadcastsOnce } from './broadcast.service.js';
 import { ORDER_STATUS, CHANNEL } from '../constants/enums.js';
 
@@ -66,17 +65,6 @@ export const sweepUnacceptedOrdersOnce = async () => {
   }
 };
 
-/**
- * NHCONE Coins — return-window reward evaluation (Phase 7). Reuses this
- * exact timer rather than a second scheduler; kept in its own try/catch so
- * a Coins bug can never block or delay the order-cancellation sweep above,
- * and vice versa.
- */
-const sweepCoinRewardsOnce = async () => {
-  const { processed } = await processReturnWindowRewards({ limit: 100 });
-  if (processed > 0) console.log(`[COINS SWEEPER] ${processed} order item(s) resolved this tick`);
-};
-
 export const startOrderSweeper = () => {
   if (timer) return;
 
@@ -86,7 +74,6 @@ export const startOrderSweeper = () => {
     sweepEligibleSellerOrders().catch(() => console.warn('[NOTIFICATION] Eligible order reconciliation will retry.'));
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
     sweepUnacceptedOrdersOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
-    sweepCoinRewardsOnce().catch((err) => console.error('[COINS SWEEPER] failed:', err.message));
     // Admin Push Notifications Broadcaster — scheduled sends. Same sibling-
     // job pattern as the two above: its own try/catch, so a broadcast bug
     // can never block order cancellation or Coins.

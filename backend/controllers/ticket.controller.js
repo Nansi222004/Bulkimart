@@ -108,7 +108,14 @@ export const createTicket = asyncHandler(async (req, res) => {
     event: NOTIFICATION_EVENT.TICKET_CREATED,
     title: 'New support ticket',
     message: `${requester.name} (${requester.role}) opened ticket ${ticketNumber}: "${subject.trim()}"`,
-    metadata: { ticketId: ticket._id },
+    metadata: {
+      ticketId: ticket._id,
+      ticketNumber,
+      userName: requester.name,
+      requesterRole: requester.role,
+      subject: subject.trim(),
+      category,
+    },
     route: `/admin/tickets/${ticket._id}`,
   }).catch((e) => console.error('[TICKET] notify admins failed:', e.message));
 

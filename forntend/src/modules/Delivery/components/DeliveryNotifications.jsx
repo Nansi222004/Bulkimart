@@ -18,7 +18,7 @@ export function DeliveryNotificationBell() {
 }
 export default function DeliveryNotifications({ onNavigate, children }) {
   const [open, setOpen] = useState(false);
-  const { notifications, unreadCount, loading, error, actionPending, fetchNotifications, fetchUnreadCount, markRead } = useNotifications({ autoFetch: open });
+  const { notifications, unreadCount, loading, error, actionPending, fetchNotifications, fetchUnreadCount, markRead, markAllRead } = useNotifications({ autoFetch: open });
   useEffect(() => {
     window.addEventListener('focus', fetchUnreadCount); socket.on('connect', fetchUnreadCount);
     return () => { window.removeEventListener('focus', fetchUnreadCount); socket.off('connect', fetchUnreadCount); };
@@ -35,6 +35,7 @@ export default function DeliveryNotifications({ onNavigate, children }) {
     {open && <ModalPortal className="delivery-notifications-overlay" role="dialog" aria-modal="true" aria-label="Delivery notifications">
       <section className="delivery-notifications-sheet">
         <header><h2>Notifications</h2><button type="button" aria-label="Close notifications" onClick={() => setOpen(false)}>✕</button></header>
+        {visible.some(notification => !notification.isRead) && <button type="button" className="delivery-notifications-read-all" disabled={loading || actionPending} onClick={markAllRead}>Mark all as read</button>}
         {loading && <p role="status">Loading notifications…</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => fetchNotifications()}>Retry</button></p>}
         {!loading && !error && visible.length === 0 && <p>No delivery notifications yet.</p>}

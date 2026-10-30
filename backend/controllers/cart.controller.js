@@ -15,7 +15,6 @@ import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
-import { getOrCreateWallet, calculateRedemptionEligibility } from '../services/coin.service.js';
 import { inventoryIdentityKey, resolveInventoryItem, isUnlimitedDigital } from '../services/inventory.service.js';
 
 /**
@@ -151,7 +150,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
  */
 const round2 = (n) => Math.round(n * 100) / 100;
 
-const shape = async (channel, items, warnings, user, code, delivery = {}, useCoins = false) => {
+const shape = async (channel, items, warnings, user, code, delivery = {}) => {
   const allDigital = items.length > 0 && items.every((item) => item.fulfillmentType === 'digital');
   const hasDestination = delivery.lat !== undefined && delivery.lng !== undefined;
   const destination = hasDestination ? { lat: Number(delivery.lat), lng: Number(delivery.lng) } : null;
@@ -235,23 +234,6 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
     pricing.totalAmount = round2(Math.max(0, pricing.subtotal - pricing.discount - pricing.couponDiscount));
   }
 
-  /**
-   * NHCONE Coins — an optional, additive layer on top of the pricing above.
-   * `pricing.totalAmount` itself is left completely untouched here (this is
-   * only a preview) — order creation is the one place a Coin discount is
-   * ever actually committed against a payable amount (order.controller.js).
-   *
-   * Eligibility is based on the TOTAL merchandise value after existing
-   * discounts (coupon) — never a single product's price, and never
-   * inclusive of delivery/donation, matching Section 4's ordering:
-   * product/campaign price -> coupon -> ELIGIBLE VALUE -> Coins -> delivery.
-   */
-  const eligibleForCoinBase = round2(pricing.subtotal - pricing.discount - pricing.couponDiscount);
-  const wallet = await getOrCreateWallet(user._id);
-  const redemption = calculateRedemptionEligibility(eligibleForCoinBase, wallet.availableCoins);
-  const coinsToUse = useCoins && redemption.eligible ? redemption.coinsToUse : 0;
-  const coinDiscount = coinsToUse > 0 ? redemption.coinDiscount : 0;
-
   let sellerInfo = null;
   const firstSellerId = items.find((i) => i.sellerId)?.sellerId;
 
@@ -284,14 +266,6 @@ const shape = async (channel, items, warnings, user, code, delivery = {}, useCoi
     items,
     count: items.reduce((n, i) => n + i.qty, 0),
     pricing,
-    coins: {
-      eligibleForCoins: redemption.eligible,
-      availableCoins: wallet.availableCoins,
-      maxCoinsAllowed: redemption.maxCoinsAllowed,
-      coinsToUse,
-      coinDiscount,
-      finalPayable: round2(pricing.totalAmount - coinDiscount),
-    },
     appliedCoupon: applied?.ok ? applied.coupon : null,
     couponSavings: applied?.ok ? round2(Math.max(0,
       (allDigital
@@ -329,7 +303,7 @@ export const getCart = asyncHandler(async (req, res) => {
     lat: req.query.lat,
     lng: req.query.lng,
     mode: req.query.deliveryMode,
-  }, req.query.useCoins === 'true'));
+  }));
 });
 
 // @desc    Item counts and totals for every channel — drives the toggle badges

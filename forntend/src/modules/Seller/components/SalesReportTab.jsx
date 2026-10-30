@@ -6,8 +6,17 @@ const money = (n) =>
   `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const SalesReportTab = () => {
-  const { orders, ordersLoading, sellerKpis, activeChannel, selectedTypes, activeMode, setActiveMode, orderListState } = useSeller();
+  const { orders, ordersLoading, sellerKpis, channelKpis, activeChannel, selectedTypes, activeMode, setActiveMode, orderListState } = useSeller();
   const allStorefronts = orderListState?.scope === 'all';
+  // A hybrid seller picks a storefront with the toggle; the summary cards must follow it
+  // instead of always showing the all-storefront total.
+  const perStorefront = !allStorefronts && selectedTypes?.includes('ecommerce') && selectedTypes?.includes('quick') && channelKpis?.[activeChannel];
+  const summary = perStorefront ? {
+    totalRevenue: channelKpis[activeChannel].revenue || 0,
+    totalOrders: channelKpis[activeChannel].orders || 0,
+    avgOrderValue: channelKpis[activeChannel].orders ? channelKpis[activeChannel].revenue / channelKpis[activeChannel].orders : 0,
+    pendingOrders: (orders || []).filter(o => ['placed', 'confirmed', 'preparing'].includes(o.status)).length,
+  } : sellerKpis;
 
   /** Top products, summed across this seller's line items. */
   const topProducts = useMemo(() => {
@@ -204,13 +213,13 @@ export const SalesReportTab = () => {
       ) : (
         <>
           {/* KPI Summary Cards */}
-          <p style={{ fontSize: 12, color: '#64748b' }}>Summary across all storefronts. Product and daily lists cover {allStorefronts ? 'all storefronts' : activeMode === 'quick' ? 'Quick Commerce' : 'Shop All'}.</p>
+          <p style={{ fontSize: 12, color: '#64748b' }}>Summary and lists cover {allStorefronts ? 'all storefronts' : activeMode === 'quick' ? 'Quick Commerce' : 'Shop All'}.</p>
           <div className="sales-kpi-grid">
             {[
-              { label: 'Gross Revenue', value: money(sellerKpis?.totalRevenue), color: '#10b981', bg: '#dcfce7', icon: '💰' },
-              { label: 'Orders', value: String(sellerKpis?.totalOrders || 0), color: '#3b82f6', bg: '#dbeafe', icon: '📦' },
-              { label: 'Avg Order Value', value: money(sellerKpis?.avgOrderValue), color: '#8b5cf6', bg: '#ede9fe', icon: '📈' },
-              { label: 'Awaiting Handover', value: String(sellerKpis?.pendingOrders || 0), color: '#f59e0b', bg: '#fef3c7', icon: '⏳' },
+              { label: 'Gross Revenue', value: money(summary?.totalRevenue), color: '#10b981', bg: '#dcfce7', icon: '💰' },
+              { label: 'Orders', value: String(summary?.totalOrders || 0), color: '#3b82f6', bg: '#dbeafe', icon: '📦' },
+              { label: 'Avg Order Value', value: money(summary?.avgOrderValue), color: '#8b5cf6', bg: '#ede9fe', icon: '📈' },
+              { label: 'Awaiting Handover', value: String(summary?.pendingOrders || 0), color: '#f59e0b', bg: '#fef3c7', icon: '⏳' },
             ].map((m) => (
               <div key={m.label} className="sales-kpi-card">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

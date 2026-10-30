@@ -27,10 +27,8 @@ import { resolveCampaignPricesForProducts } from '../services/campaign.service.j
 import { isWithinRadius } from '../services/radius.service.js';
 import { forwardGeocode } from '../services/geocode.service.js';
 import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
-import { getOrCreateWallet, calculateRedemptionEligibility, reserveCoins, redeemReservedCoins } from '../services/coin.service.js';
 import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
-import { COIN_REFERENCE_TYPE } from '../constants/enums.js';
 import { buildReturnPolicySnapshotsFor } from '../services/returnPolicy.service.js';
 import { applyProductReturnSettings } from '../services/productReturns.service.js';
 import {
@@ -528,24 +526,11 @@ export const createOrder = asyncHandler(async (req, res) => {
   // A cart only ever holds one channel now, so the order type is unambiguous.
   const orderType = channel;
 
-  /**
-   * NHCONE Coins — resolved here, after every existing discount (coupon,
-   * and before delivery/donation are added, matching Section 4's
-   * ordering exactly. The client sends intent only (`useCoins: true`) —
-   * `coinsToUse`/`coinDiscount` are never read from the request body, only
-   * `req.user`'s own real wallet balance decides them (Section 7/18).
-   *
-   * `eligibleForCoinBase` deliberately excludes delivery/donation, the same
-   * way it does in cart.controller.js's shape() preview, so a preview and
-   * the order it becomes always agree on what counted as "eligible value".
-   */
-  const useCoins = req.body.useCoins === true;
-  const eligibleForCoinBase = Math.round((pricing.subtotal - pricing.discount - pricing.couponDiscount) * 100) / 100;
-  const wallet = await getOrCreateWallet(req.user._id);
-  const redemption = calculateRedemptionEligibility(eligibleForCoinBase, wallet.availableCoins);
-  const coinsToUse = useCoins && redemption.eligible ? redemption.coinsToUse : 0;
-  const coinDiscount = coinsToUse > 0 ? redemption.coinDiscount : 0;
-  const payableAmount = Math.round((pricing.totalAmount - coinDiscount) * 100) / 100;
+  // Coins are retired: nothing is redeemed or discounted. The order keeps
+  // coinsUsed/coinDiscount at 0 so its stored shape stays unchanged.
+  const coinsToUse = 0;
+  const coinDiscount = 0;
+  const payableAmount = Math.round(pricing.totalAmount * 100) / 100;
 
   // Generated up front so the Coin reservation (made inside the transaction,
   // before the Order document exists) can reference the exact order it
@@ -571,27 +556,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     for (const l of lines) {
       writeStage = 'inventory.update';
       await mutateInventory({ productId: l.productId, variantId: l.variantId, quantity: l.qty, session: txnSession });
-    }
-
-    if (coinsToUse > 0) {
-      writeStage = 'coins.reserve';
-      await reserveCoins({
-        userId: req.user._id, amount: coinsToUse,
-        referenceType: COIN_REFERENCE_TYPE.ORDER, referenceId: String(orderId),
-        idempotencyKey: `RESERVE:${orderId}`,
-        description: `Reserved for order ${orderId}`,
-        session: txnSession,
-      });
-      if (paymentMethod === PAYMENT_METHOD.COD || paymentMethod === PAYMENT_METHOD.WALLET) {
-        writeStage = 'coins.redeem';
-        await redeemReservedCoins({
-          userId: req.user._id, amount: coinsToUse,
-          referenceType: COIN_REFERENCE_TYPE.ORDER, referenceId: String(orderId),
-          idempotencyKey: `REDEEM:${orderId}`,
-          description: `Coins used on order ${orderId} (${paymentMethod})`,
-          session: txnSession,
-        });
-      }
     }
 
     if (paymentMethod === PAYMENT_METHOD.WALLET) {

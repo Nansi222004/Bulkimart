@@ -16,6 +16,13 @@ import { sellerOrderAmounts } from '../services/sellerOrderAmounts.service.js';
 import { sellerDashboardMetrics } from '../services/sellerDashboard.service.js';
 import { sellerHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
 
+// Sum of the GST frozen on this seller's own items at checkout; null when the order predates it.
+const productGstOf = (items = [], sellerId) => {
+  const own = items.filter(item => String(item.sellerId) === String(sellerId));
+  if (!own.length || own.some(item => !Number.isSafeInteger(item.productTax?.gstPaise))) return null;
+  return own.reduce((sum, item) => sum + item.productTax.gstPaise, 0) / 100;
+};
+
 const ownSeller = async (req) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) throw httpError(404, 'Seller profile not found');
@@ -53,7 +60,9 @@ export const getSellerFinanceSummary = asyncHandler(async (req, res) => {
     deliveredSales: {
       orderCount: sales[0]?.totals[0]?.orderCount || 0,
       grossAmount: Number((sales[0]?.totals[0]?.grossAmount || 0).toFixed(2)),
-      orders: (sales[0]?.orders || []).map(({ financialSnapshot, items, pricing, ...row }) => ({ ...row, sellerAmounts: sellerOrderAmounts({ financialSnapshot, items, pricing }, seller._id) })),
+      orders: (sales[0]?.orders || []).map(({ financialSnapshot, items, pricing, ...row }) => ({ ...row, sellerAmounts: sellerOrderAmounts({ financialSnapshot, items, pricing }, seller._id),
+        // GST already inside this seller's item prices; shown for reference, never deducted.
+        productGst: productGstOf(items, seller._id) })),
       limit: 20,
     },
     coverage: {
