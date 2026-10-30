@@ -3,6 +3,7 @@ import { useSeller } from '../context/SellerContext';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
+import { apiUrl } from '../../../utils/api';
 
 const faqs = [
   { q: 'How to add products?', a: 'Go to the Products tab, tap "Add Product", fill in name, price, stock, and tap Save.' },
@@ -26,6 +27,26 @@ export const SupportTab = () => {
 
   const [openTicket, setOpenTicket] = useState(null);
   const [openMessages, setOpenMessages] = useState([]);
+  const [sellerHelpline, setSellerHelpline] = useState('1800-111-2233');
+
+  useEffect(() => {
+    let unmounted = false;
+    const fetchHelpline = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/helpline'));
+        if (res.ok) {
+          const json = await res.json();
+          if (!unmounted && json.data?.sellerHelplineNumber) {
+            setSellerHelpline(json.data.sellerHelplineNumber);
+          }
+        }
+      } catch {
+        /* fallback to 1800-111-2233 */
+      }
+    };
+    fetchHelpline();
+    return () => { unmounted = true; };
+  }, []);
 
   const formRef = useRef(null);
   const subjectInputRef = useRef(null);
@@ -74,8 +95,9 @@ export const SupportTab = () => {
   };
 
   const handleCallClick = () => {
-    triggerToast('Dialing Bulkimart Helpline: 1800-111-2233');
-    window.location.href = 'tel:18001112233';
+    const dialable = sellerHelpline.replace(/[^0-9+]/g, '') || '18001112233';
+    triggerToast(`Dialing Bulkimart Helpline: ${sellerHelpline}`);
+    window.location.href = `tel:${dialable}`;
   };
 
   return (

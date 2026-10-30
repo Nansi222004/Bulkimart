@@ -4,9 +4,7 @@ import { useDelivery } from '../context/DeliveryContext';
 import { enterCustomerSession } from '../../../utils/userSession';
 import ServiceAreaEditor from '../components/ServiceAreaEditor';
 import { riderRatingSummary } from '../utils/riderRating';
-
-// India's national emergency number; the SOS button places a real call to it.
-const EMERGENCY_HELPLINE = '112';
+import { apiUrl } from '../../../utils/api';
 
 export const DeliveryProfilePage = () => {
   const ui = useFeedback();
@@ -15,7 +13,28 @@ export const DeliveryProfilePage = () => {
 
   const [locating, setLocating] = useState(false);  // button loading state
   const [switching, setSwitching] = useState(false);
+  const [sosNumber, setSosNumber] = useState('112');
   const customerRating = riderRatingSummary(riderProfile);
+
+  // Dynamic helpline & SOS emergency number configured by Admin
+  React.useEffect(() => {
+    let unmounted = false;
+    const fetchHelpline = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/helpline'));
+        if (res.ok) {
+          const json = await res.json();
+          if (!unmounted && json.data?.sosEmergencyNumber) {
+            setSosNumber(json.data.sosEmergencyNumber);
+          }
+        }
+      } catch {
+        /* fallback to 112 */
+      }
+    };
+    fetchHelpline();
+    return () => { unmounted = true; };
+  }, []);
 
   /**
    * Fetch device GPS → reverse-geocode with Google Maps → save to backend.
@@ -270,9 +289,15 @@ export const DeliveryProfilePage = () => {
         }}>{switching ? 'Opening shop…' : 'Shop as customer'}</button>
         <button 
           className="profile-support-btn"
-          onClick={() => ui.perform('Call the emergency helpline (112) now?', async () => { window.location.href = `tel:${EMERGENCY_HELPLINE}`; })}
+          onClick={() => {
+            const dialable = sosNumber.replace(/[^0-9+]/g, '') || '112';
+            ui.perform(`Call the emergency helpline (${sosNumber}) now?`, async () => {
+              window.location.href = `tel:${dialable}`;
+            });
+          }}
+          title={`Call Emergency Helpline: ${sosNumber}`}
         >
-          🚨 SOS Emergency Helpline
+          🚨 SOS Emergency Helpline ({sosNumber})
         </button>
         <button 
           className="profile-support-btn outline"

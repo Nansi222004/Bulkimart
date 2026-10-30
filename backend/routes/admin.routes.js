@@ -57,6 +57,9 @@ import {
 import {
   getAllPolicies, getPolicyByRole, getPolicyBySlug, updatePolicy,
 } from '../controllers/privacyPolicyController.js';
+import {
+  getAdminHelpline, updateAdminHelpline,
+} from '../controllers/helpline.controller.js';
 import { protect, requireAdmin } from '../middlewares/auth.middleware.js';
 import { uploadSingle, uploadMultiple } from '../middlewares/upload.middleware.js';
 import {
@@ -198,6 +201,11 @@ router.post('/radius-settings', setRadiusSettingForAdmin);
 // ---- Dynamic Tip Setting ----------------------------------------------------
 router.get('/tip-setting', getTipSettingForAdmin);
 router.post('/tip-setting', setTipSettingForAdmin);
+
+// ---- Dynamic Helpline & SOS Emergency Setting ------------------------------
+router.get('/helpline-setting', getAdminHelpline);
+router.post('/helpline-setting', updateAdminHelpline);
+router.put('/helpline-setting', updateAdminHelpline);
 
 // ---- Campaigns / Deals -----------------------------------------------------
 router.get('/campaigns', listCampaignsForAdmin);

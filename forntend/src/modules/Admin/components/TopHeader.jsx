@@ -17,6 +17,7 @@ const pageTitles = {
   'gst-assistance': 'GST Registration Assistance', 'finance-center': 'Finance Center',
   'categories-all': 'All Categories', 'categories-header': 'Header Categories',
   'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories',
+  'helpline-settings': 'Helpline & SOS Emergency Settings',
 };
 
 const timeAgo = (iso) => {
@@ -43,6 +44,7 @@ const resolveSearchTab = (query) => {
   if (/category|categor/.test(q)) return 'categories-all';
   if (/payout|payment|financ|wallet/.test(q)) return 'finance-center';
   if (/coupon|promo|campaign/.test(q)) return 'campaigns';
+  if (/helpline|sos|emergency/.test(q)) return 'helpline-settings';
   if (/notification|broadcast/.test(q)) return 'notifications';
   if (/return|refund/.test(q)) return 'returns';
   if (/review|rating/.test(q)) return 'user-reviews';

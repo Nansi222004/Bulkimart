@@ -52,6 +52,7 @@ import UserWalletsTab from '../components/UserWalletsTab';
 import AdminLoginPage from '../pages/AdminLoginPage';
 import WholesaleManagementTab from '../components/WholesaleManagementTab';
 import FinanceCenter from '../components/FinanceCenter';
+import HelplineSettingsTab from '../components/HelplineSettingsTab';
 
 import '../SuperAdmin.css';
 import '../Admin.css'; // Toast alert styles
@@ -105,6 +106,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'returns':            return <ReturnsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;
+      case 'helpline-settings':  return <HelplineSettingsTab />;
       case 'notifications':      return <NotificationBroadcasterTab />;
       case 'privacy-policy':
       case 'privacy':            return <PrivacyPolicyTab />;
