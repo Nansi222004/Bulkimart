@@ -6,6 +6,7 @@ import GstIntakeStatus from './GstIntakeStatus';
 import ModalPortal from '../ModalPortal';
 import { isTopModal } from '../../utils/modalLayer';
 import './gstPayments.css';
+
 // Plain-language history. Entries from the retired reviewer assignment are not shown.
 function eventText(event, admin) {
   switch (event.action) {
@@ -44,6 +45,13 @@ export default function GstAssistance({ admin = false, compact = false, onlyWhen
     generation.current++;
     setSelectedRequest(null); setRow(null); setError(''); setDetailLoading(false); resetForm();
   }
+  const reloadRef = useRef(null);
+  useEffect(() => {
+    if (admin) return undefined;
+    const onPull = () => { void reloadRef.current?.(); };
+    window.addEventListener('app:refresh-gst', onPull);
+    return () => window.removeEventListener('app:refresh-gst', onPull);
+  }, [admin]);
   async function load() {
     const current = ++generation.current;
     setError(''); setLoading(true);
@@ -52,6 +60,7 @@ export default function GstAssistance({ admin = false, compact = false, onlyWhen
     } catch (e) { if (current !== generation.current) return; setError(e.message); }
     finally { if (current === generation.current) setLoading(false); }
   }
+  reloadRef.current = load;
   useEffect(() => { let active = true; const current = ++generation.current;
     setLoading(true); setError('');
     if (admin) { setSelectedRequest(null); setRow(null); setDetailLoading(false); }
@@ -143,7 +152,7 @@ export default function GstAssistance({ admin = false, compact = false, onlyWhen
     </header>
     {admin && <><GstIntakeStatus/><GstFeeEditor/></>}
     {error && (!admin || !selectedRequest) && <p role="alert">{error}</p>}
-    <div className="gst-toolbar"><button type="button" disabled={busy || loading} onClick={load}>Refresh assistance status</button>
+    <div className="gst-toolbar">{admin && <button type="button" disabled={busy || loading} onClick={load}>Refresh assistance status</button>}
     {admin && <label>Filter by status<select value={filter} disabled={busy || loading} onChange={e => { setFilter(e.target.value); setPage(1); }}><option value="">All</option>{Object.entries(gstLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
     </div>
     {loading && <p role="status" className="gst-empty-state">Loading GST assistance…</p>}

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import './DeliveryFinancePanel.css';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 
 const money = paise => `₹${(Number(paise || 0) / 100).toFixed(2)}`;
 const BUCKETS = { held: 'On hold (waiting for payment check)', eligible: 'Available to withdraw', reserved: 'Payout requested', settled: 'Paid to you', pending: 'Pending' };
@@ -38,6 +39,8 @@ export default function DeliveryFinancePanel({ onChanged }) {
   useEffect(() => { let active = true; setBusy(true); load().catch(e => { if (active) setMessage(e.message); }).finally(() => { if (active) setBusy(false); }); return () => { active = false; generation.current++; }; }, [page]);
   // The most a report may state: the order amount for a collection, the cash
   // actually collected for a handover.
+  // Pull down to refresh the COD and earnings records (replaces the Refresh records button).
+  useRefreshHandler(async () => { setBusy(true); try { await load(); } catch (e) { setMessage(e.message); } finally { setBusy(false); } });
   const handover = selected?.cash.status === 'collected';
   // COD cash due is the order amount rounded to the nearest rupee.
   const duePaise = selected ? (selected.cash.duePaise ?? selected.cash.expectedPaise) : 0;
@@ -63,7 +66,6 @@ export default function DeliveryFinancePanel({ onChanged }) {
     {!enabled && <p>Cash reporting is awaiting policy approval. Contact operations for existing cash obligations.</p>}
     {message && <p role="status">{message}</p>}
     {notice && <p ref={noticeRef} role={notice.tone === 'error' ? 'alert' : 'status'} className={`delivery-finance-notice is-${notice.tone}`}>{notice.text}</p>}
-    <button type="button" disabled={busy} onClick={() => { setBusy(true); load().catch(e => setMessage(e.message)).finally(() => setBusy(false)); }}>Refresh records</button>
     <p><strong>Cash with you now: {money(cash.reduce((sum, row) => sum + (row.cash.outstandingPaise || 0), 0))}</strong></p>
     <div>{balances.map(row => <p key={row._id.bucket}>{BUCKETS[row._id.bucket] || row._id.bucket}: {money(Math.round(row.amount * 100))}</p>)}</div>
     {cash.map(row => <article key={row._id} style={{ padding: '12px 0', borderBottom: '1px solid #b5e2eb' }}><strong>{row.orderNo} · {CASH[row.cash.status] || row.cash.status}</strong><p>Order amount {money(row.cash.expectedPaise)}<br />You collected {money(row.cash.collectedPaise)} · You handed over {money(row.cash.reportedPaise)}<br />Bulkimart received {money(row.cash.verifiedPaise)} · Still with you {money(row.cash.outstandingPaise)}</p>

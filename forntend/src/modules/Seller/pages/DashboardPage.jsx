@@ -1,5 +1,5 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import RealtimeNotice from '../../../components/RealtimeNotice';
 import ServicesPanel from '../../../components/services/ServicesPanel';
@@ -28,6 +28,8 @@ import AccountTab from '../components/AccountTab';
 import SellerOrderAlerts from '../components/SellerOrderAlerts';
 import SellerReturnAlerts from '../components/SellerReturnAlerts';
 import SellerPushControl from '../components/SellerPushControl';
+import PullToRefresh from '../../../components/pullToRefresh/PullToRefresh';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 import NotificationPopup from '../../../components/NotificationPopup';
 import { openAdvertisingNotification } from '../../../components/advertising/advertisingNotifications';
 import { isSellerReturnNotification, openSellerReturn } from '../utils/returnNotification';
@@ -68,7 +70,21 @@ export const DashboardPage = () => {
     activeTab, setActiveTab, logoutSeller, selectedTypes, activeMode, setActiveMode,
     openSellerOrder, orderDetailId,
     sellerProfile, userProfile, bizForm,
+    fetchSellerKpis, fetchMyProducts, fetchSellerOrders, fetchSellerFinances,
   } = useSeller();
+  const tabScroll = useRef(null);
+  // Pull down to refresh: reloads whatever the current tab shows. A tab with its own refresh overrides this.
+  useRefreshHandler(async () => {
+    switch (activeTab) {
+      case 'dashboard': await fetchSellerKpis?.(); break;
+      case 'products': case 'stock': await fetchMyProducts?.(); break;
+      case 'orders': if (orderDetailId) await openSellerOrder?.(orderDetailId); else await fetchSellerOrders?.('all'); break;
+      case 'track': case 'salesreport': await fetchSellerOrders?.('all'); break;
+      case 'earnings': case 'moneyrequest': case 'paymenthistory': await fetchSellerFinances?.(); break;
+      default: // Tabs that already refresh when the window regains focus (returns and similar).
+        window.dispatchEvent(new Event('focus')); await new Promise(resolve => setTimeout(resolve, 600));
+    }
+  });
   const [showNotifications, setShowNotifications] = useState(false);
   const [returnDetailId, setReturnDetailId] = useState(null);
   const detailOpen = (activeTab === 'orders' && orderDetailId) || (activeTab === 'item-returns' && returnDetailId);
@@ -209,7 +225,7 @@ export const DashboardPage = () => {
         {!detailOpen && <SellerPushControl />}
 
         {/* Tab content */}
-        <div className="seller-tab-content-container">
+        <div className="seller-tab-content-container" ref={tabScroll}>
           {renderActiveTab()}
         </div>
       </div>
@@ -220,6 +236,7 @@ export const DashboardPage = () => {
 
       {/* Orders and new return requests have persistent alerts above.
           Other updates use the shared floating notification. */}
+      <PullToRefresh scrollRef={tabScroll} disabled={Boolean(showNotifications)} />
       <NotificationPopup excludeSellerOrders excludeSellerReturns onNavigate={(route, notification) => {
         if (openAdvertisingNotification(notification || { route }, setActiveTab)) return;
         if (isSellerReturnNotification(notification)) return openSellerReturn(setActiveTab, notification);

@@ -7,6 +7,7 @@ import { isSellerReturnNotification } from '../utils/returnNotification';
 import ReturnPickupPanel from './ReturnPickupPanel';
 import './SellerOrderDetails.css';
 import './SellerReturnDetails.css';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 
 /**
  * Seller returns and explicit pickup selection for the seller's own products.
@@ -203,6 +204,8 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
   };
   // After any pickup action, refresh both the list and an open detail.
   const reloadAll = async () => { await Promise.all([load(true), detailId ? loadDetail(detailId) : Promise.resolve()]); };
+  useRefreshHandler(reloadAll); // pull down to refresh
+
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 4000); };
 
@@ -276,7 +279,6 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
   if (detailId) return <main className="seller-order-page seller-return-page" aria-label="Return details">
     <div className="seller-order-topbar">
       <button type="button" className="order-action-btn-sm" aria-label="Close return details" onClick={closeDetail}>← Back to returns</button>
-      <button type="button" className="order-action-btn-sm" onClick={reloadAll}>Refresh return</button>
     </div>
     <header className="seller-order-hero">
       <div><span className="seller-order-eyebrow">Item return</span><h1>{detail?.returnNumber || 'Return details'}</h1><p>{detail?.productName} {detail ? '× ' + detail.quantity : ''}</p></div>

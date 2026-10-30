@@ -2,10 +2,11 @@ import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { hookHarness } from './componentHarness.mjs';
-let vite, Profile, Wishlist;
+let vite, Profile, Wishlist, runRefresh;
 before(async () => {
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
   Profile = (await vite.ssrLoadModule('/src/modules/User/pages/ProfilePage.jsx')).default;
+  runRefresh = (await vite.ssrLoadModule('/src/utils/refreshRegistry.js')).runRefresh;
   Wishlist = (await vite.ssrLoadModule('/src/modules/User/pages/WishlistPage.jsx')).default;
 });
 after(async () => vite.close());
@@ -54,7 +55,8 @@ test('the parcel refund wallet link opens the rupee wallet', async () => {
     h.requests.findLast(r => r.url.includes('/wallet/transactions')).resolve({ success: true, data: [{ _id: 'parcel-refund', direction: 'credit', amount: 20.4, description: 'Refund for cancelled parcel #TEST' }] });
     await h.settle();
     assert.match(text(h.tree), /20.40/); assert.match(text(h.tree), /Refund for cancelled parcel #TEST/);
-    h.click('Refresh wallet');
+    // The Refresh wallet button became pull-down refresh: the wallet screen registers the same reload.
+    assert.doesNotMatch(text(h.tree), /Refresh wallet/); const pulled = runRefresh(); h.flush();
     h.requests.findLast(r => r.url.endsWith('/api/wallet')).resolve({ success: false, message: 'Wallet unavailable' }, 503);
     h.requests.findLast(r => r.url.includes('/wallet/transactions')).resolve({ success: true, data: [] }); await h.settle();
     assert.match(text(h.tree), /Wallet unavailable/); assert.match(text(h.tree), /may be outdated/);

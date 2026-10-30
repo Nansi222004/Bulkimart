@@ -6,6 +6,7 @@ import { boundedFetch } from '../../utils/portalRequests';
 import ServicePaymentPanel, { payServiceFee, feeText } from './ServicePaymentPanel';
 import ServiceReference, { shortServiceReference } from './ServiceReference';
 import GstAssistance from '../gst/GstAssistance';
+import { useRefreshHandler } from '../../utils/refreshRegistry';
 import './services.css';
 import { createLatestRequest, serviceApplicationId } from './serviceRequests';
 import { SERVICE_TEXT_CHARS, SERVICE_ANSWER_BYTES, SERVICE_FILE_COUNT, SERVICE_FILE_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
@@ -193,6 +194,8 @@ export default function ServicesPanel({ admin = false, applicant = 'vendor' }) {
     if (allowed !== true && !await allowed) return;
     await Promise.all([load(), application ? openApplication(application._id, false) : Promise.resolve()]);
   };
+  // Pull down to refresh (phones): the list, the open application and the GST card.
+  useRefreshHandler(async () => { window.dispatchEvent(new Event('app:refresh-gst')); await refresh(); });
   const applyApplication = value => { detailRequests.current.cancel(); setDetailLoading(false); setApplication(value); setDetailRevision(v => v + 1); detailDirty.current = false; setConflict(false); };
   const run = async fn => {
     if (lock.current) return; lock.current = true; setBusy(true); setError(''); setErrors({}); setNotice('');
@@ -218,7 +221,7 @@ export default function ServicesPanel({ admin = false, applicant = 'vendor' }) {
     setNotice(outcome.verified ? `Payment received. Application ${shortServiceReference(result.data._id, 'APP')} has been submitted.` : `${outcome.message || 'Payment was not completed.'} Your application is saved — pay the fee below to submit it.`);
   });
   const fee = selected?.pricing?.mode === 'fixed' && Number(selected.pricing.amount) > 0 ? Math.round(Number(selected.pricing.amount) * 100) : 0;
-  return <section className="sm-panel" aria-label="Service management"><div className="sm-actions"><h2>{customers ? 'Customer requests' : admin ? 'Services and seller applications' : 'Vendor Services'}</h2>{!customers && <><button disabled={busy} aria-pressed={tab === 'services'} onClick={() => switchTab('services')}>{admin ? 'Manage services' : 'Service catalogue'}</button><button disabled={busy} aria-pressed={tab === 'applications'} onClick={() => switchTab('applications')}>{admin ? 'Seller applications' : 'My applications'}</button></>}<button disabled={busy || loading || detailLoading} onClick={refresh}>Refresh</button></div>
+  return <section className="sm-panel" aria-label="Service management"><div className="sm-actions"><h2>{customers ? 'Customer requests' : admin ? 'Services and seller applications' : 'Vendor Services'}</h2>{!customers && <><button disabled={busy} aria-pressed={tab === 'services'} onClick={() => switchTab('services')}>{admin ? 'Manage services' : 'Service catalogue'}</button><button disabled={busy} aria-pressed={tab === 'applications'} onClick={() => switchTab('applications')}>{admin ? 'Seller applications' : 'My applications'}</button></>}{admin && <button disabled={busy || loading || detailLoading} onClick={refresh}>Refresh</button>}</div>
     {error && <div className="sm-error" role="alert">{error} <button disabled={busy} onClick={refresh}>{application ? 'Reload latest application' : 'Retry list'}</button></div>}{conflict && <p role="alert">The record changed. Reload the latest application and review it before retrying your action.</p>}{notice && <p role="status">{notice}</p>}{detailLoading && <p role="status">Loading application…</p>}
     {application ? <><button disabled={busy} onClick={() => switchTab('applications')}>Back to applications</button><ApplicationDetail key={`${application._id}:${detailRevision}`} application={application} admin={admin} request={request} run={run} busy={busy || detailLoading} onChange={applyApplication} onDirty={onDirty} /></>
       : editor ? <><button disabled={busy} onClick={() => setEditor(null)}>Back to services</button><ServiceEditor key={editor._id || 'new'} initial={editor} busy={busy} onSave={form => run(async () => { await request(form._id ? `/${form._id}` : '', { method: form._id ? 'PUT' : 'POST', body: JSON.stringify({ ...form, version: form.__v }) }); setEditor(null); setNotice('Service saved.'); await load(); })} /></>

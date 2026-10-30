@@ -157,7 +157,8 @@ export const useCategoryBranch = (type, slug) => {
   };
 };
 
-/** Testing seam: forget everything cached, so a run starts cold. */
-export const __resetCategoryCache = () => { inflight.clear(); resolved.clear(); expires.clear(); };
+/** Forget everything cached, so the next read goes to the server (pull-down refresh, and tests start cold). */
+export const clearCategoryCache = () => { inflight.clear(); resolved.clear(); expires.clear(); };
+export const __resetCategoryCache = clearCategoryCache;
 
 export default useCategoryTree;

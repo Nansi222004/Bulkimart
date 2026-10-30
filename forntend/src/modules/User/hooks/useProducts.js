@@ -3,6 +3,8 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 
 const catalogRequests = new Map();
+/** Forget the short-lived shared catalog responses, so the next read goes to the server (pull-down refresh). */
+export const clearCatalogCache = () => catalogRequests.clear();
 // Share identical public catalog requests across merchandising sections.
 export async function readCatalog(url, fresh = false) {
   const existing = catalogRequests.get(url);

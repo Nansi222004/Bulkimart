@@ -72,23 +72,28 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
     fetchSellers, fetchSellerCounts,
     sellerStatusFilter, setSellerStatusFilter,
     approveSeller, rejectSeller, suspendSeller, setSellerRadius,
-    searchQuery, setSearchQuery,
   } = useAdmin();
 
-  // The sidebar passes the status for the tab that was clicked
-  // (Pending Approval / Approved Vendors / …).
+  // Bug #205: use LOCAL search so each seller module tab has its own isolated filter.
+  // The global searchQuery is intentionally NOT used here so switching from
+  // "Approved Vendors" to "Pending Approval" does not carry the search forward.
+  const [localSearch, setLocalSearch] = useState('');
+
+  // The sidebar passes the status for the tab that was clicked.
+  // Reset local search whenever the tab changes (Bug #205).
   useEffect(() => {
     setSellerStatusFilter(defaultStatusFilter);
+    setLocalSearch('');
   }, [defaultStatusFilter, setSellerStatusFilter]);
 
   // Debounced refetch whenever the tab or the search box changes.
   useEffect(() => {
     const t = setTimeout(() => {
-      fetchSellers(sellerStatusFilter, searchQuery);
+      fetchSellers(sellerStatusFilter, localSearch);
       fetchSellerCounts();
-    }, searchQuery ? 300 : 0);
+    }, localSearch ? 300 : 0);
     return () => clearTimeout(t);
-  }, [sellerStatusFilter, searchQuery, fetchSellers, fetchSellerCounts]);
+  }, [sellerStatusFilter, localSearch, fetchSellers, fetchSellerCounts]);
 
   const d = sellerDetail;
 
@@ -113,8 +118,8 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
             type="text"
             className="admin-search-input"
             placeholder="Search by business name, store or city..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
           />
         </div>
         <select

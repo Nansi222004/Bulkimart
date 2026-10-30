@@ -618,8 +618,7 @@ export const OrdersTab = ({ detailPage = false }) => {
       </div>
 
       </>}
-      {detailPage && <><div className="seller-order-topbar"><button type="button" className="order-action-btn-sm" aria-label="Close order details" onClick={closeSellerOrder}>← Back to orders</button>
-        {selected && <button type="button" className="order-action-btn-sm" disabled={orderDetailLoading || Boolean(busyId)} onClick={() => openSellerOrder(selected._id)}>Refresh details</button>}</div>
+      {detailPage && <><div className="seller-order-topbar"><button type="button" className="order-action-btn-sm" aria-label="Close order details" onClick={closeSellerOrder}>← Back to orders</button></div>
         {orderDetailLoading && <p role="status">Loading latest order…</p>}
         {orderDetailError && <div role="alert"><p>{orderDetailError}</p><button type="button" onClick={() => openSellerOrder(orderDetailId)}>Retry loading order</button></div>}
         {selected && <header className="seller-order-hero">

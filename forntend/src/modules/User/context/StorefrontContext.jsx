@@ -70,8 +70,8 @@ export function StorefrontProvider({ children }) {
       }
     };
     const visible = () => { if (document.visibilityState === 'visible') refresh(); };
-    refresh(); window.addEventListener('online', refresh); document.addEventListener('visibilitychange', visible);
-    return () => { cancelled = true; controller.abort(); clearTimeout(timer); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', visible); };
+    refresh(); window.addEventListener('app:soft-refresh', refresh); window.addEventListener('online', refresh); document.addEventListener('visibilitychange', visible);
+    return () => { cancelled = true; controller.abort(); clearTimeout(timer); window.removeEventListener('app:soft-refresh', refresh); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', visible); };
   }, [key]);
   const now = clock + offset.current;
   const current = data?.key === key && showableExperience(data, now) ? normalizeExperience(data) : fallback;

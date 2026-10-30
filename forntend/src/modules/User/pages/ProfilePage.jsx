@@ -9,6 +9,7 @@ import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import useCustomerWallet from '../hooks/useCustomerWallet';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 
 const DEFAULT_NEUTRAL_AVATAR = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231e293b"/><circle cx="50" cy="38" r="20" fill="%2394a3b8"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%2394a3b8"/></svg>`;
@@ -330,6 +331,8 @@ const ProfilePage = () => {
     error: realWalletError, refresh: loadRealWalletDetails } = useCustomerWallet({
     active: activeSection === 'real-wallet', userId: currentUser?._id || currentUser?.id, onBalance: setWalletBalance,
   });
+  // Pull down on the wallet screen to reload the balance and history (replaces the Refresh wallet button).
+  useRefreshHandler(() => loadRealWalletDetails(), activeSection === 'real-wallet');
 
   // Dynamic Privacy Policy states
   const [privacyTab, setPrivacyTab] = useState('user-policy');
@@ -658,9 +661,14 @@ const ProfilePage = () => {
                 ))}
               </div>
 
-              <p style={{ margin: '10px 0 0 0', color: '#64748b', fontSize: '12px', fontWeight: '600' }}>
-                Account ID: #{String(currentUser?._id || '6A8487').slice(0, 6).toUpperCase()}
-              </p>
+              <div style={{ margin: '10px 0 0 0', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                <span style={{ color: '#64748b', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}>
+                  User ID: {currentUser?._id || currentUser?.id || '—'}
+                </span>
+                <span style={{ color: '#64748b', fontSize: '12px', fontWeight: '600', fontFamily: 'monospace' }}>
+                  Account ID: {currentUser?._id || currentUser?.id || '—'}
+                </span>
+              </div>
             </div>
             
             {profileMsg && (
@@ -718,7 +726,7 @@ const ProfilePage = () => {
           <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
             <p style={{ margin: 0, fontSize: '13px' }}>Bulkimart Wallet holds money in rupees for payments and refunds. Parcel refunds sent to your wallet appear here.</p>
             {realWalletError && <p role="alert">{realWalletError} {realWalletData && 'The balance below was last loaded successfully and may be outdated.'}</p>}
-            <button type="button" onClick={loadRealWalletDetails} disabled={loadingRealWallet}>{loadingRealWallet ? 'Refreshing wallet…' : 'Refresh wallet'}</button>
+            {loadingRealWallet && <p role="status">Refreshing wallet…</p>}
             {topupAlert && (
               <div style={{
                 padding: '14px 16px',
@@ -1523,6 +1531,11 @@ const ProfilePage = () => {
               <span className="user-active-badge">Active</span>
             </div>
             <span className="user-profile-phone">{currentUser?.phone ? `+91 ${currentUser.phone}` : ''}</span>
+            {(currentUser?._id || currentUser?.id) && (
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace', marginTop: '2px' }}>
+                ID: {currentUser?._id || currentUser?.id}
+              </span>
+            )}
           </div>
         </div>
 

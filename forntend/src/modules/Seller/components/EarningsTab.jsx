@@ -46,7 +46,6 @@ export const EarningsTab = () => {
       <div><h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>Earnings & settlements</h1>
         <p style={{ color: '#64748b', fontSize: 13 }}>For each item you get the full item price minus Bulkimart’s commission, GST on that commission, and any TCS/TDS. Coupons are paid by Bulkimart, not by you.</p></div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={fetchSellerFinances} style={{ padding: '9px 14px', border: '1px solid #cbd5e1', borderRadius: 9, background: '#fff' }}>Refresh</button>
         <button disabled={!financeSummary?.payoutActionsEnabled} onClick={() => setActiveTab('moneyrequest')}
           title={!financeSummary?.payoutActionsEnabled ? 'Nothing available to withdraw yet' : 'Request payout'}
           style={{ padding: '9px 16px', border: 0, borderRadius: 9, color: '#fff', background: financeSummary?.payoutActionsEnabled ? '#0f9f91' : '#94a3b8', cursor: financeSummary?.payoutActionsEnabled ? 'pointer' : 'not-allowed' }}>Request payout</button>

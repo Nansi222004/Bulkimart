@@ -547,8 +547,10 @@ export const AdminProvider = ({ children }) => {
     try {
       await adminPost(`/tickets/${id}/messages`, { message });
       setTicketReply('');
-      await refreshTicketDetail(id);
-      triggerToast('Reply sent.');
+      // Auto-close modal after reply sent (Bug #203)
+      setSelectedTicket(null);
+      triggerToast('Reply sent successfully.');
+      await fetchTickets(filterStatus === 'All' ? 'all' : filterStatus, searchQuery, ticketCategoryFilter === 'All' ? 'all' : ticketCategoryFilter, ticketRoleFilter === 'All' ? 'all' : ticketRoleFilter);
     } catch (err) {
       triggerToast(err.message, {type:'error'});
     }
@@ -604,13 +606,18 @@ export const AdminProvider = ({ children }) => {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState('');
 
-  const fetchUsers = useCallback(async (search = '', status = 'all', state = '', district = '') => {
+  const [usersPagination, setUsersPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
+
+  const fetchUsers = useCallback(async (search = '', status = 'all', state = '', district = '', page = 1) => {
     setUsersLoading(true);
     setUsersError('');
     try {
-      const { data } = await adminGet(`/users${qs({ search, status, state, district, limit: 100 })}`);
+      // Bug #198/199: add role=customer to exclude delivery partners & sellers from user list
+      // Bug #200: support server-side pagination
+      const { data, meta } = await adminGet(`/users${qs({ search, status, state, district, role: 'customer', page, limit: 20 })}`);
       setUsers((data || []).map((u) => ({
         id: u._id,
+        accountId: u._id,          // Bug #197: expose accountId = _id
         name: u.name || 'Anonymous User',
         phone: u.phone || '',
         email: u.email || '',
@@ -619,6 +626,13 @@ export const AdminProvider = ({ children }) => {
         isActive: u.isActive,
         raw: u
       })));
+      const m = meta || {};
+      setUsersPagination({
+        page: m.page || page,
+        limit: m.limit || 20,
+        total: m.total || (data || []).length,
+        totalPages: m.pages || m.totalPages || 1,
+      });
     } catch (err) {
       setUsersError(err.message);
       setUsers([]);
@@ -1133,6 +1147,7 @@ export const AdminProvider = ({ children }) => {
       users,
       usersLoading,
       usersError,
+      usersPagination,
       fetchUsers,
       approveUserKyc,
       removeCustomerAccount,

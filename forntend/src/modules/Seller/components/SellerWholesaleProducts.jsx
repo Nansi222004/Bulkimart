@@ -21,7 +21,6 @@ export default function SellerWholesaleProducts() {
         <label className="seller-products-search">Search<input className="onboarding-input" type="search" placeholder="Product, SKU or variant" aria-label="Search Wholesale products" value={search} onChange={change(setSearch)} /></label>
         <label>Category<select className="onboarding-select" aria-label="Wholesale category" value={category} onChange={change(setCategory)}><option value="">All categories</option>{[...new Set(physical.map(p => p.category))].map(c => <option key={c}>{c}</option>)}</select></label>
         <label>Offers<select className="onboarding-select" aria-label="Wholesale offer filter" value={state} onChange={change(setState)}><option value="all">All variants</option><option value="enabled">Enabled</option><option value="disabled">Disabled / not configured</option></select></label>
-        <button className="seller-products-button" onClick={fetchMyProducts} disabled={productsLoading}>Refresh products</button>
       </div>
       <div className="seller-products-results">
         {productsLoading ? <p className="seller-products-state" role="status">Loading Wholesale products…</p> : productsError ? <div className="seller-products-state" role="alert">{productsError}<button className="seller-products-button" onClick={fetchMyProducts}>Retry products</button></div> : !rows.length ? <p className="seller-products-state">No eligible physical products. Create or activate a physical listing in E-Commerce or Quick Commerce and add variant stock first.</p> : <>

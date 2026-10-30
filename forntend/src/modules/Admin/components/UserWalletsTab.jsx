@@ -234,7 +234,12 @@ const UserWalletsTab = () => {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
-            onClick={() => { fetchOverview(); fetchUserWallets(); }}
+            onClick={() => {
+              // Bug #202: refresh data specific to the visible sub-tab
+              fetchOverview();
+              if (activeSubTab === 'users') fetchUserWallets(userPagination.page);
+              if (activeSubTab === 'transactions') fetchAllTransactions(txnPagination.page, txnSearch, txnTypeFilter);
+            }}
             style={{
               padding: '10px 16px',
               backgroundColor: 'rgba(255, 255, 255, 0.2)',

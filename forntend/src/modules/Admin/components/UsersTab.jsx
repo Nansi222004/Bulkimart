@@ -9,6 +9,7 @@ export const UsersTab = ({ defaultStatusFilter }) => {
     users,
     usersLoading,
     usersError,
+    usersPagination,
     fetchUsers,
     searchQuery,
     setSearchQuery,
@@ -20,39 +21,36 @@ export const UsersTab = ({ defaultStatusFilter }) => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [statusFilter, setStatusFilter] = useState(defaultStatusFilter || 'All');
   // Geographic filter — matched against each user's DEFAULT address only
-  // (see admin.controller.js::listUsers). "District" here is really the
-  // address's `city` field — there is no separate district field anywhere
-  // in this schema, so city doubles as it, same approximation used
-  // elsewhere in this directory.
   const [stateFilter, setStateFilter] = useState('All');
   const [districtFilter, setDistrictFilter] = useState('All');
   const [removing, setRemoving] = useState(false);
+  // Bug #200: pagination
+  const [page, setPage] = useState(1);
 
   const removeSelected = async () => {
     if (!selectedUser || removing) return;
     return ui.perform('Remove this customer account? If it has no references it will be permanently deleted. If historical orders or financial records exist it will only be deactivated. Active orders, balances, refunds, or unresolved obligations will block the action.', async () => {
-    setRemoving(true);
-    const result = await removeCustomerAccount(selectedUser.id);
-    setRemoving(false);
-    if (result?.ok) setSelectedUser(null);
-
-});
-};
+      setRemoving(true);
+      const result = await removeCustomerAccount(selectedUser.id);
+      setRemoving(false);
+      if (result?.ok) setSelectedUser(null);
+    });
+  };
 
   React.useEffect(() => {
     if (defaultStatusFilter) {
       setStatusFilter(defaultStatusFilter);
+      setPage(1);
     }
   }, [defaultStatusFilter]);
 
-  // Populated once — only (state, district) pairs with at least one real
-  // registered user are ever offered, so a choice never comes back empty.
   React.useEffect(() => { fetchConsumerLocations(); }, [fetchConsumerLocations]);
 
-  // Picking a new state invalidates whatever district was selected under
-  // the PREVIOUS state — never silently filter on a (state, district) pair
-  // that cannot co-occur.
+  // Picking a new state invalidates the district
   React.useEffect(() => { setDistrictFilter('All'); }, [stateFilter]);
+
+  // Any filter change resets page
+  React.useEffect(() => { setPage(1); }, [searchQuery, statusFilter, stateFilter, districtFilter]);
 
   const allDistricts = React.useMemo(() => {
     const set = new Set();
@@ -64,11 +62,8 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
   const districtOptions = stateFilter === 'All' ? allDistricts : (consumerLocations.districtsByState[stateFilter] || []);
 
-  // Status ("active"/"inactive"/"blocked") is filtered server-side now — see
-  // GET /api/admin/users?status= — since "inactive" means something the
-  // client can't derive on its own (a buyer with no order in 30 days), not
-  // just the `isActive` flag. State/district are the same — server-side,
-  // matched against each user's default address.
+  // Bug #198/199: role=customer sent to backend to exclude delivery/sellers
+  // Bug #200: server-side pagination support
   React.useEffect(() => {
     const t = setTimeout(() => {
       fetchUsers(
@@ -76,12 +71,15 @@ export const UsersTab = ({ defaultStatusFilter }) => {
         statusFilter.toLowerCase(),
         stateFilter === 'All' ? '' : stateFilter,
         districtFilter === 'All' ? '' : districtFilter,
+        page,
       );
     }, searchQuery ? 300 : 0);
     return () => clearTimeout(t);
-  }, [searchQuery, statusFilter, stateFilter, districtFilter, fetchUsers]);
+  }, [searchQuery, statusFilter, stateFilter, districtFilter, page, fetchUsers]);
 
   const filteredUsers = users;
+  const totalPages = usersPagination?.totalPages || 1;
+  const totalCount = usersPagination?.total || 0;
 
   return (
     <>
@@ -158,6 +156,14 @@ export const UsersTab = ({ defaultStatusFilter }) => {
               </div>
 
               <div className="admin-item-body">
+                {/* Bug #197: User ID = Account ID */}
+                <div className="admin-item-row">
+                  <span className="admin-item-label">User / Account ID</span>
+                  <span className="admin-item-value" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--admin-primary)' }}>
+                    {user.id}
+                  </span>
+                </div>
+
                 <div className="admin-item-row">
                   <span className="admin-item-label">Mobile Number</span>
                   <span className="admin-item-value">{user.phone}</span>
@@ -188,6 +194,31 @@ export const UsersTab = ({ defaultStatusFilter }) => {
         )}
       </div>
 
+      {/* Bug #200: Pagination controls */}
+      {!usersLoading && totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '16px 0', marginTop: 8 }}>
+          <button
+            className="admin-btn-sm details"
+            style={{ flex: 'none' }}
+            disabled={page <= 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+          >
+            ← Prev
+          </button>
+          <span style={{ fontSize: 12.5, color: 'var(--admin-text-muted)', fontWeight: 600 }}>
+            Page {page} of {totalPages} &nbsp;·&nbsp; {totalCount} total
+          </span>
+          <button
+            className="admin-btn-sm details"
+            style={{ flex: 'none' }}
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
       {/* USER PROFILE MODAL */}
       {selectedUser && (
         <ModalPortal className="admin-modal-overlay">
@@ -199,9 +230,14 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               
+              {/* Bug #197: User ID = Account ID (same value shown as both) */}
               <div className="admin-item-row">
                 <span className="admin-item-label">User ID</span>
-                <span className="admin-item-value" style={{ fontSize: 13, color: 'var(--admin-primary)', fontWeight: 800 }}>{selectedUser.id}</span>
+                <span className="admin-item-value" style={{ fontSize: 13, color: 'var(--admin-primary)', fontWeight: 800, fontFamily: 'monospace' }}>{selectedUser.id}</span>
+              </div>
+              <div className="admin-item-row">
+                <span className="admin-item-label">Account ID</span>
+                <span className="admin-item-value" style={{ fontSize: 13, color: 'var(--admin-primary)', fontWeight: 800, fontFamily: 'monospace' }}>{selectedUser.accountId || selectedUser.id}</span>
               </div>
               
               <div className="admin-item-row">

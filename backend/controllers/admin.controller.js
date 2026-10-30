@@ -602,7 +602,20 @@ export const listUsers = asyncHandler(async (req, res) => {
     const rx = new RegExp(search, 'i');
     filter.$or = [{ phone: rx }, { name: rx }, { email: rx }];
   }
-  if (role) filter.roles = role;
+  if (role) {
+    // Bug #198/#199: 'customer' is a convenience alias for users who are
+    // ONLY buyers — excludes delivery partners, sellers, and SHG accounts
+    // that may otherwise show up under "Inactive Customers".
+    if (role === 'customer') {
+      // Only pure buyers — exclude anyone who also holds delivery/seller/shg role.
+      filter.$and = [
+        { roles: { $elemMatch: { $eq: 'buyer' } } },
+        { roles: { $not: { $elemMatch: { $in: ['delivery', 'seller', 'shg'] } } } },
+      ];
+    } else {
+      filter.roles = role;
+    }
+  }
 
   /**
    * State/District filter — geographic breakdown for the Consumer Users

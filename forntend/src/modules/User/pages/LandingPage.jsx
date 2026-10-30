@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import PullToRefresh from '../../../components/pullToRefresh/PullToRefresh';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 import { StorefrontProvider, useStorefront } from '../context/StorefrontContext';
 import { themeStyle, resolveTokens } from '../../../utils/storefront';
 import PromotionalSplash, { useLaunchSplash } from '../components/PromotionalSplash';
+import { clearCatalogCache } from '../hooks/useProducts';
+import { clearCategoryCache } from '../hooks/useCategoryTree';
 import StorefrontSections, { StorefrontAnnouncement } from '../components/StorefrontSections';
 import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
@@ -88,7 +92,20 @@ export const LandingPageContent = () => {
     isVoiceModalOpen,
     closeVoiceSearch,
     setPendingVoiceQuery,
+    fetchOrders, refreshCart, cartChannel,
   } = useUser();
+
+  // Pull down to refresh, in place: nothing restarts and you stay on this page. Cached catalogue answers are
+  // dropped, the storefront theme/banners, orders and cart are re-read, and the page's sections are remounted so
+  // they fetch again. A screen that registers its own handler (e.g. the wallet) overrides this.
+  const mainRef = useRef(null);
+  const [contentKey, setContentKey] = useState(0);
+  useRefreshHandler(async () => {
+    clearCatalogCache(); clearCategoryCache();
+    window.dispatchEvent(new Event('app:soft-refresh'));
+    await Promise.allSettled([fetchOrders?.(), refreshCart?.(cartChannel)]);
+    setContentKey(key => key + 1);
+  });
 
   const cartCount = getCartCount();
   // Delivery is only decided (and added) on the Fulfillment Checkout page —
@@ -298,7 +315,7 @@ export const LandingPageContent = () => {
     <div className={`user-landing-page-container sf-storefront mode-${activeMode} subnav-${activeSubNav}`} data-shopping-mode={activeMode} style={themeStyle(experience.theme.tokens)} data-decoration={experience.theme.tokens.decoration} data-motion={experience.theme.tokens.motion} data-category={experience.theme.tokens.category} data-product={experience.theme.tokens.product}>
       {currentUser && <RealtimeNotice />}
       {/* Scrollable Main Area */}
-      <main className={`user-main-content page-${activeNav}`}>
+      <main ref={mainRef} className={`user-main-content page-${activeNav}`}>
         {productLinkPending ? <>
           <UnifiedHeader />
           <section className="pd-product-link-state" role={productDetailError ? 'alert' : 'status'} aria-live="polite">
@@ -307,8 +324,10 @@ export const LandingPageContent = () => {
             {productDetailError && /sign in|expired|session/i.test(productDetailError) && <button type="button" onClick={()=>{rememberWholesaleReturn(productRoute.id,productRoute.variant);if(currentUser)logoutUser?.();setSelectedProduct(null);setActiveNav('account');}}>Sign in to view Wholesale product</button>}
             <button type="button" onClick={() => setSelectedProduct(null)}>Back to storefront</button>
           </section>
-        </> : renderContent()}
+        </> : <React.Fragment key={contentKey}>{renderContent()}</React.Fragment>}
       </main>
+
+      <PullToRefresh scrollRef={mainRef} disabled={activeNav === 'checkout' || Boolean(selectedProduct) || isVoiceModalOpen} />
 
       {/* Floating Bottom Cart Bar */}
       {cartCount > 0 && (activeNav === 'home' || activeNav === 'categories') && (

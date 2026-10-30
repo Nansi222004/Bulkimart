@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import PullToRefresh from '../../../components/pullToRefresh/PullToRefresh';
+import { useRefreshHandler } from '../../../utils/refreshRegistry';
 import { DeliveryProvider, useDelivery } from '../context/DeliveryContext';
 import DeliveryAuthPage from '../pages/DeliveryAuthPage';
 import DeliveryOnboardingPage from '../pages/DeliveryOnboardingPage';
@@ -22,7 +24,14 @@ const DeliveryRoutesContent = () => {
   const {
     isOnboarded, riderAuthed, bootstrapping, activeOrder, toastMessage, sessionError, retrySession,
     returnPickupPingOffer, acceptReturnPickup, declineReturnPickup, expireReturnPickup,
+    refreshRiderFinances, refreshRiderStatus,
   } = useDelivery();
+  const mainScroll = useRef(null);
+  // Pull down to refresh the rider's profile, earnings and balances. A page with its own refresh overrides this.
+  useRefreshHandler(async () => {
+    await Promise.allSettled([refreshRiderFinances?.(), refreshRiderStatus?.()]);
+    window.dispatchEvent(new Event('focus'));
+  });
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   // Sync state with location change events (popstate, pushstate, replacestate)
@@ -146,9 +155,10 @@ const DeliveryRoutesContent = () => {
       )}
 
       {/* Main content scroll container */}
-      <div className="delivery-main-viewport">
+      <div className="delivery-main-viewport" ref={mainScroll}>
         {renderActiveView()}
       </div>
+      <PullToRefresh scrollRef={mainScroll} disabled={Boolean(activeOrder)} />
 
       {/*
         QUICK COMMERCE ONLY — rendered here, above every tab/subpath (not
