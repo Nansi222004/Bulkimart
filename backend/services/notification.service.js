@@ -437,8 +437,7 @@ export const registerPushToken = async (userId, token, platform, sessionRole, Mo
   }
 
   if (Model === User) { user.fcmToken = token; user.fcmPlatform = tokenPlatform; }
-  // Validate only what changed: an older account document missing some field must not block push registration.
-  await user.save({ validateModifiedOnly: true });
+  await user.save();
   return tokenPlatform;
 };
 

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Admin from "../models/Admin.js";
+import User from "../models/User.js";
 import Notification from "../models/Notification.js";
 import Order from '../models/Order.js';
 import Seller from '../models/Seller.js';
