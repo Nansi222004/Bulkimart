@@ -27,7 +27,8 @@ export const DeliveryDashboardPage = () => {
     presenceError,
     presenceUpdatedAt,
     presenceUpdating,
-    refreshPresence
+    refreshPresence,
+    isLicenseExpired
   } = useDelivery();
 
   const [showDeposit, setShowDeposit] = useState(false);
@@ -91,6 +92,10 @@ export const DeliveryDashboardPage = () => {
         <button
           className={`delivery-status-toggle-btn ${isOnline ? 'online' : 'offline'}`}
           onClick={() => {
+            if (isLicenseExpired && !isOnline) {
+              triggerToast('Driving license has expired! Please update it in Profile to go Online.');
+              return;
+            }
             if (isWalletBlocked && !isOnline) {
               triggerToast('Debit wallet balance limit exceeded! Settle COD cash to go Online.');
               return;
@@ -105,6 +110,29 @@ export const DeliveryDashboardPage = () => {
         <DeliveryNotificationBell />
         </div>
       </div>
+
+      {/* License Expired Warning Notification Banner */}
+      {isLicenseExpired && (
+        <div className="delivery-license-expired-alert" style={{
+          margin: '12px 16px 0 16px',
+          background: '#fee2e2',
+          border: '1px solid #f87171',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#991b1b',
+          fontSize: '13px',
+          lineHeight: '1.4'
+        }}>
+          <span style={{ fontSize: '22px' }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong style={{ display: 'block', fontSize: '14px', marginBottom: '2px' }}>Driving License Expired</strong>
+            Your driving license has expired. Please renew and update your license in your profile to accept delivery orders.
+          </div>
+        </div>
+      )}
 
       <section className="delivery-rating-card" aria-label="Customer rating">
         <span>Customer rating</span><strong>{customerRating.value}</strong><small>{customerRating.count}</small>

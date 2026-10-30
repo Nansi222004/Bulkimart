@@ -287,16 +287,6 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
           </>
         )}
 
-        {/* Exit Footer */}
-        <div className="auth-guest-footer">
-          <button
-            type="button"
-            className="auth-guest-btn"
-            onClick={onBack || (() => { window.location.href = '/'; })}
-          >
-            ← Back to store
-          </button>
-        </div>
       </div>
     </div>
   );

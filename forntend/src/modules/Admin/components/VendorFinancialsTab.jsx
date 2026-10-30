@@ -318,7 +318,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                             {money(item.totalAmount || item.subTotal)}
                           </td>
                           <td style={{ padding: '14px 16px', color: '#475569' }}>
-                            {item.adminCommissionPercent || 5}%
+                            {item.adminCommissionPercent != null ? `${item.adminCommissionPercent}%` : '—'}
                           </td>
                           <td style={{ padding: '14px 16px', fontWeight: 600, color: '#16a34a' }}>
                             {money(item.adminCommissionAmount)}

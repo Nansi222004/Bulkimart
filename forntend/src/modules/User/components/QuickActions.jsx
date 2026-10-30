@@ -5,7 +5,7 @@ import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 
 const QuickActions = () => {
-  const { setActiveNav, activeMode } = useUser();
+  const { setActiveNav, activeMode, setActiveSubNav } = useUser();
   const [wholesaleAvailable, setWholesaleAvailable] = useState(false);
   const [wholesaleError, setWholesaleError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -85,6 +85,11 @@ const QuickActions = () => {
       setActiveNav('categories');
     } else if (actionId === 'offers') {
       setActiveNav('home');
+      setActiveSubNav('coupons');
+      setTimeout(() => {
+        const el = document.getElementById('coupons-section') || document.querySelector('.coupons-section-container');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
     } else if (actionId === 'wholesale') {
       setActiveNav('wholesale');
     }

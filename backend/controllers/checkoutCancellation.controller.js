@@ -42,7 +42,7 @@ export const abandonCheckoutPayment = asyncHandler(async (req, res) => {
         row.cancelReason = 'Payment cancelled by customer';
         row.timeline.push({ status: 'cancelled', note: row.cancelReason, timestamp: new Date() });
         await row.save({ session });
-        await releaseCoupon(row.coupon, row._id, session);
+        await releaseCoupon(row.coupon || row.pricing?.couponCode, row._id, session);
 
         const channel = row.salesChannel === 'wholesale' ? 'wholesale' : row.type;
         const cart = await Cart.findOne({ userId: req.user._id, channel }).session(session)

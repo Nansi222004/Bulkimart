@@ -34,7 +34,24 @@ const STATUS_DESCS = {
 
 export const OrderTrackingPage = () => {
   const ui = useFeedback();
-  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId, initiateOnlinePayment } = useUser();
+  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId, initiateOnlinePayment, addToCart, setActiveNav } = useUser();
+  const handleReorderSingleItem = async (item) => {
+    const pId = item.productId || item._id;
+    const vId = item.variantId;
+    const qty = item.qty || 1;
+    if (!pId) return;
+    try {
+      const res = await addToCart(pId, qty, vId);
+      if (res?.ok) {
+        ui.notify(`Added "${item.name}" to cart!`, { type: 'success' });
+        setActiveNav('cart');
+      } else {
+        ui.notify(res?.message || 'Could not add item to cart', { type: 'error' });
+      }
+    } catch (err) {
+      ui.notify(err.message || 'Error adding item', { type: 'error' });
+    }
+  };
 
   /**
    * Live tracking data, kept separate from the order itself.
@@ -932,7 +949,18 @@ export const OrderTrackingPage = () => {
                   {/* Only a delivered order's items can be rated — there is
                       nothing to review about something not yet received. */}
                   {currentStatus === 'delivered' && (
-                    <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleReorderSingleItem(item)}
+                        style={{
+                          backgroundColor: '#fff', border: '1.5px solid #16a34a', color: '#16a34a',
+                          borderRadius: 8, padding: '4px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: 4
+                        }}
+                      >
+                        🔄 Reorder
+                      </button>
                       {isReviewed ? (
                         <span style={{
                           fontSize: 11, fontWeight: 700, color: '#16a34a', backgroundColor: '#f0fdf4',
@@ -1030,7 +1058,7 @@ export const OrderTrackingPage = () => {
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
           </div>
           <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
-          {selectedOrder.productTax && (selectedOrder.deliveredAt || currentStatus === 'delivered') && (
+          {selectedOrder.productTax && (selectedOrder.deliveredAt || currentStatus === 'delivered' || selectedOrder.status === 'delivered') && (
             <OrderInvoices label="View / download invoice" buttonClassName="order-action-btn-sm" buttonStyle={{ alignSelf: 'flex-start' }} load={async () => {
               const res = await fetch(apiUrl(`/api/orders/${selectedOrder._id}/invoices`), { headers: { Authorization: 'Bearer ' + localStorage.getItem('userToken') } });
               const body = await res.json().catch(() => ({}));

@@ -298,10 +298,28 @@ export const getMyProfile = asyncHandler(async (req, res) => {
   const partner = await findMine(req.user._id);
   if (!partner) throw httpError(404, 'Rider profile not found');
 
+  const isLicenseExpired = Boolean(
+    partner.vehicleType !== 'bicycle' &&
+    partner.drivingLicense?.expiryDate &&
+    new Date(partner.drivingLicense.expiryDate) < new Date()
+  );
+
+  if (isLicenseExpired) {
+    const today = new Date().toISOString().slice(0, 10);
+    notifyRider(partner._id, {
+      event: NOTIFICATION_EVENT.SYSTEM,
+      title: 'Driving License Expired',
+      message: 'Your driving license has expired. Please renew and update your license in your profile.',
+      route: '/delivery/profile',
+      dedupeKey: `dl_expired:${partner._id}:${today}`
+    }).catch(() => {});
+  }
+
   // The name and phone are on the User record, but every screen that shows a
   // rider needs them next to the partner data, so send them together.
   return ok(res, {
     ...partner.toObject(),
+    isLicenseExpired,
     finance: await riderFinancialSummary(partner),
     name: req.user.name,
     phone: req.user.phone,
@@ -1663,7 +1681,7 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
       const orderResult = await Order.updateOne(
         { _id: order._id, deliveryPartnerId: req.partner._id, status: { $ne: 'delivered' } },
         {
-          $set: { status: 'delivered', items: itemsWithDeliveryStamp },
+          $set: { status: 'delivered', deliveredAt, items: itemsWithDeliveryStamp },
           $push: {
             timeline: {
               status: 'delivered',
@@ -1953,6 +1971,13 @@ export const toggleAvailability = asyncHandler(async (req, res) => {
    * work without abandoning what they are already holding.
    */
   if (wantsWork) {
+    if (
+      partner.vehicleType !== 'bicycle' &&
+      partner.drivingLicense?.expiryDate &&
+      new Date(partner.drivingLicense.expiryDate) < new Date()
+    ) {
+      throw httpError(403, 'Your driving license has expired. Please update it in your profile before going on duty.');
+    }
     const capacity = await canTakeAnother(partner._id);
     if (!capacity.ok) {
       throw httpError(409, `${capacity.reason} (${capacity.open} still open)`);

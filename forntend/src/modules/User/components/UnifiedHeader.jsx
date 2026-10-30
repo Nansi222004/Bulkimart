@@ -44,11 +44,21 @@ const UnifiedHeader = () => {
     // Where the pinned part (search and tabs) starts, measured from the header's own top, so
     // margins, safe-area padding or a wrapped row can never leave half of the mode switcher showing.
     const pinned = header.querySelector(':scope > .header-body-content');
-    const update = () => header.style.setProperty('--header-collapse', `${pinned ? pinned.offsetTop : rows.reduce((sum, row) => sum + row.offsetHeight, 0)}px`);
+    const update = () => {
+      const parent = header.parentElement;
+      const parentPad = parent ? (parseFloat(window.getComputedStyle(parent).paddingTop) || 0) : 0;
+      const collapseHeight = pinned ? pinned.offsetTop : rows.reduce((sum, row) => sum + row.offsetHeight, 0);
+      header.style.setProperty('--header-collapse', `${collapseHeight + parentPad}px`);
+    };
     const observer = new ResizeObserver(update);
-    rows.forEach(row => observer.observe(row)); observer.observe(header); update();
+    rows.forEach(row => observer.observe(row));
+    observer.observe(header);
+    update();
     window.addEventListener('resize', update);
-    return () => { observer.disconnect(); window.removeEventListener('resize', update); };
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
   }, []);
 
   // Admin-selected category tabs share this row with application shortcuts.

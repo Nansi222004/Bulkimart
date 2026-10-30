@@ -928,6 +928,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    */
   if (status === ORDER_STATUS.DELIVERED && currentStatus !== ORDER_STATUS.DELIVERED) {
     const deliveredAt = new Date();
+    order.deliveredAt = deliveredAt;
     for (const item of order.items) {
       const { returnEligible, returnWindowDays } = item.returnPolicy || {};
       const eligibleUntil = returnEligible && Number.isFinite(returnWindowDays) && returnWindowDays > 0

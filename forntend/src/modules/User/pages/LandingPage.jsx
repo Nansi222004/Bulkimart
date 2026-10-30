@@ -11,6 +11,7 @@ import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
 import LegalServices from '../../../components/services/LegalServices';
 import PageErrorBoundary from '../../../components/PageErrorBoundary';
+import ModalPortal from '../../../components/ModalPortal';
 import { ParcelCustomerEntry } from '../../../components/parcels/ParcelDelivery';
 import { readProductRoute, rememberWholesaleReturn } from '../utils/productRoute';
 import RealtimeNotice from '../../../components/RealtimeNotice';
@@ -408,6 +409,94 @@ export const LandingPageContent = () => {
 
       {/* Location Access & Selection Modal */}
       {!launchSplash && <LocationPromptModal />}
+
+      {/* Exit App Confirmation Modal */}
+      {confirmExit && (
+        <ModalPortal style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.55)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '20px'
+        }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="exit-modal-title" style={{
+            width: '100%',
+            maxWidth: '340px',
+            background: '#ffffff',
+            borderRadius: '18px',
+            padding: '24px 20px 20px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '50%',
+              background: '#fee2e2',
+              color: '#dc2626',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '14px'
+            }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </div>
+            <h3 id="exit-modal-title" style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
+              Exit Bulkimart?
+            </h3>
+            <p style={{ margin: '0 0 20px', fontSize: '14px', color: '#64748b', lineHeight: '1.4' }}>
+              Are you sure you want to exit the application?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmExit(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  color: '#475569',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={exitApp}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: '#dc2626',
+                  color: '#ffffff',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
     </div>
   );
 };

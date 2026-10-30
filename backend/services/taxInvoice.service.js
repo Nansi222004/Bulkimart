@@ -77,8 +77,12 @@ export function buildInvoiceDocument({ order, seller, issuedAt, invoiceNumber })
 const deliveredOrder = async (orderId) => {
   const order = await Order.findById(orderId).lean();
   if (!order) throw httpError(404, 'Order not found');
-  if (!order.deliveredAt) throw httpError(409, 'An invoice is available once the order is delivered');
+  const isDelivered = order.status === 'delivered' || Boolean(order.deliveredAt) || order.items?.some(i => Boolean(i.deliveredAt));
+  if (!isDelivered) throw httpError(409, 'An invoice is available once the order is delivered');
   if (order.productTax?.version !== PRODUCT_GST_VERSION) throw httpError(409, 'An invoice is available for orders placed after GST invoicing started');
+  if (!order.deliveredAt) {
+    order.deliveredAt = order.items?.find(i => i.deliveredAt)?.deliveredAt || order.updatedAt || new Date();
+  }
   return order;
 };
 

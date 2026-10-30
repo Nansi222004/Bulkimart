@@ -45,11 +45,29 @@ const rewardLabel = (c) => {
   return `₹${c.value} off`;
 };
 
-const Field = ({ label, hint, children }) => (
-  <div className="onboarding-form-group" style={{ flex: 1, minWidth: 150 }}>
-    <label className="onboarding-label">{label}</label>
+const inputStyle = {
+  width: '100%',
+  padding: '10px 12px',
+  borderRadius: 8,
+  border: '1.5px solid #cbd5e1',
+  backgroundColor: '#f8fafc',
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#0f172a',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+
+const selectStyle = {
+  ...inputStyle,
+  cursor: 'pointer',
+};
+
+const Field = ({ label, hint, children, style = {} }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 160, ...style }}>
+    <label style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>{label}</label>
     {children}
-    {hint && <span style={{ fontSize: 10, opacity: 0.6 }}>{hint}</span>}
+    {hint && <span style={{ fontSize: 11, color: '#64748b' }}>{hint}</span>}
   </div>
 );
 
@@ -72,6 +90,12 @@ export const CouponsTab = () => {
   const [formError, setFormError] = useState('');
 
   const [redemptions, setRedemptions] = useState(null);
+
+  const tomorrowStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +147,24 @@ export const CouponsTab = () => {
     e.preventDefault();
     setSaving(true);
     setFormError('');
+
+    if (form.expiresAt) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (form.expiresAt <= todayStr) {
+        setFormError('Expiration date cannot be today or in the past. It must be set to tomorrow or later.');
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (form.expiresAt) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (form.expiresAt <= todayStr) {
+        setFormError('Expiration date cannot be today or in the past. It must be set to tomorrow or later.');
+        setSaving(false);
+        return;
+      }
+    }
 
     const payload = {
       ...form,
@@ -303,96 +345,195 @@ export const CouponsTab = () => {
       {/* ---- create / edit ---- */}
       {showForm && (
         <ModalPortal className="admin-modal-overlay">
-          <div className="admin-modal-sheet">
-            <div className="admin-modal-header">
-              <h3 className="admin-modal-title">{editing ? 'Edit Coupon' : 'New Coupon'}</h3>
+          <div className="admin-modal-sheet" style={{ maxWidth: 640, margin: 'auto', borderRadius: 16, padding: '24px 28px', backgroundColor: '#ffffff', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="admin-modal-header" style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>🎟️</span>
+                <h3 className="admin-modal-title" style={{ fontSize: 18, fontWeight: 800, margin: 0, color: '#0f172a' }}>
+                  {editing ? 'Edit Coupon' : 'Create New Coupon'}
+                </h3>
+              </div>
               <button className="admin-modal-close" onClick={() => setShowForm(false)}>✕</button>
             </div>
 
-            <form onSubmit={submit}>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Field label="Code *" hint="letters, numbers, - or _">
-                  <input className="onboarding-input" style={{ fontFamily: 'monospace', textTransform: 'uppercase' }}
-                    value={form.code} onChange={set('code')} maxLength={24} required placeholder="DIWALI20" />
+            <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <Field label="Coupon Code *" hint="3–24 letters, numbers, - or _">
+                  <input
+                    style={{ ...inputStyle, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '1px' }}
+                    value={form.code}
+                    onChange={set('code')}
+                    maxLength={24}
+                    required
+                    placeholder="e.g. DIWALI20"
+                  />
                 </Field>
-                <Field label="Title *" hint="shown to the shopper">
-                  <input className="onboarding-input" value={form.title} onChange={set('title')} required placeholder="20% off this Diwali" />
+                <Field label="Display Title *" hint="Customer-visible promo headline">
+                  <input
+                    style={inputStyle}
+                    value={form.title}
+                    onChange={set('title')}
+                    required
+                    placeholder="e.g. 20% off this festive season"
+                  />
                 </Field>
               </div>
 
-              <Field label="Description">
-                <input className="onboarding-input" value={form.description} onChange={set('description')} placeholder="Optional detail line" />
+              <Field label="Description (Optional)" hint="Additional terms or details shown to customer">
+                <input
+                  style={inputStyle}
+                  value={form.description}
+                  onChange={set('description')}
+                  placeholder="e.g. Applicable on orders above ₹499"
+                />
               </Field>
 
-              <Field label="Reward type *">
-                <select className="onboarding-select" value={form.discountType} onChange={set('discountType')}>
-                  {DISCOUNT_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label} — {d.hint}</option>)}
+              <Field label="Reward Type *">
+                <select style={selectStyle} value={form.discountType} onChange={set('discountType')}>
+                  {DISCOUNT_TYPES.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label} — {d.hint}
+                    </option>
+                  ))}
                 </select>
               </Field>
 
               {!isShip && (
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <Field label={isPct ? 'Percentage * (1–100)' : 'Amount off (₹) *'}>
-                    <input type="number" className="onboarding-input" min="1" max={isPct ? 100 : undefined}
-                      value={form.value} onChange={set('value')} required />
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  <Field label={isPct ? 'Discount Percentage * (1–100%)' : 'Flat Amount Off (₹) *'}>
+                    <input
+                      type="number"
+                      style={inputStyle}
+                      min="1"
+                      max={isPct ? 100 : undefined}
+                      value={form.value}
+                      onChange={set('value')}
+                      required
+                      placeholder={isPct ? '20' : '100'}
+                    />
                   </Field>
                   {isPct && (
-                    <Field label="Maximum discount (₹)" hint="0 = uncapped; protects margin on large carts">
-                      <input type="number" className="onboarding-input" min="0" value={form.maxDiscount} onChange={set('maxDiscount')} />
+                    <Field label="Maximum Discount Cap (₹)" hint="0 or blank = uncapped discount">
+                      <input
+                        type="number"
+                        style={inputStyle}
+                        min="0"
+                        value={form.maxDiscount}
+                        onChange={set('maxDiscount')}
+                        placeholder="e.g. 500"
+                      />
                     </Field>
                   )}
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Field label="Minimum order (₹)" hint="0 = no minimum">
-                  <input type="number" className="onboarding-input" min="0" value={form.minOrderValue} onChange={set('minOrderValue')} />
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <Field label="Minimum Order Value (₹)" hint="0 = no minimum required">
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    min="0"
+                    value={form.minOrderValue}
+                    onChange={set('minOrderValue')}
+                    placeholder="0"
+                  />
                 </Field>
-                <Field label="Storefront">
-                  <select className="onboarding-select" value={form.channel} onChange={set('channel')}>
-                    {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                <Field label="Applicable Storefront">
+                  <select style={selectStyle} value={form.channel} onChange={set('channel')}>
+                    {CHANNELS.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
                   </select>
                 </Field>
               </div>
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Field label="Total uses" hint="0 = unlimited">
-                  <input type="number" className="onboarding-input" min="0" value={form.totalUsageLimit} onChange={set('totalUsageLimit')} />
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <Field label="Total Usage Limit" hint="0 = unlimited redemptions across all users">
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    min="0"
+                    value={form.totalUsageLimit}
+                    onChange={set('totalUsageLimit')}
+                    placeholder="0"
+                  />
                 </Field>
-                <Field label="Uses per customer" hint="0 = unlimited">
-                  <input type="number" className="onboarding-input" min="0" value={form.perUserLimit} onChange={set('perUserLimit')} />
+                <Field label="Uses Per Customer" hint="0 = unlimited per customer">
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    min="0"
+                    value={form.perUserLimit}
+                    onChange={set('perUserLimit')}
+                    placeholder="1"
+                  />
                 </Field>
               </div>
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <Field label="Starts on"><input type="date" className="onboarding-input" value={form.startsAt} onChange={set('startsAt')} /></Field>
-                <Field label="Ends on" hint="blank = never expires">
-                  <input type="date" className="onboarding-input" value={form.expiresAt} onChange={set('expiresAt')} />
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <Field label="Starts On">
+                  <input
+                    type="date"
+                    style={inputStyle}
+                    value={form.startsAt}
+                    onChange={set('startsAt')}
+                  />
+                </Field>
+                <Field label="Ends On (Expiry Date)" hint="Must be tomorrow or later; blank = never expires">
+                  <input
+                    type="date"
+                    min={tomorrowStr}
+                    style={inputStyle}
+                    value={form.expiresAt}
+                    onChange={set('expiresAt')}
+                  />
                 </Field>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '12px 0' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '8px 0', padding: '14px', backgroundColor: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                 {[
-                  ['firstOrderOnly', 'Only on a customer’s first order'],
-                  ['isPublic', 'Show in the offers list on the cart screen'],
-                ].map(([k, label]) => (
-                  <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={form[k]} onChange={set(k)} />
-                    {label}
+                  ['firstOrderOnly', 'Only for first-time customers', 'Restricts redemption to the customer’s very first order'],
+                  ['isPublic', 'Show in checkout offers list', 'Display publicly in the available coupon drawer during checkout'],
+                ].map(([k, label, desc]) => (
+                  <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form[k]}
+                      onChange={set(k)}
+                      style={{ marginTop: 2, accentColor: 'var(--sa-primary, #2563eb)', width: 16, height: 16 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{label}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{desc}</div>
+                    </div>
                   </label>
                 ))}
               </div>
 
               {formError && (
-                <div style={{ padding: 10, borderRadius: 8, marginBottom: 10, fontSize: 12,
-                              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)' }}>
-                  {formError}
+                <div style={{ padding: '12px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}>
+                  ⚠️ {formError}
                 </div>
               )}
 
-              <button type="submit" className="primary-onboarding-btn" disabled={saving}>
-                {saving ? 'Saving…' : editing ? 'Save changes' : 'Create coupon'}
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="admin-btn-sm details"
+                  style={{ flex: 'none', padding: '10px 18px' }}
+                  onClick={() => setShowForm(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="admin-btn-sm approve"
+                  style={{ flex: 'none', padding: '10px 24px', fontWeight: 800 }}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Coupon'}
+                </button>
+              </div>
             </form>
           </div>
         </ModalPortal>

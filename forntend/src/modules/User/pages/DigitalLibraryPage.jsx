@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
+import ModalPortal from '../../../components/ModalPortal';
 
 const DigitalLibraryPage = () => {
   const { setActiveNav } = useUser();
@@ -8,9 +9,10 @@ const DigitalLibraryPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(null);
-  // Books already fetched this visit: their PDF is kept so View can reuse it and the button can say Downloaded.
+  // Books already fetched this visit or saved locally: button says Downloaded ✓.
   const [downloaded, setDownloaded] = useState({});
   const [viewing, setViewing] = useState(null);
+  const [viewModal, setViewModal] = useState(null); // { title, url, entry }
   const pdfUrls = useRef({});
   useEffect(() => () => Object.values(pdfUrls.current).forEach((url) => URL.revokeObjectURL(url)), []);
 
@@ -22,16 +24,29 @@ const DigitalLibraryPage = () => {
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.message || 'Could not load your e-books');
-        if (alive) setItems(body.data || []);
+        if (alive) {
+          const list = body.data || [];
+          setItems(list);
+          const initialDownloaded = {};
+          list.forEach((entry) => {
+            if (entry.downloadCount > 0 || entry.lastDownloadedAt || localStorage.getItem(`downloaded_ebook_${entry.id}`)) {
+              initialDownloaded[entry.id] = true;
+            }
+          });
+          setDownloaded((prev) => ({ ...prev, ...initialDownloaded }));
+        }
       })
       .catch((err) => alive && setError(err.message))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, []);
 
-  const pdfUrlFor = async (entry) => {
+  const pdfUrlFor = async (entry, isInline = false) => {
     if (pdfUrls.current[entry.id]) return pdfUrls.current[entry.id];
-    const response = await fetch(apiUrl(`/api/digital/library/${entry.id}/download`), { headers: headers() });
+    const urlEndpoint = isInline
+      ? `/api/digital/library/${entry.id}/download?inline=1`
+      : `/api/digital/library/${entry.id}/download`;
+    const response = await fetch(apiUrl(urlEndpoint), { headers: headers() });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.message || 'Download is temporarily unavailable');
@@ -52,8 +67,8 @@ const DigitalLibraryPage = () => {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      // The blob stays alive for the visit: a phone starts saving it after the click returns,
-      // and View reuses it. It is freed when this page closes.
+      // Persist downloaded status in local storage and state
+      localStorage.setItem(`downloaded_ebook_${entry.id}`, 'true');
       setDownloaded((current) => ({ ...current, [entry.id]: true }));
     } catch (err) {
       setError(err.message);
@@ -63,15 +78,16 @@ const DigitalLibraryPage = () => {
   };
 
   const view = async (entry) => {
-    // Opened first, inside the tap, so the browser does not treat it as a blocked pop-up.
-    const tab = window.open('', '_blank');
     setViewing(entry.id);
     setError('');
     try {
-      const url = await pdfUrlFor(entry);
-      if (tab) tab.location.href = url; else window.location.href = url;
+      const url = await pdfUrlFor(entry, true);
+      setViewModal({
+        title: entry.product?.name || 'E-book Reader',
+        url,
+        entry
+      });
     } catch (err) {
-      tab?.close();
       setError(err.message);
     } finally {
       setViewing(null);
@@ -113,19 +129,136 @@ const DigitalLibraryPage = () => {
                   >
                     {downloading === entry.id ? 'Preparing…' : !entry.downloadAvailable ? 'Unavailable' : downloaded[entry.id] ? 'Downloaded ✓' : 'Download PDF'}
                   </button>
-                  {entry.downloadAvailable && <button
-                    type="button"
-                    disabled={viewing === entry.id}
-                    onClick={() => view(entry)}
-                    style={{ padding: '9px 16px', borderRadius: 12, border: '1.5px solid var(--sf-primary, #0f9f91)', background: '#fff', color: 'var(--sf-primary, #0f9f91)', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    {viewing === entry.id ? 'Opening…' : 'View PDF'}
-                  </button>}
+                  {entry.downloadAvailable && (
+                    <button
+                      type="button"
+                      disabled={viewing === entry.id}
+                      onClick={() => view(entry)}
+                      style={{ padding: '9px 16px', borderRadius: 12, border: '1.5px solid var(--sf-primary, #0f9f91)', background: '#fff', color: 'var(--sf-primary, #0f9f91)', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {viewing === entry.id ? 'Opening…' : 'View PDF'}
+                    </button>
+                  )}
                 </div>
               </div>
             </article>
           ))}
         </div>
+      )}
+
+      {/* In-App PDF Viewer Modal */}
+      {viewModal && (
+        <ModalPortal style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'stretch'
+        }}>
+          <div role="dialog" aria-modal="true" aria-label={viewModal.title} style={{
+            width: '100%',
+            maxWidth: '720px',
+            height: '100dvh',
+            backgroundColor: '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 0 40px rgba(0,0,0,0.3)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 18px',
+              backgroundColor: '#0f172a',
+              color: '#ffffff',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => setViewModal(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    width: '32px',
+                    height: '32px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '18px'
+                  }}
+                  aria-label="Close PDF Viewer"
+                >
+                  ✕
+                </button>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewModal.title}
+                </h3>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => download(viewModal.entry)}
+                  style={{
+                    background: 'var(--primary, #D91430)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {downloaded[viewModal.entry?.id] ? 'Downloaded ✓' : 'Download'}
+                </button>
+                <a
+                  href={viewModal.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    color: '#fff',
+                    borderRadius: '8px',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    textDecoration: 'none',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                >
+                  New tab ↗
+                </a>
+              </div>
+            </div>
+
+            {/* PDF View Container */}
+            <div style={{ flex: 1, minHeight: 0, backgroundColor: '#525659', position: 'relative' }}>
+              <object
+                data={viewModal.url}
+                type="application/pdf"
+                width="100%"
+                height="100%"
+                style={{ width: '100%', height: '100%', border: 'none' }}
+              >
+                <iframe
+                  src={viewModal.url}
+                  title={viewModal.title}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                />
+              </object>
+            </div>
+          </div>
+        </ModalPortal>
       )}
     </div>
   );

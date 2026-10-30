@@ -189,10 +189,11 @@ export const downloadDigitalBook = asyncHandler(async (req, res) => {
     DigitalDownloadAudit.create({ entitlementId: entitlement._id, userId: req.user._id, orderId: entitlement.orderId, productId: entitlement.productId, ip: req.ip, userAgent: req.get('user-agent') }),
   ]);
   const safeName = String(product?.name || 'ebook').replace(/[^a-z0-9 _.-]/gi, '').trim() || 'ebook';
+  const dispositionType = (req.query.view === '1' || req.query.inline === '1') ? 'inline' : 'attachment';
   res.set({
     'Content-Type': 'application/pdf',
     'Content-Length': String(opened.sizeBytes),
-    'Content-Disposition': `attachment; filename="${safeName}.pdf"`,
+    'Content-Disposition': `${dispositionType}; filename="${safeName}.pdf"`,
     'Cache-Control': 'private, no-store',
     'X-Content-Type-Options': 'nosniff',
   });

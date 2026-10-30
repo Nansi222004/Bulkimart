@@ -1197,7 +1197,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
 
       // The customer should not lose a one-per-person coupon to an order they
       // cancelled before it was ever fulfilled.
-      await releaseCoupon(order.coupon, order._id, session);
+      await releaseCoupon(order.coupon || order.pricing?.couponCode, order._id, session);
 
       // Money already taken is queued for refund rather than silently kept.
       if (order.paymentId) {
@@ -1318,8 +1318,8 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
         if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
-      if (order.coupon) {
-        await releaseCoupon(order.coupon, order._id, session);
+      if (order.coupon || order.pricing?.couponCode) {
+        await releaseCoupon(order.coupon || order.pricing?.couponCode, order._id, session);
       }
 
       if (order.paymentId) {

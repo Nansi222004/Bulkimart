@@ -108,6 +108,13 @@ export const setTipSettingForAdmin = asyncHandler(async (req, res) => {
   invalidateTipSetting();
   const updatedSetting = await loadTipSetting();
 
+  try {
+    const { getIO } = await import('../socket/socket.js');
+    getIO().emit('tip_setting_updated', updatedSetting);
+  } catch {
+    // best effort socket broadcast
+  }
+
   res.json({
     success: true,
     message: 'Tip settings updated successfully.',

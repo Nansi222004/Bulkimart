@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 
 /**
  * `preparing` deliberately reads as "Confirmed".
@@ -40,7 +41,8 @@ const STATUS_CLASS = {
 };
 
 const OrdersPage = () => {
-  const { setActiveNav, orders, ordersLoading, ordersError, setSelectedOrder, fetchOrders, requestPushPermission } = useUser();
+  const { setActiveNav, orders, ordersLoading, ordersError, setSelectedOrder, fetchOrders, requestPushPermission, addToCart } = useUser();
+  const ui = useFeedback();
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -49,6 +51,8 @@ const OrdersPage = () => {
     return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('push_prompt_dismissed') === 'true' : false;
   });
   const showPushPrompt = typeof window !== 'undefined' && typeof Notification !== 'undefined' && Notification.permission === 'default' && !pushDismissed;
+
+
 
   // Razorpay checkout returns here only after the authenticated backend
   // verification call. The query is a UX cue, never payment proof.
@@ -313,16 +317,19 @@ const OrdersPage = () => {
                     time either one changed.
                   */}
                   {order.raw.status === 'delivered' && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedOrder(order.raw); }}
-                      style={{
-                        background: 'none', border: '1.5px solid var(--primary)', color: 'var(--primary)',
-                        borderRadius: 20, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      ⭐ Rate Items
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setSelectedOrder(order.raw); }}
+                        style={{
+                          background: 'none', border: '1.5px solid var(--primary)', color: 'var(--primary)',
+                          borderRadius: 20, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        ⭐ Rate Items
+                      </button>
+                    </div>
                   )}
                   <svg className="order-chevron-link" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="9 18 15 12 9 6"></polyline>

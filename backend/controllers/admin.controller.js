@@ -2936,71 +2936,143 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
     .populate('userId', 'name phone email')
     .lean();
 
+  const sellerMap = new Map();
+  sellers.forEach((s) => {
+    sellerMap.set(String(s._id), s);
+  });
+
   const filterStatus = status && status !== 'all' ? status : null;
   const orderFilter = filterStatus ? { status: filterStatus } : {};
-  const orders = await Order.find(orderFilter).lean();
+  const orders = await Order.find(orderFilter).sort({ createdAt: -1 }).lean();
 
-  const salesMap = new Map();
+  // Map each order to seller sales entries
+  const orderRows = [];
+  const sellersWithOrders = new Set();
+
   orders.forEach((o) => {
+    // Group items by seller in this order
+    const sellerItems = new Map();
     (o.items || []).forEach((item) => {
       const sId = String(item.sellerId?._id || item.sellerId || '');
       if (sId) {
-        if (!salesMap.has(sId)) {
-          salesMap.set(sId, { ordersCount: 0, unitsSold: 0, grossSales: 0 });
-        }
-        const st = salesMap.get(sId);
-        st.orderIds ||= new Set();
-        st.orderIds.add(String(o._id)); st.ordersCount = st.orderIds.size;
-        st.unitsSold += item.qty || 1;
-        st.grossSales += itemGrossPaise(item) / 100;
+        if (!sellerItems.has(sId)) sellerItems.set(sId, []);
+        sellerItems.get(sId).push(item);
       }
+    });
+
+    sellerItems.forEach((items, sId) => {
+      const s = sellerMap.get(sId);
+      if (!s) return;
+      sellersWithOrders.add(sId);
+
+      const grossSales = items.reduce((sum, item) => sum + (itemGrossPaise(item) / 100), 0);
+
+      // Extract commission from financialSnapshot if present, otherwise from seller commissionRate (or default 10%)
+      const sLines = (o.financialSnapshot?.lines || []).filter(l => String(l.sellerId) === sId);
+      let commAmount = 0;
+      let commRate = typeof s.commissionRate === 'number' && s.commissionRate >= 0 ? s.commissionRate : 10;
+
+      if (sLines.length > 0 && sLines.every(l => Number.isInteger(l.commissionPaise))) {
+        commAmount = sLines.reduce((tot, l) => tot + l.commissionPaise, 0) / 100;
+        if (grossSales > 0) {
+          commRate = Number(((commAmount / grossSales) * 100).toFixed(1));
+        }
+      } else {
+        commAmount = Number((grossSales * (commRate / 100)).toFixed(2));
+      }
+
+      const netShare = Number(Math.max(0, grossSales - commAmount).toFixed(2));
+
+      orderRows.push({
+        _id: `${o._id}_${sId}`,
+        sellerId: s._id,
+        orderId: o.orderNo || String(o._id),
+        orderDbId: String(o._id),
+        businessName: s.businessName || 'General Seller',
+        storeName: s.storeDetails?.name || s.businessName || 'Store',
+        city: s.storeDetails?.city || '—',
+        sellerName: s.userId?.name || s.businessName || 'Seller',
+        sellerPhone: s.userId?.phone || s.phone || '—',
+        subTotal: Number(grossSales.toFixed(2)),
+        totalAmount: Number(grossSales.toFixed(2)),
+        grossSales: Number(grossSales.toFixed(2)),
+        adminCommissionPercent: commRate,
+        adminCommissionAmount: Number(commAmount.toFixed(2)),
+        vendorEarnings: netShare,
+        netEarnings: netShare,
+        paymentMethod: (o.payment?.method || o.paymentMethod || 'Online').toUpperCase(),
+        status: o.status || 'placed',
+        createdAt: o.createdAt || new Date(),
+      });
     });
   });
 
-  let rows = sellers.map((s) => {
+  // For sellers who do not have any orders yet, include a placeholder row so they remain visible in vendor sales
+  sellers.forEach((s) => {
     const sId = String(s._id);
-    const stats = salesMap.get(sId) || { ordersCount: 0, unitsSold: 0, grossSales: 0 };
-    return {
-      _id: s._id,
-      sellerId: s._id,
-      orderId: null, accountingBasis: 'Gross item sales only; commission and seller net require posted ledger',
-      businessName: s.businessName || 'General Seller',
-      storeName: s.storeDetails?.name || s.businessName || 'Store',
-      city: s.storeDetails?.city || '—',
-      sellerName: s.userId?.name || s.businessName || 'Seller',
-      sellerPhone: s.userId?.phone || s.phone || '—',
-      deliveredOrders: stats.ordersCount,
-      unitsSold: stats.unitsSold,
-      subTotal: stats.grossSales,
-      totalAmount: stats.grossSales,
-      grossSales: stats.grossSales,
-      adminCommissionPercent: null,
-      adminCommissionAmount: null,
-      vendorEarnings: null,
-      netEarnings: null,
-      paymentMethod: 'Online / COD',
-      status: 'aggregate',
-
-      createdAt: s.createdAt || new Date(),
-    };
+    if (!sellersWithOrders.has(sId)) {
+      orderRows.push({
+        _id: s._id,
+        sellerId: s._id,
+        orderId: '—',
+        orderDbId: '',
+        businessName: s.businessName || 'General Seller',
+        storeName: s.storeDetails?.name || s.businessName || 'Store',
+        city: s.storeDetails?.city || '—',
+        sellerName: s.userId?.name || s.businessName || 'Seller',
+        sellerPhone: s.userId?.phone || s.phone || '—',
+        subTotal: 0,
+        totalAmount: 0,
+        grossSales: 0,
+        adminCommissionPercent: typeof s.commissionRate === 'number' ? s.commissionRate : 10,
+        adminCommissionAmount: 0,
+        vendorEarnings: 0,
+        netEarnings: 0,
+        paymentMethod: '—',
+        status: 'No orders yet',
+        createdAt: s.createdAt || new Date(),
+      });
+    }
   });
 
+  let rows = orderRows;
+
+  // Search by orderId, orderDbId, businessName, storeName, sellerPhone, sellerName
   if (search && search.trim()) {
-    const rx = new RegExp(search.trim(), 'i');
-    rows = rows.filter((r) => rx.test(r.businessName) || rx.test(r.storeName) || rx.test(r.sellerPhone));
+    const q = search.trim().toLowerCase();
+    rows = rows.filter((r) =>
+      (r.orderId && r.orderId.toLowerCase().includes(q)) ||
+      (r.orderDbId && r.orderDbId.toLowerCase().includes(q)) ||
+      (r.businessName && r.businessName.toLowerCase().includes(q)) ||
+      (r.storeName && r.storeName.toLowerCase().includes(q)) ||
+      (r.sellerPhone && r.sellerPhone.toLowerCase().includes(q)) ||
+      (r.sellerName && r.sellerName.toLowerCase().includes(q))
+    );
   }
 
-  const totalGrossSales = rows.reduce((sum, r) => sum + r.grossSales, 0);
-  const totalCommission = rows.reduce((sum, r) => sum + r.adminCommissionAmount, 0);
-  const totalOrders = rows.reduce((sum, r) => sum + r.deliveredOrders, 0);
+  const totalGrossSales = rows.reduce((sum, r) => sum + (r.grossSales || 0), 0);
+  const totalCommission = rows.reduce((sum, r) => sum + (r.adminCommissionAmount || 0), 0);
+  const realOrders = rows.filter(r => r.orderId && r.orderId !== '—');
 
-  return ok(res, rows, {
+  // Pagination support
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 15);
+  const total = rows.length;
+  const paginatedRows = rows.slice((page - 1) * limit, page * limit);
+
+  return ok(res, paginatedRows, {
     summary: {
       totalGrossSales: Number(totalGrossSales.toFixed(2)),
-      totalCommission: null,
-      totalOrders,
-      deliveredOrders: totalOrders,
+      totalCommission: Number(totalCommission.toFixed(2)),
+      totalOrders: realOrders.length,
+      deliveredOrders: realOrders.filter(r => r.status === 'delivered').length,
     },
+    meta: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit) || 1,
+    }
   });
 });
 

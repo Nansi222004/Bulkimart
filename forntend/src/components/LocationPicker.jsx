@@ -37,6 +37,7 @@ export const LocationPicker = ({
   const [resolving, setResolving] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [showTurnOnPrompt, setShowTurnOnPrompt] = useState(false);
 
   const set = (patch) => onChange({ ...value, ...patch });
   const field = (key) => (e) => set({ [key]: e.target.value });
@@ -48,6 +49,7 @@ export const LocationPicker = ({
   const useCurrentLocation = () => {
     setError('');
     setNotice('');
+    setShowTurnOnPrompt(false);
 
     if (!navigator.geolocation) {
       setError('This browser cannot read your location. Please type the address below.');
@@ -61,6 +63,7 @@ export const LocationPicker = ({
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        setShowTurnOnPrompt(false);
         const { latitude, longitude, accuracy } = pos.coords;
         const lat = Number(latitude.toFixed(6));
         const lng = Number(longitude.toFixed(6));
@@ -119,11 +122,14 @@ export const LocationPicker = ({
         setLocating(false);
         setNotice('');
         const messages = {
-          1: 'Location access is required. Please allow location permission for this site and turn on your device location, then try again — or type the address below.',
+          1: 'Location is required. Please turn on your device location (GPS) and allow permission, then try again — or type the address below.',
           2: 'Location is required. Your device location looks turned off — please turn it on (GPS / Location) and try again, or type the address below.',
           3: 'Finding your location took too long. Try again, or type the address below.',
         };
-        setError(messages[err.code] || 'Could not get your location. Please type the address below.');
+        setError(messages[err.code] || 'Location is required. Please turn on device location (GPS) and try again.');
+        if (err.code === 1 || err.code === 2) {
+          setShowTurnOnPrompt(true);
+        }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -183,7 +189,62 @@ export const LocationPicker = ({
         </div>
       )}
 
-      {error && <p className="nh-loc-error">{error}</p>}
+      {showTurnOnPrompt && (
+        <div className="nh-loc-prompt-banner" role="alert" style={{
+          backgroundColor: '#fff1f2',
+          border: '1.5px solid #fecdd3',
+          borderRadius: '12px',
+          padding: '14px',
+          color: '#9f1239',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '14px' }}>
+            <span style={{ fontSize: '18px' }}>📍</span>
+            <span>Location Required: Turn On Device Location</span>
+          </div>
+          <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.4', color: '#be123c' }}>
+            To use your current location, device location / GPS must be turned on and location permission allowed for this site.
+          </p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button
+              type="button"
+              onClick={useCurrentLocation}
+              style={{
+                backgroundColor: '#e11d48',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px 14px',
+                fontWeight: '700',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Try Again
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTurnOnPrompt(false)}
+              style={{
+                backgroundColor: 'transparent',
+                color: '#9f1239',
+                border: '1px solid #fecdd3',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontWeight: '600',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Enter Address Manually
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && !showTurnOnPrompt && <p className="nh-loc-error">{error}</p>}
       {notice && !error && <p className="nh-loc-notice">{notice}</p>}
 
       <div className="nh-loc-divider">

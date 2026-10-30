@@ -811,7 +811,9 @@ export const CategoriesTab = ({ subTab }) => {
                   <span style={{ fontSize: 14 }}>📁</span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: '#334155' }}>Header Categories</span>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 800, backgroundColor: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: 10 }}>40</span>
+                <span style={{ fontSize: 10, fontWeight: 800, backgroundColor: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: 10 }}>
+                  {headerCategories.length}
+                </span>
               </div>
 
               {/* Search Category */}

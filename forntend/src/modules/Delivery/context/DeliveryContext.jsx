@@ -465,6 +465,10 @@ export const DeliveryProvider = ({ children }) => {
    * marked busy, and no order could ever reach them.
    */
   const handleToggleOnline = async (online) => {
+    if (online && isLicenseExpired) {
+      triggerToast('Your driving license is expired. Please update it in your profile before going online.', { type: 'error' });
+      return false;
+    }
     try {
       let coords = null;
       if (online && navigator.geolocation) {
@@ -885,6 +889,15 @@ export const DeliveryProvider = ({ children }) => {
 
     return () => { cancelled = true; };
   }, [sessionRetry]);
+
+  const isLicenseExpired = useMemo(() => {
+    const vType = riderProfile?.vehicleType || onboardingForm.vehicleType;
+    if (vType === 'bicycle') return false;
+    const expiryStr = riderProfile?.drivingLicense?.expiryDate || onboardingForm.dlExpiry;
+    if (!expiryStr) return false;
+    const expDate = new Date(expiryStr);
+    return !isNaN(expDate.getTime()) && expDate < new Date();
+  }, [riderProfile?.vehicleType, riderProfile?.drivingLicense?.expiryDate, onboardingForm.vehicleType, onboardingForm.dlExpiry]);
 
   /** Attach a name to an already-verified phone. */
   const saveRiderName = async (name) => {
@@ -1635,7 +1648,8 @@ export const DeliveryProvider = ({ children }) => {
       generateReturnPickupOtp,
       verifyReturnPickupOtp,
       returnPickupPingOffer,
-      expireReturnPickup
+      expireReturnPickup,
+      isLicenseExpired
     }}>
       {children}
     </DeliveryContext.Provider>

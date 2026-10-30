@@ -177,7 +177,7 @@ export const UserProvider = ({ children }) => {
     return null;
   };
 
-  const setActiveNav = (navId) => {
+  const setActiveNav = (navId, options = {}) => {
     // An explicit Buy Now / Proceed to Checkout action starts the current
     // basket. Older committed payments remain recoverable from My Orders.
     if (navId === 'checkout') {
@@ -188,7 +188,8 @@ export const UserProvider = ({ children }) => {
     }
     const newPath = navId === 'home' ? '/' : `/${navId}`;
     if (window.location.pathname !== newPath) {
-      window.history.pushState(null, '', newPath);
+      const fromNav = options?.fromNav || (activeNav === 'account' ? 'account' : null);
+      window.history.pushState({ nav: navId, fromNav }, '', newPath);
     }
     setActiveNavState(navId);
     if (navId === 'home') {
@@ -246,7 +247,14 @@ export const UserProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    const handlePopState = () => {
+    const handlePopState = (event) => {
+      const targetNav = event?.state?.nav || getNavFromPath();
+      setActiveNavState(targetNav);
+      if (targetNav === 'home') {
+        const mode = resolveMode();
+        setActiveSubNavState(mode === 'quick' ? 'grocery--home' : 'ecommerce--smart-buy');
+      }
+
       const parts = window.location.pathname.split('/').filter(Boolean);
       if (parts[0] === 'categories' && parts[1]) {
         setSelectedCategoryFilterState({ slug: parts[1] });
@@ -1220,7 +1228,24 @@ export const UserProvider = ({ children }) => {
       // leave whatever was already loaded
     }
   }, []);
-  useEffect(() => { fetchTipSetting(); }, [fetchTipSetting]);
+  useEffect(() => {
+    fetchTipSetting();
+    const handleTipUpdate = (updated) => {
+      if (updated && typeof updated === 'object') {
+        setTipSetting(updated);
+      } else {
+        fetchTipSetting();
+      }
+    };
+    socket.on('tip_setting_updated', handleTipUpdate);
+    window.addEventListener('focus', fetchTipSetting);
+    window.addEventListener('app:soft-refresh', fetchTipSetting);
+    return () => {
+      socket.off('tip_setting_updated', handleTipUpdate);
+      window.removeEventListener('focus', fetchTipSetting);
+      window.removeEventListener('app:soft-refresh', fetchTipSetting);
+    };
+  }, [fetchTipSetting]);
 
   // ========================
   // ADDRESSES — server-backed

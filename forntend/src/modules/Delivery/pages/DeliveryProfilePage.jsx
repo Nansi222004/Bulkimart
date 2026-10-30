@@ -9,7 +9,7 @@ import { apiUrl } from '../../../utils/api';
 export const DeliveryProfilePage = () => {
   const ui = useFeedback();
   const { onboardingForm, logoutDelivery, triggerToast, earningsData, riderName, riderProfile,
-          saveRiderLocation, saveRiderServiceArea, refreshRiderStatus, lookupAddress } = useDelivery();
+          saveRiderLocation, saveRiderServiceArea, refreshRiderStatus, lookupAddress, isLicenseExpired } = useDelivery();
 
   const [locating, setLocating] = useState(false);  // button loading state
   const [switching, setSwitching] = useState(false);
@@ -98,6 +98,27 @@ export const DeliveryProfilePage = () => {
 
   return (
     <div className="delivery-profile-wrapper">
+      {isLicenseExpired && (
+        <div style={{
+          background: '#fee2e2',
+          border: '1px solid #ef4444',
+          color: '#991b1b',
+          padding: '12px 16px',
+          borderRadius: '10px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          fontSize: '13px',
+          lineHeight: '1.4'
+        }}>
+          <span style={{ fontSize: '20px' }}>⚠️</span>
+          <div>
+            <strong style={{ display: 'block', fontSize: '14px', marginBottom: '2px' }}>Driving License Expired</strong>
+            Your driving license expired on {riderProfile?.drivingLicense?.expiryDate ? new Date(riderProfile.drivingLicense.expiryDate).toLocaleDateString('en-IN') : 'recently'}. Please renew your driving license to continue delivering orders.
+          </div>
+        </div>
+      )}
       {/* Driver profile summary card */}
       <div className="delivery-card delivery-profile-main-card">
         <div className="profile-large-avatar">{(riderName || 'R').charAt(0).toUpperCase()}</div>
@@ -271,7 +292,13 @@ export const DeliveryProfilePage = () => {
           </div>
           <div className="profile-data-row">
             <span>Driving License</span>
-            <span className="profile-status-badge verified">✓ Verified</span>
+            {isLicenseExpired ? (
+              <span className="profile-status-badge" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #f87171', fontWeight: 600 }}>
+                ⚠️ Expired ({riderProfile?.drivingLicense?.expiryDate ? new Date(riderProfile.drivingLicense.expiryDate).toLocaleDateString('en-IN') : 'Expired'})
+              </span>
+            ) : (
+              <span className="profile-status-badge verified">✓ Verified</span>
+            )}
           </div>
           <div className="profile-data-row">
             <span>Background Clearance</span>

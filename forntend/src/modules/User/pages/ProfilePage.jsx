@@ -122,16 +122,27 @@ const ProfilePage = () => {
 
   // Each Account section gets its own history entry, so the phone's back button closes the
   // section and lands on the Account menu instead of leaving the page for Home.
+  const isPoppingRef = useRef(false);
   useEffect(() => {
-    const onPop = () => setActiveSection(window.history.state?.accountSection || null);
+    const onPop = () => {
+      isPoppingRef.current = true;
+      setActiveSection(window.history.state?.accountSection || null);
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   useEffect(() => {
+    if (isPoppingRef.current) {
+      isPoppingRef.current = false;
+      return;
+    }
     const entry = window.history.state?.accountSection || null;
-    if (activeSection && entry !== activeSection) window.history.pushState({ ...(window.history.state || {}), accountSection: activeSection }, '');
-    // Closed with the in-page back arrow: drop the section's history entry too.
-    else if (!activeSection && entry) window.history.back();
+    if (activeSection && entry !== activeSection) {
+      window.history.pushState({ ...(window.history.state || {}), accountSection: activeSection }, '');
+    } else if (!activeSection && entry) {
+      // Closed with the in-page back arrow: drop the section's history entry too.
+      window.history.back();
+    }
   }, [activeSection]);
 
   // Sub-Section states
@@ -487,19 +498,22 @@ const ProfilePage = () => {
         </svg>
       ),
       badge: null,
-      action: () => setActiveNav('orders') // Handled natively, bypasses Day 2
+      action: () => setActiveNav('orders', { fromNav: 'account' })
     },
     {
       id: 'ebooks',
       label: 'My E-books',
       icon: <span style={{ fontSize: 20 }}>📚</span>,
       badge: null,
-      action: () => setActiveNav('ebooks')
+      action: () => setActiveNav('ebooks', { fromNav: 'account' })
     },
     {
       id: 'legal-services', label: 'My Legal Service Requests',
       icon: <span aria-hidden="true">▤</span>, badge: null,
-      action: () => window.history.pushState(null, '', '/legal-services/requests')
+      action: () => {
+        window.history.pushState({ nav: 'legal-services', fromNav: 'account' }, '', '/legal-services/requests');
+        setActiveNav('legal-services', { fromNav: 'account' });
+      }
     },
     {
       id: 'addresses',

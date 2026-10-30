@@ -48,6 +48,7 @@ const CheckoutPage = () => {
     couponCode,
     couponNotice,
     tipSetting,
+    fetchTipSetting,
     walletBalance,
     fetchWalletBalance,
     currentUser,
@@ -58,7 +59,8 @@ const CheckoutPage = () => {
 
   useEffect(() => {
     fetchWalletBalance();
-  }, [fetchWalletBalance]);
+    fetchTipSetting?.();
+  }, [fetchWalletBalance, fetchTipSetting]);
 
   /**
    * The delivery choice, and whether one still has to be made.
@@ -1293,7 +1295,14 @@ const CheckoutPage = () => {
                       }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
                         <div>
-                          <div style={{ fontWeight: 800, fontSize: 12.5, letterSpacing: 0.5 }}>{c.code}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 800, fontSize: 12.5, letterSpacing: 0.5 }}>{c.code}</span>
+                            {c.firstOrderOnly && (
+                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                                First Order Only
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.title}</div>
                         </div>
                         {c.applicable ? (

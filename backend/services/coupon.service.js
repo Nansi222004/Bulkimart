@@ -76,8 +76,9 @@ export const evaluateCoupon = async (coupon, {
     }
   }
 
-  if (coupon.firstOrderOnly && user?._id) {
-    const previous = userOrderCount !== null
+  if (coupon.firstOrderOnly) {
+    if (!user?._id) return fail('Please sign in to use a first-order coupon.');
+    const previous = (userOrderCount !== null && userOrderCount !== undefined)
       ? userOrderCount
       : await Order.countDocuments({ userId: user._id, status: { $nin: ['cancelled'] } });
     if (previous > 0) return fail('This coupon is only valid on your first order.');
@@ -197,11 +198,21 @@ export const redeemCoupon = async ({ coupon, userId, orderId, discountAmount, or
 };
 
 /** Give the count back if the order is cancelled before it was ever fulfilled. */
-export const releaseCoupon = async (couponId, orderId, session) => {
-  if (!couponId) return;
-  const removed = await CouponRedemption.findOneAndDelete({ couponId, orderId }, { session });
-  if (removed) {
-    await Coupon.updateOne({ _id: couponId }, { $inc: { usedCount: -1 } }, { session });
+export const releaseCoupon = async (couponIdOrCode, orderId, session) => {
+  if (!couponIdOrCode) return;
+  let coupon = null;
+  try {
+    coupon = await Coupon.findById(couponIdOrCode).session(session);
+  } catch {}
+  if (!coupon) {
+    coupon = await Coupon.findOne({ code: String(couponIdOrCode).trim().toUpperCase() }).session(session);
+  }
+  const removed = await CouponRedemption.findOneAndDelete(
+    { orderId, ...(coupon ? { couponId: coupon._id } : {}) },
+    { session }
+  );
+  if (removed && coupon) {
+    await Coupon.updateOne({ _id: coupon._id }, { $inc: { usedCount: -1 } }, { session });
   }
 };
 

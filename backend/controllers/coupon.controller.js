@@ -103,6 +103,7 @@ export const getAvailableCoupons = asyncHandler(async (req, res) => {
     results.push({
       code: c.code,
       isPublic: c.isPublic !== false,
+      firstOrderOnly: Boolean(c.firstOrderOnly),
       cdsMembersOnly: c.cdsMembersOnly === true,
       title: c.title,
       description: c.description,
@@ -190,6 +191,14 @@ const validateCouponDoc = (doc) => {
   }
   if (doc.startsAt && doc.expiresAt && doc.startsAt > doc.expiresAt) {
     throw httpError(400, 'The end date cannot be before the start date');
+  }
+  if (doc.expiresAt) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const expDate = new Date(doc.expiresAt);
+    const expStr = Number.isFinite(expDate.getTime()) ? expDate.toISOString().split('T')[0] : '';
+    if (expStr && expStr <= todayStr) {
+      throw httpError(400, 'Coupon expiration date cannot be today or in the past. It must be at least tomorrow.');
+    }
   }
 };
 
