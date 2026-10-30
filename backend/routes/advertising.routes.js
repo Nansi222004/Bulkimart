@@ -1,6 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import PromotionPackage from '../models/PromotionPackage.js';
+import SellerPromotion from '../models/SellerPromotion.js';
 import Product from '../models/Product.js';
 import { channelVisibility } from '../utils/productChannels.js';
 import { advertisingChannel, advertisingId } from '../services/advertisingEligibility.service.js';
@@ -72,6 +73,20 @@ export function advertisingRouter(admin = false) {
     router.post('/campaigns/:id/cancel',advertisingPermission('advertising_review'),asyncHandler(async(req,res)=>ok(res,await billing.cancelAdvertisingCampaign(req.params.id,undefined,req.user._id,req.body))));
     router.post('/packages', ...config, asyncHandler(async (req, res) => created(res, await saveAdvertisingPackage(req.user._id, req.body))));
     router.patch('/packages/:id', ...config, asyncHandler(async (req, res) => ok(res, await saveAdvertisingPackage(req.user._id, req.body, req.params.id))));
+    router.delete('/packages/:id', ...config, asyncHandler(async (req, res) => {
+      const row = await PromotionPackage.findOne({ _id: advertisingId(req.params.id), advertisingVersion: 2 });
+      if (!row) throw httpError(404, 'Advertising package not found');
+      const inUse = await SellerPromotion.countDocuments({ packageId: row._id });
+      if (inUse > 0) {
+        row.advertising = row.advertising || {};
+        row.advertising.archivedAt = new Date();
+        row.isActive = false;
+        await row.save();
+        return ok(res, { action: 'archived' }, 'Package archived because historical campaigns reference it.');
+      }
+      await PromotionPackage.deleteOne({ _id: row._id });
+      return ok(res, { action: 'deleted' }, 'Package permanently deleted.');
+    }));
     for (const action of ['approve', 'request-changes', 'reject', 'suspend', 'pilot']) router.post(`/campaigns/:id/${action}`, ...review, asyncHandler(async (req, res) => ok(res, await changeAdvertisingCampaign({ id: req.params.id, actorId: req.user._id, admin: true, input: req.body, action }))));
   } else {
     router.post('/payment-verification',asyncHandler(async(req,res)=>ok(res,await billing.verifyAdvertisingPayment(req.body.orderId,req.seller._id,req.body))));

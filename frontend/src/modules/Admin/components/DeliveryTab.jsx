@@ -288,6 +288,20 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
                     Suspend
                   </button>
                 )}
+                <button
+                  className="admin-btn-sm details"
+                  style={{ background: '#fee2e2', color: '#b91c1c' }}
+                  onClick={() => {
+                    ui.perform(
+                      `Remove delivery-partner account for "${r.name || r.phone}"? A reference-free application will be permanently deleted. A partner with delivery history will be deactivated instead. Active deliveries, returns, or pending payouts will block deletion.`,
+                      async () => {
+                        await removeDeliveryAccount(r._id);
+                      }
+                    );
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))

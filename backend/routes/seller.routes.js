@@ -1,4 +1,5 @@
 import { initiateQuickShiprocketFee, verifyQuickShiprocketFee, getQuickShiprocketFee } from '../controllers/quickShiprocketFee.controller.js';
+import { deleteMySellerAccount } from '../controllers/accountManagement.controller.js';
 import { getProfile, updateProfile } from '../controllers/user.controller.js';
 import express from 'express';
 import { getPickupStatus, retryPickupSync } from '../controllers/sellerPickup.controller.js';
@@ -33,6 +34,8 @@ import { uploadFields, uploadSingle } from '../middlewares/upload.middleware.js'
 import Seller from '../models/Seller.js';
 
 const router = express.Router();
+router.delete('/account', protect, requireSellerSession, deleteMySellerAccount);
+router.delete('/profile', protect, requireSellerSession, deleteMySellerAccount);
 
 // Public store details for checkout & order tracking
 router.get('/public/:id', async (req, res) => {

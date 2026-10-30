@@ -38,7 +38,29 @@ const ProfilePage = () => {
     setWalletBalance,
   } = useUser();
 
-
+  const handleDeleteAccount = () => {
+    ui.perform(
+      'Are you sure you want to delete your account? This action cannot be undone. Active orders or pending obligations will prevent deletion.',
+      async () => {
+        try {
+          const res = await fetch(apiUrl('/api/users/profile'), {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('userToken') || ''}`,
+            },
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(body.message || 'Could not delete account. Please try again.');
+          }
+          ui.notify(body.message || 'Your account has been deleted successfully.', { type: 'success' });
+          logoutUser();
+        } catch (err) {
+          ui.notify(err.message, { type: 'error' });
+        }
+      }
+    );
+  };
 
   const [showAddMoneyModal, setShowAddMoneyModal] = useState(false);
   const [addMoneyAmount, setAddMoneyAmount] = useState('');
@@ -1588,7 +1610,7 @@ const ProfilePage = () => {
             onClick={() => ui.perform('Log out?', logoutUser)}
             style={{
               marginTop: '16px',
-              marginBottom: '30px',
+              marginBottom: '12px',
               padding: '14px 16px',
               backgroundColor: 'rgba(239, 68, 68, 0.08)',
               border: '1px solid rgba(239, 68, 68, 0.2)',
@@ -1607,6 +1629,38 @@ const ProfilePage = () => {
               <span className="menu-label logout-label" style={{ fontWeight: '700' }}>Logout</span>
             </div>
             <span className="menu-chevron" style={{ color: '#ef4444' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </span>
+          </div>
+
+          {/* Delete Account button */}
+          <div 
+            className="menu-link-row delete-account-row" role="button" tabIndex={0}
+            onKeyDown={event => {if(event.key==='Enter'||event.key===' '){event.preventDefault();event.currentTarget.click();}}}
+            onClick={handleDeleteAccount}
+            style={{
+              marginBottom: '30px',
+              padding: '14px 16px',
+              backgroundColor: 'rgba(239, 68, 68, 0.04)',
+              border: '1px dashed rgba(239, 68, 68, 0.4)',
+              borderRadius: '14px',
+              cursor: 'pointer'
+            }}
+          >
+            <div className="menu-link-left">
+              <span className="menu-icon" style={{ color: '#dc2626' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </span>
+              <span className="menu-label" style={{ fontWeight: '700', color: '#dc2626' }}>Delete Account</span>
+            </div>
+            <span className="menu-chevron" style={{ color: '#dc2626' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="9 18 15 12 9 6"></polyline>
               </svg>

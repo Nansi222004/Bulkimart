@@ -188,6 +188,20 @@ export const UsersTab = ({ defaultStatusFilter }) => {
 
               <div className="admin-item-actions">
                 <button className="admin-btn-sm details" style={{ flex: 'none' }} onClick={() => setSelectedUser(user)}>View Profile</button>
+                <button
+                  className="admin-btn-sm reject"
+                  style={{ flex: 'none' }}
+                  onClick={() => {
+                    ui.perform(
+                      `Remove customer account for "${user.name || user.phone}"? If it has no references it will be permanently deleted. If historical orders or financial records exist it will only be deactivated. Active orders, balances, or unresolved obligations will block the action.`,
+                      async () => {
+                        await removeCustomerAccount(user.id);
+                      }
+                    );
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))

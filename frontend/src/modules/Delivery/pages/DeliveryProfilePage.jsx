@@ -342,6 +342,35 @@ export const DeliveryProfilePage = () => {
         >
           Log Out
         </button>
+        <button 
+          className="profile-logout-btn"
+          style={{ background: 'rgba(239, 68, 68, 0.04)', border: '1.5px dashed #ef4444', color: '#ef4444', marginTop: 4 }}
+          onClick={() => {
+            ui.perform(
+              'Are you sure you want to delete your Delivery Partner account? Active deliveries, returns, or pending payouts will block deletion.',
+              async () => {
+                try {
+                  const res = await fetch(apiUrl('/api/delivery/account'), {
+                    method: 'DELETE',
+                    headers: {
+                      Authorization: `Bearer ${localStorage.getItem('deliveryToken') || localStorage.getItem('userToken') || ''}`,
+                    },
+                  });
+                  const body = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    throw new Error(body.message || 'Could not delete delivery account.');
+                  }
+                  triggerToast(body.message || 'Delivery account deleted successfully.');
+                  await logoutDelivery();
+                } catch (err) {
+                  triggerToast(err.message, { type: 'error' });
+                }
+              }
+            );
+          }}
+        >
+          🗑️ Delete Account
+        </button>
       </div>
     </div>
   );

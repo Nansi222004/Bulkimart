@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { useAdmin } from '../context/AdminContext';
 import { SellerDetailModal } from './SellerDetailModal';
 
@@ -66,12 +67,14 @@ const DocumentCard = ({ doc }) => {
 };
 
 export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
+  const ui = useFeedback();
   const {
     sellers, sellersLoading, sellersError,
     sellerDetail, sellerDetailLoading, fetchSellerDetail, setSellerDetail,
     fetchSellers, fetchSellerCounts,
     sellerStatusFilter, setSellerStatusFilter,
     approveSeller, rejectSeller, suspendSeller, setSellerRadius,
+    removeSellerAccount,
   } = useAdmin();
 
   // Bug #205: use LOCAL search so each seller module tab has its own isolated filter.
@@ -199,6 +202,19 @@ export const SellersTab = ({ defaultStatusFilter = 'all' }) => {
                   <button className="admin-btn-sm reject" onClick={() => suspendSeller(seller._id)}>Suspend</button>
                 )}
                 <button className="admin-btn-sm details" onClick={() => fetchSellerDetail(seller._id)}>View Detail</button>
+                <button
+                  className="admin-btn-sm reject"
+                  onClick={() => {
+                    ui.perform(
+                      `Remove vendor account for "${seller.storeName || seller.businessName}"? If it has no active references it will be permanently deleted. If historical records exist it will be deactivated. Active orders, returns, or pending payouts will block deletion.`,
+                      async () => {
+                        await removeSellerAccount(seller._id);
+                      }
+                    );
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))}

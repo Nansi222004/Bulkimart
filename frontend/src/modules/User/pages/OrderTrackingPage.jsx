@@ -34,7 +34,7 @@ const STATUS_DESCS = {
 
 export const OrderTrackingPage = () => {
   const ui = useFeedback();
-  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId, initiateOnlinePayment, addToCart, setActiveNav } = useUser();
+  const { selectedOrder, setSelectedOrder, activeRider, returnPickupOtp, setReviewProductId, initiateOnlinePayment, addToCart, setActiveNav, switchCartChannel, setActiveMode } = useUser();
   const handleReorderSingleItem = async (item) => {
     const pId = item.productId || item._id;
     const vId = item.variantId;
@@ -44,6 +44,11 @@ export const OrderTrackingPage = () => {
       const res = await addToCart(pId, qty, vId);
       if (res?.ok) {
         ui.notify(`Added "${item.name}" to cart!`, { type: 'success' });
+        if (res.data?.channel) {
+          switchCartChannel?.(res.data.channel);
+          setActiveMode?.(res.data.channel === 'grocery' ? 'quick' : 'shop');
+        }
+        setSelectedOrder(null);
         setActiveNav('cart');
       } else {
         ui.notify(res?.message || 'Could not add item to cart', { type: 'error' });

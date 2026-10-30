@@ -39,10 +39,13 @@ import {
 import { protect } from '../middlewares/auth.middleware.js';
 import { uploadSingle, uploadFields } from '../middlewares/upload.middleware.js';
 import { requireApprovedPartner } from '../middlewares/vendor.middleware.js';
+import { deleteMyDeliveryAccount } from '../controllers/accountManagement.controller.js';
 
 const router = express.Router();
 
 router.use(protect);
+router.delete('/account', deleteMyDeliveryAccount);
+router.delete('/profile', deleteMyDeliveryAccount);
 
 // ---------------------------------------------------------------------------
 // ONBOARDING — open to any signed-in user, otherwise nobody could ever apply.

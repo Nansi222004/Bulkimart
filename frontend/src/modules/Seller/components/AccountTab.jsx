@@ -3,6 +3,7 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
+import { apiUrl } from '../../../utils/api';
 import productHoney from '../../../assets/product_honey.png';
 
 export const AccountTab = () => {
@@ -309,6 +310,35 @@ export const AccountTab = () => {
             </button>
             <button className="secondary-onboarding-btn" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={async () => { return ui.perform('Logout from seller panel?', async () => {return await logoutSeller();}); }}>
               Exit / Logout
+            </button>
+            <button
+              className="secondary-onboarding-btn"
+              style={{ borderColor: '#ef4444', color: '#ef4444', background: 'rgba(239, 68, 68, 0.05)', fontWeight: 700 }}
+              onClick={() => {
+                ui.perform(
+                  'Are you sure you want to delete your seller account? This action cannot be undone. Active orders, unresolved returns, or pending payouts will block deletion.',
+                  async () => {
+                    try {
+                      const res = await fetch(apiUrl('/api/seller/account'), {
+                        method: 'DELETE',
+                        headers: {
+                          Authorization: `Bearer ${localStorage.getItem('userToken') || localStorage.getItem('sellerToken') || ''}`,
+                        },
+                      });
+                      const body = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        throw new Error(body.message || 'Could not delete seller account.');
+                      }
+                      triggerToast(body.message || 'Seller account deleted successfully.');
+                      await logoutSeller();
+                    } catch (err) {
+                      triggerToast(err.message, { type: 'error' });
+                    }
+                  }
+                );
+              }}
+            >
+              🗑️ Delete Seller Account
             </button>
           </div>
         </div>

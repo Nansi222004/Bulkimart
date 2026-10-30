@@ -70,6 +70,37 @@ test('pushToUser deduplicates tokens by deviceId even if multiple active tokens 
   expect(sendPushNotification.mock.calls[0][0]).toBe('token-dev1-new');
 });
 
+test('pushToUser caps untracked app tokens without deviceId to at most 1 most recent token', async () => {
+  const user = await User.create({
+    phone: '9876543219',
+    roles: ['seller'],
+    pushTokens: [
+      { token: 'token-app-old', active: true, platform: 'app', sessionRoles: ['seller'], lastUsedAt: new Date(Date.now() - 120000) },
+      { token: 'token-app-new', active: true, platform: 'app', sessionRoles: ['seller'], lastUsedAt: new Date() },
+    ]
+  });
+
+  await pushToUser(user._id, { title: 'New order', message: 'Order #1', data: { audience: 'seller' } });
+  expect(sendPushNotification).toHaveBeenCalledTimes(1);
+  expect(sendPushNotification.mock.calls[0][0]).toBe('token-app-new');
+});
+
+test('registering a new untracked app token deactivates older untracked app tokens for that role', async () => {
+  const user = await User.create({ phone: '9876543299', roles: ['seller'] });
+
+  await registerPushToken(user._id, 'token-app-1', 'app', 'seller');
+  let saved = await User.findById(user._id).lean();
+  expect(saved.pushTokens.filter(t => t.active)).toHaveLength(1);
+
+  // App reconnects or re-registers a new token without deviceId
+  await registerPushToken(user._id, 'token-app-2', 'app', 'seller');
+  saved = await User.findById(user._id).lean();
+
+  const active = saved.pushTokens.filter(t => t.active);
+  expect(active).toHaveLength(1);
+  expect(active[0].token).toBe('token-app-2');
+});
+
 test('rapid duplicate notifications for the same event/order are debounced to exactly 1 push notification', async () => {
   const user = await User.create({
     phone: '9876543212',

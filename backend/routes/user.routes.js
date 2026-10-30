@@ -11,6 +11,7 @@ import {
   getWallet,
   updateFCMToken
 } from '../controllers/user.controller.js';
+import { deleteMyCustomerAccount } from '../controllers/accountManagement.controller.js';
 import { protect, requireCustomerSession } from '../middlewares/auth.middleware.js';
 import { uploadSingle } from '../middlewares/upload.middleware.js';
 
@@ -21,6 +22,8 @@ router.use(protect, requireCustomerSession);
 
 router.get('/profile', getProfile);
 router.put('/profile', uploadSingle('avatar'), updateProfile);
+router.delete('/profile', deleteMyCustomerAccount);
+router.delete('/account', deleteMyCustomerAccount);
 
 router.post('/addresses/upload-landmark', uploadSingle('image'), uploadLandmarkImage);
 

@@ -156,6 +156,13 @@ export default function AdvertisingWorkspace({ admin = false }) {
     showUpdate(b.data);
   });
 
+  const handleDeletePackage = (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete the package "${name}"?`)) return;
+    perform(async () => {
+      await advertisingApi(true, `/packages/${id}`, { method: 'DELETE' });
+    });
+  };
+
   const offered = packages.filter(p => p.module === draft?.module && p.isActive && !p.archivedAt);
   const inCategory = offered.filter(p => !p.categories.length || p.categories.includes(draft?.categoryId));
   // A package can only be chosen when its "Products per ad" covers the ticked products.
@@ -317,9 +324,19 @@ export default function AdvertisingWorkspace({ admin = false }) {
                     <p>Version {row.version}</p>
                     <p>{row.description}</p>
                     {!row.archivedAt && (
-                      <button onClick={() => setPackageForm(packageFormFromRow(row))}>
-                        Edit package
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                        <button onClick={() => setPackageForm(packageFormFromRow(row))}>
+                          Edit package
+                        </button>
+                        {admin && canConfigure && (
+                          <button
+                            style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                            onClick={() => handleDeletePackage(row.id, row.name)}
+                          >
+                            Delete package
+                          </button>
+                        )}
+                      </div>
                     )}
                   </>
                 )}

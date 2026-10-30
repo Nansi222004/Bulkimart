@@ -182,12 +182,20 @@ export const pushToUser = async (userId, { title, message, data, image }, Model 
         untracked.push(t);
       }
     }
+
     const eligible = [...deviceMap.values(), ...untracked];
     eligible.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
 
     // Cap active web tokens to at most 1 most recently used to eliminate duplicate tab alerts
     const webTokens = eligible.filter(t => t.platform === 'web').slice(0, 1);
-    const appTokens = eligible.filter(t => t.platform !== 'web');
+
+    // For app tokens: keep tracked unique devices, and cap untracked app tokens to at most 1 (most recent)
+    const trackedApp = [...deviceMap.values()].filter(t => t.platform !== 'web');
+    const untrackedApp = untracked
+      .filter(t => t.platform !== 'web')
+      .sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0))
+      .slice(0, trackedApp.length ? 0 : 1);
+    const appTokens = [...trackedApp, ...untrackedApp];
 
     let tokens = [...new Set([...webTokens, ...appTokens].map(t => t.token))];
     if (tokens.length === 0 && user.fcmToken && !user.pushTokens?.some(t => t.token === user.fcmToken)) tokens = [user.fcmToken];
@@ -427,12 +435,19 @@ export const registerPushToken = async (userId, token, platform, sessionRole, Mo
     });
   }
 
-  // Deactivate older duplicate tokens to prevent duplicate push notifications
-  const activeWeb = user.pushTokens.filter(t => t.active && t.platform === 'web');
-  if (activeWeb.length > 1) {
-    activeWeb.sort((a, b) => new Date(b.lastUsedAt || b.createdAt || 0) - new Date(a.lastUsedAt || a.createdAt || 0));
-    for (let i = 1; i < activeWeb.length; i++) {
-      activeWeb[i].active = false;
+  // Deactivate older duplicate tokens for the same role to prevent duplicate push notifications
+  if (sessionRole) {
+    const olderSameRole = user.pushTokens.filter(t =>
+      t.active &&
+      t.token !== token &&
+      t.platform === tokenPlatform &&
+      !t.deviceId &&
+      Array.isArray(t.sessionRoles) &&
+      t.sessionRoles.length === 1 &&
+      t.sessionRoles[0] === sessionRole
+    );
+    for (const old of olderSameRole) {
+      old.active = false;
     }
   }
 
