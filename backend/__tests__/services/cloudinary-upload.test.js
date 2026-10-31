@@ -18,7 +18,9 @@ jest.unstable_mockModule('cloudinary', () => ({
 
 const {
   assertCloudinaryConfigured,
+  isSensitiveFolder,
   safeCloudinaryUploadError,
+  uploadFileWithMeta,
   uploadToCloudinary,
   verifyCloudinary,
 } = await import('../../services/cloudinary.service.js');
@@ -57,6 +59,38 @@ test('ordinary provider failure is retryable without leaking provider internals'
   const error = safeCloudinaryUploadError(new Error('socket closed at private upstream host'));
   expect(error).toMatchObject({ status: 502, code: 'UPLOAD_PROVIDER_ERROR' });
   expect(error.message).toBe('Document upload failed. Please try again.');
+});
+
+test.each([
+  'seller-kyc/u1', 'seller-bank/u1', 'seller-docs/u1', 'delivery-kyc/u1', 'delivery-bank/u1',
+])('%s is classified as a sensitive identity/bank folder', (folder) => {
+  expect(isSensitiveFolder(folder)).toBe(true);
+});
+
+test.each(['products/s1', 'banners', 'avatars', 'support-tickets'])('%s is not classified as sensitive', (folder) => {
+  expect(isSensitiveFolder(folder)).toBe(false);
+});
+
+test.each(['products/seller-1', 'banners', 'seller-docs/user-1', 'delivery-bank/user-1'])(
+  'a provider failure for %s rejects instead of returning a local /uploads URL',
+  async (folder) => {
+    uploadError = { http_code: 500, message: 'upstream unavailable' };
+    await expect(uploadToCloudinary(Buffer.from('image'), folder)).rejects.toMatchObject({ status: 502, code: 'UPLOAD_PROVIDER_ERROR' });
+  },
+);
+
+test('attachment uploads also reject on provider failure instead of falling back', async () => {
+  uploadError = { http_code: 500, message: 'upstream unavailable' };
+  await expect(uploadFileWithMeta(Buffer.from('file'), 'returns')).rejects.toMatchObject({
+    status: 502,
+    message: 'Attachment upload failed. Please try again.',
+  });
+});
+
+test('attachment uploads return provider metadata on success', async () => {
+  await expect(uploadFileWithMeta(Buffer.from('file'), 'support-tickets')).resolves.toEqual({
+    url: uploadResult.secure_url, publicId: 'doc-1', resourceType: 'image', size: 123, format: 'jpg',
+  });
 });
 
 test('credential verification sanitizes provider authentication details', async () => {

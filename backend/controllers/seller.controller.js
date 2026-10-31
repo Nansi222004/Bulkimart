@@ -22,6 +22,7 @@ import Payment from '../models/Payment.js';
 import Notification from '../models/Notification.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import {
   CHANNEL, CHANNELS, LOW_STOCK_THRESHOLD, ORDER_STATUS, vendorTransitions, VENDOR_CANCELLABLE_STATUSES,
   SAME_DAY_MAX_PROCESSING_MINUTES, WHOLESALE_CHANNEL, WHOLESALE_REQUEST_STATUS,
@@ -191,8 +192,8 @@ export const submitStep2 = asyncHandler(async (req, res) => {
     throw new Error('Please upload Aadhaar front and back documents');
   }
 
-  const frontUrl = await uploadToCloudinary(req.files.aadhaarFront[0].buffer, `seller-kyc/${req.user._id}`);
-  const backUrl = await uploadToCloudinary(req.files.aadhaarBack[0].buffer, `seller-kyc/${req.user._id}`);
+  const frontUrl = await uploadToCloudinary(req.files.aadhaarFront[0].buffer, `seller-kyc/${req.user._id}`, mediaContext(req, req.files.aadhaarFront[0]));
+  const backUrl = await uploadToCloudinary(req.files.aadhaarBack[0].buffer, `seller-kyc/${req.user._id}`, mediaContext(req, req.files.aadhaarBack[0]));
 
   seller.aadhaar = {
     number: `XXXX-XXXX-${aadhaarNumber.slice(-4)}`,
@@ -229,7 +230,7 @@ export const submitStep3 = asyncHandler(async (req, res) => {
     throw new Error('Please upload passbook or cancelled cheque document');
   }
 
-  const passbookUrl = await uploadToCloudinary(req.file.buffer, `seller-bank/${req.user._id}`);
+  const passbookUrl = await uploadToCloudinary(req.file.buffer, `seller-bank/${req.user._id}`, mediaContext(req, req.file));
 
   seller.bankDetails = {
     accountNo,
@@ -278,7 +279,7 @@ export const submitStep4 = asyncHandler(async (req, res) => {
   if (req.files) {
     for (const [key, files] of Object.entries(req.files)) {
       const file = files[0];
-      const url = await uploadToCloudinary(file.buffer, `seller-docs/${req.user._id}`);
+      const url = await uploadToCloudinary(file.buffer, `seller-docs/${req.user._id}`, mediaContext(req, file));
       uploadedDocs.push({ type: key, url, uploadedAt: new Date() });
     }
     seller.documents = seller.documents.concat(uploadedDocs);
@@ -406,10 +407,10 @@ export const updateStoreProfile = asyncHandler(async (req, res) => {
 
   if (req.files) {
     if (req.files.logo) {
-      fields['storeDetails.logo'] = await uploadToCloudinary(req.files.logo[0].buffer, `seller-branding/${req.user._id}`);
+      fields['storeDetails.logo'] = await uploadToCloudinary(req.files.logo[0].buffer, `seller-branding/${req.user._id}`, mediaContext(req, req.files.logo[0]));
     }
     if (req.files.banner) {
-      fields['storeDetails.banner'] = await uploadToCloudinary(req.files.banner[0].buffer, `seller-branding/${req.user._id}`);
+      fields['storeDetails.banner'] = await uploadToCloudinary(req.files.banner[0].buffer, `seller-branding/${req.user._id}`, mediaContext(req, req.files.banner[0]));
     }
   }
 

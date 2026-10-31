@@ -13,6 +13,7 @@ import { httpError, ok, created } from '../utils/response.js';
 import Seller from '../models/Seller.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { parseProductSameDay, checkSameDayEligibility } from '../services/sameDay.service.js';
 import { applyApprovedRatings, approvedReviewsOf, ratingBreakdownOf } from '../services/productRatings.service.js';
 import { resolveCampaignPriceForProduct } from '../services/campaign.service.js';
@@ -806,7 +807,7 @@ export const createProduct = asyncHandler(async (req, res) => {
   let product;
   try {
   for (const file of req.files) {
-    imageUrls.push(await uploadToCloudinary(file.buffer, folder));
+    imageUrls.push(await uploadToCloudinary(file.buffer, folder, mediaContext(req, file)));
   }
   productData.images = imageUrls;
 
@@ -1052,7 +1053,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     const folder = product.sellerId ? `products/${product.sellerId}` : `products/shg-${product.shgStoreId}`;
     const imageUrls = [];
     for (const file of req.files) {
-      const url = await uploadToCloudinary(file.buffer, folder);
+      const url = await uploadToCloudinary(file.buffer, folder, mediaContext(req, file));
       imageUrls.push(url);
     }
     // append or replace based on logic (here we replace)
@@ -1327,7 +1328,7 @@ export const addProductReview = asyncHandler(async (req, res) => {
     || reviewImages.length + (req.files?.length || 0) > 4) {
     throw httpError(400, 'You can upload up to 4 review photos.');
   }
-  const uploadedImages = await Promise.all((req.files || []).map(file => uploadToCloudinary(file.buffer, 'reviews', { resource_type: 'image' })));
+  const uploadedImages = await Promise.all((req.files || []).map(file => uploadToCloudinary(file.buffer, 'reviews', { resource_type: 'image', ...mediaContext(req, file) })));
 
   product.ratings.reviews.push({
     userId: req.user._id,

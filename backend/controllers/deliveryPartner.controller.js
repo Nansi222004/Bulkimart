@@ -13,6 +13,7 @@ import { orderPaymentReady } from '../services/orderPaymentEligibility.service.j
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError, paginated, getPagination } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { VENDOR_STATUS, CHANNEL, CHANNELS, riderClaimableStatuses, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
 import { parseLocation, hasUsableLocation, distanceKm, etaMinutes } from '../utils/geo.js';
 import { riderPayout, payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
@@ -121,7 +122,7 @@ export const submitStep1 = asyncHandler(async (req, res) => {
   }
 
   const url = req.file
-    ? await uploadToCloudinary(req.file.buffer, `delivery-kyc/${req.user._id}`)
+    ? await uploadToCloudinary(req.file.buffer, `delivery-kyc/${req.user._id}`, mediaContext(req, req.file))
     : partner.drivingLicense?.url;
 
   partner.vehicleType = vehicleType;
@@ -158,8 +159,8 @@ export const submitStep2 = asyncHandler(async (req, res) => {
   }
 
   const [frontUrl, backUrl] = await Promise.all([
-    uploadToCloudinary(req.files.aadhaarFront[0].buffer, `delivery-kyc/${req.user._id}`),
-    uploadToCloudinary(req.files.aadhaarBack[0].buffer, `delivery-kyc/${req.user._id}`),
+    uploadToCloudinary(req.files.aadhaarFront[0].buffer, `delivery-kyc/${req.user._id}`, mediaContext(req, req.files.aadhaarFront[0])),
+    uploadToCloudinary(req.files.aadhaarBack[0].buffer, `delivery-kyc/${req.user._id}`, mediaContext(req, req.files.aadhaarBack[0])),
   ]);
 
   // Only the last four digits are kept — the full number is never stored.
@@ -222,7 +223,7 @@ export const submitStep3 = asyncHandler(async (req, res) => {
   }
 
   const passbookUrl = req.file
-    ? await uploadToCloudinary(req.file.buffer, `delivery-bank/${req.user._id}`)
+    ? await uploadToCloudinary(req.file.buffer, `delivery-bank/${req.user._id}`, mediaContext(req, req.file))
     : partner.bankDetails?.passbookUrl;
   if (!passbookUrl) throw httpError(400, 'Please upload a passbook page or cancelled cheque');
 

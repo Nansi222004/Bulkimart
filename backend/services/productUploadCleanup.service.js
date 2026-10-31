@@ -1,12 +1,15 @@
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { v2 as cloudinary } from 'cloudinary';
+import { keyFromPublicUrl, removeByReference } from './media.service.js';
 
 // Only URLs returned by this request's uploader are passed here. Constrain
 // deletion to the seller's upload folder, never arbitrary client-supplied URLs.
 export async function removeFailedProductUploads(urls, folder) {
   for (const url of urls) {
     try {
+      // Server-stored media: each upload owns its file (no de-duplication), so removal is safe.
+      if (keyFromPublicUrl(url)) { await removeByReference(url); continue; }
       const pathname = new URL(url, 'http://local.invalid').pathname;
       const localPrefix = `/uploads/${folder}/`;
       if (pathname.startsWith(localPrefix)) {

@@ -3,6 +3,7 @@ import NotificationBroadcast from '../models/NotificationBroadcast.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import {
   createBroadcast, sendBroadcastNow, listBroadcasts, cancelScheduledBroadcast, deleteDraftBroadcast,
 } from '../services/broadcast.service.js';
@@ -20,7 +21,7 @@ export const createBroadcastAdmin = asyncHandler(async (req, res) => {
 
   let media;
   if (req.file) {
-    const meta = await uploadFileWithMeta(req.file.buffer, 'notifications');
+    const meta = await uploadFileWithMeta(req.file.buffer, 'notifications', mediaContext(req, req.file));
     media = { mediaType: 'IMAGE', url: meta.url, publicId: meta.publicId, mimeType: req.file.mimetype, size: req.file.size };
   }
 

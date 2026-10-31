@@ -32,6 +32,7 @@ import { getRadiusSetting, loadRadiusSetting } from '../services/radiusSetting.s
 import TicketMessage from '../models/TicketMessage.js';
 import NotificationModel from '../models/Notification.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { notifyRequester } from './ticket.controller.js';
 import { NOTIFICATION_EVENT, notifyRider } from '../services/notification.service.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
@@ -1946,13 +1947,14 @@ export const markAllAdminNotificationsRead = asyncHandler(async (req, res) => {
 
 const normalizeStatus = (t) => ({ ...t, status: LEGACY_TICKET_STATUS_MAP[t.status] || t.status });
 
-const uploadAdminAttachments = async (files = []) => {
+const uploadAdminAttachments = async (files = [], req = null) => {
   if (!files.length) return [];
   if (files.length > TICKET_MAX_ATTACHMENTS) throw httpError(400, `You can attach at most ${TICKET_MAX_ATTACHMENTS} files`);
   const uploaded = [];
   for (const file of files) {
     const meta = await uploadFileWithMeta(file.buffer, 'support-tickets', {
       resource_type: file.mimetype === 'application/pdf' ? 'raw' : 'image',
+      ...mediaContext(req, file),
     });
     uploaded.push({
       url: meta.url, publicId: meta.publicId, fileName: file.originalname,
@@ -2038,7 +2040,7 @@ export const replyToTicket = asyncHandler(async (req, res) => {
   const ticket = await Ticket.findById(req.params.id);
   if (!ticket) throw httpError(404, 'Ticket not found');
 
-  const attachments = await uploadAdminAttachments(req.files);
+  const attachments = await uploadAdminAttachments(req.files, req);
   const entry = await TicketMessage.create({
     ticketId: ticket._id,
     senderId: req.user._id,
@@ -2079,7 +2081,7 @@ export const addInternalNote = asyncHandler(async (req, res) => {
   const ticket = await Ticket.findById(req.params.id).select('_id');
   if (!ticket) throw httpError(404, 'Ticket not found');
 
-  const attachments = await uploadAdminAttachments(req.files);
+  const attachments = await uploadAdminAttachments(req.files, req);
   const entry = await TicketMessage.create({
     ticketId: ticket._id,
     senderId: req.user._id,

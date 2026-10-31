@@ -28,6 +28,10 @@ import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
 import { startImageSearchIndexer } from './services/imageSearchIndexer.service.js';
+import { validateStorageStartupConfig } from './config/storage.js';
+import { mediaRouter } from './routes/media.routes.js';
+import { mediaResponse } from './middlewares/mediaResponse.middleware.js';
+import { startMediaMaintenance } from './services/mediaCleanup.service.js';
 
 // Fix: Node.js on Windows uses local router DNS (fe80::1) which blocks SRV record queries.
 if (process.env.NODE_ENV === "development") {
@@ -39,6 +43,9 @@ validateRuntimeConfig();
 console.info(JSON.stringify({ event: 'jwt_configuration_ready', algorithm: JWT_ALGORITHM, instance: process.pid,
   environment: process.env.NODE_ENV === 'production' ? 'production' : 'non-production' }));
 validateCloudinaryStartupConfig();
+// Refuses to start if a category is switched to server storage without a safe
+// MEDIA_ROOT (outside the repository), signing secret and public base URL.
+validateStorageStartupConfig();
 if (process.env.FCM_MODE === "live") {
   validateFirebaseAdminConfig();
   getFirebaseApp();
@@ -80,6 +87,10 @@ app.use(express.urlencoded({ extended: true }));
 // path, and a route registered here would win over it on every request.
 app.use("/api/health", healthRoutes);
 
+// Server-stored media (public files and signed private links); never the SPA shell.
+app.use("/media", mediaRouter);
+// Private media references in API responses become signed URLs for permitted viewers.
+app.use("/api", mediaResponse);
 app.use("/api", apiRoutes);
 
 /**
@@ -106,6 +117,7 @@ app.use(errorHandler);
 const start = async () => {
   await connectDB();
   startImageSearchIndexer();
+  startMediaMaintenance();
   const httpServer = http.createServer(app);
   initSocket(httpServer);
   // Started after the database is up: the sweeper queries on every tick.

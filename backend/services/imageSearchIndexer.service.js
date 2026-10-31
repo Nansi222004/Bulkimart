@@ -12,7 +12,10 @@ export function allowedCatalogImageUrl(value) {
   if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
   // Only administrator-configured HTTPS CDN origins. No redirects or arbitrary
   // URL fetches from a customer upload or untrusted host supplied by a seller.
-  const allowed = ['https://res.cloudinary.com', ...(process.env.IMAGE_SEARCH_CATALOG_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean)];
+  // Our own server media origin is trusted the same way as the Cloudinary CDN.
+  let mediaOrigin = null;
+  try { mediaOrigin = new URL(process.env.MEDIA_PUBLIC_BASE_URL || '').origin; } catch { /* not configured */ }
+  const allowed = ['https://res.cloudinary.com', ...(mediaOrigin ? [mediaOrigin] : []), ...(process.env.IMAGE_SEARCH_CATALOG_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean)];
   return allowed.includes(url.origin);
 }
 export async function downloadCatalogImage(url) {

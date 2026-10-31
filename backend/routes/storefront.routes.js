@@ -10,6 +10,13 @@ import { marketingPermission, objectId } from '../services/storefrontPolicy.serv
 import { adminDTO, saveExperience, transitionExperience, resolveExperience } from '../services/storefront.service.js';
 import { uploadToCloudinary, assertCloudinaryConfigured, safeCloudinaryUploadError } from '../services/cloudinary.service.js';
 import { PRESETS, lifecycle } from '../shared/storefront.mjs';
+import { randomUUID } from 'node:crypto';
+import { readFile, unlink } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { providerFor } from '../config/storage.js';
+import { mediaContext, storeUpload } from '../services/media.service.js';
+import { tempDirectory } from '../services/mediaStorage.service.js';
 export const storefrontRouter = express.Router();
 storefrontRouter.get('/experience', asyncHandler(async (req, res) => {
   const { scope = 'quick', device = 'desktop', category = '' } = req.query;
@@ -37,11 +44,41 @@ storefrontAdminRouter.patch('/:id', asyncHandler(async (req, res) => {
   return ok(res, adminDTO(await saveExperience(req.params.id, req.body, req.user._id)));
 }));
 storefrontAdminRouter.post('/:id/actions/:action', asyncHandler(async (req, res) => ok(res, adminDTO(await transitionExperience(req.params.id, req.params.action, req.body.revision, req.user._id, req.body.draftRevision)))));
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => {
+const mediaLimits = { fileSize: 15 * 1024 * 1024, files: 1 };
+const mediaFilter = (_req, file, cb) => {
   const extensions = { 'image/jpeg': /\.jpe?g$/i, 'image/png': /\.png$/i, 'image/webp': /\.webp$/i, 'video/mp4': /\.mp4$/i, 'video/webm': /\.webm$/i };
   cb(extensions[file.mimetype]?.test(file.originalname) ? null : httpError(400, 'Use JPEG, PNG, WebP, MP4 or WebM with a matching extension'), true);
-} });
-storefrontAdminRouter.post('/media', upload.single('media'), asyncHandler(async (req, res) => {
+};
+const upload = multer({ storage: multer.memoryStorage(), limits: mediaLimits, fileFilter: mediaFilter });
+// Server storage: stream the upload to MEDIA_ROOT/temp instead of holding video in memory.
+const diskUpload = multer({
+  storage: multer.diskStorage({
+    // multer does not create a destination returned by a function; create it (MEDIA_ROOT itself must already exist).
+    destination: (_req, _file, cb) => { try { const dir = tempDirectory(); if (existsSync(path.dirname(dir))) mkdirSync(dir, { recursive: true, mode: 0o700 }); cb(null, dir); } catch (error) { cb(error); } },
+    filename: (_req, _file, cb) => cb(null, `${randomUUID()}.upload`),
+  }),
+  limits: mediaLimits,
+  fileFilter: mediaFilter,
+});
+const storefrontOnServer = () => providerFor('admin.storefront') === 'server';
+
+// Images are re-encoded and videos validated (H.264 MP4, ≤15 s, ≤1280 px wide) by
+// the central media service; there is no server-side transcoding.
+const storeStorefrontMediaOnServer = async (req, res) => {
+  const file = req.file; if (!file) throw httpError(400, 'Select a media file');
+  try {
+    const image = file.mimetype.startsWith('image/');
+    if (image && file.size > 5 * 1024 * 1024) throw httpError(400, 'Images must be under 5 MB');
+    const source = image ? { buffer: await readFile(file.path) } : { filePath: file.path, size: file.size };
+    const { media, reference } = await storeUpload({ source, category: 'admin.storefront', ...mediaContext(req, file) });
+    return created(res, image ? { url: reference, type: 'image' } : { url: reference, type: 'video', duration: media.durationSec });
+  } finally {
+    await unlink(file.path).catch(() => {});
+  }
+};
+
+storefrontAdminRouter.post('/media', (req, res, next) => (storefrontOnServer() ? diskUpload : upload).single('media')(req, res, next), asyncHandler(async (req, res) => {
+  if (storefrontOnServer()) return storeStorefrontMediaOnServer(req, res);
   const file = req.file; if (!file) throw httpError(400, 'Select a media file');
   if (file.mimetype.startsWith('image/')) {
     if (file.size > 5 * 1024 * 1024) throw httpError(400, 'Images must be under 5 MB');

@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { registerPushToken } from '../services/notification.service.js';
 import { geocodeAddressPin, pinSavedAddresses } from '../services/addressPin.service.js';
 
@@ -60,7 +61,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
   if (name) user.name = name;
   if (email) user.email = email;
   if (req.file) {
-    const avatarUrl = await uploadToCloudinary(req.file.buffer, 'avatars');
+    const avatarUrl = await uploadToCloudinary(req.file.buffer, 'avatars', mediaContext(req, req.file));
     user.avatar = avatarUrl;
   }
 
@@ -98,7 +99,7 @@ export const uploadLandmarkImage = asyncHandler(async (req, res) => {
     throw new Error('Please select an image file to upload');
   }
 
-  const imageUrl = await uploadToCloudinary(req.file.buffer, 'landmark-images');
+  const imageUrl = await uploadToCloudinary(req.file.buffer, 'landmark-images', mediaContext(req, req.file));
   res.status(200).json({
     success: true,
     imageUrl,

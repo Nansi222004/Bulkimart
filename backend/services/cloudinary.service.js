@@ -1,37 +1,13 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import { getCloudinaryConfig } from '../config/cloudinary.js';
+import { providerFor } from '../config/storage.js';
+import { categoryForFolder, isSensitiveCategory } from './mediaPolicy.service.js';
+import { storeUpload } from './media.service.js';
 
-/**
- * Saves a buffer to local disk storage as a resilient fallback
- * when remote Cloudinary is unavailable or rejected.
- */
-export const saveLocally = (buffer, folder) => {
-  const uploadsDir = path.resolve(import.meta.dirname, '../uploads');
-  const cleanFolder = String(folder || 'general').replace(/[^a-zA-Z0-9_\-\/]/g, '_');
-  const targetDir = path.join(uploadsDir, cleanFolder);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
-  }
-
-  let ext = 'jpg';
-  if (Buffer.isBuffer(buffer) && buffer.length >= 4) {
-    const magic4 = buffer.slice(0, 4).toString('hex').toLowerCase();
-    if (magic4 === '89504e47') ext = 'png';
-    else if (magic4 === '25504446') ext = 'pdf';
-    else if (magic4 === '52494646') ext = 'webp';
-  }
-
-  const filename = `${crypto.randomUUID()}.${ext}`;
-  const filePath = path.join(targetDir, filename);
-  fs.writeFileSync(filePath, buffer);
-
-  const baseUrl = (process.env.PUBLIC_API_URL || process.env.BACKEND_URL || process.env.API_BASE_URL || '').replace(/\/$/, '');
-  const relativePath = `/uploads/${cleanFolder}/${filename}`.replace(/\\/g, '/');
-  return baseUrl ? `${baseUrl}${relativePath}` : relativePath;
-};
+// There is deliberately no local-disk fallback. The former one wrote into the
+// backend deploy directory (lost on redeploy) and returned /uploads/... URLs
+// that no route serves, so a failed upload looked successful but produced a
+// broken link. A failed upload now fails visibly (see docs/STORAGE_SECURITY_REPORT.md F2/F3).
 
 /**
  * Configuration accepts either form:
@@ -48,15 +24,12 @@ export const saveLocally = (buffer, folder) => {
  */
 
 /**
- * Folders containing identity/KYC documents that must NEVER be stored
- * on the local filesystem where they could be exposed without authorization.
- * These paths must only go through Cloudinary (or an equivalent secured store).
+ * Identity, licence and bank document folders (Aadhaar, PAN, trade licence,
+ * GST certificate, passbooks, driving licence). Classification comes from the
+ * central category policy (mediaPolicy.service.js), so `seller-docs` and
+ * `delivery-bank` are covered alongside seller/delivery KYC.
  */
-const SENSITIVE_FOLDER_PREFIXES = [
-  'seller-kyc', 'seller-bank', 'delivery-kyc', 'driver-',
-];
-export const isSensitiveFolder = (folder) =>
-  SENSITIVE_FOLDER_PREFIXES.some((prefix) => String(folder || '').startsWith(prefix));
+export const isSensitiveFolder = (folder) => isSensitiveCategory(categoryForFolder(folder));
 
 export const cloudinaryConfig = getCloudinaryConfig();
 
@@ -116,46 +89,54 @@ export const verifyCloudinary = async () => {
  * `resource_type: 'auto'` files it under /raw/ and serves it as
  * application/octet-stream, which no browser renders in an <img> tag.
  */
+// Missing configuration or a provider failure rejects with a sanitized error
+// for every folder; nothing is written anywhere else.
+const streamUpload = (buffer, folder, options, noun) => {
+  assertCloudinaryConfigured();
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream({ folder: `nhcone/${folder}`, resource_type: 'auto', ...options }, (error, result) => {
+        if (error) return reject(safeCloudinaryUploadError(error, noun));
+        resolve(result);
+      })
+      .end(buffer);
+  });
+};
+
+// Keys callers add for server storage; never forwarded to Cloudinary.
+const MEDIA_OPTION_KEYS = ['owner', 'originalName', 'declaredMime'];
+const splitOptions = (options) => {
+  const media = {};
+  const provider = { ...options };
+  for (const key of MEDIA_OPTION_KEYS) { if (key in provider) { media[key] = provider[key]; delete provider[key]; } }
+  return { media, provider };
+};
+
+/** The media category to store on our own server, or null to keep using Cloudinary. */
+const serverCategoryFor = (folder) => {
+  const category = categoryForFolder(folder);
+  return category && providerFor(category) === 'server' ? category : null;
+};
+
+const storeOnServer = (buffer, category, media, provider) => storeUpload({
+  source: { buffer },
+  category,
+  ...media,
+  // Category icons ask Cloudinary for PNG; keep that output on the server.
+  output: provider.format === 'png' ? 'png' : undefined,
+});
+
+/**
+ * Central upload entry point used by every controller (historical name kept so
+ * call sites stay unchanged). Routes each folder's category to server storage
+ * when MEDIA_PROVIDERS / MEDIA_PROVIDER_DEFAULT says "server", else Cloudinary.
+ * Returns the string to store on the record: a URL, or `media:<id>` for private media.
+ */
 export const uploadToCloudinary = async (buffer, folder, options = {}) => {
-  if (process.env.NODE_ENV === 'test') {
-    assertCloudinaryConfigured();
-    return new Promise((resolve, reject) => {
-      cloudinary.uploader
-        .upload_stream({ folder: `nhcone/${folder}`, resource_type: 'auto', ...options }, (error, result) => {
-          if (error) return reject(safeCloudinaryUploadError(error));
-          resolve(result.secure_url);
-        })
-        .end(buffer);
-    });
-  }
-
-  // Runtime (development & production): try Cloudinary first if configured
-  if (isCloudinaryConfigured()) {
-    try {
-      const url = await new Promise((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream({ folder: `nhcone/${folder}`, resource_type: 'auto', ...options }, (error, result) => {
-            if (error) return reject(safeCloudinaryUploadError(error));
-            resolve(result.secure_url);
-          })
-          .end(buffer);
-      });
-      return url;
-    } catch (err) {
-      // KYC/identity documents must NEVER fall back to unsecured local disk.
-      // Only non-sensitive uploads (product images, banners) may use the fallback.
-      if (isSensitiveFolder(folder)) {
-        throw err;
-      }
-      console.warn(`[UPLOAD] Cloudinary rejected (${err.message}). Using local storage fallback.`);
-    }
-  } else if (isSensitiveFolder(folder)) {
-    // Cloudinary not configured at all — refuse KYC uploads until it is.
-    assertCloudinaryConfigured();
-  }
-
-  // Resilient fallback to local disk storage (non-sensitive files only)
-  return saveLocally(buffer, folder);
+  const { media, provider } = splitOptions(options);
+  const category = serverCategoryFor(folder);
+  if (category) return (await storeOnServer(buffer, category, media, provider)).reference;
+  return (await streamUpload(buffer, folder, provider)).secure_url;
 };
 
 export const deleteFromCloudinary = async (publicId) => cloudinary.uploader.destroy(publicId);
@@ -168,56 +149,24 @@ export const deleteFromCloudinary = async (publicId) => cloudinary.uploader.dest
  * rather than changing its return shape under those callers.
  */
 export const uploadFileWithMeta = async (buffer, folder, options = {}) => {
-  if (process.env.NODE_ENV === 'test') {
-    assertCloudinaryConfigured();
-    return new Promise((resolve, reject) => {
-      cloudinary.uploader
-        .upload_stream({ folder: `nhcone/${folder}`, resource_type: 'auto', ...options }, (error, result) => {
-          if (error) return reject(safeCloudinaryUploadError(error, 'Attachment'));
-          resolve({
-            url: result.secure_url,
-            publicId: result.public_id,
-            resourceType: result.resource_type,
-            size: result.bytes,
-            format: result.format,
-          });
-        })
-        .end(buffer);
-    });
+  const { media, provider } = splitOptions(options);
+  const category = serverCategoryFor(folder);
+  if (category) {
+    const { media: stored, reference } = await storeOnServer(buffer, category, media, provider);
+    return {
+      url: reference,
+      publicId: String(stored._id),
+      resourceType: stored.mimeType.startsWith('image/') ? 'image' : 'raw',
+      size: stored.sizeBytes,
+      format: stored.extension,
+    };
   }
-
-  if (isCloudinaryConfigured()) {
-    try {
-      return await new Promise((resolve, reject) => {
-        cloudinary.uploader
-          .upload_stream({ folder: `nhcone/${folder}`, resource_type: 'auto', ...options }, (error, result) => {
-            if (error) return reject(safeCloudinaryUploadError(error, 'Attachment'));
-            resolve({
-              url: result.secure_url,
-              publicId: result.public_id,
-              resourceType: result.resource_type,
-              size: result.bytes,
-              format: result.format,
-            });
-          })
-          .end(buffer);
-      });
-    } catch (err) {
-      if (isSensitiveFolder(folder)) {
-        throw err;
-      }
-      console.warn(`[UPLOAD] Cloudinary attachment rejected (${err.message}). Using local storage fallback.`);
-    }
-  } else if (isSensitiveFolder(folder)) {
-    assertCloudinaryConfigured();
-  }
-
-  const localUrl = saveLocally(buffer, folder);
+  const result = await streamUpload(buffer, folder, provider, 'Attachment');
   return {
-    url: localUrl,
-    publicId: path.basename(localUrl),
-    resourceType: 'auto',
-    size: buffer?.length || 0,
-    format: path.extname(localUrl).slice(1) || 'jpg',
+    url: result.secure_url,
+    publicId: result.public_id,
+    resourceType: result.resource_type,
+    size: result.bytes,
+    format: result.format,
   };
 };

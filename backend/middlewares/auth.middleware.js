@@ -3,6 +3,7 @@ import Admin from '../models/Admin.js';
 import { asyncHandler } from './error.middleware.js';
 import { verifySessionToken } from '../config/jwt.js';
 import { authFailure } from '../utils/authFailure.js';
+import { normalizeMediaInput } from '../services/mediaUrl.service.js';
 
 export const protect = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization;
@@ -51,6 +52,9 @@ export const protect = asyncHandler(async (req, res, next) => {
   if (!req.user.isActive) {
     throw authFailure(req, 'AUTH_ACCOUNT_INACTIVE', 'Access denied — account is deactivated', 403);
   }
+
+  // Media values echoed back by clients become stable references owned by this caller.
+  await normalizeMediaInput(req);
 
   next();
 });

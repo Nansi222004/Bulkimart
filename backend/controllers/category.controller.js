@@ -3,6 +3,7 @@ import { CHANNEL } from '../constants/enums.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 
 
 /**
@@ -277,7 +278,7 @@ export const createCategory = asyncHandler(async (req, res) => {
   // Upload image/icon if uploaded
   if (req.files) {
     if (req.files.image) {
-      categoryData.image = await uploadToCloudinary(req.files.image[0].buffer, 'categories');
+      categoryData.image = await uploadToCloudinary(req.files.image[0].buffer, 'categories', mediaContext(req, req.files.image[0]));
     }
     if (req.files.icon) {
       // Rasterised to PNG: an SVG buffer has no binary image signature, so
@@ -287,6 +288,7 @@ export const createCategory = asyncHandler(async (req, res) => {
       categoryData.icon = await uploadToCloudinary(req.files.icon[0].buffer, 'category-icons', {
         resource_type: 'image',
         format: 'png',
+        ...mediaContext(req, req.files.icon[0]),
       });
     }
   }
@@ -354,7 +356,7 @@ export const updateCategory = asyncHandler(async (req, res) => {
 
   if (req.files) {
     if (req.files.image) {
-      category.image = await uploadToCloudinary(req.files.image[0].buffer, 'categories');
+      category.image = await uploadToCloudinary(req.files.image[0].buffer, 'categories', mediaContext(req, req.files.image[0]));
       // A header category shows an icon OR a custom image. Uploading a new image replaces the
       // old icon, which the header would otherwise keep showing in its place.
       if (!category.parent && !req.files.icon) category.icon = undefined;
@@ -363,6 +365,7 @@ export const updateCategory = asyncHandler(async (req, res) => {
       category.icon = await uploadToCloudinary(req.files.icon[0].buffer, 'category-icons', {
         resource_type: 'image',
         format: 'png',
+        ...mediaContext(req, req.files.icon[0]),
       });
     }
   }

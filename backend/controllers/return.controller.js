@@ -7,6 +7,7 @@ import Delivery from '../models/Delivery.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import {
   getReturnEligibility, createReturnRequest, transitionReturnStatus, calculateReturnRefund,
   processReturnRefund, markCodRefundSettled, sellerDecideReturn,
@@ -24,12 +25,13 @@ import {
  * legacy whole-order endpoint) or Order.status.
  */
 
-const uploadAttachments = async (files = []) => {
+const uploadAttachments = async (files = [], req = null) => {
   if (files.length > RETURN_MAX_ATTACHMENTS) throw httpError(400, `You can attach at most ${RETURN_MAX_ATTACHMENTS} files`);
   const uploaded = [];
   for (const file of files) {
     const meta = await uploadFileWithMeta(file.buffer, 'returns', {
       resource_type: file.mimetype === 'application/pdf' ? 'raw' : 'image',
+      ...mediaContext(req, file),
     });
     uploaded.push({ url: meta.url, publicId: meta.publicId, fileName: file.originalname, mimeType: file.mimetype });
   }
@@ -132,7 +134,7 @@ export const createReturn = asyncHandler(async (req, res) => {
     throw httpError(400, 'Quantity must be a whole number greater than zero');
   }
 
-  const attachments = await uploadAttachments(req.files);
+  const attachments = await uploadAttachments(req.files, req);
 
   const ret = await createReturnRequest({
     orderId, orderItemId, customerId: req.user._id, quantity: qty, reason, customerDescription, attachments,

@@ -3,6 +3,7 @@ import TicketMessage from '../models/TicketMessage.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, paginated, getPagination, httpError } from '../utils/response.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import {
   resolveRequester, isValidCategory, assertRelatedEntitiesOwned,
   generateTicketNumber, assertRequesterTransition, loadOwnedTicket,
@@ -10,7 +11,7 @@ import {
 import { notifyUser, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, TICKET_CATEGORIES_BY_ROLE } from '../constants/enums.js';
 
-const uploadAttachments = async (files = []) => {
+const uploadAttachments = async (files = [], req = null) => {
   if (!files.length) return [];
   if (files.length > TICKET_MAX_ATTACHMENTS) {
     throw httpError(400, `You can attach at most ${TICKET_MAX_ATTACHMENTS} files`);
@@ -19,6 +20,7 @@ const uploadAttachments = async (files = []) => {
   for (const file of files) {
     const meta = await uploadFileWithMeta(file.buffer, 'support-tickets', {
       resource_type: file.mimetype === 'application/pdf' ? 'raw' : 'image',
+      ...mediaContext(req, file),
     });
     uploaded.push({
       url: meta.url,
@@ -77,7 +79,7 @@ export const createTicket = asyncHandler(async (req, res) => {
     { relatedOrder, relatedProduct, relatedDelivery }
   );
 
-  const attachments = await uploadAttachments(req.files);
+  const attachments = await uploadAttachments(req.files, req);
   const ticketNumber = await generateTicketNumber();
 
   const ticket = await Ticket.create({
@@ -176,7 +178,7 @@ export const addRequesterMessage = asyncHandler(async (req, res) => {
   if (!message || !message.trim()) throw httpError(400, 'Message is required');
 
   const ticket = await loadOwnedTicket(req.params.id, req.user._id);
-  const attachments = await uploadAttachments(req.files);
+  const attachments = await uploadAttachments(req.files, req);
 
   const senderName = req.user.name || ticket.userName;
   const entry = await TicketMessage.create({

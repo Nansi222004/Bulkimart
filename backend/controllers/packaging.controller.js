@@ -7,6 +7,7 @@ import Seller from '../models/Seller.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError, paginated, getPagination } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { resolvePackagingItems, pricePackage, BULK_ORDER_MIN_TOTAL_ITEMS } from '../services/packaging.service.js';
 import { notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { PAYMENT_STATUS } from '../constants/enums.js';
@@ -59,7 +60,7 @@ export const createPackagingMaterial = asyncHandler(async (req, res) => {
   if (!Number.isFinite(price) || price < 0) throw httpError(400, 'A valid, non-negative unit price is required');
 
   let image;
-  if (req.file) image = await uploadToCloudinary(req.file.buffer, 'packaging-materials');
+  if (req.file) image = await uploadToCloudinary(req.file.buffer, 'packaging-materials', mediaContext(req, req.file));
 
   const material = await PackagingMaterial.create({
     name: String(name).trim(),
@@ -99,7 +100,7 @@ export const updatePackagingMaterial = asyncHandler(async (req, res) => {
     if (!Number.isFinite(price) || price < 0) throw httpError(400, 'A valid, non-negative unit price is required');
     material.unitPrice = price;
   }
-  if (req.file) material.image = await uploadToCloudinary(req.file.buffer, 'packaging-materials');
+  if (req.file) material.image = await uploadToCloudinary(req.file.buffer, 'packaging-materials', mediaContext(req, req.file));
 
   material.updatedBy = req.user._id;
   await material.save();
@@ -196,7 +197,7 @@ export const createPackagingPackage = asyncHandler(async (req, res) => {
   const cleanItems = await validatePackageItems(parsedItems);
 
   let image;
-  if (req.file) image = await uploadToCloudinary(req.file.buffer, 'packaging-packages');
+  if (req.file) image = await uploadToCloudinary(req.file.buffer, 'packaging-packages', mediaContext(req, req.file));
 
   const pkg = await PackagingPackage.create({
     name: String(name).trim(),
@@ -229,7 +230,7 @@ export const updatePackagingPackage = asyncHandler(async (req, res) => {
     const parsedItems = typeof items === 'string' ? JSON.parse(items) : items;
     pkg.items = await validatePackageItems(parsedItems);
   }
-  if (req.file) pkg.image = await uploadToCloudinary(req.file.buffer, 'packaging-packages');
+  if (req.file) pkg.image = await uploadToCloudinary(req.file.buffer, 'packaging-packages', mediaContext(req, req.file));
 
   pkg.updatedBy = req.user._id;
   await pkg.save();

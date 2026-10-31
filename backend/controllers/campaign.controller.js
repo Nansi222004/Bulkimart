@@ -4,6 +4,7 @@ import Category from '../models/Category.js';
 import Product from '../models/Product.js';
 import Banner from '../models/Banner.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError } from '../utils/response.js';
 import {
@@ -196,7 +197,7 @@ export const createCampaign = asyncHandler(async (req, res) => {
   }
 
   if (req.file) {
-    bannerImage = await uploadToCloudinary(req.file.buffer, 'campaigns');
+    bannerImage = await uploadToCloudinary(req.file.buffer, 'campaigns', mediaContext(req, req.file));
   }
 
   const draft = isDraft === true || isDraft === 'true';
@@ -246,7 +247,7 @@ export const updateCampaign = asyncHandler(async (req, res) => {
   }
 
   if (req.file) {
-    bannerImage = await uploadToCloudinary(req.file.buffer, 'campaigns');
+    bannerImage = await uploadToCloudinary(req.file.buffer, 'campaigns', mediaContext(req, req.file));
   }
 
   // Sellers joined a live deal on its terms, so those cannot change. The edit form sends every

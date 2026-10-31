@@ -4,6 +4,7 @@ import Seller from '../models/Seller.js';
 import { httpError } from '../utils/response.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
+import { mediaContext } from '../services/media.service.js';
 import JSZip from 'jszip';
 import { validateBulkRows } from '../services/bulkProductValidation.service.js';
 import { parseSpreadsheet, generateBulkTemplateExcelJS, BULK_COLUMNS } from '../utils/excelParser.js';
@@ -172,7 +173,7 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
       for (const image of product.images) {
         if (/^https?:\/\//i.test(image)) images.push(image);
         else {
-          const url = await uploadToCloudinary(imageMap.get(image.toLowerCase()), 'products');
+          const url = await uploadToCloudinary(imageMap.get(image.toLowerCase()), 'products', mediaContext(req));
           if (!url) throw Error('Image upload failed for ' + image);
           images.push(url);
         }
