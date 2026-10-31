@@ -1,0 +1,58 @@
+pluginManagement {
+  def reactNativeGradlePlugin = new File(
+    providers.exec {
+      workingDir(rootDir)
+      commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
+    }.standardOutput.asText.get().trim()
+  ).getParentFile().absolutePath
+  includeBuild(reactNativeGradlePlugin)
+  
+  def expoPluginsPath = new File(
+    providers.exec {
+      workingDir(rootDir)
+      commandLine("node", "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
+    }.standardOutput.asText.get().trim(),
+    "../android/expo-gradle-plugin"
+  ).absolutePath
+  includeBuild(expoPluginsPath)
+}
+
+plugins {
+  id("com.facebook.react.settings")
+  id("expo-autolinking-settings")
+}
+
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
+  if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
+    ex.autolinkLibrariesFromCommand()
+  } else {
+    ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
+  }
+}
+expoAutolinking.useExpoModules()
+
+rootProject.name = 'Bulkimart'
+
+expoAutolinking.useExpoVersionCatalog()
+
+include ':app'
+includeBuild(expoAutolinking.reactNativeGradlePlugin)
+
+// Windows path limit: CMake/ninja object paths inside node_modules/<lib>/android/.cxx exceed 260
+// characters for this project location, so each native module builds its C++ under a short root
+// instead (default C:/bmcx on Windows; override with -Pbulkimart.cxxDir=... or set it to "off").
+// Registered here so it runs before each project is configured. Also needs Windows long paths on
+// (see MEMORY.md §15), because object names embed the full source path (~290 chars here).
+def bmCxxRoot = startParameter.projectProperties['bulkimart.cxxDir'] ?: (System.getProperty('os.name').toLowerCase().contains('windows') ? 'C:/bmcx' : null)
+if (bmCxxRoot && bmCxxRoot != 'off') {
+  gradle.beforeProject { p ->
+    ['com.android.library', 'com.android.application'].each { pluginId ->
+      p.plugins.withId(pluginId) {
+        p.android.externalNativeBuild.cmake.buildStagingDirectory = new File(bmCxxRoot, p.name)
+        // CMake 3.31's ninja (1.12) supports long paths once Windows LongPathsEnabled=1;
+        // the SDK default (3.22.1, ninja 1.10) stops at 260 characters.
+        p.android.externalNativeBuild.cmake.version = '3.31.6'
+      }
+    }
+  }
+}

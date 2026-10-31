@@ -27,3 +27,24 @@ tests/
 /forntend/tests/
 
 /backend/backups/finance-cleanup/
+
+# Mobile app: build outputs and release files (never commit)
+*.apk
+*.aab
+*.apks
+*.idsig
+**/android/app/release/
+**/android/app/build/
+output-metadata.json
+
+# Firebase / Google services config (keep out of git; copy in locally before building)
+google-services*.json
+GoogleService-Info*.plist
+
+# Signing keys and their passwords (EAS/CI or a local file only)
+*.keystore
+*.jks
+keystore.properties
+signing.properties
+# The standard React Native debug key is public and needed for debug builds
+!mobile-user/android/app/debug.keystore

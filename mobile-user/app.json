@@ -1,0 +1,118 @@
+{
+  "expo": {
+    "name": "Bulkimart",
+    "slug": "bulkimart-user",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "bulkimart",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.Bulkimart.user",
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-status-bar", { "style": "light" }],
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      "expo-sharing",
+      ["expo-video", { "supportsBackgroundPlayback": false, "supportsPictureInPicture": false }],
+      "expo-image",
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Outfit",
+                "fontDefinitions": [
+                  { "path": "./node_modules/@expo-google-fonts/outfit/400Regular/Outfit_400Regular.ttf", "weight": 400 },
+                  { "path": "./node_modules/@expo-google-fonts/outfit/500Medium/Outfit_500Medium.ttf", "weight": 500 },
+                  { "path": "./node_modules/@expo-google-fonts/outfit/600SemiBold/Outfit_600SemiBold.ttf", "weight": 600 },
+                  { "path": "./node_modules/@expo-google-fonts/outfit/700Bold/Outfit_700Bold.ttf", "weight": 700 },
+                  { "path": "./node_modules/@expo-google-fonts/outfit/800ExtraBold/Outfit_800ExtraBold.ttf", "weight": 800 }
+                ]
+              },
+              {
+                "fontFamily": "Inter",
+                "fontDefinitions": [
+                  { "path": "./node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf", "weight": 400 },
+                  { "path": "./node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf", "weight": 500 },
+                  { "path": "./node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf", "weight": 600 },
+                  { "path": "./node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf", "weight": 700 }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#08B9E8",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Bulkimart uses your location to show products and delivery options near you and to pin your delivery address.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Bulkimart lets you choose photos for image search, reviews, returns and support requests.",
+          "cameraPermission": "Bulkimart uses the camera for image search and to attach photos to reviews, returns and support requests.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Bulkimart uses the microphone for voice search.",
+          "speechRecognitionPermission": "Bulkimart uses speech recognition for voice search."
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "https://api.bulkimart.in"
+    }
+  }
+}
