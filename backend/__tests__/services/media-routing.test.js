@@ -31,6 +31,7 @@ beforeEach(() => {
   delete process.env.MEDIA_PROVIDERS;
   delete process.env.MEDIA_PROVIDER_DEFAULT;
   delete process.env.MEDIA_LEGACY_READ_MAP;
+  delete process.env.MEDIA_KYC_LOCK;
   mediaRows = [];
 });
 
@@ -69,6 +70,30 @@ describe('upload routing', () => {
     process.env.MEDIA_PROVIDERS = '{"shared.ticket":"server"}';
     storeUpload.mockResolvedValue({ media: { _id: RETURN_ID, mimeType: 'application/pdf', sizeBytes: 10, extension: 'pdf' }, reference: `media:${RETURN_ID}` });
     await expect(uploadFileWithMeta(Buffer.from('%PDF'), 'support-tickets', { resource_type: 'raw' })).resolves.toEqual({ url: `media:${RETURN_ID}`, publicId: RETURN_ID, resourceType: 'raw', size: 10, format: 'pdf' });
+  });
+
+  test('a paused (disabled) category refuses uploads without touching Cloudinary or the server', async () => {
+    process.env.MEDIA_PROVIDERS = '{"seller.product":"disabled"}';
+    await expect(uploadToCloudinary(Buffer.from('img'), 'products/s1')).rejects.toMatchObject({ status: 503, code: 'MEDIA_UPLOADS_PAUSED' });
+    expect(storeUpload).not.toHaveBeenCalled();
+    expect(uploadStream).not.toHaveBeenCalled();
+  });
+
+  test('identity/bank categories can never be explicitly routed to Cloudinary', async () => {
+    for (const category of ['seller.kyc', 'seller.bank', 'delivery.kyc', 'delivery.bank']) {
+      process.env.MEDIA_PROVIDERS = JSON.stringify({ [category]: 'cloudinary' });
+      await expect(uploadToCloudinary(Buffer.from('img'), 'seller-kyc/u1')).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/cannot be routed to Cloudinary/) });
+    }
+    expect(uploadStream).not.toHaveBeenCalled();
+  });
+
+  test('with the KYC lock on, a KYC upload that would fall back to Cloudinary is paused instead', async () => {
+    process.env.MEDIA_KYC_LOCK = 'on';
+    await expect(uploadToCloudinary(Buffer.from('img'), 'seller-docs/u1')).rejects.toMatchObject({ code: 'MEDIA_UPLOADS_PAUSED' });
+    await expect(uploadToCloudinary(Buffer.from('img'), 'delivery-bank/u1')).rejects.toMatchObject({ code: 'MEDIA_UPLOADS_PAUSED' });
+    expect(uploadStream).not.toHaveBeenCalled();
+    // Non-sensitive categories are unaffected by the lock.
+    await expect(uploadToCloudinary(Buffer.from('img'), 'products/s1')).resolves.toMatch(/^https:\/\/res\.cloudinary\.com\//);
   });
 
   test('PAN/trade licence and rider bank folders are sensitive', () => {

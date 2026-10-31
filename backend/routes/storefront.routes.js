@@ -8,7 +8,7 @@ import { ok, created, httpError, paginated, getPagination } from '../utils/respo
 import Experience from '../models/StorefrontExperience.js';
 import { marketingPermission, objectId } from '../services/storefrontPolicy.service.js';
 import { adminDTO, saveExperience, transitionExperience, resolveExperience } from '../services/storefront.service.js';
-import { uploadToCloudinary, assertCloudinaryConfigured, safeCloudinaryUploadError } from '../services/cloudinary.service.js';
+import { uploadToCloudinary, assertCloudinaryConfigured, safeCloudinaryUploadError, uploadsPausedError } from '../services/cloudinary.service.js';
 import { PRESETS, lifecycle } from '../shared/storefront.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFile, unlink } from 'node:fs/promises';
@@ -77,7 +77,10 @@ const storeStorefrontMediaOnServer = async (req, res) => {
   }
 };
 
-storefrontAdminRouter.post('/media', (req, res, next) => (storefrontOnServer() ? diskUpload : upload).single('media')(req, res, next), asyncHandler(async (req, res) => {
+storefrontAdminRouter.post('/media', (req, res, next) => {
+  if (providerFor('admin.storefront') === 'disabled') return next(uploadsPausedError());
+  return (storefrontOnServer() ? diskUpload : upload).single('media')(req, res, next);
+}, asyncHandler(async (req, res) => {
   if (storefrontOnServer()) return storeStorefrontMediaOnServer(req, res);
   const file = req.file; if (!file) throw httpError(400, 'Select a media file');
   if (file.mimetype.startsWith('image/')) {

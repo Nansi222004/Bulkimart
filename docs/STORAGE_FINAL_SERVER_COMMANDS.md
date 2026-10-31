@@ -4,7 +4,7 @@ For: the operator of the Hostinger VPS `srv2104110` (Ubuntu 24.04, root, repo `/
 
 Run sections **in order**. Each command lists its purpose, the expected result and whether it **changes production**. Stop at the first unexpected result and send the output back. Nothing here deletes Cloudinary assets, Cloudinary configuration or existing records.
 
-> **Prerequisite (development machine, needs owner approval):** the code is not yet in Git. Commit and push branch `storage/server-media` using [STORAGE_DEPLOYMENT_RUNBOOK.md](STORAGE_DEPLOYMENT_RUNBOOK.md) §0. Until `git ls-remote` in C1 shows the branch, stop after section B.
+> **Prerequisite:** branch `storage/server-media` is on GitHub (first commit `fd97f15`). The production-safety review fixes are a **second, not-yet-committed change** on the same branch; C1 must show the commit that contains `backend/__tests__/api/media-migration.http.test.js` (check with C2's file list) before you continue past section B.
 
 ---
 
@@ -98,9 +98,9 @@ No Nginx edit or reload is needed for this migration.
 ## E. Test execution — no production change (tests use temp dirs and an in-memory MongoDB)
 
 ```bash
-cd /root/bulkimart/backend && npm test -- __tests__/services/media-storage.test.js __tests__/services/media-routing.test.js __tests__/services/cloudinary-upload.test.js __tests__/api/media-delivery.http.test.js 2>&1 | tail -60
+cd /root/bulkimart/backend && npm test -- __tests__/services/media-storage.test.js __tests__/services/media-routing.test.js __tests__/services/cloudinary-upload.test.js __tests__/api/media-delivery.http.test.js __tests__/api/media-migration.http.test.js 2>&1 | tail -60
 ```
-Purpose: the storage test suites (validation, MIME/signature checks, re-encoding, SVG, video, signed URLs and expiry, ownership, cross-user access, KYC audit, legacy URL mapping, failure behaviour, disk-full, migration idempotency). The HTTP suite downloads a MongoDB test binary on first run (needs internet, ~1–2 min). Expected: `Tests: N passed, N total`, 0 failed. **Any failure: stop and send the output.**
+Purpose: the storage test suites (validation, MIME/signature checks, re-encoding, SVG, video, signed URLs and expiry, ownership, cross-user access, KYC audit, symlink rejection, legacy URL mapping, failure behaviour, disk-full, paused categories and the KYC lock, index migration, batch pagination over 250 assets, failed-asset retry, interrupted-copy recovery, quarantine, verification of all records, restored-backup verification). The HTTP suite downloads a MongoDB test binary on first run (needs internet, ~1–2 min). Expected: `Tests: N passed, N total`, 0 failed. **Any failure: stop and send the output.**
 
 ```bash
 cd /root/bulkimart/backend && npm test 2>&1 | tail -40
@@ -122,7 +122,19 @@ for line in MEDIA_ROOT=/var/lib/bulkimart/media MEDIA_PUBLIC_BASE_URL=https://ap
 done
 grep -oE '^(MEDIA_[A-Z_]+|EBOOK_STORAGE_DIR|SERVICE_STORAGE_DIR)=' .env | sort | uniq -c
 ```
-Purpose: add the exact variables the code reads (`backend/config/storage.js`, e-book and service stores); the secret is generated straight into the file and never printed; existing values are not overwritten. **Every category stays on Cloudinary** (`MEDIA_PROVIDER_DEFAULT=cloudinary`, no `MEDIA_PROVIDERS`). Expected: each of the 7 names listed exactly once (`1 MEDIA_ROOT=` …).
+Purpose: add the exact variables the code reads (`backend/config/storage.js`, e-book and service stores); the secret is generated straight into the file and never printed; existing values are not overwritten. **Every category stays on Cloudinary** (`MEDIA_PROVIDER_DEFAULT=cloudinary`, no `MEDIA_PROVIDERS`). Expected: each of the 7 names listed exactly once (`1 MEDIA_ROOT=` …). Once `MEDIA_ROOT` is set the API refuses to start unless `EBOOK_STORAGE_DIR` and `SERVICE_STORAGE_DIR` are set outside the repository, so e-books and service documents can never fall back into `backend/private-data/`.
+
+Media indexes. The `media` and `mediaaccessaudits` models do **not** build indexes on startup; they are created explicitly here. The command only **adds missing** indexes on these two new collections — it never drops or rebuilds an index (no `syncIndexes`).
+
+```bash
+cd /root/bulkimart/backend && DB=$(node --input-type=module -e "await import('/root/bulkimart/backend/config/environment.js'); const { default: m } = await import('mongoose'); await m.connect(process.env.MONGO_URI); console.log(m.connection.name); await m.disconnect();") && echo "database: $DB" && node scripts/media/migrate.mjs indexes --database="$DB"
+```
+Dry-run, read-only. Expected: `database: …`, then for `media` and `mediaaccessaudits` the declared indexes and `missing` (all of them on first run), `created: []`.
+
+```bash
+node scripts/media/migrate.mjs indexes --database="$DB" --apply
+```
+**Production database change (additive):** creates the missing indexes on the two empty collections. Indexes: `media` — `storageKey` (unique, partial), `legacy.url` (unique, partial; required before any copy), `category`, `uploadStatus`, `{ownerId, category, sha256}`, `{uploadStatus, updatedAt}`, `{migrationStatus, _id}`; `mediaaccessaudits` — `mediaId`, `viewerId`. Expected: `created` lists them; running it again shows `missing: []`. `migrate.mjs copy --apply` refuses to run until the `legacy.url` index exists.
 
 ## G. PM2 restart and health verification — **production restart (brief API reconnect)**
 
@@ -161,8 +173,10 @@ cd /root/bulkimart/backend && set_media_providers() { cp .env /root/bulkimart-en
 
 **Wave 1 — identity & bank documents**
 ```bash
+grep -q '^MEDIA_KYC_LOCK=' .env || printf 'MEDIA_KYC_LOCK=on\n' >> .env
 set_media_providers '{"seller.kyc":"server","seller.bank":"server","delivery.kyc":"server","delivery.bank":"server"}'
 ```
+`MEDIA_KYC_LOCK=on` is permanent from this point: identity and bank documents can never go to Cloudinary again — an explicit `"cloudinary"` is rejected at startup and an omitted key means "paused". Never remove this line.
 Verify: seller onboarding steps 2–4 (web and Android) and rider steps 1–3 (web) upload; admin seller and rider dossiers open the new documents; the same document link opened in a private browser window after 15 min returns 403. Then:
 ```bash
 ls -R /var/lib/bulkimart/media/private | tail -5 && node scripts/media/migrate.mjs health --database="$DB"
@@ -206,20 +220,30 @@ Expected: no `[MEDIA]` errors; disk use roughly unchanged.
 ```bash
 cd /root/bulkimart/backend && node scripts/media/migrate.mjs inventory --database="$DB" --out=/var/lib/bulkimart/reports/inventory-$(date +%Y%m%d-%H%M).json
 ```
-Purpose: list every Cloudinary URL in the database (read-only on the DB). Expected: JSON with `uniqueAssets`, `references`, `byCategory`. **Send this output** — it sizes the copy (compare total with `df -h /`).
+Purpose: list every Cloudinary URL in the database (read-only on the DB). The manifest contains asset URLs (including KYC) and is written 0600 into the 0700 reports folder — do not copy it off the server unencrypted. Expected output (no URLs printed): `uniqueAssets` (distinct files) vs `references` (places they are used), `duplicateUrls`, `unclassified` (sample of hashed ids and field names), `otherCloudinaryAccounts`, `localFallbackUploadReferences`, and `byCategory` with `verified / quarantined / pending / failed / blocked`. **Send this output** — it sizes the copy (compare with `df -h /`). Unclassified and other-account assets are not copied; each needs a decision.
 
-For each category in this order — `seller.kyc seller.bank delivery.kyc delivery.bank customer.landmark customer.return shared.ticket seller.product customer.review seller.branding customer.avatar admin.banner admin.category admin.campaign admin.broadcast admin.packaging admin.storefront` — run (example shown for `seller.kyc`; repeat with each name):
-```bash
-node scripts/media/migrate.mjs copy --database="$DB" --category=seller.kyc --limit=20
-node scripts/media/migrate.mjs copy --database="$DB" --category=seller.kyc --limit=20 --apply
-node scripts/media/migrate.mjs copy --database="$DB" --category=seller.kyc --limit=200 --apply
-```
-Purpose: dry-run count, a small first batch, then larger batches until `"pendingAfter":0`. Expected: `verified` counts rise; `failed` items listed with a reason (they keep their Cloudinary URL; re-running retries them); `quarantined` items are kept but never served.
+Copy one category at a time, in this order: `seller.kyc seller.bank delivery.kyc delivery.bank customer.landmark customer.return shared.ticket seller.product customer.review seller.branding customer.avatar admin.banner admin.category admin.campaign admin.broadcast admin.packaging admin.storefront`. Set the category once, then:
 
 ```bash
-node scripts/media/migrate.mjs verify --database="$DB" --limit=5000
+CAT=seller.kyc
+node scripts/media/migrate.mjs copy --database="$DB" --category=$CAT --limit=20
 ```
-Expected: `"failures":[]`.
+Dry-run: `would-copy` / `would-retry` counts and `pendingAfter`; nothing written.
+
+```bash
+node scripts/media/migrate.mjs copy --database="$DB" --category=$CAT --limit=20 --apply
+```
+First small batch — **adds files and `media` records**. Expected: `verified` ≈ 20, `failures` listed by hashed id with a URL-free reason, `nextAfter` (cursor) and `pendingAfter`.
+
+```bash
+AFTER=""; while :; do OUT=$(node scripts/media/migrate.mjs copy --database="$DB" --category=$CAT --limit=200 --apply ${AFTER:+--after=$AFTER}); echo "$OUT"; AFTER=$(printf '%s' "$OUT" | jq -r '.nextAfter // empty'); [ -z "$AFTER" ] && break; done
+```
+Walks the whole category in batches of 200 using the cursor, so failed items never block later ones (`jq` is installed on the VPS). Expected: last line has `"nextAfter":null`. Re-run the same loop to retry failures: each asset is attempted at most 3 times, `after.blocked` counts assets that reached the limit, and adding `--retry-failed` to the loop command forces one more attempt. Failed assets keep their Cloudinary URL and stay `pending`; verified ones are skipped on every re-run.
+
+```bash
+node scripts/media/migrate.mjs verify --database="$DB"
+```
+Re-hashes **every** migrated file (all pages) and checks size, SHA-256 and content type. Expected: `"failureCount":0` and exit code 0. If failures are listed, run it again with `--apply` (marks them `failed`, so they stop being served and the next copy loop replaces them), then repeat the copy loop and `verify`.
 
 Turn on read-time mapping (historical orders/returns display the server copy; records unchanged) — **production change**:
 ```bash
@@ -250,53 +274,85 @@ F=$(find /var/lib/bulkimart/media/private -type f -name '*.*' | head -1); [ -n "
 ```
 Purpose: a real private file cannot be fetched without a signed link. Expected: `404`.
 
+```bash
+cd /root/bulkimart/backend && node scripts/media/migrate.mjs verify --database="$DB" --scope=all
+```
+Purpose: integrity of every stored file (uploads and migrated copies). Expected: `"failureCount":0`.
+
 Manual matrix (record in [STORAGE_WORKFLOW_CHECKLIST.md](STORAGE_WORKFLOW_CHECKLIST.md) per app): customer web, customer Android, seller web, seller Android, delivery portal, admin — upload and display for each workflow in its wave; old orders and returns still show images; an unpaid customer cannot download an e-book.
 
 ## K. Rollback
 
-**K1 — API won't start after F/G:** restore the `.env` backup and restart (**production change**):
+Rules: never route identity/bank documents back to Cloudinary (the code refuses it); never delete server-stored media or `media` / `mediamigrationlogs` / `mediaaccessaudits` records; keep the storage branch running so server files stay readable. Every K step keeps `MEDIA_ROOT`, `MEDIA_SIGNING_SECRET`, `MEDIA_PUBLIC_BASE_URL`, `EBOOK_STORAGE_DIR` and `SERVICE_STORAGE_DIR` in place.
+
+**K1 — API won't start after a `.env` change** (**production change**). Show only the failing setting name, fix it, restart:
 ```bash
-cd /root/bulkimart/backend && cp "$(ls -t /root/bulkimart-env-backup-* | head -1)" .env && pm2 restart bulkimart-api --update-env && sleep 5 && pm2 ls
+pm2 logs bulkimart-api --lines 40 --nostream 2>&1 | grep -oE "(MEDIA_[A-Z_]+|EBOOK_STORAGE_DIR|SERVICE_STORAGE_DIR)[^.]*\." | sort -u
+```
+If the cause is unclear, restore the most recent `.env` backup **taken after section F** (it still contains the storage settings) and restart:
+```bash
+cd /root/bulkimart/backend && ls -t /root/bulkimart-env-backup-* | head -3
+cp "$(ls -t /root/bulkimart-env-backup-* | head -1)" .env && pm2 restart bulkimart-api --update-env && sleep 5 && pm2 ls
 ```
 
-**K2 — a wave misbehaves:** re-run the previous wave's `set_media_providers` command from H (or `set_media_providers '{}'` for none). New uploads go back to Cloudinary; files already on the server stay readable. For wave 1 categories this sends new KYC documents to public Cloudinary URLs again — owner approval required.
+**K2 — pause uploads for one category** (no data exposure; existing files stay readable). Example: pause product images while keeping everything else as in wave 5:
+```bash
+set_media_providers '{"seller.kyc":"server","seller.bank":"server","delivery.kyc":"server","delivery.bank":"server","customer.landmark":"server","customer.return":"server","shared.ticket":"server","seller.product":"disabled","customer.review":"server","seller.branding":"server","customer.avatar":"server","admin.banner":"server","admin.category":"server","admin.campaign":"server","admin.broadcast":"server","admin.packaging":"server","admin.storefront":"server"}'
+```
+Uploads of that type return "temporarily paused" (503). To pause identity/bank uploads use `"disabled"` for those four keys: `"cloudinary"` is rejected at startup, and with `MEDIA_KYC_LOCK=on` an omitted identity/bank key is treated as paused too.
 
-**K3 — turn off read-time mapping:**
+**K3 — send a non-sensitive category's new uploads back to Cloudinary:** set it to `"cloudinary"` the same way (allowed for every category except the four identity/bank ones). Files already stored on the server stay readable.
+
+**K4 — turn off read-time mapping** (historical items show their Cloudinary URLs again):
 ```bash
 cd /root/bulkimart/backend && sed -i 's/^MEDIA_LEGACY_READ_MAP=.*/MEDIA_LEGACY_READ_MAP=off/' .env && pm2 restart bulkimart-api --update-env
 ```
 
-**K4 — undo a cutover:**
+**K5 — undo a cutover** (restores original values where unchanged; log entries are kept):
 ```bash
 node scripts/media/migrate.mjs rollback --database="$DB"
 node scripts/media/migrate.mjs rollback --database="$DB" --apply
 ```
 
-**K5 — return to the previous code** (only if the branch itself is faulty; server-stored files then stop being served until you return):
+**K6 — the storage code itself is faulty.** Do **not** check out `main` once anything is stored on the server: `main` cannot read `media:` references or `/media/` URLs, so KYC documents, landmark photos, return and ticket files would become unreadable. Instead pause the affected categories (K2), then deploy a fix on `storage/server-media`, or return to an earlier commit of that same branch:
 ```bash
-cd /root/bulkimart && git checkout main && pm2 restart bulkimart-api --update-env
+cd /root/bulkimart && git log --oneline -5 origin/storage/server-media
 ```
+Pick the previous good commit from that list and check it out by its hash, then `pm2 restart bulkimart-api --update-env`. Returning to `main` is only safe before section H wave 1 has stored any file.
 
 ## L. Client-launch backup configuration — mandatory before launch
+
+Full procedure, reasoning and restore steps: [STORAGE_BACKUP_RESTORE_RUNBOOK.md](STORAGE_BACKUP_RESTORE_RUNBOOK.md). The commands, in order:
 
 ```bash
 rclone config
 ```
-Purpose: interactive setup. Create a remote named exactly `bulkimart-backup` pointing at storage **outside this VPS** (another server over SFTP, or a storage account), then a `crypt` remote named exactly `bulkimart-backup-crypt` wrapping `bulkimart-backup:bulkimart`. Store the crypt passwords somewhere other than this server.
+Interactive; **creates rclone configuration only**. Create remote `bulkimart-backup` pointing at storage **outside this VPS**, then a `crypt` remote named `bulkimart-backup-crypt` wrapping `bulkimart-backup:bulkimart`. Store the remote credentials and the crypt password and salt in the owner's password manager **off this server** — without them the backup cannot be decrypted after a server loss.
 
 ```bash
-rclone sync /var/lib/bulkimart bulkimart-backup-crypt:current --exclude "media/temp/**" --backup-dir bulkimart-backup-crypt:deleted/$(date +%Y%m%d) --log-level INFO && rclone size bulkimart-backup-crypt:current
+cd /var/lib/bulkimart && D=$(date +%Y%m%d-%H%M) && find media/public media/private ebooks services -type f -print0 | sort -z | xargs -0 -r sha256sum > reports/manifest-$D.sha256 && wc -l reports/manifest-$D.sha256
 ```
-Purpose: first full encrypted backup. Expected: size close to `du -sh /var/lib/bulkimart`.
+SHA-256 manifest of every file that is backed up (read-only on the files). Expected: one line per file.
 
 ```bash
-printf '%s\n' '30 2 * * * root rclone sync /var/lib/bulkimart bulkimart-backup-crypt:current --exclude "media/temp/**" --backup-dir bulkimart-backup-crypt:deleted/$(date +\%Y\%m\%d) --log-file /var/log/bulkimart-media-backup.log --log-level INFO' > /etc/cron.d/bulkimart-media-backup && chmod 644 /etc/cron.d/bulkimart-media-backup && cat /etc/cron.d/bulkimart-media-backup
+rclone copy /var/lib/bulkimart bulkimart-backup-crypt:current --exclude "media/temp/**" --checksum --log-level INFO --stats-one-line && rclone size bulkimart-backup-crypt:current
 ```
-Purpose: nightly backup at 02:30. Expected: the cron line printed.
+First backup. Direction: **VPS (source) → remote (destination)**. `copy` only adds or updates files on the remote and **never deletes anything there**. Expected size close to `du -sh --exclude=media/temp /var/lib/bulkimart`.
 
+MongoDB metadata (media, audit and migration records plus all business collections): runbook §3.
+
+Scheduled nightly file backup (**creates a cron job**):
 ```bash
-mkdir -p /root/restore-test && rclone copy bulkimart-backup-crypt:current/media/private /root/restore-test/private && diff -rq /var/lib/bulkimart/media/private /root/restore-test/private && echo "RESTORE TEST PASSED" ; rm -rf /root/restore-test
+printf '%s\n' '30 2 * * * root rclone copy /var/lib/bulkimart bulkimart-backup-crypt:current --exclude "media/temp/**" --backup-dir bulkimart-backup-crypt:versions/$(date +\%Y\%m\%d) --log-file /var/log/bulkimart-media-backup.log --log-level INFO && date -u +\%FT\%TZ > /var/lib/bulkimart/reports/last-backup-ok' > /etc/cron.d/bulkimart-media-backup && chmod 644 /etc/cron.d/bulkimart-media-backup && cat /etc/cron.d/bulkimart-media-backup
 ```
-Purpose: non-destructive restore test into a scratch folder. Expected: `RESTORE TEST PASSED`. Record the date in [STORAGE_BACKUP_RESTORE_RUNBOOK.md](STORAGE_BACKUP_RESTORE_RUNBOOK.md).
+`--backup-dir` keeps any file that would be overwritten under `versions/<date>/` (version retention). `copy` never removes files from the remote, so files deleted on the VPS stay in the backup until the retention step in the runbook prunes them. `rclone sync` is deliberately **not** used: it deletes remote files that no longer exist on the VPS.
 
-Also enable automatic VPS backups/snapshots in the Hostinger panel, and confirm the hosted MongoDB backup schedule.
+Non-destructive restore test (scratch folder only; never over `/var/lib/bulkimart`):
+```bash
+rm -rf /root/restore-test && mkdir -p /root/restore-test && rclone copy bulkimart-backup-crypt:current /root/restore-test --checksum && cd /root/restore-test && sha256sum --quiet -c "$(ls -t /var/lib/bulkimart/reports/manifest-*.sha256 | head -1)" && echo "MANIFEST CHECK PASSED"
+cd /root/bulkimart/backend && node scripts/media/migrate.mjs verify --database="$DB" --scope=all --root=/root/restore-test/media && echo "DATABASE CHECK PASSED"
+rm -rf /root/restore-test
+```
+Expected: `MANIFEST CHECK PASSED` (every restored file matches its SHA-256) and `DATABASE CHECK PASSED` (every `media` record's file was restored with the right size, SHA-256 and type). Record the date in the backup runbook's log. Backups are **not** to be described as configured until both pass.
+
+Also enable automatic VPS backups/snapshots in the Hostinger panel, and confirm the hosted MongoDB's backup schedule and retention.

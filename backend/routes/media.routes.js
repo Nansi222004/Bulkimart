@@ -44,6 +44,8 @@ const dispositionFor = (media) => {
 };
 
 const sendPrivate = async (req, res, next, media, viewer) => {
+  // Refuses symlinks and anything whose real path leaves MEDIA_ROOT.
+  await storage.openKey(media.storageKey);
   if (media.visibility === 'private-kyc') {
     await MediaAccessAudit.create({
       mediaId: media._id, category: media.category, viewerId: viewer.id, viewerType: viewer.type,
@@ -74,12 +76,15 @@ mediaRouter.get('/s/:id', asyncHandler(async (req, res, next) => {
   await sendPrivate(req, res, next, media, { id: v, type: viewerType });
 }));
 
-mediaRouter.get('/:dir/:yyyy/:mm/:file', (req, res, next) => {
+mediaRouter.get('/:dir/:yyyy/:mm/:file', asyncHandler(async (req, res, next) => {
   const { dir, yyyy, mm, file } = req.params;
-  if (!PUBLIC_DIRECTORIES.has(dir) || !/^\d{4}$/.test(yyyy) || !/^\d{2}$/.test(mm) || !FILE_PATTERN.test(file)) return next(notFound());
-  if (!getStorageConfig().root) return next(notFound());
-  sendStored(res, next, `public/${dir}/${yyyy}/${mm}/${file}`, {}, { maxAge: '365d', immutable: true });
-});
+  if (!PUBLIC_DIRECTORIES.has(dir) || !/^\d{4}$/.test(yyyy) || !/^\d{2}$/.test(mm) || !FILE_PATTERN.test(file)) throw notFound();
+  if (!getStorageConfig().root) throw notFound();
+  const key = `public/${dir}/${yyyy}/${mm}/${file}`;
+  // Refuses symlinks and anything whose real path leaves MEDIA_ROOT.
+  await storage.openKey(key);
+  sendStored(res, next, key, {}, { maxAge: '365d', immutable: true });
+}));
 
 // Anything else under /media is a 404, never the SPA shell.
 mediaRouter.use((_req, _res, next) => next(notFound()));

@@ -27,7 +27,7 @@ const { mediaRouter, mediaApiRouter, mediaAdminRouter } = await import('../../ro
 const { errorHandler } = await import('../../middlewares/error.middleware.js');
 const { storeUpload } = await import('../../services/media.service.js');
 const { signedUrl, resolveResponseText, clearMediaUrlCache } = await import('../../services/mediaUrl.service.js');
-const { copyLegacyAsset, verifyMigratedAssets } = await import('../../services/mediaMigration.service.js');
+const { copyLegacyAsset, verifyMediaFiles, ensureMediaIndexes } = await import('../../services/mediaMigration.service.js');
 const { default: Media } = await import('../../models/Media.js');
 const { default: MediaAccessAudit } = await import('../../models/MediaAccessAudit.js');
 
@@ -44,7 +44,7 @@ const pathOf = (url) => { const u = new URL(url); return u.pathname + u.search; 
 beforeAll(async () => {
   memoryServer = await MongoMemoryServer.create();
   await mongoose.connect(memoryServer.getUri('media-test'), { autoIndex: true });
-  await Media.init();
+  await ensureMediaIndexes({ apply: true });
   root = await mkdtemp(path.join(os.tmpdir(), 'bulkimart-media-http-'));
   Object.assign(process.env, {
     MEDIA_ROOT: root, MEDIA_SIGNING_SECRET: 's'.repeat(40), MEDIA_PUBLIC_BASE_URL: 'https://api.example.test', MEDIA_MIN_FREE_BYTES: '0',
@@ -134,6 +134,22 @@ describe('public media', () => {
   });
 });
 
+describe('symlink attacks', () => {
+  test('a symlink planted in a public directory pointing at a private document is not served', async () => {
+    const media = await storeKyc();
+    const { storageKey } = await Media.findById(media._id).select('+storageKey').lean();
+    const link = path.join(root, 'public', 'products', '2026', '11', '11111111-1111-4111-8111-111111111111.webp');
+    const { mkdir: mk, symlink } = await import('node:fs/promises');
+    await mk(path.dirname(link), { recursive: true });
+    try { await symlink(path.join(root, storageKey), link); } catch (error) {
+      if (['EPERM', 'EACCES'].includes(error.code)) return; // symlinks need extra privileges on Windows
+      throw error;
+    }
+    const res = await request(app).get('/media/products/2026/11/11111111-1111-4111-8111-111111111111.webp');
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('upload failure safety', () => {
   test('a rejected upload leaves no record and no file', async () => {
     const before = await Media.countDocuments();
@@ -160,7 +176,7 @@ describe('Cloudinary asset migration', () => {
     const rows = await Media.find({ 'legacy.url': legacyUrl }).lean();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ sha256: createHash('sha256').update(source).digest('hex'), sizeBytes: source.length, migrationStatus: 'verified', legacy: { publicId: 'nhcone/products/abc', resourceType: 'image' } });
-    await expect(verifyMigratedAssets()).resolves.toMatchObject({ failures: [] });
+    await expect(verifyMediaFiles()).resolves.toMatchObject({ failures: [] });
   });
 
   test('historical references resolve to the copy at read time only when the map is on', async () => {
@@ -172,11 +188,16 @@ describe('Cloudinary asset migration', () => {
     expect((await request(app).get(new URL(resolved.items[0].image).pathname)).status).toBe(200);
   });
 
-  test('a checksum mismatch with the source ETag is rejected and registers nothing', async () => {
+  test('a checksum mismatch with the source ETag fails safely: no file, record stays failed and is never served', async () => {
     serve('"00000000000000000000000000000000"');
     const url = 'https://res.cloudinary.com/demo/image/upload/v1/nhcone/products/mismatch.jpg';
     await expect(copyLegacyAsset({ url, category: 'seller.product' }, { apply: true })).rejects.toThrow(/ETag/);
-    expect(await Media.countDocuments({ 'legacy.url': url })).toBe(0);
+    const record = await Media.findOne({ 'legacy.url': url }).select('+storageKey').lean();
+    expect(record).toMatchObject({ migrationStatus: 'failed', uploadStatus: 'pending' });
+    expect(record.storageKey).toBeUndefined();
+    process.env.MEDIA_LEGACY_READ_MAP = 'on';
+    const text = JSON.stringify({ image: url });
+    await expect(resolveResponseText(text, {})).resolves.toBe(text);
   });
 
   test('refuses URLs outside the configured Cloudinary account (no arbitrary fetches)', async () => {

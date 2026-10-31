@@ -2,6 +2,39 @@
 
 Running log of what has actually been done. Statuses follow the checklist vocabulary; nothing is marked Tested/Verified without recorded evidence.
 
+## 2026-11-01 — Session 5: production-safety review and fixes (branch `storage/server-media`, uncommitted on top of `fd97f15`)
+
+Nothing deployed, merged, migrated or restarted; production `.env`, PM2, MongoDB, Cloudinary and `deploy.sh` untouched. **No tests executed** — see "Tests" below.
+
+### Issues found and fixed
+
+| # | Severity | Issue (in `fd97f15`) | Fix |
+|---|---|---|---|
+| 1 | High | `copy` always took the first N pending assets; a failing asset stayed first forever, so every batch re-processed the same items and never progressed | Stable order by SHA-256 of the URL, `--after` cursor with `nextAfter`, attempt counter with `--max-attempts` (default 3) and `--retry-failed` |
+| 2 | High | Crash between writing the file and creating its record left an orphan file and the retry wrote a second copy | One `media` record is **reserved per legacy URL before downloading** (`copying`); its key is recorded before writing; a retry removes the stale file and reuses the record |
+| 3 | High | Failures printed the full asset URL (including KYC documents) to the console | Assets identified by a 12-char hash; error text scrubbed of URLs; manifest with URLs written 0600 only |
+| 4 | High | `copy --apply` ran `Media.syncIndexes()` (drops undeclared indexes) | Removed. Models use `autoIndex: false`; new `migrate.mjs indexes [--apply]` only adds missing indexes; `copy --apply` refuses without the unique `legacy.url` index |
+| 5 | Medium | `verify` checked only the first 1,000 records and no content type | Pages through **all** records; checks existence, size, SHA-256 and sniffed type; `--scope=all` for uploads too; `--root` verifies a restored backup read-only; `--apply` marks broken copies `failed` so they stop being served and get re-copied |
+| 6 | Medium | `pendingAfter` was arithmetic on the batch, wrong after failures | Recounted from the database after each batch (`after: {verified, quarantined, pending, failed, blocked}`) |
+| 7 | Medium | Inventory did not report duplicates, unclassified assets, other Cloudinary accounts or legacy `/uploads/` references | All reported, with hashed ids and field names only |
+| 8 | High | Rollback docs told operators to switch KYC back to Cloudinary (with approval) and to check out `main`, which cannot read server media | New `disabled` provider (pause uploads, keep reading); KYC categories rejected if routed to Cloudinary; `MEDIA_KYC_LOCK=on` (set in wave 1) turns any Cloudinary fallback for KYC into "paused"; rollback rewritten — no `main` after wave 1 |
+| 9 | Medium | Symlinked **parent directories** were not detected (only a symlinked file) | `openKey` compares real paths of root and target; used by public and private delivery |
+| 10 | Medium | With `NODE_ENV=development` (as on the VPS) request logging printed signed private links | `morgan` skips `/media/` paths |
+| 11 | Medium | E-book and service stores fall back to `backend/private-data` (inside the repo) when their dirs are unset and `NODE_ENV` ≠ production | Startup refuses once `MEDIA_ROOT` is set unless `EBOOK_STORAGE_DIR` and `SERVICE_STORAGE_DIR` are absolute and outside the repo |
+| 12 | Medium | Backup runbook used `rclone sync` without explaining deletion, had no metadata backup, no full restore check, keys could live only on the VPS | Rewritten: `rclone copy` only (never deletes on the remote) with `--backup-dir` versions, SHA-256 manifests, `mongodump` of media collections, keys off-server, monitoring, full non-destructive restore test with manifest + database verification |
+| 13 | Low | `MEDIA_PROVIDERS` accepted unknown category names silently | Unknown categories rejected at startup |
+
+Security re-checks with no change needed: private files only under `private/` and served only via signed or owner/admin routes; HMAC signatures with expiry, viewer and ID bound (timing-safe compare); authorization uses the authenticated `req.user`; no upload path writes into the repository; files 0640/0600 and directories 0750/0700 owned by `root`, the PM2 user; no other code logs URLs or document data.
+
+### Files changed in this session
+`backend/models/Media.js`, `backend/models/MediaAccessAudit.js`, `backend/services/mediaMigration.service.js`, `backend/scripts/media/migrate.mjs`, `backend/services/mediaStorage.service.js`, `backend/config/storage.js`, `backend/services/cloudinary.service.js`, `backend/routes/storefront.routes.js`, `backend/routes/media.routes.js`, `backend/index.js`; tests `backend/__tests__/api/media-migration.http.test.js` (new), `media-delivery.http.test.js`, `media-routing.test.js`, `media-storage.test.js`; docs `STORAGE_FINAL_SERVER_COMMANDS.md`, `STORAGE_ROLLBACK_RUNBOOK.md`, `STORAGE_BACKUP_RESTORE_RUNBOOK.md`, `STORAGE_DEPLOYMENT_RUNBOOK.md`, `STORAGE_IMPLEMENTATION_REPORT.md`, `STORAGE_PRODUCTION_SIGNOFF.md`, `CLOUDINARY_MIGRATION_RESULTS.md`.
+
+### Tests
+**Not executed.** The reinstalled machine has a fresh Node.js (v24.19.0), but `backend/node_modules` dates from 2026-10-15/19 — before the reinstall and within the PolinRider infection window. Running Jest would execute that code. A clean dependency install (or running on another trusted machine) is needed first; see the session's final report for options. New/updated coverage ready to run: index migration (dry-run, add-only, extra index preserved), duplicate URLs, `/uploads/` references, 250-asset cursor pagination with pending counts, idempotent re-run, failed-asset retry on the same record, attempt limit, interrupted-copy recovery, quarantine never served, paginated verification + corruption detection + repair, restored-backup verification, symlink attack, paused categories, KYC routing guard and lock, startup directory requirement.
+
+### Status
+Not production-ready: tests not run, server steps not performed, backups not configured.
+
 ## 2026-11-01 — Session 4: pre-deployment verification (server execution not possible from this session)
 
 **Environment:** this session again ran on the Windows development machine (`khushi`), not the VPS. Nothing was executed on the server; no code was run locally.

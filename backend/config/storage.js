@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isSensitiveCategory, MEDIA_CATEGORIES } from '../services/mediaPolicy.service.js';
 
 // Central media-storage configuration. Values are read on each call so tests
 // and a PM2 `--update-env` restart see the current environment.
@@ -12,13 +13,22 @@ const inside = (root, candidate) => {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 };
 
+// server: store on MEDIA_ROOT. cloudinary: legacy provider. disabled: refuse new
+// uploads for that category (pause) while every stored file stays readable.
+export const PROVIDERS = ['server', 'cloudinary', 'disabled'];
+
 const parseProviders = (raw) => {
   if (!raw || !String(raw).trim()) return {};
   let parsed;
   try { parsed = JSON.parse(raw); } catch { throw configError('MEDIA_PROVIDERS must be a JSON object.'); }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw configError('MEDIA_PROVIDERS must be a JSON object.');
-  for (const value of Object.values(parsed)) {
-    if (!['server', 'cloudinary'].includes(value)) throw configError('MEDIA_PROVIDERS values must be "server" or "cloudinary".');
+  for (const [category, value] of Object.entries(parsed)) {
+    if (!MEDIA_CATEGORIES[category]) throw configError(`MEDIA_PROVIDERS has an unknown category: ${category}.`);
+    if (!PROVIDERS.includes(value)) throw configError('MEDIA_PROVIDERS values must be "server", "cloudinary" or "disabled".');
+    // Identity and bank documents must never be sent (back) to public Cloudinary URLs.
+    if (value === 'cloudinary' && isSensitiveCategory(category)) {
+      throw configError(`${category} cannot be routed to Cloudinary. Use "server", or "disabled" to pause these uploads.`);
+    }
   }
   return parsed;
 };
@@ -26,7 +36,7 @@ const parseProviders = (raw) => {
 export const getStorageConfig = (env = process.env) => {
   const root = String(env.MEDIA_ROOT || '').trim();
   const defaultProvider = String(env.MEDIA_PROVIDER_DEFAULT || 'cloudinary').trim();
-  if (!['server', 'cloudinary'].includes(defaultProvider)) throw configError('MEDIA_PROVIDER_DEFAULT must be "server" or "cloudinary".');
+  if (!PROVIDERS.includes(defaultProvider)) throw configError('MEDIA_PROVIDER_DEFAULT must be "server", "cloudinary" or "disabled".');
   const ttl = Number(env.MEDIA_SIGNED_URL_TTL_SECONDS || 900);
   const minFree = Number(env.MEDIA_MIN_FREE_BYTES || 2 * 1024 ** 3);
   return {
@@ -38,10 +48,17 @@ export const getStorageConfig = (env = process.env) => {
     defaultProvider,
     providers: parseProviders(env.MEDIA_PROVIDERS),
     legacyReadMap: env.MEDIA_LEGACY_READ_MAP === 'on',
+    // Set with wave 1. From then on identity/bank documents can never resolve
+    // to Cloudinary again — any such setting means "paused" instead.
+    kycLocked: env.MEDIA_KYC_LOCK === 'on',
   };
 };
 
-export const providerFor = (category, config = getStorageConfig()) => config.providers[category] || config.defaultProvider;
+export const providerFor = (category, config = getStorageConfig()) => {
+  const provider = config.providers[category] || config.defaultProvider;
+  if (provider === 'cloudinary' && config.kycLocked && isSensitiveCategory(category)) return 'disabled';
+  return provider;
+};
 
 export const serverStorageRequested = (config = getStorageConfig()) =>
   config.defaultProvider === 'server' || Object.values(config.providers).includes('server');
@@ -67,7 +84,19 @@ export const assertServerStorageConfig = (config = getStorageConfig()) => {
 /** Startup check: only enforced when at least one category is switched to server storage. */
 export const validateStorageStartupConfig = (env = process.env) => {
   const config = getStorageConfig(env);
-  if (serverStorageRequested(config) || config.legacyReadMap) assertServerStorageConfig(config);
+  // Once anything has been stored on the server (or the KYC lock is on) the
+  // storage config must stay valid so existing server files remain readable.
+  if (serverStorageRequested(config) || config.legacyReadMap || config.kycLocked || config.root) {
+    assertServerStorageConfig(config);
+    // The e-book and service-document stores otherwise fall back to backend/private-data
+    // (inside the repository) whenever NODE_ENV is not "production".
+    for (const name of ['EBOOK_STORAGE_DIR', 'SERVICE_STORAGE_DIR']) {
+      const dir = String(env[name] || '').trim();
+      if (!dir || !path.isAbsolute(dir) || inside(PROJECT_ROOT, path.resolve(dir))) {
+        throw configError(`${name} must be an absolute directory outside the repository when server media storage is configured.`);
+      }
+    }
+  }
   return config;
 };
 

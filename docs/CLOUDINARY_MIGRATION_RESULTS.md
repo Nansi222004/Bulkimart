@@ -1,6 +1,8 @@
 # Cloudinary Migration Results
 
-Status: **No migration has been run.** This file records actual command output from the server; nothing here is a projection. Commands are in [STORAGE_DEPLOYMENT_RUNBOOK.md](STORAGE_DEPLOYMENT_RUNBOOK.md) §7.
+Status: **No migration has been run.** This file records actual command output from the server; nothing here is a projection. Commands are in [STORAGE_FINAL_SERVER_COMMANDS.md](STORAGE_FINAL_SERVER_COMMANDS.md) §F (indexes) and §I (inventory, copy loop, verify).
+
+Output fields to record: inventory `uniqueAssets`, `references`, `duplicateUrls`, `unclassified`, `otherCloudinaryAccounts`, `localFallbackUploadReferences`, `byCategory`; each copy run's `verified`, `quarantined`, `failed`, `after.pending`, `after.blocked`, `nextAfter`; verify `checked` and `failureCount`. Assets are identified by their 12-character hash, never by URL.
 
 ## Inventory
 

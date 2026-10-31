@@ -112,10 +112,20 @@ const splitOptions = (options) => {
   return { media, provider };
 };
 
-/** The media category to store on our own server, or null to keep using Cloudinary. */
+export const uploadsPausedError = () => Object.assign(
+  new Error('Uploads of this type are temporarily paused. Please try again later.'),
+  { status: 503, code: 'MEDIA_UPLOADS_PAUSED' },
+);
+
+/**
+ * The media category to store on our own server, or null to keep using
+ * Cloudinary. A category set to "disabled" refuses the upload (paused).
+ */
 const serverCategoryFor = (folder) => {
   const category = categoryForFolder(folder);
-  return category && providerFor(category) === 'server' ? category : null;
+  const provider = category ? providerFor(category) : 'cloudinary';
+  if (provider === 'disabled') throw uploadsPausedError();
+  return provider === 'server' ? category : null;
 };
 
 const storeOnServer = (buffer, category, media, provider) => storeUpload({

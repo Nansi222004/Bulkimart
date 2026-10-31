@@ -111,7 +111,7 @@ If the API does not come back: see [STORAGE_ROLLBACK_RUNBOOK.md](STORAGE_ROLLBAC
 
 ## 6. Switch new uploads to server storage, in waves
 
-Each wave: edit one line, restart, run that wave's manual checks (test plan §3–4), record results in the checklist. Rollback for a wave = remove its categories from the map and restart.
+Each wave: edit one line, restart, run that wave's manual checks (test plan §3–4), record results in the checklist. Rollback for a wave = set its categories to `"disabled"` (pause) or, for non-sensitive categories only, `"cloudinary"` — never remove identity/bank categories or route them to Cloudinary; see [STORAGE_ROLLBACK_RUNBOOK.md](STORAGE_ROLLBACK_RUNBOOK.md). Wave 1 also sets `MEDIA_KYC_LOCK=on` permanently.
 
 ```bash
 cd /root/bulkimart/backend
@@ -140,7 +140,7 @@ node scripts/media/migrate.mjs copy --database=$DB --category=seller.kyc --limit
 node scripts/media/migrate.mjs verify --database=$DB
 ```
 
-Repeat `copy … --apply` until `pendingAfter` is 0 for each category (order: `seller.kyc`, `seller.bank`, `delivery.kyc`, `delivery.bank`, `customer.landmark`, `customer.return`, `shared.ticket`, then public categories). Failed items stay on their Cloudinary URL and are listed in the output; re-running retries them. Check disk after each category: `df -h /`.
+Use the cursor loop in [STORAGE_FINAL_SERVER_COMMANDS.md](STORAGE_FINAL_SERVER_COMMANDS.md) §I to walk each category until `nextAfter` is `null` (order: `seller.kyc`, `seller.bank`, `delivery.kyc`, `delivery.bank`, `customer.landmark`, `customer.return`, `shared.ticket`, then public categories). Run `migrate.mjs indexes --apply` once beforehand (§F); `copy --apply` refuses to run without the unique `legacy.url` index. Failed items stay on their Cloudinary URL, stay pending and are retried by the next loop (at most 3 attempts each; `--retry-failed` forces another). Check disk after each category: `df -h /`.
 
 Then serve migrated copies at read time (historical orders/returns included, records untouched):
 

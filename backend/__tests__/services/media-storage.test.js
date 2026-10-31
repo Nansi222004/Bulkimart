@@ -2,7 +2,7 @@ import { mkdtemp, rm, mkdir, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { assertServerStorageConfig, getStorageConfig, MEDIA_PROJECT_ROOT, providerFor } from '../../config/storage.js';
+import { assertServerStorageConfig, getStorageConfig, MEDIA_PROJECT_ROOT, providerFor, validateStorageStartupConfig } from '../../config/storage.js';
 import { categoryForFolder, isSensitiveCategory, MEDIA_CATEGORIES } from '../../services/mediaPolicy.service.js';
 import { inspectMp4, sniffType, validateUpload } from '../../services/mediaValidation.service.js';
 import { buildStorageKey, filesystemProvider as storage, isValidStorageKey, resolveKey } from '../../services/mediaStorage.service.js';
@@ -94,9 +94,20 @@ describe('storage configuration', () => {
     expect(() => assertServerStorageConfig(getStorageConfig())).toThrow(/https/);
   });
 
-  test('rejects malformed provider maps', () => {
+  test('rejects malformed provider maps and unknown categories', () => {
     process.env.MEDIA_PROVIDERS = '{"seller.kyc":"s3"}';
     expect(() => getStorageConfig()).toThrow(/MEDIA_PROVIDERS/);
+    process.env.MEDIA_PROVIDERS = '{"seller.kycc":"server"}';
+    expect(() => getStorageConfig()).toThrow(/unknown category/);
+  });
+
+  test('startup requires e-book and service stores outside the repository once server storage is configured', () => {
+    const env = { MEDIA_ROOT: root, MEDIA_SIGNING_SECRET: 's'.repeat(40), MEDIA_PUBLIC_BASE_URL: 'https://api.example.test' };
+    expect(() => validateStorageStartupConfig(env)).toThrow(/EBOOK_STORAGE_DIR/);
+    expect(() => validateStorageStartupConfig({ ...env, EBOOK_STORAGE_DIR: path.join(MEDIA_PROJECT_ROOT, 'backend', 'private-data', 'ebooks'), SERVICE_STORAGE_DIR: '/var/lib/bulkimart/services' })).toThrow(/EBOOK_STORAGE_DIR/);
+    expect(() => validateStorageStartupConfig({ ...env, EBOOK_STORAGE_DIR: path.join(root, 'ebooks'), SERVICE_STORAGE_DIR: path.join(root, 'services') })).not.toThrow();
+    // Nothing configured at all: Cloudinary-only deployments start as before.
+    expect(() => validateStorageStartupConfig({})).not.toThrow();
   });
 });
 

@@ -70,7 +70,8 @@ const HOSTNAME = process.env.BIND_HOST || "0.0.0.0";
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 if (process.env.NODE_ENV === "development") {
-  app.use(morgan("dev"));
+  // Media paths are not logged: signed private-document links carry their signature in the URL.
+  app.use(morgan("dev", { skip: (req) => req.originalUrl.startsWith("/media/") }));
 }
 app.use(cors(getCorsOptions()));
 app.use(requestContext);

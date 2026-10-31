@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { chmod, lstat, mkdir, open, readFile, rename, statfs, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, realpath, rename, statfs, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { assertServerStorageConfig, getStorageConfig } from '../config/storage.js';
 
@@ -25,10 +25,12 @@ const rootOrThrow = () => assertServerStorageConfig(getStorageConfig()).root;
 
 export const tempDirectory = () => path.join(rootOrThrow(), 'temp');
 
-/** Absolute path for a key, guaranteed to stay inside MEDIA_ROOT. */
-export const resolveKey = (key) => {
+/**
+ * Absolute path for a key, guaranteed to stay inside MEDIA_ROOT (or `root`,
+ * used only to verify a restored backup copy).
+ */
+export const resolveKey = (key, root = rootOrThrow()) => {
   if (!isValidStorageKey(key)) throw storageError('Invalid media key', 'MEDIA_KEY_INVALID', 400);
-  const root = rootOrThrow();
   const target = path.resolve(root, key);
   const relative = path.relative(root, target);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw storageError('Invalid media key', 'MEDIA_KEY_INVALID', 400);
@@ -126,13 +128,23 @@ export const put = async ({ key, source, visibility, expected = null }) => {
   }
 };
 
-/** Resolve a stored file for delivery. Refuses symlinks and non-files. */
-export const openKey = async (key) => {
-  const target = resolveKey(key);
+/**
+ * Resolve a stored file for delivery. Refuses non-files, a symlinked file, and
+ * any path whose real location (after resolving symlinked parent directories)
+ * leaves the storage root.
+ */
+export const openKey = async (key, root = rootOrThrow()) => {
+  const target = resolveKey(key, root);
+  const missing = () => storageError('Media not found', 'MEDIA_NOT_FOUND', 404);
   let info;
-  try { info = await lstat(target); } catch { throw storageError('Media not found', 'MEDIA_NOT_FOUND', 404); }
-  if (!info.isFile() || info.isSymbolicLink()) throw storageError('Media not found', 'MEDIA_NOT_FOUND', 404);
-  return { absolutePath: target, sizeBytes: info.size, root: rootOrThrow() };
+  try { info = await lstat(target); } catch { throw missing(); }
+  if (!info.isFile() || info.isSymbolicLink()) throw missing();
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(target)]);
+    const relative = path.relative(realRoot, realTarget);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('outside root');
+  } catch { throw missing(); }
+  return { absolutePath: target, sizeBytes: info.size, root };
 };
 
 export const readKey = async (key) => readFile((await openKey(key)).absolutePath);
@@ -141,8 +153,18 @@ export const remove = async (key) => {
   try { await unlink(resolveKey(key)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 };
 
-export const verifyKey = async (key, { sha256, sizeBytes }) => {
-  const { absolutePath } = await openKey(key);
+/** First bytes of a stored file (for content-type checks during verification). */
+export const readHead = async (key, root = rootOrThrow(), length = 1024) => {
+  const handle = await open((await openKey(key, root)).absolutePath, 'r');
+  try {
+    const head = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(head, 0, length, 0);
+    return head.subarray(0, bytesRead);
+  } finally { await handle.close(); }
+};
+
+export const verifyKey = async (key, { sha256, sizeBytes }, root = rootOrThrow()) => {
+  const { absolutePath } = await openKey(key, root);
   const actual = await hashFile(absolutePath);
   return actual.sha256 === sha256 && actual.sizeBytes === sizeBytes;
 };
@@ -164,4 +186,4 @@ export const health = async () => {
   return result;
 };
 
-export const filesystemProvider = Object.freeze({ name: 'server', put, openKey, readKey, remove, verifyKey, health });
+export const filesystemProvider = Object.freeze({ name: 'server', put, openKey, readKey, readHead, remove, verifyKey, health });

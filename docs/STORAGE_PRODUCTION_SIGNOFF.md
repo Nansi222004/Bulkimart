@@ -7,9 +7,11 @@ Each line is signed by a named person with a date and a link to evidence (test o
 | # | Gate | Evidence | Signed by | Date |
 |---|---|---|---|---|
 | 1 | Storage location `/var/lib/bulkimart` approved | Owner instruction, 2026-11-01 brief | Owner (per brief) | 2026-11-01 |
-| 2 | Automated storage tests pass on the server | runbook §3 output | | |
+| 2a | Dependencies reinstalled from a trusted source (old `node_modules` predates the malware cleanup) | install log | | |
+| 2 | Automated storage tests pass (5 suites incl. `media-migration.http.test.js`) and full backend suite shows no new failures | final commands §E output | | |
+| 2b | Media indexes created with `migrate.mjs indexes --apply` (add-only) | final commands §F output | | |
 | 3 | Deploy with all categories on Cloudinary: API healthy, media routes 404/403 as expected | runbook §5 output | | |
-| 4 | Wave 1 (KYC/bank) verified on seller web, seller Android, delivery web, admin | test plan §3–4 | | |
+| 4 | Wave 1 (KYC/bank) verified on seller web, seller Android, delivery web, admin; `MEDIA_KYC_LOCK=on` set | test plan §3–4 | | |
 | 5 | Wave 2 (landmark, returns, tickets) verified on customer web, customer Android, seller, rider, admin | | | |
 | 6 | Wave 3 (catalogue) verified incl. image search | | | |
 | 7 | Wave 4 (admin/CMS) verified incl. push image on a phone | | | |

@@ -2,7 +2,10 @@ import mongoose from 'mongoose';
 
 const { Schema, model } = mongoose;
 
-/** Append-only record of every delivery of a sensitive (private-kyc) document. */
+/**
+ * Append-only record of every delivery of a sensitive (private-kyc) document.
+ * Indexes are created explicitly (`migrate.mjs indexes --apply`), never on startup.
+ */
 const mediaAccessAuditSchema = new Schema(
   {
     mediaId:    { type: Schema.Types.ObjectId, ref: 'Media', required: true, index: true },
@@ -14,7 +17,7 @@ const mediaAccessAuditSchema = new Schema(
     ip:         String,
     userAgent:  { type: String, maxlength: 300 },
   },
-  { timestamps: { createdAt: true, updatedAt: false } }
+  { timestamps: { createdAt: true, updatedAt: false }, autoIndex: false }
 );
 
 export default model('MediaAccessAudit', mediaAccessAuditSchema);
