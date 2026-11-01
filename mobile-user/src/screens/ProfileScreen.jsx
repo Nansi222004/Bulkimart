@@ -4,9 +4,9 @@
 //  - avatar photo: the photo picker, resized to 256 px and kept on the device like the web's localStorage copy;
 //  - "Use Current Location": expo-location + the backend's /api/geo/reverse (same as the web);
 //  - wallet top-up: the native Razorpay SDK, verified by the backend's existing verify endpoint;
-//  - "Become a Seller / Your Shop": the seller portal is not part of this app, so it opens bulkimart.in/seller.
+//  - "Become a Seller / Your Shop" is not shown in the app (owner decision, 2026-10-31); sellers use the seller app.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,14 +18,13 @@ import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { alpha } from '../theme';
 import { authHeaders, boundedFetch, request } from '../api/client';
-import { WEBSITE_ORIGIN } from '../config';
 import { local } from '../lib/storage';
 import { useFeedback } from '../lib/feedback';
 import { openRazorpayCheckout } from '../lib/razorpay';
 import { getCurrentPosition } from '../lib/gps';
 import { useTickets } from '../hooks/useTickets';
 import useCustomerWallet from '../hooks/useCustomerWallet';
-import { CustomerPage, useNavPadding } from '../components/Shell';
+import { CustomerPage } from '../components/Shell';
 import { Text } from '../components/ui';
 import SelectField from '../components/SelectField';
 import TicketDetailModal from '../components/TicketDetailModal';
@@ -64,7 +63,6 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const ui = useFeedback();
-  const bottom = useNavPadding(20);
   const { setActiveNav, currentUser, logoutUser, savedAddresses, addAddress, deleteAddress, setSelectedAddressId, selectedAddressId, uploadLandmarkImage, fetchWalletBalance, setWalletBalance } = useUser();
   const primary = theme.primaryColor;
   const submitBtn = { backgroundColor: theme.action, shadowColor: theme.primary };
@@ -231,7 +229,7 @@ export default function ProfileScreen() {
   };
 
   // Privacy policy (CMS)
-  const [privacyTab, setPrivacyTab] = useState('user-policy');
+  const privacyTab = 'user-policy'; // customer app shows the customer policy only
   const [privacyPolicyData, setPrivacyPolicyData] = useState(null);
   const [loadingPrivacy, setLoadingPrivacy] = useState(false);
   const loadPrivacyPolicy = useCallback(async slug => {
@@ -243,8 +241,6 @@ export default function ProfileScreen() {
   }, []);
   useEffect(() => { if (activeSection === 'privacy') loadPrivacyPolicy(privacyTab); }, [activeSection, privacyTab, currentUser, loadPrivacyPolicy]);
 
-  const isSeller = Boolean(currentUser?.sellerId || currentUser?.isSeller || currentUser?.roles?.includes('seller'));
-
   const menuItems = [
     { id: 'profile', label: 'My Profile', icon: c => <Icon color={c}><Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><Circle cx="12" cy="7" r="4" /></Icon>, action: () => setActiveSection('profile') },
     { id: 'real-wallet', label: 'Bulkimart Wallet', icon: c => <Icon color={c}><Rect x="2" y="5" width="20" height="14" rx="2" /><Line x1="2" y1="10" x2="22" y2="10" /></Icon>,
@@ -253,8 +249,6 @@ export default function ProfileScreen() {
     { id: 'ebooks', label: 'My E-books', icon: () => <Text style={{ fontSize: 20 }}>📚</Text>, action: () => setActiveNav('ebooks') },
     { id: 'legal-services', label: 'My Legal Service Requests', icon: c => <Text style={{ fontSize: 18, color: c }}>▤</Text>, action: () => setActiveNav('legal-services?view=requests') },
     { id: 'addresses', label: 'My Addresses', icon: c => <Icon color={c}><Path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><Circle cx="12" cy="10" r="3" /></Icon>, action: () => setActiveSection('addresses') },
-    { id: 'become-seller', label: isSeller ? 'Your Shop' : 'Become a Seller', icon: c => <Icon color={c}><Rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><Path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></Icon>,
-      badge: isSeller ? null : <Text style={[styles.newBadge, { backgroundColor: theme.action }]}>New</Text>, action: () => Linking.openURL(`${WEBSITE_ORIGIN}/seller`).catch(() => {}) },
     { id: 'support', label: 'Help & Support', icon: c => <Icon color={c}><Circle cx="12" cy="12" r="10" /><Path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><Line x1="12" y1="17" x2="12.01" y2="17" /></Icon>, action: () => setActiveSection('support') },
     { id: 'privacy', label: 'Privacy Policy', icon: c => <Icon color={c}><Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Icon>, action: () => setActiveSection('privacy') },
   ];
@@ -423,19 +417,8 @@ export default function ProfileScreen() {
       </ScrollView>;
 
       case 'privacy': {
-        const tabs = [{ slug: 'user-policy', label: 'User', icon: '👤' }, { slug: 'seller-policy', label: 'Seller', icon: '🏪' }];
-        const currentTab = tabs.some(t => t.slug === privacyTab) ? privacyTab : 'user-policy';
+        // Customer app: only the customer (user) policy. The seller policy belongs to the seller app.
         return <ScrollView contentContainerStyle={[sectionPad, { paddingTop: 20, gap: 16 }]}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {tabs.map(t => {
-              const isActive = currentTab === t.slug;
-              return <Pressable key={t.slug} onPress={() => setPrivacyTab(t.slug)} accessibilityState={{ selected: isActive }}
-                style={[styles.privacyTab, isActive ? { borderWidth: 2, borderColor: theme.action, backgroundColor: theme.highlight } : null]}>
-                <Text style={{ fontSize: 16 }}>{t.icon}</Text>
-                <Text style={{ fontSize: 12, fontWeight: isActive ? '800' : '600', color: isActive ? theme.actionHover : '#475569' }}>{t.label}</Text>
-              </Pressable>;
-            })}
-          </View>
           {loadingPrivacy ? <View style={styles.policyEmpty}><Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>Loading privacy policy...</Text></View>
             : !privacyPolicyData ? <View style={styles.policyEmpty}><Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>Privacy policy content unavailable for this role.</Text></View>
               : <>
@@ -465,13 +448,14 @@ export default function ProfileScreen() {
 
   const name = currentUser?.name || (currentUser?.phone ? `+91 ${currentUser.phone}` : 'Member');
   return <CustomerPage protectedPage headerColor={theme.secondary} background="#ffffff">
-    <ScrollView stickyHeaderIndices={[0]} contentContainerStyle={{ paddingBottom: bottom }} style={{ backgroundColor: theme.primary }}>
+    {/* White below the menu card, so no coloured band shows under Delete Account. */}
+    <ScrollView stickyHeaderIndices={[0]} contentContainerStyle={{ flexGrow: 1 }} style={{ backgroundColor: theme.surface || '#ffffff' }}>
       <View style={[styles.appbar, { backgroundColor: theme.secondary }]}>
         <Pressable onPress={() => setActiveNav('home')} accessibilityLabel="Go to Home" style={{ padding: 4 }}><Icon size={24} width={2.5} color="#fff"><Polyline points="15 18 9 12 15 6" /></Icon></Pressable>
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>Account</Text>
         <View style={{ width: 24 }} />
       </View>
-      <LinearGradient colors={[theme.secondary, theme.primary]} style={{ paddingTop: 16, paddingHorizontal: 20, paddingBottom: 32 }}>
+      <LinearGradient colors={[theme.secondary, theme.secondary]} style={{ paddingTop: 16, paddingHorizontal: 20, paddingBottom: 32 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 }}>
           <Pressable onPress={pickAvatar} accessibilityLabel="Change profile picture">
             <Avatar uri={userAvatar} size={68} style={{ borderWidth: 2, borderColor: '#fff' }} />
@@ -511,7 +495,7 @@ export default function ProfileScreen() {
 
     <Modal visible={Boolean(activeSection)} animationType="slide" statusBarTranslucent onRequestClose={closeSection}>
       <KeyboardAvoidingView behavior="height" style={{ flex: 1, backgroundColor: '#f8fafc' }} accessibilityViewIsModal accessibilityLabel="Account details">
-        <LinearGradient colors={[theme.actionHover, theme.action]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.sectionHead, { paddingTop: 16 + insets.top }]}>
+        <LinearGradient colors={[theme.header, theme.header]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.sectionHead, { paddingTop: 16 + insets.top }]}>
           <Pressable onPress={closeSection} accessibilityLabel="Back" style={{ padding: 4, marginRight: 12 }}><Icon size={24} width={2.5} color="#fff"><Line x1="19" y1="12" x2="5" y2="12" /><Polyline points="12 19 5 12 12 5" /></Icon></Pressable>
           <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', flex: 1 }}>{menuItems.find(item => item.id === activeSection)?.label || 'Detail'}</Text>
         </LinearGradient>
@@ -558,7 +542,6 @@ const styles = StyleSheet.create({
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
   menuLabel: { fontSize: 13.5, fontWeight: '600' },
   badge: { fontSize: 11, fontWeight: '800', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 20, overflow: 'hidden' },
-  newBadge: { color: '#fff', fontSize: 10, paddingVertical: 1, paddingHorizontal: 6, borderRadius: 10, overflow: 'hidden' },
   logout: { marginTop: 16, marginBottom: 12, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 14 },
   deleteRow: { marginBottom: 30, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: 'rgba(239,68,68,0.04)', borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(239,68,68,0.4)', borderRadius: 14 },
   sectionHead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 16, paddingHorizontal: 20, elevation: 4 },
@@ -580,7 +563,6 @@ const styles = StyleSheet.create({
   cancel: { flex: 1, borderRadius: 10, borderWidth: 1.5, borderColor: '#cbd5e1', backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
   ticket: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 },
   ticketStatus: { fontSize: 11, fontWeight: '800', paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, overflow: 'hidden' },
-  privacyTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff', alignItems: 'center', gap: 4 },
   policyEmpty: { backgroundColor: '#fff', padding: 30, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
   policyHead: { backgroundColor: '#fff', paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
   policyIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

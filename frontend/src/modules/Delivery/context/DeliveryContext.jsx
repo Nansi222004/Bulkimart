@@ -1,5 +1,5 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { portalRequest, boundedFetch } from '../../../utils/portalRequests';
 import { socket, connectSocket, disconnectSocket } from '../../../utils/socket';
@@ -1044,6 +1044,10 @@ export const DeliveryProvider = ({ children }) => {
       if (d.status === 'approved') {
         setIsOnboarded(true);
         localStorage.setItem('delivery_onboarded', 'true');
+      } else {
+        // A rider suspended mid-session loses the duty screens on the next refresh, not on the next reload.
+        setIsOnboarded(false);
+        localStorage.removeItem('delivery_onboarded');
       }
       return { ok: true, status: d.status, profile: d };
     } catch (err) {

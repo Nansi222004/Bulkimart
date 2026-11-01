@@ -79,6 +79,14 @@ Long-term facts for anyone continuing this app. Per-screen and per-API status li
 - Release build: needs `eas login`, confirmation of `com.Bulkimart.user`, and the user's go-ahead.
 - Authenticated and payment testing: needs a test account or a non-production backend with mock OTP and Razorpay test keys.
 
+- Android Maps key (decided 2026-10-31): one restricted key for all three apps, created once the seller and delivery apps are also built. Until then the build uses the existing key (`GOOGLE_MAPS_ANDROID_API_KEY` user env var). Its project must have **Maps SDK for Android** enabled and billing on, otherwise the map stays blank beige. Restrictions when the key is created:
+  - API: Maps SDK for Android only.
+  - Android apps:
+    - `com.Bulkimart.user` with debug SHA-1 `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
+    - `com.Bulkimart.user`, `com.Bulkimart.seller` and `com.Bulkimart.delivery` with the company release key ("BulkiMart / Appzeto") SHA-1 `D9:97:52:4E:B4:4D:79:C8:73:3F:61:6A:2F:EA:D9:CD:30:9D:13:99`
+    - plus the Play App Signing SHA-1s, if the apps go through Google Play.
+- Release signing: the old customer app v1.0.1 and the seller/delivery apps use the company key above. Sign the customer release with the same keystore (kept outside git) so it updates over the old app.
+
 ## 15. Install and dev (React Native CLI, wireless device testing)
 - Workflow: **React Native CLI** (owner's choice, 2026-10-31). No EAS, no Expo login, no Expo Go, no `expo-dev-client`. Expo packages stay as plain native libraries. `android/` is now source and tracked by git (its build output is ignored by `android/.gitignore`).
 - Tooling: `@react-native-community/cli` + `cli-platform-android` 20.2.0 (the RN 0.88 template versions). JDK 17 (Temurin). Android SDK at `D:\Android\Sdk` with CMake **3.31.6**. ADB 1.0.41.

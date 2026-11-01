@@ -1,7 +1,9 @@
 // Routes /services and /legal-services (web: UnifiedHeader + CustomerServices / LegalServices).
 import React, { useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ArrowLeft } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { boundedFetch } from '../api/client';
@@ -26,10 +28,32 @@ function Page({ children }) {
   </CustomerPage>;
 }
 
+// Legal Services opens as its own page: a title bar with Back instead of the storefront header and search.
 export function LegalServicesScreen() {
+  const theme = useAppTheme();
+  const router = useRouter();
+  const { setActiveNav } = useUser();
+  const insets = useSafeAreaInsets();
   const { view, id } = useLocalSearchParams();
-  return <Page><LegalServices key={`${view || ''}:${id || ''}`} view={view} id={id} /></Page>;
+  const [refreshing, setRefreshing] = useState(false);
+  const back = () => (router.canGoBack() ? router.back() : setActiveNav('home'));
+  return <CustomerPage headerColor={theme.header} nav={false}>
+    <View style={[styles.appbar, { backgroundColor: theme.header }]}>
+      <Pressable onPress={back} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} style={styles.backBtn}><ArrowLeft size={24} color={theme.headerText || '#fff'} /></Pressable>
+      <Text accessibilityRole="header" numberOfLines={1} style={[styles.appbarTitle, { color: theme.headerText || '#fff' }]}>{view === 'requests' ? 'My Legal Requests' : 'Legal Services'}</Text>
+    </View>
+    <ScrollView keyboardShouldPersistTaps="handled" style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingBottom: 24 + insets.bottom, flexGrow: 1 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await runRefresh(); setRefreshing(false); }} colors={[theme.action]} />}>
+      <LegalServices key={`${view || ''}:${id || ''}`} view={view} id={id} />
+    </ScrollView>
+  </CustomerPage>;
 }
+
+const styles = StyleSheet.create({
+  appbar: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 12 },
+  backBtn: { padding: 6 },
+  appbarTitle: { flex: 1, fontSize: 18, fontWeight: '800' },
+});
 
 export function ServicesScreen() {
   const { setActiveNav } = useUser();

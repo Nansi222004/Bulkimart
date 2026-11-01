@@ -30,11 +30,19 @@ tests/
 
 # Mobile app: build outputs and release files (never commit)
 *.apk
+**/release-apk/
 *.aab
 *.apks
 *.idsig
 **/android/app/release/
 **/android/app/build/
+**/android/build/
+**/android/app/.cxx/
+**/android/.gradle/
+**/android/.kotlin/
+**/android/local.properties
+*.so
+*.o
 output-metadata.json
 
 # Firebase / Google services config (keep out of git; copy in locally before building)
@@ -48,3 +56,5 @@ keystore.properties
 signing.properties
 # The standard React Native debug key is public and needed for debug builds
 !mobile-user/android/app/debug.keystore
+!mobile-seller/android/app/debug.keystore
+!mobile-delivery/android/app/debug.keystore

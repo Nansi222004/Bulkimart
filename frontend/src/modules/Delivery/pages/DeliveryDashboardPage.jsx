@@ -100,8 +100,9 @@ export const DeliveryDashboardPage = () => {
               triggerToast('Debit wallet balance limit exceeded! Settle COD cash to go Online.');
               return;
             }
+            // setIsOnline asks the server and shows the server's own message, including a refusal.
+            // A second toast here used to announce "Online" even when the server said no.
             setIsOnline(!isOnline);
-            triggerToast(isOnline ? 'You are now Offline.' : 'You are now Online and accepting orders.');
           }}
         >
           <span className="status-toggle-indicator" />

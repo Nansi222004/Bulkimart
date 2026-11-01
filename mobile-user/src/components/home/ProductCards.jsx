@@ -50,7 +50,7 @@ export function CategoryProductCard({ product, onOpen, onAdd, style }) {
   const theme = useAppTheme();
   return <Pressable onPress={() => onOpen(product)} style={[styles.catCard, { backgroundColor: theme.surface, borderColor: theme.productBorder }, style]} accessibilityRole="button" accessibilityLabel={product.name}>
     <View style={[styles.catImg, { backgroundColor: theme.surface }]}>
-      {product.image ? <Image source={{ uri: mediaUrl(product.image) }} style={{ width: '85%', height: '85%' }} contentFit="contain" recyclingKey={product.id} /> : null}
+      {product.image ? <Image source={{ uri: mediaUrl(product.image) }} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={product.id} /> : null}
       <WishlistHeartButton productId={product.id} size={11} style={{ position: 'absolute', top: 4, right: 4 }} />
     </View>
     <View style={{ marginTop: 6, flex: 1 }}>
@@ -92,7 +92,8 @@ export function MerchandisingCard({ product, deal = false, wholesale = false, wi
       else setMessage(result?.message || 'Could not add item');
     } catch { setMessage('Could not add item. Try again.'); } finally { setBusy(false); }
   };
-  const discount = Number(original) > Number(price) ? Math.floor((original - price) / original * 100) : null;
+  const percent = Number(original) > Number(price) ? Math.floor((original - price) / original * 100) : 0;
+  const discount = percent >= 1 ? percent : null; // a saving under 1% would read "0% off"
   const flat = theme.tokens.product === 'flat';
   return <View style={[styles.merch, { width, backgroundColor: theme.surface, borderColor: theme.productBorder, borderRadius: theme.radius }, !flat && styles.merchShadow]}>
     <View style={styles.merchImage}>
@@ -104,7 +105,8 @@ export function MerchandisingCard({ product, deal = false, wholesale = false, wi
     </View>
     <View style={styles.merchBody}>
       <Pressable onPress={open}><Text numberOfLines={2} style={[styles.merchTitle, { color: theme.text }]}>{product.name}</Text></Pressable>
-      {product.rating > 0 && <Text style={styles.rating} accessibilityLabel={`${product.rating} out of 5 stars`}>★ {Number(product.rating).toFixed(1)}</Text>}
+      {/* The rating line keeps its height when a product has no rating, so cards in a row line up. */}
+      <View style={styles.ratingRow}>{product.rating > 0 && <Text style={styles.rating} accessibilityLabel={`${product.rating} out of 5 stars`}>★ {Number(product.rating).toFixed(1)}</Text>}</View>
       <View style={styles.price}>
         <Text style={[styles.priceStrong, { color: theme.text }]}>{price == null ? 'Price unavailable' : `${wholesale ? 'From ' : ''}${inr(price)}`}</Text>
         {discount !== null && <>
@@ -132,7 +134,7 @@ const styles = StyleSheet.create({
   gridAdd: { minHeight: 36, paddingHorizontal: 8, justifyContent: 'center' },
   gridAddText: { fontSize: 10, fontWeight: '800' },
   catCard: { borderWidth: 1, borderRadius: 12, padding: 6, flex: 1 },
-  catImg: { width: '100%', height: 85, borderRadius: 8, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  catImg: { width: '100%', aspectRatio: 1, borderRadius: 8, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   catName: { fontSize: 11, fontWeight: '700', height: 28, lineHeight: 14 },
   digitalPill: { alignSelf: 'flex-start', marginTop: 3, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 999, fontSize: 8.5, fontWeight: '900', overflow: 'hidden' },
   catSeller: { fontSize: 9.5, fontWeight: '600', marginTop: 2 },
@@ -140,18 +142,19 @@ const styles = StyleSheet.create({
   catPrice: { fontSize: 11.5, fontWeight: '800' },
   catAdd: { borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8 },
   catAddText: { fontSize: 10, fontWeight: '800' },
-  merch: { borderWidth: 1, overflow: 'hidden' },
+  merch: { flex: 1, borderWidth: 1, overflow: 'hidden' },
   merchShadow: { shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   merchImage: { width: '100%', aspectRatio: 1, backgroundColor: '#f8f6f4', overflow: 'hidden' },
   noImage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f2eee9' },
   merchBody: { paddingTop: 10, paddingHorizontal: 10, paddingBottom: 12, gap: 6, flex: 1 },
   merchTitle: { fontSize: 13.5, fontWeight: '600', lineHeight: 18, minHeight: 36 },
   rating: { fontSize: 11.5, fontWeight: '700', color: '#b45309' },
+  ratingRow: { minHeight: 16, justifyContent: 'center' },
   price: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 6, paddingTop: 2 },
   priceStrong: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
   priceDel: { fontSize: 11.5, textDecorationLine: 'line-through' },
   priceOff: { fontSize: 10, fontWeight: '700', borderRadius: 5, paddingVertical: 3, paddingHorizontal: 5, overflow: 'hidden' },
   small: { fontSize: 11, lineHeight: 15 },
-  merchAdd: { minHeight: 38, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  merchAdd: { marginTop: 'auto', minHeight: 38, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   merchAddText: { fontSize: 12.5, fontWeight: '700' },
 });

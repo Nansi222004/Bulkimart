@@ -30,7 +30,9 @@ const FilterGlyph = ({ color }) => <Svg width={14} height={14} viewBox="0 0 24 2
 /** Notification permission not decided yet (web: Notification.permission === 'default'). */
 function usePermissionUndecided() {
   const [undecided, setUndecided] = useState(false);
-  const check = useCallback(() => { Notifications.getPermissionsAsync().then(r => setUndecided(r.status === 'undetermined' && r.canAskAgain !== false)).catch(() => {}); }, []);
+  // Web shows the prompt while Notification.permission is 'default'. Android 13+ reports a never-asked
+  // permission as 'denied' with canAskAgain true, so "not granted and can still ask" is the equivalent.
+  const check = useCallback(() => { Notifications.getPermissionsAsync().then(r => setUndecided(r.status !== 'granted' && r.canAskAgain !== false)).catch(() => {}); }, []);
   useEffect(() => { check(); }, [check]);
   return [undecided, check];
 }

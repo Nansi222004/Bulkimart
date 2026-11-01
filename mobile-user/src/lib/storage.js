@@ -30,15 +30,18 @@ export async function hydrateStorage() {
   hydrated = true;
 }
 
+// Writes to the same key run one after another. Native storage calls can finish out of order, so a
+// sign-in (delete old token, then save new one) could otherwise end with the delete landing last and the
+// customer signed out on the next launch.
+const writeQueues = new Map();
 const persist = (key, value) => {
   const secureKey = SECURE_KEYS[key];
-  if (secureKey) {
-    const done = value === null ? SecureStore.deleteItemAsync(secureKey) : SecureStore.setItemAsync(secureKey, value);
-    done.catch(() => {});
-    return;
-  }
-  const done = value === null ? AsyncStorage.removeItem(PREFIX + key) : AsyncStorage.setItem(PREFIX + key, value);
-  done.catch(() => {});
+  const write = secureKey
+    ? () => (value === null ? SecureStore.deleteItemAsync(secureKey) : SecureStore.setItemAsync(secureKey, value))
+    : () => (value === null ? AsyncStorage.removeItem(PREFIX + key) : AsyncStorage.setItem(PREFIX + key, value));
+  const next = (writeQueues.get(key) || Promise.resolve()).then(write).catch(() => {});
+  writeQueues.set(key, next);
+  next.then(() => { if (writeQueues.get(key) === next) writeQueues.delete(key); });
 };
 
 export const local = {

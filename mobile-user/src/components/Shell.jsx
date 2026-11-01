@@ -145,9 +145,15 @@ export function CustomerPage({ children, protectedPage = false, nav = true, cart
 
 /** Bottom padding so content clears the bottom nav (web: padding-bottom 90px + safe area). */
 export function useNavPadding(extra = 26) {
-  const insets = useSafeAreaInsets();
-  return BOTTOM_NAV_HEIGHT + insets.bottom + extra;
+  // CustomerPage lays BottomNav out below the content (not over it) and the nav already pads for the
+  // safe area, so content only needs a small gap. Adding the nav height here left an empty band at the
+  // end of every page (web needs it because its nav is position:fixed). Only the floating cart bar
+  // overlaps content, so its height is added while it is showing.
+  const { getCartCount, activeNav } = useUser();
+  const cartBarShown = getCartCount() > 0 && ['home', 'categories'].includes(activeNav);
+  return extra + (cartBarShown ? CART_BAR_SPACE : 0);
 }
+const CART_BAR_SPACE = 64;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },

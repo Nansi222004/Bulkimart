@@ -10,6 +10,7 @@ import Svg, { Circle, Defs, LinearGradient as SvgGradient, Path, Polygon, Stop }
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { boundedFetch, mediaUrl, request } from '../api/client';
+import { fetchProductDetail, rememberProductDetail } from '../lib/productDetail';
 import { WEBSITE_ORIGIN } from '../config';
 import { useFeedback } from '../lib/feedback';
 import { captureUserSession, isCurrentUserSession } from '../lib/session';
@@ -74,6 +75,7 @@ function useRouteProduct(id, mode, variant, retry) {
     boundedFetch(mode === 'wholesale' ? `/api/products/wholesale/catalog?productId=${id}` : `/api/products/${id}`, { signal: controller.signal }).then(async response => {
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || 'This product could not be loaded.');
+      if (mode !== 'wholesale') rememberProductDetail(id, body);
       const product = mode === 'wholesale' ? (body.data?.[0] ? { ...wholesaleDetailProduct(body.data[0]), detailSession: snapshot.token } : null) : body?.data ?? body;
       if (!product || String(product._id) !== String(id) || !product.name) throw new Error('Product not found. Return to the storefront to choose another product.');
       const variants = product.variants?.length ? product.variants : product.raw?.variants || [];
@@ -211,7 +213,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
     if (wholesaleDetail) return undefined;
     setReturnInfo(null);
     let cancelled = false;
-    request(`/api/products/${product.id}`, { auth: false }).then(({ body: data }) => {
+    fetchProductDetail(product.id).then(({ body: data }) => {
       if (cancelled) return;
       if (Array.isArray(data?.variants)) { setLoadedVariants(data.variants.map(variant => ({ ...variant, id: String(variant._id) }))); setLoadedProductId(String(product.id)); }
       setCampaignDeal(data?.campaignPrice ? { price: data.campaignPrice, discountValue: data.campaignDiscountValue, title: data.campaignTitle } : null);
@@ -308,7 +310,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
     </View>
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 110 }}>
       <View style={styles.hero}>
-        {activeImage ? <Image source={{ uri: imageUri(activeImage) }} style={{ width: 200, height: 200 }} contentFit="contain" accessibilityLabel={product.name} /> : <Text style={{ color: '#94a3b8' }}>Image unavailable</Text>}
+        {activeImage ? <Image source={{ uri: imageUri(activeImage) }} style={{ width: '88%', aspectRatio: 1 }} contentFit="contain" accessibilityLabel={product.name} /> : <Text style={{ color: '#94a3b8' }}>Image unavailable</Text>}
         {wholesale.mode === 'retail' && savingPercent > 0 && <Text style={styles.offerBadge}>{savingPercent}% OFF</Text>}
       </View>
       {allImages.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: '#fff' }} contentContainerStyle={{ gap: 10, paddingVertical: 12, paddingHorizontal: 16, flexGrow: 1, justifyContent: 'center' }}>
@@ -420,12 +422,12 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
         <Text style={styles.sectionTitle}>You may also like</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {related.map(rp => <Pressable key={rp.id} style={styles.related} onPress={() => (wholesale.mode === 'wholesale' ? openWholesaleProduct(rp.id, rp.variantId) : setSelectedProduct(rp))}>
-            <View style={styles.relatedImg}>{rp.image ? <Image source={{ uri: imageUri(rp.image) }} style={{ width: 64, height: 64 }} contentFit="contain" /> : <Text style={{ fontSize: 9, color: '#94a3b8' }}>Image unavailable</Text>}</View>
+            <View style={styles.relatedImg}>{rp.image ? <Image source={{ uri: imageUri(rp.image) }} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={String(rp.id)} /> : <Text style={{ fontSize: 9, color: '#94a3b8' }}>Image unavailable</Text>}</View>
             <View style={{ padding: 8 }}>
-              <Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '700' }}>{rp.name}</Text>
+              <Text numberOfLines={2} style={{ fontSize: 12, fontWeight: '700', lineHeight: 15, minHeight: 30 }}>{rp.name}</Text>
               <Text numberOfLines={1} style={{ fontSize: 9, color: '#94a3b8', marginBottom: 6 }}>{wholesale.mode === 'wholesale' ? rp.variants?.[0]?.unit : variantPackLabel(rp.variants?.[0] || { unit: rp.unit })}</Text>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: 11, fontWeight: '900' }}>{wholesale.mode === 'wholesale' ? 'From ' + formatCurrency(rp.startingPrice) : formatCurrency(rp.price)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '900' }}>{wholesale.mode === 'wholesale' ? 'From ' + formatCurrency(rp.startingPrice) : formatCurrency(rp.price)}</Text>
                 <Pressable onPress={() => (wholesale.mode === 'wholesale' ? openWholesaleProduct(rp.id, rp.variantId) : addToCart(rp))} accessibilityLabel={`${wholesale.mode === 'wholesale' ? 'View Wholesale offer for' : 'Add'} ${rp.name}`} style={[styles.relatedAdd, { backgroundColor: primary }]}><Text style={{ color: '#fff', fontSize: 16, fontWeight: '900', lineHeight: 18 }}>+</Text></Pressable>
               </View>
             </View>
@@ -603,7 +605,7 @@ const styles = StyleSheet.create({
   infoKey: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
   infoVal: { fontSize: 11, color: '#0f172a', fontWeight: '700', textAlign: 'right', maxWidth: '60%' },
   related: { width: '31.5%', backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1.5, borderColor: '#e2e8f0', overflow: 'hidden' },
-  relatedImg: { backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', height: 80, padding: 8 },
+  relatedImg: { backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', width: '100%', aspectRatio: 1, overflow: 'hidden' },
   relatedAdd: { width: 22, height: 22, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   faq: { marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   textarea: { width: '100%', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#e2e8f0', fontSize: 13, minHeight: 80, textAlignVertical: 'top', color: '#0f172a' },

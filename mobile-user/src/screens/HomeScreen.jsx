@@ -7,6 +7,8 @@ import { useFocusEffect } from 'expo-router';
 import Svg, { Line, Path, Polyline } from 'react-native-svg';
 import { useUser } from '../context/UserContext';
 import { useStorefront } from '../context/StorefrontContext';
+import { usePrefetchHeaderCategories } from '../hooks/usePrefetchHeaderCategories';
+import { setSponsoredPoint } from '../lib/sponsoredCache';
 import { useAppTheme } from '../theme/ThemeContext';
 import { clearCatalogCache } from '../hooks/useProducts';
 import { clearCategoryCache } from '../hooks/useCategoryTree';
@@ -71,7 +73,10 @@ function ExitDialog({ visible, onCancel, onExit }) {
 export default function HomeScreen() {
   const theme = useAppTheme();
   const experience = useStorefront();
-  const { activeMode, activeSubNav, popSubNav, fetchOrders, refreshCart, cartChannel } = useUser();
+  const { activeMode, activeSubNav, popSubNav, fetchOrders, refreshCart, cartChannel, getDeliveryPoint } = useUser();
+  // Header category pages open with their products already loaded (fetched in the background).
+  setSponsoredPoint(getDeliveryPoint?.());
+  usePrefetchHeaderCategories(activeMode === 'quick' ? 'grocery' : 'ecommerce', experience.headerCategories);
   const [contentKey, setContentKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
@@ -106,7 +111,7 @@ export default function HomeScreen() {
       <View key={contentKey} style={{ backgroundColor: theme.background, paddingTop: 12, paddingBottom: 28, gap: 20 }}>
         <StorefrontAnnouncement />
         <StorefrontFestiveHeader />
-        <HeroBanner />
+        <HeroBanner showDefault={showDashboard} />
         {showDashboard && <>
           <QuickActions />
           <HomeServiceEntries />

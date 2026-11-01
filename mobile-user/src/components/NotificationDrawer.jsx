@@ -84,6 +84,6 @@ const styles = StyleSheet.create({
   thumb: { width: '100%', maxWidth: 220, height: 120, borderRadius: 8, marginTop: 8 },
   time: { fontSize: 9.5, color: '#94a3b8', fontWeight: '700', marginTop: 5 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#ef4444', marginTop: 4 },
-  lightbox: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  lightbox: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center', padding: 24 },
   lightboxClose: { position: 'absolute', top: 40, right: 18, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
 });

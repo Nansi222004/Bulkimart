@@ -20,6 +20,7 @@ import Celebration from '../Celebration';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
 import { GridProductCard, CategoryProductCard, MerchandisingCard } from './ProductCards';
 import WishlistHeartButton from '../WishlistHeartButton';
+import { fetchSponsored, peekSponsored, sponsoredQuery } from '../../lib/sponsoredCache';
 import Svg, { Circle, Ellipse, Line, Path, Rect } from 'react-native-svg';
 
 export const HOME_NEAR_END = 'home:near-end';
@@ -345,32 +346,40 @@ function SponsoredProductCard({ product, variantId, pilot, onOpen, width }) {
   </Pressable>;
 }
 
-export function SponsoredCategoryBlock({ channel, categoryId, ready = true, onShown }) {
+/**
+ * `onSettled(true)` once this category's sponsored answer is known (rows, none, or a failed request), so the
+ * category grid can wait for it: sponsored products move out of the grid into this row, and showing the grid
+ * first made those cards jump from the grid into the row.
+ */
+export function SponsoredCategoryBlock({ channel, categoryId, ready = true, onShown, onSettled }) {
   const theme = useAppTheme();
   const { getDeliveryPoint, setSelectedProduct } = useUser();
   const point = getDeliveryPoint?.();
   const lat = point?.lat, lng = point?.lng;
   const context = `${channel}:${categoryId}:${lat}:${lng}`;
-  const [result, setResult] = useState(null), [tick, setTick] = useState(0);
+  const eligible = Boolean(categoryId) && ['ecommerce', 'grocery'].includes(channel);
+  const toResult = answer => ({ context, rows: answer.ok && ['NON_BILLABLE_PILOT', 'SPONSORED_CATEGORY'].includes(answer.body.meta?.mode) ? uniqueSponsoredProducts(answer.body.data) : [] });
+  // An answer fetched in the background shows on the first frame (no loading step).
+  const [result, setResult] = useState(() => { const warm = eligible ? peekSponsored(sponsoredQuery(channel, categoryId, { lat, lng })) : null; return warm ? toResult(warm) : null; });
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (!ready || !categoryId || !['ecommerce', 'grocery'].includes(channel)) return undefined;
+    if (!eligible) return undefined;
     let alive = true;
-    setResult(null);
-    const controller = new AbortController();
-    const query = new URLSearchParams({ type: channel, category: categoryId });
-    if (Number.isFinite(lat) && Number.isFinite(lng)) { query.set('lat', String(lat)); query.set('lng', String(lng)); }
-    boundedFetch(`/api/advertising/placements?${query}`, { signal: controller.signal }, 4000).then(async response => {
-      const body = await response.json();
-      if (alive && response.ok && ['NON_BILLABLE_PILOT', 'SPONSORED_CATEGORY'].includes(body.meta?.mode)) setResult({ context, rows: uniqueSponsoredProducts(body.data) });
-    }).catch(() => {});
-    const timer = setTimeout(() => { if (alive) { setResult(null); setTick(n => n + 1); } }, 30000);
-    return () => { alive = false; controller.abort(); clearTimeout(timer); };
-  }, [context, ready, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Starts with the category's products (not after them), and reuses an answer fetched in the background in the
+    // last 20 s. A refresh keeps the current row until the new answer.
+    fetchSponsored(sponsoredQuery(channel, categoryId, { lat, lng }), { fresh: tick > 0 }).then(answer => {
+      if (alive) setResult(previous => (previous?.context === context && previous.answer === answer ? previous : { ...toResult(answer), answer }));
+    }).catch(() => { if (alive) setResult(previous => (previous?.context === context ? previous : { context, rows: [] })); });
+    const timer = setTimeout(() => { if (alive) setTick(n => n + 1); }, 30000);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [context, tick, eligible]); // eslint-disable-line react-hooks/exhaustive-deps
+  const settled = !eligible || result?.context === context;
+  useEffect(() => { onSettled?.(settled); }, [settled]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!result?.rows.length) return undefined;
     const expiry = Math.min(...result.rows.map(row => new Date(row.expiresAt).getTime()));
-    if (!Number.isFinite(expiry)) { setResult(null); return undefined; }
-    const timer = setTimeout(() => setResult(null), Math.max(1, Math.min(2147483647, expiry - Date.now())));
+    if (!Number.isFinite(expiry)) { setResult(previous => ({ ...previous, rows: [] })); return undefined; }
+    const timer = setTimeout(() => setResult(previous => ({ ...previous, rows: [] })), Math.max(1, Math.min(2147483647, expiry - Date.now())));
     return () => clearTimeout(timer);
   }, [result]);
   const rows = ready && result?.context === context ? result.rows : [];
@@ -409,11 +418,13 @@ export function SponsoredCategoryBlock({ channel, categoryId, ready = true, onSh
 
 export function DynamicCategorySection({ channel, slug }) {
   const theme = useAppTheme();
-  const { addToCart, setSelectedProduct } = useUser();
+  const { addToCart, setSelectedProduct, getDeliveryPoint } = useUser();
   const { node: category, categoryParam, loading: categoryLoading, error: categoryError, retry: retryCategories, exists } = useCategoryBranch(channel, slug);
   const { products, loading, error: productsError, retry: retryProducts } = useProducts({ type: channel, category: categoryParam, limit: 200, enabled: exists });
   const [expanded, setExpanded] = useState({});
   const [sponsoredIds, setSponsoredIds] = useState([]);
+  // Starts settled when the sponsored answer was already fetched in the background (no loading step).
+  const [sponsoredSettled, setSponsoredSettled] = useState(() => Boolean(category?._id && peekSponsored(sponsoredQuery(channel, category._id, getDeliveryPoint?.() || {}))));
   const listed = useMemo(() => products.filter(p => !sponsoredIds.includes(String(p.id || p._id))), [products, sponsoredIds]);
   const level2 = useMemo(() => category?.children || [], [category]);
   const isHeader = level2.length > 0;
@@ -438,8 +449,8 @@ export function DynamicCategorySection({ channel, slug }) {
   if (categoryError) return <LoadState title="Categories could not be loaded." detail={categoryError} onRetry={retryCategories} />;
   if (!category) return <LoadState title="This category is unavailable." detail="Please choose another category from the menu." />;
   return <View style={{ paddingHorizontal: 12, paddingBottom: 20 }}>
-    <SponsoredCategoryBlock channel={channel} categoryId={category._id} ready={!loading} onShown={setSponsoredIds} />
-    {loading ? <Text style={styles.centerMuted}>Loading products...</Text>
+    <SponsoredCategoryBlock key={category._id} channel={channel} categoryId={category._id} ready={!loading} onShown={setSponsoredIds} onSettled={setSponsoredSettled} />
+    {loading || !sponsoredSettled ? <Text style={styles.centerMuted}>Loading products...</Text>
       : productsError ? <LoadState title="Products could not be loaded." detail={productsError} onRetry={retryProducts} />
         : products.length === 0 ? <View style={styles.emptyDashed}><Text style={{ color: '#94a3b8', fontSize: 13 }}>No products listed here yet.</Text></View>
           : isHeader ? <View style={{ gap: 16 }}>{grouped.map(section => {

@@ -14,12 +14,19 @@ export async function readCatalog(url, fresh = false) {
     if (!res.ok) throw new Error(body.message || `Products unavailable (${res.status})`);
     const rows = body.products || body.data;
     if (!Array.isArray(rows)) throw new Error('Products returned an invalid response');
-    entry.done = true; entry.until = Date.now() + 15000;
-    return rows.map(normalizeProduct);
+    entry.done = true; entry.until = Date.now() + 60000; // pull-down refresh clears it sooner
+    entry.rows = rows.map(normalizeProduct);
+    return entry.rows;
   }).catch(error => { if (catalogRequests.get(url) === entry) catalogRequests.delete(url); throw error; });
   catalogRequests.set(url, entry);
   if (catalogRequests.size > 50) catalogRequests.delete(catalogRequests.keys().next().value);
   return entry.promise;
+}
+
+/** Products already loaded for this URL (and still fresh), for an instant first render; otherwise null. */
+export function peekCatalog(url) {
+  const entry = catalogRequests.get(url);
+  return entry?.done && entry.until > Date.now() ? entry.rows : null;
 }
 
 /**
@@ -91,9 +98,25 @@ export const normalizeProduct = (p) => {
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products
  */
+const catalogUrl = ({ type, category, limit, featured, maxPrice, lat, lng }) => {
+  const qs = new URLSearchParams();
+  if (type) qs.set('type', type);
+  if (category) qs.set('category', category);
+  if (featured) qs.set('isFeatured', 'true');
+  if (maxPrice !== undefined) qs.set('maxPrice', String(maxPrice));
+  if (lat !== undefined && lat !== null) qs.set('lat', String(lat));
+  if (lng !== undefined && lng !== null) qs.set('lng', String(lng));
+  qs.set('limit', String(limit));
+  return apiUrl(`/api/products?${qs.toString()}`);
+};
+
 export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, enabled = true } = {}) => {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const url = catalogUrl({ type, category, limit, featured, maxPrice, lat, lng });
+  const warm = enabled ? peekCatalog(url) : null;
+  const [products, setProducts] = useState(() => warm || []);
+  const [loading, setLoading] = useState(() => !warm);
+  const [shownUrl, setShownUrl] = useState(url);
+  if (shownUrl !== url) { setShownUrl(url); setProducts(warm || []); setLoading(!warm); }
   const [error, setError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
 
@@ -102,19 +125,10 @@ export const useProducts = ({ type, category, limit = 12, featured, maxPrice, la
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
+      if (!peekCatalog(url) || retryToken > 0) setLoading(true);
       setError('');
       try {
-        const qs = new URLSearchParams();
-        if (type) qs.set('type', type);
-        if (category) qs.set('category', category);
-        if (featured) qs.set('isFeatured', 'true');
-        if (maxPrice !== undefined) qs.set('maxPrice', String(maxPrice));
-        if (lat !== undefined && lat !== null) qs.set('lat', String(lat));
-        if (lng !== undefined && lng !== null) qs.set('lng', String(lng));
-        qs.set('limit', String(limit));
-
-        const rows = await readCatalog(apiUrl(`/api/products?${qs.toString()}`), retryToken > 0);
+        const rows = await readCatalog(url, retryToken > 0);
         if (cancelled) return;
         setProducts(rows);
       } catch (err) {
@@ -125,7 +139,7 @@ export const useProducts = ({ type, category, limit = 12, featured, maxPrice, la
     })();
 
     return () => { cancelled = true; };
-  }, [type, category, limit, featured, maxPrice, lat, lng, retryToken, enabled]);
+  }, [url, retryToken, enabled]);
 
   const retry = () => setRetryToken((value) => value + 1);
 

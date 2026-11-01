@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
 import { File, Paths } from 'expo-file-system';
-import { Scale } from 'lucide-react-native';
+import { ChevronRight, FileText, Scale, Search } from 'lucide-react-native';
 import { apiUrl, boundedFetch, getToken } from '../../api/client';
 import { session } from '../../lib/storage';
 import { useSession } from '../../context/SessionContext';
@@ -108,6 +108,7 @@ function FollowUp({ busy, submit }) {
 
 export default function LegalServices({ view, id: routeId }) {
   const router = useRouter();
+  const theme = useAppTheme();
   const request = useLegalApi();
   const sessionState = useSession();
   const { setActiveNav } = useUser();
@@ -163,20 +164,19 @@ export default function LegalServices({ view, id: routeId }) {
   const adminNote = history && detail ? [...(detail.events || [])].reverse().find(e => e.message && !['customer_response', 'information_required', 'rejected', 'submitted'].includes(e.action)) : null;
 
   return <View accessibilityLabel="Legal Services" style={{ padding: 16 }}>
-    <ServiceHeading title={history ? 'My Legal Service Requests' : 'Legal Services'}>
-      <Text style={{ color: '#52647b', fontSize: 14, lineHeight: 22 }}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>
-    </ServiceHeading>
-    <View style={styles.nav} accessibilityLabel="Legal services navigation">
-      <ActionButton variant={!history ? 'tab-on' : 'plain'} title="Browse services" onPress={() => navigate()} style={{ flexGrow: 1 }} />
-      <ActionButton variant={history ? 'tab-on' : 'plain'} title="My requests" onPress={() => (isLoggedIn ? navigate('requests') : signIn())} style={{ flexGrow: 1 }} />
-      {!isLoggedIn && <ActionButton variant="plain" title="Sign in" onPress={signIn} style={{ width: '100%' }} />}
+    <Text style={styles.intro}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>
+    <View style={[styles.segment, { borderColor: theme.border }]} accessibilityRole="tablist" accessibilityLabel="Legal services navigation">
+      {[['Browse services', !history, () => navigate()], ['My requests', history, () => (isLoggedIn ? navigate('requests') : signIn())]].map(([label, on, press]) =>
+        <Pressable key={label} onPress={press} accessibilityRole="tab" accessibilityState={{ selected: on }} style={[styles.segmentBtn, on && { backgroundColor: theme.action }]}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: on ? theme.actionText || '#fff' : '#475569' }}>{label}</Text>
+        </Pressable>)}
     </View>
+    {!isLoggedIn && <ActionButton variant="plain" title="Sign in to view your requests" onPress={signIn} style={{ marginBottom: 16 }} />}
     {notice ? <Text accessibilityLiveRegion="polite" style={{ marginBottom: 8 }}>{notice}</Text> : null}
     {error ? <View style={styles.state} accessibilityRole="alert"><Text style={styles.h2}>Legal Services update</Text><Text style={{ marginBottom: 10 }}>{error}</Text><ActionButton variant="soft" disabled={busy} title="Reload latest" onPress={() => refresh(n => n + 1)} style={{ alignSelf: 'flex-start' }} /></View> : null}
-    {!history && !id && <View style={{ gap: 12, marginBottom: 24 }}>
-      <Text style={{ color: '#334155', fontSize: 14, fontWeight: '600' }}>Search legal services</Text>
-      <TextInput value={search} onChangeText={t => { setSearch(t); setPage(1); }} maxLength={100} placeholder="Search by service name or keyword" placeholderTextColor="#94a3b8" accessibilityLabel="Search legal services" style={[styles.input, { minHeight: 48, borderColor: '#b8c7d7', borderRadius: 10 }]} />
-      <Text style={{ color: '#64748b', fontSize: 13 }}>Find the service you need by name or keyword.</Text>
+    {!history && !id && <View style={[styles.search, { borderColor: theme.border }]}>
+      <Search size={18} color="#64748b" />
+      <TextInput value={search} onChangeText={t => { setSearch(t); setPage(1); }} maxLength={100} placeholder="Search by service name or keyword" placeholderTextColor="#94a3b8" accessibilityLabel="Search legal services" style={styles.searchInput} />
     </View>}
     {loading ? <View style={styles.state}><Text>Loading Legal Services…</Text></View>
       : detail ? history ? <View>
@@ -223,16 +223,19 @@ export default function LegalServices({ view, id: routeId }) {
         </View>
       </View>
         : !error && <View>
-          <View style={{ gap: 16 }}>{items.map(a => <View key={a._id} style={[styles.card, { margin: 0 }]}>
-            <Text style={styles.h3}>{a.name || a.serviceName}</Text>
-            {history ? <>
-              <ServiceReference value={a._id} />
-              <Text style={styles.p}>{statusLabel(a.status)} · {statusLabel(a.paymentStatus)}</Text>
-              <Text style={styles.p}>{new Date(a.createdAt).toLocaleDateString()}</Text>
-            </> : <Text style={styles.p}>{a.description}</Text>}
-            <ActionButton title={history ? 'View request' : 'View service'} style={{ alignSelf: 'flex-start', marginTop: 6, minHeight: 38 }}
-              onPress={() => { if (history) navigate('requests', a._id); else if (!isLoggedIn) signIn(); else navigate(undefined, a._id); }} />
-          </View>)}</View>
+          <View style={{ gap: 12 }}>{items.map(a => <Pressable key={a._id} accessibilityRole="button" accessibilityLabel={(history ? 'View request ' : 'View service ') + (a.name || a.serviceName)}
+            onPress={() => { if (history) navigate('requests', a._id); else if (!isLoggedIn) signIn(); else navigate(undefined, a._id); }}
+            style={({ pressed }) => [styles.item, { borderColor: theme.border }, pressed && { backgroundColor: '#f8fafc' }]}>
+            <View style={[styles.itemIcon, { backgroundColor: theme.highlight }]}>{history ? <FileText size={22} color={theme.highlightText} /> : <Scale size={22} color={theme.highlightText} />}</View>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Text numberOfLines={2} style={styles.itemTitle}>{a.name || a.serviceName}</Text>
+              {history ? <>
+                <Text style={[styles.chip, { backgroundColor: theme.highlight, color: theme.highlightText }]}>{REQUEST_STATUS[a.status] || statusLabel(a.status)}</Text>
+                <Text style={styles.itemMeta}>{new Date(a.createdAt).toLocaleDateString()} · <ServiceReference value={a._id} /></Text>
+              </> : a.description ? <Text numberOfLines={2} style={styles.itemMeta}>{a.description}</Text> : null}
+            </View>
+            <ChevronRight size={20} color="#94a3b8" />
+          </Pressable>)}</View>
           {!items.length && <View style={styles.state}>
             <Text style={styles.h2}>{history ? 'No requests yet' : 'No eligible services available'}</Text>
             <Text style={styles.p}>{history ? 'Your private legal service requests will appear here.' : search ? 'Try another search to find a legal service.' : 'Legal services are currently unavailable. Please check back for available services.'}</Text>
@@ -249,6 +252,16 @@ export default function LegalServices({ view, id: routeId }) {
 const styles = StyleSheet.create({
   headIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbeaf5' },
   nav: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16, marginBottom: 20 },
+  intro: { color: '#52647b', fontSize: 14, lineHeight: 21, marginBottom: 14 },
+  segment: { flexDirection: 'row', padding: 4, borderWidth: 1, borderRadius: 12, backgroundColor: '#fff', marginBottom: 16, gap: 4 },
+  segmentBtn: { flex: 1, minHeight: 42, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 14, borderWidth: 1, borderRadius: 12, backgroundColor: '#fff', marginBottom: 18 },
+  searchInput: { flex: 1, fontSize: 15, color: '#172b4d', paddingVertical: 10 },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderWidth: 1, borderRadius: 14, backgroundColor: '#fff' },
+  itemIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  itemTitle: { fontSize: 15.5, fontWeight: '700', color: '#172b4d', lineHeight: 21 },
+  itemMeta: { fontSize: 13, color: '#64748b', lineHeight: 18 },
+  chip: { alignSelf: 'flex-start', fontSize: 11.5, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999, overflow: 'hidden' },
   btn: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   card: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 16, marginVertical: 16 },
   state: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderTopWidth: 3, borderTopColor: '#ff8500', borderRadius: 14, padding: 16, marginVertical: 16 },

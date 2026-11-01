@@ -4,11 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
-import { alpha } from '../theme';
 import { boundedFetch, mediaUrl } from '../api/client';
 import { useRefreshHandler } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
@@ -24,7 +22,7 @@ function WholesaleArtwork({ product, theme }) {
   const [failed, setFailed] = useState(false);
   const src = imageUrl(product);
   return src && !failed
-    ? <Image source={{ uri: mediaUrl(src) }} onError={() => setFailed(true)} style={{ width: '100%', height: '100%' }} contentFit="contain" accessibilityLabel={product.name} />
+    ? <Image source={{ uri: mediaUrl(src) }} onError={() => setFailed(true)} style={StyleSheet.absoluteFill} contentFit="cover" accessibilityLabel={product.name} />
     : <View style={[styles.fallback, { borderColor: '#b8e9f7' }]} accessibilityLabel={product.name || 'Product image unavailable'}><Text style={{ fontWeight: '800', fontSize: 16, color: theme.actionHover }}>BM</Text></View>;
 }
 
@@ -32,7 +30,7 @@ export default function WholesaleScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { openWholesaleProduct } = useUser();
+  const { openWholesaleProduct, setActiveNav } = useUser();
   const bottom = useNavPadding(16);
   const blue = theme.action, blueDark = theme.actionHover;
   const [products, setProducts] = useState([]);
@@ -92,14 +90,7 @@ export default function WholesaleScreen() {
   const openProduct = product => openWholesaleProduct(product._id, product.variants?.find(v => v.available)?.variantId);
 
   const header = <View>
-    <LinearGradient colors={['#ffffff', '#f0faff']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.banner}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: blue, borderWidth: 3, borderColor: alpha(theme.primary, 0.22) }} />
-        <Text style={{ color: blueDark, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.9, textTransform: 'uppercase' }}>Bulkimart · Bulk Buying</Text>
-      </View>
-      <Text accessibilityRole="header" style={{ marginBottom: 4, color: theme.text, fontSize: 19, fontWeight: '800', lineHeight: 23, letterSpacing: -0.4 }}>Wholesale / Bulk Buying</Text>
-      <Text style={{ color: theme.muted, fontSize: 12.5, lineHeight: 17.5 }}>Buy in bulk from approved sellers with quantity-based pricing.</Text>
-    </LinearGradient>
+    <Text style={{ color: theme.muted, fontSize: 14, lineHeight: 20, marginBottom: 12, paddingHorizontal: 2 }}>Buy in bulk from approved sellers with quantity-based pricing.</Text>
     <View style={[styles.toolbar, { borderColor: theme.border }]}>
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
         <View style={{ flex: 1, justifyContent: 'center' }}>
@@ -143,10 +134,10 @@ export default function WholesaleScreen() {
     const fromPrice = Math.min(...available.flatMap(variant => (variant.priceTiers || []).map(tier => Number(tier.unitPrice))));
     const minMoq = available.length ? Math.min(...available.map(variant => variant.minimumQuantity || 1)) : 1;
     return <Pressable onPress={() => openProduct(product)} accessibilityRole="button" accessibilityLabel={`View wholesale details for ${product.name}`} style={[styles.card, { borderColor: theme.border }]}>
-      <LinearGradient colors={['#f8fafc', '#f1f5f9']} style={styles.art}>
-        <View style={{ width: '100%', height: '100%', padding: 10, alignItems: 'center', justifyContent: 'center' }}><WholesaleArtwork product={product} theme={theme} /></View>
+      <View style={[styles.art, { backgroundColor: '#f8fafc' }]}>
+        <WholesaleArtwork product={product} theme={theme} />
         {product.category?.name ? <Text numberOfLines={1} style={[styles.tag, { color: blueDark }]}>{product.category.name}</Text> : null}
-      </LinearGradient>
+      </View>
       <View style={{ flex: 1, paddingTop: 10, paddingHorizontal: 10, paddingBottom: 12, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Icon size={12} width={2} color="#94a3b8"><Path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><Polyline points="9 22 9 12 15 12 15 22" /></Icon>
@@ -162,16 +153,22 @@ export default function WholesaleScreen() {
           <Text style={[styles.moq, { color: theme.actionHover, backgroundColor: theme.highlight }]}>MOQ: {minMoq} {minMoq === 1 ? 'unit' : 'units'}</Text>
           <Text style={{ color: theme.muted, fontSize: 11, fontWeight: '600' }}>{available.length === 1 ? '1 variant' : `${available.length} variants`}</Text>
         </View>
-        <View style={[styles.cta, { backgroundColor: theme.highlight }]}>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: blueDark }}>View Product</Text>
-          <Icon color={blueDark}><Polyline points="9 18 15 12 9 6" /></Icon>
+        <View style={[styles.cta, { backgroundColor: theme.action, borderRadius: theme.buttonRadius || 10 }]}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: theme.actionText || '#fff' }}>View bulk options</Text>
         </View>
       </View>
     </Pressable>;
   };
 
   const showList = !(loading && !refreshing) && !error;
-  return <CustomerPage background={theme.pageBackground}>
+  const back = () => (router.canGoBack() ? router.back() : setActiveNav('home'));
+  return <CustomerPage background={theme.pageBackground} headerColor={theme.header}>
+    <View style={[styles.appbar, { backgroundColor: theme.header }]}>
+      <Pressable onPress={back} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} style={{ padding: 6 }}>
+        <Icon size={24} width={2.4} color={theme.headerText || '#fff'}><Line x1="19" y1="12" x2="5" y2="12" /><Polyline points="12 19 5 12 12 5" /></Icon>
+      </Pressable>
+      <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, fontSize: 18, fontWeight: '800', color: theme.headerText || '#fff' }}>Wholesale</Text>
+    </View>
     <FlatList ref={list} data={showList ? products : []} keyExtractor={p => String(p._id)} numColumns={2} renderItem={renderCard}
       ListHeaderComponent={header} columnWrapperStyle={{ gap: 10 }} contentContainerStyle={{ paddingTop: 10, paddingHorizontal: 10, gap: 10, paddingBottom: bottom }}
       keyboardShouldPersistTaps="handled"
@@ -195,27 +192,28 @@ export default function WholesaleScreen() {
 }
 
 const styles = StyleSheet.create({
-  banner: { borderWidth: 1, borderColor: '#d9f2fa', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10 },
-  toolbar: { backgroundColor: '#fff', borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12, gap: 12 },
-  search: { minHeight: 44, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 38, fontSize: 16, backgroundColor: '#fff' },
+
+  toolbar: { marginBottom: 12, gap: 12 },
+  appbar: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 12 },
+  search: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 38, fontSize: 16, backgroundColor: '#fff' },
   clear: { position: 'absolute', right: 10, width: 22, height: 22, borderRadius: 11, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  filterBtn: { width: 46, height: 46, borderWidth: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  filterBtn: { width: 48, height: 48, borderWidth: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, borderWidth: 2, borderColor: '#fff' },
   panel: { gap: 6, padding: 12, borderWidth: 1, borderRadius: 12 },
   panelLabel: { fontSize: 12, fontWeight: '700', color: '#64748b', marginTop: 4 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   chip: { minHeight: 28, paddingHorizontal: 10, borderWidth: 1, borderRadius: 999, backgroundColor: '#fff', justifyContent: 'center' },
   state: { borderWidth: 1, borderRadius: 16, paddingVertical: 48, paddingHorizontal: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   stateText: { marginBottom: 16, color: '#64748b', fontSize: 13.5, lineHeight: 19.5, textAlign: 'center' },
   primaryBtn: { minHeight: 40, borderRadius: 9, paddingVertical: 9, paddingHorizontal: 18, justifyContent: 'center' },
   secondaryBtn: { minHeight: 40, borderWidth: 1, borderRadius: 9, paddingVertical: 9, paddingHorizontal: 18, backgroundColor: '#fff', justifyContent: 'center' },
   card: { flex: 1, maxWidth: '50%', backgroundColor: '#fff', borderWidth: 1, borderRadius: 14, overflow: 'hidden', elevation: 1 },
-  art: { height: 135, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  art: { width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   tag: { position: 'absolute', top: 8, left: 8, maxWidth: '85%', backgroundColor: 'rgba(255,255,255,0.94)', borderWidth: 1, borderColor: 'rgba(226,232,240,0.85)', borderRadius: 6, paddingVertical: 2, paddingHorizontal: 8, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, overflow: 'hidden' },
   fallback: { width: 64, height: 64, borderWidth: 1.5, borderRadius: 16, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   metaCard: { gap: 4, paddingTop: 6, borderTopWidth: 1, borderStyle: 'dashed', alignItems: 'flex-start' },
   moq: { fontWeight: '700', fontSize: 10.5, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 6, borderWidth: 1, borderColor: '#ffedd5', overflow: 'hidden' },
-  cta: { marginTop: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 5, paddingHorizontal: 8, borderRadius: 8 },
+  cta: { marginTop: 8, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   pagination: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 8 },
   pageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 34, paddingHorizontal: 12, borderWidth: 1, borderRadius: 8, backgroundColor: '#fff' },
 });

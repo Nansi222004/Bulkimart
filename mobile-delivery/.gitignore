@@ -1,0 +1,22 @@
+node_modules/
+.bundle/
+*.log
+
+# Android build output and local config
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/app/release/
+*.apk
+*.aab
+
+# Signing and Firebase config never go into git
+*.keystore
+keystore.properties
+android/app/google-services.json
+google-services*.json
+
+.env
+.env.*

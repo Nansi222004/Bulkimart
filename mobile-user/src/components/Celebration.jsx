@@ -2,14 +2,16 @@
 // The web renderer runs unchanged against a canvas-compatible recorder; each frame becomes a few batched SVG
 // paths. Always clipped to its host (festive header, hero art, splash card, section banner); never full-screen.
 // Reduced motion follows the admin's choice: hide, or show a still frame ('static').
-import React, { useEffect, useRef, useState } from 'react';
+import React, { startTransition, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, StyleSheet, View } from 'react-native';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 import { startCelebration } from '../lib/celebrationRenderer';
 import { effectActive } from '../shared/celebration';
 import { useStorefrontNow } from '../context/StorefrontContext';
 
-const FRAME_MS = 1000 / 24;
+// 15 fps keeps the motion smooth while leaving the JS thread free for taps; each frame is also a
+// low-priority React update (startTransition), so a tap is always handled before the next frame.
+const FRAME_MS = 1000 / 15;
 
 export function useReducedMotion() {
   const [reduced, setReduced] = useState(false);
@@ -95,7 +97,7 @@ function Layer({ effect, width, height, still }) {
         const tick = time => {
           if (!alive) return;
           if (time - last < FRAME_MS) { pending = requestAnimationFrame(tick); return; }
-          last = time; pending = 0; cb(time); if (alive) setFrame(recorder.frame());
+          last = time; pending = 0; cb(time); if (alive) { const next = recorder.frame(); startTransition(() => setFrame(next)); }
         };
         pending = requestAnimationFrame(tick);
         return pending;
@@ -129,4 +131,6 @@ export default function Celebration({ effect }) {
   </View>;
 }
 
-const styles = StyleSheet.create({ layer: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', zIndex: 1 } });
+// No zIndex: hosts render the layer after their background/media and before their content, so it sits behind
+// the header's logo, search bar and buttons (web: `.sf-celebration { z-index: -1 }`) but above banner images.
+const styles = StyleSheet.create({ layer: { ...StyleSheet.absoluteFill, overflow: 'hidden' } });

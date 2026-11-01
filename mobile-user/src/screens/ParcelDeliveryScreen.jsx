@@ -28,7 +28,8 @@ function Shell({ children }) {
   const theme = useAppTheme();
   const bottom = useNavPadding(16);
   return <CustomerPage headerColor={theme.header}>
-    <ScrollView stickyHeaderIndices={[1]} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: bottom, backgroundColor: '#f6f8fb', flexGrow: 1 }}>
+    {/* scrollsChildToFocus off: tapping the native map moved focus and Android scrolled the page to the top. */}
+    <ScrollView stickyHeaderIndices={[1]} keyboardShouldPersistTaps="handled" scrollsChildToFocus={false} contentContainerStyle={{ paddingBottom: bottom, backgroundColor: '#f6f8fb', flexGrow: 1 }}>
       <HeaderTop />
       <HeaderPinned />
       <View style={{ paddingTop: 16, paddingHorizontal: 12 }}>{children}</View>

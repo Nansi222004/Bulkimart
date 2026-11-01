@@ -49,9 +49,9 @@ Web routing: `App.jsx` → `CustomerSessionGate` (verifies stored token with `GE
 | # | Web route / state | Web file | Guard | Native route / file | Status |
 |---|---|---|---|---|---|
 | 1 | `/` home (Quick / ShopAll) + sub-nav tabs | `LandingPage.jsx`, `UnifiedHeader.jsx`, sections | public | `app/index` → `HomeScreen` | Built, not tested |
-| 2 | Promotional splash (Storefront Studio) | `PromotionalSplash.jsx`, `SplashCard.jsx` | public, home launch | `components/storefront/PromotionalSplash` (root overlay) | Built, not tested |
-| 3 | `/search` + voice + image search | `SearchPage.jsx`, `VoiceSearchModal.jsx`, `ImageSearchSheet.jsx` | public | `app/search` | Built, not tested |
-| 4 | `/categories[/:slug]` | `CategoriesPage.jsx` | public | `app/categories` | Built, not tested |
+| 2 | Promotional splash | Studio splash (when one is live) | Studio splash shows: 3 slides, Skip, countdown | Pass | — |
+| 3 | Login + OTP (test account) | OTP sent, verified, signed in | Owner signed in on the phone; profile, address, cart, wishlist loaded | Pass | — |
+| 4 | Session persistence | Signed in after relaunch | Was signed out after relaunch → fixed; now stays signed in after force-stop + relaunch | Pass (after fix) | Bug 4 |
 | 5 | Product detail (+ wholesale offer) | `ProductDetailPage.jsx`, `ProductWholesaleOffer.jsx` | public | `app/product?id&purchase&variant` | Built, not tested |
 | 6 | `/cart` (unified basket) | `CartPage.jsx`, `BasketGroups.jsx`, `CartUI.jsx` | public; actions need sign-in | `app/cart` | Built, not tested |
 | 7 | `/checkout` (all modes, COD/online/wallet, tip, recovery) | `CheckoutPage.jsx`, `CommittedCheckoutReview.jsx` | protected | `app/checkout` | Built, not tested |
@@ -60,7 +60,7 @@ Web routing: `App.jsx` → `CustomerSessionGate` (verifies stored token with `GE
 | 10 | `/review/:productId` | `WriteReviewPage.jsx` | protected | `app/review/[id]` → `WriteReviewScreen` | Built, not tested |
 | 11 | `/account` (profile, wallet + top-up, addresses, support tickets, privacy, logout, delete) | `ProfilePage.jsx`, `TicketDetailModal.jsx`, `useTickets`, `useCustomerWallet` | protected | `app/account[?section=wallet]` → `ProfileScreen` | Built, not tested |
 | 12 | `/wishlist` | `WishlistPage.jsx` | protected | `app/wishlist` | Built, not tested |
-| 13 | `/ebooks` | `DigitalLibraryPage.jsx` | protected | `app/ebooks` → `EbooksScreen` | Built, not tested |
+| 13 | Orders | List, filters, search | 5 real orders with status, type badges, Rate Items | Pass | |
 | 14 | `/wholesale`, `/wholesale/cart` | `WholesalePage.jsx`, `WholesaleCartPage.jsx` | public browse | `app/wholesale`, `app/wholesale-cart` (→ cart, Wholesale group) | Built, not tested |
 | 15 | `/services` | `CustomerServices.jsx` | public | `app/services` | Built, not tested |
 | 16 | `/legal-services[/:id]`, `/legal-services/requests[/:id]` (form, fee payment, follow-up, private files) | `LegalServices.jsx`, `ServicesPanel.DynamicFields`, `ServicePaymentPanel.jsx` | browse public; requests need sign-in | `app/legal-services?view=requests&id=` | Built, not tested |
@@ -68,7 +68,7 @@ Web routing: `App.jsx` → `CustomerSessionGate` (verifies stored token with `GE
 | 18 | Campaign landing | `CampaignLandingPage.jsx` | public | `app/campaign/[id]` | Built, not tested |
 | 19 | Auth (sign in / register, OTP, terms) | `AuthPage.jsx`, `RegistrationTerms.jsx` | — | `screens/AuthPage` (shown by protected pages) | Built, not tested |
 | 20 | Location prompt / picker + landmark photo | `LocationPromptModal.jsx`, `LandmarkImagePicker.jsx` | public | modal + component | Built, not tested |
-| 21 | Notification drawer | `NotificationDrawer.jsx`, `useNotifications` | signed-in | modal | Built, not tested |
+| 21 | E-books / PDF | List, view, download | Purchased e-book listed, Downloaded ✓, View PDF button | Pass (render) | View PDF not yet tapped |
 | 22 | Exit confirmation on Home back | `LandingPage.jsx` | — | BackHandler in `HomeScreen` | Built, not tested |
 | 23 | Coupon celebration + threshold progress | `CouponSuccessCelebration.jsx`, `CouponThresholdProgress.jsx` | — | components | Built, not tested |
 | 24 | Pull-to-refresh | `PullToRefresh.jsx`, `refreshRegistry.js` | — | `RefreshControl` + `lib/refresh` | Built, not tested |
@@ -250,34 +250,47 @@ All paths relative to `https://api.bulkimart.in`. Auth = `Authorization: Bearer 
 ### Bugs found on the device and fixed
 1. **Every JSON API call failed on Android** — `boundedFetch` used `response.clone()`, which needs `ReadableStream` (absent in React Native): `ReferenceError: Property 'ReadableStream' doesn't exist`. Home showed "Wholesale/Legal availability could not be checked". Fixed in `src/api/client.js` (JSON body read once and served from memory; `portalRequest` only copies those).
 2. **Metro returned 500** — watcher timed out crawling `android/app/build` (1.2 GB). Fixed in `metro.config.js` blockList.
+4. **Signed out after every app restart** — sign-in deletes the old token then saves the new one; both are background SecureStore writes that Android can finish out of order, so the delete sometimes landed last. Fixed in `src/lib/storage.js` (writes to the same key are queued in order). Verified on the phone.
+5. **"Your session has expired" banner while signed in** — seen once on the first sign-in with the old build; not reproduced after fix 4 (live-updates socket connects cleanly on sign-in and on relaunch).
+6. **Page jumped to the top after tapping a map** — Android scrolled to the focused search box; fixed with `scrollsChildToFocus={false}` on the Parcel and Order tracking pages. Verified.
+7. **Invoice Total/Amount hidden** — the 4-column table was wider than the sheet; columns now fit the width (wide GST tables still scroll). Verified.
+8. **Notification prompt never shown** — Android 13+ reports a never-asked permission as denied/can-ask; banner now shows when not granted and Android can still ask (web: `default`). Verified.
 3. **Gradle path-length failures** — fixed by long paths + CMake 3.31.6 + short CMake build root (`android/settings.gradle`).
 
-## 16. Device test results (Motorola Edge 50 Fusion, debug build, guest — 2026-10-31)
+## 16. Device test results (Motorola Edge 50 Fusion, debug build, guest + signed in — 2026-10-31)
 
 Status: Pass · Fail · Not run. Signed-in, payment and OTP flows are **Not run**: they need a test account (no OTP was sent).
 
 | # | Area | Expected | Actual | Status | Error / fix |
 |---|---|---|---|---|---|
 | 1 | App launch | Logo launch screen → Home, no crash | Launches, Home renders | Pass | — |
-| 2 | Promotional splash | Studio splash (when one is live) | Not observed — confirm a splash is published in Studio | Not run | |
-| 3 | Login + OTP (test account) | OTP sent, verified, signed in | Sign-in screen renders; OTP not sent | Not run | Needs test account |
-| 4 | Session persistence | Signed in after relaunch | — | Not run | |
+| 2 | Promotional splash | Studio splash (when one is live) | Studio splash shows: 3 slides, Skip, countdown | Pass | — |
+| 3 | Login + OTP (test account) | OTP sent, verified, signed in | Owner signed in on the phone; profile, address, cart, wishlist loaded | Pass | — |
+| 4 | Session persistence | Signed in after relaunch | Was signed out after relaunch → fixed; now stays signed in after force-stop + relaunch | Pass (after fix) | Bug 4 |
 | 5 | Home | Sections, banners, sub-nav, themes from Studio | Banner, categories sub-nav, quick actions, Legal card, "Fresh finds" products load; scroll + pinned search work | Pass | Fixed bug 1 |
-| 6 | Search | Text, voice, image | — | Not run | |
+| 6 | Search | Text, voice, image | Text search "earbuds" returns the product card | Pass (text) | Voice/image not tried |
 | 7 | Categories | Tree and product lists load | Category grid with images and subcategory counts | Pass | |
 | 8 | Product details | Images, variants, offers, wishlist, add to cart | Gallery, variant picker, price/MRP, seller, stock, offers, CTA bar render | Pass (render) | Add to cart not yet tested |
-| 9–12 | Cart, coupons, checkout, payments | | — | Not run | Payments need test mode |
-| 13 | Orders | Guest is asked to sign in | Sign-in screen shown | Pass (guest) | |
-| 14–16 | Tracking, returns, reviews | | — | Not run | Need signed-in orders |
+| 9 | Cart | Groups, quantities, server totals | Quick Commerce group, 2 items, qty steppers, Remove / Move to wishlist, Refresh prices | Pass (render) | Not changed during test |
+| 10–12 | Coupons, checkout, payments | | — | Not run | Payments need test mode |
+| 13 | Orders | List, filters, search | 5 real orders with status, type badges, Rate Items | Pass | |
+| 14 | Order tracking | Timeline, address, items, bill | Timeline, items, Reorder, Rate & Review, bill render. E-book order shows blank address (", -") — same on the web | Pass | Web/app both show blank address for digital orders |
+| 15 | Returns | Request with photos | All delivered items are "Non-returnable" (seller policy), so no return could be started | Not run | Needs a returnable delivered item |
+| 16 | Reviews | Rating + photos | "Reviewed" state shows; review form not opened (tap blocked by tool safety check) | Not run | Owner to open Rate & Review by hand |
 | 17 | Wishlist | | — | Not run | |
-| 18–20 | Account, addresses, wallet | | — | Not run | Need sign-in |
-| 21 | E-books / PDF | | — | Not run | |
+| 18 | Account | Profile, menu | Name, ID, wallet balance, all menu entries, Logout, Delete Account | Pass (render) | Logout/Delete not tapped |
+| 19 | Addresses | List, add, set active, delete | 2 saved addresses, default marked, actions shown | Pass (render) | Not changed |
+| 20 | Wallet | Balance, history, top-up | ₹0.00, ACTIVE, empty history, Add Money button | Pass (render) | Top-up not tried (payment) |
+| 21 | E-books / PDF | View/download PDF | List OK; View PDF → backend 503 "This e-book file is temporarily unavailable" (server file missing or checksum mismatch) | Fail (server) | Restore the e-book file on the server; app shows the server message correctly |
 | 22 | Wholesale | | Tile now shows (availability API OK) | Partial | |
 | 23 | Campaigns | | — | Not run | |
 | 24–25 | Services / Legal services | | Legal card shows "Browse" (catalogue API OK) | Partial | |
 | 26 | Parcel delivery | | — | Not run | |
-| 27 | Maps | | No Maps key in this build → "Map unavailable" expected | Not run | Needs `GOOGLE_MAPS_ANDROID_API_KEY` + rebuild |
-| 28–30 | Uploads, downloads, notifications | | — | Not run | |
-| 31–32 | Logout, session expiry | | — | Not run | |
-| 33 | Android back | Closes screens/panels | Product → Home; sign-in → previous tab | Pass (partial) | Exit prompt on Home not yet tested |
+| 27 | Maps | Google map with tiles and pins | Parcel picker: India map loads; tap drops pin, zooms to road level, backend fills address + pincode. Needed "Maps SDK for Android" enabled on the key project | Pass | Minor: page jumps to top after tapping the map |
+| 28 | Uploads | | — | Not run | |
+| 29 | Downloads / invoice | Invoice view + print | Invoice opens; Total/Amount column was off-screen → fixed | Pass (after fix) | Bug 7 |
+| 30 | Notifications | Prompt, permission, backend registration | Orders banner → Android dialog → Allow → granted; push token registered (stored marker present) | Pass (after fix) | Bug 8 |
+| 31 | Logout | Session cleared | Not tapped (tool safety check) | Not run | Owner to try by hand |
+| 32 | Session expiry | 401 → signed out | — | Not run | |
+| 33 | Android back | Closes screens; Home asks "Exit Bulkimart?" | Product → Home; sign-in → previous tab; Home → exit prompt | Pass | |
 | 34 | Network loss / return | Offline message + Retry | — | Not run | |

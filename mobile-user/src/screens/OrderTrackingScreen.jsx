@@ -260,7 +260,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
       <Pressable onPress={close} accessibilityLabel="Back" style={{ padding: 8 }}><ChevronLeft size={20} width={2.5} color="#172b4d" /></Pressable>
       <Text style={styles.headerTitle}>TRACK ORDER</Text>
     </View>
-    <ScrollView contentContainerStyle={{ paddingVertical: 20, paddingHorizontal: 16, gap: 16, paddingBottom: 40 + insets.bottom }}>
+    <ScrollView scrollsChildToFocus={false} contentContainerStyle={{ paddingVertical: 20, paddingHorizontal: 16, gap: 16, paddingBottom: 40 + insets.bottom }}>
       <Card style={{ gap: 8 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ fontSize: 11, fontWeight: '800', color: '#94a3b8' }}>ORDER NUMBER</Text>

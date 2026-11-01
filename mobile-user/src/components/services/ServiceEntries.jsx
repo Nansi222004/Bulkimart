@@ -22,23 +22,27 @@ export function parcelBookingReady(flags, policy) {
 function ServiceLink({ title, onPress, primary, disabled }) {
   const theme = useAppTheme();
   return <Pressable disabled={disabled} onPress={onPress} accessibilityRole="button"
-    style={[styles.link, { borderColor: primary ? theme.action : theme.border, backgroundColor: primary ? theme.action : theme.highlight }, primary && { width: 180 }, disabled && { opacity: 0.5 }]}>
-    <Text style={{ fontSize: 14, fontWeight: '600', color: primary ? '#fff' : theme.highlightText, textAlign: 'center' }}>{title}</Text>
+    style={[styles.link, { borderColor: primary ? theme.action : theme.border, backgroundColor: primary ? theme.action : theme.highlight }, disabled && { opacity: 0.5 }]}>
+    <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: '700', color: primary ? theme.actionText || '#fff' : theme.highlightText, textAlign: 'center' }}>{title}</Text>
   </Pressable>;
 }
 
 function Card({ Icon, title, body, children }) {
   const theme = useAppTheme();
-  return <View style={[styles.card, { borderColor: theme.border }]}>
-    <Icon size={24} color="#ed8719" />
-    <Text style={styles.cardTitle}>{title}</Text>
-    <Text style={styles.cardBody}>{body}</Text>
+  return <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.surface || '#fff' }]}>
+    <View style={styles.head}>
+      <View style={[styles.iconTile, { backgroundColor: theme.highlight }]}><Icon size={24} color={theme.highlightText} /></View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>{title}</Text>
+        <Text style={[styles.cardBody, { color: theme.muted }]}>{body}</Text>
+      </View>
+    </View>
     {children}
   </View>;
 }
 
 function Status({ text, alert, onRetry, retryLabel }) {
-  return <Text accessibilityRole={alert ? 'alert' : undefined} style={styles.cardBody}>{text}{onRetry ? ' ' : ''}{onRetry ? <Text onPress={onRetry} style={{ fontWeight: '700', textDecorationLine: 'underline' }}>{retryLabel}</Text> : null}</Text>;
+  return <Text accessibilityRole={alert ? 'alert' : undefined} style={styles.status}>{text}{onRetry ? ' ' : ''}{onRetry ? <Text onPress={onRetry} style={{ fontWeight: '700', textDecorationLine: 'underline' }}>{retryLabel}</Text> : null}</Text>;
 }
 
 export function LegalServiceCard() {
@@ -65,7 +69,10 @@ export function LegalServiceCard() {
     return () => c.abort();
   }, [attempt]);
   return <Card Icon={BriefcaseBusiness} title="Legal Services" body="Explore legal services and their requirements. Requests are reviewed by the team.">
-    {state === 'enabled' ? <ServiceLink primary title="Browse Legal Services" onPress={() => router.push('/legal-services')} />
+    {state === 'enabled' ? <View style={styles.actions}>
+      <ServiceLink primary title="Explore services" onPress={() => router.push('/legal-services')} />
+      <ServiceLink title="My requests" onPress={() => router.push('/legal-services?view=requests')} />
+    </View>
       : state === 'loading' ? <Status text="Checking legal services availability…" />
         : state === 'error' ? <Status alert text="Legal services availability could not be checked." onRetry={() => retry(n => n + 1)} retryLabel="Retry legal availability" />
           : <Status text="No customer legal services are currently available. Please check back later." />}
@@ -93,7 +100,7 @@ export function ParcelServiceCard() {
   }, [attempt]);
   return <Card Icon={Package} title="Send a Parcel" body="Doorstep pickup. A delivery fee before you book. Your parcel, delivered with care.">
     {state === 'loading' ? <Status text="Checking parcel availability…" />
-      : state === 'enabled' ? <Status text="Ready to send? Get a delivery fee before confirming." />
+      : state === 'enabled' ? null
         : state === 'error' ? <Status alert text="Parcel availability could not be checked." onRetry={() => retry(n => n + 1)} retryLabel="Retry parcel availability" />
           : <Status text="New deliveries are currently unavailable. You can still view your delivery history." />}
     <View style={styles.actions}>
@@ -109,9 +116,12 @@ export function HomeServiceEntries() {
 }
 
 const styles = StyleSheet.create({
-  card: { padding: 14, borderWidth: 1, borderRadius: 14, backgroundColor: '#fff', alignItems: 'flex-start' },
-  cardTitle: { fontSize: 18, fontWeight: '700', marginVertical: 8, color: '#172b4d' },
-  cardBody: { fontSize: 14, lineHeight: 20, color: '#172b4d', marginBottom: 12 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingTop: 6 },
-  link: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  card: { padding: 14, borderWidth: 1, borderRadius: 16, gap: 12, elevation: 1, shadowColor: '#0f172a', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+  head: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  iconTile: { width: 46, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 16, fontWeight: '800', marginBottom: 2 },
+  cardBody: { fontSize: 13, lineHeight: 18 },
+  status: { fontSize: 13, lineHeight: 18, color: '#52647b' },
+  actions: { flexDirection: 'row', gap: 10 },
+  link: { flex: 1, minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });

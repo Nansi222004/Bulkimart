@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20 },
   blob: { position: 'absolute', borderRadius: 999 },
   card: { width: '100%', maxWidth: 420, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 24, paddingVertical: 32, paddingHorizontal: 28, elevation: 10, shadowColor: '#073b78', shadowOpacity: 0.24, shadowRadius: 30, shadowOffset: { width: 0, height: 24 } },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.85)', zIndex: 100, borderRadius: 24, alignItems: 'center', justifyContent: 'center', gap: 16 },
+  loadingOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(255,255,255,0.85)', zIndex: 100, borderRadius: 24, alignItems: 'center', justifyContent: 'center', gap: 16 },
   loadingText: { fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
   brand: { alignItems: 'center', marginBottom: 24 },
   tabs: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginBottom: 24, borderWidth: 1, borderColor: '#e2e8f0' },

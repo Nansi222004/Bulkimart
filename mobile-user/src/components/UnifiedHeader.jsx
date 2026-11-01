@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import { House, MessageCircle, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react-native';
+import { House, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react-native';
 import { useUser } from '../context/UserContext';
 import { useStorefront } from '../context/StorefrontContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -106,21 +106,21 @@ function CategoryTabArtwork({ category }) {
     : <Image source={{ uri: mediaUrl(source) }} style={{ width: 18, height: 18 }} contentFit="contain" tintColor="#ffffff" onError={() => setFailed(true)} />;
 }
 
+// The page effect is drawn once, in HeaderTop only. The web header is one box with one effect layer; the app
+// splits it into HeaderTop + this pinned part, and a second layer here repeated the lights across the search bar.
 export function HeaderPinned() {
   const theme = useAppTheme();
-  const effect = useHeaderEffect();
   const { headerCategories = [] } = useStorefront();
   const { activeMode, activeSubNav, setActiveSubNav, setActiveNav, openVoiceSearch, openImageSearch } = useUser();
   const items = [
     ...(activeMode === 'shop-all'
       ? [{ id: 'ecommerce--smart-buy', label: 'Smart Buy', Icon: CircleArrowRight }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
-      : [{ id: 'grocery--home', label: 'My Home', Icon: House }, { id: 'coupons', label: 'Coupons', Icon: MessageCircle }]),
+      : [{ id: 'grocery--home', label: 'My Home', Icon: House }]),
     { id: 'explore-more', label: 'All categories', Icon: LayoutGrid },
   ];
   const tab = item => <SubNavItem key={item.id} label={item.label} active={activeSubNav === item.id} icon={<item.Icon size={18} color="#fff" strokeWidth={2.2} />}
     onPress={() => (item.id === 'explore-more' ? setActiveNav('categories') : setActiveSubNav(item.id))} />;
   return <View style={{ backgroundColor: theme.header, overflow: 'hidden' }}>
-    {effect && <Celebration effect={effect} />}
     <View style={{ paddingTop: 8, paddingHorizontal: 12 }}>
       <View style={[styles.searchPill, { backgroundColor: theme.search, borderRadius: theme.buttonRadius }]}>
         <Pressable style={styles.searchTap} onPress={() => setActiveNav('search')} accessibilityRole="search" accessibilityLabel="Open search">

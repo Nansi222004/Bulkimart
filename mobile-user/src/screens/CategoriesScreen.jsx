@@ -38,6 +38,7 @@ export default function CategoriesScreen() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
   const [sponsoredIds, setSponsoredIds] = useState([]);
+  const [sponsoredSettled, setSponsoredSettled] = useState(false); // grid waits so sponsored cards do not jump out of it
   const openedFromGrid = useRef([]);
   const bottom = useNavPadding(18);
   const categoryIds = selected ? descendantIds(selected).join(',') : null;
@@ -75,7 +76,7 @@ export default function CategoriesScreen() {
           <Text style={[styles.detailTitle, { color: theme.brandDeepBlue }]}>{selected.name}</Text>
         </View>
       </View>
-      <FlatList data={productsLoading || productsError ? [] : listed} keyExtractor={p => String(p._id)} numColumns={2} columnWrapperStyle={{ gap: 12 }}
+      <FlatList data={productsLoading || productsError || !sponsoredSettled ? [] : listed} keyExtractor={p => String(p._id)} numColumns={2} columnWrapperStyle={{ gap: 12 }}
         contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottom, gap: 12 }}
         ListHeaderComponent={<View>
           {selected.children?.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }} accessibilityLabel={`Subcategories of ${selected.name}`}>
@@ -86,8 +87,8 @@ export default function CategoriesScreen() {
           </ScrollView>}
           <View style={[styles.results, { borderTopColor: theme.border }]}>
             {!productsLoading && !productsError && products.length > 0 && <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 8 }}>{products.length} {products.length === 1 ? 'product' : 'products'}</Text>}
-            <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} />
-            {productsLoading ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ width: '47%', height: 220 }} />)}</View>
+            <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} onSettled={setSponsoredSettled} />
+            {productsLoading || (!productsError && !sponsoredSettled) ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ width: '47%', height: 220 }} />)}</View>
               : productsError ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]} accessibilityRole="alert"><Text style={{ color: theme.textSecondary }}>{productsError}</Text><Pressable onPress={retryProducts} style={[styles.stateBtn, { backgroundColor: theme.primary }]}><Text style={styles.stateBtnText}>Retry</Text></Pressable></View>
                 : products.length === 0 ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>No available products</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>This category is active but currently has no published stock.</Text></View> : null}
           </View>

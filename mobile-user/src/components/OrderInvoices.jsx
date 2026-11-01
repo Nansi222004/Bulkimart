@@ -39,7 +39,12 @@ function InvoiceSheet({ invoice }) {
   const cols = ['Item', 'Qty', 'Price', ...(gst ? ['Taxable value', 'GST %'] : []), ...taxColumns.map(([l]) => l), 'Amount'];
   const line = l => [l.description, String(l.qty), money(l.unitPricePaise), ...(gst ? [money(l.taxableValuePaise), `${l.gstRate}%`] : []), ...taxColumns.map(([, k]) => money(l[k])), money(l.grossPaise)];
   const total = ['Total', '', '', ...(gst ? [money(doc.totals.taxableValuePaise), ''] : []), ...taxColumns.map(([, k]) => money(doc.totals[k])), money(doc.totals.grossPaise)];
-  const row = (cells, key, bold) => <View key={key} style={styles.tr}>{cells.map((c, i) => <Text key={i} style={[styles.td, i === 0 ? styles.first : null, bold && { fontWeight: '700' }]}>{c}</Text>)}</View>;
+  // Fit the table to the sheet width so the Amount column (and the total) is visible without sideways
+  // scrolling; the item column takes the remaining space. Wide GST tables still scroll.
+  const [tableWidth, setTableWidth] = useState(0);
+  const widths = cols.map((_, i) => (i === 0 ? 0 : i === 1 ? 40 : 76));
+  widths[0] = Math.max(110, tableWidth - widths.reduce((sum, w) => sum + w, 0));
+  const row = (cells, key, bold) => <View key={key} style={styles.tr}>{cells.map((c, i) => <Text key={i} style={[styles.td, { width: widths[i] }, i === 0 ? styles.first : null, bold && { fontWeight: '700' }]}>{c}</Text>)}</View>;
   return <View style={styles.invoice} accessibilityLabel={`${doc.title} ${invoice.invoiceNumber}`}>
     <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 4 }}>{doc.title}</Text>
     <Text style={styles.meta}>No. {invoice.invoiceNumber}   Date {date(invoice.issuedAt)}   Order {doc.orderNo || doc.orderId}{doc.deliveredAt ? `   Delivered ${date(doc.deliveredAt)}` : ''}</Text>
@@ -47,7 +52,7 @@ function InvoiceSheet({ invoice }) {
       <View><Text style={styles.party}>SOLD BY</Text><Text style={styles.small}>{doc.seller.name}{doc.seller.storeName && doc.seller.storeName !== doc.seller.name ? ` (${doc.seller.storeName})` : ''}{'\n'}{doc.seller.address}{gst ? `\nGSTIN ${doc.seller.gstin}` : ''}</Text></View>
       <View><Text style={styles.party}>BILLED TO</Text><Text style={styles.small}>{doc.customer.name || 'Customer'}{'\n'}{doc.customer.address}{doc.placeOfSupply ? `\nPlace of supply: ${doc.placeOfSupply}` : ''}</Text></View>
     </View>
-    <ScrollView horizontal showsHorizontalScrollIndicator>
+    <ScrollView horizontal showsHorizontalScrollIndicator onLayout={e => setTableWidth(Math.floor(e.nativeEvent.layout.width))}>
       <View>{row(cols, 'h', true)}{doc.lines.map((l, i) => row(line(l), i))}{row(total, 't', true)}</View>
     </ScrollView>
     {doc.totals.discountPaise > 0 && <Text style={[styles.small, { marginTop: 8 }]}>Bulkimart discount: −{money(doc.totals.discountPaise)} · You paid {money(doc.totals.customerPaidPaise)} for these items.</Text>}
@@ -95,5 +100,5 @@ const styles = StyleSheet.create({
   small: { fontSize: 13, lineHeight: 19, color: '#111' },
   tr: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e3e8ec' },
   td: { width: 84, paddingVertical: 6, paddingHorizontal: 4, fontSize: 12, textAlign: 'right' },
-  first: { width: 150, textAlign: 'left' },
+  first: { textAlign: 'left' },
 });

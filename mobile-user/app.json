@@ -42,9 +42,6 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 160,
-          "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
         }
       ],
@@ -99,8 +96,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Bulkimart lets you choose photos for image search, reviews, returns and support requests.",
-          "cameraPermission": "Bulkimart uses the camera for image search and to attach photos to reviews, returns and support requests.",
-          "microphonePermission": false
+          "cameraPermission": "Bulkimart uses the camera for image search and to attach photos to reviews, returns and support requests."
         }
       ],
       [

@@ -37,7 +37,12 @@ function CtaButton({ title, onPress, colors }) {
   </Pressable>;
 }
 
-export default function HeroBanner() {
+/**
+ * `showDefault`: whether to show the built-in "Everyday finds" picture when Storefront Studio has no banner.
+ * Category tabs pass false so the bundled picture does not fill the screen above a category's products;
+ * banners published in Studio (including category-targeted ones) always show.
+ */
+export default function HeroBanner({ showDefault = true }) {
   const theme = useAppTheme();
   const { banners, loading } = useStorefront();
   const reduced = useReducedMotion();
@@ -52,6 +57,7 @@ export default function HeroBanner() {
   }, [banners.length, paused, reduced, banner?.video]);
   const decoration = theme.tokens.decoration;
   if (!banner) {
+    if (!showDefault) return null;
     if (loading) return <View style={[styles.skeleton, { backgroundColor: theme.border }]} accessibilityLabel="Loading promotions" />;
     return <Animated.View style={reveal}>
       <Pressable onPress={() => navigate({ type: 'NAV', id: 'categories' })} accessibilityRole="button" accessibilityLabel="Explore products">

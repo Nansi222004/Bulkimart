@@ -28,6 +28,10 @@ function Shell() {
     <StatusBar style="dark" />
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.pageBackground } }}>
       <Stack.Screen name="index" options={{ animation: 'none' }} />
+      {/* Bottom-bar tabs switch instantly, like the web footer (no slide). */}
+      <Stack.Screen name="categories" options={{ animation: 'none' }} />
+      <Stack.Screen name="orders" options={{ animation: 'none' }} />
+      <Stack.Screen name="account" options={{ animation: 'none' }} />
       <Stack.Screen name="product" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="order/[id]" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="campaign/[id]" options={{ animation: 'slide_from_bottom' }} />

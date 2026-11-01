@@ -9,6 +9,7 @@ import { boundedFetch, portalRequest, request as apiRequest, authHeaders as clie
 import { local, session as sessionStore, readJSON } from '../lib/storage';
 import { emit, on, EVENTS } from '../lib/events';
 import { saveUserSession, clearUserSession, captureUserSession, isCurrentUserSession, onSessionCleared } from '../lib/session';
+import { fetchProductDetail } from '../lib/productDetail';
 import { socket, connectSocket, disconnectSocket } from '../lib/socket';
 import { initPushNotifications, deregisterPushToken, setPushRecipient } from '../lib/push';
 import { rememberCommittedCheckout, committedCheckouts, deferCommittedCheckout } from '../lib/committedCheckout';
@@ -60,9 +61,13 @@ export function UserProvider({ children }) {
   const setActiveMode = mode => setActiveModeState(mode);
 
   // Routes currently in the stack, so a tab tap returns to an open screen instead of stacking a copy.
+  // The root state wraps the app Stack in a single `__root` route, so walk down to the Stack's own
+  // routes (checking only the top level never matched, and every tab tap stacked a new copy of a page).
   const stackHas = href => {
     const name = href === '/' ? 'index' : href.replace(/^\//, '');
-    return Boolean(rootState?.routes?.some(route => route.name === name));
+    let state = rootState;
+    while (state?.routes?.length === 1 && state.routes[0].state) state = state.routes[0].state;
+    return Boolean(state?.routes?.some(route => route.name === name));
   };
 
   const currentUserRef = useRef(null);
@@ -526,7 +531,7 @@ export function UserProvider({ children }) {
     const productId = product?.id || product?._id || productOrId;
     let variants = product?.variants || product?.raw?.variants || [];
     try {
-      const { ok, body: detail } = await apiRequest(`/api/products/${productId}`, { auth: false });
+      const { ok, body: detail } = await fetchProductDetail(productId);
       if (ok && Array.isArray(detail?.variants)) {
         const liveVariants = detail.variants.map(variant => ({ ...variant, id: String(variant._id) }));
         if (liveVariants.length === 1) variantId = liveVariants[0].id;

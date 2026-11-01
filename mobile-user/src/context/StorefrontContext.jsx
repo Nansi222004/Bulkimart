@@ -136,7 +136,14 @@ export function StorefrontProvider({ children }) {
 
   const now = clock + offset.current;
   const showable = Boolean(data?.key === key && showableExperience(data, now));
-  const current = useMemo(() => (showable ? normalizeExperience(data) : fallback), [showable, data]);
+  // Each header category has its own experience request. While a new one loads, keep the theme and effect the
+  // customer is already seeing (the admin's live theme) instead of flashing the built-in default colours.
+  const lastGood = useRef(null);
+  const current = useMemo(() => {
+    if (showable) { const next = normalizeExperience(data); lastGood.current = next; return next; }
+    const previous = lastGood.current;
+    return previous ? { ...fallback, theme: previous.theme, animations: previous.animations, headerCategories: previous.headerCategories } : fallback;
+  }, [showable, data]);
   const effectCandidates = current.animations || [];
   const activeEffects = effectCandidates.filter(e => effectActive(e, now)).map(e => `${e.id}:${e.revision}`).join('|');
   const productOpen = activeNav === 'product', orderOpen = activeNav === 'order', reviewOpen = activeNav === 'review';
