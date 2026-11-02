@@ -48,6 +48,8 @@ const bannerSchema = new Schema(
     muted: { type: Boolean, default: true },
     loop: { type: Boolean, default: true },
     playsInline: { type: Boolean, default: true },
+    // Overlay title, subtitle and button on the picture. Off by default: most artwork already has its own text.
+    showText: { type: Boolean, default: false },
     animation: Schema.Types.Mixed,
     cta: { type: String, maxlength: 60 },
     isArchived: { type: Boolean, default: false },

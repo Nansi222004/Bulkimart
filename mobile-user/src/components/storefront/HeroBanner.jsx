@@ -88,7 +88,7 @@ export default function HeroBanner({ showDefault = true }) {
         </View>
       )}
       {/* Title, subtitle and button sit on the lower part of the picture. */}
-      {banner.title || banner.subtitle || link ? <LinearGradient colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.78)']} locations={[0, 0.45, 1]} style={styles.heroCopy}>
+      {banner.showText && (banner.title || banner.subtitle || link) ? <LinearGradient colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.78)']} locations={[0, 0.45, 1]} style={styles.heroCopy}>
         {banner.title ? <Text style={styles.heroTitle} numberOfLines={2}>{banner.title}</Text> : null}
         {banner.subtitle ? <Text style={styles.heroSub} numberOfLines={2}>{banner.subtitle}</Text> : null}
         {link && <CtaButton title={`${banner.cta || 'Explore now'} →`} onPress={go} small />}

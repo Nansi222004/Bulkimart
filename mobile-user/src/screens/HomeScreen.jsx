@@ -16,7 +16,8 @@ import { emit, EVENTS } from '../lib/events';
 import { useRefreshHandler, runRefresh } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
 import { HeaderTop, HeaderPinned } from '../components/UnifiedHeader';
-import HeroBanner, { StorefrontFestiveHeader } from '../components/storefront/HeroBanner';
+import { alpha } from '../theme';
+import HeroBanner, { StorefrontFestiveHeader, hasFestiveHeader, normalizeHeader } from '../components/storefront/HeroBanner';
 import { HomeServiceEntries } from '../components/services/ServiceEntries';
 import {
   HOME_NEAR_END, QuickActions, PopularCategories, StorefrontSections, StorefrontAnnouncement, TopProducts,
@@ -101,6 +102,13 @@ export default function HomeScreen() {
   }, [popSubNav]));
 
   const showDashboard = activeMode === 'shop-all' || activeSubNav === 'grocery--home';
+  // Festive headings follow the admin: they show only while a festive sub-header is live, in its colours.
+  const festive = hasFestiveHeader(experience.theme) ? normalizeHeader(experience.theme.header) : null;
+  const festiveHeading = label => festive && <View style={[styles.festiveStrip, { backgroundColor: festive.background, borderColor: alpha(festive.text, 0.35) }]}>
+    <Text style={[styles.festiveStripFlourish, { color: festive.text }]}>✦ ━━━━ ✨</Text>
+    <Text style={[styles.festiveStripText, { color: festive.text }]}>{label}</Text>
+    <Text style={[styles.festiveStripFlourish, { color: festive.text }]}>✨ ━━━━ ✦</Text>
+  </View>;
   return <CustomerPage headerColor={theme.header} cartBar>
     <ScrollView stickyHeaderIndices={[1]} showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.action]} />}
@@ -111,21 +119,12 @@ export default function HomeScreen() {
       <View key={contentKey} style={{ backgroundColor: theme.background, paddingTop: 12, paddingBottom: 28, gap: 20 }}>
         <StorefrontAnnouncement />
         <StorefrontFestiveHeader />
-        <View style={styles.festiveStrip}>
-          <Text style={styles.festiveStripFlourish}>✨ ━━━━ ✦</Text>
-          <Text style={styles.festiveStripText}>
-            {experience.announcement?.banner?.title || experience.theme?.header?.subtitle || 'SPECIAL FESTIVE OFFERS & HIGHLIGHTS'}
-          </Text>
-          <Text style={styles.festiveStripFlourish}>✦ ━━━━ ✨</Text>
-        </View>
-        <HeroBanner showDefault={showDashboard} />
+        {!showDashboard && <HeroBanner showDefault={false} />}
         {showDashboard && <>
-          <View style={styles.festiveStrip}>
-            <Text style={styles.festiveStripFlourish}>✦ ━━━━ ✨</Text>
-            <Text style={styles.festiveStripText}>QUICK EXPLORE &amp; CATEGORIES</Text>
-            <Text style={styles.festiveStripFlourish}>✨ ━━━━ ✦</Text>
-          </View>
+          {festiveHeading('Quick explore & categories')}
           <QuickActions />
+          {/* The promo banner follows the Categories / Offers / Wholesale shortcuts. */}
+          <HeroBanner showDefault />
           <HomeServiceEntries />
           <PopularCategories />
           {experience.sections.length ? <StorefrontSections /> : <TopProducts />}

@@ -143,7 +143,7 @@ export function publicBanner(b, now = Date.now(), type) {
   }
   let animation = null;
   try { if (b.animation && effectActive(b.animation, now)) animation = validateEffect(b.animation, ['banner']); } catch { /* Invalid manual effects stay off. */ }
-  return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', mobileVideo: b.mobileVideo || '', mediaType: b.mediaType || (b.video ? 'video' : 'image'), autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, animation, cta: b.cta || '', destination,
+  return { id: String(b._id), title: b.title || '', subtitle: b.subtitle || '', image: b.image, mobileImage: b.mobileImage || '', video: b.video || '', mobileVideo: b.mobileVideo || '', mediaType: b.mediaType || (b.video ? 'video' : 'image'), autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, showText: b.showText === true, animation, cta: b.cta || '', destination,
     endAt: [endDate, b.targetCampaign?.endAt].filter(Boolean).sort((a, c) => new Date(a) - new Date(c))[0] || null };
 }
 const populatedBanners = query => Banner.find(query).select('title subtitle image mobileImage video mobileVideo mediaType autoplay muted loop playsInline animation cta type category placement actionType targetCategory targetProduct targetCampaign targetPromotion targetRoute externalUrl isActive isDraft isArchived priority startDate endDate').populate('targetCategory', 'name slug type isActive').populate('targetProduct', 'type channels isActive isDeleted status sellingChannels').populate('targetCampaign', 'isDraft isEnabled startAt endAt').lean();

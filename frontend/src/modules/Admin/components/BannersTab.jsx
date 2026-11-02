@@ -46,7 +46,7 @@ const emptyForm = {
   actionType: 'NONE', targetCategoryId: '', targetProductId: '', targetProductLabel: '',
   targetCampaignId: '', externalUrl: '',
   priority: 0, startDate: '', endDate: '', isActive: true,
-  mediaType: 'image', mobileVideo: '', autoplay: true, muted: true, loop: true, playsInline: true, animation: undefined, mobileImage: '', video: '', cta: '', placement: 'HOME_HERO',
+  mediaType: 'image', mobileVideo: '', autoplay: true, muted: true, loop: true, playsInline: true, showText: false, animation: undefined, mobileImage: '', video: '', cta: '', placement: 'HOME_HERO',
 };
 
 const toDatetimeLocal = (iso) => {
@@ -179,7 +179,7 @@ export const BannersTab = () => {
       priority: b.priority || 0,
       startDate: toDatetimeLocal(b.startDate), endDate: toDatetimeLocal(b.endDate),
       isActive: b.isActive !== false,
-      mediaType: b.mediaType || (b.video ? 'video' : 'image'), mobileVideo: b.mobileVideo || '', autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, animation: b.animation,
+      mediaType: b.mediaType || (b.video ? 'video' : 'image'), mobileVideo: b.mobileVideo || '', autoplay: b.autoplay !== false, muted: b.muted !== false, loop: b.loop !== false, playsInline: b.playsInline !== false, showText: b.showText === true, animation: b.animation,
       mobileImage: b.mobileImage || '', video: b.video || '', cta: b.cta || '', placement: b.placement || 'HOME_HERO',
     }; setForm(next); setInitialForm(next);
     setProductResults([]);
@@ -192,7 +192,7 @@ export const BannersTab = () => {
     fd.append('title', form.title);
     fd.append('subtitle', form.subtitle);
     for (const key of ['mobileImage', 'video', 'cta', 'placement']) fd.append(key, form[key] || '');
-    for (const key of ['mediaType', 'mobileVideo', 'autoplay', 'muted', 'loop', 'playsInline']) fd.append(key, String(form[key]));
+    for (const key of ['mediaType', 'mobileVideo', 'autoplay', 'muted', 'loop', 'playsInline', 'showText']) fd.append(key, String(form[key]));
     if (form.animation) fd.append('animation', JSON.stringify(form.animation));
     fd.append('type', form.type);
     fd.append('category', form.category);
@@ -379,6 +379,10 @@ export const BannersTab = () => {
                 </div>
                 <label style={fieldLabel}>Subtitle<input style={fieldInput} value={form.subtitle} maxLength={300} onChange={e => setForm(f => ({ ...f, subtitle: e.target.value }))} /></label>
                 <label style={fieldLabel}>Button text<input style={fieldInput} value={form.cta} maxLength={60} onChange={e => setForm(f => ({ ...f, cta: e.target.value }))} /></label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                  <input type="checkbox" style={{ marginTop: 3 }} checked={form.showText === true} onChange={e => setForm(f => ({ ...f, showText: e.target.checked }))} />
+                  <span>Show title, subtitle &amp; button on the picture<br /><small style={{ fontWeight: 500, color: '#64748b' }}>Leave off if the picture already has its own text. Tapping the picture always opens the link.</small></span>
+                </label>
                 <label style={fieldLabel}>Placement<select className="sa-select" value={form.placement} onChange={e => setForm(f => ({ ...f, placement: e.target.value }))}><option value="HOME_HERO">Homepage hero (legacy compatible)</option><option value="STUDIO">Studio only (splash, announcement, section or scheduled hero)</option></select></label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>

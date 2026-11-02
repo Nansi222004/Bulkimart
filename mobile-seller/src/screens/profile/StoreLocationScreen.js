@@ -6,6 +6,7 @@ import AppButton from '../../components/AppButton';
 import KeyValueRow from '../../components/KeyValueRow';
 import { InlineNotice } from '../../components/StateViews';
 import { useAuth } from '../../context/AuthContext';
+import usePinnedAddress, { readableAddress } from '../../hooks/usePinnedAddress';
 import { reverseGeocode, saveStoreLocation } from '../../services/settings.api';
 import { LocationError, currentPosition } from '../../utils/location';
 import { type } from '../../theme';
@@ -20,13 +21,15 @@ export default function StoreLocationScreen() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const hasPin = Number.isFinite(store.lat) && Number.isFinite(store.lng);
+  const pinned = usePinnedAddress(store.lat, store.lng);
+  const typedAddress = [store.address, store.city, store.state, store.pincode].filter(Boolean).join(', ');
 
   const locate = async () => {
     setBusy('locate'); setError(''); setAddress(null);
     try {
       const position = await currentPosition();
       setFix(position);
-      reverseGeocode(position).then(setAddress).catch(() => setAddress(null)); // display only
+      reverseGeocode(position).then((a) => setAddress(a || false)).catch(() => setAddress(false)); // display only; false = lookup failed
     } catch (e) { setError(e instanceof LocationError ? e.message : 'Could not get your location.'); }
     finally { setBusy(''); }
   };
@@ -50,11 +53,12 @@ export default function StoreLocationScreen() {
       <Card title="Current store pin">
         {hasPin ? (
           <>
-            <KeyValueRow label="Latitude, longitude" value={`${store.lat}, ${store.lng}`} />
+            <Text style={type.label}>Pinned at</Text>
+            <Text style={type.body} selectable>{pinned.loading ? 'Finding address…' : pinned.text || typedAddress || 'Pinned on the map'}</Text>
             <AppButton small variant="outline" title="Open in maps" onPress={() => Linking.openURL(`geo:${store.lat},${store.lng}?q=${store.lat},${store.lng}`)} />
           </>
         ) : <Text style={type.body}>No location pin yet. Your typed address and pincode are used until you pin the store.</Text>}
-        <KeyValueRow label="Address on file" value={[store.address, store.city, store.state, store.pincode].filter(Boolean).join(', ') || '—'} />
+        <KeyValueRow label="Address on file" value={typedAddress || '—'} />
       </Card>
 
       <Card title="Update pin">
@@ -62,9 +66,9 @@ export default function StoreLocationScreen() {
         <AppButton title="Use my current location" variant="outline" loading={busy === 'locate'} disabled={!!busy} onPress={locate} />
         {fix ? (
           <>
-            <KeyValueRow label="New position" value={`${fix.lat.toFixed(6)}, ${fix.lng.toFixed(6)}`} />
+            <Text style={type.label}>New location</Text>
+            <Text style={type.body} selectable>{address === null ? 'Finding address…' : (address && readableAddress(address)) || 'Address could not be found. You can still save this pin.'}</Text>
             {Number.isFinite(fix.accuracy) ? <KeyValueRow label="Accuracy" value={`± ${Math.round(fix.accuracy)} m`} /> : null}
-            {address ? <Text style={type.small}>Near: {[address.address, address.city, address.state, address.pincode].filter(Boolean).join(', ')}</Text> : null}
             {Number.isFinite(fix.accuracy) && fix.accuracy > 100 ? <InlineNotice tone="warning">The location is not precise (over 100 m). Move outdoors or near a window and try again for a better pin.</InlineNotice> : null}
             <AppButton title="Save this pin" variant="accent" loading={busy === 'save'} disabled={!!busy} onPress={save} />
           </>

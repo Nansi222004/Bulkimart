@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, BackHandler, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import Icon from './Icon';
 import { MENU_SECTIONS, WEB_ONLY_NOTE } from '../navigation/menuItems';
 import { colors, radius, spacing } from '../theme';
 
@@ -51,7 +52,7 @@ export default function SideMenu({ visible, onClose, onNavigate }) {
             <Text style={styles.status}>{STATUS[seller?.status] || 'Seller'}</Text>
           </View>
           <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close menu" style={styles.close}>
-            <Text style={styles.closeText}>✕</Text>
+            <Icon name="close" size={18} color={colors.textSecondary} />
           </Pressable>
         </View>
         <View style={styles.accent} />
@@ -62,7 +63,7 @@ export default function SideMenu({ visible, onClose, onNavigate }) {
               {section.items.map((item) => (
                 <Pressable key={item.route} onPress={() => go(item.route)} accessibilityRole="button" accessibilityHint={item.hint}
                   android_ripple={{ color: 'rgba(7,140,203,0.08)' }} style={styles.item}>
-                  <View style={styles.glyphBox}><Text style={styles.glyph}>{item.glyph}</Text></View>
+                  <View style={styles.glyphBox}><Icon name={item.icon} size={19} color={colors.primaryDark} /></View>
                   <View style={styles.flex}>
                     <Text style={styles.itemTitle}>{item.title}</Text>
                     <Text style={styles.itemHint} numberOfLines={1}>{item.hint}</Text>
@@ -73,6 +74,7 @@ export default function SideMenu({ visible, onClose, onNavigate }) {
           ))}
           <Text style={styles.note}>{WEB_ONLY_NOTE}</Text>
           <Pressable onPress={confirmSignOut} accessibilityRole="button" style={styles.signOut}>
+            <Icon name="logout" size={18} color={colors.error} />
             <Text style={styles.signOutText}>Sign out</Text>
           </Pressable>
         </ScrollView>
@@ -93,17 +95,15 @@ const styles = StyleSheet.create({
   store: { fontSize: 17, fontWeight: '800', color: colors.deepBlue },
   status: { fontSize: 12, color: colors.success, fontWeight: '700', marginTop: 2 },
   close: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  closeText: { fontSize: 16, color: colors.textSecondary },
   accent: { height: 3, backgroundColor: colors.orange, opacity: 0.85 },
   scroll: { paddingVertical: spacing.md },
   section: { marginBottom: spacing.sm },
   sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, color: colors.textMuted, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   item: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: 10 },
   glyphBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.aquaLight, alignItems: 'center', justifyContent: 'center' },
-  glyph: { fontSize: 16, color: colors.primaryDark },
   itemTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   itemHint: { fontSize: 12, color: colors.textSecondary },
   note: { fontSize: 12, color: colors.textSecondary, paddingHorizontal: spacing.lg, marginTop: spacing.sm },
-  signOut: { margin: spacing.lg, minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.error, alignItems: 'center', justifyContent: 'center' },
+  signOut: { margin: spacing.lg, minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.error, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing.sm },
   signOutText: { color: colors.error, fontWeight: '800', fontSize: 15 },
 });

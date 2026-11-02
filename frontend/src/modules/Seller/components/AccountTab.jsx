@@ -319,7 +319,7 @@ export const AccountTab = () => {
                   'Are you sure you want to delete your seller account? This action cannot be undone. Active orders, unresolved returns, or pending payouts will block deletion.',
                   async () => {
                     try {
-                      const res = await fetch(apiUrl('/api/seller/account'), {
+                      const res = await fetch(apiUrl('/api/sellers/account'), {
                         method: 'DELETE',
                         headers: {
                           Authorization: `Bearer ${localStorage.getItem('userToken') || localStorage.getItem('sellerToken') || ''}`,

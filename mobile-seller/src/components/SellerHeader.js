@@ -5,6 +5,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { getUnreadCount } from '../services/notifications.api';
 import SideMenu from './SideMenu';
+import Icon from './Icon';
 import { colors, radius, spacing } from '../theme';
 
 // Branded header for the main tabs: menu button (opens the sidebar), seller logo, screen title + store name, notification bell.
@@ -47,7 +48,7 @@ export default function SellerHeader({ title }) {
           accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
           hitSlop={8}
         >
-          <Text style={styles.bellGlyph}>🔔</Text>
+          <Icon name="bell" size={21} color={colors.deepBlue} />
           {unread ? <View style={styles.badge}><Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text></View> : null}
         </Pressable>
       </View>
@@ -70,7 +71,6 @@ const styles = StyleSheet.create({
   store: { fontSize: 13, color: colors.textSecondary, marginTop: 1 },
   bell: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.aquaLight, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.7 },
-  bellGlyph: { fontSize: 20 },
   badge: { position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: colors.white, fontSize: 10, fontWeight: '800' },
   accent: { height: 3, backgroundColor: colors.orange, opacity: 0.85 },

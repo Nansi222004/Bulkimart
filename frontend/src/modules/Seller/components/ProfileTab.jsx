@@ -4,6 +4,59 @@ import { useSeller } from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import PickupSyncCard from './PickupSyncCard';
+import { useFeedback } from '../../../components/feedback/FeedbackProvider';
+
+/** Readable text for a reverse-geocode result: building name (if any) + postal address. */
+export const readableAddress = a => {
+  if (!a) return null;
+  const postal = a.formatted || [a.address, a.city, a.state, a.pincode].filter(Boolean).join(', ');
+  if (a.placeName && postal && !postal.includes(a.placeName)) return `${a.placeName}, ${postal}`;
+  return postal || a.placeName || null;
+};
+
+/** Turns the saved store pin into an address so sellers never see raw latitude/longitude. */
+const usePinnedAddress = (lat, lng, lookup) => {
+  const [state, setState] = useState({ text: null, loading: false });
+  // The context recreates lookup on every render; only new coordinates should trigger a lookup.
+  const lookupRef = useRef(lookup);
+  lookupRef.current = lookup;
+  useEffect(() => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { setState({ text: null, loading: false }); return undefined; }
+    let alive = true;
+    setState({ text: null, loading: true });
+    lookupRef.current(lat, lng).then(result => { if (alive) setState({ text: result?.ok ? readableAddress(result.address) : null, loading: false }); })
+      .catch(() => { if (alive) setState({ text: null, loading: false }); });
+    return () => { alive = false; };
+  }, [lat, lng]);
+  return state;
+};
+
+const TrashIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>;
+
+/** Delete-account card. DELETE /api/sellers/account; the server blocks it (409) while orders, returns or payouts are open. */
+const DeleteAccountCard = () => {
+  const ui = useFeedback();
+  const { logoutSeller, triggerToast } = useSeller();
+  const remove = () => ui.perform({
+    title: 'Delete seller account?',
+    message: 'This permanently closes your store on Bulkimart and cannot be undone. Accounts with active orders, open returns or pending payouts cannot be deleted until those are settled.',
+    destructive: true,
+    confirmLabel: 'Delete account',
+    cancelLabel: 'Keep account',
+  }, async () => {
+    const res = await boundedFetch(apiUrl('/api/sellers/account'), { method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('sellerToken') || ''}` } });
+    const body = await res.json().catch(() => ({}));
+    // Shown inside the open dialog (e.g. the 409 "active orders" reason).
+    if (!res.ok) return { ok: false, message: body.message || 'Could not delete seller account.' };
+    triggerToast(body.message || 'Seller account deleted.');
+    await logoutSeller();
+    return true;
+  });
+  return <section className="seller-profile-card seller-danger-card" aria-labelledby="seller-delete-title">
+    <div className="seller-danger-head"><span className="seller-danger-icon"><TrashIcon /></span><div><h2 id="seller-delete-title">Delete account</h2><p>Permanently close your seller account and remove your store from Bulkimart. Settle active orders, returns and payouts first.</p></div></div>
+    <button type="button" className="seller-danger-btn" onClick={remove}><TrashIcon />Delete my seller account</button>
+  </section>;
+};
 
 const shown = value => value || 'Not provided';
 const statuses = { approved: 'Approved seller', pending: 'Pending review', under_review: 'Under review', rejected: 'Rejected', suspended: 'Suspended', incomplete: 'Registration incomplete' };
@@ -43,7 +96,8 @@ export const SellerProfileEditor = ({ seller, onClose }) => {
   </ModalPortal>;
 };
 export const ProfileTab = () => {
-  const {sellerProfile:s,profileLoading,profileError,fetchSellerProfile,triggerToast} = useSeller();
+  const {sellerProfile:s,profileLoading,profileError,fetchSellerProfile,triggerToast,lookupStoreAddress} = useSeller();
+  const pinned = usePinnedAddress(s?.storeDetails?.lat, s?.storeDetails?.lng, lookupStoreAddress);
   const [editing,setEditing]=useState(false), [pinning,setPinning]=useState(false);
   const alive=useRef(true);
   useEffect(()=>{alive.current=true;fetchSellerProfile({fresh:true});return()=>{alive.current=false;};},[fetchSellerProfile]);
@@ -72,8 +126,9 @@ export const ProfileTab = () => {
       <section className="seller-profile-card"><h2>Business Profile</h2><dl className="seller-profile-fields">
         {[['Seller identity',account.name || s.businessName],['Store name',store.name],['Contact number',account.phone],['Alternate phone',store.phone],['Account email',account.email],['Store email',store.email],['Business email',s.email],['Store description',store.description]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{shown(value)}</dd></div>)}
       </dl></section>
-      <section className="seller-profile-card"><div className="seller-profile-actions"><h2>Store Address & Location Pin</h2><button disabled={pinning||profileLoading} onClick={pin}>{pinning?'Pinning…':'Update Location'}</button></div><dl className="seller-profile-fields">{[['Address',store.address],['City / district',store.city],['State',store.state],['Pincode',store.pincode],['Location pin',Number.isFinite(store.lat)&&Number.isFinite(store.lng)?`${store.lat}, ${store.lng}`:null]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{shown(value)}</dd></div>)}</dl></section>
+      <section className="seller-profile-card"><div className="seller-profile-actions"><h2>Store Address & Location Pin</h2><button disabled={pinning||profileLoading} onClick={pin}>{pinning?'Pinning…':'Update Location'}</button></div><dl className="seller-profile-fields">{[['Address',store.address],['City / district',store.city],['State',store.state],['Pincode',store.pincode],['Pinned location',Number.isFinite(store.lat)&&Number.isFinite(store.lng)?(pinned.loading?'Finding address…':pinned.text || [store.address,store.city,store.state,store.pincode].filter(Boolean).join(', ') || 'Pinned on the map'):'Not pinned yet']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{shown(value)}</dd></div>)}</dl></section>
     </div><aside><section className="seller-profile-card seller-profile-trust"><h2>Security & Trust</h2><dl>{[['Verification',statuses[s.status]],['Partner tier',s.partnerTier],['Region',[store.city,store.state].filter(Boolean).join(', ')],['Seller status',s.status]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value || 'Unavailable'}</dd></div>)}</dl><p>Account identity and approval cannot be changed through store profile editing.</p></section><PickupSyncCard seller={s} refreshSeller={fetchSellerProfile}/></aside></div>
+    <DeleteAccountCard />
     {editing&&<SellerProfileEditor key={String(id)} seller={s} onClose={()=>setEditing(false)}/>}
   </div>;
 };

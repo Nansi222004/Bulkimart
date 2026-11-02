@@ -19,7 +19,7 @@ import { UserProvider, useUser } from '../context/UserContext';
 import '../User.css';
 import UnifiedHeader from '../components/UnifiedHeader';
 import HeroBanner from '../components/HeroBanner';
-import StorefrontFestiveHeader from '../components/FestiveHeader';
+import StorefrontFestiveHeader, { hasFestiveHeader, normalizeHeader } from '../components/FestiveHeader';
 import DynamicCategorySection from '../components/DynamicCategorySection';
 import QuickActions from '../components/QuickActions';
 import PopularCategories from '../components/PopularCategories';
@@ -76,6 +76,14 @@ const isSlug = (subNav) => /^(grocery|ecommerce)--/.test(subNav || '');
 export const LandingPageContent = () => {
   const launchSplash = useLaunchSplash();
   const experience = useStorefront();
+  // Festive headings follow the admin: they show only while a festive sub-header is live, in its colours.
+  const festive = hasFestiveHeader(experience.theme) ? normalizeHeader(experience.theme.header) : null;
+  const festiveHeading = label => festive && <div className="sf-banner-strip-heading sf-banner-strip-heading--actions"
+    style={{ background: festive.background, color: festive.text, borderColor: `color-mix(in srgb, ${festive.text} 35%, transparent)` }}>
+    <span className="sf-strip-flourish" style={{ color: 'inherit' }}>✦ ━━━━ ✨</span>
+    <span className="sf-strip-text" style={{ color: 'inherit' }}>{label}</span>
+    <span className="sf-strip-flourish" style={{ color: 'inherit' }}>✨ ━━━━ ✦</span>
+  </div>;
   const {
     activeNav,
     activeMode,
@@ -186,30 +194,19 @@ export const LandingPageContent = () => {
               {/* Festive header: the bounded host for theme animation on the home feed */}
               <StorefrontFestiveHeader />
 
-              {/* Special festive offers strip text after subheader (dynamic from announcement or theme) */}
-              <div className="sf-banner-strip-heading sf-banner-strip-heading--top">
-                <span className="sf-strip-flourish">✨ ━━━━ ✦</span>
-                <span className="sf-strip-text">
-                  {experience.announcement?.banner?.title || experience.theme?.header?.subtitle || 'SPECIAL FESTIVE OFFERS & HIGHLIGHTS'}
-                </span>
-                <span className="sf-strip-flourish">✦ ━━━━ ✨</span>
-              </div>
-
-              {/* Hero Promo Carousel Banner (shown on all pages if banners exist) */}
-              <HeroBanner />
+              {/* Category pages: the promo banner comes right after the sub-header. */}
+              {!(activeMode === 'shop-all' || activeSubNav === 'grocery--home') && <HeroBanner />}
 
               {/* Only show home feed dashboard if we are in Shop All mode or in Quick mode's Home tab */}
               {(activeMode === 'shop-all' || activeSubNav === 'grocery--home') && (
                 <>
-                  {/* Category exploration strip text after banner images */}
-                  <div className="sf-banner-strip-heading sf-banner-strip-heading--actions">
-                    <span className="sf-strip-flourish">✦ ━━━━ ✨</span>
-                    <span className="sf-strip-text">QUICK EXPLORE &amp; CATEGORIES</span>
-                    <span className="sf-strip-flourish">✨ ━━━━ ✦</span>
-                  </div>
+                  {festiveHeading('Quick explore & categories')}
 
                   {/* Customer discovery shortcuts */}
                   <QuickActions />
+
+                  {/* Home: the promo banner follows the Categories / Offers / Wholesale shortcuts. */}
+                  <HeroBanner />
                   <HomeServiceEntries />
 
                   {/* Popular circular categories */}

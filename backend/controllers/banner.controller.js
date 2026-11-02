@@ -144,7 +144,7 @@ export const getBanners = asyncHandler(async (req, res) => {
 
   res.set('Cache-Control', 'no-store');
   res.status(200).json(all === 'true' ? banners : banners.map(banner => {
-    const dto = Object.fromEntries(['_id', 'title', 'subtitle', 'image', 'mobileImage', 'video', 'mobileVideo', 'mediaType', 'autoplay', 'muted', 'loop', 'playsInline', 'cta', 'type', 'category', 'placement', 'actionType', 'targetCategory', 'targetProduct', 'targetCampaign', 'targetRoute', 'externalUrl', 'priority', 'startDate', 'endDate', 'isActive', 'isDraft'].map(key => [key, banner[key]]));
+    const dto = Object.fromEntries(['_id', 'title', 'subtitle', 'image', 'mobileImage', 'video', 'mobileVideo', 'mediaType', 'autoplay', 'muted', 'loop', 'playsInline', 'showText', 'cta', 'type', 'category', 'placement', 'actionType', 'targetCategory', 'targetProduct', 'targetCampaign', 'targetRoute', 'externalUrl', 'priority', 'startDate', 'endDate', 'isActive', 'isDraft'].map(key => [key, banner[key]]));
     try { dto.animation = effectActive(banner.animation) ? validateEffect(banner.animation, ['banner']) : null; } catch { dto.animation = null; }
     return dto;
   }));
@@ -314,7 +314,7 @@ function bannerPresentation(body) {
     if (!['image', 'video'].includes(body.mediaType)) throw httpError(400, 'Invalid media type');
     fields.mediaType = body.mediaType;
   }
-  for (const key of ['autoplay', 'muted', 'loop', 'playsInline']) if (body[key] !== undefined) {
+  for (const key of ['autoplay', 'muted', 'loop', 'playsInline', 'showText']) if (body[key] !== undefined) {
     if (![true, false, 'true', 'false'].includes(body[key])) throw httpError(400, `Invalid ${key}`);
     fields[key] = body[key] === true || body[key] === 'true';
   }

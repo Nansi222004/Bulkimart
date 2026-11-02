@@ -39,3 +39,8 @@ export function uploadStoreBranding({ logo, banner }, onProgress) {
     onUploadProgress: onProgress ? (e) => { if (e.total) onProgress(Math.min(1, e.loaded / e.total)); } : undefined,
   });
 }
+
+// DELETE /api/sellers/account (same endpoint the web profile uses). The server refuses with 409 while
+// active orders, unresolved returns or pending payouts exist, and deactivates instead of deleting when
+// history must be kept.
+export const deleteSellerAccount = () => api.delete('/api/sellers/account');
