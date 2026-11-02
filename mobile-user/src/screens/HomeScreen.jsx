@@ -111,8 +111,20 @@ export default function HomeScreen() {
       <View key={contentKey} style={{ backgroundColor: theme.background, paddingTop: 12, paddingBottom: 28, gap: 20 }}>
         <StorefrontAnnouncement />
         <StorefrontFestiveHeader />
+        <View style={styles.festiveStrip}>
+          <Text style={styles.festiveStripFlourish}>✨ ━━━━ ✦</Text>
+          <Text style={styles.festiveStripText}>
+            {experience.announcement?.banner?.title || experience.theme?.header?.subtitle || 'SPECIAL FESTIVE OFFERS & HIGHLIGHTS'}
+          </Text>
+          <Text style={styles.festiveStripFlourish}>✦ ━━━━ ✨</Text>
+        </View>
         <HeroBanner showDefault={showDashboard} />
         {showDashboard && <>
+          <View style={styles.festiveStrip}>
+            <Text style={styles.festiveStripFlourish}>✦ ━━━━ ✨</Text>
+            <Text style={styles.festiveStripText}>QUICK EXPLORE &amp; CATEGORIES</Text>
+            <Text style={styles.festiveStripFlourish}>✨ ━━━━ ✦</Text>
+          </View>
           <QuickActions />
           <HomeServiceEntries />
           <PopularCategories />
@@ -132,4 +144,30 @@ const styles = StyleSheet.create({
   exitTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
   exitText: { fontSize: 14, color: '#64748b', lineHeight: 20, marginBottom: 20, textAlign: 'center' },
   exitBtn: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center' },
+  festiveStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1.5,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    marginHorizontal: 16,
+    marginVertical: 2,
+    gap: 6,
+  },
+  festiveStripText: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#92400E',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  festiveStripFlourish: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#D97706',
+  },
 });

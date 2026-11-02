@@ -45,7 +45,7 @@ export async function checkConflicts(row) {
   const others = await Experience.find({ kind: row.kind, status: 'published', priority: row.priority, _id: { $ne: row._id } }).lean();
   const conflict = others.find(other => !(row.kind === 'theme' && other.config.application === 'campaign') && (row.scope === 'global' || other.scope === 'global' || row.scope === other.scope)
     && (row.device === 'all' || other.device === 'all' || row.device === other.device)
-    && (row.kind === 'theme' ? row.scope === other.scope : row.config.placement === other.config.placement)
+    && (row.kind === 'theme' ? row.scope === other.scope && (row.config.part || 'overall') === (other.config.part || 'overall') : row.config.placement === other.config.placement)
     && overlap(row, other));
   if (conflict) throw httpError(409, `Schedule overlaps “${conflict.name}” at the same priority. Choose another priority or a non-overlapping schedule.`);
 }
@@ -124,8 +124,8 @@ export function publicBanner(b, now = Date.now(), type) {
   if (!b || !b.isActive || b.isDraft || b.isArchived || (startDate && new Date(startDate) > now) || (endDate && new Date(endDate) <= now) || b.targetPromotion || b.actionType === 'SELLER_PROMOTION') return null;
   let destination = { type: 'NONE' };
   if (b.actionType === 'CATEGORY') {
-    const c = b.targetCategory; if (!c?.isActive || (type && c.type !== type)) return null;
-    destination = { type: 'CATEGORY', id: String(c._id), slug: c.slug, name: c.name };
+    const c = b.targetCategory; if (!c?.isActive) return null;
+    destination = { type: 'CATEGORY', id: String(c._id), slug: c.slug, name: c.name, channel: c.type };
   } else if (b.actionType === 'PRODUCT') {
     const p = b.targetProduct; if (!p?.isActive || p.isDeleted || p.status !== 'approved' || !retailAllowed(p)) return null;
     if (type && (!channelAllowed(p, type) || (p.type !== type && !p.channels?.some(c => c.type === type && c.isActive !== false)))) return null;
@@ -171,24 +171,28 @@ export async function resolveExperience(scope, device, category = '', now = Date
   const categoryIds = [...new Set(sections.filter(s => s.config.source === 'category').map(s => s.config.categoryId).concat(themes.flatMap(t => t.config.categoryTiles.map(tile => tile.categoryId))).filter(Boolean))];
   const [bannerRows, deals, categories] = await Promise.all([
     populatedBanners({ type: { $in: ['general', type] }, isActive: true, isDraft: { $ne: true }, isArchived: { $ne: true }, $or: [{ _id: { $in: refs } }, { placement: 'HOME_HERO' }, { placement: null }] }),
-    dealIds.length ? Campaign.find({ _id: { $in: dealIds }, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } }).select('endAt').lean() : [],
+    dealIds.length ? Campaign.find({ _id: { $in: dealIds }, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } }).select('name description discountValue discountType targetCategory endAt').lean() : [],
     categoryIds.length ? Category.find({ _id: { $in: categoryIds }, isActive: true, type }).select('_id').lean() : [],
   ]);
   const bannerMap = new Map(bannerRows.map(b => [String(b._id), publicBanner(b, now, type)]));
-  const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: { ...r.config, animation: effectActive(r.config.animation, now) ? r.config.animation : null } });
+  const dto = r => ({ id: String(r._id), revision: r.revision, name: r.name, description: r.description || r.config?.description || '', order: r.order, priority: r.priority, startAt: r.startAt, endAt: r.endAt, config: { ...r.config, description: r.config?.description || r.description || '', animation: effectActive(r.config.animation, now) ? r.config.animation : null } });
   const resolvedCampaigns = campaigns.flatMap(r => {
     const banner = bannerMap.get(r.config.bannerId); if (!banner) return [];
     const endAt = [r.endAt, banner.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null;
     return [{ ...dto(r), endAt, banner: r.config.animation?.scope === 'banner' && effectActive(r.config.animation, now) ? { ...banner, animation: r.config.animation } : banner }];
   });
   const override = resolvedCampaigns.map(c => themes.find(t => String(t._id) === c.config.themeId)).find(Boolean);
-  const standaloneThemes = themes.filter(t => t.config.application !== 'campaign');
+  // Sub-header themes only supply the festive strip; the overall theme supplies everything else.
+  const isSubheader = t => t.config.part === 'subheader';
+  const standaloneThemes = themes.filter(t => t.config.application !== 'campaign' && !isSubheader(t));
+  const subheaderThemes = themes.filter(t => t.config.application !== 'campaign' && isSubheader(t));
   const theme = override || standaloneThemes.find(t => t.scope === scope) || standaloneThemes.find(t => t.scope === 'global');
+  const subheaderTheme = subheaderThemes.find(t => t.scope === scope) || subheaderThemes.find(t => t.scope === 'global');
   const resolvedSections = sections.flatMap(r => {
     const deal = deals.find(d => String(d._id) === r.config.campaignId);
     if (r.config.source === 'campaign' && !deal) return [];
     if (r.config.source === 'category' && !categories.some(c => String(c._id) === r.config.categoryId)) return [];
-    return [{ ...dto(r), endAt: [r.endAt, deal?.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null, banner: bannerMap.get(r.config.bannerId) || null }];
+    return [{ ...dto(r), endAt: [r.endAt, deal?.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null, banner: bannerMap.get(r.config.bannerId) || null, deal: deal ? { id: String(deal._id), name: deal.name, description: deal.description || '', discountValue: deal.discountValue, discountType: deal.discountType } : null }];
   }).sort((a, b) => a.order - b.order || ranked(a, b));
   const managedHeroes = resolvedCampaigns.filter(c => c.config.placement === 'hero');
   const legacyHeroes = bannerRows.filter(b => (!b.placement || b.placement === 'HOME_HERO') && (!category || b.category === category || b.category === category.replace(/^(grocery|ecommerce)--/, ''))).sort(ranked).map(b => bannerMap.get(String(b._id))).filter(Boolean);
@@ -210,9 +214,9 @@ export async function resolveExperience(scope, device, category = '', now = Date
     return [{ id: r.id, revision: r.revision, ...e, endAt: [r.endAt, e.endAt, deal?.endAt].filter(Boolean).sort((a, b) => new Date(a) - new Date(b))[0] || null }];
   });
   // A header button never links to a deal that is not currently shoppable.
-  let header = theme?.config.header || null;
+  let header = subheaderTheme?.config.header || theme?.config.header || null;
   if (header?.target === 'campaign' && !await Campaign.exists({ _id: header.campaignId, isEnabled: true, isDraft: { $ne: true }, startAt: { $lte: new Date(now) }, endAt: { $gt: new Date(now) } })) header = { ...header, target: 'none', campaignId: '' };
-  const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, header, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS },
+  const data = { animations, theme: theme ? { id: String(theme._id), tokens: theme.config.tokens, categoryTiles, header, endAt: theme.endAt } : { tokens: DEFAULT_TOKENS, ...(header ? { header } : {}) },
     // The splash is a phone app-launch screen; the desktop website opens directly.
     splash: device === 'mobile' ? resolvedCampaigns.find(c => c.config.placement === 'splash') || null : null,
     announcement: resolvedCampaigns.find(c => c.config.placement === 'announcement') || null, banners, headerCategories, sections: resolvedSections };

@@ -17,14 +17,12 @@ import { BellIcon, BoltIcon, CartIcon, HeartIcon, MicIcon, PinIcon, SearchIcon }
 import { ImageSearchButton } from './ImageSearchSheet';
 import NotificationDrawer from './NotificationDrawer';
 import Celebration from './Celebration';
-import { hasFestiveHeader } from './storefront/HeroBanner';
 
 const logoIcon = require('../../assets/images/logo-icon-transparent.png');
 
 function useHeaderEffect() {
-  const { effect, theme } = useStorefront();
-  const { activeNav } = useUser();
-  return activeNav === 'home' && hasFestiveHeader(theme) ? null : effect;
+  const { effect } = useStorefront();
+  return effect;
 }
 
 function ActionButton({ label, onPress, children, badge, dot }) {

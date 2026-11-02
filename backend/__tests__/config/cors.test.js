@@ -15,6 +15,21 @@ describe('CORS configuration', () => {
     expect(getAllowedOrigins({ NODE_ENV: 'development' })).toEqual([
       'http://localhost:4173',
       'http://127.0.0.1:4173',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ]);
+  });
+
+  test('merges local Vite origins outside production even with explicit allowlist', () => {
+    expect(getAllowedOrigins({
+      NODE_ENV: 'development',
+      CORS_ORIGINS: 'https://bulkimart.in',
+    })).toEqual([
+      'https://bulkimart.in',
+      'http://localhost:4173',
+      'http://127.0.0.1:4173',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
     ]);
   });
 

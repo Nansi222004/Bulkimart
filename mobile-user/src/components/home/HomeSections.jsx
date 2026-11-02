@@ -1,8 +1,9 @@
 // Home feed sections — ports of modules/User/components/*Section.jsx, PopularCategories, QuickActions,
 // TopProducts, StorefrontSections, CategoryArtwork and advertising/SponsoredCategoryBlock.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { AppState, FlatList, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { useUser } from '../../context/UserContext';
 import { useStorefront, useStorefrontNow, countdown } from '../../context/StorefrontContext';
@@ -18,7 +19,7 @@ import { GridIcon, TicketIcon, BulkIcon } from '../icons';
 import StorefrontMedia from '../storefront/StorefrontMedia';
 import Celebration from '../Celebration';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
-import { GridProductCard, CategoryProductCard, MerchandisingCard } from './ProductCards';
+import { GridProductCard, CategoryProductCard, MerchandisingCard, inr } from './ProductCards';
 import WishlistHeartButton from '../WishlistHeartButton';
 import { fetchSponsored, peekSponsored, sponsoredQuery } from '../../lib/sponsoredCache';
 import Svg, { Circle, Ellipse, Line, Path, Rect } from 'react-native-svg';
@@ -53,7 +54,7 @@ export function CategoryArtwork({ category, fit = 'contain', radius = 8 }) {
   const image = category.image || category.icon;
   return <View style={StyleSheet.absoluteFill}>
     {tile ? <StorefrontMedia banner={tile.banner} active={false} />
-      : image && failed !== image ? <Image source={{ uri: mediaUrl(image) }} style={[StyleSheet.absoluteFill, { borderRadius: radius }]} contentFit={fit} onError={() => setFailed(image)} accessibilityLabel={category.name} />
+      : image && failed !== image ? <Image source={{ uri: mediaUrl(image) }} style={[StyleSheet.absoluteFill, fit === 'contain' ? { margin: 6 } : null, { borderRadius: radius }]} contentFit={fit} onError={() => setFailed(image)} accessibilityLabel={category.name} />
         : <View style={[StyleSheet.absoluteFill, styles.fallbackArt, { borderRadius: radius, backgroundColor: appTheme.primaryLight }]}><Text style={{ color: appTheme.brandPrimaryDark, fontWeight: '700' }}>{category.name?.slice(0, 1) || '◆'}</Text></View>}
     {tile?.badge ? <Text style={[styles.tileBadge, { backgroundColor: appTheme.badge, color: appTheme.badgeText }]}>{tile.badge}</Text> : null}
   </View>;
@@ -486,9 +487,49 @@ function Rail({ products, renderCard, layout }) {
     contentContainerStyle={{ gap: 10, paddingHorizontal: 2, paddingBottom: 14 }} renderItem={({ item }) => <View style={{ width }}>{renderCard(item)}</View>} />;
 }
 
+export function FestiveDealGridCard({ product, deal = false }) {
+  const navigate = usePromotionNavigation();
+  const { setSelectedProduct } = useUser();
+  const [failed, setFailed] = useState(false);
+  const id = product.id || product._id;
+  const dealDisc = Number(product.discountValue) || 0;
+  const computedDealPrice = product.campaignPrice != null
+    ? Number(product.campaignPrice)
+    : (dealDisc > 0 ? Math.max(0, Math.round(Number(product.price) * (1 - dealDisc / 100))) : Number(product.price));
+  const price = deal ? computedDealPrice : product.price;
+  const firstImage = product.images?.[0];
+  const artwork = typeof firstImage === 'string' ? firstImage : firstImage?.url || firstImage?.secure_url || product.image;
+  const open = () => (deal ? navigate({ type: 'PRODUCT', id }) : setSelectedProduct(product));
+
+  return (
+    <Pressable onPress={open} style={styles.festiveCard} accessibilityRole="button" accessibilityLabel={`View ${product.name}`}>
+      <View style={styles.festiveCardImageWrap}>
+        {artwork && !failed ? (
+          <Image source={{ uri: mediaUrl(artwork) }} style={StyleSheet.absoluteFill} contentFit="contain" onError={() => setFailed(true)} />
+        ) : (
+          <View style={styles.festiveNoImage}><Text style={{ fontSize: 10, color: '#94a3b8' }}>Image</Text></View>
+        )}
+        <Text style={styles.festiveInclOffers}>*Incl. All Offers</Text>
+      </View>
+      <View style={styles.festiveTitleBanner}>
+        <Text numberOfLines={1} style={styles.festiveCardTitle}>{product.name}</Text>
+      </View>
+      <LinearGradient
+        colors={['#f59e0b', '#d97706', '#b45309']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.festivePriceBanner}
+      >
+        <Text style={styles.festivePriceText}>From {inr(price)}*</Text>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
 export function StorefrontSection({ section }) {
   const theme = useAppTheme();
   const now = useStorefrontNow();
+  const { width } = useWindowDimensions();
   const { activeMode, setActiveNav } = useUser();
   const c = section.config, type = activeMode === 'quick' ? 'grocery' : 'ecommerce';
   const navigate = usePromotionNavigation();
@@ -504,13 +545,71 @@ export function StorefrontSection({ section }) {
       const body = await response.json(); if (!response.ok) throw new Error('Deals unavailable');
       const products = c.source === 'wholesale' ? body.data : (body.data?.products || []).filter(p => p.type === type);
       if (!Array.isArray(products)) throw new Error('Invalid collection response');
-      if (!cancelled) setDeal({ products: products.slice(0, c.limit), loading: false, error: '' });
+      if (!cancelled) setDeal({ products: products.slice(0, c.limit), campaign: body.data?.campaign || null, discountValue: body.data?.campaign?.discountValue, loading: false, error: '' });
     }).catch(() => { if (!cancelled) setDeal({ products: [], loading: false, error: 'Deals could not be loaded' }); });
     return () => { cancelled = true; controller.abort(); };
   }, [c.source, c.campaignId, c.limit, type, retry]); // eslint-disable-line react-hooks/exhaustive-deps
   if (section.endAt && Date.parse(section.endAt) <= now) return null;
   const result = remote ? deal : regular;
   if (!result.loading && !result.error && !result.products.length) return null;
+
+  const isFestiveDeals = c.variant === 'festive_deals' || c.layout === 'festive_grid';
+
+  if (isFestiveDeals) {
+    const cardWidth = Math.floor((width - 24 - 20 - 16) / 3);
+    return (
+      <View style={styles.festiveWrapper}>
+        {/* Ornate Top Deals Header with Golden Flourishes */}
+        <View style={styles.festiveTopHeader}>
+          <Text style={styles.festiveSparkle}>✨ ━━━━ ✦</Text>
+          <Text style={styles.festiveHeadingText}>{c.title || 'TOP DEALS'}</Text>
+          <Text style={styles.festiveSparkle}>✦ ━━━━ ✨</Text>
+        </View>
+
+        {/* Festive Golden Card Container */}
+        <View style={[styles.festiveSectionContainer, { backgroundColor: c.appearance?.background || '#FFF8E7', borderColor: c.appearance?.accent || '#F59E0B' }]}>
+          {/* Top Corner Hanging Lanterns */}
+          <View style={styles.festiveTopCornerL}>
+            <Text style={{ fontSize: 18 }}>🏮</Text>
+          </View>
+          <View style={styles.festiveTopCornerR}>
+            <Text style={{ fontSize: 18 }}>🏮</Text>
+          </View>
+
+          {result.loading ? (
+            <View style={[styles.productSkeleton, { backgroundColor: '#fff', borderRadius: 14 }]}><Text style={{ color: theme.muted }}>Loading festive deals…</Text></View>
+          ) : result.error ? (
+            <Text accessibilityRole="alert" style={{ textAlign: 'center', padding: 20 }}>{result.error}</Text>
+          ) : (
+            <View style={styles.festive3ColGrid}>
+              {result.products.map(p => (
+                <View key={p.id || p._id} style={{ width: cardWidth }}>
+                  <FestiveDealGridCard product={p} deal={c.source === 'campaign'} />
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Symmetrical Bottom Diyas and Golden Garland Trim */}
+          <View style={styles.festiveBottomDiyasRow}>
+            <View style={styles.festiveGarlandLine} />
+            <View style={styles.festiveDiyasGroup}>
+              <View style={styles.diyaSmall}>
+                <Text style={{ fontSize: 18 }}>🪔</Text>
+              </View>
+              <View style={styles.diyaCenter}>
+                <Text style={{ fontSize: 26 }}>🪔</Text>
+              </View>
+              <View style={styles.diyaSmall}>
+                <Text style={{ fontSize: 18 }}>🪔</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   const soft = c.variant === 'soft' || c.variant === 'accent';
   const sourceBg = c.source === 'category' ? (c.appearance?.background || theme.promotion) : ['campaign', 'price'].includes(c.source) ? (c.appearance?.background || theme.highlight) : soft ? (c.appearance?.background || theme.highlight) : c.appearance?.background;
   const textColor = c.source === 'category' ? (c.appearance?.text || theme.promotionText) : (c.appearance?.text || theme.text);
@@ -523,10 +622,20 @@ export function StorefrontSection({ section }) {
       {section.banner.destination.type !== 'NONE' && <CtaButton title={`${section.banner.cta || 'Explore collection'} →`} onPress={() => navigate(section.banner.destination)} style={{ marginTop: 8 }} />}
     </View>}
     <View style={styles.sfHeading}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, paddingRight: 6 }}>
         <Text style={[styles.eyebrow, { color: textColor }]}>{c.source === 'campaign' ? 'LIMITED-TIME DEALS' : c.source === 'wholesale' ? 'FOR YOUR BUSINESS' : 'CURATED FOR YOU'}</Text>
         <Text style={[styles.sfTitle, { color: textColor }]}>{c.title}</Text>
+        {Boolean(section.description || c.description || deal?.campaign?.description || section.deal?.description) && (
+          <Text style={{ color: textColor, opacity: 0.85, fontSize: 12.5, marginTop: 2, lineHeight: 17 }}>
+            {section.description || c.description || deal?.campaign?.description || section.deal?.description}
+          </Text>
+        )}
       </View>
+      {c.source === 'campaign' && (deal?.discountValue > 0 || deal?.campaign?.discountValue > 0 || section.deal?.discountValue > 0) ? (
+        <View style={{ backgroundColor: '#dc2626', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginRight: 6, alignSelf: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '900', fontSize: 11 }}>UP TO {deal?.discountValue || deal?.campaign?.discountValue || section.deal?.discountValue}% OFF</Text>
+        </View>
+      ) : null}
       {c.source === 'campaign' && section.endAt ? <Text style={[styles.countdownPill, { backgroundColor: theme.highlight, color: theme.highlightText, borderColor: theme.accent }]} accessibilityLabel="Time remaining">{countdown(section.endAt, now)}</Text> : null}
       {c.source === 'wholesale' && <Pressable onPress={() => setActiveNav('wholesale')} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: textColor, fontSize: 12, fontWeight: '700', textDecorationLine: 'underline' }}>View all →</Text></Pressable>}
     </View>
@@ -708,5 +817,26 @@ const styles = StyleSheet.create({
   quickIcon: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 6, elevation: 1 },
   quickTitle: { fontSize: 11, fontWeight: '700' },
   quickSub: { fontSize: 8, marginTop: 2, lineHeight: 9 },
+  festiveWrapper: { marginVertical: 18, marginHorizontal: 10 },
+  festiveTopHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12, gap: 8 },
+  festiveHeadingText: { fontSize: 24, fontWeight: '900', color: '#b91c1c', letterSpacing: -0.4 },
+  festiveSparkle: { color: '#d97706', fontSize: 11, fontWeight: '800', opacity: 0.9 },
+  festiveSectionContainer: { borderRadius: 22, borderWidth: 1.5, borderColor: '#f59e0b', paddingTop: 16, paddingHorizontal: 10, paddingBottom: 10, position: 'relative', overflow: 'hidden', shadowColor: '#d97706', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 3 },
+  festiveTopCornerL: { position: 'absolute', top: 6, left: 8, zIndex: 2 },
+  festiveTopCornerR: { position: 'absolute', top: 6, right: 8, zIndex: 2 },
+  festive3ColGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between', zIndex: 2 },
+  festiveCard: { borderRadius: 12, borderWidth: 1.5, borderColor: '#f59e0b', backgroundColor: '#ffffff', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2, marginBottom: 4 },
+  festiveCardImageWrap: { width: '100%', aspectRatio: 1, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: 6 },
+  festiveNoImage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' },
+  festiveInclOffers: { position: 'absolute', right: 2, top: 14, fontSize: 6.5, fontWeight: '700', color: '#94a3b8', transform: [{ rotate: '90deg' }] },
+  festiveTitleBanner: { backgroundColor: '#fef3c7', paddingVertical: 3, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: '#fde68a' },
+  festiveCardTitle: { fontSize: 10, fontWeight: '800', color: '#1e293b', textAlign: 'center' },
+  festivePriceBanner: { paddingVertical: 5, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  festivePriceText: { fontSize: 10, fontWeight: '900', color: '#ffffff', textAlign: 'center' },
+  festiveBottomDiyasRow: { alignItems: 'center', marginTop: 10, position: 'relative' },
+  festiveGarlandLine: { position: 'absolute', bottom: 6, left: 20, right: 20, height: 3, backgroundColor: '#f59e0b', borderRadius: 2, opacity: 0.35 },
+  festiveDiyasGroup: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 28 },
+  diyaSmall: { alignItems: 'center', justifyContent: 'center', opacity: 0.9 },
+  diyaCenter: { alignItems: 'center', justifyContent: 'center', transform: [{ scale: 1.15 }] },
 });
 

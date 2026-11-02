@@ -231,17 +231,32 @@ export const UserProvider = ({ children }) => {
   const openImageSearch = () => { setImageSearchRequest(value => value + 1); setActiveNav('search'); };
 
   const setSelectedCategoryFilter = (category) => {
-    setSelectedCategoryFilterState(category);
-    if (category?.slug) {
-      const slug = category.slug;
-      const newPath = `/categories/${slug}`;
-      if (window.location.pathname !== newPath) {
-        window.history.pushState(null, '', newPath);
-      }
-    } else {
+    if (!category) {
+      setSelectedCategoryFilterState(null);
       if (window.location.pathname !== '/categories') {
         window.history.pushState(null, '', '/categories');
       }
+      setActiveNavState('categories');
+      return;
+    }
+    const cat = {
+      ...category,
+      _id: category._id || category.id,
+      id: category.id || category._id,
+      slug: category.slug || category._id || category.id,
+    };
+    const catChannel = cat.channel || cat.type;
+    if (catChannel) {
+      const targetMode = catChannel === 'grocery' ? 'quick' : 'shop-all';
+      if (activeMode !== targetMode) {
+        setActiveModeState(targetMode);
+      }
+    }
+    setSelectedCategoryFilterState(cat);
+    const slug = cat.slug;
+    const newPath = slug ? `/categories/${slug}` : '/categories';
+    if (window.location.pathname !== newPath) {
+      window.history.pushState(null, '', newPath);
     }
     setActiveNavState('categories');
   };

@@ -2,7 +2,7 @@ import React from 'react';
 import { DEFAULT_EFFECT, EFFECT_PRESETS, EFFECT_COLORS, DRIFTING_PRESETS, INTENSITY, MAX_COMBINED, MAX_CUSTOM, DEFAULT_CUSTOM, CUSTOM_MOTIONS, CUSTOM_SHAPES, effectPresets, effectLabel } from '../../../../../backend/shared/celebration.mjs';
 const local = value => value ? new Date(Date.parse(value) + 330 * 60000).toISOString().slice(0, 16) : '';
 // Quantity means different things per preset; only relevant settings are shown.
-const quantityLabel = presets => presets.length > 1 ? 'Particle quantity (per animation)' : ({ lights: 'Bulbs on the light string', fireworks: 'Sparks per burst (×2)' })[presets[0]] || 'Particle quantity';
+const quantityLabel = presets => presets.length > 1 ? 'Particle quantity (per animation)' : ({ lights: 'Bulbs on the light string', fireworks: 'Sparks per burst (×2)', diya: 'Number of diya lamps', candles: 'Number of festive candles' })[presets[0]] || 'Particle quantity';
 const newCustomId = () => `custom-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const sameCustom = (a, b) => ['name', 'motion', 'shape', 'emoji'].every(key => a[key] === b[key]) && a.colors.join() === b.colors.join();
 // Swatches with add/remove controls; `label` names each picker for assistive technology.

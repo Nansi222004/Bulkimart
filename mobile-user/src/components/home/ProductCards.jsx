@@ -13,7 +13,7 @@ import WishlistHeartButton from '../WishlistHeartButton';
 import { SameDayBadge } from '../SameDayBadge';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
 
-const inr = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+export const inr = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
 export const formatCurrency = value => `₹${value}`;
 
 /** The web grid "Add" calls addToCart directly (a multi-variant product opens its details). */
@@ -75,8 +75,12 @@ export function MerchandisingCard({ product, deal = false, wholesale = false, wi
   const id = product.id || product._id;
   const wholesaleVariants = wholesale ? (product.variants || []).filter(v => v.available) : [];
   const tierPrices = wholesaleVariants.flatMap(v => (v.priceTiers || []).map(t => Number(t.unitPrice))).filter(p => Number.isFinite(p) && p >= 0);
-  const price = wholesale ? (tierPrices.length ? Math.min(...tierPrices) : null) : deal ? product.campaignPrice : product.price;
-  const original = wholesale ? null : deal ? product.price : product.mrp;
+  const dealDisc = Number(product.discountValue) || 0;
+  const computedDealPrice = product.campaignPrice != null
+    ? Number(product.campaignPrice)
+    : (dealDisc > 0 ? Math.max(0, Math.round(Number(product.price) * (1 - dealDisc / 100))) : Number(product.price));
+  const price = wholesale ? (tierPrices.length ? Math.min(...tierPrices) : null) : deal ? computedDealPrice : product.price;
+  const original = wholesale ? null : deal ? (product.mrp || product.price) : product.mrp;
   const available = wholesale ? wholesaleVariants.length > 0 : product.fulfillmentType === 'digital' || product.stock > 0 || product.variants?.some(v => v.stock > 0);
   const firstImage = product.images?.[0];
   const artwork = wholesale ? (typeof firstImage === 'string' ? firstImage : firstImage?.url || firstImage?.secure_url || '') : product.image;
@@ -92,10 +96,16 @@ export function MerchandisingCard({ product, deal = false, wholesale = false, wi
       else setMessage(result?.message || 'Could not add item');
     } catch { setMessage('Could not add item. Try again.'); } finally { setBusy(false); }
   };
-  const percent = Number(original) > Number(price) ? Math.floor((original - price) / original * 100) : 0;
+  const computedPercent = Number(original) > Number(price) ? Math.floor((original - price) / original * 100) : 0;
+  const percent = deal && dealDisc > 0 ? Math.max(dealDisc, computedPercent) : computedPercent;
   const discount = percent >= 1 ? percent : null; // a saving under 1% would read "0% off"
   const flat = theme.tokens.product === 'flat';
-  return <View style={[styles.merch, { width, backgroundColor: theme.surface, borderColor: theme.productBorder, borderRadius: theme.radius }, !flat && styles.merchShadow]}>
+  return <View style={[
+    styles.merch,
+    { width, backgroundColor: theme.surface, borderColor: theme.productBorder, borderRadius: theme.radius },
+    width ? { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: width } : null,
+    !flat && styles.merchShadow
+  ]}>
     <View style={styles.merchImage}>
       <Pressable onPress={open} style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel={`View ${product.name}`}>
         {artwork && !failed ? <Image source={{ uri: mediaUrl(artwork) }} style={StyleSheet.absoluteFill} contentFit="cover" onError={() => setFailed(true)} recyclingKey={String(id)} />

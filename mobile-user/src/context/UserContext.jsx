@@ -18,6 +18,7 @@ import { productHref } from '../lib/productRoute';
 import { normalizeProduct } from '../hooks/useProducts';
 import { useSession } from './SessionContext';
 import { openRazorpayCheckout } from '../lib/razorpay';
+import { appendFormFile } from '../lib/formData';
 
 const UserContext = createContext(null);
 
@@ -114,7 +115,24 @@ export function UserProvider({ children }) {
 
   const [selectedCategoryFilter, setSelectedCategoryFilterState] = useState(null);
   const setSelectedCategoryFilter = category => {
-    setSelectedCategoryFilterState(category?.slug ? category : null);
+    if (!category) {
+      setSelectedCategoryFilterState(null);
+      return;
+    }
+    const cat = {
+      ...category,
+      _id: category._id || category.id,
+      id: category.id || category._id,
+      slug: category.slug || category._id || category.id,
+    };
+    const catChannel = cat.channel || cat.type;
+    if (catChannel) {
+      const targetMode = catChannel === 'grocery' ? 'quick' : 'shop-all';
+      if (activeModeRef.current !== targetMode) {
+        setActiveModeState(targetMode);
+      }
+    }
+    setSelectedCategoryFilterState(cat);
     if (pathRef.current !== '/categories') { if (stackHas('/categories')) router.dismissTo('/categories'); else router.push('/categories'); }
   };
 
@@ -701,7 +719,7 @@ export function UserProvider({ children }) {
     if (!isSignedIn()) return { ok: false, message: 'Please sign in first.' };
     try {
       const form = new FormData();
-      form.append('image', { uri: asset.uri, name: asset.fileName || 'landmark.jpg', type: asset.mimeType || 'image/jpeg' });
+      await appendFormFile(form, 'image', asset);
       const { ok, body } = await apiRequest('/api/users/addresses/upload-landmark', { method: 'POST', form });
       if (!ok) return { ok: false, message: body.message || 'Could not upload landmark image' };
       return { ok: true, imageUrl: body.imageUrl };

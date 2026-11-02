@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { mediaUrl, request } from '../api/client';
+import { appendFormFile } from '../lib/formData';
 import { socket } from '../lib/socket';
 import { useFeedback } from '../lib/feedback';
 import { orderDiscountRows } from '../lib/orderDiscounts';
@@ -217,7 +218,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
       const fd = new FormData();
       fd.append('orderId', selectedOrder._id); fd.append('orderItemId', returnModalItem._id); fd.append('quantity', String(returnQty)); fd.append('reason', returnReason);
       if (returnDescription.trim()) fd.append('customerDescription', returnDescription.trim());
-      returnFiles.forEach(f => fd.append('attachments', { uri: f.uri, name: f.name, type: f.type }));
+      for (const f of returnFiles) await appendFormFile(fd, 'attachments', f);
       const { ok, body } = await request('/api/returns', { method: 'POST', form: fd, headers: { 'Idempotency-Key': returnRequestKey } });
       if (!ok) throw new Error(body.message || 'Could not submit your return request');
       setReturnModalItem(null);

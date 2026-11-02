@@ -1,6 +1,8 @@
 const LOCAL_ORIGINS = [
   "http://localhost:4173",
   "http://127.0.0.1:4173",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
 
 const PRODUCTION_ORIGINS = [
@@ -23,7 +25,12 @@ export const getAllowedOrigins = (env = process.env) => {
   if (configured.includes("*")) {
     throw new Error("CORS_ORIGINS must contain exact origins; wildcard is not allowed with credentials");
   }
-  if (configured.length) return [...new Set(configured)];
+  if (configured.length) {
+    if (env.NODE_ENV !== "production") {
+      return [...new Set([...configured, ...LOCAL_ORIGINS])];
+    }
+    return [...new Set(configured)];
+  }
   return env.NODE_ENV === "production" ? PRODUCTION_ORIGINS : LOCAL_ORIGINS;
 };
 

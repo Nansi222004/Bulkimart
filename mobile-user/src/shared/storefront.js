@@ -33,7 +33,7 @@ export const PRESET_EFFECTS = { 'Diwali Celebration': 'lights', 'Festive Celebra
 // Festive header/hero shown below the search and category navigation.
 export const HEADER_TARGETS = ['none', 'categories', 'hot-deals', 'smart-buy', 'campaign'];
 export const DEFAULT_COUNTDOWN = { enabled: false, title: '', startAt: null, endAt: null, showRemaining: true, expiredText: '' };
-export const DEFAULT_HEADER = { enabled: false, title: '', subtitle: '', cta: '', target: 'none', campaignId: '', height: 180, background: '#79000B', text: '#FFFFFF', image: '', countdown: DEFAULT_COUNTDOWN };
+export const DEFAULT_HEADER = { enabled: false, title: '', subtitle: '', cta: '', target: 'none', campaignId: '', height: 180, background: '#79000B', text: '#FFFFFF', image: '', video: '', animationPreset: '', countdown: DEFAULT_COUNTDOWN };
 export const headerDestination = header => header.target === 'campaign' ? { type: 'CAMPAIGN', id: header.campaignId }
   : header.target === 'categories' ? { type: 'NAV', id: 'categories' } : ['hot-deals', 'smart-buy'].includes(header.target) ? { type: 'SUBNAV', id: header.target } : { type: 'NONE' };
 // The single countdown calculation used by the storefront and the Admin preview.

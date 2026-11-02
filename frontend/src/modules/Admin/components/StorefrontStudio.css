@@ -77,3 +77,9 @@
 .studio-effect-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));column-gap:12px}
 .studio-media-thumb{display:block;max-width:180px;max-height:120px;margin-top:6px;border:1px solid #dce7ef;border-radius:8px;object-fit:contain;background:#f4f7fa}
 .studio-media-warning{margin:6px 0 0;padding:8px 10px;border-radius:8px;background:#fff7ed;color:#9a3412;font-size:12px;font-weight:600;line-height:1.45}
+/* Theme type picker and sub-header media upload */
+.studio-theme-part{margin-bottom:14px;padding:12px 14px;border:1.5px solid #bfe3ee;border-radius:12px;background:#f2fafd}
+.studio-theme-part .studio-help{margin:6px 0 0}
+.studio-upload-button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 14px;border:1px solid #0b7fa5;border-radius:8px;color:#0b7fa5;background:#fff;font-weight:700;font-size:13px;cursor:pointer}
+.studio-upload-button:hover{background:#eaf6fb}
+fieldset:disabled .studio-upload-button{opacity:.6;cursor:not-allowed}

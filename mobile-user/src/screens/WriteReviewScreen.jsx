@@ -10,6 +10,7 @@ import { File } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { mediaUrl, request, getToken } from '../api/client';
+import { appendFormFile } from '../lib/formData';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useFeedback } from '../lib/feedback';
 import { Text } from '../components/ui';
@@ -84,8 +85,10 @@ export default function WriteReviewScreen() {
       const form = new FormData();
       form.append('rating', String(rating));
       form.append('comment', comment.trim());
-      // One at a time so four camera photos are never decoded together.
-      for (const photo of photos) form.append('images', await prepareReviewPhoto(photo));
+      for (const photo of photos) {
+        const prepared = await prepareReviewPhoto(photo);
+        await appendFormFile(form, 'images', prepared);
+      }
       const { ok, status, body } = await request(`/api/products/${productId}/reviews`, { method: 'POST', form, timeoutMs: 60000 });
       if (!ok) throw new Error(status === 413 ? 'The review photos are too large. Please use smaller photos and try again.' : body.message || 'Failed to submit review');
       ui.notify('Review published. You can see it under Ratings & Reviews on the product page.', { type: 'success' });

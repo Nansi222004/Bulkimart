@@ -39,7 +39,12 @@ const CampaignLandingPage = () => {
         const campaignBody = await campaignRes.json();
         const productsBody = await productsRes.json().catch(() => ({}));
         if (!cancelled) {
-          setCampaign(campaignBody.data);
+          const rawCamp = campaignBody.data || productsBody.data?.campaign || {};
+          setCampaign({
+            ...rawCamp,
+            description: rawCamp.description || productsBody.data?.campaign?.description || '',
+            discountValue: rawCamp.discountValue != null ? rawCamp.discountValue : productsBody.data?.campaign?.discountValue,
+          });
           setProducts(productsBody.data?.products || []);
         }
       } catch (err) {
@@ -56,8 +61,17 @@ const CampaignLandingPage = () => {
   const target = campaign?.targetCategory;
   const shopCategory = () => {
     setSelectedCampaignId(null);
-    if (target.type) setActiveMode(target.type === 'grocery' ? 'quick' : 'shop-all');
-    setSelectedCategoryFilter({ _id: target.id, slug: target.slug, name: target.name });
+    if (!target) return;
+    const catChannel = target.channel || target.type;
+    if (catChannel) setActiveMode(catChannel === 'grocery' ? 'quick' : 'shop-all');
+    setSelectedCategoryFilter({
+      _id: target._id || target.id,
+      id: target.id || target._id,
+      slug: target.slug || target._id || target.id,
+      name: target.name,
+      channel: catChannel,
+      type: catChannel,
+    });
   };
   const shopButton = target && <button type="button" className="sf-deal-shop" onClick={shopCategory}>Shop {target.name} →</button>;
   const day = date => new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
@@ -84,19 +98,31 @@ const CampaignLandingPage = () => {
       ) : (
         <>
           {/* The banner image, when there is one, then the deal details: shown in both cases. */}
-          {campaign.bannerImage && (
-            <div className="sf-deal-banner">
-              <img src={campaign.bannerImage} alt={campaign.name} />
+          {Boolean(campaign.bannerImage || campaign.image) && (
+            <div className="sf-deal-banner" style={{ overflow: 'hidden', borderRadius: 16, border: '1.5px solid #f59e0b', margin: '14px 16px 0' }}>
+              <img
+                src={(() => {
+                  const src = campaign.bannerImage || campaign.image || '';
+                  return src.startsWith('/uploads/') ? apiUrl(src) : src;
+                })()}
+                alt={campaign.name}
+                style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }}
+              />
               <Celebration effect={effect} now={now} />
             </div>
           )}
-          <div className="sf-deal-details">
-            {!campaign.bannerImage && <Celebration effect={effect} now={now} />}
-            <div className="sf-deal-details-copy">
-              <p className="sf-deal-name">{campaign.name}</p>
-              {campaign.description && <p className="sf-deal-description">{campaign.description}</p>}
-              {Number(campaign.discountValue) > 0 && <p className="sf-deal-discount">{campaign.discountValue}% OFF</p>}
-              <p className="sf-deal-dates">{day(campaign.startAt)} → {day(campaign.endAt)} · Ends in <time className="sf-countdown">{countdown(campaign.endAt, now)}</time></p>
+          <div className="sf-deal-details" style={{ margin: '14px 16px', borderRadius: 18, border: '1.5px solid #f59e0b', background: 'linear-gradient(135deg, #450a0a, #7f1d1d, #991b1b)', padding: '20px' }}>
+            <Celebration effect={effect} now={now} />
+            <div className="sf-deal-details-copy" style={{ position: 'relative', zIndex: 2 }}>
+              <div style={{ display: 'inline-block', background: 'rgba(254, 240, 138, 0.22)', border: '1px solid #fde047', padding: '3px 10px', borderRadius: 999, color: '#fef08a', fontSize: 11, fontWeight: 900, marginBottom: 8, letterSpacing: '0.5px' }}>
+                ✦ BULKIMART DIOTSAV SPECIAL ✦
+              </div>
+              <p className="sf-deal-name" style={{ color: '#fff', fontSize: 22, fontWeight: 900, margin: '4px 0 8px' }}>{campaign.name}</p>
+              {campaign.description && <p className="sf-deal-description" style={{ color: '#fef2f2', fontSize: 13, lineHeight: '20px', margin: '0 0 10px' }}>{campaign.description}</p>}
+              {Number(campaign.discountValue) > 0 && <p className="sf-deal-discount" style={{ display: 'inline-block', background: '#fef08a', color: '#78350f', padding: '4px 12px', borderRadius: 8, fontWeight: 900, fontSize: 16, margin: '6px 0' }}>UP TO {campaign.discountValue}% OFF</p>}
+              <p className="sf-deal-dates" style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: 12, margin: '8px 0 14px' }}>
+                {day(campaign.startAt)} → {day(campaign.endAt)} · Ends in <time className="sf-countdown" style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800, color: '#fef08a' }}>{countdown(campaign.endAt, now)}</time>
+              </p>
               {shopButton}
             </div>
           </div>

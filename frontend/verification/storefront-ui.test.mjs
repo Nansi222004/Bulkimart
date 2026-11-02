@@ -853,7 +853,7 @@ test('admin header fields store IST sale dates and only reveal countdown setting
     assert.equal(props.value.countdown.enabled, true); assert.match(labelText(h.tree), /Sale start · IST/);
     h.find(n => n.type === 'input' && n.props.type === 'datetime-local').props.onChange({ target: { value: '2030-11-01T09:30' } }); h.rerender();
     assert.equal(props.value.countdown.startAt, '2030-11-01T04:00:00.000Z');
-    h.find(n => n.type === 'select').props.onChange({ target: { value: 'campaign' } }); h.rerender();
+    h.find(n => n.type === 'select' && n.props.value === 'categories').props.onChange({ target: { value: 'campaign' } }); h.rerender();
     assert.match(labelText(h.tree), /Diwali deal/);
   } finally { h.close(); }
 });

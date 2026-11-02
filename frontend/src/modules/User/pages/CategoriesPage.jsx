@@ -47,15 +47,22 @@ const CategoriesPage = () => {
   }, [tree, query]);
 
   useEffect(() => {
-    setSelected(null);
-  }, [channel]);
-
-  useEffect(() => {
-    const slug = selectedCategoryFilter?.slug || selectedCategoryFilter?._id;
-    const find = nodes => { for (const category of nodes || []) { if (category.slug === slug || String(category._id) === slug) return category; const child = find(category.children); if (child) return child; } return null; };
-    const category = slug ? find(tree) : null;
-    setSelected(category);
-  }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, channel]);
+    const target = selectedCategoryFilter?.slug || selectedCategoryFilter?._id || selectedCategoryFilter?.id;
+    if (!target) {
+      setSelected(null);
+      return;
+    }
+    const find = nodes => {
+      for (const category of nodes || []) {
+        if (category.slug === target || String(category._id) === String(target) || String(category.id) === String(target) || (selectedCategoryFilter?.name && category.name?.toLowerCase() === selectedCategoryFilter.name?.toLowerCase())) return category;
+        const child = find(category.children);
+        if (child) return child;
+      }
+      return null;
+    };
+    const category = find(tree);
+    if (category) setSelected(category);
+  }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, selectedCategoryFilter?.id, selectedCategoryFilter?.name, channel]);
 
   // Each category is its own page (/categories/<slug>); the grid stays a grid.
   const openCategory = (category) => {
@@ -103,17 +110,30 @@ const CategoriesPage = () => {
           <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
         ) : (
           <div className="category-products-grid">
-            {products.filter((product) => !sponsoredIds.includes(String(product._id))).map((product) => (
-              <article className="category-result-card" key={product._id}>
-                <button type="button" className="category-result-open" onClick={() => setSelectedProduct(product)}>
-                  <img src={product.images?.[0] || ''} alt={product.name} loading="lazy" />
-                  <strong>{product.name}</strong>
-                  <span>{formatCurrency(product.price)}</span>
-                </button>
-                <WishlistHeartButton productId={product._id} size={14} />
-                <button type="button" className="category-result-add" onClick={() => addToCart(product)}>Add</button>
-              </article>
-            ))}
+            {products.filter((product) => !sponsoredIds.includes(String(product._id))).map((product) => {
+              const discount = product.mrp && product.mrp > product.price ? Math.round(((product.mrp - product.price) / product.mrp) * 100) : 0;
+              const subtitle = product.unit || product.brandName || product.sellerName || null;
+              return (
+                <article className="category-result-card" key={product._id}>
+                  <button type="button" className="category-result-open" onClick={() => setSelectedProduct(product)}>
+                    <div className="category-result-img-wrap">
+                      <img src={product.images?.[0] || ''} alt={product.name} loading="lazy" />
+                      {discount > 0 && <span className="category-result-discount">{discount}% OFF</span>}
+                    </div>
+                    {subtitle && <small className="category-result-unit">{subtitle}</small>}
+                    <strong>{product.name}</strong>
+                    <div className="category-result-price-row">
+                      <span className="category-result-price">{formatCurrency(product.price)}</span>
+                      {product.mrp && product.mrp > product.price && (
+                        <span className="category-result-mrp">{formatCurrency(product.mrp)}</span>
+                      )}
+                    </div>
+                  </button>
+                  <WishlistHeartButton productId={product._id} size={14} />
+                  <button type="button" className="category-result-add" onClick={() => addToCart(product)}>+ Add</button>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

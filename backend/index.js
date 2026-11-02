@@ -90,6 +90,8 @@ app.use("/api/health", healthRoutes);
 
 // Server-stored media (public files and signed private links); never the SPA shell.
 app.use("/media", mediaRouter);
+// Public promotional banners static route fallback
+app.use("/uploads/banners", express.static(path.resolve(import.meta.dirname, "uploads/banners")));
 // Private media references in API responses become signed URLs for permitted viewers.
 app.use("/api", mediaResponse);
 app.use("/api", apiRoutes);

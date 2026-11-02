@@ -9,6 +9,8 @@ import { Text } from './ui';
 import { CameraIcon } from './icons';
 import { useAppTheme } from '../theme/ThemeContext';
 
+import { appendFormFile } from '../lib/formData';
+
 const TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
 export function validateSearchImage(asset, maxBytes = 5 * 1024 * 1024) {
@@ -22,9 +24,8 @@ export function validateSearchImage(asset, maxBytes = 5 * 1024 * 1024) {
 }
 
 export async function searchProductsByImage(asset, { type, page = 1 }) {
-  const name = asset.fileName || `search.${(asset.mimeType || 'image/jpeg').split('/')[1].replace('jpeg', 'jpg')}`;
   const form = new FormData();
-  form.append('image', { uri: asset.uri, name, type: asset.mimeType || TYPES[(name.split('.').pop() || '').toLowerCase()] || 'image/jpeg' });
+  await appendFormFile(form, 'image', asset);
   const { ok, status, body } = await request(`/api/products/search-by-image?type=${encodeURIComponent(type)}&page=${page}&limit=20`, { method: 'POST', form });
   if (status === 503) throw new Error('Image search is not available right now. Please search by name or try again later.');
   if (!ok) throw new Error(body.message || 'Image search failed. Please try again.');

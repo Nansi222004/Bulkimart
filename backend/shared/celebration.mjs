@@ -1,8 +1,8 @@
 // Closed animation vocabulary shared by validation, the renderer and Admin.
 // confetti and sparkles remain for previously published configurations.
-export const EFFECT_PRESETS = ['lights', 'snowfall', 'petals', 'fireworks', 'confetti', 'sparkles'];
-export const EFFECT_LABELS = { lights: 'Festive lights', snowfall: 'Snowfall', petals: 'Flower petals', fireworks: 'Fireworks', confetti: 'Confetti', sparkles: 'Golden sparkles' };
-export const EFFECT_COLORS = { lights: ['#FFD45A', '#FF8A00', '#FF4D4D'], snowfall: ['#FFFFFF', '#DDEEFF'], petals: ['#FFB7C5', '#FF69B4'], fireworks: ['#FFD45A', '#FF6B6B', '#7FDBFF'], confetti: ['#FFD45A', '#B50918', '#FFFFFF'], sparkles: ['#FFD700', '#FFF1A8'] };
+export const EFFECT_PRESETS = ['lights', 'snowfall', 'petals', 'fireworks', 'confetti', 'sparkles', 'diya', 'candles'];
+export const EFFECT_LABELS = { lights: 'Festive lights', snowfall: 'Snowfall', petals: 'Flower petals', fireworks: 'Fireworks', confetti: 'Confetti', sparkles: 'Golden sparkles', diya: 'Diya lamps & jot (Diwali)', candles: 'Festive candles' };
+export const EFFECT_COLORS = { lights: ['#FFD45A', '#FF8A00', '#FF4D4D'], snowfall: ['#FFFFFF', '#DDEEFF'], petals: ['#FFB7C5', '#FF69B4'], fireworks: ['#FFD45A', '#FF6B6B', '#7FDBFF'], confetti: ['#FFD45A', '#B50918', '#FFFFFF'], sparkles: ['#FFD700', '#FFF1A8'], diya: ['#FFD700', '#FF7A00', '#D97706', '#8B2500'], candles: ['#FFE066', '#FF922B', '#E64980'] };
 // Falling presets drift; lights and fireworks have their own motion.
 export const DRIFTING_PRESETS = ['snowfall', 'petals', 'confetti', 'sparkles'];
 export const INTENSITY = { low: 0.5, medium: 1, high: 1.5 };
@@ -45,3 +45,20 @@ export function effectApplies(effect, { activeNav, selectedCampaignId, selectedP
   if (effect.scope === 'campaign') return !!selectedCampaignId && String(selectedCampaignId) === effect.campaignId;
   return effect.scope === 'homepage' && activeNav === 'home' && !selectedCampaignId && !selectedProduct && !selectedOrder && !reviewProductId && !productDetailLoading;
 }
+export function resolveSubheaderEffect(header, defaultEffect) {
+  if (!header?.enabled) return null;
+  if (header.animationPreset === 'none') return null;
+  if (header.animationPreset && EFFECT_PRESETS.includes(header.animationPreset)) {
+    const preset = header.animationPreset;
+    return {
+      ...(defaultEffect || DEFAULT_EFFECT),
+      enabled: true,
+      preset,
+      presets: [preset],
+      colors: EFFECT_COLORS[preset] || defaultEffect?.colors || EFFECT_COLORS.lights,
+      scope: 'homepage',
+    };
+  }
+  return defaultEffect;
+}
+

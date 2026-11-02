@@ -185,12 +185,29 @@ export const LandingPageContent = () => {
               <StorefrontAnnouncement />
               {/* Festive header: the bounded host for theme animation on the home feed */}
               <StorefrontFestiveHeader />
+
+              {/* Special festive offers strip text after subheader (dynamic from announcement or theme) */}
+              <div className="sf-banner-strip-heading sf-banner-strip-heading--top">
+                <span className="sf-strip-flourish">✨ ━━━━ ✦</span>
+                <span className="sf-strip-text">
+                  {experience.announcement?.banner?.title || experience.theme?.header?.subtitle || 'SPECIAL FESTIVE OFFERS & HIGHLIGHTS'}
+                </span>
+                <span className="sf-strip-flourish">✦ ━━━━ ✨</span>
+              </div>
+
               {/* Hero Promo Carousel Banner (shown on all pages if banners exist) */}
               <HeroBanner />
 
               {/* Only show home feed dashboard if we are in Shop All mode or in Quick mode's Home tab */}
               {(activeMode === 'shop-all' || activeSubNav === 'grocery--home') && (
                 <>
+                  {/* Category exploration strip text after banner images */}
+                  <div className="sf-banner-strip-heading sf-banner-strip-heading--actions">
+                    <span className="sf-strip-flourish">✦ ━━━━ ✨</span>
+                    <span className="sf-strip-text">QUICK EXPLORE &amp; CATEGORIES</span>
+                    <span className="sf-strip-flourish">✨ ━━━━ ✦</span>
+                  </div>
+
                   {/* Customer discovery shortcuts */}
                   <QuickActions />
                   <HomeServiceEntries />

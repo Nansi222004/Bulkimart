@@ -127,7 +127,148 @@ export function startCelebration(canvas, effect, env = window, { still = false }
         ctx.fill(); ctx.restore();
       }
     };
-    return bursting ? fireworks : custom ? moving : config.preset === 'lights' ? lights : falling;
+    const diyas = dt => {
+      const diyaCount = Math.min(particles.length, Math.max(3, Math.floor(width / 75)));
+      const baseColor = config.colors[3] || config.colors[2] || '#8B2500';
+      const flameColor = config.colors[1] || '#FF7A00';
+      const glowColor = config.colors[0] || '#FFD700';
+      const rimColor = config.colors[2] || '#D97706';
+
+      for (let i = 0; i < diyaCount; i++) {
+        const p = particles[i] || { phase: i };
+        p.phase += dt * config.speed * 2.5;
+        const x = ((i + 0.5) / diyaCount) * width;
+        const y = height - 16 * scale;
+        const flicker = Math.sin(p.phase * 2.5 + elapsed * 5) * 0.15;
+        const pulse = 0.85 + flicker;
+        const flameH = (14 + Math.sin(p.phase * 3) * 3) * scale;
+        const tipX = Math.sin(p.phase * 2.2) * 2 * scale;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // 1. Soft glowing aura around flame
+        ctx.fillStyle = glowColor;
+        ctx.globalAlpha = config.opacity * 0.35 * pulse;
+        ctx.beginPath();
+        ctx.arc(0, -flameH * 0.5, 16 * scale * pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Earthen diya lamp bowl
+        ctx.fillStyle = baseColor;
+        ctx.globalAlpha = config.opacity * 0.95;
+        ctx.beginPath();
+        ctx.moveTo(-15 * scale, 0);
+        ctx.bezierCurveTo(-14 * scale, 10 * scale, 14 * scale, 10 * scale, 15 * scale, 0);
+        ctx.bezierCurveTo(8 * scale, -2 * scale, -8 * scale, -2 * scale, -15 * scale, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Diya rim highlight
+        ctx.fillStyle = rimColor;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 13 * scale, 2.5 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3. Looping flickering flame / jot
+        // Outer flame (saffron / orange)
+        ctx.fillStyle = flameColor;
+        ctx.globalAlpha = Math.min(1, config.opacity + 0.35) * pulse;
+        ctx.beginPath();
+        ctx.moveTo(-5 * scale, -1 * scale);
+        ctx.bezierCurveTo(-7 * scale, -flameH * 0.5, tipX - 2 * scale, -flameH * 0.8, tipX, -flameH);
+        ctx.bezierCurveTo(tipX + 2 * scale, -flameH * 0.8, 7 * scale, -flameH * 0.5, 5 * scale, -1 * scale);
+        ctx.closePath();
+        ctx.fill();
+
+        // Inner flame core (bright golden / white hot core)
+        ctx.fillStyle = '#FFFDF0';
+        ctx.globalAlpha = Math.min(1, config.opacity + 0.45);
+        ctx.beginPath();
+        ctx.moveTo(-2 * scale, -1 * scale);
+        ctx.bezierCurveTo(-3 * scale, -flameH * 0.35, tipX * 0.5 - 1 * scale, -flameH * 0.6, tipX * 0.5, -flameH * 0.68);
+        ctx.bezierCurveTo(tipX * 0.5 + 1 * scale, -flameH * 0.6, 3 * scale, -flameH * 0.35, 2 * scale, -1 * scale);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // Gentle rising golden embers from the diyas
+      const emberCount = Math.min(particles.length, 16);
+      for (let j = 0; j < emberCount; j++) {
+        const p = particles[j];
+        p.y = (p.y - dt * config.speed * 22 / height + 1) % 1;
+        p.x = (p.x + Math.sin(p.phase + elapsed * 1.5) * 0.003 + 1) % 1;
+        p.phase += dt * config.speed * 2;
+        const ex = p.x * width;
+        const ey = p.y * height;
+        ctx.fillStyle = glowColor;
+        ctx.globalAlpha = config.opacity * (0.3 + Math.abs(Math.sin(p.phase)) * 0.5);
+        ctx.beginPath();
+        ctx.arc(ex, ey, (1.2 + (j % 3) * 0.5) * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+    const candles = dt => {
+      const count = Math.min(particles.length, Math.max(3, Math.floor(width / 70)));
+      const bodyColor = config.colors[2] || config.colors[0];
+      const flameColor = config.colors[1] || '#FF922B';
+      const glowColor = config.colors[0] || '#FFE066';
+
+      for (let i = 0; i < count; i++) {
+        const p = particles[i] || { phase: i };
+        p.phase += dt * config.speed * 2.5;
+        const x = ((i + 0.5) / count) * width;
+        const candleH = (18 + (i % 3) * 6) * scale;
+        const y = height - candleH;
+        const flicker = Math.sin(p.phase * 3 + elapsed * 4) * 0.15;
+        const pulse = 0.85 + flicker;
+        const flameH = (12 + Math.sin(p.phase * 3.5) * 2) * scale;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // Candle stick body
+        ctx.fillStyle = bodyColor;
+        ctx.globalAlpha = config.opacity * 0.9;
+        ctx.beginPath();
+        ctx.rect(-5 * scale, 0, 10 * scale, candleH);
+        ctx.fill();
+
+        // Wick
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1 * scale;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -4 * scale);
+        ctx.stroke();
+
+        // Candle flame glow
+        ctx.fillStyle = glowColor;
+        ctx.globalAlpha = config.opacity * 0.3 * pulse;
+        ctx.beginPath();
+        ctx.arc(0, -8 * scale, 14 * scale * pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Flame
+        ctx.fillStyle = flameColor;
+        ctx.globalAlpha = Math.min(1, config.opacity + 0.3) * pulse;
+        ctx.beginPath();
+        ctx.ellipse(0, -8 * scale, 3 * scale, flameH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inner bright core
+        ctx.fillStyle = '#FFFFFF';
+        ctx.globalAlpha = Math.min(1, config.opacity + 0.4);
+        ctx.beginPath();
+        ctx.ellipse(0, -6 * scale, 1.2 * scale, flameH * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+    };
+    return bursting ? fireworks : custom ? moving : config.preset === 'lights' ? lights : config.preset === 'diya' ? diyas : config.preset === 'candles' ? candles : falling;
   };
   const layers = effectLayers(effect).map(layer);
   const resize = () => {

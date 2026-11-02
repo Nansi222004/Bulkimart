@@ -1,14 +1,16 @@
 // Port of HeroBanner.jsx + FestiveHeader.jsx (mobile layout from Storefront.css).
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, AppState, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useStorefront, useStorefrontNow } from '../../context/StorefrontContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { DEFAULT_HEADER, DEFAULT_COUNTDOWN, countdownState, countdownParts, headerDestination } from '../../shared/storefront';
-import { boundedFetch } from '../../api/client';
+import { boundedFetch, mediaUrl } from '../../api/client';
 import StorefrontMedia from './StorefrontMedia';
 import Celebration, { useReducedMotion } from '../Celebration';
+import { resolveSubheaderEffect } from '../../shared/celebration';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
 import { Text } from '../ui';
 import { alpha } from '../../theme';
@@ -45,9 +47,9 @@ function CtaButton({ title, onPress, colors }) {
 export default function HeroBanner({ showDefault = true }) {
   const theme = useAppTheme();
   const { banners, loading } = useStorefront();
-  const reduced = useReducedMotion();
   const navigate = usePromotionNavigation();
-  const [index, setIndex] = useState(0), [paused, setPaused] = useState(false);
+  const reduced = useReducedMotion();
+  const [index, setIndex] = useState(0), paused = false;
   const current = index % Math.max(1, banners.length), banner = banners[current];
   const reveal = useReveal(theme.tokens.motion === 'gentle' && !reduced);
   useEffect(() => {
@@ -69,12 +71,25 @@ export default function HeroBanner({ showDefault = true }) {
   const go = () => { boundedFetch(`/api/banners/${banner.id}/click`, { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
   const link = banner.destination.type !== 'NONE';
   const gradient = theme.tokens.gradient === 'none' ? [theme.primary, theme.primary] : [theme.secondary, theme.primary];
-  return <Animated.View style={[styles.hero, { borderRadius: 16, borderColor: theme.accent }, reveal]} accessibilityLabel="Featured promotions">
-    <Pressable onPress={link ? go : undefined} disabled={!link} style={[styles.heroArt, { backgroundColor: theme.surface }]} accessibilityRole={link ? 'button' : 'image'} accessibilityLabel={banner.title || 'Promotion'}>
+  return <Animated.View style={[styles.hero, reveal]} accessibilityLabel="Featured promotions">
+    <Pressable onPress={link ? go : undefined} disabled={!link} style={[styles.heroArt, { backgroundColor: theme.surface, borderColor: theme.border }]} accessibilityRole={link ? 'button' : 'image'} accessibilityLabel={banner.title || 'Promotion'}>
       <StorefrontMedia key={banner.id} banner={banner} active={!paused} priority="high" />
       <Celebration effect={paused ? null : banner.animation} />
+      {banners.length > 1 && (
+        <View style={styles.dotsContainer}>
+          {banners.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.dot,
+                i === current && styles.dotActive,
+              ]}
+            />
+          ))}
+        </View>
+      )}
     </Pressable>
-    <LinearGradient colors={gradient} start={{ x: 0, y: 0.2 }} end={{ x: 1, y: 0.8 }} style={styles.heroCopy}>
+    <LinearGradient colors={gradient} start={{ x: 0, y: 0.2 }} end={{ x: 1, y: 0.8 }} style={[styles.heroCopy, { borderColor: theme.accent }]}>
       {decoration === 'lights' && <View style={styles.lights} pointerEvents="none">{Array.from({ length: 16 }, (_, i) => <View key={i} style={[styles.bulb, { backgroundColor: theme.accent }]} />)}</View>}
       <Text style={styles.eyebrow}>DISCOVER SOMETHING GOOD</Text>
       <Text style={styles.heroTitle}>{banner.title}</Text>
@@ -82,12 +97,6 @@ export default function HeroBanner({ showDefault = true }) {
       {link && <CtaButton title={`${banner.cta || 'Explore now'} →`} onPress={go} />}
     </LinearGradient>
     {decoration === 'confetti' && <DashedRule color={theme.accent} />}
-    {banners.length > 1 && <View style={[styles.controls, { backgroundColor: theme.surface }]}>
-      <Pressable accessibilityLabel="Previous promotion" onPress={() => setIndex(current + banners.length - 1)} style={styles.ctrl}><Text>←</Text></Pressable>
-      <Text style={{ fontSize: 11 }}>{current + 1} / {banners.length}</Text>
-      <Pressable accessibilityLabel="Next promotion" onPress={() => setIndex(current + 1)} style={styles.ctrl}><Text>→</Text></Pressable>
-      <Pressable accessibilityLabel={paused ? 'Resume promotions' : 'Pause promotions'} onPress={() => setPaused(p => !p)} style={styles.ctrl}><Text style={{ fontSize: 11 }}>{paused ? 'Play' : 'Pause'}</Text></Pressable>
-    </View>}
   </Animated.View>;
 }
 
@@ -115,6 +124,30 @@ function FestiveCountdown({ countdown: config, background, text }) {
   </View>;
 }
 
+function FestiveVideo({ uri, poster, style, onFail }) {
+  const player = useVideoPlayer({ uri }, p => { p.muted = true; p.loop = true; p.play(); });
+  useEffect(() => {
+    const status = player.addListener('statusChange', ({ status: next }) => { if (next === 'error') onFail(); });
+    const sync = () => { try { if (AppState.currentState === 'active') player.play(); else player.pause(); } catch { /* player released */ } };
+    const app = AppState.addEventListener('change', sync);
+    return () => { status.remove(); app.remove(); };
+  }, [player, onFail]);
+  return <View style={style}>
+    {poster ? <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
+    <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} fullscreenOptions={{ enable: false }} />
+  </View>;
+}
+
+// Sub-header artwork fills the whole strip: muted looping video (image as poster), or the image alone.
+function FestiveArt({ image, video }) {
+  const reduced = useReducedMotion();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [video]);
+  const style = [StyleSheet.absoluteFill, { pointerEvents: 'none' }];
+  if (video && !reduced && !failed) return <FestiveVideo key={video} uri={mediaUrl(video)} poster={image ? mediaUrl(image) : ''} style={style} onFail={() => setFailed(true)} />;
+  return image ? <Image source={{ uri: mediaUrl(image) }} style={style} contentFit="cover" /> : null;
+}
+
 export function StorefrontFestiveHeader() {
   const { theme: published, effect } = useStorefront();
   const theme = useAppTheme();
@@ -122,8 +155,11 @@ export function StorefrontFestiveHeader() {
   if (!hasFestiveHeader(published)) return null;
   const header = normalizeHeader(published.header);
   const destination = headerDestination(header);
+  const subheaderEffect = resolveSubheaderEffect(header, effect);
   return <View style={[styles.festive, { minHeight: header.height, backgroundColor: header.background, borderRadius: 16 }]} accessibilityLabel={header.title || 'Festive offers'}>
-    <Celebration effect={effect} />
+    <FestiveArt image={header.image} video={header.video} />
+    {header.image || header.video ? <LinearGradient pointerEvents="none" colors={[alpha(header.background, 0.8), alpha(header.background, 0.35), 'transparent']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} /> : null}
+    <Celebration effect={subheaderEffect} />
     <View style={[styles.festiveContent, { minHeight: header.height }]}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={[styles.festiveTitle, { color: header.text, textShadowColor: header.background }]}>{header.title}</Text>
@@ -131,16 +167,15 @@ export function StorefrontFestiveHeader() {
         <FestiveCountdown countdown={header.countdown} background={header.background} text={header.text} />
         {destination.type !== 'NONE' && header.cta ? <View style={{ marginTop: 14 }}><CtaButton title={`${header.cta} →`} onPress={() => navigate(destination)} colors={{ bg: theme.highlight, fg: theme.highlightText }} /></View> : null}
       </View>
-      {header.image ? <Image source={{ uri: header.image }} style={{ width: '32%', height: Math.max(40, header.height - 32) }} contentFit="contain" /> : null}
     </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
   skeleton: { height: 180, marginVertical: 12, borderRadius: 20 },
-  hero: { overflow: 'hidden', borderWidth: 1, borderBottomWidth: 3, marginBottom: 22 },
-  heroArt: { aspectRatio: 1.8, overflow: 'hidden' },
-  heroCopy: { paddingTop: 24, paddingHorizontal: 16, paddingBottom: 50 },
+  hero: { marginBottom: 22, gap: 12 },
+  heroArt: { aspectRatio: 1.8, overflow: 'hidden', borderRadius: 16, borderWidth: 1 },
+  heroCopy: { borderRadius: 16, borderWidth: 1, borderBottomWidth: 3, paddingTop: 20, paddingHorizontal: 16, paddingBottom: 48, overflow: 'hidden' },
   lights: { position: 'absolute', top: 0, left: 0, right: 0, height: 12, flexDirection: 'row', justifyContent: 'space-around' },
   bulb: { width: 6, height: 6, borderRadius: 3, marginTop: 0 },
   eyebrow: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1.6, lineHeight: 15 },
@@ -148,8 +183,9 @@ const styles = StyleSheet.create({
   heroSub: { color: '#fff', fontSize: 12, lineHeight: 19, marginBottom: 12 },
   cta: { minHeight: 44, paddingVertical: 12, paddingHorizontal: 20, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center' },
   ctaText: { fontSize: 13, fontWeight: '700' },
-  controls: { position: 'absolute', bottom: 10, right: 16, flexDirection: 'row', gap: 5, alignItems: 'center', borderRadius: 24, paddingVertical: 2, paddingHorizontal: 4 },
-  ctrl: { minHeight: 36, minWidth: 36, alignItems: 'center', justifyContent: 'center' },
+  dotsContainer: { position: 'absolute', bottom: 10, alignSelf: 'center', flexDirection: 'row', gap: 6, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.38)', borderRadius: 999 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
+  dotActive: { width: 16, backgroundColor: '#ffffff' },
   festive: { overflow: 'hidden', marginBottom: 14 },
   festiveContent: { zIndex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingTop: 38, paddingHorizontal: 16, paddingBottom: 48 },
   festiveTitle: { fontSize: 22, fontWeight: '800', lineHeight: 25, letterSpacing: -0.6, textShadowRadius: 6 },

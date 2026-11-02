@@ -21,10 +21,25 @@ export default function HeroBanner() {
   const go = () => { fetch(apiUrl(`/api/banners/${banner.id}/click`), { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
   return <section className="sf-hero" aria-roledescription="carousel" aria-label="Featured promotions" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocusCapture={() => setHover(true)} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setHover(false); }}>
     {/* Tapping the picture opens the promotion too; the button below stays the keyboard route. Video controls keep working. */}
-    <div className={`sf-hero-art${banner.destination.type !== 'NONE' ? ' sf-hero-art--link' : ''}`} onClick={banner.destination.type !== 'NONE' ? e => { if (e.target.tagName !== 'VIDEO') go(); } : undefined}><StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} /><Celebration effect={paused ? null : heroEffect} now={now} /></div>
+    <div className={`sf-hero-art${banner.destination.type !== 'NONE' ? ' sf-hero-art--link' : ''}`} onClick={banner.destination.type !== 'NONE' ? e => { if (e.target.tagName !== 'VIDEO') go(); } : undefined}>
+      <StorefrontMedia key={banner.id} banner={banner} device={device} eager active={!paused} />
+      <Celebration effect={paused ? null : heroEffect} now={now} />
+      {banners.length > 1 && (
+        <div className="sf-carousel-dots" aria-label="Slide dots">
+          {banners.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              className={`sf-dot ${i === current ? 'active' : ''}`}
+              aria-label={`Go to slide ${i + 1}`}
+              onClick={e => { e.stopPropagation(); setIndex(i); }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
     <div className="sf-hero-copy"><span className="sf-eyebrow">DISCOVER SOMETHING GOOD</span><h2>{banner.title}</h2>{banner.subtitle && <p>{banner.subtitle}</p>}
       {banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={go}>{banner.cta || 'Explore now'} <span aria-hidden="true">→</span></button>}
     </div>
-    {banners.length > 1 && <div className="sf-carousel-controls"><button aria-label="Previous promotion" onClick={() => setIndex(current + banners.length - 1)}>←</button><span aria-live={paused ? 'polite' : 'off'}>{current + 1} / {banners.length}</span><button aria-label="Next promotion" onClick={() => setIndex(current + 1)}>→</button><button aria-label={paused ? 'Resume promotions' : 'Pause promotions'} onClick={() => setPaused(p => !p)}>{paused ? 'Play' : 'Pause'}</button></div>}
   </section>;
 }

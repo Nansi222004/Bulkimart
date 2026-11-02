@@ -15,9 +15,9 @@ for (const preset of EFFECT_PRESETS) test(`${preset} draws bounded particles at 
   const h = fixture(), stop = startCelebration(h.canvas, { ...DEFAULT_EFFECT, preset, density: 1000 }, h.env);
   assert.equal(h.frames.size, 0); h.show(true); assert.equal(h.frames.size, 1);
   h.tick(1); h.tick(34);
-  const shape = { snowfall: 'arc', petals: 'ellipse', sparkles: 'moveTo', confetti: 'rect', lights: 'arc', fireworks: 'arc' }[preset];
-  // Lights: halo + bulb for floor(390/16) bulbs. Fireworks: one burst of 33 sparks. Others: 100 capped particles.
-  assert.equal(h.calls.filter(c => c[0] === shape).length, { lights: 2 * 2 * 24, fireworks: 2 * 33 }[preset] ?? 200);
+  const shape = { snowfall: 'arc', petals: 'ellipse', sparkles: 'moveTo', confetti: 'rect', lights: 'arc', fireworks: 'arc', diya: 'arc', candles: 'arc' }[preset];
+  // Lights: halo + bulb for floor(390/16) bulbs. Fireworks: one burst of 33 sparks. Diya: 5 lamps + 16 embers. Candles: 5 candles. Others: 100 capped particles.
+  assert.equal(h.calls.filter(c => c[0] === shape).length, { lights: 2 * 2 * 24, fireworks: 2 * 33, diya: 2 * (5 + 16), candles: 2 * 5 }[preset] ?? 200);
   assert.equal(h.canvas.width, 780); assert.equal(h.canvas.height, 1000);
   h.doc.hidden = true; h.doc.dispatchEvent(new Event('visibilitychange')); assert.equal(h.frames.size, 0);
   h.doc.hidden = false; h.doc.dispatchEvent(new Event('visibilitychange')); assert.equal(h.frames.size, 1);

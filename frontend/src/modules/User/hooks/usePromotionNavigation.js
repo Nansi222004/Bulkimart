@@ -3,7 +3,17 @@ export default function usePromotionNavigation() {
   const { setSelectedCategoryFilter, setSelectedCampaignId, setActiveNav, setActiveSubNav } = useUser();
   return destination => {
     if (!destination) return;
-    if (destination.type === 'CATEGORY') setSelectedCategoryFilter({ _id: destination.id, slug: destination.slug, name: destination.name });
+    if (destination.type === 'CATEGORY') {
+      const channel = destination.channel || destination.typeCategory;
+      setSelectedCategoryFilter({
+        _id: destination.id,
+        id: destination.id,
+        slug: destination.slug,
+        name: destination.name,
+        channel,
+        type: channel,
+      });
+    }
     if (destination.type === 'CAMPAIGN') setSelectedCampaignId(destination.id);
     if (destination.type === 'SUBNAV' && ['groceries', 'electronics', 'fashion', 'smart-buy', 'hot-deals'].includes(destination.id)) { setActiveNav('home'); setActiveSubNav(destination.id); }
     if (destination.type === 'NAV' && ['cart', 'categories', 'account', 'orders'].includes(destination.id)) setActiveNav(destination.id);

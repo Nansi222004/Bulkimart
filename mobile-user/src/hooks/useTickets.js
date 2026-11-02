@@ -2,6 +2,7 @@
 // role from the session; `role` is only the category/list filter the web sends too.
 import { useCallback, useState } from 'react';
 import { boundedFetch, authHeaders } from '../api/client';
+import { appendFormFile } from '../lib/formData';
 
 const unwrap = async response => {
   const body = await response.json().catch(() => ({}));
@@ -9,7 +10,6 @@ const unwrap = async response => {
   return body;
 };
 const tokenHeaders = () => authHeaders(false);
-const appendFile = (form, file) => form.append('attachments', { uri: file.uri, name: file.name, type: file.type });
 
 export function useTickets(defaultRole) {
   const [tickets, setTickets] = useState([]);
@@ -39,7 +39,7 @@ export function useTickets(defaultRole) {
     const form = new FormData();
     const payload = defaultRole ? { role: defaultRole, ...fields } : fields;
     Object.entries(payload).forEach(([key, value]) => { if (value) form.append(key, value); });
-    files.forEach(file => appendFile(form, file));
+    for (const file of files) await appendFormFile(form, 'attachments', file);
     const body = await unwrap(await boundedFetch('/api/tickets', { method: 'POST', headers: tokenHeaders(), body: form }, 60000));
     setTickets(prev => [body.data, ...prev]);
     return body.data;
@@ -48,7 +48,7 @@ export function useTickets(defaultRole) {
   const sendMessage = useCallback(async (ticketId, message, files = []) => {
     const form = new FormData();
     form.append('message', message);
-    files.forEach(file => appendFile(form, file));
+    for (const file of files) await appendFormFile(form, 'attachments', file);
     return unwrap(await boundedFetch(`/api/tickets/${ticketId}/messages`, { method: 'POST', headers: tokenHeaders(), body: form }, 60000));
   }, []);
 

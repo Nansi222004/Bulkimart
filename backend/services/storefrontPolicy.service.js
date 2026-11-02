@@ -1,6 +1,6 @@
 import { httpError } from '../utils/response.js';
 import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED, DEFAULT_CUSTOM, CUSTOM_MOTIONS, CUSTOM_SHAPES, MAX_CUSTOM, isCustomId } from '../shared/celebration.mjs';
-import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, SPLASH_DURATION } from '../shared/storefront.mjs';
+import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, THEME_PARTS, SPLASH_DURATION } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
@@ -105,8 +105,10 @@ export function validateHeader(value) {
   if (typeof h.enabled !== 'boolean') fail('Festive header enabled must be boolean');
   const header = { enabled: h.enabled, title: str(h.title, 60, 'header title'), subtitle: str(h.subtitle, 120, 'header subtitle'), cta: str(h.cta, 24, 'header button text'),
     target: one(h.target, HEADER_TARGETS, 'header destination'), campaignId: h.campaignId ? String(h.campaignId) : '', height: integer(h.height, 120, 320, 'Header height'),
-    background: h.background, text: h.text, image: mediaUrl(h.image) };
+    background: h.background, text: h.text, image: mediaUrl(h.image), video: mediaUrl(h.video),
+    animationPreset: one(h.animationPreset || '', ['', 'none', ...EFFECT_PRESETS], 'festive header animation') };
   if (header.image && !/\.(jpg|jpeg|png|webp)$/i.test(new URL(header.image, 'https://local.test').pathname)) fail('Header artwork must be a JPEG, PNG or WebP image');
+  if (header.video && !/\.(mp4|webm)$/i.test(new URL(header.video, 'https://local.test').pathname)) fail('Header video must be an MP4 or WebM file');
   for (const key of ['background', 'text']) if (typeof header[key] !== 'string' || !/^#[a-f\d]{6}$/i.test(header[key])) fail(`Header ${key} must be a six-digit hex color`);
   if (contrast(header.background, header.text) < 4.5) fail('Header text needs at least 4.5:1 contrast on the header background');
   if (header.target === 'campaign' ? !objectId(header.campaignId) : header.campaignId) fail(header.target === 'campaign' ? 'Select a deal campaign for the header button' : 'Header campaign is only used by the campaign destination');
@@ -140,7 +142,10 @@ export function validateExperience(input, kind) {
       return { categoryId: String(tile.categoryId), bannerId: String(tile.bannerId), badge: str(tile.badge || '', 24, 'category badge') };
     });
     if (new Set(categoryTiles.map(tile => tile.categoryId)).size !== categoryTiles.length) fail('Each category can have only one artwork override');
-    row.config = { preset: one(c.preset || 'Custom Admin Theme', Object.keys(PRESETS), 'preset'), application: one(c.application || 'storefront', ['storefront', 'campaign'], 'theme application'), tokens: validateTokens(c.tokens), categoryTiles, header: validateHeader(c.header) };
+    const part = one(c.part || 'overall', THEME_PARTS, 'theme type'), header = validateHeader(c.header);
+    if (part === 'subheader' && !header.enabled) fail('Switch on the sub-header for a sub-header theme');
+    if (part === 'subheader' && categoryTiles.length) fail('Category artwork belongs to an overall theme, not a sub-header');
+    row.config = { part, preset: one(c.preset || 'Custom Admin Theme', Object.keys(PRESETS), 'preset'), application: one(c.application || 'storefront', ['storefront', 'campaign'], 'theme application'), tokens: validateTokens(c.tokens), categoryTiles, header };
   }
   if (kind === 'campaign') row.config = {
     placement: one(c.placement || 'hero', ['hero', 'splash', 'announcement'], 'placement'), bannerId: ref('bannerId'), themeId: ref('themeId'),
@@ -150,8 +155,11 @@ export function validateExperience(input, kind) {
   if (kind === 'section') row.config = { title: str(c.title || row.name, 100, 'section title'), source: one(c.source || 'recent', SOURCES, 'product source'),
     categoryId: ref('categoryId'), campaignId: ref('campaignId'), bannerId: ref('bannerId'),
     maxPrice: integer(c.maxPrice ?? 99, 1, 1000000, 'Maximum price'), limit: integer(c.limit ?? 8, 1, 24, 'Product limit'),
-    variant: one(c.variant || 'plain', ['plain', 'accent', 'soft'], 'section appearance'),
-    layout: one(c.layout || 'rail', ['rail', 'grid'], 'section layout'), appearance: validateSectionAppearance(c.appearance) };
+    variant: one(c.variant || 'plain', ['plain', 'accent', 'soft', 'festive_deals'], 'section appearance'),
+    layout: one(c.layout || 'rail', ['rail', 'grid', 'festive_grid'], 'section layout'),
+    appearance: validateSectionAppearance(c.appearance),
+    festiveTrim: c.festiveTrim === true,
+  };
   if (kind === 'theme' || kind === 'campaign') row.config.animation = validateEffect(c.animation, kind === 'theme' ? ['storefront', 'homepage', 'campaign'] : ['storefront', 'homepage', 'campaign', 'banner']);
   if (kind === 'campaign' && row.config.placement === 'announcement' && row.config.animation.enabled && row.config.animation.scope === 'banner') fail('Announcement text has no banner canvas; choose homepage or storefront animation scope');
   return row;

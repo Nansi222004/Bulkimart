@@ -1,9 +1,8 @@
 // Port of modules/User/pages/CategoriesPage.jsx.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { BackHandler, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { alpha } from '../theme';
@@ -32,6 +31,9 @@ function Skeleton({ style }) { return <View style={[{ backgroundColor: '#eef2f6'
 
 export default function CategoriesScreen() {
   const theme = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  // 12px padding on each side (24px) + 12px gap between columns = 36px total offset
+  const columnWidth = Math.max(140, Math.floor((windowWidth - 36) / 2));
   const { activeMode, setActiveMode, addToCart, setSelectedProduct, selectedCategoryFilter, setSelectedCategoryFilter } = useUser();
   const channel = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const { tree, loading, error, retry } = useCategoryTree(channel);
@@ -45,12 +47,26 @@ export default function CategoriesScreen() {
   const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({ type: channel, category: categoryIds, limit: 60, enabled: selected?.type === channel && !loading });
   const roots = useMemo(() => customerRoots(tree).filter(category => branchMatches(category, query.trim().toLowerCase())), [tree, query]);
 
-  useEffect(() => { setSelected(null); openedFromGrid.current = []; }, [channel]);
+  useEffect(() => { openedFromGrid.current = []; }, [channel]);
   useEffect(() => {
-    const slug = selectedCategoryFilter?.slug || selectedCategoryFilter?._id;
-    const find = nodes => { for (const category of nodes || []) { if (category.slug === slug || String(category._id) === slug) return category; const child = find(category.children); if (child) return child; } return null; };
-    setSelected(slug ? find(tree) : null);
-  }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, channel]);
+    const target = selectedCategoryFilter?.slug || selectedCategoryFilter?._id || selectedCategoryFilter?.id;
+    if (!target) {
+      setSelected(null);
+      return;
+    }
+    const find = nodes => {
+      for (const category of nodes || []) {
+        if (category.slug === target || String(category._id) === String(target) || String(category.id) === String(target) || (selectedCategoryFilter?.name && category.name?.toLowerCase() === selectedCategoryFilter.name?.toLowerCase())) return category;
+        const child = find(category.children);
+        if (child) return child;
+      }
+      return null;
+    };
+    const found = find(tree);
+    if (found) {
+      setSelected(found);
+    }
+  }, [tree, selectedCategoryFilter?.slug, selectedCategoryFilter?._id, selectedCategoryFilter?.id, selectedCategoryFilter?.name, channel]);
 
   const openCategory = category => { openedFromGrid.current.push(selected); setSelectedCategoryFilter(category); setSelected(category); };
   const parent = selected ? parentOf(tree, selected._id) : null;
@@ -76,40 +92,88 @@ export default function CategoriesScreen() {
           <Text style={[styles.detailTitle, { color: theme.brandDeepBlue }]}>{selected.name}</Text>
         </View>
       </View>
-      <FlatList data={productsLoading || productsError || !sponsoredSettled ? [] : listed} keyExtractor={p => String(p._id)} numColumns={2} columnWrapperStyle={{ gap: 12 }}
+      <FlatList
+        data={productsLoading || productsError || !sponsoredSettled ? [] : listed}
+        keyExtractor={p => String(p._id)}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottom, gap: 12 }}
         ListHeaderComponent={<View>
           {selected.children?.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }} accessibilityLabel={`Subcategories of ${selected.name}`}>
             {selected.children.map(child => <Pressable key={child._id} onPress={() => openCategory(child)} style={[styles.chip, { borderColor: theme.border, backgroundColor: theme.cardBackground }]}>
-              <View style={styles.chipArt}><CategoryArtwork category={child} fit="cover" radius={17} /></View>
+              <View style={styles.chipArt}><CategoryArtwork category={child} fit="contain" radius={17} /></View>
               <Text style={{ fontSize: 13, fontWeight: '700' }}>{child.name}</Text>
             </Pressable>)}
           </ScrollView>}
           <View style={[styles.results, { borderTopColor: theme.border }]}>
-            {!productsLoading && !productsError && products.length > 0 && <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 8 }}>{products.length} {products.length === 1 ? 'product' : 'products'}</Text>}
+            {!productsLoading && !productsError && products.length > 0 && (
+              <View style={styles.countRow}>
+                <Text style={[styles.countText, { color: theme.textSecondary }]}>
+                  {products.length} {products.length === 1 ? 'product' : 'products'}
+                </Text>
+              </View>
+            )}
             <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} onSettled={setSponsoredSettled} />
-            {productsLoading || (!productsError && !sponsoredSettled) ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ width: '47%', height: 220 }} />)}</View>
+            {productsLoading || (!productsError && !sponsoredSettled) ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ width: columnWidth, height: 240 }} />)}</View>
               : productsError ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]} accessibilityRole="alert"><Text style={{ color: theme.textSecondary }}>{productsError}</Text><Pressable onPress={retryProducts} style={[styles.stateBtn, { backgroundColor: theme.primary }]}><Text style={styles.stateBtnText}>Retry</Text></Pressable></View>
                 : products.length === 0 ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>No available products</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>This category is active but currently has no published stock.</Text></View> : null}
           </View>
         </View>}
-        renderItem={({ item: product }) => <View style={[styles.resultCard, { borderColor: theme.border }]}>
-          <Pressable onPress={() => setSelectedProduct(product)} accessibilityRole="button" accessibilityLabel={product.name}>
-            <View style={[styles.resultImg, { backgroundColor: theme.pageBackground }]}>{product.images?.[0] ? <Image source={{ uri: mediaUrl(product.images[0]) }} style={StyleSheet.absoluteFill} contentFit="contain" /> : null}</View>
-            <Text numberOfLines={2} style={styles.resultName}>{product.name}</Text>
-            <Text style={{ color: theme.brandDeepBlue, fontWeight: '900' }}>{formatCurrency(product.price)}</Text>
-          </Pressable>
-          <WishlistHeartButton productId={product._id} size={14} style={{ position: 'absolute', top: 14, right: 14 }} />
-          <Pressable onPress={() => addToCart(product)} style={[styles.resultAdd, { borderColor: theme.primary, backgroundColor: theme.highlight }]} accessibilityRole="button" accessibilityLabel={`Add ${product.name} to cart`}>
-            <Text style={{ color: theme.brandPrimaryDark, fontWeight: '900' }}>Add</Text>
-          </Pressable>
-        </View>} />
+        renderItem={({ item: product }) => {
+          const discountPercent = product.mrp && product.mrp > product.price
+            ? Math.round(((product.mrp - product.price) / product.mrp) * 100)
+            : 0;
+          const subtitle = product.unit || product.brandName || product.sellerName || null;
+          return (
+            <View style={[styles.resultCard, { width: columnWidth, maxWidth: columnWidth, borderColor: theme.border }]}>
+              <View style={styles.resultImgContainer}>
+                <Pressable onPress={() => setSelectedProduct(product)} accessibilityRole="button" accessibilityLabel={product.name} style={StyleSheet.absoluteFill}>
+                  <View style={styles.resultImg}>
+                    {product.images?.[0] ? (
+                      <Image source={{ uri: mediaUrl(product.images[0]) }} style={StyleSheet.absoluteFill} contentFit="contain" />
+                    ) : null}
+                  </View>
+                </Pressable>
+                {discountPercent > 0 && (
+                  <View style={[styles.discountBadge, { backgroundColor: theme.badge || '#16a34a' }]}>
+                    <Text style={[styles.discountBadgeText, { color: theme.badgeText || '#fff' }]}>{discountPercent}% OFF</Text>
+                  </View>
+                )}
+                <View style={styles.heartWrapper}>
+                  <WishlistHeartButton productId={product._id} size={13} />
+                </View>
+              </View>
+              <Pressable onPress={() => setSelectedProduct(product)} accessibilityRole="button" accessibilityLabel={product.name} style={styles.resultBody}>
+                {subtitle ? (
+                  <Text numberOfLines={1} style={[styles.resultSubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
+                ) : null}
+                <Text numberOfLines={2} style={[styles.resultName, { color: theme.textPrimary }]}>{product.name}</Text>
+                <View style={styles.priceRow}>
+                  <Text style={[styles.resultPrice, { color: theme.brandDeepBlue }]}>{formatCurrency(product.price)}</Text>
+                  {product.mrp && product.mrp > product.price ? (
+                    <Text style={[styles.resultMrp, { color: theme.textSecondary }]}>{formatCurrency(product.mrp)}</Text>
+                  ) : null}
+                </View>
+              </Pressable>
+              <Pressable onPress={() => addToCart(product)} style={[styles.resultAdd, { borderColor: theme.primary, backgroundColor: theme.highlight }]} accessibilityRole="button" accessibilityLabel={`Add ${product.name} to cart`}>
+                <Text style={[styles.resultAddText, { color: theme.brandPrimaryDark }]}>+ ADD</Text>
+              </Pressable>
+            </View>
+          );
+        }}
+      />
     </CustomerPage>;
   }
 
   return <CustomerPage cartBar background={theme.pageBackground}>
-    <FlatList data={loading || error ? [] : roots} keyExtractor={c => String(c._id)} numColumns={2} columnWrapperStyle={{ gap: 12 }}
-      contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottom, gap: 12 }} stickyHeaderIndices={[0]} keyboardShouldPersistTaps="handled"
+    <FlatList
+      data={loading || error ? [] : roots}
+      keyExtractor={c => String(c._id)}
+      numColumns={2}
+      columnWrapperStyle={styles.columnWrapper}
+      contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottom, gap: 12 }}
+      stickyHeaderIndices={[0]}
+      keyboardShouldPersistTaps="handled"
       ListHeaderComponent={<View style={{ backgroundColor: theme.pageBackground, paddingTop: 16, paddingBottom: 12, gap: 11 }}>
         <View>
           <Text style={[styles.eyebrow, { color: theme.brandPrimaryDark }]}>BULKIMART CATALOGUE</Text>
@@ -130,16 +194,21 @@ export default function CategoriesScreen() {
           })}
         </View>
       </View>}
-      ListEmptyComponent={loading ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} style={{ width: '47%', height: 170 }} />)}</View>
+      ListEmptyComponent={loading ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} style={{ width: columnWidth, height: 170 }} />)}</View>
         : error ? <View style={[styles.state, { borderColor: theme.border }]} accessibilityRole="alert"><Text style={{ fontWeight: '700' }}>Categories could not be loaded</Text><Text style={{ color: theme.textSecondary }}>{error}</Text><Pressable onPress={retry} style={[styles.stateBtn, { backgroundColor: theme.primary }]}><Text style={styles.stateBtnText}>Try again</Text></Pressable></View>
           : <View style={[styles.state, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>{query ? 'No matching categories' : 'No categories are published yet'}</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>{query ? 'Try a different search.' : 'Active admin-managed categories will appear here.'}</Text></View>}
-      renderItem={({ item: category }) => <Pressable onPress={() => openCategory(category)} style={[styles.card, { borderColor: theme.border }]} accessibilityRole="button" accessibilityLabel={category.name}>
-        <LinearGradient colors={['#f0fdf4', theme.highlight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.art}>
-          <View style={{ flex: 1, width: '100%' }}><CategoryArtwork category={category} fit="cover" /></View>
-        </LinearGradient>
-        <Text numberOfLines={2} style={styles.cardName}>{category.name}</Text>
-        <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>{category.children?.length ? `${category.children.length} subcategories` : 'Browse products'}</Text>
-      </Pressable>} />
+      renderItem={({ item: category }) => (
+        <Pressable onPress={() => openCategory(category)} style={[styles.card, { width: columnWidth, maxWidth: columnWidth, borderColor: theme.border }]} accessibilityRole="button" accessibilityLabel={category.name}>
+          <View style={[styles.art, { backgroundColor: '#f8fafc' }]}>
+            <CategoryArtwork category={category} fit="contain" radius={12} />
+          </View>
+          <Text numberOfLines={2} style={[styles.cardName, { color: theme.textPrimary }]}>{category.name}</Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>
+            {category.children?.length ? `${category.children.length} subcategories` : 'Browse products'}
+          </Text>
+        </Pressable>
+      )}
+    />
   </CustomerPage>;
 }
 
@@ -150,8 +219,9 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, minWidth: 0, fontSize: 15 },
   tabs: { flexDirection: 'row', padding: 4, borderWidth: 1, borderRadius: 12, backgroundColor: '#fff' },
   tab: { flex: 1, minHeight: 38, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  card: { flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 10, borderWidth: 1.5, borderRadius: 16, backgroundColor: '#fff', elevation: 1 },
-  art: { width: '100%', aspectRatio: 1.25, borderRadius: 12, padding: 8, overflow: 'hidden' },
+  columnWrapper: { gap: 12, justifyContent: 'flex-start' },
+  card: { alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 10, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+  art: { width: '100%', height: 110, borderRadius: 12, padding: 8, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
   cardName: { fontSize: 13.5, fontWeight: '700', lineHeight: 17, textAlign: 'center' },
   state: { marginVertical: 48, padding: 28, alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff' },
   compact: { marginVertical: 12, padding: 20 },
@@ -161,10 +231,22 @@ const styles = StyleSheet.create({
   detailBack: { width: 44, height: 44, borderWidth: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   detailTitle: { fontSize: 22, fontWeight: '700', lineHeight: 26 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingVertical: 4, paddingLeft: 4, paddingRight: 14, borderWidth: 1, borderRadius: 999 },
-  chipArt: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden' },
+  chipArt: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden', backgroundColor: '#f8fafc' },
   results: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, marginBottom: 4 },
-  resultCard: { flex: 1, padding: 8, borderWidth: 1, borderRadius: 15, backgroundColor: '#fff' },
-  resultImg: { width: '100%', aspectRatio: 1, borderRadius: 11, overflow: 'hidden', marginBottom: 7 },
-  resultName: { minHeight: 34, fontSize: 13, lineHeight: 17, fontWeight: '700', marginBottom: 7 },
-  resultAdd: { marginTop: 9, padding: 8, borderWidth: 1, borderRadius: 9, alignItems: 'center' },
+  countRow: { marginBottom: 10 },
+  countText: { fontSize: 12.5, fontWeight: '600' },
+  resultCard: { padding: 10, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, justifyContent: 'space-between' },
+  resultImgContainer: { width: '100%', aspectRatio: 1, position: 'relative', marginBottom: 8 },
+  resultImg: { width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+  heartWrapper: { position: 'absolute', top: 6, right: 6, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
+  discountBadge: { position: 'absolute', top: 6, left: 6, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4, elevation: 1 },
+  discountBadgeText: { fontSize: 9.5, fontWeight: '800' },
+  resultBody: { flex: 1, minHeight: 68 },
+  resultSubtitle: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  resultName: { fontSize: 13, lineHeight: 17, fontWeight: '700', minHeight: 34, marginBottom: 4 },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 'auto' },
+  resultPrice: { fontSize: 15, fontWeight: '900' },
+  resultMrp: { fontSize: 11.5, textDecorationLine: 'line-through', fontWeight: '500' },
+  resultAdd: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  resultAddText: { fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
 });

@@ -88,8 +88,23 @@ const syncParticipationRows = async (campaign) => {
   const toCreate = eligible.filter((p) => !existingIds.has(String(p._id)));
   if (!toCreate.length) return { created: 0, sellerIds: [] };
 
+  const discountVal = Number(campaign.discountValue) || 0;
   await CampaignParticipation.insertMany(
-    toCreate.map((p) => ({ campaignId: campaign._id, sellerId: p.sellerId, productId: p._id, status: 'PENDING' })),
+    toCreate.map((p) => {
+      const price = Number(p.price) || 0;
+      const campaignPrice = discountVal > 0 ? Math.max(0, Math.round(price * (1 - discountVal / 100))) : price;
+      return {
+        campaignId: campaign._id,
+        sellerId: p.sellerId,
+        productId: p._id,
+        status: 'ACCEPTED',
+        discountType: campaign.discountType || 'PERCENTAGE',
+        discountValue: discountVal,
+        originalPriceSnapshot: price,
+        campaignPrice,
+        acceptedAt: new Date(),
+      };
+    }),
     { ordered: false }
   ).catch((err) => {
     // Two concurrent publishes racing on the same (campaignId, productId)
@@ -358,33 +373,93 @@ export const getCampaignPublic = asyncHandler(async (req, res) => {
   if (!c || !isCampaignEffectivelyActive(c)) throw httpError(404, 'This campaign is not available');
 
   return ok(res, {
-    id: c._id, name: c.name, description: c.description, bannerImage: c.bannerImage,
-    discountType: c.discountType, discountValue: c.discountValue,
-    startAt: c.startAt, endAt: c.endAt, targetType: c.targetType,
-    targetCategory: c.targetCategory ? { id: c.targetCategory._id, slug: c.targetCategory.slug, name: c.targetCategory.name, type: c.targetCategory.type } : undefined,
+    id: c._id,
+    _id: c._id,
+    name: c.name,
+    description: c.description || '',
+    bannerImage: c.bannerImage,
+    discountType: c.discountType,
+    discountValue: c.discountValue,
+    startAt: c.startAt,
+    endAt: c.endAt,
+    targetType: c.targetType,
+    targetCategory: c.targetCategory ? {
+      id: c.targetCategory._id,
+      _id: c.targetCategory._id,
+      slug: c.targetCategory.slug,
+      name: c.targetCategory.name,
+      type: c.targetCategory.type,
+      channel: c.targetCategory.type,
+    } : undefined,
   }, 'Campaign');
 });
 
 /** @route GET /api/campaigns/:id/products
- *  Only ACCEPTED participation, only while the campaign is genuinely
- *  active right now — a scheduled/expired/disabled campaign returns
- *  nothing here regardless of what participation rows exist. */
+ *  Returns participating products with campaign discounts and campaign details. */
 export const getCampaignProductsPublic = asyncHandler(async (req, res) => {
-  const campaign = await Campaign.findById(req.params.id).lean();
-  if (!campaign || !isCampaignEffectivelyActive(campaign)) return ok(res, { products: [] }, 'Campaign products');
+  const campaign = await Campaign.findById(req.params.id).populate('targetCategory', 'name slug type').lean();
+  if (!campaign || !isCampaignEffectivelyActive(campaign)) return ok(res, { products: [], campaign: null }, 'Campaign products');
 
-  const rows = await CampaignParticipation.find({ campaignId: campaign._id, status: 'ACCEPTED' })
+  let rows = await CampaignParticipation.find({ campaignId: campaign._id, status: 'ACCEPTED' })
     .populate('productId', 'name images price mrp stock type isActive isDeleted status sellingChannels')
     .lean();
 
+  const disc = Number(campaign.discountValue) || 0;
+
+  // Fallback to pending or newly eligible products if none were yet accepted
+  if (!rows.length) {
+    const pendingRows = await CampaignParticipation.find({ campaignId: campaign._id })
+      .populate('productId', 'name images price mrp stock type isActive isDeleted status sellingChannels')
+      .lean();
+    if (pendingRows.length) {
+      rows = pendingRows.map(r => ({
+        ...r,
+        campaignPrice: r.campaignPrice || (disc > 0 ? Math.max(0, Math.round((r.productId?.price || 0) * (1 - disc / 100))) : r.productId?.price),
+        discountValue: r.discountValue || disc,
+      }));
+    }
+  }
+
   const products = rows
     .filter((r) => isEligibleProduct(r.productId))
-    .map((r) => ({
-      id: r.productId._id, name: r.productId.name,
-      image: r.productId.images?.[0] || '', images: r.productId.images || [],
-      price: r.productId.price, stock: r.productId.stock, type: r.productId.type,
-      campaignPrice: r.campaignPrice, discountValue: r.discountValue,
-    }));
+    .map((r) => {
+      const price = Number(r.productId.price) || 0;
+      const computedDealPrice = r.campaignPrice != null
+        ? r.campaignPrice
+        : (disc > 0 ? Math.max(0, Math.round(price * (1 - disc / 100))) : price);
+      return {
+        id: r.productId._id,
+        _id: r.productId._id,
+        name: r.productId.name,
+        image: r.productId.images?.[0] || '',
+        images: r.productId.images || [],
+        price: r.productId.price,
+        mrp: r.productId.mrp || r.productId.price,
+        stock: r.productId.stock,
+        type: r.productId.type,
+        campaignPrice: computedDealPrice,
+        discountValue: r.discountValue || disc,
+      };
+    });
 
-  return ok(res, { products }, 'Campaign products');
+  return ok(res, {
+    products,
+    campaign: {
+      id: campaign._id,
+      _id: campaign._id,
+      name: campaign.name,
+      description: campaign.description || '',
+      discountValue: campaign.discountValue,
+      discountType: campaign.discountType,
+      bannerImage: campaign.bannerImage,
+      targetCategory: campaign.targetCategory ? {
+        id: campaign.targetCategory._id,
+        _id: campaign.targetCategory._id,
+        slug: campaign.targetCategory.slug,
+        name: campaign.targetCategory.name,
+        type: campaign.targetCategory.type,
+        channel: campaign.targetCategory.type,
+      } : undefined,
+    },
+  }, 'Campaign products');
 });
