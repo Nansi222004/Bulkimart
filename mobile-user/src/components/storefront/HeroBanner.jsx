@@ -32,10 +32,10 @@ function useReveal(enabled) {
   return { opacity: value, transform: [{ translateY: value.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] };
 }
 
-function CtaButton({ title, onPress, colors }) {
+function CtaButton({ title, onPress, colors, small = false }) {
   const theme = useAppTheme();
-  return <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [styles.cta, { backgroundColor: colors?.bg || theme.highlight, borderRadius: theme.buttonRadius }, pressed && { opacity: 0.85 }]}>
-    <Text style={[styles.ctaText, { color: colors?.fg || theme.highlightText }]}>{title}</Text>
+  return <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [styles.cta, small && styles.ctaSmall, { backgroundColor: colors?.bg || theme.highlight, borderRadius: theme.buttonRadius }, pressed && { opacity: 0.85 }]}>
+    <Text style={[styles.ctaText, small && { fontSize: 11.5 }, { color: colors?.fg || theme.highlightText }]}>{title}</Text>
   </Pressable>;
 }
 
@@ -70,7 +70,6 @@ export default function HeroBanner({ showDefault = true }) {
   }
   const go = () => { boundedFetch(`/api/banners/${banner.id}/click`, { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
   const link = banner.destination.type !== 'NONE';
-  const gradient = theme.tokens.gradient === 'none' ? [theme.primary, theme.primary] : [theme.secondary, theme.primary];
   return <Animated.View style={[styles.hero, reveal]} accessibilityLabel="Featured promotions">
     <Pressable onPress={link ? go : undefined} disabled={!link} style={[styles.heroArt, { backgroundColor: theme.surface, borderColor: theme.border }]} accessibilityRole={link ? 'button' : 'image'} accessibilityLabel={banner.title || 'Promotion'}>
       <StorefrontMedia key={banner.id} banner={banner} active={!paused} priority="high" />
@@ -88,14 +87,13 @@ export default function HeroBanner({ showDefault = true }) {
           ))}
         </View>
       )}
+      {/* Title, subtitle and button sit on the lower part of the picture. */}
+      {banner.title || banner.subtitle || link ? <LinearGradient colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.78)']} locations={[0, 0.45, 1]} style={styles.heroCopy}>
+        {banner.title ? <Text style={styles.heroTitle} numberOfLines={2}>{banner.title}</Text> : null}
+        {banner.subtitle ? <Text style={styles.heroSub} numberOfLines={2}>{banner.subtitle}</Text> : null}
+        {link && <CtaButton title={`${banner.cta || 'Explore now'} →`} onPress={go} small />}
+      </LinearGradient> : null}
     </Pressable>
-    <LinearGradient colors={gradient} start={{ x: 0, y: 0.2 }} end={{ x: 1, y: 0.8 }} style={[styles.heroCopy, { borderColor: theme.accent }]}>
-      {decoration === 'lights' && <View style={styles.lights} pointerEvents="none">{Array.from({ length: 16 }, (_, i) => <View key={i} style={[styles.bulb, { backgroundColor: theme.accent }]} />)}</View>}
-      <Text style={styles.eyebrow}>DISCOVER SOMETHING GOOD</Text>
-      <Text style={styles.heroTitle}>{banner.title}</Text>
-      {banner.subtitle ? <Text style={styles.heroSub}>{banner.subtitle}</Text> : null}
-      {link && <CtaButton title={`${banner.cta || 'Explore now'} →`} onPress={go} />}
-    </LinearGradient>
     {decoration === 'confetti' && <DashedRule color={theme.accent} />}
   </Animated.View>;
 }
@@ -175,15 +173,16 @@ const styles = StyleSheet.create({
   skeleton: { height: 180, marginVertical: 12, borderRadius: 20 },
   hero: { marginBottom: 22, gap: 12 },
   heroArt: { aspectRatio: 1.8, overflow: 'hidden', borderRadius: 16, borderWidth: 1 },
-  heroCopy: { borderRadius: 16, borderWidth: 1, borderBottomWidth: 3, paddingTop: 20, paddingHorizontal: 16, paddingBottom: 48, overflow: 'hidden' },
+  heroCopy: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2, paddingTop: 32, paddingHorizontal: 14, paddingBottom: 12 },
+  ctaSmall: { minHeight: 32, paddingVertical: 6, paddingHorizontal: 12 },
   lights: { position: 'absolute', top: 0, left: 0, right: 0, height: 12, flexDirection: 'row', justifyContent: 'space-around' },
   bulb: { width: 6, height: 6, borderRadius: 3, marginTop: 0 },
   eyebrow: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1.6, lineHeight: 15 },
-  heroTitle: { color: '#fff', fontSize: 25, lineHeight: 28, letterSpacing: -0.9, marginVertical: 10, fontWeight: '700' },
-  heroSub: { color: '#fff', fontSize: 12, lineHeight: 19, marginBottom: 12 },
+  heroTitle: { color: '#fff', fontSize: 18, lineHeight: 22, letterSpacing: -0.5, marginBottom: 2, fontWeight: '700', maxWidth: '85%', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 6 },
+  heroSub: { color: '#fff', fontSize: 11.5, lineHeight: 16, marginBottom: 8, maxWidth: '85%', opacity: 0.92 },
   cta: { minHeight: 44, paddingVertical: 12, paddingHorizontal: 20, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center' },
   ctaText: { fontSize: 13, fontWeight: '700' },
-  dotsContainer: { position: 'absolute', bottom: 10, alignSelf: 'center', flexDirection: 'row', gap: 6, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.38)', borderRadius: 999 },
+  dotsContainer: { position: 'absolute', top: 10, right: 10, zIndex: 3, flexDirection: 'row', gap: 6, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.38)', borderRadius: 999 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
   dotActive: { width: 16, backgroundColor: '#ffffff' },
   festive: { overflow: 'hidden', marginBottom: 14 },

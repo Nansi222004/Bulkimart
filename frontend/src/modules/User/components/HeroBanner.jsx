@@ -37,9 +37,11 @@ export default function HeroBanner() {
           ))}
         </div>
       )}
-    </div>
-    <div className="sf-hero-copy"><span className="sf-eyebrow">DISCOVER SOMETHING GOOD</span><h2>{banner.title}</h2>{banner.subtitle && <p>{banner.subtitle}</p>}
-      {banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={go}>{banner.cta || 'Explore now'} <span aria-hidden="true">→</span></button>}
+      {/* Title, subtitle and button sit on the lower part of the picture. */}
+      {(banner.title || banner.subtitle || banner.destination.type !== 'NONE') && <div className="sf-hero-copy">
+        {banner.title && <h2>{banner.title}</h2>}{banner.subtitle && <p>{banner.subtitle}</p>}
+        {banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={e => { e.stopPropagation(); go(); }}>{banner.cta || 'Explore now'} <span aria-hidden="true">→</span></button>}
+      </div>}
     </div>
   </section>;
 }

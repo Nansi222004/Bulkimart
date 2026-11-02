@@ -256,3 +256,12 @@
 .sf-deal-shop{margin-top:14px;min-height:40px;padding:0 18px;border:0;border-radius:999px;background:#fff;color:#b91c1c;font-size:13px;font-weight:800;cursor:pointer}
 .sf-deal-shop:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .sf-hero-art--link{cursor:pointer}
+/* Hero banner: title, subtitle and button overlay the bottom of the picture (no separate card below). */
+.sf-hero.sf-hero{grid-template-columns:1fr;gap:0}
+.sf-hero .sf-hero-art .sf-hero-copy{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:48px 20px 18px;border:0!important;border-radius:0;box-shadow:none;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,.45) 55%,transparent)!important;pointer-events:none}
+.sf-hero .sf-hero-art .sf-hero-copy::before{content:none}
+.sf-hero .sf-hero-art .sf-hero-copy h2{margin:0 0 4px;font-size:clamp(18px,2.6vw,30px);line-height:1.15;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.5);max-width:75%}
+.sf-hero .sf-hero-art .sf-hero-copy p{margin:0 0 10px;font-size:13px;line-height:1.4;color:#fff;opacity:.92;max-width:75%;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sf-hero .sf-hero-art .sf-hero-copy .sf-cta{pointer-events:auto;min-height:36px;padding:8px 16px;font-size:12.5px;gap:10px}
+.sf-hero .sf-hero-art .sf-carousel-dots{top:10px;bottom:auto;left:auto;right:10px;transform:none}
+@media(max-width:600px){.sf-hero .sf-hero-art .sf-hero-copy{padding:36px 14px 12px}.sf-hero .sf-hero-art .sf-hero-copy h2{font-size:18px;max-width:85%}.sf-hero .sf-hero-art .sf-hero-copy p{font-size:11.5px;margin-bottom:8px;max-width:85%}.sf-hero .sf-hero-art .sf-hero-copy .sf-cta{min-height:32px;padding:6px 12px;font-size:11.5px}}
