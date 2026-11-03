@@ -1,0 +1,51 @@
+/* Easy Returns purchase popup — Bulkimart aqua (#08B9E8) / navy (#0B2D6B) / orange (#f97316). */
+.ers-backdrop { position: fixed; inset: 0; z-index: 1200; background: rgba(11, 45, 107, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+.ers-sheet { background: #fff; width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); box-sizing: border-box; color: #172B4D; animation: ers-up 0.2s ease-out; }
+@media (min-width: 720px) { .ers-backdrop { align-items: center; } .ers-sheet { border-radius: 18px; padding: 20px; } }
+@keyframes ers-up { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ers-sheet { animation: none; } }
+
+.ers-head { display: flex; gap: 12px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid #E2E8F0; }
+.ers-thumb { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; border: 1px solid #E2E8F0; flex: none; }
+.ers-head-text { flex: 1; min-width: 0; }
+.ers-head-text h3 { margin: 0 0 4px; font-size: 15px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.ers-head-price { font-size: 18px; font-weight: 800; color: #0B2D6B; display: flex; gap: 8px; align-items: baseline; }
+.ers-head-price s { font-size: 13px; font-weight: 500; color: #94a3b8; }
+.ers-close { border: 0; background: #f1f5f9; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; flex: none; color: #334155; }
+
+.ers-section { padding: 14px 0 4px; }
+.ers-section h4 { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
+.ers-section-head { display: flex; justify-content: space-between; align-items: center; }
+.ers-section-head h4 { margin: 0; }
+.ers-link { border: 0; background: none; color: #0369a1; font-weight: 700; font-size: 13px; cursor: pointer; padding: 6px 0; min-height: 32px; }
+
+.ers-variants { display: flex; flex-wrap: wrap; gap: 8px; }
+.ers-variant { min-height: 40px; min-width: 52px; padding: 6px 14px; border: 1.5px solid #CBD5E1; border-radius: 10px; background: #fff; font-weight: 700; font-size: 13px; color: #172B4D; cursor: pointer; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; }
+.ers-variant small { font-size: 10px; color: #b91c1c; font-weight: 600; }
+.ers-variant.is-active { border-color: #08B9E8; background: #ecfeff; color: #0B2D6B; }
+.ers-variant:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.ers-details { margin: 10px 0 4px; padding: 10px 12px; background: #f8fafc; border-radius: 10px; font-size: 13px; line-height: 1.5; }
+.ers-details p { margin: 0 0 6px; }
+.ers-details ul { margin: 0 0 6px; padding-left: 18px; }
+.ers-muted { color: #64748b; font-size: 12px; }
+
+.ers-options { display: grid; gap: 10px; margin-top: 10px; }
+.ers-option { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px; min-height: 64px; border: 1.5px solid #E2E8F0; border-radius: 12px; background: #fff; cursor: pointer; color: #172B4D; }
+.ers-option:disabled { cursor: not-allowed; }
+.ers-option.is-easy.is-active { border-color: #08B9E8; background: #ecfeff; box-shadow: 0 0 0 2px rgba(8, 185, 232, 0.18); }
+.ers-option.is-no.is-active { border-color: #f97316; background: #fff7ed; box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.16); }
+.ers-radio { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #94a3b8; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900; color: #fff; flex: none; }
+.ers-option.is-easy.is-active .ers-radio { background: #08B9E8; border-color: #08B9E8; }
+.ers-option.is-no.is-active .ers-radio { background: #f97316; border-color: #f97316; }
+.ers-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ers-option-text strong { font-size: 14px; }
+.ers-option-text small { font-size: 12px; color: #64748b; }
+.ers-option-price { font-size: 16px; font-weight: 800; color: #0B2D6B; white-space: nowrap; }
+
+.ers-breakdown { margin: 14px 0 10px; padding: 10px 12px; border: 1px dashed #CBD5E1; border-radius: 10px; font-size: 13px; display: grid; gap: 6px; }
+.ers-breakdown > div { display: flex; justify-content: space-between; gap: 12px; }
+.ers-total { font-weight: 800; color: #0B2D6B; border-top: 1px solid #E2E8F0; padding-top: 6px; }
+.ers-error { color: #b91c1c; font-size: 12.5px; margin: 6px 0 0; }
+.ers-continue { width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: #f97316; color: #fff; font-weight: 800; font-size: 15px; cursor: pointer; margin-top: 6px; }
+.ers-continue:disabled { opacity: 0.7; cursor: wait; }

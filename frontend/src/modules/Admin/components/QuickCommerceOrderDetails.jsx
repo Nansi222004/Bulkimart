@@ -1,3 +1,4 @@
+import { returnOptionLabel, returnOptionRule } from '../../../components/EasyReturnBadge';
 import React from 'react';
 import { quickCommerceOrderRow } from '../utils/quickCommerceOrderDisplay';
 import { orderDiscountRows } from '../../../utils/orderDiscounts';
@@ -33,12 +34,14 @@ export default function QuickCommerceOrderDetails({ order }) {
         ['Store', item.sellerId?.storeDetails?.name || item.sellerId?.businessName], ['SKU / variant', item.sku || item.variantName],
         ['Quantity', item.qty], ['Unit price', money(item.price)], ['Line total', money(typeof item.price === 'number' && typeof item.qty === 'number' ? item.price * item.qty : undefined)],
         ['Customer message', item.additionalMessage],
+        ['Return option', item.returnOption ? `${returnOptionLabel(item.returnOption)}${item.returnExtraCharge ? ` (+${money(item.returnExtraCharge)}/unit included in price)` : ''} · ${item.returnEligibilityDays} days · ${returnOptionRule(item.returnOption)}` : undefined],
       ]} />
     </article>)}</section>
     <section><h4>Payment summary</h4><Rows values={[
       ['Items subtotal', money(pricing.subtotal)], ...discounts.map(([label, amount]) => [label, `−${money(amount)}`]),
       ['Delivery charge', money(pricing.deliveryCharge)],
       ...(pricing.tipAmount > 0 ? [['Tip', money(pricing.tipAmount)]] : []),
+      ...(pricing.codFeeTotal > 0 ? [[pricing.codFeeDescription || 'COD Handling Fee', `${money(pricing.codFeeTotal)}${pricing.codFeeTaxAmount > 0 ? ` (fee ${money(pricing.codFeeAmount)} + GST ${money(pricing.codFeeTaxAmount)})` : ''} · Bulkimart income, not seller earnings`]] : []),
       ['Total Amount', row.amount],
     ]} /></section>
     <section><h4>Delivery partner & progress</h4><Rows values={[

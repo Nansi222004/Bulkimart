@@ -1,3 +1,5 @@
+import { calculateCodFee, resolveCodChargeSetting } from './codCharge.service.js';
+import { easyReturnOrderFields, priceWithReturnOption, resolveReturnOption } from './easyReturns.service.js';
 import { summarizeProductGst } from './productGst.service.js';
 import { channelAllowed } from '../utils/productChannels.js';
 import Cart from '../models/Cart.js';
@@ -107,7 +109,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
    * — its price and stock were true when it was added and may not be now.
    */
   const productIds = [...new Set(lines.map((l) => String(l.productId)))];
-  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels gstRate gstPriceType');
+  let productQuery = Product.find({ _id: { $in: productIds } }).select('name price stock sku unit variants type category fulfillmentType sellerId shgStoreId sameDay images isActive isDeleted status sellingChannels gstRate gstPriceType easyReturns');
   if (purchaseMode === 'wholesale') productQuery = Product.find({ _id: { $in: productIds } }).select('+variants.wholesalePricing').populate('category', 'name isActive');
   if (session) productQuery = productQuery.session(session);
   const products = new Map((await productQuery.lean()).map((p) => [String(p._id), p]));
@@ -146,6 +148,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     const deal = campaignPrices.get(String(line.productId));
     let inventory = null;
     try { if (product) inventory = resolveInventoryItem(product, line.variantId, { allowLegacyPrimary: !line.variantId }); } catch { /* rendered as unavailable below */ }
+    // Easy Returns is a retail option; the charge is added on top of the live (campaign) price.
+    const returnOption = purchaseMode === 'wholesale' ? undefined : resolveReturnOption(product, line.returnOption);
+    const basePrice = wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price);
     const enriched = {
       ...line,
       // Whose pickup this actually is, per the live product — not whatever
@@ -164,7 +169,9 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       // The live figures (or a live, currently-active campaign price), so
       // a group is priced on what the item is now rather than what it was
       // when it went into the basket — never a cached deal.
-      price: wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price),
+      price: returnOption ? priceWithReturnOption(basePrice, product, returnOption) : basePrice,
+      basePrice,
+      returnOption,
       wholesaleSnapshot: wholesaleQuote?.wholesaleSnapshot,
       originalPrice: inventory?.price,
       campaignId: deal ? deal.campaignId : undefined,
@@ -180,6 +187,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
 
   // ---- price and check each group ----------------------------------------
   const groups = [];
+  // COD handling fee preview per delivery; orders recompute it from the live setting at checkout.
+  const codSetting = await resolveCodChargeSetting();
   for (const [key, groupLines] of buckets) {
     const first = groupLines[0];
     const seller = sellers.get(String(first.sellerId));
@@ -303,12 +312,16 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
         productTax: { ...pricing.productTax.lines[index], version: pricing.productTax.version },
         available: l.available,
         fulfillmentType: l.fulfillmentType,
-        priceChanged: Number(l.price) !== Number(l.product?.fulfillmentType === 'digital' ? l.price : lines.find(line => String(line._id) === String(l._id))?.price),
+        priceChanged: Number(l.basePrice ?? l.price) !== Number(l.product?.fulfillmentType === 'digital' ? l.price : lines.find(line => String(line._id) === String(l._id))?.price),
         stock: l.inventory?.stock,
         type: l.product?.type || l.channel,
         sellerId: l.product?.sellerId || l.sellerId,
         shgStoreId: l.shgStoreId,
         additionalMessage: l.additionalMessage || '',
+        // Frozen Easy Returns terms; createOrdersFromGroups applies easyReturnPolicy to the order item.
+        ...(l.returnOption ? (({ returnPolicy, ...fields }) => ({ ...fields, easyReturnPolicy: returnPolicy }))(easyReturnOrderFields(l.product, l.returnOption, l.price)) : {}),
+        // What the basket needs to offer switching options (display only; the server re-prices on change).
+        ...(l.returnOption ? { easyReturnsOffer: { extraCharge: l.product.easyReturns.extraCharge, windowDays: l.product.easyReturns.windowDays } } : {}),
       })),
       itemCount: groupLines.reduce((n, l) => n + l.qty, 0),
 
@@ -319,6 +332,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       sellerIncentive: pricing.sameDayIncentive,
       deliveryCharge: pricing.deliveryCharge,
       total: pricing.totalAmount,
+      // What Cash on Delivery would add to this delivery (null = no fee). Not part of `total`.
+      codFee: first.fulfillmentType === 'digital' ? null : calculateCodFee(pricing.totalAmount, codSetting),
 
       /**
        * Both options for this group, with the reason behind the refused one.
@@ -345,13 +360,16 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     sameDayPremium: sumMoney(t.sameDayPremium, g.sameDayFee || 0, g.sellerIncentive || 0),
     couponDiscount: sumMoney(t.couponDiscount, g.couponDiscount || 0),
     totalAmount: sumMoney(t.totalAmount, g.total),
+    codFeeTotal: sumMoney(t.codFeeTotal, g.codFee?.codFeeTotal || 0),
     itemCount: t.itemCount + g.itemCount,
-  }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 });
+  }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, codFeeTotal: 0, itemCount: 0 });
 
   for (const k of Object.keys(totals)) totals[k] = Number(totals[k].toFixed(2));
   if (purchaseMode === 'wholesale' && !Number.isSafeInteger(Math.round(totals.totalAmount * 100))) throw httpError(400, 'Wholesale total exceeds the supported limit');
 
   totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
+  totals.codFeeDescription = groups.find(group => group.codFee)?.codFee.codFeeDescription;
+  totals.codFeeOrders = groups.filter(group => group.codFee).length;
   return {
     groups,
     items: groups.flatMap((g) => g.items),

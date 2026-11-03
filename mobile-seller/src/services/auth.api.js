@@ -1,10 +1,15 @@
 import { api } from './apiClient';
 import { sellerOtpPayload } from '../utils/phone';
+import { getAppHash } from '../utils/otpAutofill';
 
 // Contract: backend/controllers/auth.controller.js (requestSellerOTP / verifySellerOTP / getMe / logout).
 
-export const sendSellerOtp = (phone, intent) =>
-  api.post('/api/auth/seller/send-otp', sellerOtpPayload(phone, intent), { skipAuth: true });
+// Returns { success, message, otpLength, expiresIn, resendAfter, sellerState?, otp? (mock only) }.
+// appHash lets the server end the SMS with this app's SMS Retriever hash (OTP autofill).
+export const sendSellerOtp = async (phone, intent) => {
+  const appHash = await getAppHash();
+  return api.post('/api/auth/seller/send-otp', { ...sellerOtpPayload(phone, intent), ...(appHash ? { appHash } : {}) }, { skipAuth: true });
+};
 
 // Returns { success, token, sessionRole: 'seller', user, sellerState }.
 // Note: intent 'register' creates a User record on the server if the phone is new.

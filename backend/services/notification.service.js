@@ -40,6 +40,11 @@ export const NOTIFICATION_EVENT = {
   TICKET_RESOLVED: 'TICKET_RESOLVED',
   TICKET_CLOSED: 'TICKET_CLOSED',
   TICKET_REOPENED: 'TICKET_REOPENED',
+  // Live chat support (services/supportChat.service.js). Never carry message text.
+  SUPPORT_CHAT_STARTED: 'SUPPORT_CHAT_STARTED',
+  SUPPORT_CHAT_MESSAGE: 'SUPPORT_CHAT_MESSAGE',
+  SUPPORT_CHAT_ACCEPTED: 'SUPPORT_CHAT_ACCEPTED',
+  SUPPORT_CHAT_STATUS: 'SUPPORT_CHAT_STATUS',
   PAYOUT_REQUESTED: 'PAYOUT_REQUESTED',
   PAYOUT_COMPLETED: 'PAYOUT_COMPLETED',
   PAYOUT_REJECTED: 'PAYOUT_REJECTED',
@@ -101,6 +106,10 @@ const EVENT_CATEGORY = {
   TICKET_RESOLVED: 'system',
   TICKET_CLOSED: 'system',
   TICKET_REOPENED: 'system',
+  SUPPORT_CHAT_STARTED: 'system',
+  SUPPORT_CHAT_MESSAGE: 'system',
+  SUPPORT_CHAT_ACCEPTED: 'system',
+  SUPPORT_CHAT_STATUS: 'system',
   PAYOUT_REQUESTED: 'delivery',
   PAYOUT_COMPLETED: 'delivery',
   PAYOUT_REJECTED: 'delivery',
@@ -491,4 +500,24 @@ export const notifyRider = async (partnerId, opts) => {
   const partner = await DeliveryPartner.findById(partnerId).select('userId').lean().catch(() => null);
   if (!partner?.userId) return null;
   return notifyCore(partner.userId, 'rider', partnerId, opts);
+};
+
+/**
+ * Notifies ONE admin (e.g. the support agent a live chat is assigned to):
+ * persisted per-admin row + FCM to that admin's devices. The live socket side
+ * is left to the live-chat events themselves (a shared-room ping would bump
+ * every admin's unread badge).
+ */
+export const notifyAdmin = async (adminId, opts = {}) => {
+  const { event, title, message, metadata = {}, route } = opts;
+  if (!adminId || !title || !message) return null;
+  const type = EVENT_CATEGORY[event] || 'system';
+  let record = null;
+  try {
+    record = await Notification.create({ userId: adminId, recipientModel: 'Admin', audience: 'admin', type, event, title, message, metadata, route });
+  } catch (err) {
+    console.error('[NOTIFICATION] admin persist failed:', err.message);
+  }
+  void pushToUser(adminId, { title, message, data: { event, route, ...metadata, notificationId: record?._id, audience: 'admin' } }, Admin);
+  return record;
 };

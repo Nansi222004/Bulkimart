@@ -12,3 +12,6 @@
 # Razorpay checkout
 -keep class com.razorpay.** { *; }
 -dontwarn com.razorpay.**
+
+# OTP autofill native module (looked up by name from JS).
+-keep class **.otp.OtpAutofill* { *; }

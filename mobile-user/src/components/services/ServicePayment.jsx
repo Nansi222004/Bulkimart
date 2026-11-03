@@ -7,6 +7,7 @@ import { openRazorpayCheckout } from '../../lib/razorpay';
 import { session } from '../../lib/storage';
 import { Text, TextInput } from '../ui';
 import SelectField from '../SelectField';
+import DateField from '../DateField';
 import { SERVICE_TEXT_CHARS } from '../../shared/serviceLimits';
 
 export const feeText = paise => `₹${(paise / 100).toFixed(2)}`;
@@ -83,6 +84,8 @@ export function DynamicFields({ fields = [], answers = {}, setAnswers, files = {
       <View style={[styles.radio, answers[f.id] === o && styles.radioOn]} /><Text>{o}</Text></Pressable>)}</View>;
     else if (f.type === 'checkbox') control = <Pressable disabled={disabled} onPress={() => set(answers[f.id] !== true)} accessibilityRole="checkbox" accessibilityState={{ checked: answers[f.id] === true }} style={styles.choice}>
       <View style={[styles.box, answers[f.id] === true && styles.boxOn]}>{answers[f.id] === true ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}</View><Text>{f.label}</Text></Pressable>;
+    else if (f.type === 'date') control = <DateField value={value} onChange={set} disabled={disabled}
+      pastOnly={/birth|\bdob\b/i.test(`${f.label} ${f.id}`)} />;
     else if (f.type === 'file') control = <View style={{ gap: 6 }}>
       <Pressable disabled={disabled} style={styles.check} onPress={async () => {
         const result = await DocumentPicker.getDocumentAsync({ type: f.formats.map(x => MIME[x]).filter(Boolean), copyToCacheDirectory: true }).catch(() => ({ canceled: true }));

@@ -1,5 +1,6 @@
 import { api } from './apiClient';
 import { UPLOAD_TIMEOUT_MS } from '../config/env';
+import { getAppHash } from '../utils/otpAutofill';
 
 /**
  * Every rider endpoint the app uses. Each one exists in backend/routes/delivery.routes.js
@@ -18,8 +19,13 @@ const multipart = {
 };
 
 // ---------------------------------------------------------------- auth (public)
-// POST /api/auth/delivery/send-otp { phone, intent: 'login'|'register' } -> { success, message, otp? (mock mode only) }
-export const sendLoginOtp = (phone, intent) => api.post('/api/auth/delivery/send-otp', { phone, intent }, { skipAuth: true });
+// POST /api/auth/delivery/send-otp { phone, intent: 'login'|'register', appHash? }
+//   -> { success, message, otpLength, expiresIn, resendAfter, otp? (mock mode only) }
+// appHash lets the server end the SMS with this app's SMS Retriever hash (OTP autofill).
+export const sendLoginOtp = async (phone, intent) => {
+  const appHash = await getAppHash();
+  return api.post('/api/auth/delivery/send-otp', { phone, intent, ...(appHash ? { appHash } : {}) }, { skipAuth: true });
+};
 // POST /api/auth/delivery/verify-otp { phone, otp, intent } -> { success, token, user, sessionRole, deliveryState? }
 export const verifyLoginOtp = (phone, otp, intent) => api.post('/api/auth/delivery/verify-otp', { phone, otp, intent }, { skipAuth: true, skipUnauthorizedHandler: true });
 // GET /api/auth/me -> { userType, sessionRole, ... }

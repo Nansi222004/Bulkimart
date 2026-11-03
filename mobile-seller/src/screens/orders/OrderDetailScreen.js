@@ -142,6 +142,7 @@ export default function OrderDetailScreen({ route, navigation }) {
             <Text style={type.label}>{item.name}</Text>
             <Text style={type.small}>SKU: {item.sku || 'Not recorded'} · {item.variantName || item.unit || 'Standard item'}</Text>
             <Text style={type.small}>Quantity: {item.qty} · Unit price: {detailMoney(item.price)} · Line total: {detailMoney(item.lineTotal)}</Text>
+            {item.returnOption ? <Text style={[type.small, { fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }]}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · +${detailMoney(item.returnExtraCharge || 0)}/unit · ${item.returnEligibilityDays} days` : 'No Easy Returns · return only if wrong, damaged or defective'}</Text> : null}
             {item.additionalMessage ? <Text style={type.small}>Customer message: {item.additionalMessage}</Text> : null}
           </View>
         ))}
@@ -212,6 +213,7 @@ export default function OrderDetailScreen({ route, navigation }) {
       {(order.deliveredAt || order.status === 'delivered') ? (
         <AppButton title="View invoice" variant="outline" onPress={() => navigation.navigate('InvoiceDetail', { orderId: order._id, orderNo: order.orderNo })} />
       ) : null}
+      <AppButton title="Chat with support about this order" variant="ghost" onPress={() => navigation.navigate('SupportChat', { orderId: order._id, orderNo: order.orderNo })} />
       {actions.some((a) => a.to === 'ready_for_pickup') ? (
         <InlineNotice tone="info">Mark this parcel Ready for pickup to see both delivery methods and their eligibility.</InlineNotice>
       ) : null}

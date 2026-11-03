@@ -27,3 +27,13 @@ export async function parseProductReturnSettings(body, product) {
   if (days > category.returnWindowDays) throw httpError(400, `Return window cannot exceed the ${category.source === 'global' ? 'global' : 'category'} limit of ${category.returnWindowDays} days`);
   return { enabled: true, windowDays: days };
 }
+
+/**
+ * Return state Easy Returns builds on: whether the product accepts returns and its resolved
+ * window (product window narrowed by the category/global policy). Used when saving a product.
+ */
+export async function easyReturnsContextFor(product) {
+  const categoryPolicy = await resolveReturnPolicyForCategory(product.category?._id || product.category);
+  const resolved = applyProductReturnSettings(product, categoryPolicy);
+  return { returnsEnabled: resolved.sellerReturnable, windowDays: resolved.returnEligible ? resolved.returnWindowDays : undefined };
+}

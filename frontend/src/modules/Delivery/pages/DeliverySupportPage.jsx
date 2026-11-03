@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
+import LiveChatPanel from '../../../components/support/LiveChatPanel';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 
 const getUserId = () => {
@@ -20,6 +21,7 @@ export const DeliverySupportPage = ({ orderId, orderNo } = {}) => {
   const [submitting, setSubmitting] = useState(false);
   const [openTicket, setOpenTicket] = useState(null);
   const [openMessages, setOpenMessages] = useState([]);
+  const [view, setView] = useState(() => (new URLSearchParams(window.location.search).has('chat') ? 'chat' : 'tickets'));
 
   useEffect(() => { fetchCategories(); fetchMyTickets(); }, [fetchCategories, fetchMyTickets]);
 
@@ -62,6 +64,13 @@ export const DeliverySupportPage = ({ orderId, orderNo } = {}) => {
   return (
     <div className="delivery-page-container" style={{ padding: 16 }}>
       <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 800 }}>Support</h3>
+      <div role="tablist" aria-label="Support options" style={{ display: 'flex', gap: 6, background: '#eaf9fe', borderRadius: 12, padding: 4, marginBottom: 16 }}>
+        {[['tickets', 'Support Tickets'], ['chat', 'Chat with Support']].map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)}
+            style={{ flex: 1, border: 0, borderRadius: 9, padding: '10px 8px', fontWeight: 800, fontSize: 13, cursor: 'pointer', background: view === id ? '#fff' : 'transparent', color: view === id ? '#078ccb' : '#475569' }}>{label}</button>
+        ))}
+      </div>
+      {view === 'chat' ? <LiveChatPanel initialRelatedOrderId={orderId || ''} relatedOrders={orderId ? [{ id: orderId, label: orderNo || orderId }] : []} onCreateTicket={() => setView('tickets')} /> : (<>
 
       <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: 16, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 800 }}>RAISE A TICKET</h4>
@@ -98,6 +107,7 @@ export const DeliverySupportPage = ({ orderId, orderNo } = {}) => {
           <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{t.subject}</div>
         </div>
       ))}
+      </>)}
 
       {openTicket && (
         <TicketDetailModal

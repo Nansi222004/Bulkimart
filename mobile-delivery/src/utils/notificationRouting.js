@@ -18,6 +18,8 @@ export function routeForNotification(route) {
   const path = raw === '/delivery' ? '/delivery/dashboard' : raw;
   const match = path.match(/^\/delivery\/(dashboard|earnings|history|returns|profile|support|parcels)(?:[/?#]|$)/);
   if (!match) return { name: 'Notifications' };
+  // Live chat replies (backend supportChat.service.js: /delivery/support?chat=1) open the chat.
+  if (match[1] === 'support' && /[?&]chat=1/.test(path)) return { name: 'SupportChat' };
   if (match[1] === 'parcels') {
     const id = path.match(/[?&]parcel=([a-f\d]{24})/i)?.[1];
     return id ? { name: 'ParcelDetail', params: { id } } : TAB_ROUTES.parcels;

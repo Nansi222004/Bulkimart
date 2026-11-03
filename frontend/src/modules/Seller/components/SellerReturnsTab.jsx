@@ -1,3 +1,4 @@
+import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { apiUrl } from '../../../utils/api';
 import { useSeller } from '../context/SellerContext';
@@ -575,6 +576,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
                       {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}
+                      {r.returnOptionSnapshot && <> · <EasyReturnBadge option={r.returnOptionSnapshot} /></>}
                     </div>
                     {r.customerDescription && (
                       <div className="seller-return-description" style={{ fontSize: 12, color: '#334155', marginTop: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, overflowWrap: 'anywhere', border: '1px solid #e2e8f0' }}>

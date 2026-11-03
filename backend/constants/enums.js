@@ -471,6 +471,47 @@ export const TICKET_ATTACHMENT_MIME_TYPES = [
 ];
 export const TICKET_MAX_ATTACHMENTS = 5;
 
+// ---------------------------------------------------------------- live chat support
+// Live chat sits alongside tickets (it does not replace them). See
+// services/supportChat.service.js for the lifecycle and permission rules.
+export const CHAT_USER_ROLE = { CUSTOMER: 'CUSTOMER', SELLER: 'SELLER', DELIVERY: 'DELIVERY' };
+export const CHAT_USER_ROLES = Object.values(CHAT_USER_ROLE);
+export const CHAT_SENDER_ROLES = [...CHAT_USER_ROLES, 'AGENT', 'SYSTEM'];
+
+export const CHAT_STATUS = { WAITING: 'WAITING', ACTIVE: 'ACTIVE', RESOLVED: 'RESOLVED', CLOSED: 'CLOSED' };
+export const CHAT_STATUSES = Object.values(CHAT_STATUS);
+/** Statuses in which messages may still be exchanged. */
+export const CHAT_OPEN_STATUSES = [CHAT_STATUS.WAITING, CHAT_STATUS.ACTIVE];
+
+/** Agent's chosen availability; OFFLINE is also the effective status with no live connection. */
+export const AGENT_STATUS = { AVAILABLE: 'AVAILABLE', BUSY: 'BUSY', OFFLINE: 'OFFLINE' };
+export const AGENT_STATUSES = Object.values(AGENT_STATUS);
+
+export const CHAT_CATEGORIES_BY_ROLE = {
+  [CHAT_USER_ROLE.CUSTOMER]: [
+    'Order', 'Payment', 'Delivery', 'Product', 'Returns / Refunds', 'Account', 'Technical Issue', 'Other',
+  ],
+  [CHAT_USER_ROLE.SELLER]: [
+    'Seller Account', 'KYC / Verification', 'Product Management', 'Orders', 'Returns / Exchanges',
+    'Seller Earnings', 'Commission', 'Payments', 'Settlement', 'Advertising / Campaigns', 'Technical Issues', 'Other',
+  ],
+  [CHAT_USER_ROLE.DELIVERY]: [
+    'Delivery Order Issue', 'Pickup Issue', 'Customer Not Available', 'OTP Verification Issue',
+    'Delivery Address Issue', 'Payment Collection Issue', 'COD Amount Mismatch', 'Wallet', 'Settlement',
+    'Account / Onboarding', 'Technical Issue', 'Other',
+  ],
+};
+
+/** Ticket requester role for each chat role (create-ticket-from-chat). */
+export const CHAT_ROLE_TO_TICKET_ROLE = { CUSTOMER: 'customer', SELLER: 'seller', DELIVERY: 'delivery' };
+
+export const CHAT_MESSAGE_MAX_LENGTH = 2000;
+export const CHAT_MAX_ATTACHMENTS = 3;
+/** A closed/resolved chat can be reopened by its requester for this many days. */
+export const CHAT_REOPEN_WINDOW_DAYS = 7;
+/** An agent counts as BUSY once they hold this many ACTIVE chats. */
+export const CHAT_AGENT_MAX_ACTIVE = 5;
+
 // ------------------------------------------------------------ returns (item-level, Phase 4)
 export const RETURN_STATUS = {
   RETURN_REQUESTED: 'RETURN_REQUESTED',

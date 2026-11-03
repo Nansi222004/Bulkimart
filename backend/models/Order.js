@@ -124,6 +124,19 @@ const orderItemSchema = new Schema({
   additionalMessage: { type: String, default: "" },
 
   /**
+   * Easy Returns terms frozen at checkout (services/easyReturns.service.js). Returns use these,
+   * never the product's current settings. Absent on orders for products without the feature.
+   */
+  returnOption: { type: String, enum: ['EASY_RETURN', 'NO_EASY_RETURN'] },
+  returnPolicySnapshot: {
+    type: new Schema({ policyText: String, conditions: [String], allowedReasons: { type: [String], default: undefined } }, { _id: false }),
+    default: undefined,
+  },
+  returnEligibilityDays: Number,
+  returnExtraCharge: Number,   // per unit, already included in `price`
+  finalItemPrice: Number,      // unit price paid, including the Easy Returns charge
+
+  /**
    * The Return & Refund category policy, frozen at the moment THIS order
    * was created — never a live join to CategoryReturnPolicy. Resolved via
    * services/returnPolicy.service.js::buildReturnPolicySnapshot, the same
@@ -323,7 +336,22 @@ const orderSchema = new Schema(
       // this is only the amount, never a duplicate of that ledger.
       coinsUsed:      { type: Number, default: 0 },
       coinDiscount:   { type: Number, default: 0 },
-      totalAmount:    { type: Number, default: 0 }, // already net of coinDiscount
+      /**
+       * Cash on Delivery handling fee (services/codCharge.service.js), frozen at checkout.
+       * Only COD orders carry it; it is included in totalAmount, never discounted, and is
+       * platform income (its own financial component), not seller earnings.
+       * Absent on online orders and on orders placed before the feature.
+       */
+      codFeeEnabled:     Boolean,
+      codFeeType:        { type: String, enum: ['FIXED', 'PERCENTAGE'] },
+      codFeeValue:       Number,   // ₹ (FIXED) or % (PERCENTAGE) configured at checkout
+      codFeeAmount:      Number,   // fee before GST
+      codFeeTaxRate:     Number,
+      codFeeTaxAmount:   Number,
+      codFeeTotal:       Number,   // fee + GST, included in totalAmount
+      codFeeDescription: String,
+      codFeeSettingId:   { type: ObjectId, ref: "CodChargeSetting" },
+      totalAmount:    { type: Number, default: 0 }, // already net of coinDiscount; includes codFeeTotal
     },
 
     coupon:        { type: ObjectId, ref: "Coupon" },

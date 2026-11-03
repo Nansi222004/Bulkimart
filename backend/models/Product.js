@@ -205,6 +205,14 @@ const productSchema = new Schema(
     returnable: { type: Boolean, default: false },
     // Physical retail override. Absent on historical products: keep their category policy.
     returnSettings: { type: new mongoose.Schema({ enabled: Boolean, windowDays: { type: Number, min: 1, validate: Number.isInteger } }, { _id: false }), default: undefined },
+    // Easy Returns (services/easyReturns.service.js). Absent on older products: they keep the policy above.
+    easyReturns: { type: new mongoose.Schema({
+      enabled: { type: Boolean, default: false },
+      extraCharge: { type: Number, min: 0 },
+      windowDays: { type: Number, min: 1, max: 30, validate: Number.isInteger },
+      policyText: { type: String, trim: true, maxlength: 1000 },
+      conditions: { type: [String], default: undefined },
+    }, { _id: false }), default: undefined },
 
     // Cross-listing into other storefronts. Absent = only the primary `type`
     // channel, same shape as every product created before this existed.

@@ -270,7 +270,9 @@ export const buildOrderFinancialSnapshot = async (order, session) => {
   const deliveryChargePaise = moneyPaise(p.deliveryCharge || 0);
   const sellerIncentivePaise = sameDayIncentiveOf(order, deliveryChargePaise);
   const components = { merchandisePaise: lines.reduce((n, line) => n + line.eligiblePaise, 0), deliveryPaise: deliveryChargePaise - sellerIncentivePaise,
-    sellerIncentivePaise, tipPaise: moneyPaise(p.tipAmount || 0), donationPaise: moneyPaise(p.donationAmount || 0) };
+    sellerIncentivePaise, tipPaise: moneyPaise(p.tipAmount || 0), donationPaise: moneyPaise(p.donationAmount || 0),
+    // COD handling fee (incl. its GST): platform income, outside every seller line. Only present when charged.
+    ...(p.codFeeTotal ? { codFeePaise: moneyPaise(p.codFeeTotal) } : {}) };
   if (Object.values(components).reduce((a, b) => a + b, 0) !== expectedPaise) throw httpError(409, 'Order financial components do not reconcile');
   return { version: 2, snapshotId: new mongoose.Types.ObjectId().toString(), currency: 'INR', frozenAt: at,
     channel, paymentMethod: order.paymentMethod, paymentId: String(order.paymentId), expectedPaise, components, lines,

@@ -1056,7 +1056,8 @@ export const UserProvider = ({ children }) => {
 
   // The product's own channel decides which basket it lands in — the server
   // enforces that, so this does not need to guess.
-  const addToCart = async (productOrId, qty = 1, variantId) => {
+  /** options.returnOption: EASY_RETURN | NO_EASY_RETURN for products with Easy Returns (chosen in the product popup). */
+  const addToCart = async (productOrId, qty = 1, variantId, options = {}) => {
     let product = productOrId && typeof productOrId === 'object' ? productOrId : null;
     const productId = product?.id || product?._id || productOrId;
     let variants = product?.variants || product?.raw?.variants || [];
@@ -1083,8 +1084,13 @@ export const UserProvider = ({ children }) => {
       setSelectedProduct(product);
       return { ok: false, message: 'Choose a product variant to add it to your cart.' };
     }
+    // Easy Returns needs the customer's choice; quick-add buttons open the product page popup instead.
+    if (product?.raw?.easyReturns?.enabled && !options.returnOption) {
+      setSelectedProduct(product);
+      return { ok: false, needsReturnOption: true, message: 'Choose a return option to add this item.' };
+    }
     const resolvedVariantId = variantId || (variants.length === 1 ? (variants[0].id || variants[0]._id) : undefined);
-    const r = await cartCall('POST', '', { productId, qty, ...(resolvedVariantId ? { variantId: resolvedVariantId } : {}) });
+    const r = await cartCall('POST', '', { productId, qty, ...(resolvedVariantId ? { variantId: resolvedVariantId } : {}), ...(options.returnOption ? { returnOption: options.returnOption } : {}) });
     if (r.ok && r.data?.channel !== cartChannel) {
       // it went into the other storefront's basket; keep both views honest
       refreshCart();
@@ -1093,6 +1099,7 @@ export const UserProvider = ({ children }) => {
   };
 
   const setCartItemQty = async (itemId, qty) => cartCall('PUT', `/${itemId}`, { qty });
+  const setCartItemReturnOption = async (itemId, returnOption) => cartCall('PUT', `/${itemId}`, { returnOption });
   const deleteCartItem = async (itemId) => cartCall('DELETE', `/${itemId}`);
   const clearCart = async () => cartCall('DELETE', `?channel=${cartChannel}`);
 
@@ -1972,7 +1979,7 @@ export const UserProvider = ({ children }) => {
         serverCart, cartChannel, switchCartChannel, cartSummary, cartLoading, refreshCart,
         deliveryMode, setDeliveryMode,
         addToCart, removeFromCart, clearCart,
-        setCartItemQty, deleteCartItem,
+        setCartItemQty, deleteCartItem, setCartItemReturnOption,
         getCartCount, getCartItems, getCartWarnings, getItemQty,
         getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
 

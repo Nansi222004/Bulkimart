@@ -24,3 +24,14 @@
 .basket-checkout-groups { padding: 0 16px; }
 .basket-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
 @media (max-width: 760px) { .basket-layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Easy Returns choice on a basket line */
+.basket-return { font-size: 12px; font-weight: 600; margin: 4px 0; }
+.basket-return.is-easy { color: #0369a1; }
+.basket-return.is-no { color: #c2410c; }
+.basket-return-switch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.basket-return-switch button { min-height: 36px; padding: 4px 10px; border-radius: 8px; border: 1.5px solid #CBD5E1; background: #fff; font-size: 12px; font-weight: 700; color: #172B4D; cursor: pointer; }
+.basket-return-switch button.is-easy.is-active { border-color: #08B9E8; background: #ecfeff; color: #0B2D6B; }
+.basket-return-switch button.is-no.is-active { border-color: #f97316; background: #fff7ed; color: #9a3412; }
+.basket-return-switch button:disabled { cursor: default; }
+.basket-return-switch small { flex-basis: 100%; font-size: 11.5px; color: #64748b; }

@@ -93,7 +93,28 @@ function QuantityInput({ item, minimum, maximum, increment, busy, onCommit }) {
   </View>;
 }
 
-export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist, showStock = true, compact = false }) {
+/** Easy Returns choice on a basket line; switching asks the server to re-price the line. */
+export function ReturnOptionControl({ item, busy, onChange }) {
+  if (!item.returnOption) return null;
+  const easy = item.returnOption === 'EASY_RETURN';
+  const charge = item.easyReturnsOffer?.extraCharge ?? item.returnExtraCharge ?? 0;
+  if (!onChange) {
+    return <Text style={[styles.itemP, { fontWeight: '600', color: easy ? '#0369a1' : '#c2410c' }]}>{easy ? `Easy Returns · +${basketMoney(item.returnExtraCharge)} per unit` : 'No Easy Returns · only wrong, damaged or defective items can be returned'}</Text>;
+  }
+  const chip = (value, label, active, tint, bg) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: active, disabled: busy || active }} disabled={busy || active}
+    onPress={() => onChange(item, value)} style={{ minHeight: 36, paddingHorizontal: 10, justifyContent: 'center', borderRadius: 8, borderWidth: 1.5, borderColor: active ? tint : '#CBD5E1', backgroundColor: active ? bg : '#fff', opacity: busy && !active ? 0.6 : 1 }}>
+    <Text style={{ fontSize: 12, fontWeight: '700', color: '#172B4D' }}>{label}</Text>
+  </Pressable>;
+  return <View style={{ marginVertical: 6, gap: 4 }} accessibilityRole="radiogroup" accessibilityLabel={`Return option for ${item.name}`}>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {chip('EASY_RETURN', `Easy Returns (+${basketMoney(charge)})`, easy, '#08B9E8', '#ecfeff')}
+      {chip('NO_EASY_RETURN', 'No Easy Returns', !easy, '#f97316', '#fff7ed')}
+    </View>
+    <Text style={[styles.itemP, { fontSize: 11 }]}>{easy ? `Return for any reason within ${item.easyReturnsOffer?.windowDays ?? item.returnEligibilityDays ?? ''} days` : 'Only wrong, damaged or defective items can be returned'}</Text>
+  </View>;
+}
+
+export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist, onReturnOption, showStock = true, compact = false }) {
   const theme = useAppTheme();
   const [showMessage, setShowMessage] = useState(false);
   const [message, setMessage] = useState(item.additionalMessage || '');
@@ -116,6 +137,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <Text style={styles.itemP}>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</Text>
       {item.fulfillmentType === 'digital' ? <Text style={styles.itemP}>Digital delivery · one licence</Text> : item.available === false ? <Text style={styles.itemP}>Unavailable — review or remove this item</Text> : showStock ? <Text style={styles.itemP}>Stock: {item.stock}</Text> : null}
       {item.priceChanged && <Text style={styles.itemP} accessibilityLiveRegion="polite">Price changed. Review the current price before checkout.</Text>}
+      {!wholesale && <ReturnOptionControl item={item} busy={busy} onChange={onReturnOption ? (line, option) => onReturnOption(line, group, option) : undefined} />}
       {terms.length ? <Text style={styles.itemP}>{terms.join(' · ')}</Text> : null}
       {editable && <View style={[styles.qty, { borderColor: theme.border, backgroundColor: theme.background }]}>
         <Pressable accessibilityLabel={`Decrease ${item.name}`} disabled={busy || item.qty - increment < minimum} onPress={() => onQuantity(item, group, item.qty - increment)} style={[styles.qtyBtn, (busy || item.qty - increment < minimum) && { opacity: 0.5 }]}><Text style={[styles.qtyBtnText, { color: theme.primaryColor }]}>−</Text></Pressable>
@@ -160,6 +182,7 @@ export function BasketSummary({ data }) {
     {summary.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(summary.sameDayPremium)} />}
     {summary.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(summary.couponDiscount)}`} />}
     <CartTotalRow label="Grand Total" value={basketMoney(summary.totalAmount)} strong />
+    {summary.codFeeQuote > 0 ? <Text style={styles.note}>Cash on Delivery adds {basketMoney(summary.codFeeQuote)} {summary.codFeeLabel}. No extra charge for online payment.</Text> : null}
   </> : <Text style={styles.note}>Please resolve unavailable items before checkout.</Text>}</CartSection>;
 }
 

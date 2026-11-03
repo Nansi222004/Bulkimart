@@ -63,6 +63,9 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
+    // OTP autofill (src/main/java/.../otp): Phone Number Hint + SMS Retriever. No SMS or phone permissions.
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.0.2")
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

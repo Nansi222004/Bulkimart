@@ -7,7 +7,7 @@
 //  - "Become a Seller / Your Shop" is not shown in the app (owner decision, 2026-10-31); sellers use the seller app.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -386,6 +386,15 @@ export default function ProfileScreen() {
           <Text style={{ fontSize: 13, color: '#64748b', lineHeight: 19.5, textAlign: 'center' }}>Your support ticket ID is <Text style={{ fontWeight: '700', fontSize: 13 }}>#{supportJustCreated.ticketNumber}</Text>. Our team is reviewing the issue and will alert you shortly.</Text>
           <SubmitButton title="Back to Help" onPress={() => setSupportJustCreated(null)} style={{ marginTop: 12, alignSelf: 'stretch' }} />
         </View> : <>
+          <Pressable onPress={() => router.push('/support/chat')} accessibilityRole="button" accessibilityLabel="Chat with Support"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: '#078ccb', backgroundColor: '#eaf9fe' }}>
+            <Text style={{ fontSize: 24 }}>💬</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>Chat with Support</Text>
+              <Text style={{ fontSize: 12.5, color: '#475569' }}>Talk to a support agent in real time</Text>
+            </View>
+            <Text style={{ fontSize: 18, color: '#078ccb' }}>→</Text>
+          </Pressable>
           <Text style={{ fontSize: 16, color: '#0f172a', fontWeight: '800' }}>Contact Customer Support</Text>
           <Text style={{ fontSize: 13, color: '#64748b', lineHeight: 19.5 }}>Need help with an order, payment, or delivery timing? Open a support ticket and our team will get back within 24 hours.</Text>
           <View style={{ gap: 16 }}>

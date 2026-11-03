@@ -81,12 +81,15 @@ export default function PromotionalSplash({ children }) {
   }, [open, artReady]);
   const visible = phone && open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch;
   if (!visible) {
-    // Mobile goes directly to the eligible splash, or home after the bounded
-    // configuration check. Only desktop waits behind the branded image loader.
-    if (homeLaunch && !revealed.current && (!launchChecked || (loading && !version) || (!phone && version && !heroReady))) {
-      return phone ? null : <StoreLoading tokens={version ? theme.tokens : null} />;
+    // Customer website: never block the user with a splash card or StoreLoading screen.
+    if (!phone) {
+      revealed.current = true;
+    } else {
+      if (homeLaunch && !revealed.current && (!launchChecked || (loading && !version))) {
+        return null;
+      }
+      if (homeLaunch) revealed.current = true;
     }
-    if (homeLaunch) revealed.current = true;
   }
   if (!visible && !children) return null;
   // Keep this tree mounted when the overlay closes: its requests and images can

@@ -19,7 +19,8 @@ import { applyApprovedRatings, approvedReviewsOf, ratingBreakdownOf } from '../s
 import { resolveCampaignPriceForProduct } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service.js';
-import { applyProductReturnSettings, parseProductReturnSettings } from '../services/productReturns.service.js';
+import { applyProductReturnSettings, easyReturnsContextFor, parseProductReturnSettings } from '../services/productReturns.service.js';
+import { defaultEasyReturnsPolicy, easyReturnsEnabled, parseEasyReturnsConfig } from '../services/easyReturns.service.js';
 import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
 import { persistLegacyVariantIds, resolveInventoryItem } from '../services/inventory.service.js';
 import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesaleCatalog.service.js';
@@ -368,6 +369,11 @@ export const getProductById = asyncHandler(async (req, res) => {
       returnWindowDays: eligible ? resolved.returnWindowDays : 0,
       ...(policy.source === 'global' ? { source: 'global' } : {}),
     };
+    // Easy Returns products use the seller's own window for both purchase options.
+    if (easyReturnsEnabled(product)) {
+      data.returnable = true;
+      data.returnPolicy = { eligible: true, returnWindowDays: product.easyReturns.windowDays, easyReturns: true };
+    }
   }
 
   res.status(200).json(publicProduct(data));
@@ -720,8 +726,15 @@ export const createProduct = asyncHandler(async (req, res) => {
   }
 
   const returnSettings = !b2bOnly ? await parseProductReturnSettings(req.body, { type, category, fulfillmentType }) : undefined;
+  const easyReturns = !b2bOnly && req.body.easyReturns !== undefined
+    ? parseEasyReturnsConfig(req.body.easyReturns, { fulfillmentType }, await easyReturnsContextFor({
+      type, category, fulfillmentType, returnSettings,
+      returnable: type === CHANNEL.GROCERY ? (returnable === true || returnable === 'true') : undefined,
+    }))
+    : undefined;
   const productData = {
     ...(returnSettings ? { returnSettings } : {}),
+    ...(easyReturns ? { easyReturns } : {}),
     type,
     ...(sellingChannels !== undefined ? { sellingChannels } : {}),
     fulfillmentType,
@@ -1011,6 +1024,21 @@ export const updateProduct = asyncHandler(async (req, res) => {
   if (!b2bOnly) {
     const returns = await parseProductReturnSettings(req.body, product);
     if (returns) product.returnSettings = returns;
+    // Uses the return settings just applied above, so Easy Returns always matches "Allow Returns".
+    if (req.body.easyReturns !== undefined || product.easyReturns?.enabled) {
+      const context = await easyReturnsContextFor(product);
+      if (req.body.easyReturns !== undefined) {
+        const easyReturns = parseEasyReturnsConfig(req.body.easyReturns, product, context);
+        product.easyReturns = easyReturns || undefined;
+      } else if (!context.returnsEnabled || !context.windowDays) {
+        // Returns were switched off: Easy Returns cannot stay on without them.
+        product.easyReturns = { enabled: false };
+      } else if (product.easyReturns.windowDays !== context.windowDays) {
+        // Keep the Easy Returns window in step with the edited return window.
+        if (product.easyReturns.policyText === defaultEasyReturnsPolicy(product.easyReturns.windowDays)) product.easyReturns.policyText = defaultEasyReturnsPolicy(context.windowDays);
+        product.easyReturns.windowDays = context.windowDays;
+      }
+    }
   }
   if (parsedVariants !== undefined) {
     product.variants = parsedVariants;

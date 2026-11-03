@@ -582,3 +582,144 @@ test('admin ebook details return metadata only without private file identifiers,
   await Product.updateOne({ _id: product._id }, { $set: { isDeleted: true } });
   await request(app).get('/admin/products/' + product._id).set('Authorization', 'Bearer ' + token).expect(404);
 });
+
+// ---- Easy Returns ----------------------------------------------------------
+const easyConfig = { enabled: true, extraCharge: 25, windowDays: 7, policyText: 'Return for any reason within 7 days', conditions: ['Original tags attached'] };
+const withEasyReturns = async (option, config = easyConfig) => {
+  await Product.collection.updateOne({ _id: product._id }, { $set: { easyReturns: config } });
+  await Cart.updateOne({ userId: buyer._id, channel: 'ecommerce' }, { $set: { 'items.0.returnOption': option } });
+};
+test.each(['/orders', '/orders/unified'])('Easy Returns charge is priced on the server and frozen on the order item (%s)', async (path) => {
+  await withEasyReturns('EASY_RETURN');
+  const order = await placed({ channel: 'ecommerce' }, path);
+  const [item] = order.items;
+  expect(item.price).toBe(125);
+  expect(item.toObject()).toMatchObject({ returnOption: 'EASY_RETURN', returnExtraCharge: 25, finalItemPrice: 125, returnEligibilityDays: 7,
+    returnPolicySnapshot: { policyText: easyConfig.policyText, conditions: easyConfig.conditions } });
+  expect(item.returnPolicy).toMatchObject({ returnEligible: true, returnWindowDays: 7 });
+  expect(order.pricing.subtotal).toBe(125);
+  expect((await Payment.findById(order.paymentId)).amount).toBe(order.pricing.totalAmount);
+});
+test.each(['/orders', '/orders/unified'])('No Easy Returns uses the regular price and restricts return reasons (%s)', async (path) => {
+  await withEasyReturns('NO_EASY_RETURN');
+  const order = await placed({ channel: 'ecommerce' }, path);
+  const [item] = order.items;
+  expect(item.price).toBe(100);
+  expect(item.toObject()).toMatchObject({ returnOption: 'NO_EASY_RETURN', returnExtraCharge: 0, finalItemPrice: 100 });
+  expect(item.returnPolicySnapshot.allowedReasons).toEqual(['WRONG_PRODUCT', 'DAMAGED', 'DEFECTIVE']);
+});
+test('a forged Easy Returns option on a product without the feature is ignored', async () => {
+  await Cart.updateOne({ userId: buyer._id, channel: 'ecommerce' }, { $set: { 'items.0.returnOption': 'EASY_RETURN' } });
+  const order = await placed({ channel: 'ecommerce' });
+  expect(order.items[0].price).toBe(100);
+  expect(order.items[0].returnOption).toBeUndefined();
+});
+test('return requests follow the frozen order option, not the current product settings', async () => {
+  const { createReturnRequest } = await import('../../services/return.service.js');
+  await withEasyReturns('NO_EASY_RETURN');
+  const order = await placed({ channel: 'ecommerce' });
+  const until = new Date(Date.now() + 86400000);
+  await Order.updateOne({ _id: order._id }, { $set: { status: 'delivered', 'items.0.deliveredAt': new Date(), 'items.0.returnEligibleUntil': until } });
+  // Switching the product to Easy Returns later must not widen this order's terms.
+  await Product.collection.updateOne({ _id: product._id }, { $set: { 'easyReturns.enabled': true } });
+  const base = { orderId: order._id, orderItemId: order.items[0]._id, customerId: buyer._id, quantity: 1, customerDescription: 'fixture' };
+  await expect(createReturnRequest({ ...base, reason: 'OTHER' })).rejects.toMatchObject({ status: 400 });
+  await expect(createReturnRequest({ ...base, reason: 'WRONG_SIZE' })).rejects.toMatchObject({ status: 400 });
+  const created = await createReturnRequest({ ...base, reason: 'DAMAGED' });
+  expect(created.returnOptionSnapshot).toBe('NO_EASY_RETURN');
+  expect(created.unitPriceSnapshot).toBe(100);
+});
+test('Easy Returns settings are validated', async () => {
+  const { parseEasyReturnsConfig, resolveReturnOption } = await import('../../services/easyReturns.service.js');
+  expect(parseEasyReturnsConfig(JSON.stringify(easyConfig), { fulfillmentType: 'physical' })).toEqual(easyConfig);
+  expect(parseEasyReturnsConfig('{"enabled":false}', {})).toEqual({ enabled: false });
+  expect(parseEasyReturnsConfig(undefined, {})).toBeUndefined();
+  for (const bad of [{ ...easyConfig, extraCharge: -1 }, { ...easyConfig, extraCharge: '' }, { ...easyConfig, windowDays: 0 }, { ...easyConfig, windowDays: 91 }, { ...easyConfig, extraCharge: 1.234 }]) {
+    expect(() => parseEasyReturnsConfig(bad, { fulfillmentType: 'physical' })).toThrow();
+  }
+  // Inside "Allow Returns": the product's window wins, policy text defaults, and returns must be on.
+  const simple = parseEasyReturnsConfig({ enabled: true, extraCharge: 30 }, { fulfillmentType: 'physical' }, { returnsEnabled: true, windowDays: 10 });
+  expect(simple).toMatchObject({ enabled: true, extraCharge: 30, windowDays: 10, conditions: [] });
+  expect(simple.policyText).toMatch(/within 10 days/);
+  expect(parseEasyReturnsConfig({ ...easyConfig }, { fulfillmentType: 'physical' }, { returnsEnabled: true, windowDays: 5 }).windowDays).toBe(5);
+  expect(() => parseEasyReturnsConfig({ enabled: true, extraCharge: 30 }, { fulfillmentType: 'physical' }, { returnsEnabled: false, windowDays: 10 })).toThrow(/Allow Returns/);
+  expect(() => parseEasyReturnsConfig({ enabled: true, extraCharge: 30 }, { fulfillmentType: 'physical' }, { returnsEnabled: true })).toThrow(/return window/);
+  expect(parseEasyReturnsConfig({ enabled: false }, {}, { returnsEnabled: false })).toEqual({ enabled: false });
+  expect(() => parseEasyReturnsConfig(easyConfig, { fulfillmentType: 'digital' })).toThrow();
+  expect(resolveReturnOption({ easyReturns: easyConfig }, undefined)).toBe('NO_EASY_RETURN');
+  expect(resolveReturnOption({}, 'EASY_RETURN')).toBeUndefined();
+  expect(() => resolveReturnOption({ easyReturns: easyConfig }, 'FREE')).toThrow();
+});
+
+// ---- COD handling fee ------------------------------------------------------
+const codSetting = async (fields) => {
+  const { default: CodChargeSetting } = await import('../../models/CodChargeSetting.js');
+  await CodChargeSetting.updateMany({}, { $set: { isActive: false } });
+  if (fields) await CodChargeSetting.create({ isActive: true, description: 'COD Handling Fee', ...fields });
+  const { loadCodChargeSetting } = await import('../../services/codCharge.service.js');
+  await loadCodChargeSetting(); // what the admin save does
+};
+afterEach(async () => { await codSetting(null); });
+
+test.each(['/orders', '/orders/unified'])('COD fee is charged once, from the admin setting, on COD orders (%s)', async (path) => {
+  await codSetting({ isEnabled: true, feeType: 'FIXED', fixedAmount: 20, gstRatePercent: 18 });
+  const res = await checkout(path, { channel: 'ecommerce', paymentMethod: 'cod', codFee: 0, codFeeTotal: 0 });
+  expect({ status: res.status, message: res.body.message, meta: res.body.meta }).toMatchObject({ status: 201 });
+  const order = await Order.findById(res.body.data.order?._id || res.body.data.orders[0]._id);
+  expect(order.pricing.toObject()).toMatchObject({ codFeeEnabled: true, codFeeType: 'FIXED', codFeeAmount: 20, codFeeTaxAmount: 3.6, codFeeTotal: 23.6, codFeeDescription: 'COD Handling Fee' });
+  const before = order.pricing.subtotal + order.pricing.deliveryCharge - (order.pricing.couponDiscount || 0);
+  expect(order.pricing.totalAmount).toBeCloseTo(before + 23.6, 2);
+  expect((await Payment.findById(order.paymentId)).amount).toBe(order.pricing.totalAmount);
+  // Platform income, outside every seller line.
+  expect(order.financialSnapshot.components.codFeePaise).toBe(2360);
+  expect(Object.values(order.financialSnapshot.components).reduce((a, b) => a + b, 0)).toBe(order.financialSnapshot.expectedPaise);
+});
+test.each(['/orders', '/orders/unified'])('online payment never carries a COD fee (%s)', async (path) => {
+  await codSetting({ isEnabled: true, feeType: 'FIXED', fixedAmount: 20 });
+  const res = await checkout(path, { channel: 'ecommerce', paymentMethod: 'online' }).expect(201);
+  const order = await Order.findById(res.body.data.order?._id || res.body.data.orders[0]._id);
+  expect(order.pricing.codFeeTotal).toBeUndefined();
+  expect(order.financialSnapshot.components.codFeePaise).toBeUndefined();
+});
+test('COD with the fee switched off, and orders below the minimum, carry no fee', async () => {
+  await codSetting({ isEnabled: false, feeType: 'FIXED', fixedAmount: 20 });
+  let order = await placed({ channel: 'ecommerce', paymentMethod: 'cod' });
+  expect(order.pricing.codFeeTotal).toBeUndefined();
+  await Cart.deleteMany({ userId: buyer._id }); await cart();
+  await codSetting({ isEnabled: true, feeType: 'FIXED', fixedAmount: 20, minOrderAmount: 100000 });
+  order = await placed({ channel: 'ecommerce', paymentMethod: 'cod' });
+  expect(order.pricing.codFeeTotal).toBeUndefined();
+});
+test('the checkout preview shows the COD fee separately and recomputes on every read', async () => {
+  await codSetting({ isEnabled: true, feeType: 'PERCENTAGE', percentage: 10, maxFee: 5 });
+  const quote = await buildFulfilmentGroups({ userId: buyer._id, user: buyer, destination: { lat: address.lat, lng: address.lng } });
+  expect(quote.groups[0].codFee).toMatchObject({ codFeeType: 'PERCENTAGE', codFeeAmount: 5, codFeeTotal: 5 });
+  expect(quote.totals.codFeeTotal).toBe(5);
+  expect(quote.totals.totalAmount).toBe(quote.groups[0].total); // online total excludes the fee
+});
+test('a retry with the same checkout key never adds a second COD fee or order', async () => {
+  await codSetting({ isEnabled: true, feeType: 'FIXED', fixedAmount: 20 });
+  const key = randomUUID();
+  const first = await checkout('/orders/unified', { channel: 'ecommerce', paymentMethod: 'cod' }, key);
+  expect({ status: first.status, message: first.body.message }).toEqual({ status: 201, message: expect.anything() });
+  await checkout('/orders/unified', { channel: 'ecommerce', paymentMethod: 'cod' }, key).expect(201);
+  expect(await Order.countDocuments({ userId: buyer._id })).toBe(1);
+  const order = await Order.findById(first.body.data.orders[0]._id);
+  expect(order.pricing.codFeeTotal).toBe(20);
+  // Same key with a different payment method is refused instead of re-pricing.
+  const switched = await checkout('/orders/unified', { channel: 'ecommerce', paymentMethod: 'online' }, key);
+  expect(switched.status).toBeGreaterThanOrEqual(400);
+});
+test('COD fee calculator and admin validation', async () => {
+  const { calculateCodFee, parseCodChargeInput } = await import('../../services/codCharge.service.js');
+  expect(calculateCodFee(500, { isEnabled: true, feeType: 'FIXED', fixedAmount: 20 })).toMatchObject({ codFeeAmount: 20, codFeeTotal: 20 });
+  expect(calculateCodFee(333.33, { isEnabled: true, feeType: 'PERCENTAGE', percentage: 2.5 })).toMatchObject({ codFeeAmount: 8.33 });
+  expect(calculateCodFee(1000, { isEnabled: true, feeType: 'PERCENTAGE', percentage: 5, maxFee: 30, gstRatePercent: 18 })).toMatchObject({ codFeeAmount: 30, codFeeTaxAmount: 5.4, codFeeTotal: 35.4 });
+  expect(calculateCodFee(199, { isEnabled: true, feeType: 'FIXED', fixedAmount: 20, minOrderAmount: 200 })).toBeNull();
+  expect(calculateCodFee(200, { isEnabled: true, feeType: 'FIXED', fixedAmount: 20, minOrderAmount: 200 })).not.toBeNull();
+  expect(calculateCodFee(500, { isEnabled: false, feeType: 'FIXED', fixedAmount: 20 })).toBeNull();
+  expect(parseCodChargeInput({ isEnabled: true, feeType: 'FIXED', fixedAmount: '25', description: '' })).toMatchObject({ fixedAmount: 25, description: 'COD Handling Fee' });
+  for (const bad of [{ isEnabled: true, feeType: 'FIXED', fixedAmount: 0 }, { isEnabled: true, feeType: 'PERCENTAGE', percentage: 50 }, { feeType: 'OTHER' }, { isEnabled: true, feeType: 'FIXED', fixedAmount: 10.555 }]) {
+    expect(() => parseCodChargeInput(bad)).toThrow();
+  }
+});

@@ -95,7 +95,8 @@ export function AuthProvider({ children }) {
       const result = await loadProfile(body.token);
       return result === 'ok' ? { ok: true } : { ok: false, message: 'Could not load your delivery profile. Retry.' };
     } catch (error) {
-      return { ok: false, message: error.message || 'OTP verification failed' };
+      // `code` (OTP_INVALID, OTP_EXPIRED, NETWORK, …) lets the login screen explain the failure.
+      return { ok: false, message: error.message || 'OTP verification failed', code: error.code || null };
     }
   }, [loadProfile]);
 

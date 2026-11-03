@@ -265,3 +265,172 @@
 .sf-hero .sf-hero-art .sf-hero-copy .sf-cta{pointer-events:auto;min-height:36px;padding:8px 16px;font-size:12.5px;gap:10px}
 .sf-hero .sf-hero-art .sf-carousel-dots{top:10px;bottom:auto;left:auto;right:10px;transform:none}
 @media(max-width:600px){.sf-hero .sf-hero-art .sf-hero-copy{padding:36px 14px 12px}.sf-hero .sf-hero-art .sf-hero-copy h2{font-size:18px;max-width:85%}.sf-hero .sf-hero-art .sf-hero-copy p{font-size:11.5px;margin-bottom:8px;max-width:85%}.sf-hero .sf-hero-art .sf-hero-copy .sf-cta{min-height:32px;padding:6px 12px;font-size:11.5px}}
+
+/* --------------------------------------------------------------------------
+   DESKTOP HERO & PROMOTIONAL SIZING (Web viewports >= 769px)
+   -------------------------------------------------------------------------- */
+@media (min-width: 769px) {
+  /* Festive sub-header banner constraint on desktop */
+  .sf-festive {
+    width: 100% !important;
+    min-height: 130px !important;
+    max-height: 190px !important;
+    margin: 8px auto 14px !important;
+    max-width: 1100px !important;
+    border-radius: 16px !important;
+    box-sizing: border-box !important;
+  }
+
+  .sf-festive-content {
+    min-height: 130px !important;
+    padding: 16px 28px !important;
+    gap: 16px !important;
+  }
+
+  .sf-festive h2 {
+    font-size: clamp(20px, 2.3vw, 28px) !important;
+    margin-bottom: 4px !important;
+  }
+
+  .sf-festive p {
+    font-size: 13px !important;
+    margin-top: 4px !important;
+  }
+
+  .sf-festive .sf-festive-countdown {
+    margin-top: 8px !important;
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+
+  /* Hero banner carousel on desktop */
+  .sf-hero {
+    width: 100% !important;
+    max-width: 1100px !important;
+    margin: 8px auto 16px !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .sf-hero .sf-hero-art {
+    aspect-ratio: 3.8 / 1 !important;
+    max-height: 230px !important;
+    min-height: 150px !important;
+    background: var(--sf-header, #79000B) !important;
+  }
+
+  .sf-hero .sf-hero-art img,
+  .sf-hero .sf-hero-art video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: center !important;
+  }
+
+  .sf-hero .sf-hero-art .sf-hero-copy {
+    padding: 20px 32px 16px !important;
+    background: linear-gradient(to right, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.45) 50%, transparent 85%) !important;
+  }
+
+  .sf-hero .sf-hero-art .sf-hero-copy h2 {
+    font-size: clamp(20px, 2.2vw, 28px) !important;
+    max-width: 60% !important;
+    margin-bottom: 4px !important;
+  }
+
+  .sf-hero .sf-hero-art .sf-hero-copy p {
+    font-size: 13px !important;
+    max-width: 55% !important;
+    margin-bottom: 8px !important;
+  }
+
+  /* Strip headings and container centering */
+  .sf-banner-strip-heading {
+    width: 100% !important;
+    max-width: 1100px !important;
+    margin: 4px auto 10px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Desktop Quick Action Cards (Categories, Offers, Wholesale) */
+  .quick-actions-container {
+    width: 100% !important;
+    max-width: 1100px !important;
+    margin: 8px auto 16px !important;
+    display: flex !important;
+    justify-content: center !important;
+    gap: 20px !important;
+    box-sizing: border-box !important;
+  }
+
+  .quick-actions-container .quick-action-card {
+    flex: 0 1 240px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 14px !important;
+    padding: 12px 18px !important;
+    background: #ffffff !important;
+    border: 1px solid var(--sf-border, #e9e1dc) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    text-align: left !important;
+    cursor: pointer !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    box-sizing: border-box !important;
+  }
+
+  .quick-actions-container .quick-action-card:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+  }
+
+  .quick-actions-container .action-icon-wrapper {
+    margin-bottom: 0 !important;
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 14px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .quick-actions-container .action-text {
+    align-items: flex-start !important;
+  }
+
+  .quick-actions-container .action-title {
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    color: var(--sf-text, #252525) !important;
+  }
+
+  .quick-actions-container .action-subtitle {
+    font-size: 11.5px !important;
+    color: var(--sf-muted, #706B68) !important;
+  }
+
+  .popular-categories-container {
+    width: 100% !important;
+    max-width: 1100px !important;
+    margin: 14px auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .sf-section {
+    width: 100% !important;
+    max-width: 1100px !important;
+    margin: 16px auto !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Desktop product rail - allow smooth wheel & trackpad scrolling with visible styling */
+  .sf-product-rail {
+    grid-auto-columns: minmax(190px, 220px) !important;
+    gap: 16px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .sf-product {
+    max-width: 220px !important;
+  }
+}

@@ -22,3 +22,6 @@
 -dontwarn com.razorpay.**
 -keepattributes *Annotation*
 -keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+
+# OTP autofill native module (looked up by name from JS).
+-keep class **.otp.OtpAutofill* { *; }

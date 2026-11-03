@@ -30,6 +30,7 @@ import { getRadiusSetting, loadRadiusSetting } from '../services/radiusSetting.s
 
 
 import TicketMessage from '../models/TicketMessage.js';
+import { chatsForTicket } from '../services/supportChat.service.js';
 import NotificationModel from '../models/Notification.js';
 import { uploadFileWithMeta } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
@@ -2025,8 +2026,12 @@ export const getTicketDetailAdmin = asyncHandler(async (req, res) => {
   if (!ticketObj.category) ticketObj.category = 'General';
   if (!ticketObj.subject) ticketObj.subject = ticketObj.description?.slice(0, 50) || 'Support Request';
 
-  const messages = await TicketMessage.find({ ticketId: ticket._id }).sort({ createdAt: 1 }).lean();
-  return ok(res, { ticket: ticketObj, messages });
+  const [messages, relatedChats] = await Promise.all([
+    TicketMessage.find({ ticketId: ticket._id }).sort({ createdAt: 1 }).lean(),
+    // Live chats linked to this ticket (create-ticket-from-chat / link-ticket).
+    chatsForTicket(ticket._id),
+  ]);
+  return ok(res, { ticket: ticketObj, messages, relatedChats });
 });
 
 // @desc    Admin reply — visible to the requester, notifies them.

@@ -197,6 +197,34 @@ describe('Seller Product Creation & E-book Flow API', () => {
     });
   });
 
+  describe('Easy Returns inside Allow Returns', () => {
+    const GlobalReturnPolicy = () => mongoose.model('GlobalReturnPolicy');
+    const create = (fields) => {
+      let req = request(app).post('/api/products').set(auth(sellerToken))
+        .field('type', 'ecommerce').field('fulfillmentType', 'physical').field('name', 'Easy Returns Shirt')
+        .field('category', String(leafEcomCategory._id))
+        .field('variants', JSON.stringify([{ name: 'M', price: 500, mrp: 600, stock: 5 }]));
+      for (const [key, value] of Object.entries(fields)) req = req.field(key, value);
+      return req.attach('images', Buffer.from('fake image content'), 'cover.jpg');
+    };
+    beforeAll(async () => { await import('../../models/GlobalReturnPolicy.js'); await GlobalReturnPolicy().updateOne({ _id: 'global' }, { $set: { returnWindowDays: 7, isActive: true } }, { upsert: true }); });
+    afterAll(async () => { await GlobalReturnPolicy().deleteOne({ _id: 'global' }); });
+
+    test('only the extra charge is needed; the window comes from Allow Returns', async () => {
+      const res = await create({ returnable: 'true', returnWindowDays: '5', easyReturns: JSON.stringify({ enabled: true, extraCharge: 25 }) });
+      expect(res.status).toBe(201);
+      const saved = await Product.findById(res.body.product._id).lean();
+      expect(saved.easyReturns).toMatchObject({ enabled: true, extraCharge: 25, windowDays: 5 });
+      expect(saved.easyReturns.policyText).toMatch(/within 5 days/);
+    });
+
+    test('Easy Returns is refused when returns are switched off', async () => {
+      const res = await create({ returnable: 'false', returnWindowDays: '', easyReturns: JSON.stringify({ enabled: true, extraCharge: 25 }) });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/Allow Returns/);
+    });
+  });
+
   describe('E-book Product Creation & Validation', () => {
     let createdEbookId;
 

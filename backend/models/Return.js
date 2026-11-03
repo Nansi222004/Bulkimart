@@ -97,6 +97,8 @@ const returnSchema = new Schema(
     // for convenient reading on the Return record — the Order item remains
     // the one authoritative copy; this is never re-derived independently.
     returnWindowDaysSnapshot:   Number,
+    // Easy Returns option of the order item at request time (absent for products without the feature).
+    returnOptionSnapshot:       { type: String, enum: ['EASY_RETURN', 'NO_EASY_RETURN'] },
     returnEligibleUntilSnapshot: Date,
     headerCategoryId:   { type: ObjectId, ref: 'Category' },
     headerCategoryName: String,

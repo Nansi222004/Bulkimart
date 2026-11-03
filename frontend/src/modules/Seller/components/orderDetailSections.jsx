@@ -1,3 +1,4 @@
+import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import { feedback as ui } from '../../../utils/feedback';
 import React from 'react';
 import { sellerPricingRows } from '../utils/sellerOrderAmounts';
@@ -53,6 +54,7 @@ export function orderDetailSections(order) {
       {item.image && <img src={item.image} alt="" />}
       <div><strong>{item.name}</strong><p>SKU: {item.sku || 'Not recorded'} · {item.variantName || item.unit || 'Standard item'}</p>
         <p>Quantity: {item.qty} · Unit price: {money(item.price)} · Line total: {money(item.lineTotal)}</p>
+        {item.returnOption && <p><EasyReturnBadge option={item.returnOption} extraCharge={item.returnExtraCharge} days={item.returnEligibilityDays} showRule /></p>}
         {item.additionalMessage && <p>Customer message: {item.additionalMessage}</p>}</div>
     </article>)}</section>
     <section className="seller-detail-pickup"><h2>Store & pickup location</h2><p><strong>{order.store?.name || 'Not recorded'}</strong></p><address>{addressText(order.store?.pickupAddress)}</address><p>{order.store?.pickupAddress?.phone}</p>

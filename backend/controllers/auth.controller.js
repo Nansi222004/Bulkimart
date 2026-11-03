@@ -55,6 +55,13 @@ const generateToken = (id, type, role) => {
   return signSessionToken({ id, type, ...(role ? { role } : {}) });
 };
 
+/** Public, non-secret OTP parameters the apps use for their input and timers. */
+const otpMeta = ({ otpLength, expiresIn, resendAfter }) => ({ otpLength, expiresIn, resendAfter });
+
+/** A failed OTP check: 400 with OTP_INVALID / OTP_EXPIRED / OTP_NOT_FOUND / OTP_ATTEMPTS_EXCEEDED. */
+const otpFailure = (verification) =>
+  httpError(400, verification.message || 'Invalid OTP verification', verification.code ? { code: verification.code } : undefined);
+
 /**
  * The profile the app is allowed to hold.
  *
@@ -90,19 +97,21 @@ export const requestOTP = asyncHandler(async (req, res) => {
 
   checkCustomerEntry(existingUser, isLogin);
 
-  const result = await sendOTP(phone);
+  const result = await sendOTP(phone, { appHash: req.body.appHash, app: 'user' });
 
   if (isMockIntegrationEnabled('OTP_MODE')) {
     return res.status(200).json({
       success: true,
       message: "OTP sent (mock mode)",
-      otp: result.otp
+      otp: result.otp,
+      ...otpMeta(result),
     });
   }
 
   res.status(200).json({
     success: true,
-    message: "OTP sent successfully"
+    message: "OTP sent successfully",
+    ...otpMeta(result),
   });
 });
 
@@ -119,10 +128,7 @@ export const verifyAndLogin = asyncHandler(async (req, res) => {
   }
 
   const verification = verifyOTP(normalized, otp);
-  if (!verification.valid) {
-    res.status(400);
-    throw new Error(verification.message || "Invalid OTP verification");
-  }
+  if (!verification.valid) throw otpFailure(verification);
 
   // Find or Create User
   const { phone, user: foundUser } = await findUserByPhone(req.body.phone);
@@ -231,19 +237,21 @@ export const requestSellerOTP = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await sendOTP(phone);
+  const result = await sendOTP(phone, { appHash: req.body.appHash, app: 'seller' });
 
   if (isMockIntegrationEnabled('OTP_MODE')) {
     return res.status(200).json({
       success: true,
       message: "OTP sent (mock mode)",
-      otp: result.otp
+      otp: result.otp,
+      ...otpMeta(result),
     });
   }
 
   res.status(200).json({
     success: true,
     message: "OTP sent successfully",
+    ...otpMeta(result),
     sellerState: seller ? { exists: true, status: seller.status, onboardingStep: seller.onboardingStep } : { exists: false },
   });
 });
@@ -273,10 +281,7 @@ export const verifySellerOTP = asyncHandler(async (req, res) => {
   }
 
   const verification = verifyOTP(phone, otp);
-  if (!verification.valid) {
-    res.status(400);
-    throw new Error(verification.message || "Invalid OTP verification");
-  }
+  if (!verification.valid) throw otpFailure(verification);
 
   if (!user) {
     // Automatically create user account for a new seller registering their store
@@ -338,15 +343,15 @@ const deliveryEntry = async (req, verify) => {
   if (verify) {
     if (!req.body.otp) throw httpError(400, 'Please provide phone and OTP');
     const result = verifyOTP(phone, req.body.otp);
-    if (!result.valid) throw httpError(400, result.message || 'Invalid OTP verification');
+    if (!result.valid) throw otpFailure(result);
   }
   return { phone, user, partner };
 };
 
 export const requestDeliveryOTP = asyncHandler(async (req, res) => {
   const { phone } = await deliveryEntry(req, false);
-  const result = await sendOTP(phone);
-  res.json({ success: true, message: 'OTP sent successfully', ...(isMockIntegrationEnabled('OTP_MODE') ? { otp: result.otp } : {}) });
+  const result = await sendOTP(phone, { appHash: req.body.appHash, app: 'delivery' });
+  res.json({ success: true, message: 'OTP sent successfully', ...otpMeta(result), ...(isMockIntegrationEnabled('OTP_MODE') ? { otp: result.otp } : {}) });
 });
 
 export const verifyDeliveryOTP = asyncHandler(async (req, res) => {

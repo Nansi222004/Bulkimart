@@ -97,6 +97,7 @@ export default function CartScreen() {
             onQuantity={(item, section, qty) => mutate(pathFor(item, section), 'PUT', { qty })}
             onRemove={remove}
             onMessage={(item, message) => mutate(`/api/cart/items/${item.itemId}/message`, 'PATCH', { additionalMessage: message })}
+            onReturnOption={(item, section, returnOption) => mutate(pathFor(item, section), 'PUT', { returnOption })}
             onWishlist={async (item, section) => { const result = await addToWishlist(item.productId); if (result.ok) await remove(item, section); else setError(result.message); }}
             onMode={async (section, mode) => { const result = await basket.setGroupMode(section, mode); if (!result.ok) setError(result.message); else await refreshCart?.(); }} />
         </View>)}

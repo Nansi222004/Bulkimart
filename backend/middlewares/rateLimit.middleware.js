@@ -1,4 +1,5 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { normalizePhone } from '../utils/phone.js';
 
 const jsonMessage = (message) => ({ success: false, data: null, message, meta: {} });
 export const paymentRecoveryLimiter = rateLimit({ windowMs:60000, limit:30, standardHeaders:true, legacyHeaders:false, keyGenerator:req=>`admin:${req.user._id}`, message:jsonMessage('Too many payment recovery operations. Review status and retry later.') });
@@ -9,14 +10,16 @@ export const wholesaleCustomerLimiter = rateLimit({ windowMs: 60000, limit: 120,
 /**
  * OTP requests are unauthenticated and trigger paid SMS once the real gateway
  * is wired, so this endpoint is a direct billing-attack surface. Keyed on
- * IP + phone so one IP cannot rotate numbers and one number cannot rotate IPs.
+ * IP + canonical phone (so "+91 98…" and "98…" share one bucket). The
+ * per-number cap across all IPs (resend cooldown + hourly limit) lives in
+ * services/sms.service.js.
  */
 export const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `${ipKeyGenerator(req.ip)}:${String(req.body?.phone || '').trim()}`,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip)}:${normalizePhone(req.body?.phone) || String(req.body?.phone || '').trim().slice(0, 32)}`,
   message: jsonMessage('Too many OTP requests. Please try again in 15 minutes.'),
 });
 
@@ -74,4 +77,18 @@ export const geocodeLimiter = rateLimit({
   // or mobile carrier gateway share an IP and would otherwise starve each other.
   keyGenerator: (req) => (req.user?._id ? `u:${req.user._id}` : `ip:${ipKeyGenerator(req.ip)}`),
   message: jsonMessage('Too many location lookups. Please wait a minute.'),
+});
+
+/**
+ * Live chat (after `protect`, so keyed on the signed-in account). Starting a
+ * chat notifies every admin, so it is tighter than sending messages.
+ */
+const chatKey = (req) => (req.user?._id ? `chat:${req.userType}:${req.user._id}` : `chat:ip:${ipKeyGenerator(req.ip)}`);
+export const supportChatStartLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false, keyGenerator: chatKey,
+  message: jsonMessage('Too many new chats. Please continue your existing chat or try again later.'),
+});
+export const supportChatMessageLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, keyGenerator: chatKey,
+  message: jsonMessage('You are sending messages too quickly. Please wait a moment.'),
 });

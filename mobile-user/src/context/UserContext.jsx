@@ -19,6 +19,7 @@ import { normalizeProduct } from '../hooks/useProducts';
 import { useSession } from './SessionContext';
 import { openRazorpayCheckout } from '../lib/razorpay';
 import { appendFormFile } from '../lib/formData';
+import { getAppHash } from '../utils/otpAutofill';
 
 const UserContext = createContext(null);
 
@@ -341,13 +342,16 @@ export function UserProvider({ children }) {
   useEffect(() => onSessionCleared(() => { disconnectSocket(); }), []);
 
   // ---------------- Authentication ----------------
+  // `code` on failures (OTP_INVALID, OTP_EXPIRED, OTP_COOLDOWN, NETWORK, …) lets AuthPage explain them.
   const sendOtp = async (phone, isLogin) => {
     try {
-      const { ok, body } = await apiRequest('/api/auth/send-otp', { method: 'POST', auth: false, body: { phone, isLogin } });
-      if (!ok) throw new Error(body.message || 'Failed to send OTP');
-      return { success: true, otp: body.otp };
+      // The SMS Retriever hash lets the server end the SMS so Android can autofill it.
+      const appHash = await getAppHash();
+      const { ok, body } = await apiRequest('/api/auth/send-otp', { method: 'POST', auth: false, body: { phone, isLogin, ...(appHash ? { appHash } : {}) } });
+      if (!ok) return { success: false, message: body.message || 'Failed to send OTP', code: body.meta?.code || null, retryAfter: body.meta?.retryAfter };
+      return { success: true, otp: body.otp, otpLength: body.otpLength, resendAfter: body.resendAfter };
     } catch (err) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, code: 'NETWORK' };
     }
   };
 
@@ -355,7 +359,7 @@ export function UserProvider({ children }) {
     const snapshot = captureUserSession();
     try {
       const { ok, body: data } = await apiRequest('/api/auth/verify-otp', { method: 'POST', auth: false, body: { phone, otp, isLogin, name, email } });
-      if (!ok) throw new Error(data.message || 'OTP verification failed');
+      if (!ok) throw Object.assign(new Error(data.message || 'OTP verification failed'), { code: data.meta?.code || 'API_ERROR' });
       if (data.sessionRole !== 'buyer') throw new Error('Customer sign-in could not be completed. Please try again.');
       if (!isCurrentUserSession(snapshot)) throw new Error('Your session changed. Please sign in again.');
       saveUserSession(data);
@@ -379,7 +383,8 @@ export function UserProvider({ children }) {
       else if (productReturn) setTimeout(() => router.push(productHref(productReturn.productId, { purchase: 'wholesale', variant: /^[a-f0-9]{24}$/i.test(productReturn.variantId || '') ? productReturn.variantId : undefined })), 0);
       return { success: true, isNewUser: data.isNewUser, user: data.user };
     } catch (err) {
-      return { success: false, message: err.message };
+      const network = !err.code && (err instanceof TypeError || err.name === 'AbortError');
+      return { success: false, message: err.message, code: err.code || (network ? 'NETWORK' : null) };
     }
   };
 
@@ -544,7 +549,8 @@ export function UserProvider({ children }) {
     }
   };
 
-  const addToCart = async (productOrId, qty = 1, variantId) => {
+  /** options.returnOption: EASY_RETURN | NO_EASY_RETURN for products with Easy Returns (chosen in the product popup). */
+  const addToCart = async (productOrId, qty = 1, variantId, options = {}) => {
     let product = productOrId && typeof productOrId === 'object' ? productOrId : null;
     const productId = product?.id || product?._id || productOrId;
     let variants = product?.variants || product?.raw?.variants || [];
@@ -561,12 +567,18 @@ export function UserProvider({ children }) {
       setSelectedProduct(product);
       return { ok: false, message: 'Choose a product variant to add it to your cart.' };
     }
+    // Easy Returns needs the customer's choice; quick-add buttons open the product popup instead.
+    if (product?.raw?.easyReturns?.enabled && !options.returnOption) {
+      setSelectedProduct(product);
+      return { ok: false, needsReturnOption: true, message: 'Choose a return option to add this item.' };
+    }
     const resolvedVariantId = variantId || (variants.length === 1 ? (variants[0].id || variants[0]._id) : undefined);
-    const r = await cartCall('POST', '', { productId, qty, ...(resolvedVariantId ? { variantId: resolvedVariantId } : {}) });
+    const r = await cartCall('POST', '', { productId, qty, ...(resolvedVariantId ? { variantId: resolvedVariantId } : {}), ...(options.returnOption ? { returnOption: options.returnOption } : {}) });
     if (r.ok && r.data?.channel !== cartChannel) refreshCart();
     return { ...r, variantId: resolvedVariantId };
   };
   const setCartItemQty = async (itemId, qty) => cartCall('PUT', `/${itemId}`, { qty });
+  const setCartItemReturnOption = async (itemId, returnOption) => cartCall('PUT', `/${itemId}`, { returnOption });
   const deleteCartItem = async itemId => cartCall('DELETE', `/${itemId}`);
   const clearCart = async () => cartCall('DELETE', `?channel=${cartChannel}`);
   const removeFromCart = async (itemId, currentQty) => setCartItemQty(itemId, Math.max(0, Number(currentQty || 1) - 1));
@@ -1058,7 +1070,7 @@ export function UserProvider({ children }) {
     selectedProduct, setSelectedProduct, openWholesaleProduct, openProductById,
     reviewProductId, setReviewProductId,
     cart: serverCart, serverCart, cartChannel, switchCartChannel, cartSummary, cartLoading, refreshCart,
-    deliveryMode, setDeliveryMode, addToCart, removeFromCart, clearCart, setCartItemQty, deleteCartItem,
+    deliveryMode, setDeliveryMode, addToCart, removeFromCart, clearCart, setCartItemQty, deleteCartItem, setCartItemReturnOption,
     getCartCount, getCartItems, getCartWarnings, getItemQty, getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
     appliedCoupon, applyCoupon, removeCoupon, couponNotice, couponCode,
     availableCoupons: availableCoupons.filter(offer => offer.isPublic !== false), fetchAvailableCoupons, getTotalSavings,

@@ -1,3 +1,4 @@
+import { easyReturnsFormDefaults, easyReturnsFormFromProduct, easyReturnsPayload } from '../components/EasyReturnsFields';
 import { payoutIntent } from '../utils/payoutIntent';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { sellerStepIssues } from '../utils/onboardingValidation';
@@ -248,6 +249,7 @@ export const SellerProvider = ({ children }) => {
     // Seller return preference; a blank window uses the category default.
     returnable: false,
     returnWindowDays: '',
+    ...easyReturnsFormDefaults,
   });
 
   const [payoutAmount, setPayoutAmount] = useState('');
@@ -375,6 +377,7 @@ export const SellerProvider = ({ children }) => {
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
       returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
       returnWindowDays: raw.returnSettings?.windowDays ?? '',
+      ...easyReturnsFormFromProduct(raw),
     });
     setShowAddProductModal(true);
   };
@@ -382,7 +385,7 @@ export const SellerProvider = ({ children }) => {
   const startNewProduct = () => {
     productDraftGeneration.current++;
     setEditingProduct(null); setProductError('');
-    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false });
+    setNewProductForm({ fulfillmentType: 'physical', name: '', categoryId: '', desc: '', brandName: '', gstRate: 0, gstPriceType: 'inclusive', ebookPrice: '', ebookMrp: '', ebookStock: '', author: '', language: '', licenseTerms: '', variants: [{ name: 'Default', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }], sameDayEnabled: false, processingMinutes: '', returnable: false, ...easyReturnsFormDefaults });
     setShowAddProductModal(true);
   };
 
@@ -481,6 +484,7 @@ export const SellerProvider = ({ children }) => {
       if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(editingProduct?.type || activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
         fd.append('returnWindowDays', form.returnable ? (form.returnWindowDays ?? '') : '');
+        fd.append('easyReturns', easyReturnsPayload(form));
       }
 
       if (Array.isArray(actualFiles) && actualFiles.length > 0) {
@@ -1444,6 +1448,7 @@ export const SellerProvider = ({ children }) => {
       if (form.fulfillmentType !== 'digital' && !(form.sellingChannels?.length === 1 && form.sellingChannels[0] === 'wholesale') && ['grocery','ecommerce'].includes(activeChannel)) {
         fd.append('returnable', form.returnable ? 'true' : 'false');
         fd.append('returnWindowDays', form.returnable ? (form.returnWindowDays ?? '') : '');
+        fd.append('easyReturns', easyReturnsPayload(form));
       }
 
       files.forEach(({ file }) => fd.append('images', file));

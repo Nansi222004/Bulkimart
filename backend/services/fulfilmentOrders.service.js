@@ -1,3 +1,4 @@
+import { calculateCodFee, loadCodChargeSetting } from './codCharge.service.js';
 import crypto from 'crypto';
 import { sumMoney } from '../utils/money.js';
 import Cart from '../models/Cart.js';
@@ -65,6 +66,14 @@ const linesOf = (group) => group.items.map((i) => ({
   sellerId: i.sellerId,
   shgStoreId: i.shgStoreId,
   additionalMessage: i.additionalMessage || '',
+  ...(i.returnOption ? {
+    returnOption: i.returnOption,
+    returnPolicySnapshot: i.returnPolicySnapshot,
+    returnEligibilityDays: i.returnEligibilityDays,
+    returnExtraCharge: i.returnExtraCharge,
+    finalItemPrice: i.finalItemPrice,
+    easyReturnPolicy: i.easyReturnPolicy,
+  } : {}),
 }));
 
 /**
@@ -158,8 +167,16 @@ export const createOrdersFromGroups = async ({
   user, address, groups, paymentMethod, notes, session, groupRef = newGroupRef(), tip = 0, purchaseMode = 'retail', cartSnapshots, beforeWrite = () => {},
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
+  /**
+   * COD handling fee, per order, from the live admin setting — never a client figure or a
+   * cached preview. Online payment never carries it. Computed once here and reused for
+   * both the payment amount and each order, so it is included exactly once.
+   */
+  const codSetting = paymentMethod === PAYMENT_METHOD.COD ? await loadCodChargeSetting(session) : null;
+  const codFeeOf = (group) => (codSetting && group.fulfillmentType !== 'digital' ? calculateCodFee(group.total, codSetting) : null);
+  const codFees = groups.map(codFeeOf);
   // Reject before any inventory mutation, including basket-level tips.
-  const payable = sumMoney(...groups.map(group => group.total), Math.max(0, Math.round(Number(tip) || 0)));
+  const payable = sumMoney(...groups.map(group => group.total), ...codFees.map(fee => fee?.codFeeTotal || 0), Math.max(0, Math.round(Number(tip) || 0)));
 
   /**
    * Return-policy snapshot (Phase 3) — this grouped/unified path builds its
@@ -180,8 +197,13 @@ export const createOrdersFromGroups = async ({
    * Historical Shop All products retain their category default. Wholesale
    * retains its existing category/legacy Quick Commerce behavior.
    */
-  const withReturnPolicy = (lines, retail = true) => lines.map((l) => {
+  const withReturnPolicy = (lines, retail = true) => lines.map(({ easyReturnPolicy, ...l }) => {
     const catPolicy = returnPolicyByCategory.get(String(categoryByProduct.get(String(l.productId)))) || nonReturnable;
+    // Easy Returns lines carry the seller's own frozen window (services/easyReturns.service.js).
+    if (retail && easyReturnPolicy && l.returnOption) {
+      return { ...l, returnPolicy: { ...easyReturnPolicy, headerCategoryId: catPolicy.headerCategoryId, headerCategoryName: catPolicy.headerCategoryName } };
+    }
+    if (!retail) { delete l.returnOption; delete l.returnPolicySnapshot; delete l.returnEligibilityDays; delete l.returnExtraCharge; delete l.finalItemPrice; }
     const stored = productMetaById.get(String(l.productId));
     const meta = retail ? stored : stored ? { ...stored, returnSettings: undefined } : stored;
     if (!retail && catPolicy.source === 'global') return { ...l, returnPolicy: { ...nonReturnable, headerCategoryId: catPolicy.headerCategoryId, headerCategoryName: catPolicy.headerCategoryName } };
@@ -242,7 +264,8 @@ export const createOrdersFromGroups = async ({
   // ---- one order per group ----------------------------------------------
   const orders = [];
   let tipAttached = false;
-  for (const g of groups) {
+  for (const [groupIndex, g] of groups.entries()) {
+    const codFee = codFees[groupIndex];
     // Attached to the first order only — one basket-level choice, recorded
     // once, so a refund or a per-order view never double-counts it across
     // however many deliveries the checkout split into.
@@ -272,7 +295,8 @@ export const createOrdersFromGroups = async ({
         cdsDiscount: 0,
         deliveryCharge: g.deliveryCharge,
         tipAmount: thisOrdersTip,
-        totalAmount: sumMoney(g.total, thisOrdersTip),
+        ...(codFee || {}),
+        totalAmount: sumMoney(g.total, thisOrdersTip, codFee?.codFeeTotal || 0),
       },
       paymentMethod,
       paymentId: payment._id,

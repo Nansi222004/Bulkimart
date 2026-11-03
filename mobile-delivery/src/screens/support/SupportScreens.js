@@ -70,6 +70,7 @@ export function SupportScreen({ route, navigation }) {
   return (
     <Screen refreshing={loading && tickets.length > 0} onRefresh={load}>
       {error ? <InlineNotice tone="error">{error}</InlineNotice> : null}
+      <AppButton title="Chat with Support" onPress={() => navigation.navigate('SupportChat', orderId ? { orderId, orderNo: route.params?.orderNo } : undefined)} />
       <Card title="Raise a ticket">
         <Text style={type.label}>Category *</Text>
         <View style={styles.chips}>

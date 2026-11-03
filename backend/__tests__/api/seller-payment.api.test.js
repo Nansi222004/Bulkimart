@@ -99,7 +99,7 @@ describe('seller authentication and product API', () => {
   test('seller OTP login requires a registered user and a valid mock OTP', async () => {
     await request(app).post('/api/auth/seller/send-otp').send({ phone: '9299999999' }).expect(404);
     const sent = await request(app).post('/api/auth/seller/send-otp').send({ phone: sellerUser.phone }).expect(200);
-    expect(sent.body.otp).toBe('1234');
+    expect(sent.body.otp).toBe('123456');
     await request(app).post('/api/auth/seller/verify-otp')
       .send({ phone: sellerUser.phone, otp: '0000' }).expect(400);
     const verified = await request(app).post('/api/auth/seller/verify-otp')

@@ -14,7 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
 import { createProduct, getCategoryReturnPolicy, getCategoryTree, updateProduct } from '../../services/product.api';
 import {
-  GST_RATES, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
+  GST_RATES, defaultEasyReturnsPolicy, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
   effectiveCategory, emptyForm, formFromProduct, picksForCategory, validateProductForm,
 } from '../../utils/productForm';
 import { colors, radius, spacing, type } from '../../theme';
@@ -35,6 +35,7 @@ export default function ProductFormScreen({ route, navigation }) {
   const [policyAttempt, setPolicyAttempt] = useState(0);
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showEasyPolicy, setShowEasyPolicy] = useState(false);
   const [progress, setProgress] = useState(null);
   const [saveError, setSaveError] = useState('');
   const savingRef = useRef(false);
@@ -107,6 +108,8 @@ export default function ProductFormScreen({ route, navigation }) {
     } finally { savingRef.current = false; setSaving(false); setProgress(null); }
   };
 
+  // Window Easy Returns will use: the product window, capped by the category/global limit (the server resolves the same).
+  const easyDays = policy?.eligible ? Math.min(Number(form.returnWindowDays) || policy.returnWindowDays, policy.returnWindowDays) : null;
   const errorText = (list) => (showErrors && list.length ? list.join(' · ') : '');
   const l1Options = tree.map((c) => ({ value: String(c._id), label: c.name }));
 
@@ -147,6 +150,43 @@ export default function ProductFormScreen({ route, navigation }) {
             {!form.returnable ? 'Customers will see: Non-Returnable.'
               : policy?.eligible ? `Customers will see: ${Math.min(Number(form.returnWindowDays) || policy.returnWindowDays, policy.returnWindowDays)}-day returns.` : ''}
           </Text>
+
+          {/* Easy Returns lives inside Allow Returns and reuses its window. Only the extra charge is needed. */}
+          {form.returnable ? (
+            <View style={styles.easyBox}>
+              <SwitchRow label="🔁 Also offer Easy Returns (paid option)" value={form.easyReturnsEnabled} disabled={saving} onValueChange={(v) => set('easyReturnsEnabled', v)}
+                hint="Customers who pay a little extra can return for any reason. Others pay the normal price and can return only a wrong, damaged or defective item." />
+              {form.easyReturnsEnabled ? (
+                <>
+                  <AppInput label="Easy Returns extra charge (₹ per unit)" keyboardType="decimal-pad" placeholder="e.g. 40" editable={!saving}
+                    value={String(form.easyReturnsExtraCharge ?? '')} onChangeText={(t) => set('easyReturnsExtraCharge', t.replace(/[^0-9.]/g, ''))} />
+                  <View style={styles.priceRow}>
+                    <View style={[styles.priceCard, styles.priceEasy]}>
+                      <Text style={type.small}>With Easy Returns</Text>
+                      <Text style={type.label}>{Number(form.variants?.[0]?.price) > 0 ? `₹${(Number(form.variants[0].price) + (Number(form.easyReturnsExtraCharge) || 0)).toLocaleString('en-IN')}` : `Price + ₹${Number(form.easyReturnsExtraCharge) || 0}`}</Text>
+                      <Text style={type.small}>Any reason{easyDays ? ` · ${easyDays} days` : ''}</Text>
+                    </View>
+                    <View style={[styles.priceCard, styles.priceNo]}>
+                      <Text style={type.small}>Without Easy Returns</Text>
+                      <Text style={type.label}>{Number(form.variants?.[0]?.price) > 0 ? `₹${Number(form.variants[0].price).toLocaleString('en-IN')}` : 'Normal price'}</Text>
+                      <Text style={type.small}>Wrong, damaged, defective</Text>
+                    </View>
+                  </View>
+                  <Pressable accessibilityRole="button" onPress={() => setShowEasyPolicy((v) => !v)} style={styles.linkRow}>
+                    <Text style={styles.link}>{showEasyPolicy ? '▾' : '▸'} Customize policy text (optional)</Text>
+                  </Pressable>
+                  {showEasyPolicy ? (
+                    <>
+                      <AppInput label="Policy shown to customers" multiline numberOfLines={3} maxLength={1000} editable={!saving}
+                        placeholder={defaultEasyReturnsPolicy(easyDays || 7)} value={form.easyReturnsPolicyText} onChangeText={(t) => set('easyReturnsPolicyText', t)} />
+                      <AppInput label="Return conditions (one per line)" multiline numberOfLines={2} editable={!saving}
+                        placeholder="Unused, with original tags" value={form.easyReturnsConditions} onChangeText={(t) => set('easyReturnsConditions', t)} />
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         {isEditing && channel === 'ecommerce' ? (
@@ -236,6 +276,13 @@ export default function ProductFormScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
+  easyBox: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderStyle: 'dashed', borderTopColor: colors.border, gap: spacing.sm },
+  linkRow: { minHeight: 40, justifyContent: 'center' },
+  link: { color: colors.primaryDark, fontWeight: '700', fontSize: 13 },
+  priceRow: { flexDirection: 'row', gap: spacing.sm },
+  priceCard: { flex: 1, borderWidth: 1.5, borderRadius: radius.md, padding: spacing.sm, gap: 2 },
+  priceEasy: { borderColor: colors.primaryDark, backgroundColor: colors.aquaLight },
+  priceNo: { borderColor: '#f97316', backgroundColor: '#fff7ed' },
   gstRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   gst: { minWidth: 56, minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
   gstActive: { borderColor: colors.primaryDark, backgroundColor: colors.aquaLight },

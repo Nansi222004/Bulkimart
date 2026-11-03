@@ -10,7 +10,9 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const { ObjectId } = mongoose.Types;
 
 async function setupMarketingCmsDiwali() {
-  const uri = process.env.MONGO_URI || 'mongodb+srv://bulkimart_db_user:Q5WFULIWYo3jpMyP@cluster0.q39nutg.mongodb.net/bulkimart';
+  // Connection string comes only from the environment (backend/.env); never hardcode credentials.
+  const uri = process.env.MONGO_URI;
+  if (!uri) throw new Error('MONGO_URI is not set. Add it to backend/.env before running this script.');
   await mongoose.connect(uri);
   console.log('Connected to MongoDB');
 

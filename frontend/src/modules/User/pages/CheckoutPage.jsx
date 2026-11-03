@@ -279,7 +279,8 @@ const CheckoutPage = () => {
    * per-channel cart total would only ever describe one of them, and showing it
    * would understate the bill on the screen where the bill matters most.
    */
-  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { tipAmount });
+  // The COD handling fee appears only while Cash on Delivery is selected; online always shows zero.
+  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { tipAmount, cod: paymentMethod === 'Cash on Delivery' });
   const grandTotalVal = summary.totalAmount;
   const channelItems = getCartItems();
   const items = unified.data ? unified.basketItems : channelItems;
@@ -1187,6 +1188,11 @@ const CheckoutPage = () => {
                 <div>
                   <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Cash on Delivery (COD)</span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay at your doorstep on delivery</span>
+                  {summary.codFeeQuote > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#c2410c', display: 'block' }}>
+                      + ₹{summary.codFeeQuote} {summary.codFeeLabel}{unified.data?.totals?.codFeeOrders > 1 ? ` (${unified.data.totals.codFeeOrders} deliveries)` : ''}
+                    </span>
+                  )}
                 </div>
               </div>
             </label>
@@ -1708,6 +1714,13 @@ const CheckoutPage = () => {
               </div>
             )}
 
+            {summary.codFee > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c2410c', fontWeight: 700 }}>
+                <span>{summary.codFeeLabel}</span>
+                <span>+₹{summary.codFee}</span>
+              </div>
+            )}
+
             <div style={{ borderTop: '1.5px dashed var(--border-color)', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 800 }}>
               <span style={{ color: 'var(--text-primary)' }}>Total Amount to Pay</span>
               <span style={{ color: 'var(--primary)' }}>₹{grandTotalVal}</span>
@@ -1797,6 +1810,11 @@ const CheckoutPage = () => {
                       <span style={{ fontWeight: 600 }}>{item.qty}x {item.name}</span>
                       <span style={{ fontWeight: 700 }}>₹{item.lineTotal}</span>
                     </div>
+                    {item.returnOption && (
+                      <div style={{ fontSize: 11, fontWeight: 600, paddingLeft: 8, color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>
+                        {item.returnOption === 'EASY_RETURN' ? `Easy Returns (+₹${item.returnExtraCharge || 0} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}
+                      </div>
+                    )}
                     {item.additionalMessage && (
                       <div style={{ fontSize: 11, color: 'var(--primary)', fontStyle: 'italic', paddingLeft: 8 }}>
                         📝 Seller message: "{item.additionalMessage}"
@@ -1845,6 +1863,12 @@ const CheckoutPage = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                     <span>Delivery Partner Tip</span>
                     <span>+₹{tipAmount}</span>
+                  </div>
+                )}
+                {summary.codFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c2410c', fontWeight: 700 }}>
+                    <span>{summary.codFeeLabel}</span>
+                    <span>+₹{summary.codFee}</span>
                   </div>
                 )}
                 <div style={{ borderTop: '1.5px solid var(--border-color)', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 900 }}>

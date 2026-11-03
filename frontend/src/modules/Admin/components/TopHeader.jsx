@@ -18,6 +18,7 @@ const pageTitles = {
   'categories-all': 'All Categories', 'categories-header': 'Header Categories',
   'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories',
   'helpline-settings': 'Helpline & SOS Emergency Settings',
+  'cod-charges': 'Payment Settings · COD Charges',
 };
 
 const timeAgo = (iso) => {
@@ -38,6 +39,7 @@ const resolveSearchTab = (query) => {
   if (/order|purchase/.test(q)) return 'user-orders';
   if (/product|item|inventory/.test(q)) return 'products';
   if (/delivery|rider|dispatch/.test(q)) return 'delivery-dashboard';
+  if (/live ?chat|chat/.test(q)) return 'live-chat';
   if (/ticket|support/.test(q)) return 'tickets';
   if (/report|analytics/.test(q)) return 'reports';
   if (/banner|advertis/.test(q)) return 'banners';

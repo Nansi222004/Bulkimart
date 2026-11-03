@@ -1,3 +1,4 @@
+import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import ModalPortal from '../../../components/ModalPortal';
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../context/AdminContext';
@@ -193,6 +194,7 @@ export const ReturnsTab = () => {
               <p style={{ margin: 0 }}><b>Product:</b> {detail.productName} × {detail.quantity} @ ₹{detail.unitPriceSnapshot}</p>
               <p style={{ margin: 0 }}><b>Category:</b> {detail.headerCategoryName || '—'} · Return window: {detail.returnWindowDaysSnapshot ?? '—'} day(s)</p>
               <p style={{ margin: 0 }}><b>Return deadline:</b> {detail.returnEligibleUntilSnapshot ? new Date(detail.returnEligibleUntilSnapshot).toLocaleString('en-IN') : '—'}</p>
+              {detail.returnOptionSnapshot && <p style={{ margin: 0 }}><b>Bought with:</b> <EasyReturnBadge option={detail.returnOptionSnapshot} showRule /></p>}
               <p style={{ margin: 0 }}><b>Reason:</b> {detail.reason?.replace(/_/g, ' ')}{detail.customerDescription ? ` — "${detail.customerDescription}"` : ''}</p>
 
               {detail.pickupMethod === 'SHIPROCKET' && <p>Shiprocket: {detail.reverseBooking?.trackingState || detail.reverseBooking?.state} {detail.awbNumber && `· AWB ${detail.awbNumber}`} {detail.reverseBooking?.error}</p>}

@@ -56,6 +56,7 @@ export function OrderOfferModal({ offer, onAccept, onDecline, onExpire }) {
             {payout.tip > 0 ? <Text style={styles.tip}>🎉 Customer is tipping {formatRupees(payout.tip)} — yours in full</Text> : null}
             <KeyValueRow label="To the store" value={km(offer.pickupDistance)} />
             <KeyValueRow label="Store to customer" value={km(offer.distance)} />
+            {isCod && Number(offer.codFee) > 0 ? <KeyValueRow label={offer.codFeeLabel || 'COD Handling Fee'} value={`included · ${formatRupees(offer.codFee)}`} /> : null}
             <KeyValueRow label="Payment" value={isCod ? `Cash on delivery — collect ${formatRupees(offer.codAmount)}` : 'Prepaid — do not collect cash'} strong valueColor={isCod ? colors.orangeDark : colors.success} />
             <View style={styles.stop}>
               <Text style={type.label}>🏪 Pickup: {offer.merchantName || 'Store'}</Text>

@@ -57,7 +57,7 @@ export const TicketsTab = () => {
     ticketCategoryFilter, setTicketCategoryFilter,
     ticketRoleFilter, setTicketRoleFilter,
     selectedTicket, setSelectedTicket,
-    ticketDetail, ticketMessages, ticketDetailLoading,
+    ticketDetail, ticketMessages, ticketDetailLoading, setActiveTab,
     openTicketDetail, replyToTicket, addInternalNote, changeTicketStatus, resolveTicket,
     ticketReply, setTicketReply,
     searchQuery, setSearchQuery,
@@ -234,6 +234,14 @@ export const TicketsTab = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, width: '100%' }}>
                       <span className="ticket-meta-label">Subject &amp; Issue</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {(ticketDetail?.relatedChats || []).map((chat) => (
+                          <button key={chat._id} type="button" className="ticket-context-pill" title="Linked live chat — open in Live Chat Support"
+                            style={{ cursor: 'pointer', border: 0 }}
+                            onClick={() => { setActiveTab('live-chat'); window.history.replaceState(null, '', `/admin/live-chat/${chat._id}`); }}>
+                            <MessageSquare size={11} color="#ff8500" />
+                            <span>{chat.conversationNumber} · {chat.status}</span>
+                          </button>
+                        ))}
                         {ticketDetail?.relatedOrder && (
                           <span className="ticket-context-pill" title="Linked Order">
                             <Package size={11} color="#0284c7" />

@@ -505,6 +505,11 @@ export const ActiveDeliveryPage = () => {
               {activeOrder.paymentMethod === 'COD' && (
                 <div className="delivery-cod-alert-box">
                   💵 <strong>COLLECT COD CASH:</strong> Please collect <strong>₹{Math.round(Number(activeOrder.codAmount || activeOrder.totalAmount || 0))}</strong> in cash from customer before entering OTP.
+                  {Number(activeOrder.codFee) > 0 && (
+                    <span style={{ display: 'block', marginTop: 4, fontWeight: 600 }}>
+                      Order ₹{activeOrder.codOrderAmount} + {activeOrder.codFeeLabel || 'COD Handling Fee'} ₹{activeOrder.codFee}
+                    </span>
+                  )}
                   <label style={{ display: 'block', marginTop: 10, fontWeight: 700 }}>
                     Cash collected (₹)
                     <input

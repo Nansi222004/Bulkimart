@@ -20,6 +20,7 @@ import { ParcelDetailScreen, ParcelsScreen } from '../screens/parcels/ParcelScre
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import { SupportScreen, TicketDetailScreen } from '../screens/support/SupportScreens';
+import SupportChatScreen from '../screens/support/SupportChatScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -116,6 +117,7 @@ function ApprovedStack() {
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="Support" component={SupportScreen} options={{ title: 'Help & support' }} />
         <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
+        <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
       </Stack.Navigator>
       <OfferHost />
       <PushManager />
@@ -132,6 +134,7 @@ function ApplicantStack({ status }) {
       {status === 'rejected' ? <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ title: 'Update application' }} /> : null}
       <Stack.Screen name="Support" component={SupportScreen} options={{ title: 'Help & support' }} />
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
+      <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
     </Stack.Navigator>
   );
 }

@@ -11,7 +11,7 @@ import {
 import { notifyUser, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, TICKET_CATEGORIES_BY_ROLE } from '../constants/enums.js';
 
-const uploadAttachments = async (files = [], req = null) => {
+export const uploadAttachments = async (files = [], req = null) => {
   if (!files.length) return [];
   if (files.length > TICKET_MAX_ATTACHMENTS) {
     throw httpError(400, `You can attach at most ${TICKET_MAX_ATTACHMENTS} files`);

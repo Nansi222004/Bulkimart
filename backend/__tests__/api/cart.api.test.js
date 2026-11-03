@@ -180,3 +180,33 @@ describe('authenticated cart HTTP API', () => {
     expect(indexes.some((index) => index.unique && index.key.userId === 1 && index.key.channel === 1)).toBe(true);
   });
 });
+
+describe('Easy Returns in the cart', () => {
+  const config = { enabled: true, extraCharge: 20, windowDays: 7, policyText: 'Easy returns within 7 days', conditions: [] };
+  const lineOf = (body) => body.data.items[0];
+  beforeEach(async () => { await Product.updateOne({ _id: ecommerceProduct._id }, { $set: { easyReturns: config } }); });
+  afterEach(async () => { await Product.updateOne({ _id: ecommerceProduct._id }, { $unset: { easyReturns: 1 } }); });
+
+  test('adds with the chosen option, prices it on the server and lets the customer switch', async () => {
+    const added = await request(app).post('/api/cart').set('Authorization', `Bearer ${authToken}`)
+      .send({ productId: String(ecommerceProduct._id), qty: 2, returnOption: 'EASY_RETURN', price: 1 }).expect(200);
+    expect(lineOf(added.body)).toMatchObject({ returnOption: 'EASY_RETURN', basePrice: 125, price: 145, returnExtraCharge: 20 });
+    const switched = await request(app).put(`/api/cart/${lineOf(added.body)._id}`).set('Authorization', `Bearer ${authToken}`)
+      .send({ returnOption: 'NO_EASY_RETURN' }).expect(200);
+    expect(lineOf(switched.body)).toMatchObject({ returnOption: 'NO_EASY_RETURN', price: 125, returnExtraCharge: 0, qty: 2 });
+  });
+
+  test('defaults to No Easy Returns and rejects unknown options', async () => {
+    const added = await request(app).post('/api/cart').set('Authorization', `Bearer ${authToken}`)
+      .send({ productId: String(ecommerceProduct._id), qty: 1 }).expect(200);
+    expect(lineOf(added.body)).toMatchObject({ returnOption: 'NO_EASY_RETURN', price: 125 });
+    await request(app).put(`/api/cart/${lineOf(added.body)._id}`).set('Authorization', `Bearer ${authToken}`).send({ returnOption: 'FREE' }).expect(400);
+  });
+
+  test('a product without Easy Returns ignores the option', async () => {
+    const added = await request(app).post('/api/cart').set('Authorization', `Bearer ${authToken}`)
+      .send({ productId: String(groceryProduct._id), qty: 1, returnOption: 'EASY_RETURN' }).expect(200);
+    expect(lineOf(added.body).returnOption).toBeUndefined();
+    expect(lineOf(added.body).price).toBe(42);
+  });
+});

@@ -71,6 +71,13 @@ const releaseSameDayIncentive = async (order, actorId, session) => {
 };
 // Cash Bulkimart accepts as settled: what was verified plus any shortage the
 // platform has written off under the approved "platform absorbs" policy.
+/** COD handling fee from the frozen snapshot, split into platform income and its GST. */
+export const codFeeSplit = (order, snapshot) => {
+  const totalPaise = snapshot?.components?.codFeePaise || 0;
+  const taxPaise = Math.min(totalPaise, Math.round((order.pricing?.codFeeTaxAmount || 0) * 100));
+  return { codFeeTotalPaise: totalPaise, codFeeNetPaise: totalPaise - taxPaise, codFeeTaxPaise: taxPaise };
+};
+
 export const codSettledPaise = cash => (cash?.verifiedPaise || 0) + (cash?.writtenOffPaise || 0);
 // Settled means the rounded cash due was received (or its shortage written off).
 const codCashSettled = (cash, expectedPaise) => ['verified', 'allocated'].includes(cash?.status) && codSettledPaise(cash) === codCashDuePaise(expectedPaise);
@@ -300,6 +307,14 @@ export const postOrderFinance = async (orderId, actorId, review) => {
     if (deliveryPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_DELIVERY`, orderId: order._id,
       account: 'customer_delivery', type: 'customer_delivery', direction: 'credit', bucket: 'held', amount: deliveryPaise / 100,
       description: `Customer delivery charge ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
+    // COD handling fee: platform income (net) + GST payable, never seller earnings.
+    const { codFeeNetPaise, codFeeTaxPaise } = codFeeSplit(order, snapshot);
+    if (codFeeNetPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:CUSTOMER_COD_FEE`, orderId: order._id,
+      account: 'customer_cod_fee', type: 'customer_cod_fee', direction: 'credit', bucket: 'held', amount: codFeeNetPaise / 100,
+      description: `COD handling fee ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
+    if (codFeeTaxPaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:COD_FEE_TAX`, orderId: order._id,
+      account: 'tax_liability', type: 'cod_fee_tax', direction: 'credit', bucket: 'held', amount: codFeeTaxPaise / 100,
+      description: `GST on COD handling fee ${order.orderNo}`, metadata: { source: 'order-finance-v2', snapshotId: snapshot.snapshotId } }, { session });
     if (incentivePaise > 0) await postLedgerEntry({ idempotencyKey: `FINANCE:${order._id}:SAME_DAY_INCENTIVE`, sellerId: incentiveSeller(snapshot), orderId: order._id,
       paymentId: order.paymentId, account: 'seller_payable', type: 'same_day_incentive', direction: 'credit', bucket: 'held', amount: incentivePaise / 100,
       description: `Same-day seller incentive ${order.orderNo}`, postedBy: actorId, postedByRole: actorId ? 'admin' : 'system',

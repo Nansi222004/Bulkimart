@@ -7,6 +7,7 @@ import { ImageSearchButton } from './ImageSearchSheet';
 import HeaderCategories from './HeaderCategories';
 import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
 import Celebration from './Celebration';
+import { hasFestiveHeader } from './FestiveHeader';
 import { useStorefront } from '../context/StorefrontContext';
 
 const UnifiedHeader = () => {
@@ -24,9 +25,10 @@ const UnifiedHeader = () => {
     openImageSearch,
     activeNav,
   } = useUser();
-  // Both the unified header and the festive sub-header host the celebration effect.
-  const { effect, now } = useStorefront() || {};
-  const headerEffect = effect;
+  // The festive header (home feed only) hosts the page effect when it is shown;
+  // otherwise this header does, clipped to its own box.
+  const { effect, theme, now } = useStorefront() || {};
+  const headerEffect = activeNav === 'home' && hasFestiveHeader(theme) ? null : effect;
   const cartCount = getCartCount();
   const wishlistCount = wishlist?.size || 0;
   const [showNotifications, setShowNotifications] = useState(false);
@@ -80,6 +82,20 @@ const UnifiedHeader = () => {
     setActiveMode(newMode);
     setActiveSubNav(newMode === 'quick' ? 'grocery--home' : 'ecommerce--smart-buy');
   };
+
+  const renderSwitcher = (modifier = '') => (
+    <div className={`unified-tab-switcher ${modifier}`} role="group" aria-label="Storefront">
+      <button className={`switcher-tab-btn quick ${activeMode === 'quick' ? 'active' : ''}`} onClick={() => handleModeSwitch('quick')}>
+        <svg className="tab-lightning-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+        Quick
+      </button>
+      <button className={`switcher-tab-btn shop-all ${activeMode === 'shop-all' ? 'active' : ''}`} onClick={() => handleModeSwitch('shop-all')}>
+        ShopAll
+      </button>
+    </div>
+  );
 
   const renderSearch = (modifier) => (
     <div className={`header-search-row ${modifier}`}>
@@ -141,70 +157,66 @@ const UnifiedHeader = () => {
           </button>
         </div>
 
+        {renderSwitcher('unified-tab-switcher--desktop')}
+
         {renderSearch('header-search-row--desktop')}
 
         <div className="header-customer-actions">
-            <button
-              className="header-profile-silhouette-btn"
-              onClick={() => setActiveNav('wishlist')}
-              aria-label="Wishlist"
-            >
-              <span className="profile-silhouette-circle">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill={wishlistCount > 0 ? '#ef4444' : 'none'} stroke={wishlistCount > 0 ? '#ef4444' : 'currentColor'} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                </svg>
-              </span>
-              {wishlistCount > 0 && <span className="header-action-badge">{wishlistCount}</span>}
-            </button>
-            <button
-              className="header-profile-silhouette-btn"
-              onClick={() => setShowNotifications(true)}
-              aria-label="Notifications"
-            >
-              <span className="profile-silhouette-circle">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-              </span>
-              {unreadCount > 0 && <span className="header-action-dot" />}
-            </button>
-            <button
-              className="header-profile-silhouette-btn header-account-action"
-              onClick={() => setActiveNav('account')}
-              aria-label="Account"
-            >
-              <span className="profile-silhouette-circle">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </span>
-            </button>
-            <button className="header-profile-silhouette-btn header-cart-action" onClick={() => setActiveNav('cart')} aria-label={`Cart with ${cartCount} items`}>
-              <span className="profile-silhouette-circle">
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="9" cy="20" r="1" /><circle cx="19" cy="20" r="1" />
-                  <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L22 8H6" />
-                </svg>
-              </span>
-              {cartCount > 0 && <span className="header-action-badge">{cartCount}</span>}
-            </button>
+          <button
+            className="header-profile-silhouette-btn header-action-btn--labeled"
+            onClick={() => setActiveNav('wishlist')}
+            aria-label="Wishlist"
+          >
+            <span className="profile-silhouette-circle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill={wishlistCount > 0 ? '#ef4444' : 'none'} stroke={wishlistCount > 0 ? '#ef4444' : 'currentColor'} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+              </svg>
+            </span>
+            {wishlistCount > 0 && <span className="header-action-badge">{wishlistCount}</span>}
+            <span className="header-action-text-label">Wishlist</span>
+          </button>
+          <button
+            className="header-profile-silhouette-btn header-action-btn--labeled"
+            onClick={() => setShowNotifications(true)}
+            aria-label="Notifications"
+          >
+            <span className="profile-silhouette-circle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+            </span>
+            {unreadCount > 0 && <span className="header-action-dot" />}
+            <span className="header-action-text-label">Alerts</span>
+          </button>
+          <button
+            className="header-profile-silhouette-btn header-account-action header-action-btn--labeled"
+            onClick={() => setActiveNav('account')}
+            aria-label="Account"
+          >
+            <span className="profile-silhouette-circle">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+            <span className="header-action-text-label">Profile</span>
+          </button>
+          <button className="header-profile-silhouette-btn header-cart-action header-action-btn--labeled" onClick={() => setActiveNav('cart')} aria-label={`Cart with ${cartCount} items`}>
+            <span className="profile-silhouette-circle">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="20" r="1" /><circle cx="19" cy="20" r="1" />
+                <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L22 8H6" />
+              </svg>
+            </span>
+            {cartCount > 0 && <span className="header-action-badge">{cartCount}</span>}
+            <span className="header-action-text-label">Cart</span>
+          </button>
         </div>
       </div>
 
-      <div className="header-switcher-bar">
-        <div className="unified-tab-switcher" role="group" aria-label="Storefront">
-          <button className={`switcher-tab-btn quick ${activeMode === 'quick' ? 'active' : ''}`} onClick={() => handleModeSwitch('quick')}>
-            <svg className="tab-lightning-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-            Quick
-          </button>
-          <button className={`switcher-tab-btn shop-all ${activeMode === 'shop-all' ? 'active' : ''}`} onClick={() => handleModeSwitch('shop-all')}>
-            ShopAll
-          </button>
-        </div>
+      <div className="header-switcher-bar header-switcher-bar--mobile">
+        {renderSwitcher('unified-tab-switcher--mobile')}
       </div>
 
       <div className="header-body-content">

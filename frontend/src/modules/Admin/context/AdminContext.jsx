@@ -521,7 +521,8 @@ export const AdminProvider = ({ children }) => {
     setTicketDetailLoading(true);
     try {
       const { data } = await adminGet(`/tickets/${ticketRow.id}`);
-      setTicketDetail(data.ticket);
+      // relatedChats: live chats linked to this ticket (shown as pills in TicketsTab).
+      setTicketDetail(data.ticket ? { ...data.ticket, relatedChats: data.relatedChats || [] } : data.ticket);
       setTicketMessages(data.messages || []);
       if (data?.ticket) {
         setSelectedTicket(mapTicketRow(data.ticket));

@@ -209,7 +209,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
             ) : (
               <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} className="auth-form-body">
                 <div className="auth-input-group" style={{ textAlign: 'center' }}>
-                  <label>Enter 4-Digit OTP sent to +91 {sellerPhone}</label>
+                  <label>Enter the OTP sent to +91 {sellerPhone}</label>
                   <input
                     type="text"
                     maxLength={6}

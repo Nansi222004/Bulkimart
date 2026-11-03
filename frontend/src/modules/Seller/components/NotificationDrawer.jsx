@@ -31,6 +31,8 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
         const route = notification.route || '';
         if (openAdvertisingNotification(notification, setActiveTab)) return;
         const tab = route.startsWith('/seller/') ? route.split('/')[2].split('?')[0] : route === '/orders' ? 'orders' : null;
+        // Live chat reply: SupportTab opens the chat when ?chat is present on mount.
+        if (tab === 'support' && /[?&]chat=1/.test(route)) window.history.replaceState(null, '', `${window.location.pathname}?chat=1`);
         if (['orders', 'services', 'products', 'stock', 'support', 'item-returns', 'dashboard', 'earnings', 'paymenthistory', 'moneyrequest'].includes(tab)) setActiveTab(tab);
         else if (notification.type === 'order') triggerToast('This order notification has no valid order reference. Open Orders to review.');
       }

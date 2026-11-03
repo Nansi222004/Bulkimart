@@ -2,6 +2,7 @@ import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import VariantAttributesEditor from './VariantAttributesEditor';
 import VariantWholesaleFields from './VariantWholesaleFields';
+import EasyReturnsFields, { validateEasyReturns } from './EasyReturnsFields';
 import { eligibleWholesaleProduct, hasWholesaleAccess } from '../utils/wholesaleEligibility';
 import useSellerDialog from '../hooks/useSellerDialog';
 import { offerPayload, validateWholesaleOffer } from '../utils/wholesaleOffer';
@@ -397,6 +398,8 @@ export const ProductModal = () => {
       else if (!catReturnPolicy?.eligible) errs.general.push('Admin must enable category or global returns before setting a product window');
       else if (days > catReturnPolicy.returnWindowDays) errs.general.push(`Return window cannot exceed ${catReturnPolicy.returnWindowDays} days`);
     }
+
+    if (!isDigital && showReturnableBlock) errs.general.push(...validateEasyReturns(newProductForm));
 
     // Category / Groups validation
     if (!pickL1) {
@@ -815,6 +818,10 @@ export const ProductModal = () => {
                         value={newProductForm.returnWindowDays ?? ''} onChange={e => setNewProductForm({ ...newProductForm, returnWindowDays: e.target.value })}/>
                     </label>}
                     <p style={{ fontSize: 11, marginTop: 8 }} role="status">{!newProductForm.returnable ? 'Customers will see: Non-Returnable.' : catReturnPolicy?.eligible ? `Customers will see: ${Math.min(Number(newProductForm.returnWindowDays) || catReturnPolicy.returnWindowDays, catReturnPolicy.returnWindowDays)} days return available. Existing orders keep their original policy.` : 'Returns require an active category policy or global default.'}</p>
+                    {newProductForm.returnable && (
+                      <EasyReturnsFields form={newProductForm} setForm={setNewProductForm} basePrice={newProductForm.variants?.[0]?.price}
+                        windowDays={catReturnPolicy?.eligible ? Math.min(Number(newProductForm.returnWindowDays) || catReturnPolicy.returnWindowDays, catReturnPolicy.returnWindowDays) : null} />
+                    )}
                   </div>
                 )}
 

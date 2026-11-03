@@ -10,6 +10,7 @@ import { formatCurrency } from '../utils/helpers';
 import { apiUrl } from '../../../utils/api';
 import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
 import { useProductWholesale } from '../hooks/useProductWholesale';
+import EasyReturnsSheet from '../components/EasyReturnsSheet';
 
 // Star component
 const Stars = ({ rating, size = 14 }) => {
@@ -269,9 +270,13 @@ const ProductDetailPage = () => {
   const savingPercent = discountPercent(selectedMrp, campaignDeal ? campaignPriceForVariant : selectedPrice);
   // Live, server-resolved return terms for the selected physical retail product.
   const [returnInfo, setReturnInfo] = useState(null);
+  // Easy Returns config from the live product; when set, Add to Cart / Buy Now open the purchase popup.
+  const [easyReturns, setEasyReturns] = useState(null);
+  const [returnSheet, setReturnSheet] = useState(null); // null | 'cart' | 'buy'
   useEffect(() => {
     if (!product?.id || wholesaleDetail) return;
     setReturnInfo(null);
+    setEasyReturns(null);
     let cancelled = false;
     (async () => {
       try {
@@ -286,6 +291,7 @@ const ProductDetailPage = () => {
             price: data.campaignPrice, discountValue: data.campaignDiscountValue, title: data.campaignTitle,
           } : null);
           setReturnInfo(data?.returnPolicy || null);
+          setEasyReturns(data?.easyReturns?.enabled && !isDigital ? data.easyReturns : null);
         }
       } catch { /* leave it purchasable rather than blocking on a network blip */ }
     })();
@@ -360,17 +366,19 @@ const ProductDetailPage = () => {
     return true;
   };
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = async (returnOption) => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     if (promptCartSignIn()) return;
+    if (easyReturns && typeof returnOption !== 'string') { setCartActionError(''); setReturnSheet('cart'); return; }
     setCartActionPending(true);
     setCartActionError('');
-    const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+    const result = await addToCart(product.id, 1, selectedVariantId || undefined, typeof returnOption === 'string' ? { returnOption } : {});
     setCartActionPending(false);
     if (!result?.ok) {
       setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.');
       return;
     }
+    setReturnSheet(null);
     // Only reflect a quantity the server actually accepted. The previous
     // optimistic increment turned the CTA into “GO TO CART (1)” after a failed
     // request, which then led to an empty basket.
@@ -420,13 +428,15 @@ const ProductDetailPage = () => {
    * before the server had the line, and the shopper would see it empty for
    * the moment it took to arrive.
    */
-  const handleBuyNow = async () => {
+  const handleBuyNow = async (returnOption) => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     if (promptCartSignIn()) return;
+    // Already in the cart: its return option can be changed there.
+    if (easyReturns && qty === 0 && typeof returnOption !== 'string') { setCartActionError(''); setReturnSheet('buy'); return; }
     setCartActionPending(true);
     setCartActionError('');
     if (qty === 0) {
-      const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+      const result = await addToCart(product.id, 1, selectedVariantId || undefined, typeof returnOption === 'string' ? { returnOption } : {});
       if (!result?.ok) {
         setCartActionPending(false);
         setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.');
@@ -434,6 +444,7 @@ const ProductDetailPage = () => {
       }
     }
     setCartActionPending(false);
+    setReturnSheet(null);
     setSelectedProduct(null);
     setActiveNav('checkout');
   };
@@ -1095,6 +1106,22 @@ const ProductDetailPage = () => {
           </div>
         </ModalPortal>
       )}
+      <EasyReturnsSheet
+        open={Boolean(returnSheet)}
+        onClose={() => { if (!cartActionPending) { setReturnSheet(null); setCartActionError(''); } }}
+        product={product}
+        image={product?.image || product?.images?.[0] || product?.raw?.images?.[0]}
+        variants={productVariants}
+        selectedVariantId={selectedVariantId}
+        onVariantChange={setSelectedVariantId}
+        basePrice={campaignDeal ? campaignPriceForVariant : selectedPrice}
+        mrp={selectedMrp}
+        easyReturns={easyReturns}
+        actionLabel={returnSheet === 'buy' ? 'Continue to buy' : 'Add to cart'}
+        pending={cartActionPending}
+        error={returnSheet ? cartActionError : ''}
+        onConfirm={(option) => (returnSheet === 'buy' ? handleBuyNow(option) : handleAddToCart(option))}
+      />
     </div>
   );
 };

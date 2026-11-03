@@ -148,6 +148,9 @@ export default function ActiveDeliveryView({ navigation }) {
             <View style={styles.codBox}>
               <Text style={styles.codLabel}>COLLECT CASH</Text>
               <Text style={styles.codAmount}>{formatRupees(due)}</Text>
+              {Number(order.codFee) > 0 ? (
+                <Text style={type.small}>Order {formatRupees(order.codOrderAmount)} + {order.codFeeLabel || 'COD Handling Fee'} {formatRupees(order.codFee)}</Text>
+              ) : null}
               <Text style={type.small}>Rounded to the nearest rupee. Collect exactly this amount. This cash belongs to Bulkimart and must be handed over.</Text>
               <AppInput label="Cash collected (₹)" value={cash} onChangeText={(t) => setCash(t.replace(/\D/g, '').slice(0, 7))} keyboardType="number-pad" placeholder={due ? String(due) : ''} />
             </View>

@@ -701,6 +701,10 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     etaMin: etaMinutes(legKm),
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
     codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
+    // COD handling fee inside codAmount, shown separately to the rider (0 for online / older orders).
+    codFee: order.paymentMethod === 'cod' ? Number(order.pricing.codFeeTotal || 0) : 0,
+    codFeeLabel: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? (order.pricing.codFeeDescription || 'COD Handling Fee') : undefined,
+    codOrderAmount: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? Math.round((Number(order.pricing.totalAmount) - Number(order.pricing.codFeeTotal)) * 100) / 100 : undefined,
     totalAmount: order.pricing.totalAmount,
     // The figure the settlement will use, so the offer cannot overstate it.
     // The customer's tip is part of that figure and is quoted here for the
@@ -1247,6 +1251,10 @@ export const acceptOrder = asyncHandler(async (req, res) => {
     // must not, since the whole point is that only the customer has it.
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
     codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
+    // COD handling fee inside codAmount, shown separately to the rider (0 for online / older orders).
+    codFee: order.paymentMethod === 'cod' ? Number(order.pricing.codFeeTotal || 0) : 0,
+    codFeeLabel: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? (order.pricing.codFeeDescription || 'COD Handling Fee') : undefined,
+    codOrderAmount: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? Math.round((Number(order.pricing.totalAmount) - Number(order.pricing.codFeeTotal)) * 100) / 100 : undefined,
     // Carried on the accept response too, so the job the rider just took keeps
     // showing the same pay — and the same tip — they saw on the offer, without
     // waiting for the next poll of the active-delivery view to tell them again.
@@ -1912,6 +1920,10 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
       etaMin: etaMinutes(legKm),
       paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
       codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
+      // COD handling fee inside codAmount, shown separately to the rider (0 for online / older orders).
+      codFee: order.paymentMethod === 'cod' ? Number(order.pricing.codFeeTotal || 0) : 0,
+      codFeeLabel: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? (order.pricing.codFeeDescription || 'COD Handling Fee') : undefined,
+      codOrderAmount: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? Math.round((Number(order.pricing.totalAmount) - Number(order.pricing.codFeeTotal)) * 100) / 100 : undefined,
       totalAmount: order.pricing.totalAmount,
       // Computed by the same function that pays out on completion.
       payout: riderPayout(legKm, { mode: payoutModeOf(order), tip: order.pricing?.tipAmount }),
@@ -2111,6 +2123,10 @@ export const getActiveDelivery = asyncHandler(async (req, res) => {
     items: order.items.map((i) => ({ name: i.name, qty: i.qty })),
     paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
     codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
+    // COD handling fee inside codAmount, shown separately to the rider (0 for online / older orders).
+    codFee: order.paymentMethod === 'cod' ? Number(order.pricing.codFeeTotal || 0) : 0,
+    codFeeLabel: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? (order.pricing.codFeeDescription || 'COD Handling Fee') : undefined,
+    codOrderAmount: order.paymentMethod === 'cod' && order.pricing.codFeeTotal ? Math.round((Number(order.pricing.totalAmount) - Number(order.pricing.codFeeTotal)) * 100) / 100 : undefined,
     distance: delivery?.route?.distanceKm,
     payout: riderPayout(delivery?.route?.distanceKm, {
       mode: delivery?.ratesUsed?.mode || payoutModeOf(order),

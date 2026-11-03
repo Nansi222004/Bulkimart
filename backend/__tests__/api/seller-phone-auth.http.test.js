@@ -69,7 +69,7 @@ test('OTP is sent to the number entered by the seller', async () => {
 
   expect(response.status).toBe(200);
   expect(findUser).toHaveBeenCalledWith({ phone: '9876543210' });
-  expect(sendOTP).toHaveBeenCalledWith('9876543210');
+  expect(sendOTP).toHaveBeenCalledWith('9876543210', expect.objectContaining({ app: 'seller' }));
 });
 
 test('unregistered phone is rejected before an OTP is sent', async () => {
@@ -149,7 +149,7 @@ test('formatted phone resolves the same customer identity and sends OTP to the c
   expect(response.status).toBe(200);
   expect(findUser).toHaveBeenNthCalledWith(1, { phone: '9876543210' });
   expect(findUser).toHaveBeenNthCalledWith(2, { phone: { $in: expect.arrayContaining(['+919876543210']) } });
-  expect(sendOTP).toHaveBeenCalledWith('9876543210');
+  expect(sendOTP).toHaveBeenCalledWith('9876543210', expect.objectContaining({ app: 'seller' }));
 });
 
 test('incomplete seller is identified and directed to resume instead of creating a duplicate', async () => {
@@ -186,7 +186,7 @@ test('new user can send OTP to register their store directly without NOT_A_MEMBE
   const response = await request(app).post('/send').send({ phone: '9876543210', intent: 'register' });
 
   expect(response.status).toBe(200);
-  expect(sendOTP).toHaveBeenCalledWith('9876543210');
+  expect(sendOTP).toHaveBeenCalledWith('9876543210', expect.objectContaining({ app: 'seller' }));
 });
 
 test('new user verifies OTP during store registration and user profile is created', async () => {

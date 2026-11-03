@@ -265,7 +265,8 @@ export const OrderTrackingPage = () => {
     const eligibility = returnEligibilityByItem[item._id];
     setReturnModalItem(item);
     setReturnQty(1);
-    setReturnReason('DAMAGED');
+    // No Easy Returns orders only allow the reasons the server lists.
+    setReturnReason(eligibility?.allowedReasons?.[0] || 'DAMAGED');
     setReturnDescription('');
     setReturnFiles([]);
     setReturnFormError('');
@@ -947,6 +948,11 @@ export const OrderTrackingPage = () => {
                     <div style={{ flex: 1 }}>
                       <span style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'block' }}>{item.name}</span>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Qty: {item.qty} • ₹{item.price} each</span>
+                      {item.returnOption && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, display: 'block', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>
+                          {item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+₹${item.returnExtraCharge || 0} paid)` : 'No Easy Returns · wrong/damaged/defective only'}
+                        </span>
+                      )}
                     </div>
                     <strong style={{ color: 'var(--text-primary)' }}>₹{item.qty * item.price}</strong>
                   </div>
@@ -1063,6 +1069,15 @@ export const OrderTrackingPage = () => {
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
           </div>
           <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
+          <button type="button" className="order-action-btn-sm" style={{ alignSelf: 'flex-start' }}
+            onClick={() => {
+              // Live chat about this order: Profile → Help & Support → Chat, order preselected.
+              window.history.replaceState(null, '', `?section=support&chat=1&order=${selectedOrder._id}`);
+              setActiveNav('account');
+              window.dispatchEvent(new CustomEvent('bulkimart:open-support-chat', { detail: { orderId: selectedOrder._id } }));
+            }}>
+            Chat with support about this order
+          </button>
           {selectedOrder.productTax && (selectedOrder.deliveredAt || currentStatus === 'delivered' || selectedOrder.status === 'delivered') && (
             <OrderInvoices label="View / download invoice" buttonClassName="order-action-btn-sm" buttonStyle={{ alignSelf: 'flex-start' }} load={async () => {
               const res = await fetch(apiUrl(`/api/orders/${selectedOrder._id}/invoices`), { headers: { Authorization: 'Bearer ' + localStorage.getItem('userToken') } });
@@ -1075,6 +1090,18 @@ export const OrderTrackingPage = () => {
             <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge (no GST)</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.deliveryCharge || 0}</span>
           </div>
+          {selectedOrder.pricing?.tipAmount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>Delivery Partner Tip</span>
+              <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing.tipAmount}</span>
+            </div>
+          )}
+          {selectedOrder.pricing?.codFeeTotal > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ₹${selectedOrder.pricing.codFeeTaxAmount} GST)` : ''}</span>
+              <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing.codFeeTotal}</span>
+            </div>
+          )}
           {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => (
             <div key={title} style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
               <span>{title}</span><span>-₹{amount.toFixed(2)}</span>
@@ -1255,10 +1282,15 @@ export const OrderTrackingPage = () => {
                   onChange={(e) => setReturnReason(e.target.value)}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 13, marginBottom: 14, fontFamily: 'inherit' }}
                 >
-                  {['DAMAGED', 'DEFECTIVE', 'WRONG_PRODUCT', 'WRONG_SIZE', 'NOT_AS_DESCRIBED', 'MISSING_PARTS', 'QUALITY_ISSUE', 'OTHER'].map((r) => (
+                  {(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || ['DAMAGED', 'DEFECTIVE', 'WRONG_PRODUCT', 'WRONG_SIZE', 'NOT_AS_DESCRIBED', 'MISSING_PARTS', 'QUALITY_ISSUE', 'OTHER']).map((r) => (
                     <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
                   ))}
                 </select>
+                {returnEligibilityByItem[returnModalItem._id]?.allowedReasons && (
+                  <p style={{ fontSize: 11, color: '#c2410c', margin: '-8px 0 14px' }}>
+                    This item was bought without Easy Returns, so it can only be returned if it is wrong, damaged or defective.
+                  </p>
+                )}
 
                 <label style={{ display: 'block', fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
                   Description{returnReason === 'OTHER' ? ' (required)' : ' (optional)'}

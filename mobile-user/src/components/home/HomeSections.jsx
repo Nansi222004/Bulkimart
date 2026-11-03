@@ -181,24 +181,32 @@ export function ElectronicsSection() {
   const { options } = useDeliveryOptions(products.map(p => p.id), getDeliveryPoint());
   const { loading, list: categories } = useHomeCategories();
   const stroke = theme.action;
+  // Phones with a larger "Display size" have fewer dp of width. Below this hero width the
+  // icons move under the title instead of flanking it, so they never cover the text.
+  const [heroWidth, setHeroWidth] = useState(0);
+  const compactHero = heroWidth > 0 && heroWidth < 340;
+  const leftIcons = <View style={styles.pedestalGroup}>
+    <Pedestal base={theme.categorySurface}><Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="6" y="3" width="12" height="18" rx="6" /><Line x1="12" y1="7" x2="12" y2="11" /></Svg></Pedestal>
+    <Pedestal base={theme.categoryFrame}><Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="2" y="6" width="20" height="12" rx="2" /><Line x1="8" y1="14" x2="16" y2="14" /></Svg></Pedestal>
+  </View>;
+  const rightIcons = <View style={styles.pedestalGroup}>
+    <Pedestal base={theme.categorySurface}><Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Line x1="6" y1="12" x2="10" y2="12" /><Line x1="8" y1="10" x2="8" y2="14" /><Circle cx="15" cy="13" r="1" /><Circle cx="18" cy="11" r="1" /><Rect x="2" y="6" width="20" height="12" rx="6" /></Svg></Pedestal>
+    <Pedestal base={theme.categoryFrame}><Svg width={18} height={20} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="5" y="2" width="14" height="20" rx="2" /><Line x1="12" y1="18" x2="12.01" y2="18" /></Svg></Pedestal>
+  </View>;
+  const heroTitle = <Text style={[styles.electronicsTitle, !compactHero && { flex: 1 }]}>ELECTRONICS AT FINGER TIPS</Text>;
   return <View style={[styles.featurePanel, { backgroundColor: theme.highlight }]}>
-    <View style={styles.electronicsHero}>
-      <View style={{ position: 'absolute', left: 8, bottom: 6, flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
-        <Pedestal base={theme.categorySurface}><Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="6" y="3" width="12" height="18" rx="6" /><Line x1="12" y1="7" x2="12" y2="11" /></Svg></Pedestal>
-        <Pedestal base={theme.categoryFrame}><Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="2" y="6" width="20" height="12" rx="2" /><Line x1="8" y1="14" x2="16" y2="14" /></Svg></Pedestal>
-      </View>
-      <Text style={{ fontSize: 19, fontWeight: '900', color: '#4c1d95', letterSpacing: 0.5, textAlign: 'center', paddingHorizontal: 60 }}>ELECTRONICS AT FINGER TIPS</Text>
-      <View style={{ position: 'absolute', right: 8, bottom: 6, flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
-        <Pedestal base={theme.categorySurface}><Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Line x1="6" y1="12" x2="10" y2="12" /><Line x1="8" y1="10" x2="8" y2="14" /><Circle cx="15" cy="13" r="1" /><Circle cx="18" cy="11" r="1" /><Rect x="2" y="6" width="20" height="12" rx="6" /></Svg></Pedestal>
-        <Pedestal base={theme.categoryFrame}><Svg width={18} height={20} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2.5}><Rect x="5" y="2" width="14" height="20" rx="2" /><Line x1="12" y1="18" x2="12.01" y2="18" /></Svg></Pedestal>
-      </View>
+    <View style={styles.electronicsHero} onLayout={e => setHeroWidth(e.nativeEvent.layout.width)}>
+      {compactHero
+        ? <>{heroTitle}<View style={styles.pedestalRowCompact}>{leftIcons}{rightIcons}</View></>
+        : <View style={styles.pedestalRow}>{leftIcons}{heroTitle}{rightIcons}</View>}
     </View>
     <View style={{ marginBottom: 32 }}>
       {loading ? <Text style={styles.loadingText}>Loading categories...</Text>
         : <Grid items={categories} columns={4} keyOf={c => c._id || c.id} renderItem={item => <CategoryCard item={item} onPress={() => setSelectedCategoryFilter(item)} style={[styles.electronicsCard, { borderColor: theme.categoryFrame }]}>
-          <Text style={{ fontSize: 11, fontWeight: '900', color: '#4c1d95', textAlign: 'center', minHeight: 26, lineHeight: 12 }}>{item.name}</Text>
+          <Text numberOfLines={2} style={{ fontSize: 11, fontWeight: '900', color: '#4c1d95', textAlign: 'center', minHeight: 26, lineHeight: 12 }}>{item.name}</Text>
           <View style={{ width: '100%', height: 75, marginVertical: 4 }}><CategoryArtwork category={item} /></View>
-          <Text style={{ fontSize: 9, fontWeight: '800', color: theme.text, backgroundColor: theme.categorySurface, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.categoryFrame, overflow: 'hidden' }}>Explore collection</Text>
+          {/* One line, shrinking slightly on narrow cards rather than breaking the word ("collecti on"). */}
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ maxWidth: '100%', fontSize: 9, fontWeight: '800', color: theme.text, backgroundColor: theme.categorySurface, paddingVertical: 3, paddingHorizontal: 6, borderRadius: 10, borderWidth: 1, borderColor: theme.categoryFrame, overflow: 'hidden', textAlign: 'center' }}>Explore collection</Text>
         </CategoryCard>} />}
     </View>
     <Text style={{ marginBottom: 16, fontSize: 18, fontWeight: '900', color: '#3b0764' }}>Best of Gadgets</Text>
@@ -790,6 +798,10 @@ const styles = StyleSheet.create({
   groceryCard: { backgroundColor: '#fff', borderWidth: 1.5, borderRadius: 18, overflow: 'hidden', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 },
   electronicsHero: { paddingTop: 28, paddingHorizontal: 12, paddingBottom: 24, alignItems: 'center', justifyContent: 'center', borderRadius: 24, marginBottom: 16, overflow: 'hidden', backgroundColor: 'rgba(233,213,255,0.3)', minHeight: 90 },
   pedestalIcon: { backgroundColor: '#fff', paddingVertical: 6, paddingHorizontal: 8, borderRadius: 13, elevation: 2 },
+  pedestalGroup: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, flexShrink: 0 },
+  pedestalRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch' },
+  pedestalRowCompact: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', marginTop: 12 },
+  electronicsTitle: { fontSize: 19, fontWeight: '900', color: '#4c1d95', letterSpacing: 0.5, textAlign: 'center' },
   electronicsCard: { backgroundColor: '#fff', borderWidth: 1.5, borderRadius: 22, overflow: 'hidden', alignItems: 'center', paddingTop: 10, paddingHorizontal: 4, paddingBottom: 8 },
   fashionCard: { backgroundColor: '#fff', borderWidth: 1.5, borderRadius: 16, overflow: 'hidden', alignItems: 'center' },
   sfSection: { marginVertical: 24, marginHorizontal: 12 },

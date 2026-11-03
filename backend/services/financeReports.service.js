@@ -106,6 +106,7 @@ const accountPair = row => {
     case 'platform_discount_expense': return ['Discounts funded by Bulkimart', CLEARING];
     case 'cod_shortage_expense': return ['COD shortages absorbed', CLEARING];
     case 'customer_delivery': return [CLEARING, 'Delivery charges income'];
+    case 'customer_cod_fee': return [CLEARING, 'COD handling fee income'];
     case 'rider_payable':
       if (row.type === 'delivery_earning') return ['Delivery cost', 'Rider payable'];
       if (row.type === 'payout_settlement') return row.bucket === 'settled' ? ['Rider payable', 'Bank'] : null;
@@ -118,7 +119,7 @@ const accountPair = row => {
     default: return null;
   }
 };
-const JOURNAL_ACCOUNTS = ['seller_payable', 'seller_courier_obligation', 'courier_expense','commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'rider_payable', 'cod_custody', 'cod_excess_liability'];
+const JOURNAL_ACCOUNTS = ['seller_payable', 'seller_courier_obligation', 'courier_expense','commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'customer_cod_fee', 'rider_payable', 'cod_custody', 'cod_excess_liability'];
 
 export const journal = async ({ from, to }) => {
   const range = dateRange(from, to);

@@ -19,6 +19,7 @@ import { normalizeProduct, useProducts } from '../hooks/useProducts';
 import { useProductDeliveryOptions } from '../hooks/useDeliveryOptions';
 import { useProductWholesale } from '../hooks/useProductWholesale';
 import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
+import EasyReturnsSheet from '../components/EasyReturnsSheet';
 import BackButton from '../components/BackButton';
 import { BoltIcon, HeartIcon, ShareIcon } from '../components/icons';
 import { Sheet, Text, TextInput } from '../components/ui';
@@ -209,15 +210,20 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
   // Live campaign deal, return policy and fresh variants (never trusted from the card that opened the page).
   const [campaignDeal, setCampaignDeal] = useState(null);
   const [returnInfo, setReturnInfo] = useState(null);
+  // Easy Returns config from the live product; when set, Add to Cart / Buy Now open the purchase popup.
+  const [easyReturns, setEasyReturns] = useState(null);
+  const [returnSheet, setReturnSheet] = useState(null); // null | 'cart' | 'buy'
   useEffect(() => {
     if (wholesaleDetail) return undefined;
     setReturnInfo(null);
+    setEasyReturns(null);
     let cancelled = false;
     fetchProductDetail(product.id).then(({ body: data }) => {
       if (cancelled) return;
       if (Array.isArray(data?.variants)) { setLoadedVariants(data.variants.map(variant => ({ ...variant, id: String(variant._id) }))); setLoadedProductId(String(product.id)); }
       setCampaignDeal(data?.campaignPrice ? { price: data.campaignPrice, discountValue: data.campaignDiscountValue, title: data.campaignTitle } : null);
       setReturnInfo(data?.returnPolicy || null);
+      setEasyReturns(data?.easyReturns?.enabled && data?.fulfillmentType !== 'digital' ? data.easyReturns : null);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [product.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -256,24 +262,29 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
   const related = useMemo(() => (wholesale.mode === 'wholesale' ? wholesaleRelated : catalogue || []).filter(p => p.id !== product.id).slice(0, 8), [wholesale.mode, wholesaleRelated, catalogue, product.id]);
 
   const promptCartSignIn = () => { if (currentUser) return false; setCartActionError(''); ui.notify('Please sign in to use your cart.', { type: 'info' }); return true; };
-  const handleAddToCart = async () => {
+  const handleAddToCart = async (returnOption) => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     if (promptCartSignIn()) return;
+    if (easyReturns && typeof returnOption !== 'string') { setCartActionError(''); setReturnSheet('cart'); return; }
     setCartActionPending(true); setCartActionError('');
-    const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+    const result = await addToCart(product.id, 1, selectedVariantId || undefined, typeof returnOption === 'string' ? { returnOption } : {});
     setCartActionPending(false);
     if (!result?.ok) { setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.'); return; }
+    setReturnSheet(null);
     setQty(result.data?.items?.find(item => String(item.productId) === String(product.id) && String(item.variantId || '') === String(result.variantId || ''))?.qty || 1);
   };
-  const handleBuyNow = async () => {
+  const handleBuyNow = async (returnOption) => {
     if (cartActionPending || wholesale.mode !== 'retail' || !retailAvailable || wholesaleDetail) return;
     if (promptCartSignIn()) return;
+    // Already in the cart: its return option can be changed there.
+    if (easyReturns && qty === 0 && typeof returnOption !== 'string') { setCartActionError(''); setReturnSheet('buy'); return; }
     setCartActionPending(true); setCartActionError('');
     if (qty === 0) {
-      const result = await addToCart(product.id, 1, selectedVariantId || undefined);
+      const result = await addToCart(product.id, 1, selectedVariantId || undefined, typeof returnOption === 'string' ? { returnOption } : {});
       if (!result?.ok) { setCartActionPending(false); setCartActionError(result?.message || 'Could not add this item to your cart. Please try again.'); return; }
     }
     setCartActionPending(false);
+    setReturnSheet(null);
     replaceNav('checkout');
   };
   const shareProduct = async () => {
@@ -497,6 +508,23 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
         <CtaBtn kind="buy" primary={primary} disabled={disabledBuy} onPress={handleBuyNow} title={cartActionPending ? 'PLEASE WAIT…' : 'BUY NOW'} icon={<BoltIcon size={18} color={disabledBuy ? '#64748b' : '#fff'} />} />
       </>}
     </View>
+
+    <EasyReturnsSheet
+      visible={Boolean(returnSheet)}
+      onClose={() => { if (!cartActionPending) { setReturnSheet(null); setCartActionError(''); } }}
+      product={product}
+      image={allImages[0] ? imageUri(allImages[0]) : undefined}
+      variants={productVariants}
+      selectedVariantId={selectedVariantId}
+      onVariantChange={setSelectedVariantId}
+      basePrice={campaignDeal ? campaignPriceForVariant : selectedPrice}
+      mrp={selectedMrp}
+      easyReturns={easyReturns}
+      actionLabel={returnSheet === 'buy' ? 'Continue to buy' : 'Add to cart'}
+      pending={cartActionPending}
+      error={returnSheet ? cartActionError : ''}
+      onConfirm={option => (returnSheet === 'buy' ? handleBuyNow(option) : handleAddToCart(option))}
+    />
 
     <Sheet visible={variantSheet} onClose={() => setVariantSheet(false)}>
       <ScrollView contentContainerStyle={{ padding: 16 }}>

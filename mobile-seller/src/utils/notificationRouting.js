@@ -16,6 +16,8 @@ export function notificationTarget(n = {}) {
   const returnId = id(meta.returnId) || route.match(/[?&]return=([a-f\d]{24})/i)?.[1];
   const ticketId = id(meta.ticketId);
 
+  // Live chat replies / status changes (backend supportChat.service.js) open the chat.
+  if (id(meta.conversationId) || /^\/seller\/support\?chat=1/i.test(route)) return { screen: 'SupportChat' };
   if (returnId) return { screen: 'ReturnDetail', params: { id: returnId, title: meta.returnNumber } };
   if (orderId) return { screen: 'OrderDetail', params: { id: orderId } };
   if (ticketId) return { screen: 'TicketDetail', params: { id: ticketId } };

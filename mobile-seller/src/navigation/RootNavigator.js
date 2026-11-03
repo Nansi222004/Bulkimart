@@ -11,6 +11,7 @@ import ReturnDetailScreen from '../screens/returns/ReturnDetailScreen';
 import SupportScreen from '../screens/support/SupportScreen';
 import CreateTicketScreen from '../screens/support/CreateTicketScreen';
 import TicketDetailScreen from '../screens/support/TicketDetailScreen';
+import SupportChatScreen from '../screens/support/SupportChatScreen';
 import BusinessSettingsScreen from '../screens/profile/BusinessSettingsScreen';
 import KycDetailsScreen from '../screens/profile/KycDetailsScreen';
 import PushManager from '../components/PushManager';
@@ -117,6 +118,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Support" component={SupportScreen} options={{ title: 'Support' }} />
       <Stack.Screen name="CreateTicket" component={CreateTicketScreen} options={{ title: 'New ticket' }} />
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
+      <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
       <Stack.Screen name="BusinessSettings" component={BusinessSettingsScreen} options={{ title: 'Business settings' }} />
       <Stack.Screen name="KycDetails" component={KycDetailsScreen} options={{ title: 'KYC & payout details' }} />
       <Stack.Screen name="ProductFaqs" component={ProductFaqsScreen} options={{ title: 'Product questions' }} />

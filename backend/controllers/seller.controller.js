@@ -664,6 +664,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
         price: i.price,
         wholesaleSnapshot: i.wholesaleSnapshot,
         additionalMessage: i.additionalMessage || '',
+        returnOption: i.returnOption, returnExtraCharge: i.returnExtraCharge, returnEligibilityDays: i.returnEligibilityDays,
         lineTotal: Number((itemGrossPaise(i) / 100).toFixed(2)),
       })),
       itemCount: mine.reduce((n, i) => n + (i.qty || 0), 0),

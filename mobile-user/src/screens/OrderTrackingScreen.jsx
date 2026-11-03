@@ -3,7 +3,7 @@
 // return, invoices and the bill. Every status, eligibility and amount is read from the backend.
 import React, { useCallback, useEffect, useState } from 'react';
 import { AppState, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { router as appRouter, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -207,7 +207,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
   const openReturnModal = item => {
     setReturnRequestKey(newKey());
     const eligibility = returnEligibilityByItem[item._id];
-    setReturnModalItem(item); setReturnQty(1); setReturnReason('DAMAGED'); setReturnDescription(''); setReturnFiles([]); setReturnFormError('');
+    setReturnModalItem(item); setReturnQty(1); setReturnReason(eligibility?.allowedReasons?.[0] || 'DAMAGED'); setReturnDescription(''); setReturnFiles([]); setReturnFormError('');
     if (!eligibility?.eligible) setReturnFormError(eligibility?.reason || 'This item is no longer eligible for return.');
   };
   const submitReturn = async () => {
@@ -352,7 +352,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           return <View key={item._id || idx} style={{ paddingVertical: 10, borderBottomWidth: idx < selectedOrder.items.length - 1 ? 1 : 0, borderBottomColor: '#f1f5f9' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {item.image ? <Image source={{ uri: mediaUrl(item.image) }} style={{ width: 36, height: 36, borderRadius: 8 }} contentFit="cover" /> : null}
-              <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • ₹{item.price} each</Text></View>
+              <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • ₹{item.price} each</Text>{item.returnOption ? <Text style={{ fontSize: 10.5, fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+₹${item.returnExtraCharge || 0} paid)` : 'No Easy Returns · wrong/damaged/defective only'}</Text> : null}</View>
               <Text style={{ fontWeight: '700', fontSize: 13 }}>₹{item.qty * item.price}</Text>
             </View>
             {currentStatus === 'delivered' && <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -379,12 +379,16 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
         <Eyebrow style={{ marginBottom: 4 }}>Bill Details</Eyebrow>
         <View style={styles.billRow}><Text style={styles.billLabel}>Subtotal (including product GST)</Text><Text style={styles.billValue}>₹{selectedOrder.pricing?.subtotal || 0}</Text></View>
         <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
+        <Pressable onPress={() => appRouter.push(`/support/chat?order=${selectedOrder._id}`)} accessibilityRole="button" style={styles.chatSupport}>
+          <Text style={styles.chatSupportText}>Chat with support about this order</Text>
+        </Pressable>
         {selectedOrder.productTax && (selectedOrder.deliveredAt || currentStatus === 'delivered' || selectedOrder.status === 'delivered') && <OrderInvoices label="View / download invoice" load={async () => {
           const { ok, body } = await request(`/api/orders/${selectedOrder._id}/invoices`);
           if (!ok || body.success === false || !Array.isArray(body.data)) throw new Error(body.message || 'Could not load the invoice');
           return body.data;
         }} />}
         <View style={styles.billRow}><Text style={styles.billLabel}>Delivery Charge (no GST)</Text><Text style={styles.billValue}>₹{selectedOrder.pricing?.deliveryCharge || 0}</Text></View>
+        {selectedOrder.pricing?.codFeeTotal > 0 ? <View style={styles.billRow}><Text style={styles.billLabel}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ₹${selectedOrder.pricing.codFeeTaxAmount} GST)` : ''}</Text><Text style={styles.billValue}>₹{selectedOrder.pricing.codFeeTotal}</Text></View> : null}
         {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => <View key={title} style={styles.billRow}><Text style={{ color: '#10b981', fontSize: 13 }}>{title}</Text><Text style={{ color: '#10b981', fontSize: 13 }}>-₹{amount.toFixed(2)}</Text></View>)}
         <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
         <View style={styles.billRow}><Text style={{ fontWeight: '800', fontSize: 14 }}>Total Amount</Text><Text style={{ fontWeight: '800', fontSize: 14 }}>₹{selectedOrder.pricing?.totalAmount || 0}</Text></View>
@@ -406,7 +410,8 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           {returnEligibilityByItem[returnModalItem._id]?.eligible ? <>
             <Text style={styles.label}>QUANTITY (MAX {eligibilityMax})</Text>
             <TextInput keyboardType="number-pad" value={String(returnQty)} onChangeText={v => setReturnQty(Math.max(1, Math.min(Number(v.replace(/\D/g, '')) || 1, eligibilityMax)))} style={[styles.input, { marginBottom: 14 }]} />
-            <SelectField label="REASON" labelStyle={styles.label} value={returnReason} onChange={setReturnReason} options={RETURN_REASONS.map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} style={{ marginBottom: 14 }} />
+            <SelectField label="REASON" labelStyle={styles.label} value={returnReason} onChange={setReturnReason} options={(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || RETURN_REASONS).map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} style={{ marginBottom: 14 }} />
+            {returnEligibilityByItem[returnModalItem._id]?.allowedReasons ? <Text style={{ fontSize: 11, color: '#c2410c', marginTop: -8, marginBottom: 14 }}>This item was bought without Easy Returns, so it can only be returned if it is wrong, damaged or defective.</Text> : null}
             <Text style={styles.label}>DESCRIPTION{returnReason === 'OTHER' ? ' (REQUIRED)' : ' (OPTIONAL)'}</Text>
             <TextInput value={returnDescription} onChangeText={setReturnDescription} placeholder="Tell us what went wrong..." placeholderTextColor="#94a3b8" multiline numberOfLines={3} style={[styles.input, { minHeight: 80, textAlignVertical: 'top', marginBottom: 14 }]} />
             <Text style={styles.label}>EVIDENCE PHOTOS (OPTIONAL, UP TO 5)</Text>
@@ -458,6 +463,8 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
 
 
 const styles = StyleSheet.create({
+  chatSupport: { alignSelf: 'flex-start', marginTop: 10, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1.5, borderColor: '#078ccb', backgroundColor: '#eaf9fe' },
+  chatSupportText: { fontSize: 13, fontWeight: '800', color: '#078ccb' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20, backgroundColor: '#f8fafc' },
   outlineBtn: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#fff' },
   header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1.5, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },

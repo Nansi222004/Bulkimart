@@ -95,6 +95,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
 
       <Card title="Customer's return reason">
         <KeyValueRow label="Reason" value={humanize(ret.reason) || '—'} />
+        {ret.returnOptionSnapshot ? <KeyValueRow label="Bought with" value={ret.returnOptionSnapshot === 'EASY_RETURN' ? 'Easy Returns' : 'No Easy Returns (wrong/damaged/defective only)'} /> : null}
         <Text style={type.body}>{ret.customerDescription || 'No description provided'}</Text>
         {ret.attachments?.length ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachments}>

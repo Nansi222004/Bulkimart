@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { readSessionToken, saveSessionToken, clearSessionToken } from '../services/storage';
 import { setApiToken, setUnauthorizedHandler, ApiError } from '../services/apiClient';
 import { getIdentity, logoutSession, verifySellerOtp } from '../services/auth.api';
+import { closeSupportSocket } from '../services/supportSocket';
 import { getSellerMe } from '../services/seller.api';
 import { deregisterPush } from '../services/push';
 
@@ -28,6 +29,7 @@ export function AuthProvider({ children }) {
   const intentRef = useRef('login');
 
   const endSession = useCallback(async () => {
+    closeSupportSocket(); // live chat connection belongs to this session
     tokenRef.current = null;
     setApiToken(null);
     await clearSessionToken();

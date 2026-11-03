@@ -1,3 +1,4 @@
+import { allowedReturnReasonsFor } from '../services/easyReturns.service.js';
 import { itemGrossPaise } from '../services/productGst.service.js';
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
@@ -106,6 +107,10 @@ export const getOrderItemReturnEligibility = asyncHandler(async (req, res) => {
       returnWindowDays: item.returnPolicy?.returnWindowDays,
       returnEligibleUntil: item.returnEligibleUntil,
       maxReturnableQuantity: remaining,
+      // Easy Returns: null = any reason; a list = only these (No Easy Returns).
+      returnOption: item.returnOption || null,
+      allowedReasons: allowedReturnReasonsFor(item),
+      returnPolicySnapshot: item.returnPolicySnapshot || null,
     });
   } catch (err) {
     // A genuinely bad/foreign order id stays a real error (404); every

@@ -13,7 +13,8 @@ export const discountAllocation = (pricing, gross) => {
   const keys = ['discount', 'couponDiscount', 'cdsDiscount', 'coinDiscount'];
   const totals = keys.map(key => moneyPaise(pricing[key] ?? 0));
   const subtotal = gross.reduce((a, b) => a + b, 0);
-  const extras = ['deliveryCharge', 'tipAmount', 'donationAmount'].reduce((sum, key) => sum + moneyPaise(pricing[key] ?? 0), 0);
+  // codFeeTotal: COD handling fee, an additive charge like delivery/tip (absent on older orders).
+  const extras = ['deliveryCharge', 'tipAmount', 'donationAmount', 'codFeeTotal'].reduce((sum, key) => sum + moneyPaise(pricing[key] ?? 0), 0);
   const payable = moneyPaise(pricing.totalAmount);
   let representation = pricing.discountRepresentation || 'legacy-distinct';
   if (subtotal - totals.reduce((a, b) => a + b, 0) + extras !== payable) {

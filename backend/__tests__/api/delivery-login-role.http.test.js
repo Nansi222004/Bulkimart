@@ -229,7 +229,7 @@ test('Delivery OTP send checks login membership and forwards the entered canonic
   await request(app).post('/api/auth/delivery/send-otp').send({ phone: '+91 98765 00000', intent: 'login' }).expect(404);
   expect(sendOTP).not.toHaveBeenCalled(); partner = { status: 'pending' };
   await request(app).post('/api/auth/delivery/send-otp').send({ phone: '+91 98765 00000', intent: 'login' }).expect(200);
-  expect(sendOTP).toHaveBeenCalledWith('9876500000');
+  expect(sendOTP).toHaveBeenCalledWith('9876500000', expect.objectContaining({ app: 'delivery' }));
 });
 test('deactivated Delivery account receives neither OTP nor login token', async () => {
   user.isActive = false; partner = { status: 'approved' };

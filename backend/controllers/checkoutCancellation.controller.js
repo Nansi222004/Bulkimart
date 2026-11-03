@@ -54,7 +54,8 @@ export const abandonCheckoutPayment = asyncHandler(async (req, res) => {
           if (existing) existing.qty = item.fulfillmentType === 'digital' ? 1 : existing.qty + item.qty;
           else cart.items.push({ productId: item.productId, variantId: item.variantId, sku: item.sku,
             variantName: item.variantName, variantAttributes: item.variantAttributes, name: item.name, image: item.image,
-            price: item.price, qty: item.qty, unit: item.unitSnapshot, sellerId: item.sellerId, shgStoreId: item.shgStoreId,
+            price: Math.round(((item.price || 0) - (item.returnExtraCharge || 0)) * 100) / 100, qty: item.qty, unit: item.unitSnapshot,
+            ...(item.returnOption ? { returnOption: item.returnOption } : {}), sellerId: item.sellerId, shgStoreId: item.shgStoreId,
             type: item.type || row.type, fulfillmentType: item.fulfillmentType, deliveryMode, additionalMessage: item.additionalMessage });
         }
         cart.increment();

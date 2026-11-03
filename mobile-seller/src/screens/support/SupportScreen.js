@@ -33,6 +33,7 @@ export default function SupportScreen({ navigation }) {
         {phone ? (
           <AppButton title={`Call seller support · ${phone}`} variant="outline" onPress={() => Linking.openURL(`tel:${String(phone).replace(/[^\d+]/g, '')}`)} />
         ) : <Text style={type.small}>Raise a ticket below and the Bulkimart team will reply here.</Text>}
+        <AppButton title="Chat with Support" onPress={() => navigation.navigate('SupportChat')} />
         <AppButton title="Create support ticket" variant="accent" onPress={() => navigation.navigate('CreateTicket')} />
       </Card>
       <Text style={type.heading}>Ticket history</Text>

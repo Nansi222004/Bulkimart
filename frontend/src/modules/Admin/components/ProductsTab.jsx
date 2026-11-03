@@ -330,6 +330,14 @@ export const ProductsTab = ({ detailPage = false }) => {
                     : '—'}
                 </span>
               </div>
+              {selectedProduct.raw?.easyReturns?.enabled ? (
+                <div style={{ border: '1px solid #67e8f9', background: '#ecfeff', borderRadius: 10, padding: 10, margin: '8px 0' }}>
+                  <strong>Easy Returns: offered</strong>
+                  <p style={{ margin: '4px 0' }}>Extra charge: {money(selectedProduct.raw.easyReturns.extraCharge)} per unit · Window: {selectedProduct.raw.easyReturns.windowDays} days · No Easy Returns price = normal price</p>
+                  <p style={{ margin: '4px 0' }}>{selectedProduct.raw.easyReturns.policyText}</p>
+                  {selectedProduct.raw.easyReturns.conditions?.length ? <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{selectedProduct.raw.easyReturns.conditions.map(c => <li key={c}>{c}</li>)}</ul> : null}
+                </div>
+              ) : selectedProduct.fulfillmentType !== 'digital' ? <p>Easy Returns: not offered</p> : null}
               <p>Status: {selectedProduct.status} · {selectedProduct.isActive ? 'Active' : 'Inactive'}</p>
               <p>SKU: {selectedProduct.raw?.sku || 'Not recorded'} · Updated: {selectedProduct.raw?.updatedAt ? new Date(selectedProduct.raw.updatedAt).toLocaleString() : 'Not recorded'}</p>
               {(selectedProduct.raw?.variants || []).map(variant => <article key={variant._id || variant.sku}><strong>{variant.name || variant.sku}</strong><p>SKU: {variant.sku} · Stock: {variant.stock} · Price: {money(variant.price)}</p></article>)}

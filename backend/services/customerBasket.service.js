@@ -61,9 +61,12 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
     subtotal: sumMoney(total.subtotal, group.subtotal), deliveryCharge: sumMoney(total.deliveryCharge, group.deliveryCharge),
     sameDayPremium: sumMoney(total.sameDayPremium, group.sameDayFee || 0, group.sellerIncentive || 0),
     couponDiscount: sumMoney(total.couponDiscount, group.couponDiscount || 0), totalAmount: sumMoney(total.totalAmount, group.total),
+    // Extra payable only if the customer picks Cash on Delivery (see codCharge.service.js).
+    codFeeTotal: sumMoney(total.codFeeTotal, group.codFee?.codFeeTotal || 0),
     itemCount: total.itemCount + group.items.reduce((n, item) => n + item.qty, 0),
-  }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, itemCount: 0 }) : null;
+  }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, codFeeTotal: 0, itemCount: 0 }) : null;
   if (totals) totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
+  if (totals) { totals.codFeeDescription = groups.find(group => group.codFee)?.codFee.codFeeDescription; totals.codFeeOrders = groups.filter(group => group.codFee).length; }
   const basketHash = valid ? createHash('sha256').update(JSON.stringify(groups.map(group => ({
     key: group.key, quote: wholesaleQuoteHash({ groups: [group] }),
     requestedMode: group.requestedMode,

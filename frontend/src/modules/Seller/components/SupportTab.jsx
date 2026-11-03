@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
+import LiveChatPanel from '../../../components/support/LiveChatPanel';
 import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 import { apiUrl } from '../../../utils/api';
 
@@ -15,7 +16,12 @@ const faqs = [
 ];
 
 export const SupportTab = () => {
-  const { triggerToast, userProfile } = useSeller();
+  const { triggerToast, userProfile, orders: sellerOrders } = useSeller();
+  // Live chat sits beside tickets; it opens by default when the seller already has a chat or arrives from a chat notification.
+  const [showChat, setShowChat] = useState(() => new URLSearchParams(window.location.search).has('chat'));
+  const chatOrders = (Array.isArray(sellerOrders) ? sellerOrders : []).slice(0, 30)
+    .map((o) => ({ id: o._id || o.id, label: `${o.orderNo || o.orderId || o._id || o.id}` }))
+    .filter((o) => /^[a-f\d]{24}$/i.test(String(o.id)));
   const { tickets, categories, loading, fetchCategories, fetchMyTickets, createTicket, fetchTicketDetail, sendMessage, reopenTicket } = useTickets('seller');
 
   const [category, setCategory] = useState('');
@@ -88,10 +94,11 @@ export const SupportTab = () => {
     fetchMyTickets();
   };
 
-  const handleChatClick = () => {
+  const handleChatClick = () => setShowChat(true);
+
+  const openTicketForm = () => {
     formRef.current?.scrollIntoView({ behavior: 'smooth' });
     subjectInputRef.current?.focus();
-    triggerToast('Support ticket form ready. Fill details to reach support team.');
   };
 
   const handleCallClick = () => {
@@ -104,7 +111,7 @@ export const SupportTab = () => {
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px 16px 0' }}>
         {[
-          { icon: '💬', label: 'Chat with Team', action: handleChatClick },
+          { icon: '💬', label: showChat ? 'Hide Live Chat' : 'Chat with Support', action: showChat ? () => setShowChat(false) : handleChatClick },
           { icon: '📞', label: 'Call Support', action: handleCallClick },
         ].map(opt => (
           <button key={opt.label} onClick={opt.action} style={{ padding: '14px 10px', backgroundColor: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
@@ -113,6 +120,12 @@ export const SupportTab = () => {
           </button>
         ))}
       </div>
+
+      {showChat ? (
+        <div style={{ padding: '12px 16px 0' }}>
+          <LiveChatPanel relatedOrders={chatOrders} onCreateTicket={() => { setShowChat(false); setTimeout(openTicketForm, 50); }} />
+        </div>
+      ) : null}
 
       <div style={{ padding: '16px 16px 0' }}>
         <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 800 }}>HELP TOPICS</h4>

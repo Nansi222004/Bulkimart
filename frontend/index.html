@@ -30,10 +30,8 @@
       .boot-spinner{display:none;width:32px;height:32px;box-sizing:border-box;border-radius:50%;border:3px solid rgba(255,255,255,.28);border-top-color:var(--boot-header-text,#fff);animation:boot-spin .8s linear infinite}
       @keyframes boot-spin{to{transform:rotate(360deg)}}
       @media (prefers-reduced-motion:reduce){.boot-spinner{animation-duration:2.4s}}
-      /* Desktop website only (screens > 768px): show the loader spinner under the logo */
-      @media (min-width: 769px){.boot-home:not(.boot-home--partner) .boot-spinner{display:block}}
-      /* The seller, admin and delivery apps: always show spinner on a plain page */
-      @media (max-width: 768px){.boot-home:not(.boot-home--partner){display:none !important}}
+      /* Customer website: never show splash screen or loading screen */
+      .boot-home:not(.boot-home--partner){display:none !important}
       .boot-home--partner{background:#fff;display:flex !important}
       .boot-home--partner .boot-logo{display:none}
       .boot-home--partner .boot-spinner{display:block;width:36px;height:36px;border-color:rgba(15,23,42,.1);border-top-color:#0f766e}
@@ -82,7 +80,7 @@
     <script>
       // The seller, admin and delivery apps are not the shop: they start on a plain page.
       if (/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) document.querySelector('.boot-home').classList.add('boot-home--partner');
-      else if (window.matchMedia && matchMedia('(max-width: 768px)').matches) { var bootEl = document.querySelector('.boot-home'); if (bootEl) bootEl.style.display = 'none'; }
+      else { var bootEl = document.querySelector('.boot-home'); if (bootEl) bootEl.style.display = 'none'; }
       // The shop starts in the theme it last showed (same rules as bootLook in utils/storefront.js).
       else try {
         var look = JSON.parse(localStorage.getItem('bulkimart:boot-look')), boot = document.querySelector('.boot-home');

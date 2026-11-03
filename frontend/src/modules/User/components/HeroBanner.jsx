@@ -5,20 +5,23 @@ import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { apiUrl } from '../../../utils/api';
 import defaultBanner from '../../../assets/banner1.webp';
 import Celebration from './Celebration';
+import { hasFestiveHeader } from './FestiveHeader';
+
 export default function HeroBanner() {
-  const { banners, loading, device, now } = useStorefront();
-  const [index, setIndex] = useState(0), [paused, setPaused] = useState(false), [hover, setHover] = useState(false);
+  const { banners, loading, device, now, effect: pageEffect, theme } = useStorefront();
+  const [index, setIndex] = useState(0), paused = false, [hover, setHover] = useState(false);
   const reduced = useReducedMotion(), navigate = usePromotionNavigation();
   const current = index % Math.max(1, banners.length), banner = banners[current];
-  // The page effect is drawn by the festive or top header; the hero only draws its own banner animation.
-  const heroEffect = banner?.animation;
+  // Without a festive header, the hero is the bounded host for the page effect.
+  const hostEffect = hasFestiveHeader(theme) ? null : pageEffect, heroEffect = banner?.animation || hostEffect;
   useEffect(() => { if (banners.length < 2 || paused || hover || reduced || banner?.video) return; const timer = setInterval(() => setIndex(i => i + 1), 6000); return () => clearInterval(timer); }, [banners.length, paused, hover, reduced, banner?.video]);
   if (!banner) return loading ? <div className="sf-hero-skeleton" aria-label="Loading promotions" /> : <section className="sf-hero sf-hero-default" aria-label="Welcome to Bulkimart">
     <button type="button" className="sf-default-banner-link" aria-label="Explore products" onClick={() => navigate({ type: 'NAV', id: 'categories' })}>
       <img src={defaultBanner} alt="Bulkimart — Everyday finds. One smart shop. Discover products from shops and local sellers." width="1774" height="887" fetchPriority="high" />
     </button>
+    <Celebration effect={heroEffect} now={now} />
   </section>;
-  const go = () => { fetch(apiUrl(`/api/banners/${banner.id}/click`), { method: 'POST' }).catch(() => {}); navigate(banner.destination); };
+  const go = () => { fetch(apiUrl(`/api/banners/${banner.id}/click`), { method: 'POST' }).catch(() => { }); navigate(banner.destination); };
   return <section className="sf-hero" aria-roledescription="carousel" aria-label="Featured promotions" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocusCapture={() => setHover(true)} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setHover(false); }}>
     {/* Tapping the picture opens the promotion too; the button below stays the keyboard route. Video controls keep working. */}
     <div className={`sf-hero-art${banner.destination.type !== 'NONE' ? ' sf-hero-art--link' : ''}`} onClick={banner.destination.type !== 'NONE' ? e => { if (e.target.tagName !== 'VIDEO') go(); } : undefined}>

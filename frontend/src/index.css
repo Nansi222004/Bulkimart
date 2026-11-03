@@ -252,10 +252,8 @@ input[type=number] {
   appearance: textfield;
 }
 
-/* On mobile (<= 768px), hide the storefront launch loader so only the splash screen displays */
-@media (max-width: 768px) {
-  .boot-home:not(.boot-home--partner),
-  .sf-launch-wait {
-    display: none !important;
-  }
+/* Customer website: completely remove splash screen and loading screen */
+.boot-home:not(.boot-home--partner),
+.sf-launch-wait {
+  display: none !important;
 }

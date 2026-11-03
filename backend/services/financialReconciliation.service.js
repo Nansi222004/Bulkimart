@@ -4,7 +4,7 @@ import Return from '../models/Return.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import Partner from '../models/DeliveryPartner.js';
 import { effectiveAccountExpr } from './sellerLedger.service.js';
-import { deliverySplit } from './orderFinance.service.js';
+import { codFeeSplit, deliverySplit } from './orderFinance.service.js';
 import { codCashDuePaise } from '../utils/financeMoney.js';
 
 const cents = value => Math.round(Number(value || 0) * 100);
@@ -59,6 +59,10 @@ export const financialReconciliation = async ({ page = 1, limit = 50 } = {}) => 
         if (legacy && split.incentivePaise) issue('same_day_incentive_unallocated', `${split.incentivePaise} paise of the delivery charge was posted as platform income; review separately`);
         else if (posted('customer_delivery') !== split.deliveryPaise || posted('same_day_incentive') !== split.incentivePaise) issue('delivery_posting_mismatch', `delivery ${posted('customer_delivery')} / incentive ${posted('same_day_incentive')} paise; expected ${split.deliveryPaise} / ${split.incentivePaise}`);
       } catch (error) { issue('delivery_posting_mismatch', error.message); }
+      const codFee = codFeeSplit(order, snapshot);
+      const postedCod = entries.filter(row => row.type === 'customer_cod_fee' && row.direction === 'credit').reduce((sum, row) => sum + cents(row.amount), 0);
+      const postedCodTax = entries.filter(row => row.type === 'cod_fee_tax' && row.direction === 'credit').reduce((sum, row) => sum + cents(row.amount), 0);
+      if (postedCod !== codFee.codFeeNetPaise || postedCodTax !== codFee.codFeeTaxPaise) issue('cod_fee_posting_mismatch', `COD fee ${postedCod} / GST ${postedCodTax} paise; expected ${codFee.codFeeNetPaise} / ${codFee.codFeeTaxPaise}`);
     }
     for (const ret of returns) if (!order.financialReturnQuantities?.[`return_${ret._id}`]) issue('return_reconciliation_required', `${ret._id}: ${ret.status}`);
   }

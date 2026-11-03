@@ -34,6 +34,9 @@ const cartItemSchema = new Schema({
    */
   deliveryMode: { type: String, enum: DELIVERY_MODES },
 
+  // Easy Returns choice for this line (EASY_RETURN | NO_EASY_RETURN). Absent for products without the feature.
+  returnOption: { type: String, enum: ['EASY_RETURN', 'NO_EASY_RETURN'] },
+
   /**
    * Optional customer note/instruction for the seller for this specific item.
    */

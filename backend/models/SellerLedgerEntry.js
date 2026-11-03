@@ -9,7 +9,7 @@ export const SELLER_LEDGER_TYPES = [
   'order_earning', 'platform_commission', 'quick_freight_obligation',
   'quick_service_fee', 'payout_reservation', 'payout_settlement',
   'adjustment', 'reversal', 'cod_hold', 'return_hold', 'quick_fee_tax', 'quick_fee_payment',
-  'commission_tax', 'delivery_earning', 'cod_cash', 'customer_delivery', 'merchandise_gross',
+  'commission_tax', 'delivery_earning', 'cod_cash', 'customer_delivery', 'customer_cod_fee', 'cod_fee_tax', 'merchandise_gross',
   'tcs_deduction', 'tds_deduction', 'platform_discount', 'cod_shortage_writeoff',
   'same_day_incentive', 'courier_cost',
 ];
@@ -23,7 +23,7 @@ const sellerLedgerEntrySchema = new Schema({
   sellerId: { type: Schema.Types.ObjectId, ref: 'Seller', index: true, immutable: true },
   partnerId: { type: Schema.Types.ObjectId, ref: 'DeliveryPartner', immutable: true },
   deliveryId: { type: Schema.Types.ObjectId, ref: 'Delivery', immutable: true },
-  account: { type: String, enum: ['service_collections', 'gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense'], default: 'seller_payable', immutable: true },
+  account: { type: String, enum: ['service_collections', 'gst_assistance_collections', 'advertising_cash', 'advertising_liability', 'advertising_tax', 'advertising_revenue', 'seller_payable', 'rider_payable', 'commission_revenue', 'tax_liability', 'tcs_liability', 'tds_liability', 'platform_discount_expense', 'cod_shortage_expense', 'customer_delivery', 'customer_cod_fee', 'cod_custody', 'cod_excess_liability', 'merchandise_gross', 'legal_provider_payable', 'legal_collections', 'parcel_collections', 'parcel_cash_custody', 'parcel_driver_payable', 'parcel_revenue', 'seller_courier_obligation', 'courier_expense'], default: 'seller_payable', immutable: true },
   advertisingCampaignId: { type: Schema.Types.ObjectId, ref: 'SellerPromotion', immutable: true },
   advertiserSellerId: { type: Schema.Types.ObjectId, ref: 'Seller', immutable: true },
   advertisingRevision: { type: Number, immutable: true },

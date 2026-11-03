@@ -29,6 +29,7 @@ import DeliveryPartner from "../models/DeliveryPartner.js";
 import { VENDOR_STATUS } from "../constants/enums.js";
 import { verifySessionToken } from "../config/jwt.js";
 import { getAllowedOrigins } from "../config/cors.js";
+import { registerSupportChatHandlers } from "./supportChat.socket.js";
 
 let io;
 
@@ -52,6 +53,8 @@ export const initSocket = (httpServer) => {
       const payload = verifySessionToken(token);
       socket.userId = payload.id;
       socket.userType = payload.type;
+      // Signed entry-point claim (buyer | seller | delivery) — decides the live-chat role.
+      socket.tokenRole = payload.role;
       return next();
     } catch {
       // Every event this server emits is addressed to somebody. There is no
@@ -67,6 +70,7 @@ export const initSocket = (httpServer) => {
   });
 
   io.on("connection", (socket) => {
+    registerSupportChatHandlers(io, socket);
 
     // ── Buyer ────────────────────────────────────────────────────────────
     // The JWT already says who this is; the argument is discarded.

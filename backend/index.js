@@ -24,6 +24,7 @@ import { initSocket } from "./socket/socket.js";
 import { startOrderSweeper } from "./services/orderSweeper.service.js";
 import { loadRates } from "./services/riderPay.service.js";
 import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js";
+import { loadCodChargeSetting } from "./services/codCharge.service.js";
 import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
@@ -130,6 +131,7 @@ const start = async () => {
   await loadRates().catch((e) => console.warn('[RATES] using env defaults:', e.message));
   // Same reasoning, for the customer-facing delivery charge.
   await loadDeliveryChargeSetting().catch((e) => console.warn('[DELIVERY CHARGE] using defaults:', e.message));
+  await loadCodChargeSetting().catch((e) => console.warn('[COD CHARGE] using defaults (off):', e.message));
   // Same reasoning, for NHCONE Coins earn/redemption rules.
   await loadCoinConfig().catch((e) => console.warn('[COIN CONFIG] using defaults:', e.message));
   // Same reasoning, for the Same-Day/seller/rider radius ceilings.

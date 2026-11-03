@@ -1112,3 +1112,28 @@ test('a rider without a bank account or UPI ID is told plainly to add one; the l
   const admin = await import('../controllers/admin.controller.js');
   expect(admin.getVendorPayoutsAdmin).toBeUndefined(); expect(admin.settleVendorPayoutAdmin).toBeUndefined();
 });
+
+test('COD handling fee is collected by the rider, posted as platform income with its GST, and never reaches the seller', async () => {
+  // ₹100 items + ₹20 fee + ₹3.60 GST = ₹123.60 collected (₹124 cash after rupee rounding).
+  await Order.deleteOne({ _id: order._id });
+  await Payment.updateOne({ _id: payment._id }, { $set: { amount: 123.6 } });
+  order = await Order.create({ userId: user._id, type: 'grocery', items: [{ productId: product._id, sellerId: seller._id, type: 'grocery', name: 'Fixture', qty: 2, price: 50, deliveredAt: new Date('2020-01-01') }],
+    paymentMethod: 'cod', paymentId: payment._id, status: 'delivered', deliveryId: delivery._id, deliveryPartnerId: partner._id,
+    pricing: { subtotal: 100, codFeeEnabled: true, codFeeType: 'FIXED', codFeeAmount: 20, codFeeTaxRate: 18, codFeeTaxAmount: 3.6, codFeeTotal: 23.6, codFeeDescription: 'COD Handling Fee', totalAmount: 123.6 } });
+  await Delivery.updateOne({ _id: delivery._id }, { $set: { orderId: order._id } });
+  await Payment.updateOne({ _id: payment._id }, { $set: { orderId: order._id } });
+  expect(order.financialSnapshot.components).toMatchObject({ merchandisePaise: 10000, codFeePaise: 2360 });
+  enable();
+  for (const action of ['collect', 'remit', 'verify']) await cod(action, 124);
+  await postOrderFinance(order._id, admin._id);
+  // Seller is paid on merchandise only: same ₹90 as an order without the fee.
+  expect(await sellerBalances(seller._id)).toMatchObject({ held: 90, earnedEarnings: 90 });
+  const fee = await Ledger.findOne({ orderId: order._id, type: 'customer_cod_fee' }).lean();
+  const tax = await Ledger.findOne({ orderId: order._id, type: 'cod_fee_tax' }).lean();
+  expect({ fee: fee.amount, feeAccount: fee.account, tax: tax.amount, taxAccount: tax.account }).toEqual({ fee: 20, feeAccount: 'customer_cod_fee', tax: 3.6, taxAccount: 'tax_liability' });
+  expect(fee.sellerId).toBeUndefined();
+  const report = await financialReconciliation();
+  const issues = report.exceptions.filter(row => String(row.orderId) === String(order._id)).map(row => row.code);
+  expect(issues).not.toContain('cod_fee_posting_mismatch');
+  expect(issues).not.toContain('order_total_mismatch');
+});

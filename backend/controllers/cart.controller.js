@@ -16,6 +16,8 @@ import { distanceKm } from '../utils/geo.js';
 import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { inventoryIdentityKey, resolveInventoryItem, isUnlimitedDigital } from '../services/inventory.service.js';
+import { calculateCodFee, resolveCodChargeSetting } from '../services/codCharge.service.js';
+import { assertReturnOption, easyReturnsEnabled, priceWithReturnOption, resolveReturnOption, returnExtraChargeFor } from '../services/easyReturns.service.js';
 
 /**
  * One cart per channel. Quick and Shop All are fulfilled differently and never
@@ -87,6 +89,13 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       line.qty = inventory.stock;
       mutated = true;
     }
+    // Easy Returns may have been switched on/off since the line was added.
+    const option = resolveReturnOption(p, line.returnOption);
+    if ((line.returnOption || undefined) !== option) {
+      if (line.returnOption === 'EASY_RETURN' && !option) warnings.push(`Easy Returns is no longer offered for "${p.name}".`);
+      line.returnOption = option;
+      mutated = true;
+    }
     if (line.name !== p.name || line.image !== p.images?.[0] || line.mrp !== p.mrp) {
       line.name = p.name;
       line.image = p.images?.[0] || '';
@@ -104,7 +113,9 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
 
   const items = keep.map(({ line, product, inventory }) => {
     const deal = campaignPrices.get(String(product._id));
-    const effectivePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
+    const basePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
+    // The Easy Returns charge is part of the unit price, so tax, totals and payment all include it.
+    const effectivePrice = priceWithReturnOption(basePrice, product, line.returnOption);
     return {
       _id: line._id,
       productId: product._id,
@@ -117,6 +128,10 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
       price: effectivePrice,
       ...resolveProductGst(product),
       originalPrice: deal ? inventory.price : undefined,
+      basePrice,
+      returnOption: line.returnOption,
+      returnExtraCharge: returnExtraChargeFor(product, line.returnOption),
+      easyReturns: easyReturnsEnabled(product) ? product.easyReturns : undefined,
       campaign: deal ? { id: deal.campaignId, title: deal.campaignTitle, discountValue: deal.discountValue } : undefined,
       mrp: inventory.mrp,
       qty: line.qty,
@@ -233,6 +248,9 @@ const shape = async (channel, items, warnings, user, code, delivery = {}) => {
     pricing.standardFee = 0;
     pricing.totalAmount = round2(Math.max(0, pricing.subtotal - pricing.discount - pricing.couponDiscount));
   }
+
+  // What Cash on Delivery would add (display only; checkout recomputes it). Not part of totalAmount.
+  pricing.codFee = !allDigital && items.length ? calculateCodFee(pricing.totalAmount, await resolveCodChargeSetting()) : null;
 
   let sellerInfo = null;
   const firstSellerId = items.find((i) => i.sellerId)?.sellerId;
@@ -388,6 +406,8 @@ export const addToCart = asyncHandler(async (req, res) => {
   }
   const inventory = resolveInventoryItem(product, variantId);
   const isDigital = product.fulfillmentType === 'digital';
+  // Validated against the live product; the price is always recomputed on the server.
+  const returnOption = assertReturnOption(product, req.body.returnOption);
   if (isDigital && quantity !== 1) throw httpError(400, 'An e-book can only appear once in your cart');
   if (!isUnlimitedDigital(product) && inventory.stock <= 0) throw httpError(400, `"${product.name}" is out of stock`);
   if (!isDigital && quantity > inventory.stock) throw httpError(400, `Only ${inventory.stock} left in stock`);
@@ -455,6 +475,7 @@ export const addToCart = asyncHandler(async (req, res) => {
     shgStoreId: product.shgStoreId,
     type: product.type,
     fulfillmentType: product.fulfillmentType || 'physical',
+    ...(returnOption ? { returnOption } : {}),
   };
 
   // Apply each increment/push atomically. If another request changes the
@@ -479,7 +500,7 @@ export const addToCart = asyncHandler(async (req, res) => {
       }
       const result = await Cart.updateOne(
         { ...cartOwner, items: { $elemMatch: { _id: existing._id, qty: existing.qty } } },
-        { $inc: { 'items.$.qty': quantity } },
+        { $inc: { 'items.$.qty': quantity }, ...(returnOption && req.body.returnOption != null ? { $set: { 'items.$.returnOption': returnOption } } : {}) },
       );
       committed = result.modifiedCount === 1;
     } else {
@@ -527,7 +548,8 @@ export const updateCartItem = asyncHandler(async (req, res) => {
     throw httpError(400, `Unknown delivery mode "${req.body.deliveryMode}" — expected ${DELIVERY_MODES.join(' or ')}`);
   }
 
-  const quantity = req.body.qty === undefined && modeGiven ? undefined : Number(req.body.qty);
+  const optionGiven = req.body.returnOption !== undefined;
+  const quantity = req.body.qty === undefined && (modeGiven || optionGiven) ? undefined : Number(req.body.qty);
   if (quantity !== undefined && (!Number.isInteger(quantity) || quantity < 0)) {
     throw httpError(400, 'Quantity must be a whole number of 0 or more');
   }
@@ -559,6 +581,12 @@ export const updateCartItem = asyncHandler(async (req, res) => {
         throw httpError(400, 'Delivery mode applies to Shop All items only');
       }
       line.deliveryMode = req.body.deliveryMode ?? undefined;
+    }
+
+    if (optionGiven) {
+      const product = await Product.findById(line.productId).select('easyReturns fulfillmentType').lean();
+      if (!easyReturnsEnabled(product)) throw httpError(400, 'Easy Returns is not offered for this product');
+      line.returnOption = assertReturnOption(product, req.body.returnOption);
     }
   }
 

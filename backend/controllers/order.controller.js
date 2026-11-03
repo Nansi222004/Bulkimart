@@ -30,6 +30,8 @@ import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service
 import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { buildReturnPolicySnapshotsFor } from '../services/returnPolicy.service.js';
+import { easyReturnOrderFields, priceWithReturnOption, resolveReturnOption } from '../services/easyReturns.service.js';
+import { calculateCodFee, loadCodChargeSetting } from '../services/codCharge.service.js';
 import { applyProductReturnSettings } from '../services/productReturns.service.js';
 import {
   ORDER_STATUS,
@@ -395,6 +397,8 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
 
     const deal = campaignPrices.get(String(p._id));
+    const returnOption = resolveReturnOption(p, line.returnOption);
+    const basePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
 
     lines.push({
       productId: p._id,
@@ -407,8 +411,9 @@ export const createOrder = asyncHandler(async (req, res) => {
       name: p.name,
       image: p.images?.[0] || '',
       qty: line.qty,
-      price: deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price,
+      price: priceWithReturnOption(basePrice, p, returnOption),
       ...resolveProductGst(p),
+      _returnOption: returnOption, // resolved into the Easy Returns snapshot below
       originalPrice: inventory.price,
       campaignId: deal ? deal.campaignId : undefined,
       type: p.type,
@@ -443,6 +448,8 @@ export const createOrder = asyncHandler(async (req, res) => {
         headerCategoryId: null, headerCategoryName: null, returnEligible: false, returnWindowDays: null,
       };
       l.returnPolicy = applyProductReturnSettings(l._returnProduct, catPolicy);
+      if (l._returnOption) Object.assign(l, easyReturnOrderFields(l._returnProduct, l._returnOption, l.price, catPolicy));
+      delete l._returnOption;
       delete l._returnProduct;
       delete l._returnCategoryId;
       delete l._returnableSnapshot;
@@ -530,7 +537,12 @@ export const createOrder = asyncHandler(async (req, res) => {
   // coinsUsed/coinDiscount at 0 so its stored shape stays unchanged.
   const coinsToUse = 0;
   const coinDiscount = 0;
-  const payableAmount = Math.round(pricing.totalAmount * 100) / 100;
+  const orderAmount = Math.round(pricing.totalAmount * 100) / 100;
+  // COD handling fee from the live admin setting (never the client); base excludes the tip.
+  const codFee = paymentMethod === PAYMENT_METHOD.COD
+    ? calculateCodFee((Math.round(pricing.totalAmount * 100) - Math.round((pricing.tipAmount || 0) * 100)) / 100, await loadCodChargeSetting())
+    : null;
+  const payableAmount = Math.round((orderAmount + (codFee?.codFeeTotal || 0)) * 100) / 100;
 
   // Generated up front so the Coin reservation (made inside the transaction,
   // before the Order document exists) can reference the exact order it
@@ -589,7 +601,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       userId: req.user._id,
       type: orderType,
       items: lines,
-      productTax: calculateProductGst(lines, { ...pricing, coinDiscount, totalAmount: payableAmount }),
+      productTax: calculateProductGst(lines, { ...pricing, coinDiscount, totalAmount: orderAmount }),
       shippingAddress: address,
       pricing: {
         subtotal: pricing.subtotal,
@@ -602,6 +614,7 @@ export const createOrder = asyncHandler(async (req, res) => {
         tipAmount: pricing.tipAmount,
         coinsUsed: coinsToUse,
         coinDiscount,
+        ...(codFee || {}),
         totalAmount: payableAmount,
       },
       coupon: applied?.ok ? applied.coupon._id : undefined,

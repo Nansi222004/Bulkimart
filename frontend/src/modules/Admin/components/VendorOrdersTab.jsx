@@ -1,3 +1,4 @@
+import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import ModalPortal from '../../../components/ModalPortal';
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../../utils/api';
@@ -411,6 +412,7 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a' }}>{it.name}</div>
                           <div style={{ fontSize: '11.5px', color: '#64748b' }}>Qty: {it.qty} × {money(it.price)}</div>
+                          <EasyReturnBadge option={it.returnOption} extraCharge={it.returnExtraCharge} days={it.returnEligibilityDays} />
                         </div>
                       </div>
                       <div style={{ fontSize: '13.5px', fontWeight: '800', color: '#0f172a' }}>

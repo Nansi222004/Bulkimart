@@ -18,6 +18,7 @@ import { VendorFinancialsTab } from '../components/VendorFinancialsTab';
 import ProductsTab from '../components/ProductsTab';
 import PayoutsTab from '../components/PayoutsTab';
 import TicketsTab from '../components/TicketsTab';
+import LiveChatTab from '../components/LiveChatTab';
 import CategoriesTab from '../components/CategoriesTab';
 import CouponsTab from '../components/CouponsTab';
 import SectionModuleTab from '../components/SectionModuleTab';
@@ -39,6 +40,7 @@ import VendorDashboardTab from '../components/VendorDashboardTab';
 import DeliveryTrackingTab from '../components/DeliveryTrackingTab';
 import RiderPayoutsTab from '../components/RiderPayoutsTab';
 import TipSettingsTab from '../components/TipSettingsTab';
+import CodChargesTab from '../components/CodChargesTab';
 import BannersTab from '../components/BannersTab';
 import StorefrontStudio from '../components/StorefrontStudio';
 import CampaignsTab from '../components/CampaignsTab';
@@ -100,6 +102,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'rider-payouts':      return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'delivery-rates': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tip-settings':       return <TipSettingsTab />;
+      case 'cod-charges':        return <CodChargesTab />;
       case 'banners':            return <BannersTab />;
       case 'storefront-studio':  return <StorefrontStudio />;
       case 'campaigns':          return <CampaignsTab />;
@@ -134,6 +137,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'vendor-payouts':    return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'quick-third-party-settings': return <FinanceCenter key={activeTab} legacyTab={activeTab} />;
       case 'tickets':           return <TicketsTab />;
+      case 'live-chat':         return <LiveChatTab />;
       case 'reports':           return <ReportsTab />;
       default:                  return <SectionModuleTab moduleId={activeTab} />;
     }

@@ -154,7 +154,8 @@ export default function CheckoutScreen() {
     finally { setLocating(false); }
   };
 
-  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { tipAmount });
+  // The COD handling fee appears only while Cash on Delivery is selected; online always shows zero.
+  const summary = paymentSummary(isUnified ? unified.data?.totals : serverCart?.pricing, { tipAmount, cod: paymentMethod === 'Cash on Delivery' });
   const grandTotalVal = summary.totalAmount;
   const items = unified.data ? unified.basketItems : getCartItems();
   const [fallbackSeller, setFallbackSeller] = useState(null);
@@ -391,6 +392,7 @@ export default function CheckoutScreen() {
     {summary.sameDayPremium > 0 && <Row label="Same-Day Delivery Premium" value={`₹${summary.sameDayPremium}`} />}
     {summary.couponDiscount > 0 && <Row label="Coupon Discount" value={`-₹${summary.couponDiscount}`} color={primary} />}
     {tipAmount > 0 && <Row label="Delivery Partner Tip" value={`+₹${tipAmount}`} color={primary} weight="700" />}
+    {summary.codFee > 0 && <Row label={summary.codFeeLabel} value={`+₹${summary.codFee}`} color="#c2410c" weight="700" />}
   </View>;
 
   return <CustomerPage protectedPage nav={false} headerColor="#fff">
@@ -478,7 +480,7 @@ export default function CheckoutScreen() {
               hidden: isDigitalCart, disabled: walletBalance < grandTotalVal,
               right: walletBalance >= grandTotalVal ? <Text style={[styles.walletPill, { color: '#16a34a', backgroundColor: '#f0fdf4' }]}>✓ Sufficient Balance</Text> : <Text style={[styles.walletPill, { color: '#dc2626', backgroundColor: '#fef2f2' }]}>⚠ Need ₹{(grandTotalVal - walletBalance).toFixed(2)} more</Text>,
             })}
-            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
+            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay at your doorstep · + ₹${summary.codFeeQuote} ${summary.codFeeLabel}${unified.data?.totals?.codFeeOrders > 1 ? ` (${unified.data.totals.codFeeOrders} deliveries)` : ''}` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
             {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', 'UPI, cards and supported payment methods via Razorpay')}
           </View>
         </Card>
@@ -605,6 +607,7 @@ export default function CheckoutScreen() {
           <Text style={styles.sheetEyebrow}>Ordered Items ({items.length})</Text>
           <View style={{ gap: 10, marginBottom: 20 }}>{items.map((item, idx) => <View key={item._id || item.productId || idx} style={{ gap: 2 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text style={{ fontWeight: '600', fontSize: 12.5, flexShrink: 1 }}>{item.qty}x {item.name}</Text><Text style={{ fontWeight: '700', fontSize: 12.5 }}>₹{item.lineTotal}</Text></View>
+            {item.returnOption ? <Text style={{ fontSize: 11, fontWeight: '600', paddingLeft: 8, color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns (+₹${item.returnExtraCharge || 0} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}</Text> : null}
             {item.additionalMessage ? <Text style={{ fontSize: 11, color: primary, fontStyle: 'italic', paddingLeft: 8 }}>📝 Seller message: "{item.additionalMessage}"</Text> : null}
           </View>)}</View>
           <View style={{ borderTopWidth: 1, borderStyle: 'dashed', borderTopColor: theme.border, paddingTop: 16 }}>

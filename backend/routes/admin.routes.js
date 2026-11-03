@@ -1,3 +1,4 @@
+import { getCodChargeForAdmin, setCodChargeForAdmin } from '../controllers/codCharge.controller.js';
 import { previewRefundCompensation } from '../controllers/financeWorkflow.controller.js';
 import { getHistoricalExceptions } from '../controllers/financeWorkflow.controller.js';
 import { requireFinancePermission } from '../middlewares/financePermission.middleware.js';
@@ -37,6 +38,12 @@ import {
   listDeliveryPayoutRequests, completeDeliveryPayoutRequest, rejectDeliveryPayoutRequest,
 } from '../controllers/admin.controller.js';
 import { listReturnPolicies, upsertReturnPolicy, updateGlobalReturnPolicy } from '../controllers/returnPolicy.controller.js';
+import {
+  adminGetAgents, adminSetMyStatus, adminListChats, adminGetChat, adminGetMessages, adminGetMessage, adminPostMessage,
+  adminReadChat, adminAcceptChat, adminAssignChat, adminResolveChat, adminCloseChat, adminReopenChat, adminCreateTicket, adminLinkTicket,
+} from '../controllers/supportChat.controller.js';
+import { supportChatMessageLimiter } from '../middlewares/rateLimit.middleware.js';
+import { CHAT_MAX_ATTACHMENTS } from '../constants/enums.js';
 import {
   listReturnsAdmin, getReturnAdmin, updateReturnStatusAdmin,
   processReturnRefundAdmin, codSettleReturnAdmin,
@@ -82,7 +89,7 @@ router.use(protect, requireAdmin);
 router.use('/campaigns', marketingPermission);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
-  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
+  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
   next();
 });
 router.patch('/vendor-payouts/:id/beneficiary-review', verifySellerPayoutBeneficiaryAdmin);
@@ -200,6 +207,8 @@ router.post('/radius-settings', setRadiusSettingForAdmin);
 
 // ---- Dynamic Tip Setting ----------------------------------------------------
 router.get('/tip-setting', getTipSettingForAdmin);
+router.get('/cod-charge', getCodChargeForAdmin);
+router.post('/cod-charge', setCodChargeForAdmin);
 router.post('/tip-setting', setTipSettingForAdmin);
 
 // ---- Dynamic Helpline & SOS Emergency Setting ------------------------------
@@ -304,6 +313,23 @@ router.post('/tickets/:id/notes', uploadMultiple('attachments', 5), addInternalN
 router.patch('/tickets/:id/assign', assignTicket);
 router.patch('/tickets/:id/status', changeTicketStatus);
 router.patch('/tickets/:id/resolve', resolveTicket);
+
+// ---- live chat support (agent dashboard) ------------------------------------
+router.get('/support-chat/agents', adminGetAgents);
+router.patch('/support-chat/agents/me', adminSetMyStatus);
+router.get('/support-chat/conversations', adminListChats);
+router.get('/support-chat/conversations/:id', adminGetChat);
+router.get('/support-chat/conversations/:id/messages', adminGetMessages);
+router.get('/support-chat/conversations/:id/messages/:messageId', adminGetMessage);
+router.post('/support-chat/conversations/:id/messages', supportChatMessageLimiter, uploadMultiple('attachments', CHAT_MAX_ATTACHMENTS), adminPostMessage);
+router.post('/support-chat/conversations/:id/read', adminReadChat);
+router.post('/support-chat/conversations/:id/accept', adminAcceptChat);
+router.post('/support-chat/conversations/:id/assign', adminAssignChat);
+router.post('/support-chat/conversations/:id/resolve', adminResolveChat);
+router.post('/support-chat/conversations/:id/close', adminCloseChat);
+router.post('/support-chat/conversations/:id/reopen', adminReopenChat);
+router.post('/support-chat/conversations/:id/ticket', adminCreateTicket);
+router.post('/support-chat/conversations/:id/link-ticket', adminLinkTicket);
 
 // ---- privacy policy management (4 roles: user, seller, delivery, shg) -------
 router.get('/privacy-policy', getAllPolicies);

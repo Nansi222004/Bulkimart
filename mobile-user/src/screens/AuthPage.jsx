@@ -1,6 +1,10 @@
 // Port of modules/User/pages/AuthPage.jsx — customer Sign In / Register with phone OTP.
-import React, { useEffect, useRef, useState } from 'react';
+// Android: Phone Number Hint prefills the number, SMS Retriever prefills the OTP.
+// Neither signs anyone in — the customer still taps Verify and the server checks the code.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import OtpCodeInput from '../components/OtpCodeInput';
+import { describeOtpError, isDeadOtpError, usePhoneNumberHint, useSmsOtpListener } from '../utils/otpAutofill';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +40,17 @@ export default function AuthPage() {
   const [resendDeadline, setResendDeadline] = useState(0);
   const [resendSeconds, setResendSeconds] = useState(0);
   const otpRequest = useRef(false);
+  const [otpLength, setOtpLength] = useState(6);
+  const [autofilled, setAutofilled] = useState(false);
+  const [phoneFocused, setPhoneFocused] = useState(false);
   const [phone, setPhone] = useState(''), [name, setName] = useState(''), [email, setEmail] = useState(''), [agreeTerms, setAgreeTerms] = useState(false);
+  const sms = useSmsOtpListener(useCallback(code => {
+    setEnteredOtp(code.slice(0, otpLength)); setAutofilled(true); setErrors(prev => ({ ...prev, otp: undefined }));
+  }, [otpLength]));
+  const hint = usePhoneNumberHint({
+    onPhone: picked => { setPhone(picked); setErrors(prev => ({ ...prev, phone: undefined, api: undefined })); },
+    onError: message => setErrors(prev => ({ ...prev, phone: message })),
+  });
   const slider = useRef(new Animated.Value(0)).current;
   const [tabWidth, setTabWidth] = useState(0);
   useEffect(() => { Animated.timing(slider, { toValue: isLogin ? 0 : 1, duration: 280, useNativeDriver: true }).start(); }, [isLogin, slider]);
@@ -67,29 +81,43 @@ export default function AuthPage() {
     if (otpRequest.current || isLoading || (step === 'otp' && Date.now() < resendDeadline)) return;
     if (!validatePhone()) return;
     otpRequest.current = true; setIsLoading(true); setErrors({}); setSuccessMessage('');
+    // Listen before the SMS can arrive; a failed send stops it again.
+    await sms.start();
     try {
       const result = await sendOtp(phone.trim(), isLogin);
       if (result.success) {
-        setStep('otp'); setEnteredOtp(''); setResendDeadline(Date.now() + 30000); setResendSeconds(30);
+        const wait = Number(result.resendAfter) || 30;
+        setOtpLength(Number(result.otpLength) || 6);
+        setStep('otp'); setEnteredOtp(''); setAutofilled(false); setResendDeadline(Date.now() + wait * 1000); setResendSeconds(wait);
         setSuccessMessage('OTP sent successfully to your mobile number.');
-      } else setErrors({ api: result.message || 'Failed to send OTP.' });
+      } else {
+        sms.stop();
+        if (result.code === 'OTP_COOLDOWN' && Number(result.retryAfter) > 0) setResendDeadline(Date.now() + Number(result.retryAfter) * 1000);
+        setErrors({ api: describeOtpError(result, 'Failed to send OTP.') });
+      }
     } catch (error) {
-      setErrors({ api: error.message || 'Failed to send OTP.' });
+      sms.stop();
+      setErrors({ api: describeOtpError(error, 'Failed to send OTP.') });
     } finally { otpRequest.current = false; setIsLoading(false); }
   };
 
   const handleVerifyOTP = async () => {
     if (isLoading) return;
-    if (!enteredOtp || enteredOtp.trim().length !== 4) { setErrors({ otp: 'Please enter a valid 4-digit OTP' }); return; }
+    if (enteredOtp.length !== otpLength) { setErrors({ otp: `Please enter the ${otpLength}-digit OTP` }); return; }
     setIsLoading(true); setErrors({});
-    const result = await verifyOtp(phone.trim(), enteredOtp.trim(), isLogin, name.trim(), email.trim());
+    const result = await verifyOtp(phone.trim(), enteredOtp, isLogin, name.trim(), email.trim());
     if (result.success) {
+      sms.stop();
       if (!isLogin && (name.trim() || email.trim())) await updateUserProfile(name.trim(), email.trim());
       setIsLoading(false);
-    } else { setIsLoading(false); setErrors({ otp: result.message || 'OTP verification failed' }); }
+    } else {
+      setIsLoading(false);
+      setErrors({ otp: describeOtpError(result, 'OTP verification failed') });
+      if (isDeadOtpError(result)) { setEnteredOtp(''); setAutofilled(false); }
+    }
   };
 
-  const backToPhone = () => { if (isLoading) return; setStep('phone'); setEnteredOtp(''); setResendDeadline(0); setResendSeconds(0); setErrors({}); setSuccessMessage(''); };
+  const backToPhone = () => { if (isLoading) return; sms.stop(); setStep('phone'); setEnteredOtp(''); setAutofilled(false); setResendDeadline(0); setResendSeconds(0); setErrors({}); setSuccessMessage(''); };
   const switchTab = login => { setIsLogin(login); setErrors({}); setPhone(''); setName(''); setEmail(''); setAgreeTerms(false); };
   const submitColors = theme.action ? [theme.action, theme.action] : ['#08b9e8', '#078ccb'];
 
@@ -116,8 +144,21 @@ export default function AuthPage() {
               <Input label="FULL NAME" placeholder="e.g. Rahul Sharma" value={name} onChangeText={setName} error={errors.name} autoComplete="name" textContentType="name" />
               <Input label="EMAIL ADDRESS" placeholder="email@example.com" value={email} onChangeText={setEmail} error={errors.email} keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
             </>}
-            <Input label="PHONE NUMBER" placeholder="10-digit mobile number" value={phone} onChangeText={value => setPhone(value.replace(/\D/g, '').slice(0, 10))} error={errors.phone}
-              keyboardType="phone-pad" maxLength={10} autoComplete="tel" returnKeyType="done" onSubmitEditing={handleSendOTP} />
+            <View style={{ gap: 6 }}>
+              <Text style={styles.label}>PHONE NUMBER</Text>
+              <View style={[styles.phoneRow, phoneFocused && { borderColor: theme.primary }, errors.phone && { borderColor: '#ef4444', backgroundColor: '#fef2f2' }]}>
+                <View style={styles.phonePrefix} accessible accessibilityLabel="Country code India plus 91"><Text style={styles.phonePrefixText}>IN +91</Text></View>
+                <TextInput placeholder="10-digit mobile number" placeholderTextColor="#94a3b8" value={phone} editable={!isLoading}
+                  onChangeText={value => { setPhone(value.replace(/\D/g, '').slice(0, 10)); if (errors.phone) setErrors(prev => ({ ...prev, phone: undefined })); }}
+                  onFocus={() => { setPhoneFocused(true); hint.onFieldFocus(phone); }} onBlur={() => setPhoneFocused(false)}
+                  keyboardType="phone-pad" maxLength={10} autoComplete="tel-national" importantForAutofill="yes" returnKeyType="done" onSubmitEditing={handleSendOTP}
+                  style={styles.phoneInput} accessibilityLabel="Phone number" />
+                {hint.supported ? <Pressable onPress={hint.pick} disabled={hint.picking || isLoading} accessibilityRole="button" accessibilityLabel="Select phone number from this device" hitSlop={6} style={styles.phonePick}>
+                  {hint.picking ? <ActivityIndicator size="small" color={theme.primary} /> : <Text style={[styles.phonePickText, { color: theme.primary }]}>Select number</Text>}
+                </Pressable> : null}
+              </View>
+              {errors.phone ? <Text style={styles.error} accessibilityRole="alert">{errors.phone}</Text> : null}
+            </View>
             {!isLogin && <View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Pressable onPress={() => setAgreeTerms(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: agreeTerms }} accessibilityLabel="I agree to the Terms & Conditions" hitSlop={8}
@@ -129,21 +170,23 @@ export default function AuthPage() {
               {errors.terms ? <Text style={styles.error}>{errors.terms}</Text> : null}
             </View>}
             <Pressable disabled={isLoading} onPress={handleSendOTP} accessibilityRole="button">
-              <LinearGradient colors={submitColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submit}><Text style={styles.submitText}>Send OTP Verification</Text></LinearGradient>
+              <LinearGradient colors={submitColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submit}><Text style={styles.submitText}>Continue</Text></LinearGradient>
             </Pressable>
           </View> : <View style={{ gap: 16 }}>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={[styles.label, { textAlign: 'center' }]}>Enter 4-Digit OTP sent to +91 {phone}</Text>
-              <TextInput value={enteredOtp} onChangeText={value => setEnteredOtp(value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" placeholderTextColor="#94a3b8"
-                keyboardType="number-pad" maxLength={4} autoComplete="sms-otp" textContentType="oneTimeCode" autoFocus onSubmitEditing={handleVerifyOTP}
-                style={[styles.otp, errors.otp && { borderColor: '#ef4444' }]} accessibilityLabel="One-time password" />
-              {errors.otp ? <Text style={[styles.error, { textAlign: 'center' }]} accessibilityRole="alert">{errors.otp}</Text> : null}
+            <View style={{ alignItems: 'center', gap: 12 }}>
+              <Text style={[styles.label, { textAlign: 'center' }]}>Enter {otpLength}-Digit OTP sent to +91 {phone}</Text>
+              <OtpCodeInput value={enteredOtp} length={otpLength} autoFocus editable={!isLoading} error={!!errors.otp} onSubmitEditing={handleVerifyOTP}
+                onChange={value => { setEnteredOtp(value); setAutofilled(false); if (errors.otp) setErrors(prev => ({ ...prev, otp: undefined })); }}
+                accentColor={theme.primary} textColor="#0f172a" borderColor="#cbd5e1" errorColor="#ef4444" fontFamily={theme.fontFamily} />
+              {errors.otp ? <Text style={[styles.error, { textAlign: 'center' }]} accessibilityRole="alert">{errors.otp}</Text>
+                : autofilled ? <Text style={styles.otpHint}>Code filled from SMS. Tap Verify to continue.</Text>
+                  : sms.listening ? <Text style={styles.otpHint}>Waiting for the SMS… you can also type the code.</Text> : null}
             </View>
             <Pressable disabled={isLoading} onPress={handleVerifyOTP} accessibilityRole="button">
               <LinearGradient colors={submitColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submit}><Text style={styles.submitText}>{isLogin ? 'Verify & Sign In' : 'Verify & Register'}</Text></LinearGradient>
             </Pressable>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
-              <Pressable onPress={backToPhone} disabled={isLoading}><Text style={[styles.link, { color: '#94a3b8' }]}>← Back to Phone</Text></Pressable>
+              <Pressable onPress={backToPhone} disabled={isLoading}><Text style={[styles.link, { color: '#94a3b8' }]}>← Change number</Text></Pressable>
               <Pressable onPress={handleSendOTP} disabled={isLoading || resendSeconds > 0}><Text style={[styles.link, { color: theme.primary, opacity: isLoading || resendSeconds > 0 ? 0.5 : 1 }]}>{resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Resend OTP'}</Text></Pressable>
             </View>
           </View>}
@@ -178,7 +221,13 @@ const styles = StyleSheet.create({
   checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 1.5, borderColor: '#94a3b8', alignItems: 'center', justifyContent: 'center' },
   submit: { borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 4, elevation: 4 },
   submitText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  otp: { fontSize: 26, letterSpacing: 10, textAlign: 'center', paddingVertical: 12, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1.5, borderColor: '#cbd5e1', backgroundColor: '#fff', color: '#0f172a', width: 210, marginVertical: 12, fontVariant: ['tabular-nums'] },
+  otpHint: { fontSize: 12, color: '#64748b', textAlign: 'center' },
+  phoneRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#cbd5e1', borderRadius: 10, overflow: 'hidden' },
+  phonePrefix: { alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: 12, backgroundColor: '#f1f5f9', borderRightWidth: 1, borderRightColor: '#e2e8f0' },
+  phonePrefixText: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  phoneInput: { flex: 1, minWidth: 0, paddingVertical: 12, paddingHorizontal: 12, fontSize: 14, color: '#0f172a' },
+  phonePick: { alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: 12 },
+  phonePickText: { fontSize: 12, fontWeight: '800' },
   link: { fontSize: 12.5, fontWeight: '700' },
   guest: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
 });

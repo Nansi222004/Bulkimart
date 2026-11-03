@@ -18,12 +18,43 @@ export const isWholesaleOnly = (raw) => Array.isArray(raw?.sellingChannels) && r
 export const productStatus = (p) => (p.status === 'approved' ? (p.isActive ? 'Active' : 'Inactive')
   : p.status === 'rejected' ? 'Rejected' : 'Pending Approval');
 
+// Easy Returns (backend services/easyReturns.service.js): No Easy Returns = normal price; Easy Returns = normal price + extra charge.
+// It sits inside "Allow Returns": the server uses that return window, and the policy text has a default.
+export const defaultEasyReturnsPolicy = (days) => `Return for any reason within ${days} day${days === 1 ? '' : 's'} of delivery. Without Easy Returns, only a wrong, damaged or defective item can be returned.`;
+const easyDefaults = { easyReturnsEnabled: false, easyReturnsExtraCharge: '', easyReturnsPolicyText: '', easyReturnsConditions: '' };
+const easyFromProduct = (raw) => {
+  const cfg = raw?.easyReturns;
+  if (!cfg?.enabled) return { ...easyDefaults };
+  return {
+    easyReturnsEnabled: true,
+    easyReturnsExtraCharge: cfg.extraCharge ?? '',
+    // A default sentence is left empty so it follows future window changes.
+    easyReturnsPolicyText: cfg.policyText && cfg.policyText !== defaultEasyReturnsPolicy(cfg.windowDays) ? cfg.policyText : '',
+    easyReturnsConditions: (cfg.conditions || []).join('\n'),
+  };
+};
+const easyConditions = (form) => String(form.easyReturnsConditions || '').split('\n').map((c) => c.trim()).filter(Boolean);
+export const easyReturnsPayload = (form) => JSON.stringify(form.easyReturnsEnabled && form.returnable ? {
+  enabled: true, extraCharge: Number(form.easyReturnsExtraCharge),
+  policyText: String(form.easyReturnsPolicyText || '').trim(), conditions: easyConditions(form),
+} : { enabled: false });
+export function validateEasyReturns(form) {
+  if (!form.easyReturnsEnabled || !form.returnable) return [];
+  const errors = [];
+  const charge = Number(form.easyReturnsExtraCharge);
+  if (blank(form.easyReturnsExtraCharge) || !Number.isFinite(charge) || charge < 0) errors.push('Enter the Easy Returns extra charge (0 or more)');
+  else if (Math.round(charge * 100) !== charge * 100) errors.push('Easy Returns extra charge can have at most 2 decimal places');
+  if (easyConditions(form).length > 10) errors.push('Add at most 10 return conditions');
+  return errors;
+}
+
 export const blankVariant = () => ({ name: '', price: '', mrp: '', stock: '', unit: 'piece', weight: '' });
 
 export const emptyForm = () => ({
   name: '', categoryId: '', desc: '', brandName: '', gstRate: 0,
   variants: [{ ...blankVariant(), name: 'Default' }],
   sameDayEnabled: false, processingMinutes: '', returnable: false, returnWindowDays: '',
+  ...easyDefaults,
 });
 
 // Same mapping as startEditProduct.
@@ -40,6 +71,7 @@ export const formFromProduct = (raw) => ({
   processingMinutes: raw.sameDay?.processingMinutes ?? '',
   returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
   returnWindowDays: raw.returnSettings?.windowDays ?? '',
+  ...easyFromProduct(raw),
 });
 
 const blank = (value) => value === '' || value === undefined || value === null;
@@ -63,6 +95,8 @@ export function validateProductForm(form, ctx) {
     else if (!ctx.returnPolicy?.eligible) errs.general.push('Admin must enable category or global returns before setting a product window');
     else if (days > ctx.returnPolicy.returnWindowDays) errs.general.push(`Return window cannot exceed ${ctx.returnPolicy.returnWindowDays} days`);
   }
+
+  errs.general.push(...validateEasyReturns(form));
 
   if (ctx.isEditing && ctx.channel === 'ecommerce' && form.sameDayEnabled) {
     const minutes = Number(form.processingMinutes);
@@ -118,6 +152,7 @@ export function buildCreateFormData(form, channel, images) {
   // The web only offers same-day on edit, so a new listing never carries sameDay.
   fd.append('returnable', form.returnable ? 'true' : 'false');
   fd.append('returnWindowDays', form.returnable ? String(form.returnWindowDays ?? '') : '');
+  fd.append('easyReturns', easyReturnsPayload(form));
   appendImages(fd, images);
   return fd;
 }
@@ -138,6 +173,7 @@ export function buildUpdateFormData(form, channel, images) {
   }
   fd.append('returnable', form.returnable ? 'true' : 'false');
   fd.append('returnWindowDays', form.returnable ? String(form.returnWindowDays ?? '') : '');
+  fd.append('easyReturns', easyReturnsPayload(form));
   appendImages(fd, images);
   return fd;
 }

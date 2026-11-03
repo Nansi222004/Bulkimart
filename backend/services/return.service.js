@@ -1,3 +1,4 @@
+import { assertReturnReasonAllowed } from './easyReturns.service.js';
 import { itemGrossPaise, refundProductGst } from './productGst.service.js';
 import { allocatePaise, cumulativePaise, moneyPaise } from '../utils/financeMoney.js';
 import { discountAllocation } from './orderDiscounts.service.js';
@@ -155,6 +156,8 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
     return replay;
   }
   const { order, item } = await getReturnEligibility({ orderId, orderItemId, customerId, quantity });
+  // No Easy Returns: only wrong/damaged/defective, from the order's frozen choice.
+  assertReturnReasonAllowed(item, reason);
 
   const session = await mongoose.startSession();
   let created;
@@ -209,6 +212,7 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
           comment: 'Return requested',
         }],
         returnWindowDaysSnapshot: item.returnPolicy?.returnWindowDays,
+        ...(item.returnOption ? { returnOptionSnapshot: item.returnOption } : {}),
         returnEligibleUntilSnapshot: item.returnEligibleUntil,
         headerCategoryId: item.returnPolicy?.headerCategoryId,
         headerCategoryName: item.returnPolicy?.headerCategoryName,

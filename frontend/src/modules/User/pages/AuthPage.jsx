@@ -92,8 +92,9 @@ const AuthPage = () => {
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     if (isLoading) return;
-    if (!enteredOtp || enteredOtp.trim().length !== 4) {
-      setErrors({ otp: 'Please enter a valid 4-digit OTP' });
+    // OTP length follows the server's OTP_LENGTH (4–6 digits).
+    if (!enteredOtp || !/^\d{4,6}$/.test(enteredOtp.trim())) {
+      setErrors({ otp: 'Please enter the OTP sent to your phone' });
       return;
     }
 
@@ -297,14 +298,14 @@ const AuthPage = () => {
           /* OTP Entry Step */
           <form onSubmit={handleVerifyOTP} className="auth-form-body">
             <div className="auth-input-group" style={{ textAlign: 'center' }}>
-              <label>Enter 4-Digit OTP sent to +91 {phone}</label>
+              <label>Enter the OTP sent to +91 {phone}</label>
               
               <input
                 type="text"
-                maxLength={4}
+                maxLength={6}
                 value={enteredOtp}
                 onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
+                placeholder="••••••"
                 style={{
                   fontSize: '28px',
                   letterSpacing: '12px',

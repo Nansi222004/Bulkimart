@@ -7,7 +7,22 @@ import './BasketGroups.css';
 export const channelLabel = group => group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce';
 export const basketMoney = value => value == null ? 'Unavailable' : `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist, showStock = true }) {
+/** Easy Returns choice on a basket line; switching asks the server to re-price the line. */
+export function ReturnOptionControl({ item, busy, onChange }) {
+  if (!item.returnOption) return null;
+  const easy = item.returnOption === 'EASY_RETURN';
+  const charge = item.easyReturnsOffer?.extraCharge ?? item.returnExtraCharge ?? 0;
+  if (!onChange) {
+    return <p className={`basket-return ${easy ? 'is-easy' : 'is-no'}`}>{easy ? `Easy Returns · +${basketMoney(item.returnExtraCharge)} per unit` : 'No Easy Returns · only wrong, damaged or defective items can be returned'}</p>;
+  }
+  return <div className="basket-return-switch" role="radiogroup" aria-label={`Return option for ${item.name}`}>
+    <button type="button" role="radio" aria-checked={easy} className={easy ? 'is-easy is-active' : 'is-easy'} disabled={busy || easy} onClick={() => onChange(item, 'EASY_RETURN')}>Easy Returns (+{basketMoney(charge)})</button>
+    <button type="button" role="radio" aria-checked={!easy} className={!easy ? 'is-no is-active' : 'is-no'} disabled={busy || !easy} onClick={() => onChange(item, 'NO_EASY_RETURN')}>No Easy Returns</button>
+    <small>{easy ? `Return for any reason within ${item.easyReturnsOffer?.windowDays ?? item.returnEligibilityDays ?? ''} days` : 'Only wrong, damaged or defective items can be returned'}</small>
+  </div>;
+}
+
+export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage, onWishlist, onReturnOption, showStock = true }) {
   const wholesale = group.salesChannel === 'wholesale';
   const minimum = wholesale ? item.wholesaleSnapshot?.minimumQuantity : 1;
   const increment = wholesale ? item.wholesaleSnapshot?.quantityIncrement : 1;
@@ -22,6 +37,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <p>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</p>
       {item.fulfillmentType === 'digital' ? <p>Digital delivery · one licence</p> : item.available === false ? <p>Unavailable — review or remove this item</p> : showStock && <p>Stock: {item.stock}</p>}
       {item.priceChanged && <p role="status">Price changed. Review the current price before checkout.</p>}
+      {!wholesale && <ReturnOptionControl item={item} busy={busy} onChange={onReturnOption ? (line, option) => onReturnOption(line, group, option) : undefined} />}
       {wholesale && item.wholesaleSnapshot && (() => {
         // Only terms that tell the shopper something: a minimum of 1, steps of
         // 1 or a tier that starts at the minimum are the defaults, not news.
@@ -69,5 +85,6 @@ export function BasketSummary({ data }) {
     {summary.sameDayPremium > 0 && <CartTotalRow label="Same-Day Delivery Premium" value={basketMoney(summary.sameDayPremium)} />}
     {summary.couponDiscount > 0 && <CartTotalRow label="Coupon Discount" value={`−${basketMoney(summary.couponDiscount)}`} />}
     <CartTotalRow label="Grand Total" value={basketMoney(summary.totalAmount)} strong />
+    {summary.codFeeQuote > 0 && <p className="basket-note">Cash on Delivery adds {basketMoney(summary.codFeeQuote)} {summary.codFeeLabel}. No extra charge for online payment.</p>}
   </> : <p className="basket-note">Please resolve unavailable items before checkout.</p>}</CartSection>;
 }

@@ -7,6 +7,7 @@ import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
+import LiveChatPanel from '../../../components/support/LiveChatPanel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { useRefreshHandler } from '../../../utils/refreshRegistry';
@@ -36,6 +37,7 @@ const ProfilePage = () => {
     uploadLandmarkImage,
     fetchWalletBalance,
     setWalletBalance,
+    orders: userOrders,
   } = useUser();
 
   const handleDeleteAccount = () => {
@@ -140,7 +142,19 @@ const ProfilePage = () => {
     }
   }, []);
 
-  const [activeSection, setActiveSection] = useState(() => new URLSearchParams(window.location.search).get('section') === 'wallet' ? 'real-wallet' : null);
+  const [activeSection, setActiveSection] = useState(() => {
+    const section = new URLSearchParams(window.location.search).get('section');
+    return section === 'wallet' ? 'real-wallet' : section === 'support' ? 'support' : null;
+  });
+  // Help & Support: existing tickets, or live chat (?section=support&chat=1[&order=<id>]).
+  const [supportView, setSupportView] = useState(() => (new URLSearchParams(window.location.search).get('chat') ? 'chat' : 'tickets'));
+  const [chatOrderId, setChatOrderId] = useState(() => new URLSearchParams(window.location.search).get('order') || '');
+  useEffect(() => {
+    const open = (e) => { setActiveSection('support'); setSupportView('chat'); setChatOrderId(e.detail?.orderId || ''); };
+    window.addEventListener('bulkimart:open-support-chat', open);
+    return () => window.removeEventListener('bulkimart:open-support-chat', open);
+  }, []);
+  const chatOrders = (userOrders || []).slice(0, 30).map((o) => ({ id: o._id, label: `${o.orderNo || o._id} · ${new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` }));
 
   // Each Account section gets its own history entry, so the phone's back button closes the
   // section and lands on the Account menu instead of leaving the page for Home.
@@ -1288,7 +1302,17 @@ const ProfilePage = () => {
       case 'support':
         return (
           <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            {supportJustCreated ? (
+            <div role="tablist" aria-label="Help and support" style={{ display: 'flex', gap: 6, background: '#eaf9fe', borderRadius: 12, padding: 4 }}>
+              {[['tickets', 'Support Tickets'], ['chat', 'Chat with Support']].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={supportView === id} onClick={() => setSupportView(id)}
+                  style={{ flex: 1, border: 0, borderRadius: 9, padding: '10px 8px', fontWeight: 800, fontSize: 13, cursor: 'pointer', background: supportView === id ? '#ffffff' : 'transparent', color: supportView === id ? 'var(--primary-hover, #078ccb)' : '#475569', boxShadow: supportView === id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {supportView === 'chat' ? (
+              <LiveChatPanel relatedOrders={chatOrders} initialRelatedOrderId={chatOrderId} onCreateTicket={() => setSupportView('tickets')} />
+            ) : supportJustCreated ? (
               <div style={{ textAlign: 'center', padding: '24px 10px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '12px', background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '48px' }}>✉️</span>
                 <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Ticket Submitted Successfully!</h4>
