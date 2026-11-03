@@ -1,7 +1,7 @@
 // Port of ProductDetailPage.jsx, plus the product-link loading that UserContext.jsx did on the web
 // (`?product=<id>&purchase=wholesale&variant=`). Route: /product?id&purchase&variant.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,7 +21,7 @@ import { useProductWholesale } from '../hooks/useProductWholesale';
 import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
 import BackButton from '../components/BackButton';
 import { BoltIcon, HeartIcon, ShareIcon } from '../components/icons';
-import { Sheet, Text } from '../components/ui';
+import { Sheet, Text, TextInput } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
 
 const STAR = '12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26';

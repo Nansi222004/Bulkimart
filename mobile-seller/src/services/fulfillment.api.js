@@ -23,6 +23,18 @@ export const selectManualFulfillment = (orderId, riderId) =>
 export const createShiprocketShipment = (orderId, packageSize, quotedCourierCharge) =>
   api.post(`/api/sellers/orders/${requireId(orderId)}/fulfillment/shiprocket`, { confirm: true, package: packageSize, quotedCourierCharge }, { timeout: 45000 });
 
+// Quick Commerce Shiprocket seller fee (backend/controllers/quickShiprocketFee.controller.js).
+// GET → data { snapshot, payment }
+export async function getShiprocketFee(orderId) {
+  const body = await api.get(`/api/sellers/orders/${requireId(orderId)}/shiprocket-fee`);
+  return body?.data || {};
+}
+// POST { confirm:true, reviewedTotal, feeVersion } → data { status, checkout?, snapshot }
+export async function startShiprocketFeePayment(orderId, reviewedTotal, feeVersion) {
+  const body = await api.post(`/api/sellers/orders/${requireId(orderId)}/shiprocket-fee`, { confirm: true, reviewedTotal, feeVersion }, { timeout: 45000 });
+  return body?.data || {};
+}
+
 // GET /api/sellers/orders/:id/invoice → data (one server-built invoice)
 export async function getOrderInvoice(orderId) {
   const body = await api.get(`/api/sellers/orders/${requireId(orderId)}/invoice`);

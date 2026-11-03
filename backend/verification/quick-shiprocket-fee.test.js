@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
-process.env.PAYMENT_GATEWAY='razorpay';process.env.RAZORPAY_MODE='test';process.env.SHIPROCKET_MODE='mock';process.env.SHIPROCKET_QUICK_COMMERCE_ENABLED='true';
+process.env.PAYMENT_GATEWAY='razorpay';process.env.RAZORPAY_MODE='test';process.env.SHIPROCKET_MODE='mock';
 process.env.RAZORPAY_KEY_ID='rzp_test_seller_fee';process.env.RAZORPAY_KEY_SECRET='isolated-seller-secret';process.env.RAZORPAY_WEBHOOK_SECRET='isolated-webhook-secret';
 const original=await import('../services/razorpay.service.js');
 const create=jest.fn(), live=jest.fn();
@@ -105,3 +105,4 @@ test('verified seller collection permits the existing isolated mock shipment wor
  expect({status:response.status,message:response.status>=400?response.body.message:undefined}).toEqual({status:200,message:undefined});
  const fresh=await Order.findById(order._id);expect(fresh.deliveryType).toBe('shiprocket');expect(fresh.fulfillment.chargeStatus).toBe('collected');expect(fresh.shiprocket.environment).toBe('mock');
 });
+test('admin approves policies and switches on charging from the fee settings',async()=>{const policy=Object.fromEntries(['customerSurplusTreatment','returnAndHoldPolicy','cancellationCostPolicy','codReconciliationPolicy','insufficientFundsPolicy','sharedFreightAllocation','liveReleaseApproval'].map(key=>[key,'approved']));await expect(saveQuickCommerceDraft({...configuration(),enabled:true,adminId:user._id,revision:0,policy:{...policy,liveReleaseApproval:'pending_approval'}})).rejects.toMatchObject({status:409});await expect(saveQuickCommerceDraft({...configuration(),adminId:user._id,revision:0,policy:{customerSurplusTreatment:'yes'}})).rejects.toMatchObject({status:400});await saveQuickCommerceDraft({...configuration(),enabled:true,adminId:user._id,revision:0,policy});const row=await Config.findOne().lean();expect(row.enabled).toBe(true);expect(row.policy.liveReleaseApproval).toBe('approved');expect(row.policy.historicalOrderPolicy).toBe('no_retroactive_deductions');expect((await getQuickCommerceConfig()).blockers.filter(b=>/approval|policy|surplus|hold|Cancellation|COD|funds|freight allocation/i.test(b))).toEqual([]);});

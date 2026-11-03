@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';

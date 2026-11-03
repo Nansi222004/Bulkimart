@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, View } from 'react-native';
+import { Text } from './AppText';
 import { colors, spacing, type } from '../theme';
 
 export default function SwitchRow({ label, hint, value, onValueChange, disabled }) {

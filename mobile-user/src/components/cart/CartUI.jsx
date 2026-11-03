@@ -1,12 +1,12 @@
 // Ports of CartUI.jsx, BasketGroups.jsx, CouponThresholdProgress.jsx and finance/ProductGstBreakdown.jsx.
 // Every amount shown is the server's; nothing here computes a price or tax.
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { mediaUrl } from '../../api/client';
 import { paymentSummary } from '../../lib/paymentSummary';
-import { Text } from '../ui';
+import { Text, TextInput } from '../ui';
 import { CartIcon } from '../icons';
 
 export const channelLabel = group => (group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce');

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';

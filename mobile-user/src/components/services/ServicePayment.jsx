@@ -1,11 +1,11 @@
 // Port of components/services/ServicePaymentPanel.jsx and DynamicFields (ServicesPanel.jsx), customer side only.
 // Fee amounts, status and payability come from the application's `billing`; nothing is recomputed here.
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { openRazorpayCheckout } from '../../lib/razorpay';
 import { session } from '../../lib/storage';
-import { Text } from '../ui';
+import { Text, TextInput } from '../ui';
 import SelectField from '../SelectField';
 import { SERVICE_TEXT_CHARS } from '../../shared/serviceLimits';
 

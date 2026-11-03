@@ -2,9 +2,10 @@
 // Web paths → params: /parcel-delivery[/book] → view=book · /history → view=history · /track/:id → view=track&id=.
 // Tracking and history stay live: parcel notifications, a 10 s poll, app foreground and socket reconnect.
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Package } from 'lucide-react-native';
+import { ArrowLeft, Package } from 'lucide-react-native';
 import { useSession } from '../context/SessionContext';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -12,9 +13,8 @@ import { boundedFetch } from '../api/client';
 import { openRazorpayCheckout } from '../lib/razorpay';
 import { socket } from '../lib/socket';
 import { on, EVENTS } from '../lib/events';
-import { CustomerPage, useNavPadding } from '../components/Shell';
-import { HeaderTop, HeaderPinned } from '../components/UnifiedHeader';
-import { Spinner, Text } from '../components/ui';
+import { CustomerPage } from '../components/Shell';
+import { Spinner, Text, TextInput } from '../components/ui';
 import { ServiceHeading } from '../components/services/LegalServices';
 import { newIdempotencyKey } from '../components/services/ServicePayment';
 import { parcelBookingEnabled, parcelBookingReady } from '../components/services/ServiceEntries';
@@ -24,20 +24,35 @@ import { parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from 
 const ID = /^[a-f\d]{24}$/i;
 const INTRO = 'Your parcel, collected and delivered by a Bulkimart delivery partner.';
 
+// Opens as its own page like Legal Services: a theme-coloured title bar with Back, no storefront header/search.
 function Shell({ children }) {
   const theme = useAppTheme();
-  const bottom = useNavPadding(16);
-  return <CustomerPage headerColor={theme.header}>
+  const router = useRouter();
+  const { setActiveNav } = useUser();
+  const insets = useSafeAreaInsets();
+  const { view } = useLocalSearchParams();
+  const title = view === 'history' ? 'Delivery History' : view === 'track' ? 'Track Parcel' : 'Send a Parcel';
+  const back = () => (router.canGoBack() ? router.back() : setActiveNav('home'));
+  return <CustomerPage headerColor={theme.header} nav={false}>
+    <View style={[styles.appbar, { backgroundColor: theme.header }]}>
+      <Pressable onPress={back} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} style={styles.backBtn}><ArrowLeft size={24} color={theme.headerText || '#fff'} /></Pressable>
+      <Text accessibilityRole="header" numberOfLines={1} style={[styles.appbarTitle, { color: theme.headerText || '#fff' }]}>{title}</Text>
+    </View>
     {/* scrollsChildToFocus off: tapping the native map moved focus and Android scrolled the page to the top. */}
-    <ScrollView stickyHeaderIndices={[1]} keyboardShouldPersistTaps="handled" scrollsChildToFocus={false} contentContainerStyle={{ paddingBottom: bottom, backgroundColor: '#f6f8fb', flexGrow: 1 }}>
-      <HeaderTop />
-      <HeaderPinned />
-      <View style={{ paddingTop: 16, paddingHorizontal: 12 }}>{children}</View>
+    <ScrollView keyboardShouldPersistTaps="handled" scrollsChildToFocus={false} style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 12, paddingBottom: 24 + insets.bottom, flexGrow: 1 }}>
+      {children}
     </ScrollView>
   </CustomerPage>;
 }
 
+const styles = StyleSheet.create({
+  appbar: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 12 },
+  backBtn: { padding: 6 },
+  appbarTitle: { flex: 1, fontSize: 18, fontWeight: '800' },
+});
+
 export default function ParcelDeliveryScreen() {
+  const theme = useAppTheme();
   const sessionState = useSession();
   const { setActiveNav } = useUser();
   if (sessionState.verified) return <ParcelDelivery />;
@@ -46,12 +61,13 @@ export default function ParcelDeliveryScreen() {
     <PCard style={{ borderTopWidth: 3, borderTopColor: '#ff8500' }}>
       <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10 }}>Sign in to send a parcel</Text>
       <Text style={{ marginBottom: 12 }}>Sign in to book a parcel or view your private delivery history.</Text>
-      {sessionState.loading ? <Spinner /> : <PBtn title="Sign in to Bulkimart" style={{ backgroundColor: '#D91430', borderColor: '#D91430' }} onPress={() => setActiveNav('account')} />}
+      {sessionState.loading ? <Spinner /> : <PBtn title="Sign in to Bulkimart" style={{ backgroundColor: theme.action, borderColor: theme.action }} onPress={() => setActiveNav('account')} />}
     </PCard>
   </Shell>;
 }
 
 function ParcelDelivery() {
+  const theme = useAppTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
   const sessionState = useSession();
@@ -142,7 +158,7 @@ function ParcelDelivery() {
   const historyRow = b => <Pressable key={b._id} onPress={() => nav('track', b._id)} accessibilityRole="button"
     style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12 }}>
     <Text style={{ flex: 1, fontSize: 13.5, fontWeight: '600', color: '#1e293b' }}>{b.reference} · {parcelCustomerStatus(b.status)} · {parcelMoney(b.feePaise)}</Text>
-    <Text style={{ color: '#D91430', fontWeight: '700', fontSize: 16, marginLeft: 8 }}>→</Text>
+    <Text style={{ color: theme.action, fontWeight: '700', fontSize: 16, marginLeft: 8 }}>→</Text>
   </Pressable>;
 
   if (checkoutActive) return <Shell><PCard style={{ alignItems: 'center', gap: 8 }}>
@@ -175,7 +191,7 @@ function ParcelDelivery() {
       <Text style={{ marginVertical: 8 }}>You can still view and track your existing deliveries from Delivery history.</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <PBtn title="Check availability" onPress={() => refresh(x => x + 1)} />
-        <PBtn title="Back to shopping" style={{ backgroundColor: '#D91430', borderColor: '#D91430' }} onPress={() => setActiveNav('home')} />
+        <PBtn title="Back to shopping" style={{ backgroundColor: theme.action, borderColor: theme.action }} onPress={() => setActiveNav('home')} />
       </View>
     </PCard>
       : track && booking ? <>
@@ -202,10 +218,10 @@ function ParcelDelivery() {
         : history ? <PCard>
           <Text style={{ fontSize: 21, fontWeight: '700', marginBottom: 12 }}>Your parcel deliveries</Text>
           {!rows.length ? <View style={{ alignItems: 'center', paddingTop: 32, paddingBottom: 20, paddingHorizontal: 16 }}>
-            <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#fdf0f2', borderWidth: 1, borderColor: '#f5c2c9', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}><Package size={36} color="#D91430" /></View>
+            <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#fdf0f2', borderWidth: 1, borderColor: '#f5c2c9', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}><Package size={36} color={theme.action} /></View>
             <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e293b', marginBottom: 6 }}>No parcel bookings yet.</Text>
             <Text style={{ fontSize: 13.5, color: '#64748b', maxWidth: 360, marginBottom: 20, lineHeight: 20, textAlign: 'center' }}>When you book a parcel pickup or delivery, its status and tracking will appear here.</Text>
-            <PBtn title="Book a parcel →" style={{ backgroundColor: '#D91430', borderColor: '#D91430' }} onPress={() => nav('book')} />
+            <PBtn title="Book a parcel →" style={{ backgroundColor: theme.action, borderColor: theme.action }} onPress={() => nav('book')} />
           </View> : <>
             {rows.map(historyRow)}
             {meta.pages > 1 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 18 }}>

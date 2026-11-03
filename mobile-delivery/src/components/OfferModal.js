@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Linking, Modal, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Linking, Modal, ScrollView, StyleSheet, Vibration, View } from 'react-native';
+import { Text } from './AppText';
 import AppButton from './AppButton';
 import KeyValueRow from './KeyValueRow';
 import { colors, radius, spacing, type } from '../theme';

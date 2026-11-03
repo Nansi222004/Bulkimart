@@ -74,7 +74,9 @@ export function themeFrom(tokens = {}) {
     headerBg: t.header,
     radius: t.card === 'square' ? 4 : 20,
     buttonRadius: t.button === 'pill' ? 99 : 10,
-    fontFamily: { system: undefined, sans: 'sans-serif', serif: 'serif' }[t.font],
+    // Bundled Inter instead of the platform font: phone font themes (Oppo/Vivo/Realme…) replace the
+    // platform font and would otherwise restyle the whole app.
+    fontFamily: { system: 'Inter', sans: 'Inter', serif: 'serif' }[t.font] || 'Inter',
   };
 }
 

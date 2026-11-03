@@ -17,7 +17,8 @@ export const getShiprocketCapabilities = (env = process.env) => {
     tracking: configured,
     pickupScheduling: configured,
     labelGeneration: configured,
-    quickCommerce: env.SHIPROCKET_QUICK_COMMERCE_ENABLED === 'true',
+    // Always on: Quick Commerce uses Shiprocket whenever Shiprocket itself is configured.
+    quickCommerce: configured,
   };
 };
 

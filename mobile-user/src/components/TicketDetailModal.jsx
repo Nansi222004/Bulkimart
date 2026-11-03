@@ -1,8 +1,8 @@
 // Port of components/support/TicketDetailModal.jsx: one support conversation with reply / reopen.
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { mediaUrl } from '../api/client';
-import { Text } from './ui';
+import { Text, TextInput } from './ui';
 
 const STATUS_COLORS = { OPEN: '#3b82f6', IN_PROGRESS: '#f59e0b', WAITING_FOR_USER: '#a855f7', RESOLVED: '#16a34a', CLOSED: '#64748b', REOPENED: '#dc2626' };
 const fmt = iso => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });

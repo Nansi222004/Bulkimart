@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { Alert, Linking, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
@@ -170,7 +171,7 @@ export default function OrderDetailScreen({ route, navigation }) {
             {delivery.completedAt ? <KeyValueRow label="Completed" value={`${fullDate(delivery.completedAt)} · OTP verified: ${delivery.otpVerified ? 'Yes' : 'No'}`} /> : null}
           </>
         ) : (
-          <Text style={type.small}>{order.fulfillment?.method === 'manual' ? 'Waiting for an eligible rider to accept. Sellers do not assign riders directly.' : 'Manual delivery not assigned.'}</Text>
+          <Text style={type.small}>{order.fulfillment?.method === 'manual' ? 'Sent to Bulkimart delivery partners. Waiting for a rider to accept.' : 'Manual delivery not assigned.'}</Text>
         )}
       </Card>
 

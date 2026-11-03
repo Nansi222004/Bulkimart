@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import SwitchRow from '../../components/SwitchRow';
 import { EmptyView, ErrorView, InlineNotice, LoadingView } from '../../components/StateViews';

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Text } from './AppText';
 import { colors, radius, spacing } from '../theme';
 
 // Horizontal filter chips. options: [{ value, label, count? }]

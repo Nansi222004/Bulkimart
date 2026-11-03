@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
 import AppInput from '../../components/AppInput';

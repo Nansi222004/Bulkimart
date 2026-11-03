@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
 import useApiResource from '../../hooks/useApiResource';
 import { listSellerOrders } from '../../services/seller.api';

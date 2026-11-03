@@ -6,7 +6,7 @@ import { getInitialNotification, onForegroundMessage, onNotificationOpened, onTo
 
 /**
  * Mounted only inside the approved seller stack, so every target screen exists.
- * - Re-registers the token if the seller turned push on earlier; follows token refreshes.
+ * - Registers this device for push on sign-in (unless the seller turned it off); follows token refreshes.
  * - Notification tapped (background / app closed) → open the matching screen.
  * - Foreground message → in-app alert with an Open button (Android doesn't show a tray notification in the foreground).
  */

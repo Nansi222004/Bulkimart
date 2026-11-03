@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';

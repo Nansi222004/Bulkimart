@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';

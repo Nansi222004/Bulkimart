@@ -1,7 +1,7 @@
 // Port of modules/User/pages/WriteReviewPage.jsx (route /review/[id]). Up to 4 JPG/PNG/WEBP photos (≤5 MB each
 // when picked); each upload is resized to ≤192 KB like utils/reviewPhoto.js so four photos stay under 1 MiB.
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -13,7 +13,7 @@ import { mediaUrl, request, getToken } from '../api/client';
 import { appendFormFile } from '../lib/formData';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useFeedback } from '../lib/feedback';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 
 const RATING_LABELS = { 5: 'Loved It!', 4: 'Good!', 3: 'Average', 2: 'Fair', 1: 'Poor' };
 const REVIEW_PHOTO_UPLOAD_BYTES = 192 * 1024;

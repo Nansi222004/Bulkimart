@@ -14,7 +14,7 @@ import Payment from '../models/Payment.js';
 import Snapshot from '../models/QuickCommerceFinancialSnapshot.js';
 import { requireVerifiedQuickCollection } from '../services/quickShiprocketCollection.service.js';
 import { riderIneligibility } from '../services/riderEligibility.service.js';
-import { notifyRider, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { notifyRider, notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
 import { riderCodCashBalances, riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
 import { RIDER_COD_CASH_LIMIT } from '../shared/deliveryCash.mjs';
@@ -203,6 +203,12 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
     throw httpError(409, 'Accept and prepare the order before selecting manual delivery');
   }
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
+  // A repeated click (double tap, slow network retry) with the same choice is
+  // already done: no second timeline entry, no second rider alert.
+  if (order.status === ORDER_STATUS.DISPATCHED && order.fulfillment?.method === 'manual' && !order.needsManualAssignment
+      && String(order.fulfillment?.requestedRiderId || '') === String(riderId || '')) {
+    return ok(res, { status: order.status, deliveryType: order.deliveryType, fulfillment: order.fulfillment }, 'Order already sent to Bulkimart delivery partners');
+  }
   if (riderId) {
     const rider = await DeliveryPartner.findById(riderId).populate('userId', 'isActive roles');
     if (!rider || riderIneligibility(rider, rider.userId, { ...(order.toObject?.() || order), fulfillment: {} }, storePickup(seller))
@@ -211,17 +217,35 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
       throw httpError(409, 'This delivery partner is no longer eligible. Refresh availability and select another partner.');
     }
   }
+  // Choosing manual delivery on a prepared parcel also sends it to riders, so
+  // the seller does not need a separate "Offer to Bulkimart riders" step.
+  const dispatchNow = order.status === ORDER_STATUS.PREPARING;
+  const nextStatus = dispatchNow ? ORDER_STATUS.DISPATCHED : order.status;
+  const now = new Date();
   const updated = await Order.findOneAndUpdate({
     _id: order._id, status: order.status, 'vendorDecision.status': 'accepted',
     __v: order.__v, 'fulfillment.method': order.fulfillment?.method || null,
     'shiprocket.orderId': null, 'shiprocket.shipmentId': null,
     'shiprocket.status': { $nin: activeShipmentStates }, deliveryId: null, deliveryPartnerId: null,
   }, { $set: {
+    status: nextStatus,
+    ...(dispatchNow && !order.fulfillment?.readyAt ? { 'fulfillment.readyAt': now } : {}),
     deliveryType: 'internal', 'fulfillment.method': 'manual', 'fulfillment.selectedBy': 'seller',
-    'fulfillment.selectedAt': new Date(), 'fulfillment.chargeStatus': 'not_applicable',
+    'fulfillment.selectedAt': now, 'fulfillment.chargeStatus': 'not_applicable',
     'fulfillment.requestedRiderId': riderId || null, 'fulfillment.requestedRiderNotifiedAt': null, needsManualAssignment: false,
-  }, $push: { timeline: { status: order.status, timestamp: new Date(), note: riderId ? 'Seller requested a delivery partner; awaiting rider acceptance' : 'Seller selected manual delivery; riders accept after the parcel is offered' } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
+  }, $push: { timeline: { status: nextStatus, timestamp: now, note: dispatchNow
+    ? (riderId ? 'Seller chose Bulkimart delivery and sent the order to the selected delivery partner' : 'Seller chose Bulkimart delivery and sent the order to nearby delivery partners')
+    : (riderId ? 'Seller requested a delivery partner; awaiting rider acceptance' : 'Seller selected manual delivery; riders accept after the parcel is offered') } }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true });
   if (!updated) throw httpError(409, 'Order changed or a courier shipment is already being set up. Refresh before choosing delivery.');
+  if (dispatchNow) {
+    // Same customer update the separate dispatch step used to send.
+    import('../socket/rooms.js').then(({ emitToUser }) => emitToUser(updated.userId, 'order_status_updated', { orderId: updated._id, status: updated.status, timeline: updated.timeline })).catch(() => {});
+    notifyUser(updated.userId, {
+      event: NOTIFICATION_EVENT.ORDER_STATUS_UPDATED, title: 'Order update',
+      message: `Order ${updated.orderNo} is now ${updated.status}.`,
+      metadata: { orderId: updated._id }, route: '/orders',
+    }).catch(e => console.error('[NOTIFICATION] notifyUser (order status) failed:', e.message));
+  }
   if (updated.status === ORDER_STATUS.DISPATCHED) {
     // The broadcast pushes the requested rider an acceptable offer.
     const { broadcastNewOrderToRiders } = await import('./deliveryPartner.controller.js');
@@ -236,7 +260,7 @@ export const selectManualFulfillment = asyncHandler(async (req, res) => {
       route: '/delivery/dashboard',
     }).catch(e => console.error('[NOTIFICATION] notifyRider (requested) failed:', e.message));
   }
-  return ok(res, { deliveryType: updated.deliveryType, fulfillment: updated.fulfillment }, 'Manual Bulkimart delivery selected');
+  return ok(res, { status: updated.status, deliveryType: updated.deliveryType, fulfillment: updated.fulfillment }, dispatchNow ? (riderId ? 'Order sent to the selected delivery partner. They will accept it in their app.' : 'Order sent to nearby Bulkimart delivery partners.') : 'Manual Bulkimart delivery selected');
 });
 
 export const createShiprocketShipment = asyncHandler(async (req, res) => {

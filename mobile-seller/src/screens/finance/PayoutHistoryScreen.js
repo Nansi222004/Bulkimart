@@ -1,5 +1,6 @@
 import React from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
 import useApiResource from '../../hooks/useApiResource';
 import { loadSellerFinances } from '../../services/finance';

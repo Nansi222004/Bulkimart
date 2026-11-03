@@ -1,6 +1,6 @@
 // Port of modules/User/pages/CategoriesPage.jsx.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { BackHandler, FlatList, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { useUser } from '../context/UserContext';
@@ -13,7 +13,7 @@ import { CustomerPage, useNavPadding } from '../components/Shell';
 import { CategoryArtwork, SponsoredCategoryBlock } from '../components/home/HomeSections';
 import WishlistHeartButton from '../components/WishlistHeartButton';
 import { ChevronLeft, SearchIcon } from '../components/icons';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
 
 const customerRoots = tree => (tree || []).flatMap(category => (category.isSystem ? category.children || [] : [category]));

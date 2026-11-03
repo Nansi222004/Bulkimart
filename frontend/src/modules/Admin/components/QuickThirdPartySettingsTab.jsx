@@ -5,7 +5,18 @@ import { hint } from './financeText';
 
 const card = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 18, minWidth: 0 };
 const input = { display: 'block', width: '100%', boxSizing: 'border-box', padding: 10, marginTop: 5, minHeight: 44 };
-const initial = { type: '', value: '', version: '', calculationBasis: '', minimum: '', maximum: '', taxTreatment: '', taxRate: '', currency: 'INR', effectiveAt: '', paymentRequired: true, enabled: false };
+// Business policies that must be approved before sellers can be charged.
+const POLICIES = [
+  ['customerSurplusTreatment', 'Customer delivery-charge surplus', 'What happens when the customer paid more delivery charge than the courier freight.'],
+  ['returnAndHoldPolicy', 'Return window and hold', 'How returns affect the fee and seller balance.'],
+  ['cancellationCostPolicy', 'Cancellation costs', 'Who bears the fee when an order is cancelled after payment.'],
+  ['codReconciliationPolicy', 'COD reconciliation', 'How cash-on-delivery orders are settled.'],
+  ['insufficientFundsPolicy', 'Insufficient seller funds', 'Seller must pay online before shipping; no shipment without payment.'],
+  ['sharedFreightAllocation', 'Shared freight allocation', 'How freight is split when one shipment carries several orders.'],
+  ['liveReleaseApproval', 'Live release approval', 'Confirms the live Shiprocket and payment setup has been tested.'],
+];
+const initialPolicy = Object.fromEntries(POLICIES.map(([key]) => [key, false]));
+const initial = { policy: initialPolicy, type: '', value: '', version: '', calculationBasis: '', minimum: '', maximum: '', taxTreatment: '', taxRate: '', currency: 'INR', effectiveAt: '', paymentRequired: true, enabled: false };
 const amount = value => value == null ? '—' : '₹' + Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
 export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
@@ -20,7 +31,7 @@ export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
     try {
       const { data } = await adminGet('/quick-commerce-third-party-config'); setState(data);
       const cfg = data.config || {}, fee = cfg.fee || {};
-      setForm({ ...initial, ...fee, type: fee.type || '', calculationBasis: fee.calculationBasis || '', taxTreatment: ['inclusive','exclusive','exempt'].includes(fee.taxTreatment) ? fee.taxTreatment : '', value: fee.value ?? '', taxRate: fee.taxRate ?? '', minimum: fee.minimum ?? '', maximum: fee.maximum ?? '', version: fee.version || '', currency: cfg.currency || 'INR', effectiveAt: cfg.effectiveAt ? new Date(cfg.effectiveAt).toISOString().slice(0,16) : '', paymentRequired: cfg.paymentRequired ?? true, enabled: cfg.enabled === true });
+      setForm({ ...initial, ...fee, type: fee.type || '', calculationBasis: fee.calculationBasis || '', taxTreatment: ['inclusive','exclusive','exempt'].includes(fee.taxTreatment) ? fee.taxTreatment : '', value: fee.value ?? '', taxRate: fee.taxRate ?? '', minimum: fee.minimum ?? '', maximum: fee.maximum ?? '', version: fee.version || '', currency: cfg.currency || 'INR', effectiveAt: cfg.effectiveAt ? new Date(cfg.effectiveAt).toISOString().slice(0,16) : '', paymentRequired: cfg.paymentRequired ?? true, enabled: cfg.enabled === true, policy: Object.fromEntries(POLICIES.map(([key]) => [key, cfg.policy?.[key] === 'approved' || (cfg.policy?.[key] && cfg.policy[key] !== 'pending_approval')])) });
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const loadRecords = async (nextPage = page) => {
@@ -36,6 +47,7 @@ export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
     if (form.type === 'percent' && Number(form.value) > 100) return setError('Percentage cannot exceed 100.');
     if (form.minimum !== '' && form.maximum !== '' && Number(form.minimum) > Number(form.maximum)) return setError('Minimum cannot exceed maximum.');
     if (form.taxTreatment === 'exempt' && Number(form.taxRate) !== 0) return setError('Exempt tax requires an explicit zero rate.');
+    if (form.enabled && !POLICIES.every(([key]) => form.policy[key])) return setError('Approve all policies before switching on charging.');
     if (!review) { setReview(true); return; }
     setBusy(true);
     try {
@@ -45,7 +57,7 @@ export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
       const taxTreatment = form.taxTreatment || 'inclusive';
       const taxRate = form.taxTreatment === 'exempt' ? 0 : (form.taxRate !== '' ? Number(form.taxRate) : 18);
       const fee = { type: form.type, value: Number(form.value), version, calculationBasis, minimum: form.minimum === '' ? null : Number(form.minimum), maximum: form.maximum === '' ? null : Number(form.maximum), taxTreatment, taxRate };
-      const { data } = await adminPatch('/quick-commerce-third-party-config', { fee, revision: state?.config?.revision || 0, currency: form.currency, effectiveAt, paymentRequired: form.paymentRequired, enabled: form.enabled });
+      const { data } = await adminPatch('/quick-commerce-third-party-config', { fee, revision: state?.config?.revision || 0, currency: form.currency, effectiveAt, paymentRequired: form.paymentRequired, enabled: form.enabled, policy: Object.fromEntries(POLICIES.map(([key]) => [key, form.policy[key] ? 'approved' : 'pending_approval'])) });
       setState(data); setReview(false); setNotice('Configuration saved. Charging remains subject to all approval checks.');
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
@@ -56,7 +68,7 @@ export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
     {error && <p role="alert" style={{ color: '#b91c1c' }}>{error}</p>}{notice && <p role="status">{notice}</p>}
     <div style={{ ...card, background: '#fff7ed' }}><strong>Charging sellers: {state?.config?.enabled && state?.activationReady ? 'On' : 'Off'}</strong><p>Status: { !state ? 'Loading' : !state.config?.revision ? 'Not configured' : !state.config.enabled ? 'Saved but switched off' : !state.activationReady ? 'Switched on, waiting for server approvals' : new Date(state.config.effectiveAt) > new Date() ? 'Starts later' : 'Active' }. Saving replaces the current fee. Charging requires approved policies, provider verification and an effective fee rule.</p>{state?.blockers?.length > 0 && <><p>Still needed before charging:</p><ul>{state.blockers.map(item => <li key={item}>{item}</li>)}</ul></>}</div>
     {view !== 'records' && <>
-    {review ? <FinanceReview title={form.enabled ? 'Review Shiprocket fee (switch on)' : 'Review Shiprocket fee (saved switched off)'} values={{Method:form.type,Value:form.value,Base:form.calculationBasis,'Minimum ₹':form.minimum || 'None','Maximum ₹':form.maximum || 'None',GST:form.taxTreatment+' '+form.taxRate+'%',Version:form.version,'Starts (UTC)':form.effectiveAt,'Seller pays before shipping':form.paymentRequired ? 'Yes' : 'No',Status:form.enabled?'Switch on (server approvals still apply)':'Saved switched off'}} busy={busy} onConfirm={()=>save({preventDefault(){}})} onCancel={()=>setReview(false)} /> : <form onSubmit={save} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} style={card}>
+    {review ? <FinanceReview title={form.enabled ? 'Review Shiprocket fee (switch on)' : 'Review Shiprocket fee (saved switched off)'} values={{Method:form.type,Value:form.value,Base:form.calculationBasis,'Minimum ₹':form.minimum || 'None','Maximum ₹':form.maximum || 'None',GST:form.taxTreatment+' '+form.taxRate+'%',Version:form.version,'Starts (UTC)':form.effectiveAt,'Seller pays before shipping':form.paymentRequired ? 'Yes' : 'No','Policies approved':`${POLICIES.filter(([key]) => form.policy[key]).length} of ${POLICIES.length}`,Status:form.enabled?'Switch on charging':'Saved switched off'}} busy={busy} onConfirm={()=>save({preventDefault(){}})} onCancel={()=>setReview(false)} /> : <form onSubmit={save} onInvalid={e=>e.target.closest('details')?.setAttribute('open','')} style={card}>
       <h3>Fee charged to sellers for Shiprocket shipping</h3><p className="finance-muted">Platform fee charged to sellers when shipping Quick Commerce orders via Shiprocket.</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,200px),1fr))', gap: 16 }}>
         <label>Calculation method<select required style={input} value={form.type} onChange={e => change('type',e.target.value)}><option value="">Choose</option><option value="flat">Fixed amount</option><option value="percent">Percentage</option></select>{hint('Fixed ₹ fee or percentage.')}</label>
@@ -73,6 +85,12 @@ export default function QuickThirdPartySettingsTab({ view = 'all' } = {}) {
         <label>Currency<select style={input} value={form.currency} onChange={e=>change('currency',e.target.value)}><option value="INR">INR</option></select></label>
       </div></details>
       <p><label><input type="checkbox" checked={form.paymentRequired} disabled={form.paymentRequired} onChange={()=>change('paymentRequired',true)} /> Seller must pay before the shipment is created</label></p>
+      <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', margin: '14px 0' }}>
+        <legend style={{ fontWeight: 600, padding: '0 6px' }}>Policy approvals ({POLICIES.filter(([key]) => form.policy[key]).length} of {POLICIES.length})</legend>
+        <p className="finance-muted" style={{ marginTop: 0 }}>All policies must be approved before charging can be switched on.</p>
+        <p><label><input type="checkbox" checked={POLICIES.every(([key]) => form.policy[key])} onChange={e => change('policy', Object.fromEntries(POLICIES.map(([key]) => [key, e.target.checked])))} /> <strong>Approve all</strong></label></p>
+        {POLICIES.map(([key, label, help]) => <p key={key} style={{ margin: '8px 0' }}><label><input type="checkbox" checked={form.policy[key]} onChange={e => change('policy', { ...form.policy, [key]: e.target.checked })} /> {label}</label><br /><small className="finance-muted">{help}</small></p>)}
+      </fieldset>
       <p><label><input type="checkbox" checked={form.enabled} onChange={e=>change('enabled',e.target.checked)} /> Switch on charging</label></p>{hint('Leave off to save the fee without charging sellers yet.')}
       <button disabled={busy || !state} style={{...input,width:'auto',border:0,borderRadius:8,background:'#08B9E8',color:'#0B2D6B'}}>Review configuration</button>
     </form>}

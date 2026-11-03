@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import AppButton from './AppButton';
 import { colors, radius, spacing, type } from '../theme';
 

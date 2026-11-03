@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import StatusPill from '../../components/StatusPill';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
 import AppButton from '../../components/AppButton';

@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';
 import KeyValueRow from '../../components/KeyValueRow';

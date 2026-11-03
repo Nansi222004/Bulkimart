@@ -1,13 +1,22 @@
 // Shared building blocks used on more than one screen.
 import React, { useEffect } from 'react';
-import { ActivityIndicator, BackHandler, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, TextInput, View } from 'react-native';
+import { ActivityIndicator, BackHandler, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, TextInput as RNTextInput, View } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';
 import { base } from '../theme';
 
-/** Text in the storefront font (Studio "system" = platform font). */
-export function Text({ style, ...props }) {
+/** How far the phone's "font size" setting may enlarge text before layouts break. */
+export const MAX_FONT_SCALE = 1.1;
+
+/** Text in the storefront font (bundled, so phone font themes don't change it). */
+export function Text({ style, maxFontSizeMultiplier = MAX_FONT_SCALE, ...props }) {
   const theme = useAppTheme();
-  return <RNText {...props} style={[{ color: theme.textPrimary }, theme.fontFamily ? { fontFamily: theme.fontFamily } : null, style]} />;
+  return <RNText maxFontSizeMultiplier={maxFontSizeMultiplier} {...props} style={[{ color: theme.textPrimary }, theme.fontFamily ? { fontFamily: theme.fontFamily } : null, style]} />;
+}
+
+/** TextInput in the storefront font, with the same font-scale cap as Text. */
+export function TextInput({ style, maxFontSizeMultiplier = MAX_FONT_SCALE, ...props }) {
+  const theme = useAppTheme();
+  return <RNTextInput maxFontSizeMultiplier={maxFontSizeMultiplier} {...props} style={[theme.fontFamily ? { fontFamily: theme.fontFamily } : null, style]} />;
 }
 
 /** Outfit/Inter where the web CSS names them explicitly. */

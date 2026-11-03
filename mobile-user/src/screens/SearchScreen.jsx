@@ -1,6 +1,6 @@
 // Port of modules/User/pages/SearchPage.jsx.
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -11,7 +11,7 @@ import { CustomerPage, useNavPadding } from '../components/Shell';
 import BackButton from '../components/BackButton';
 import ImageSearchSheet, { ImageSearchButton, searchProductsByImage, validateSearchImage } from '../components/ImageSearchSheet';
 import { CloseIcon, MicIcon, SearchIcon } from '../components/icons';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
 
 const RECENT_KEY = 'nhcone_recent_searches';

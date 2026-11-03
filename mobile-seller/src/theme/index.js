@@ -57,6 +57,12 @@ export const orderPill = {
 
 export const navigationTheme = {
   ...DefaultTheme,
+  fonts: {
+    regular: { fontFamily: 'Inter', fontWeight: '400' },
+    medium: { fontFamily: 'Inter', fontWeight: '500' },
+    bold: { fontFamily: 'Inter', fontWeight: '600' },
+    heavy: { fontFamily: 'Inter', fontWeight: '700' },
+  },
   colors: {
     ...DefaultTheme.colors,
     primary: colors.primaryDark,

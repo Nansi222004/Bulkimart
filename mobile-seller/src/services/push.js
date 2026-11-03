@@ -26,7 +26,8 @@ export async function getDeviceId() {
   return deviceId;
 }
 
-export const isPushEnabled = async () => (await AsyncStorage.getItem(KEYS.enabled)) === 'true';
+// On by default so order alerts work without finding a setting; only an explicit "off" disables it.
+export const isPushEnabled = async () => (await AsyncStorage.getItem(KEYS.enabled)) !== 'false';
 
 // Android 13+ needs POST_NOTIFICATIONS at runtime. Asked only when the seller turns push on.
 export async function requestPushPermission() {
@@ -55,12 +56,10 @@ export async function enablePush() {
   return { ok: true };
 }
 
-/** Re-register the current token after sign-in if the seller had push turned on. */
+/** Register this device after sign-in unless the seller turned push off (asks for permission on Android 13+). */
 export async function syncPushIfEnabled() {
   if (!(await isPushEnabled())) return false;
-  const token = await getToken(fcm());
-  if (token) await sendToken(token);
-  return true;
+  return (await enablePush()).ok;
 }
 
 /** Remove this device's token from the backend. sessionToken is passed explicitly because it runs during sign-out. */

@@ -294,7 +294,7 @@ test('seller must accept and prepare before choosing delivery; dispatch cannot s
   const order = await placed(); await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(409);
   await state(order, 'confirmed').expect(200); await state(order, 'preparing').expect(200); await state(order, 'dispatched').expect(409);
   await state(order, 'ready_for_pickup').expect(200);
-  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(200); await state(order, 'dispatched').expect(200);
+  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(200); expect((await Order.findById(order._id)).status).toBe('dispatched');
   expect((await Order.findById(order._id)).deliveryType).toBe('internal'); expect(broadcast).toHaveBeenCalledTimes(1);
 });
 test('seller rejection requires reason, restores stock and refunds wallet exactly once', async () => {
@@ -330,7 +330,7 @@ test('Quick Commerce stays internal and third-party activation remains blocked',
   const order = await prepared(); expect(order.type).toBe('grocery'); expect(order.deliveryType).toBe('internal');
   const options = await sellerAuth(request(app).get('/seller/' + order._id + '/options')).expect(200); expect(options.body.data.shiprocket.available).toBe(false);
   await ship(order).expect(409); expect(createShiprocketOrder).not.toHaveBeenCalled();
-  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(200); await state(order, 'dispatched').expect(200);
+  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(200); expect((await Order.findById(order._id)).status).toBe('dispatched');
 });
 test('address, stock, seller serviceability and invalid payment remain authoritative', async () => {
   await checkout('/orders/unified', { shippingAddress: {} }).expect(400);
@@ -449,7 +449,7 @@ test('ready step is required, versioned and idempotent; delivery selection prese
   await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(409);
   await sellerAuth(request(app).patch('/seller/' + order._id + '/status')).send({ status: 'ready_for_pickup', version: -1 }).expect(409);
   await state(order, 'ready_for_pickup').expect(200); await state(order, 'ready_for_pickup').expect(200);
-  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).send({ riderId: String(id()) }).expect(400);
+  await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).send({ riderId: String(id()) }).expect(409);
   const concurrent = await Promise.all([1, 2].map(() => sellerAuth(request(app).post('/seller/' + order._id + '/manual'))));
   expect(concurrent.some(result => result.status === 200)).toBe(true);
   expect(concurrent.every(result => [200, 409].includes(result.status))).toBe(true);
@@ -457,7 +457,7 @@ test('ready step is required, versioned and idempotent; delivery selection prese
   await sellerAuth(request(app).post('/seller/' + order._id + '/manual')).expect(200);
   const saved = await Order.findById(order._id);
   expect(saved.timeline.filter(e => e.note?.includes('marked the parcel ready'))).toHaveLength(1);
-  expect(saved.timeline.filter(e => e.note?.includes('selected manual delivery'))).toHaveLength(1);
+  expect(saved.timeline.filter(e => e.note?.includes('chose Bulkimart delivery'))).toHaveLength(1);
   expect(saved.deliveryId).toBeUndefined();
 });
 

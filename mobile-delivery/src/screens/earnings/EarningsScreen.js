@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { v4 as uuidv4 } from 'uuid';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';

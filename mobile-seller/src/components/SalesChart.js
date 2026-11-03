@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Text } from './AppText';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { colors, radius, spacing, type } from '../theme';
 

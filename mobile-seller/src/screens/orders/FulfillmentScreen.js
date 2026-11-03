@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';
@@ -8,6 +9,7 @@ import { ErrorView, InlineNotice, LoadingView } from '../../components/StateView
 import useApiResource from '../../hooks/useApiResource';
 import { createShiprocketShipment, getFulfillmentOptions, selectManualFulfillment } from '../../services/fulfillment.api';
 import { addressText, orderMoney } from '../../utils/format';
+import ShiprocketFeeCard from './ShiprocketFeeCard';
 import { colors, radius, spacing, type } from '../../theme';
 
 // Native port of the "Choose delivery method" panel in OrdersTab.jsx, opened by a server `setup` action.
@@ -96,9 +98,9 @@ export default function FulfillmentScreen({ route, navigation }) {
             );
           })}
           {!onlineRiders.length ? <InlineNotice tone="warning">No active delivery partners right now. Refresh to check for on-duty riders with capacity and coverage for this order.</InlineNotice> : null}
-          <Text style={type.small}>Select a delivery partner to request them, or leave it open to eligible riders. Riders accept offers in their delivery app before they are assigned.</Text>
+          <Text style={type.small}>Select a delivery partner to send this order to them, or leave it open to all nearby riders. The order is sent as soon as you confirm, and the rider accepts it in their delivery app.</Text>
           {!manual.available && manual.reason ? <InlineNotice tone="warning">{manual.reason}</InlineNotice> : null}
-          <AppButton title="Confirm manual delivery" loading={busy} disabled={!manual.available} onPress={confirmManual} />
+          <AppButton title={riderId ? 'Confirm & send to rider' : 'Confirm & send to nearby riders'} loading={busy} disabled={!manual.available} onPress={confirmManual} />
           <AppButton small variant="ghost" title="Check store pickup location" onPress={() => navigation.navigate('PickupSync')} />
         </Card>
       ) : null}
@@ -110,11 +112,7 @@ export default function FulfillmentScreen({ route, navigation }) {
           <Text style={type.small}>{ship.reason || 'Serviceability is checked before any shipment is created.'}</Text>
           <Text style={type.small}>Weight from order item snapshots: {ship.packageWeightKg || 'Unavailable'} kg</Text>
           {ship.activation?.blockers?.length ? <InlineNotice tone="warning">Live Quick third-party shipping is disabled: {ship.activation.blockers.join('; ')}.</InlineNotice> : null}
-          {isQuick ? (
-            <InlineNotice tone="info">
-              Quick Commerce courier shipments need the Shiprocket fee paid first (fee status: {ship.feeCollection?.status || 'unknown'}). Fee payment is not available in this version of the app; pay it on the Bulkimart seller website, then come back here.
-            </InlineNotice>
-          ) : null}
+          {isQuick ? <ShiprocketFeeCard orderId={orderId} provider={ship} onPaid={refresh} /> : null}
           {!isQuick && ship.quote ? (
             <InlineNotice tone="info">Estimated courier freight: {orderMoney(ship.quote.courierCharge)}. Provider estimate only. The customer's checkout delivery charge stays unchanged.</InlineNotice>
           ) : null}

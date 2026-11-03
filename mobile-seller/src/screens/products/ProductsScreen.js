@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import AppInput from '../../components/AppInput';
 import ChipRow from '../../components/ChipRow';

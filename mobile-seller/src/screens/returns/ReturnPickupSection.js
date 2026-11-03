@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';
 import { InlineNotice } from '../../components/StateViews';

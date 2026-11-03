@@ -1,12 +1,12 @@
 // Port of modules/User/pages/AuthPage.jsx — customer Sign In / Register with phone OTP.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { ArrowRight } from '../components/icons';
 import RegistrationTerms from '../components/RegistrationTerms';
 

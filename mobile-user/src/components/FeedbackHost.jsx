@@ -1,10 +1,10 @@
 // Native rendering of the web FeedbackProvider: toasts at the top, one confirmation dialog at a time.
 import React, { useEffect, useSyncExternalStore } from 'react';
-import { Modal, Pressable, StyleSheet, TextInput, View, KeyboardAvoidingView } from 'react-native';
+import { Modal, Pressable, StyleSheet, View, KeyboardAvoidingView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { feedback } from '../lib/feedback';
 import { on, EVENTS } from '../lib/events';
-import { Text } from './ui';
+import { Text, TextInput } from './ui';
 
 const ICON = { success: '✓', error: '!', warning: '⚠', info: 'i' };
 const LABEL = { success: 'Success', error: 'Error', warning: 'Warning', info: 'Information' };

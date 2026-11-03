@@ -48,8 +48,8 @@ export const listQuickShiprocketFeesAdmin = asyncHandler(async (req, res) => {
 });
 
 export const updateQuickCommerceDeliveryConfigAdmin = asyncHandler(async (req, res) => {
-  const config = await saveQuickCommerceDraft({ fee: req.body?.fee, enabled: req.body?.enabled, adminId: req.user._id, currency: req.body?.currency, effectiveAt: req.body?.effectiveAt, paymentRequired: req.body?.paymentRequired, revision: req.body?.revision });
-  return ok(res, { ...(await getQuickCommerceConfig()), config }, 'Draft configuration saved; live activation remains disabled');
+  const config = await saveQuickCommerceDraft({ fee: req.body?.fee, enabled: req.body?.enabled, adminId: req.user._id, currency: req.body?.currency, effectiveAt: req.body?.effectiveAt, paymentRequired: req.body?.paymentRequired, revision: req.body?.revision, policy: req.body?.policy });
+  return ok(res, { ...(await getQuickCommerceConfig()), config }, 'Shiprocket fee configuration saved');
 });
 
 export const listSellerLedgerAdmin = asyncHandler(async (req, res) => {

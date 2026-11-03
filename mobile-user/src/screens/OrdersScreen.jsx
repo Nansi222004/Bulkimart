@@ -1,6 +1,6 @@
 // Port of modules/User/pages/OrdersPage.jsx — "MY ORDERS" list with search, filters and the push opt-in prompt.
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as Notifications from 'expo-notifications';
 import { useUser } from '../context/UserContext';
@@ -10,7 +10,7 @@ import { session } from '../lib/storage';
 import { deliveryLabelFor } from '../lib/deliveryLabel';
 import { useRefreshHandler } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { ChevronLeft, ChevronRight, SearchIcon } from '../components/icons';
 import SelectField from '../components/SelectField';
 import Svg, { Line } from 'react-native-svg';

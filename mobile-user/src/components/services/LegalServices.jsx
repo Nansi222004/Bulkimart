@@ -5,7 +5,7 @@
 //   /legal-services/requests/:id      → view=requests&id=<applicationId>
 // Private documents are downloaded with the session token into the app cache, then handed to the share sheet.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
@@ -16,7 +16,7 @@ import { session } from '../../lib/storage';
 import { useSession } from '../../context/SessionContext';
 import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
-import { Text } from '../ui';
+import { Text, TextInput } from '../ui';
 import ServicePaymentPanel, { DynamicFields, feeText, newIdempotencyKey, payServiceFee, pickedFile } from './ServicePayment';
 import { SERVICE_ANSWER_BYTES, SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, serializedAnswerBytes } from '../../shared/serviceLimits';
 

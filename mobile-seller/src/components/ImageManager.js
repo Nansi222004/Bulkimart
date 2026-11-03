@@ -1,5 +1,6 @@
 import React from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { MediaError, pickPhotos, takePhoto } from '../utils/media';
 import { colors, radius, spacing, type } from '../theme';
 

@@ -2,7 +2,7 @@
 // delivery code, courier AWB, rider card, fulfilment + return timeline, rating, items with reorder / review /
 // return, invoices and the bill. Every status, eligibility and amount is read from the backend.
 import React, { useCallback, useEffect, useState } from 'react';
-import { AppState, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { AppState, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,7 @@ import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../lib/deliveryLa
 import { useRefreshHandler } from '../lib/refresh';
 import { useSession } from '../context/SessionContext';
 import AuthPage from './AuthPage';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import DeliveryMap from '../components/DeliveryMap';
 import DeliveryPartnerRating from '../components/DeliveryPartnerRating';

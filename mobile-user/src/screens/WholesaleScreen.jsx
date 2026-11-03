@@ -1,7 +1,7 @@
 // Port of modules/User/pages/WholesalePage.jsx (route /wholesale?q=&category=&sort=&page=): the approved bulk
 // offers catalogue with search, category/sort filters and pages. Prices and MOQ come from the catalogue API.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
@@ -10,7 +10,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { boundedFetch, mediaUrl } from '../api/client';
 import { useRefreshHandler } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import SelectField from '../components/SelectField';
 
 const imageUrl = product => { const first = product?.images?.[0]; return typeof first === 'string' ? first : first?.url || first?.secure_url || ''; };

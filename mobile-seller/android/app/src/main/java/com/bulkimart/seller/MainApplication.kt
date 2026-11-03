@@ -1,6 +1,7 @@
 package com.bulkimart.seller
 
 import android.app.Application
+import com.facebook.react.common.assets.ReactFontManager
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -22,6 +23,8 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // Bundled Inter: phone font themes (e.g. handwriting fonts) must not restyle the app.
+    ReactFontManager.getInstance().addCustomFont(this, "Inter", R.font.xml_inter)
     loadReactNative(this)
   }
 }

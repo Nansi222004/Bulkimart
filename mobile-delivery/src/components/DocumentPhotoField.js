@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import AppButton from './AppButton';
 import { colors, radius, spacing, type } from '../theme';

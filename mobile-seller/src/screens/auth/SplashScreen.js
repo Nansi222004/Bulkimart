@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Image, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Image, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useAuth } from '../../context/AuthContext';
 import AppButton from '../../components/AppButton';
 import { colors, spacing, type } from '../../theme';

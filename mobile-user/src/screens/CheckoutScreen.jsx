@@ -2,7 +2,7 @@
 // the screen only collects choices. Double submission is blocked (ref lock + disabled button), checkout requests
 // carry the web's Idempotency-Key, and an uncertain outcome leads to the status check instead of a second order.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../context/UserContext';
@@ -17,7 +17,7 @@ import { getCurrentPosition } from '../lib/gps';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { CustomerPage } from '../components/Shell';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';

@@ -1,5 +1,6 @@
 import React, { useCallback, useRef } from 'react';
-import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';

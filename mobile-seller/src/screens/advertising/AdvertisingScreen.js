@@ -1,5 +1,6 @@
 import React, { useCallback, useRef } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import AppButton from '../../components/AppButton';
 import { EmptyView, ErrorView, InlineNotice, LoadingView } from '../../components/StateViews';

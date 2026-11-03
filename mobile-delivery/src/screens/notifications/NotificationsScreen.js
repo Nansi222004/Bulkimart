@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
 import * as notificationsApi from '../../services/notifications.api';

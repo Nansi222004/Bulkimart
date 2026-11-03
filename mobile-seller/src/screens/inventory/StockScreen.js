@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Modal, RefreshControl, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { FlatList, Image, Modal, RefreshControl, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import AppInput from '../../components/AppInput';
 import AppButton from '../../components/AppButton';

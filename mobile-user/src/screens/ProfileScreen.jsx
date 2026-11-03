@@ -6,7 +6,7 @@
 //  - wallet top-up: the native Razorpay SDK, verified by the backend's existing verify endpoint;
 //  - "Become a Seller / Your Shop" is not shown in the app (owner decision, 2026-10-31); sellers use the seller app.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,7 +25,7 @@ import { getCurrentPosition } from '../lib/gps';
 import { useTickets } from '../hooks/useTickets';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { CustomerPage } from '../components/Shell';
-import { Text } from '../components/ui';
+import { Text, TextInput } from '../components/ui';
 import SelectField from '../components/SelectField';
 import TicketDetailModal from '../components/TicketDetailModal';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';

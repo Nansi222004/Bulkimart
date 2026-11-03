@@ -58,3 +58,7 @@ signing.properties
 !mobile-user/android/app/debug.keystore
 !mobile-seller/android/app/debug.keystore
 !mobile-delivery/android/app/debug.keystore
+
+# Play Store upload keys backup (never commit)
+playstore-keys/
+PASSWORDS-README.txt

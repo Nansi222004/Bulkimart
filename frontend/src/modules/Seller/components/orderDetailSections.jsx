@@ -61,7 +61,7 @@ export function orderDetailSections(order) {
     </section>
     <section className="seller-detail-manual"><h2>Bulkimart delivery</h2>{delivery ? <><p>Rider: {delivery.rider?.name || 'Name not recorded'}<br />Contact: {delivery.rider?.phone || 'Not recorded'}<br />Assignment status: {delivery.status}<br />Assigned: {date(delivery.assignedAt)}</p>
       {delivery.completedAt && <p>Completed: {date(delivery.completedAt)} · Delivery OTP verified: {delivery.otpVerified ? 'Yes' : 'No'}</p>}</>
-      : <p>{order.fulfillment?.method === 'manual' ? 'Waiting for an eligible rider to accept. Sellers do not assign riders directly.' : 'Manual delivery not assigned.'}</p>}</section>
+      : <p>{order.fulfillment?.method === 'manual' ? 'Sent to Bulkimart delivery partners. Waiting for a rider to accept.' : 'Manual delivery not assigned.'}</p>}</section>
     <section className="seller-detail-courier"><h2>Courier shipment</h2>{shipment ? <><p>Provider: Shiprocket<br />Courier: {shipment.courier || 'Not assigned'}<br />Shipment: {shipment.shipmentId || 'Not created'}<br />AWB: {shipment.awb || 'Not assigned'}<br />Status: {shipment.status || 'Not recorded'}</p>
       <p>Registered pickup: {shipment.pickupLocation || order.store?.pickupLocation || 'Not recorded'}<br />{addressText(shipment.pickupAddress)}</p>
       <p>Destination: {addressText(order.shippingAddress)}</p>

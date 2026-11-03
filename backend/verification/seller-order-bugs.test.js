@@ -137,18 +137,16 @@ test('existing cancelled rider trips expose reassignment and release their stale
 // Push notifications for a seller-requested rider and for that rider's decline.
 const requestedPushes = () => notifyRider.mock.calls.filter(([, opts]) => opts.event === NOTIFICATION_EVENT.RIDER_REQUESTED);
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 25)); };
-test('a rider requested while the order is preparing is pushed immediately, then once more when it becomes acceptable', async () => {
+test('choosing manual delivery on a prepared order dispatches it and pushes the requested rider an acceptable offer once', async () => {
   jest.clearAllMocks();
   await call(selectManualFulfillment, sellerReq({ riderId: String(riders[0]._id) }));
+  await settle();
+  expect((await Order.findById(order._id)).status).toBe('dispatched');
+  await broadcastNewOrderToRiders(order._id); await settle();
   expect(requestedPushes()).toHaveLength(1);
   const [partnerId, heads] = requestedPushes()[0];
   expect(String(partnerId)).toBe(String(riders[0]._id));
-  expect(heads).toMatchObject({ title: 'New delivery assigned by Store', route: '/delivery/dashboard', metadata: { orderId: order._id } });
-  expect(heads.message).toMatch(/Order SELLER-BUGS is assigned to you/);
-  await Order.updateOne({ _id: order._id }, { $set: { status: 'dispatched' } });
-  await broadcastNewOrderToRiders(order._id); await broadcastNewOrderToRiders(order._id);
-  expect(requestedPushes()).toHaveLength(2);
-  expect(requestedPushes()[1][1].title).toBe('Store assigned order SELLER-BUGS to you — accept now');
+  expect(heads).toMatchObject({ title: 'Store assigned order SELLER-BUGS to you — accept now', route: '/delivery/dashboard', metadata: { orderId: order._id } });
   expect(notifyRider.mock.calls.filter(([id]) => String(id) !== String(riders[0]._id))).toHaveLength(0);
 });
 test('a rider already holding an open offer is still pushed once when the seller picks them', async () => {

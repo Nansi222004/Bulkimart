@@ -1,5 +1,6 @@
 import React from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import AppButton from '../../components/AppButton';
 import { InlineNotice } from '../../components/StateViews';
 import { useAuth } from '../../context/AuthContext';

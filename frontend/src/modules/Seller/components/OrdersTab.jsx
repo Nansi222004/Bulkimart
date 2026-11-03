@@ -688,7 +688,7 @@ export const OrdersTab = ({ detailPage = false }) => {
               <div className="seller-rider-heading"><div><h3>Active delivery boys</h3><p>{fulfillmentOptions.manual?.eligibleRiderCount || 0} on-duty eligible riders for this order</p></div><button type="button" className="order-action-btn-sm" onClick={() => loadAvailability(fulfilling, true)} disabled={Boolean(busyId)}>Refresh availability</button></div>
               <div className="seller-rider-list" role="group" aria-label="Available delivery partners">{fulfillmentOptions.manual?.riders?.filter(rider => rider.online === true).map((rider, index) => <button type="button" className="seller-rider-card" key={rider.id || index} aria-pressed={Boolean(rider.id && String(selectedRiderId) === String(rider.id))} disabled={Boolean(busyId) || !rider.id} onClick={() => setSelectedRiderId(rider.id)}><span className="seller-rider-avatar" aria-hidden="true">{rider.name?.charAt(0)?.toUpperCase() || 'R'}</span><div><strong>{rider.name}</strong>{rider.contact && <span>{rider.contact}</span>}<small>{rider.availability}</small></div><span className="seller-rider-active">{rider.id && String(selectedRiderId) === String(rider.id) ? '✓ Selected' : 'Active'}</span></button>)}</div>
               {!fulfillmentOptions.manual?.riders?.some(rider => rider.online === true) && <div className="seller-rider-empty"><strong>No active delivery boys available</strong><p>Refresh availability to check for on-duty riders with capacity and coverage for this pickup.</p></div>}
-              <p className="seller-delivery-help">Select a delivery partner to request them, or leave the choice open to eligible riders. Riders accept offers in their delivery app before they are assigned.</p>
+              <p className="seller-delivery-help">Select a delivery partner to send this order to them, or leave it open to all nearby riders. The order is sent as soon as you confirm, and the rider accepts it in their delivery app.</p>
             <button className="primary-onboarding-btn" style={{ width: '100%', marginTop: 12 }}
               disabled={!fulfillmentOptions.manual?.available || busyId === fulfilling._id}
               onClick={async () => {
@@ -697,7 +697,7 @@ export const OrdersTab = ({ detailPage = false }) => {
                 setBusyId(null); triggerToast?.(result.message);
                 if (result.ok) { setFulfilling(null); await openSellerOrder(fulfilling._id); }
               }}>
-              {busyId === fulfilling._id ? 'Saving…' : 'Confirm manual delivery'}
+              {busyId === fulfilling._id ? 'Sending…' : selectedRiderId ? 'Confirm & send to rider' : 'Confirm & send to nearby riders'}
             </button>
             {!fulfillmentOptions.manual?.available && <p style={{ fontSize: 11, color: '#b45309' }}>{fulfillmentOptions.manual?.reason}</p>}
               <a className="seller-delivery-profile-link" href="/seller/profile">Check or update the store pickup location</a>

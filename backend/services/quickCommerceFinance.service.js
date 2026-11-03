@@ -48,7 +48,7 @@ export const getQuickCommerceConfig = async () => {
     blockers.push('Complete service-fee rule');
   }
   if (!capabilities.configured) blockers.push('Provider credentials and webhook verification');
-  if (!capabilities.quickCommerce) blockers.push('Provider Quick Commerce capability verification');
+  if (capabilities.configured && !capabilities.quickCommerce) blockers.push('Provider Quick Commerce capability verification');
   return {
     config: config || {
       key: 'quick_third_party', enabled: false,
@@ -81,19 +81,33 @@ export const validateServiceFeeConfiguration = (config) => {
   return true;
 };
 
-export const saveQuickCommerceDraft = async ({ fee, adminId, enabled, currency, effectiveAt, paymentRequired, revision }) => {
+// Business policies the admin must approve before sellers can be charged.
+export const APPROVABLE_POLICIES = ['customerSurplusTreatment', 'returnAndHoldPolicy', 'cancellationCostPolicy',
+  'codReconciliationPolicy', 'insufficientFundsPolicy', 'sharedFreightAllocation', 'liveReleaseApproval'];
+
+export const saveQuickCommerceDraft = async ({ fee, adminId, enabled, currency, effectiveAt, paymentRequired, revision, policy }) => {
   const current = await QuickCommerceDeliveryConfig.findOne({ key: 'quick_third_party' }).lean();
   if (revision !== (current?.revision || 0)) throw httpError(409, 'Configuration changed; reload before saving');
+  if (policy != null && (typeof policy !== 'object' || Array.isArray(policy))) throw httpError(400, 'Policy approvals are invalid');
+  // Only the listed policies can change, and only between pending and approved.
+  const policyUpdates = Object.fromEntries(APPROVABLE_POLICIES.filter(key => policy?.[key] !== undefined).map(key => {
+    if (!['approved', 'pending_approval'].includes(policy[key])) throw httpError(400, 'Each policy must be approved or pending approval');
+    return [key, policy[key]];
+  }));
+  const nextPolicy = { ...(current?.policy || {}), ...policyUpdates };
   const next = { fee, currency, effectiveAt, paymentRequired, enabled: enabled === true };
   validateServiceFeeConfiguration(next);
   if (next.enabled) {
     const state = await getQuickCommerceConfig();
-    // Policy approval is deliberately separate from this fee editor.
-    if (pendingPolicies({ ...current, fee }).length || !state.provider.configured || !state.provider.quickCommerce || paymentRequired !== true || new Date(effectiveAt) > new Date()) throw httpError(409, 'Live activation requires approved policies, provider/reconciliation checks and an effective prepaid fee rule');
+    const pending = pendingPolicies({ policy: nextPolicy, fee });
+    if (pending.length) throw httpError(409, `Approve these policies before switching on charging: ${pending.join(', ')}`);
+    if (!state.provider.configured || !state.provider.quickCommerce) throw httpError(409, 'Shiprocket is not configured on the server (credentials and mode)');
+    if (paymentRequired !== true || new Date(effectiveAt) > new Date()) throw httpError(409, 'Charging requires prepayment and an effective date that has been reached');
   }
+  const policySet = Object.fromEntries(Object.entries(policyUpdates).map(([key, value]) => [`policy.${key}`, value]));
   const updated = await QuickCommerceDeliveryConfig.findOneAndUpdate(
     current ? { _id: current._id, revision: current.revision == null ? { $exists: false } : current.revision } : { key: 'quick_third_party', revision: { $exists: false } },
-    { $set: { ...next, updatedBy: adminId }, $inc: { revision: 1 }, $push: { history: { revision: (current?.revision || 0) + 1, changedAt: new Date(), changedBy: adminId, configuration: next } } },
+    { $set: { ...next, ...policySet, updatedBy: adminId }, $inc: { revision: 1 }, $push: { history: { revision: (current?.revision || 0) + 1, changedAt: new Date(), changedBy: adminId, configuration: { ...next, ...(Object.keys(policyUpdates).length ? { policy: policyUpdates } : {}) } } } },
     { upsert: !current, returnDocument: 'after', runValidators: true },
   ).lean();
   if (!updated) throw httpError(409, 'Configuration changed; reload before saving');

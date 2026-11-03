@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import AppInput from '../../components/AppInput';
 import AppButton from '../../components/AppButton';
 import ChipRow from '../../components/ChipRow';

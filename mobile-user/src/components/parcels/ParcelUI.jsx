@@ -3,29 +3,35 @@
 // /api/geo/forward ("Find address") — the web's Google Places type-ahead needs the browser Maps SDK and is not
 // available in the app; current location uses expo-location. All quotes, fares and eligibility come from the API.
 import React, { useEffect, useRef, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { ArrowDownUp, ArrowLeft, CheckCircle2, MapPin, Package } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
 import { getCurrentPosition } from '../../lib/gps';
 import { session } from '../../lib/storage';
 import { mediaUrl } from '../../api/client';
 import { decodePolyline } from '../DeliveryMap';
-import { Text } from '../ui';
+import { Text, TextInput } from '../ui';
+import { useAppTheme } from '../../theme/ThemeContext';
 import SelectField from '../SelectField';
 import { newIdempotencyKey } from '../services/ServicePayment';
 import { initialParcelJourney, parcelAddressError, parcelCustomerStatus, parcelDraftKey, parcelDraftSnapshot, parcelJourneyInput, parcelLocationLookup, parcelMoney, parcelRequest, readParcelDraft, saveParcelPickup, savedParcelAddress, validParcelLocation } from './parcelLogic';
 
-const BLUE = '#087c9f', DARK = '#096b8c', INK = '#172b46', MUTED = '#52647b';
+const INK = '#172b46', MUTED = '#52647b';
+/** Parcel colours follow the admin storefront theme (button colour, its hover shade, button text). */
+function useParcelColors() {
+  const theme = useAppTheme();
+  return { BLUE: theme.action, DARK: theme.actionHover || theme.action, ON: theme.actionText || '#fff' };
+}
 const MAPS_CONFIGURED = Boolean(Constants.expoConfig?.extra?.mapsConfigured);
 
 export function PBtn({ title, onPress, disabled, variant = 'primary', style, accessibilityLabel, children }) {
+  const { BLUE, DARK, ON } = useParcelColors();
   const look = variant === 'primary' ? { backgroundColor: BLUE, borderColor: DARK } : variant === 'big' ? { backgroundColor: BLUE, borderColor: BLUE, minHeight: 50, width: '100%' }
     : variant === 'text' ? { backgroundColor: 'transparent', borderColor: 'transparent' } : variant === 'tab' ? { backgroundColor: '#fff', borderColor: '#cbd5e1' }
-      : variant === 'tab-on' ? { backgroundColor: '#D91430', borderColor: '#D91430' } : { backgroundColor: '#fff', borderColor: '#cbd5e1' };
-  const color = ['primary', 'big', 'tab-on'].includes(variant) ? '#fff' : variant === 'text' ? DARK : '#475569';
+      : variant === 'tab-on' ? { backgroundColor: BLUE, borderColor: BLUE } : { backgroundColor: '#fff', borderColor: '#cbd5e1' };
+  const color = ['primary', 'big', 'tab-on'].includes(variant) ? ON : variant === 'text' ? DARK : '#475569';
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel} style={[styles.btn, look, disabled && { opacity: 0.5 }, style]}>
     {children || <Text style={{ color, fontWeight: variant === 'big' || variant === 'tab-on' ? '700' : '600', textAlign: 'center', textDecorationLine: variant === 'text' ? 'underline' : 'none' }}>{title}</Text>}
   </Pressable>;
@@ -38,12 +44,14 @@ export function PField({ label, value, onChangeText, multiline, keyboardType, ma
   </View>;
 }
 export function PCheck({ checked, onPress, disabled, children }) {
+  const { BLUE, ON } = useParcelColors();
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="checkbox" accessibilityState={{ checked, disabled }} style={[styles.check, disabled && { opacity: 0.5 }]}>
-    <View style={[styles.box, checked && { backgroundColor: BLUE, borderColor: BLUE }]}>{checked ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}</View>
+    <View style={[styles.box, checked && { backgroundColor: BLUE, borderColor: BLUE }]}>{checked ? <Text style={{ color: ON, fontSize: 12 }}>✓</Text> : null}</View>
     <View style={{ flex: 1 }}>{children}</View>
   </Pressable>;
 }
 function PRadio({ checked, onPress, disabled, children }) {
+  const { BLUE } = useParcelColors();
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="radio" accessibilityState={{ checked, disabled }} style={[styles.check, disabled && { opacity: 0.5 }]}>
     <View style={[styles.radio, checked && { borderColor: BLUE, borderWidth: 6 }]} />
     <View style={{ flex: 1 }}>{children}</View>
@@ -52,6 +60,7 @@ function PRadio({ checked, onPress, disabled, children }) {
 export const PCard = ({ children, style }) => <View style={[styles.card, style]}>{children}</View>;
 
 export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
+  const { BLUE } = useParcelColors();
   const map = useRef(null);
   const [ready, setReady] = useState(false);
   const points = [['pickup', pickup, 'P'], ['dropoff', dropoff, 'D']].filter(([, p]) => validParcelLocation(p)).map(([kind, p, label]) => ({ kind, label, coordinate: { latitude: Number(p.lat), longitude: Number(p.lng) } }));
@@ -191,7 +200,7 @@ function TermsDialog({ terms, policy, onClose }) {
 }
 
 export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked }) {
-  const router = useRouter();
+  const { BLUE, DARK, ON } = useParcelColors();
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now()), [termsOpen, setTermsOpen] = useState(false);
@@ -283,15 +292,15 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
   const quote = state.quote;
   const allowCash = flags.pay_driver && policy.payDriverEnabled && policy.payDriverCategories?.includes(state.parcel.category);
   return <View>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16, marginBottom: 24 }}>
-      {state.step > 0 ? <PBtn variant="outline" accessibilityLabel="Back to previous step" disabled={busy || !!state.pending} onPress={back} style={{ padding: 10 }}><ArrowLeft size={20} color={DARK} /></PBtn>
-        : <Pressable onPress={() => router.navigate('/')} accessibilityLabel="Back to home" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><ArrowLeft size={22} color={DARK} /></Pressable>}
-      <View style={{ flex: 1 }}><Text style={{ fontSize: 24, fontWeight: '700' }}>Send a Parcel</Text><Text style={{ color: MUTED, marginTop: 5 }}>Doorstep pickup and delivery</Text></View>
-      <Package size={36} color={DARK} />
+    {/* The page title bar (ParcelDeliveryScreen) carries the title and the Back to home button. */}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      {state.step > 0 ? <PBtn variant="outline" accessibilityLabel="Back to previous step" disabled={busy || !!state.pending} onPress={back} style={{ padding: 10 }}><ArrowLeft size={20} color={DARK} /></PBtn> : null}
+      <Text style={{ flex: 1, color: MUTED, fontSize: 15 }}>Doorstep pickup and delivery</Text>
+      <Package size={30} color={DARK} />
     </View>
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 6 }} accessibilityLabel="Booking progress">
       {['Locations', 'Details', 'Delivery', 'Review'].map((title, i) => <View key={title} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <View style={[styles.stepDot, state.step >= i && { backgroundColor: BLUE }]}><Text style={{ fontSize: 12, color: state.step >= i ? '#fff' : MUTED }}>{i + 1}</Text></View>
+        <View style={[styles.stepDot, state.step >= i && { backgroundColor: BLUE }]}><Text style={{ fontSize: 12, color: state.step >= i ? ON : MUTED }}>{i + 1}</Text></View>
         <Text style={{ fontSize: 12, color: state.step === i ? DARK : MUTED, fontWeight: state.step === i ? '700' : '400' }}>{title}</Text>
       </View>)}
     </View>
@@ -340,7 +349,7 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
       {state.step === 2 ? <>
         <PCard>
           <Text style={styles.h2}>Delivery service</Text>
-          <View style={styles.service} accessibilityState={{ selected: true }}>
+          <View style={[styles.service, { borderColor: BLUE }]} accessibilityState={{ selected: true }}>
             <Package size={38} color={DARK} />
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '700' }}>{quote.service?.name || 'Doorstep delivery'}</Text>
@@ -395,6 +404,7 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
 
 const VEHICLE = { bicycle: 'Bicycle', bike: 'Bike', auto: 'Auto', car: 'Car' };
 function PartnerCard({ partner: p, active }) {
+  const { DARK } = useParcelColors();
   const vehicle = [VEHICLE[p.vehicleType], p.vehicleNo].filter(Boolean).join(' · ');
   return <View style={[styles.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]} accessibilityLabel="Your delivery partner">
     <View style={styles.avatar}>{p.avatar ? <Image source={{ uri: mediaUrl(p.avatar) }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={{ fontWeight: '700', color: DARK }}>{(p.name || 'D').trim().charAt(0).toUpperCase()}</Text>}</View>
@@ -408,6 +418,7 @@ function PartnerCard({ partner: p, active }) {
 }
 
 export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
+  const { DARK } = useParcelColors();
   const [details, setDetails] = useState(false);
   const unpaid = b.paymentMethod === 'online' && ['payment_pending', 'payment_failed'].includes(b.status);
   return <>
@@ -458,7 +469,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   sticky: { padding: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#dae4ed', borderRadius: 16, marginTop: 20 },
   stepDot: { width: 25, height: 25, borderRadius: 13, backgroundColor: '#e3eaf0', alignItems: 'center', justifyContent: 'center' },
-  service: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderWidth: 2, borderColor: BLUE, borderRadius: 14, backgroundColor: '#f1fafc' },
+  service: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderWidth: 2, borderRadius: 14, backgroundColor: '#f1fafc' },
   avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#e3f2f7', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', padding: 16 },
   dialog: { backgroundColor: '#fff', borderRadius: 16, padding: 18, maxHeight: '85%' },

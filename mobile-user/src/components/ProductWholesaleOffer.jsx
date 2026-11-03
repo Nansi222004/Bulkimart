@@ -1,8 +1,8 @@
 // Port of ProductWholesaleOffer.jsx: retail/wholesale switch, tiers table, quantity stepper and live quote.
 import React from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';
-import { Text } from './ui';
+import { Text, TextInput } from './ui';
 
 const formatCurrency = value => `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 

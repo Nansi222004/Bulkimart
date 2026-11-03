@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../../components/AppText';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';

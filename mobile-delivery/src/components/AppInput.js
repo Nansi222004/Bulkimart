@@ -1,5 +1,6 @@
 import React, { forwardRef } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text, TextInput } from './AppText';
 import { colors, radius, spacing, type } from '../theme';
 
 const AppInput = forwardRef(function AppInput({ label, error, hint, required, style, ...props }, ref) {

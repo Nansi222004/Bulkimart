@@ -30,7 +30,7 @@ source = source.replace(marker, `
         const card=await evaluate("(()=>{const b=document.querySelector('.seller-rider-card'),s=getComputedStyle(b);return {border:s.borderTopWidth,color:s.borderTopColor,background:s.backgroundColor,label:b.textContent,overflow:document.documentElement.scrollWidth>innerWidth};})()");
         assert.equal(card.border,'2px');assert.match(card.label,/Selected/);assert.equal(card.overflow,false);
         const before=sellerBugRequests.length;
-        await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='Confirm manual delivery').click()");
+        await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Confirm & send')).click()");
         await waitFor("!!document.querySelector('.seller-order-hero')"); await pause(200);
         assert.equal(sellerBugRequests.length,before+1);
         assert.deepEqual(sellerBugRequests.at(-1),{riderId:'507f1f77bcf86cd799439027'});

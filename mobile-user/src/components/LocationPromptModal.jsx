@@ -1,13 +1,13 @@
 // Port of LocationPromptModal.jsx — choose a delivery location (GPS, typed search or a saved address).
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, KeyboardAvoidingView } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View, KeyboardAvoidingView } from 'react-native';
 import Svg, { Circle, Line, Path, Polygon, Polyline } from 'react-native-svg';
 import { local } from '../lib/storage';
 import { rememberLocationChoice } from '../lib/locationState';
 import { getCurrentPosition } from '../lib/gps';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
-import { Text, outfit } from './ui';
+import { Text, TextInput, outfit } from './ui';
 import { useLaunchSplash } from './storefront/PromotionalSplash';
 
 const Chevron = () => <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><Polyline points="9 18 15 12 9 6" /></Svg>;

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import AppButton from './AppButton';
 import AppInput from './AppInput';
 import { colors, radius, spacing, type } from '../theme';
