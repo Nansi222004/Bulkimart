@@ -6326,13 +6326,10 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
   }
 }
 
-/* Account: the title bar is pinned; the profile card below it scrolls. */
+/* Account: on phones/tablets the title bar is pinned and the profile card
+   below it scrolls. On desktop the site header is already on screen, so the
+   title bar scrolls with the page instead of pinning on top of that header. */
 .profile-page-container > .profile-appbar {
-  position: sticky;
-  /* Sticks inside the scroll area's 16px top padding; pinning at -16px puts it
-     flush with the top edge so no scrolling content shows above it. */
-  top: -16px;
-  z-index: 30;
   margin: -16px -16px 0;
   padding: max(12px, var(--customer-header-safe-area-top, env(safe-area-inset-top, 0px))) 20px 12px;
   background: var(--brand-primary-dark);
@@ -6341,6 +6338,101 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
   margin-top: 0;
   padding-top: 16px;
   background: linear-gradient(180deg, var(--brand-primary-dark) 0%, var(--brand-primary) 100%);
+}
+/* Phones (no site header, bottom nav): the Account title bar is pinned. */
+@media (max-width: 768px) {
+  .profile-page-container > .profile-appbar {
+    position: sticky;
+    /* Sticks inside the scroll area's 16px top padding; pinning at -16px puts it
+       flush with the top edge so no scrolling content shows above it. */
+    top: -16px;
+    z-index: 30;
+  }
+}
+/* Desktop site (>768px, same breakpoint as useDesktopSite): the site header is
+   pinned at the top, so the Account title becomes a plain page heading. */
+@media (min-width: 769px) {
+  /* The generic desktop rule zeroes the scroll area's top padding so the pinned
+     site header sits flush; the Account page's own padding rule is more
+     specific and otherwise leaves a 16px strip where scrolled content shows
+     above the header. */
+  .user-main-content.page-account { padding-top: 0 !important; }
+  .profile-page-container {
+    margin-top: 24px;
+    padding: 0 0 40px !important;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "bar" "profile" "menu";
+    row-gap: 16px;
+    align-items: start;
+    max-width: 640px;
+  }
+  .profile-page-container > .profile-appbar {
+    grid-area: bar;
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: none;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .profile-page-container > .profile-appbar .back-arrow-white { color: var(--text-primary, #0f172a); }
+  .profile-page-container > .profile-appbar .back-arrow-white:hover { background-color: rgba(15, 23, 42, 0.06); }
+  .profile-page-container > .profile-appbar .profile-title { color: var(--text-primary, #0f172a); font-size: 24px; font-weight: 800; }
+  .profile-page-container > .profile-appbar > div:last-child { display: none; }
+
+  .profile-page-container > .profile-appbar + .profile-header-gradient {
+    grid-area: profile;
+    position: relative;
+    margin: 0 !important;
+    padding: 28px 20px 24px !important;
+    border-radius: 20px;
+    background: linear-gradient(160deg, var(--brand-primary-dark) 0%, var(--brand-primary) 100%);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  }
+  .profile-page-container .profile-user-card {
+    flex-direction: column;
+    text-align: center;
+    margin: 0;
+    gap: 14px;
+  }
+  .profile-page-container .user-profile-details { align-items: center; min-width: 0; max-width: 100%; overflow-wrap: anywhere; gap: 4px; }
+  .profile-page-container .user-name-row { flex-wrap: wrap; justify-content: center; }
+  .profile-page-container .user-profile-name { font-size: 20px; }
+
+  .profile-page-container > .profile-menu-card {
+    grid-area: menu;
+    margin: 0;
+    padding: 8px 20px 20px;
+    border-radius: 20px;
+    border: 1px solid #eef2f7;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  }
+  .profile-page-container .menu-link-row { padding: 16px 12px; border-bottom-color: #f1f5f9; }
+  .profile-page-container .menu-label { font-size: 15px; }
+  .profile-page-container .menu-icon {
+    width: 38px; height: 38px; border-radius: 12px;
+    background: #f8fafc; color: var(--brand-primary, #475569);
+  }
+  .profile-page-container .menu-link-row:hover .menu-chevron { color: var(--brand-primary, #475569); }
+  .profile-page-container .delete-account-row { margin-bottom: 0 !important; }
+
+  /* Account sections open as a centred card, not a full-height strip. */
+  .account-section-layer { align-items: center !important; padding: 24px; box-sizing: border-box; }
+  .account-section-layer > .account-section-dialog {
+    height: auto !important;
+    max-height: min(820px, calc(100dvh - 48px));
+    border-radius: 16px;
+  }
+}
+/* Wide desktop: profile card on the left, menu card on the right. */
+@media (min-width: 1024px) {
+  .profile-page-container {
+    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-areas: "bar bar" "profile menu";
+    column-gap: 24px;
+    max-width: 1080px;
+  }
 }
 
 /* My Orders: only the order list scrolls (its intended design); the title,

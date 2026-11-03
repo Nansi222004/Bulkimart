@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiUrl } from '../../../utils/api';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
-import { boundedFetch } from '../../../utils/portalRequests';
+import { boundedFetch, clearPortalRequests } from '../../../utils/portalRequests';
+import { SELLER_SESSION_CHANGED } from '../../../utils/portalSession';
 import { useTickets } from '../../../utils/useTickets';
 import TicketDetailModal from '../../../components/support/TicketDetailModal';
 import LiveChatPanel from '../../../components/support/LiveChatPanel';
@@ -473,18 +474,38 @@ const ProfilePage = () => {
     setNewAddrLandmarkImage('');
   };
 
-  // Check if current user is already a registered/active seller
+  // The seller portal keeps its own session (sellerToken). It may belong to a
+  // different account than the customer signed in here — e.g. a shop signed in
+  // earlier on this browser — so it only counts when it is the same person.
+  const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+  const accountId = (u) => u?._id || u?.id;
+  const sameAccount = (a, b) => Boolean(a && b && (
+    (accountId(a) && accountId(b) && String(accountId(a)) === String(accountId(b))) ||
+    (a.phone && b.phone && String(a.phone).slice(-10) === String(b.phone).slice(-10))
+  ));
+  const storedSellerSessionIsMine = () => typeof window !== 'undefined'
+    && Boolean(localStorage.getItem('sellerToken'))
+    && sameAccount(readJson('sellerUserProfile'), currentUser);
+
+  // Check if the signed-in customer is a seller — from their own account only.
   const isSeller = Boolean(
     currentUser?.sellerId ||
     currentUser?.isSeller ||
     currentUser?.roles?.includes('seller') ||
-    (typeof window !== 'undefined' && (
-      localStorage.getItem('sellerToken') ||
-      localStorage.getItem('userRole') === 'seller' ||
-      (localStorage.getItem('userProfile') && JSON.parse(localStorage.getItem('userProfile') || '{}').sellerId) ||
-      (localStorage.getItem('userProfile') && JSON.parse(localStorage.getItem('userProfile') || '{}').roles?.includes('seller'))
-    ))
+    storedSellerSessionIsMine()
   );
+
+  const openSellerPortal = () => {
+    // Another account's shop session must not open for this customer; the
+    // seller portal then shows its own login instead.
+    if (localStorage.getItem('sellerToken') && !storedSellerSessionIsMine()) {
+      clearPortalRequests('seller');
+      localStorage.removeItem('sellerToken');
+      localStorage.removeItem('sellerUserProfile');
+      window.dispatchEvent(new Event(SELLER_SESSION_CHANGED));
+    }
+    window.history.pushState({}, '', '/seller'); // Handled natively, bypasses Day 2
+  };
 
   // Menu items list mapping
   const menuItems = [
@@ -576,7 +597,7 @@ const ProfilePage = () => {
       badge: isSeller 
         ? null 
         : <span className="menu-badge active-badge" style={{ background: 'var(--sf-action, #D91430)', color: '#fff', fontSize: '10px', padding: '1px 6px', borderRadius: '10px' }}>New</span>,
-      action: () => window.history.pushState({}, '', '/seller') // Handled natively, bypasses Day 2
+      action: openSellerPortal
     },
     {
       id: 'support',
@@ -1695,7 +1716,7 @@ const ProfilePage = () => {
 
       {/* Slide-over Section Overlay Drawer */}
       {activeSection && (
-        <ModalPortal style={{
+        <ModalPortal className="account-section-layer" style={{
           position: 'fixed',
           inset: 0,
           backgroundColor: 'rgba(15, 23, 42, 0.45)',
@@ -1705,7 +1726,7 @@ const ProfilePage = () => {
           justifyContent: 'center',
           alignItems: 'stretch'
         }}>
-          <div role="dialog" aria-modal="true" aria-label="Account details" style={{
+          <div className="account-section-dialog" role="dialog" aria-modal="true" aria-label="Account details" style={{
             width: '100%',
             minWidth: 0,
             overflowWrap: 'anywhere',
