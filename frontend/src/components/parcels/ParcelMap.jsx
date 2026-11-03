@@ -28,16 +28,18 @@ export default function ParcelMap({ pickup, dropoff, route, editable, onPinChang
       if (editable === kind) listeners.push(marker.addListener('dragend', e => latest.current?.({ lat: e.latLng.lat(), lng: e.latLng.lng() })));
       bounds.extend(position); items.push(marker);
     }
+    // Storefront theme action colour (admin-selected); admin/rider screens have none and keep teal.
+    const accent = (holder.current && typeof window !== 'undefined' && window.getComputedStyle?.(holder.current).getPropertyValue('--sf-action').trim()) || '#087c9f';
     let circle;
     if (areaMode && validParcelLocation(pickup) && Number(radiusKm) > 0 && Number(radiusKm) <= 100) {
-      circle = new maps.Circle({ map, center: { lat: Number(pickup.lat), lng: Number(pickup.lng) }, radius: Number(radiusKm) * 1000, strokeColor: '#087c9f', strokeWeight: 2, fillColor: '#087c9f', fillOpacity: 0.12, clickable: false });
+      circle = new maps.Circle({ map, center: { lat: Number(pickup.lat), lng: Number(pickup.lng) }, radius: Number(radiusKm) * 1000, strokeColor: accent, strokeWeight: 2, fillColor: accent, fillOpacity: 0.12, clickable: false });
     }
     if (circle) map.fitBounds(circle.getBounds(), 32);
     else if (items.length > 1) map.fitBounds(bounds, 48);
     else if (items.length) { map.setCenter(bounds.getCenter()); map.setZoom(16); }
     let line;
     if (route?.polyline && maps.geometry?.encoding) {
-      line = new maps.Polyline({ map, path: maps.geometry.encoding.decodePath(route.polyline), strokeColor: '#087c9f', strokeWeight: 5 });
+      line = new maps.Polyline({ map, path: maps.geometry.encoding.decodePath(route.polyline), strokeColor: accent, strokeWeight: 5 });
     }
     return () => { listeners.forEach(l => l.remove()); items.forEach(m => m.setMap(null)); line?.setMap(null); circle?.setMap(null); };
   }, [ready, pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng, route?.polyline, editable, areaMode, radiusKm]);

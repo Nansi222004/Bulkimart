@@ -6800,7 +6800,7 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
     padding: 0 24px !important;
     display: flex !important;
     align-items: center !important;
-    background: rgba(0, 0, 0, 0.16) !important;
+    background: transparent !important; /* same colour as the top row (was a darker overlay) */
     border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 0 0 12px 12px !important;
   }
@@ -6822,7 +6822,7 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
     display: inline-flex !important;
     flex-direction: row !important;
     align-items: center !important;
-    justify-content: safe center !important;
+    justify-content: space-between !important;
     gap: 12px !important;
     min-width: 100% !important;
     width: max-content !important;
@@ -6839,7 +6839,7 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
     align-items: center !important;
     justify-content: center !important;
     gap: 7px !important;
-    flex: 0 0 auto !important;
+    flex: 1 0 auto !important; /* share the full header width */
     width: auto !important;
     min-width: 0 !important;
     max-width: none !important;
@@ -6918,3 +6918,72 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
     border-color: rgba(121, 0, 11, 0.3) !important;
   }
 }
+
+/* ===========================================================================
+   Customer website layout & responsiveness (layout only — no colours/theme).
+   =========================================================================== */
+
+/* Login gate: #root centres its children, so give the gate the full width
+   instead of letting it shrink to a narrow strip on desktop. */
+.auth-gate { width: 100%; min-width: 0; }
+
+/* Categories: cards keep a consistent size whatever the number of categories
+   (auto-fill instead of fixed column counts that stretched or squeezed them). */
+.all-categories-grid,
+.category-products-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
+  gap: clamp(12px, 1.6vw, 18px);
+}
+.category-products-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); }
+@media (max-width: 559px) {
+  .all-categories-grid,
+  .category-products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+@media (min-width: 769px) {
+  .all-categories-page { --page-pad-top: 24px; --page-pad-x: 24px; padding-bottom: 32px; }
+  .all-categories-header { margin-bottom: 24px; }
+}
+/* Category photos fill their tile (cropped, never stretched); icons stay contained. */
+.all-category-art:has(> img.is-photo),
+.all-category-art:has(> .is-photo) { padding: 0; }
+.all-category-art img.is-photo { object-fit: cover; border-radius: 0; }
+.all-category-main { height: 100%; }
+
+/* Legal Services: cards in a stable grid, actions aligned along the card bottom. */
+.customer-service-page .legal-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.customer-service-page .legal-grid .legal-card { display: flex; flex-direction: column; gap: 8px; }
+.customer-service-page .legal-grid .legal-card :is(h3, p) { margin: 0; }
+.customer-service-page .legal-grid .legal-card > button { margin-top: auto !important; align-self: flex-start; }
+.customer-service-page .legal-grid .legal-card > h3 + p { margin-bottom: 8px; }
+.customer-service-page .legal-search { max-width: 720px; }
+@media (max-width: 480px) {
+  /* Tabs share one row; Sign in sits right-aligned below instead of a full-width bar. */
+  .customer-service-page .legal-nav .legal-nav-btn { flex: 1 1 calc(50% - 5px); }
+  .customer-service-page .legal-nav .legal-nav-auth { width: auto; margin-left: auto; }
+}
+
+/* Header category strip on phones: one-line labels (no "test / category" wrapping). */
+@media (max-width: 768px) {
+  .sf-storefront .unified-header-container .header-body-content .sub-nav-label {
+    display: block;
+    max-width: 76px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Search results (text + image search): 2 columns suit phones, but on desktop the same
+   2 columns made each result half the screen wide. Fit more, card-sized results instead. */
+@media (min-width: 600px) {
+  .search-page-results-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+  .search-page-body { width: 100%; max-width: 1200px; margin-inline: auto; box-sizing: border-box; }
+}
+@media (min-width: 1024px) {
+  .search-page-results-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 18px; }
+}
+/* Whole product visible in results (photos were cropped by "cover"). */
+.search-page-result-img-wrap img { object-fit: contain; }
+/* "Similar product photos" bar: same button look as the image-search popup. */
+.image-search-summary span { font-weight: 700; }
+.image-search-summary button { border: 1px solid var(--border-color, #dbe9ee); background: var(--brand-aqua-light, var(--sf-highlight, #FFF0B3)); color: var(--brand-primary-dark, var(--sf-action-hover, #B50918)); border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }

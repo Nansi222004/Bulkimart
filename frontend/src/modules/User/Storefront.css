@@ -273,22 +273,23 @@
   /* Festive sub-header banner constraint on desktop */
   .sf-festive {
     width: 100% !important;
-    min-height: 130px !important;
-    max-height: 190px !important;
+    /* Taller, full-width banner: at least 240px, or the admin's chosen height if larger. */
+    min-height: max(240px, var(--sf-festive-height, 240px)) !important;
+    max-height: none !important;
     margin: 8px auto 14px !important;
-    max-width: 1100px !important;
+    max-width: none !important;
     border-radius: 16px !important;
     box-sizing: border-box !important;
   }
 
   .sf-festive-content {
-    min-height: 130px !important;
-    padding: 16px 28px !important;
+    min-height: max(240px, var(--sf-festive-height, 240px)) !important;
+    padding: 28px 40px !important;
     gap: 16px !important;
   }
 
   .sf-festive h2 {
-    font-size: clamp(20px, 2.3vw, 28px) !important;
+    font-size: clamp(26px, 3vw, 42px) !important;
     margin-bottom: 4px !important;
   }
 
@@ -433,4 +434,13 @@
   .sf-product {
     max-width: 220px !important;
   }
+}
+
+/* Featured deals ("sf-festive-grid"): 3 columns suit phones, but on wider screens the same 3 columns
+   stretched each card to a third of the page (≈560px-tall photos at 1920px). Fit more, smaller cards instead. */
+@media (min-width: 600px) {
+  .sf-festive-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 200px)) !important; justify-content: center !important; gap: 14px !important; }
+}
+@media (min-width: 1024px) {
+  .sf-festive-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 220px)) !important; gap: 18px !important; }
 }

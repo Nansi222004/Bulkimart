@@ -7,7 +7,6 @@ import { ImageSearchButton } from './ImageSearchSheet';
 import HeaderCategories from './HeaderCategories';
 import bulkimartIcon from '../../../assets/logo-icon-transparent.png';
 import Celebration from './Celebration';
-import { hasFestiveHeader } from './FestiveHeader';
 import { useStorefront } from '../context/StorefrontContext';
 
 const UnifiedHeader = () => {
@@ -25,10 +24,10 @@ const UnifiedHeader = () => {
     openImageSearch,
     activeNav,
   } = useUser();
-  // The festive header (home feed only) hosts the page effect when it is shown;
-  // otherwise this header does, clipped to its own box.
-  const { effect, theme, now } = useStorefront() || {};
-  const headerEffect = activeNav === 'home' && hasFestiveHeader(theme) ? null : effect;
+  // The header always hosts the page celebration effect (festive lights etc.), on Home too,
+  // as it did before; the festive banner below shows it as well.
+  const { effect, now } = useStorefront() || {};
+  const headerEffect = effect;
   const cartCount = getCartCount();
   const wishlistCount = wishlist?.size || 0;
   const [showNotifications, setShowNotifications] = useState(false);

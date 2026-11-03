@@ -10,6 +10,8 @@ import StorefrontSections, { StorefrontAnnouncement } from '../components/Storef
 import '../Storefront.css';
 import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
 import LegalServices from '../../../components/services/LegalServices';
+// Legal Services / Send a Parcel open as their own page with an app-style title bar (as in the customer app).
+import ServiceAppBar from '../../../components/services/ServiceAppBar';
 import PageErrorBoundary from '../../../components/PageErrorBoundary';
 import ModalPortal from '../../../components/ModalPortal';
 import { ParcelCustomerEntry } from '../../../components/parcels/ParcelDelivery';
@@ -51,6 +53,25 @@ import FashionSection from '../components/FashionSection';
 import GroceriesSection from '../components/GroceriesSection';
 import LocationPromptModal from '../components/LocationPromptModal';
 import NotificationPopup from '../../../components/NotificationPopup';
+
+/**
+ * Desktop website (>768px): the bottom nav is hidden there (User.css), so pages that
+ * have no site header of their own would leave the visitor with no navigation at all.
+ * Phones keep their app-style pages + bottom nav.
+ */
+const DESKTOP_QUERY = '(min-width: 769px)';
+const useDesktopSite = () => {
+  const [desktop, setDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(DESKTOP_QUERY).matches);
+  useEffect(() => {
+    const media = window.matchMedia?.(DESKTOP_QUERY);
+    if (!media) return undefined;
+    const update = () => setDesktop(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  return desktop;
+};
 
 /** Same allowlist NotificationDrawer.jsx's own resolveNav uses — an
  * unrecognised deep link falls back to doing nothing rather than a dead tab. */
@@ -103,6 +124,9 @@ export const LandingPageContent = () => {
     setPendingVoiceQuery,
     fetchOrders, refreshCart, cartChannel,
   } = useUser();
+  const desktopSite = useDesktopSite();
+  // Site header for pages without one, on desktop only (see useDesktopSite).
+  const withDesktopHeader = (page) => (desktopSite ? <><UnifiedHeader />{page}</> : page);
 
   // Pull down to refresh, in place: nothing restarts and you stay on this page. Cached catalogue answers are
   // dropped, the storefront theme/banners, orders and cart are re-read, and the page's sections are remounted so
@@ -177,7 +201,8 @@ export const LandingPageContent = () => {
   ]);
 
   if (!currentUser && protectedNavItems.has(activeNav)) {
-    return <div className="sf-storefront" style={themeStyle(experience.theme.tokens)}><AuthPage /></div>;
+    // auth-gate: fills the page width (#root centres its children, so without a width this shrank to its content on desktop).
+    return <div className="sf-storefront auth-gate" style={themeStyle(experience.theme.tokens)}><AuthPage /></div>;
   }
 
   const renderContent = () => {
@@ -302,25 +327,25 @@ export const LandingPageContent = () => {
       case 'services':
         return <><UnifiedHeader /><PageErrorBoundary name="services" key={activeNav}><CustomerServices /></PageErrorBoundary></>;
       case 'legal-services':
-        return <><UnifiedHeader /><PageErrorBoundary name="legal-services" key={activeNav}><LegalServices /></PageErrorBoundary></>;
+        return <><ServiceAppBar section="legal-services" onHome={() => setActiveNav('home')} /><PageErrorBoundary name="legal-services" key={activeNav}><LegalServices /></PageErrorBoundary></>;
       case 'parcel-delivery':
-        return <><UnifiedHeader /><ParcelCustomerEntry /></>;
+        return <><ServiceAppBar section="parcel-delivery" onHome={() => setActiveNav('home')} /><ParcelCustomerEntry /></>;
       case 'categories':
-        return <CategoriesPage />;
+        return withDesktopHeader(<CategoriesPage />);
       case 'orders':
-        return <OrdersPage />;
+        return withDesktopHeader(<OrdersPage />);
       case 'ebooks':
-        return <DigitalLibraryPage />;
+        return withDesktopHeader(<DigitalLibraryPage />);
       case 'account':
-        return <ProfilePage />;
+        return withDesktopHeader(<ProfilePage />);
       case 'wishlist':
-        return <WishlistPage />;
+        return withDesktopHeader(<WishlistPage />);
       case 'cart':
-        return <CartPage />;
+        return withDesktopHeader(<CartPage />);
       case 'checkout':
         return <CheckoutPage />;
       case 'wholesale':
-        return <WholesalePage />;
+        return withDesktopHeader(<WholesalePage />);
       default:
         return null;
     }

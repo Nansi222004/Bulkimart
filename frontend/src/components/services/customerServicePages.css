@@ -84,3 +84,12 @@
 @media (min-width: 769px) {
   .user-main-content:is(.page-legal-services, .page-parcel-delivery) { padding-bottom: 24px; }
 }
+
+/* App-style title bar for Legal Services / Send a Parcel (ServiceAppBar.jsx):
+   the theme's header colours, Back and the page title — no storefront search. */
+.service-appbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 12px; flex-shrink: 0; background: var(--sf-header, #79000B); color: var(--sf-header-text, #ffffff); }
+.service-appbar-back { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 12px; background: transparent; color: inherit; cursor: pointer; }
+.service-appbar-back:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+.service-appbar-back:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+.service-appbar-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 800; line-height: 1.2; }
+@media (min-width: 769px) { .service-appbar { min-height: 64px; padding: 0 24px; } }
