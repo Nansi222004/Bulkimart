@@ -8,7 +8,7 @@ import { verifySellerPayoutBeneficiaryAdmin } from '../controllers/adminSellerFi
 import express from 'express';
 import { marketingPermission } from '../services/storefrontPolicy.service.js';
 import { getCommissionConfiguration, createCommissionConfiguration, listFinanceOrders, listFinanceLedger,
-  verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, reverseReturn, getFinancialExceptions, disputeCod,
+  verifyCodRemittance, allocateOrder, releaseOrder, releaseRider, repriceRider, reverseReturn, getFinancialExceptions, disputeCod,
   writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
   getTaxReport, getAccountingJournal, getTrialBalance,
   getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute,
@@ -123,6 +123,7 @@ router.post('/finance/historical-batches/:id/release', releaseHistoricalBatchRou
 router.post('/finance/orders/:id/allocate', allocateOrder);
 router.post('/finance/orders/:id/release', releaseOrder);
 router.post('/finance/orders/:id/release-rider', releaseRider);
+router.post('/finance/orders/:id/rider-earning', repriceRider);
 router.get('/finance/returns/:id/preview', previewRefundCompensation);
 router.post('/finance/returns/:id/reverse', reverseReturn);
 router.get('/finance/courier-costs', getCourierCosts);

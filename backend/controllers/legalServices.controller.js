@@ -14,13 +14,20 @@ import { mutateLegal, adminAction, approvedProvider, oid, event, notifyLegal, su
 import { approveLegalRefund, executeLegalRefund } from '../services/legalPayment.service.js';
 import { SERVICE_ANSWER_BYTES } from '../shared/serviceLimits.mjs';
 import { reconcileCreationAttempt } from '../services/paymentRecovery.service.js';
-import { serviceFeeBilling, initiateServicePayment, verifyServicePayment } from '../services/servicePayment.service.js';
+import { serviceFeeBilling, serviceFeeQuote, serviceTermsText, initiateServicePayment, verifyServicePayment } from '../services/servicePayment.service.js';
+import { applicantCancellation } from '../services/serviceWorkflow.service.js';
+import { refundServiceFeeToWallet } from '../services/serviceRefund.service.js';
+import { notifyAllAdmins } from '../services/notification.service.js';
 
 export const send = (res, data, meta = {}) => res.json({ success: true, data, meta });
 const visibility = { status: 'published', audiences: 'customer' };
 const publicService = s => ({ _id: s._id, name: s.name, slug: s.slug, description: s.description, instructions: s.instructions,
   legalCategory: s.legalCategory || '', fields: s.fields, formVersion: s.formVersion, version: s.__v,
-  startingPrice: s.pricing?.mode === 'fixed' ? { amount: s.pricing.amount, currency: s.pricing.currency } : null });
+  startingPrice: s.pricing?.mode === 'fixed' ? { amount: s.pricing.amount, currency: s.pricing.currency } : null,
+  // The exact checkout figures and terms, all from the admin's settings on this service.
+  fee: (() => { const q = serviceFeeQuote(s); return q ? { basePaise: q.basePaise, taxRate: q.taxRate, taxPaise: q.taxPaise, totalPaise: q.amountPaise, currency: q.currency } : null; })(),
+  terms: s.pricing?.mode === 'fixed' ? serviceTermsText(s) : (s.terms || ''),
+  cancellationWindowHours: Number.isInteger(s.cancellationWindowHours) ? s.cancellationWindowHours : 0 });
 const quoteDTO = q => q ? { version: q.version, scope: q.scope, currency: q.currency, servicePaise: q.servicePaise, serviceTaxPaise: q.serviceTaxPaise, totalPaise: q.totalPaise, terms: q.policy.terms, confirmedAt: q.confirmedAt, expiresAt: q.expiresAt } : null;
 export function requestDTO(a, mode = 'customer') {
   const l = a.legal || {}, q = currentQuote(a), provider = mode === 'provider';
@@ -34,7 +41,10 @@ export function requestDTO(a, mode = 'customer') {
     receipt: provider || !l.captureId ? null : { transactionReference: l.captureId, capturedPaise: l.capturedPaise, currency: 'INR' },
     canPay: !provider && quotePayable(a) && legalFlags().payments,
     billing: provider || !a.billing ? null : { version: a.billing.version, amountPaise: a.billing.amountPaise, currency: a.billing.currency, status: a.billing.status, terms: a.billing.terms,
+      basePaise: a.billing.basePaise ?? a.billing.amountPaise, taxRate: a.billing.taxRate ?? 0, taxPaise: a.billing.taxPaise ?? 0,
+      cancellationWindowHours: a.billing.cancellationWindowHours ?? 0, paidAt: a.billing.paidAt,
       paymentId: a.billing.paymentId ? true : undefined, reviewRequired: Boolean(a.billing.reviewRequired), refundedToWallet: Boolean(a.billing.refundedToWallet) },
+    selfCancel: provider || !a.billing ? undefined : (() => { const v = applicantCancellation(a); return { allowed: v.allowed, refund: v.refund, until: v.deadline, reason: v.allowed ? undefined : v.reason }; })(),
     cancellation: provider ? undefined : Boolean(l.cancellation), refundedPaise: provider ? undefined : l.refundedPaise || 0,
     refunds: provider ? undefined : (l.refunds || []).map(r => ({ key: r.key, amountPaise: r.amountPaise, status: r.status })),
     financialHold: Boolean(l.hold), settlementStatus: provider ? l.payout?.status || l.payableBucket || 'not_eligible' : undefined };
@@ -156,6 +166,9 @@ export async function download(req, res) {
 }
 export async function cancellation(req, res) {
   const owned = await loadRequest(req);
+  // Fixed-price requests: the customer cancels directly under the terms frozen at
+  // checkout (cancellation window, before work starts); a paid fee goes back to the wallet.
+  if (owned.billing) return cancelFixedPriceRequest(owned, req, res);
   const a = await mutateLegal(owned._id, req.body.version, { id: req.user._id, type: 'customer' }, async a => {
     if (String(a.user) !== String(req.user._id) || a.legal.payout || ['cancelled', 'refunded', 'rejected'].includes(a.status)) fail('Cancellation request not permitted', 409);
     if (a.legal.cancellation) fail('Cancellation already requested', 409);
@@ -163,6 +176,28 @@ export async function cancellation(req, res) {
     a.legal.cancellation = { reason, at: new Date(), state: a.status };
     event(a, { id: req.user._id, type: 'customer' }, 'cancellation_requested');
   }); send(res, requestDTO(a));
+}
+async function cancelFixedPriceRequest(owned, req, res) {
+  if (String(owned.user) !== String(req.user._id)) fail('Request not found', 404);
+  const verdict = applicantCancellation(owned);
+  if (!verdict.allowed) fail(verdict.reason, 409);
+  if (!verdict.resume) {
+    if (Number(req.body.version) !== owned.__v) fail('Request changed. Reload before continuing.', 409);
+    const note = text(req.body.message ?? '', 'Cancellation reason', 2000) || 'Cancelled by customer';
+    owned.status = 'cancelled';
+    owned.events.push({ action: 'cancelled', actor: req.user._id, actorType: 'customer', status: 'cancelled', message: note });
+    // Saved before the refund: the optimistic version check stops a cancel that races an
+    // admin starting work. `cancelRefundDue` lets a retried cancel finish an interrupted refund.
+    if (verdict.refund) { owned.billing = { ...owned.billing, cancelRefundDue: true }; owned.markModified('billing'); }
+    try { await owned.save(); } catch (error) { if (error.name === 'VersionError') fail('Request changed. Reload before continuing.', 409); throw error; }
+  }
+  if (verdict.refund) {
+    await refundServiceFeeToWallet(owned, req.user._id, { actorType: 'customer', reason: 'cancelled' });
+    await owned.save();
+  }
+  await notifyAllAdmins({ event: 'SYSTEM', title: 'Service request cancelled', message: `${owned.snapshot.name}: cancelled by the customer${verdict.refund ? '; fee refunded to their wallet' : ''}`,
+    metadata: { applicationId: owned._id }, route: `/admin/services?application=${owned._id}` }).catch(() => {});
+  send(res, requestDTO(owned));
 }
 export async function adminAct(req, res) {
   const actor = { id: req.user._id, type: 'admin' };

@@ -29,3 +29,16 @@
 .sm-status.is-rejected { background: #fee2e2; color: #991b1b; }
 .sm-filters{grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px;margin:0 0 14px;padding:12px;background:#fff;border:1px solid #d7e3dd;border-radius:12px}.sm-filters label{margin:0;font-size:13px}
 .sm-deliverables{display:grid;gap:8px;margin:10px 0}.sm-deliverables strong{font-size:13px;color:#174b34}.sm-deliverables button{text-align:left;overflow-wrap:anywhere}
+
+/* Service fee: base, GST and total, from the service's own settings. */
+.service-fee-breakdown { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 4px 0; font-size: 14px; }
+.service-fee-breakdown dt, .service-fee-breakdown dd { margin: 0; }
+.service-fee-breakdown dd { text-align: right; font-variant-numeric: tabular-nums; }
+.service-fee-terms { white-space: pre-line; }
+.service-fee-cancel { display: grid; gap: 6px; margin-top: 4px; }
+.service-fee-cancel p, .service-fee-note { margin: 0; color: #475569; font-size: 13px; }
+.service-fee-cancel button { justify-self: start; }
+
+/* Destructive admin action (delete service). */
+.sm-danger { color: #b91c1c; border-color: #fecaca; }
+.sm-danger:hover:not(:disabled) { background: #fef2f2; }

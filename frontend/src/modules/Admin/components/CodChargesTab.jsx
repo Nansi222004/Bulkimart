@@ -75,7 +75,7 @@ export default function CodChargesTab() {
   const sample = previewFee(form, Number(example) || 0);
 
   return (
-    <div style={{ display: 'grid', gap: 16, color: '#0B2D6B', maxWidth: 900 }}>
+    <div style={{ display: 'grid', gap: 16, color: '#0B2D6B', maxWidth: 960, padding: 24, boxSizing: 'border-box' }}>
       <div>
         <h2 style={{ margin: 0 }}>COD Charges</h2>
         <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>Settings › Payment Settings. A handling fee added to Cash on Delivery orders only. Online payments never pay it. Charged once per order (each delivery is a separate cash collection). It is Bulkimart income, not seller earnings.</p>

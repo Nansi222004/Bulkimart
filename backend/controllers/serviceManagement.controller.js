@@ -38,7 +38,7 @@ const publicApplication = a => {
 };
 export async function listServices(req, res) {
   const { page, limit } = pagination(req);
-  const query = admin(req) ? {} : { status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] };
+  const query = admin(req) ? { status: { $ne: 'archived' } } : { status: 'published', $or: [{ audiences: 'vendor' }, { audiences: { $exists: false } }] };
   const [items, total] = await Promise.all([Service.find(query).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit), Service.countDocuments(query)]);
   send(res, items, { total, page, limit });
 }
@@ -53,6 +53,7 @@ export async function saveService(req, res) {
   if (req.params.id) {
     service = await Service.findById(oid(req.params.id));
     if (!service) fail('Service not found', 404);
+    if (service.status === 'archived') fail('This service was deleted and can no longer be edited.', 410);
     if (req.body.version !== service.__v) fail('Service changed. Reload before saving.', 409);
     if (JSON.stringify(service.fields) !== JSON.stringify(definition.fields)) service.formVersion++;
     Object.assign(service, definition, { updatedBy: req.user._id });
@@ -60,9 +61,43 @@ export async function saveService(req, res) {
   } else service = await Service.create({ ...definition, createdBy: req.user._id, updatedBy: req.user._id });
   send(res.status(req.params.id ? 200 : 201), service);
 }
+/**
+ * Delete a service.
+ *  - Never used: removed permanently.
+ *  - Has seller applications or customer requests: archived instead. Those records
+ *    point to the service for their history, payments and refunds, so it is kept but
+ *    hidden everywhere (admin list, catalogues) and can never be edited or published
+ *    again. Open requests can still be handled by the admin from Customer requests.
+ *    Its identifier is freed so a new service can reuse it.
+ */
+export async function deleteService(req, res) {
+  const id = oid(req.params.id);
+  const version = Number(req.query.version);
+  if (!Number.isInteger(version)) fail('Service version is required. Reload before deleting.', 400);
+  const service = await Service.findById(id).select('name slug status __v submissionCount').lean();
+  if (!service || service.status === 'archived') fail('Service not found', 404);
+  if (service.__v !== version) fail('Service changed. Reload before deleting.', 409);
+  const used = await Application.countDocuments({ service: id });
+  const log = action => console.info(JSON.stringify({ event: `service_${action}`, serviceId: String(id), name: service.name, requests: used, adminId: String(req.user._id) }));
+  if (used === 0) {
+    // The submission count and version in the filter stop a request submitted at this
+    // moment (which increments the count) from being left without its service.
+    const removed = await Service.deleteOne({ _id: id, __v: version, $or: [{ submissionCount: 0 }, { submissionCount: { $exists: false } }] });
+    if (removed.deletedCount) { log('deleted'); return send(res, { deleted: true, archived: false, _id: id }); }
+    // A request arrived meanwhile: fall through and archive instead.
+  }
+  const archived = await Service.updateOne({ _id: id, status: { $ne: 'archived' } }, {
+    $set: { status: 'archived', archivedAt: new Date(), archivedBy: req.user._id, updatedBy: req.user._id, slug: `${service.slug}-deleted-${String(id).slice(-6)}` },
+    $inc: { __v: 1 },
+  });
+  if (!archived.modifiedCount) fail('Service not found', 404);
+  log('archived');
+  send(res, { deleted: true, archived: true, requests: used, _id: id });
+}
 export async function publishService(req, res) {
   const service = await Service.findById(oid(req.params.id));
   if (!service) fail('Service not found', 404);
+  if (service.status === 'archived') fail('This service was deleted and can no longer be published.', 410);
   if (req.body.version !== service.__v) fail('Service changed. Reload before publishing.', 409);
   if (!['published', 'unpublished'].includes(req.body.status)) fail('Invalid publication status');
   validateDefinition(service.toObject());

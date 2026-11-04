@@ -32,7 +32,7 @@ const subtitles = {
   payouts: 'Rider withdrawal requests. Send the money by bank/UPI first, then record the bank reference here.',
   riders: 'What each rider has earned. “On hold” becomes “Available to pay” once the order’s payment or COD cash is confirmed.',
 };
-const actionTitles = { 'cod/verify': 'Confirm cash received', 'cod/dispute': 'Report a cash problem', 'cod/writeoff': 'Write off cash shortage', allocate: 'Calculate seller earnings', release: 'Release seller earnings', 'release-rider': 'Release rider earnings', complete: 'Mark rider payout as paid', reject: 'Reject rider payout' };
+const actionTitles = { 'cod/verify': 'Confirm cash received', 'cod/dispute': 'Report a cash problem', 'cod/writeoff': 'Write off cash shortage', allocate: 'Calculate seller earnings', release: 'Release seller earnings', 'release-rider': 'Release rider earnings', 'rider-earning': 'Price rider earnings', complete: 'Mark rider payout as paid', reject: 'Reject rider payout' };
 
 export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNavigation = false, account = '' } = {}) {
   const generation = useRef(0);
@@ -52,7 +52,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
   const [status, setStatus] = useState(''), [from, setFrom] = useState(''), [to, setTo] = useState('');
   const [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [selection, setSelection] = useState(null);
   const [readError, setReadError] = useState(false);
-  const [action, setAction] = useState(''), [proof, setProof] = useState({ amount: '', reference: '', reason: '', verified: false });
+  const [action, setAction] = useState(''), [proof, setProof] = useState({ amount: '', reference: '', reason: '', verified: false, distanceKm: '' });
   const operational = flags.operations && flags.policyApproved && flags.testsApproved;
   const payoutsEnabled = flags.payouts && flags.policyApproved && flags.testsApproved;
   const detailRow = ['orders', 'cod'].includes(tab) ? rows.find(row => row._id === detailId) : null;
@@ -161,12 +161,14 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     if (!selection || (tab === 'payouts' ? !payoutsEnabled : !operational)) return;
     if ((action !== 'reject' && proof.reference.trim().length < 4) || proof.reason.trim().length < 5) { setMessage('Enter a real receipt or bank reference and a reason with at least 5 characters.'); return; }
     if (action === 'cod/verify' && (!/^\d+(?:\.\d{1,2})?$/.test(proof.amount) || !Number.isFinite(Number(proof.amount)))) { setMessage('Enter the amount actually received, using up to two decimal places.'); return; }
+    const needsDistance = action === 'rider-earning' && selection.riderTrip?.distanceKm == null;
+    if (needsDistance && !(/^\d+(?:\.\d{1,2})?$/.test(proof.distanceKm) && Number(proof.distanceKm) <= 300)) { setMessage('Enter the shop-to-customer distance in km (up to 300).'); return; }
     if (action === 'complete' && !proof.verified) { setMessage('Confirm that you checked the successful bank transfer first.'); return; }
     perform(async () => {
       const reference = proof.reference.trim();
       const reason = proof.reason.trim();
       if (tab === 'payouts') await adminPatch(`/delivery-payouts/${selection._id}/${action}`, { reason, verified: proof.verified, transactionRef: reference });
-      else await adminPost(`/finance/orders/${selection._id}/${action}`, { expectedRevision: selection.financialRevision || 0, ...(action === 'cod/verify' ? { amount: Number(proof.amount) } : {}), reference, reason });
+      else await adminPost(`/finance/orders/${selection._id}/${action}`, { expectedRevision: selection.financialRevision || 0, ...(action === 'cod/verify' ? { amount: Number(proof.amount) } : {}), ...(action === 'rider-earning' && proof.distanceKm !== '' ? { distanceKm: Number(proof.distanceKm) } : {}), reference, reason });
       setSelection(null);
     });
   };
@@ -196,13 +198,15 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
     const suggestedAmount = kind === 'cod/verify' && row.cash
       ? String(((row.cash.reportedPaise || (row.cash.duePaise ?? row.cash.expectedPaise) || 0) / 100).toFixed(2)).replace(/\.00$/, '')
       : '';
-    setProof({ amount: suggestedAmount, reference: '', reason: '', verified: false });
+    setProof({ amount: suggestedAmount, reference: '', reason: '', verified: false, distanceKm: '' });
   };
   const changeTab = value => { setTab(value); setPage(1); setRows([]); setStatus(''); setFiltersApplied(current => ({ ...current, status: '' })); };
   const actionForm = selection && <form ref={actionFormRef} className="finance-panel finance-review" onSubmit={submitAction}><h3>{actionTitles[action] || action} · {selection.orderNo || selection._id}</h3>
         {action === 'cod/writeoff' && <p>{`Bulkimart absorbs the ${rupees(selection.cash.shortagePaise)} shortage so the seller and rider can be paid in full. This is recorded as a COD shortage expense.`}</p>}
         {action === 'cod/dispute' && <p>Blocks payouts linked to this order until you confirm the cash again.</p>}
         {['allocate', 'release', 'release-rider'].includes(action) && <p>Review the payment and earnings information before confirming this action.</p>}
+        {action === 'rider-earning' && <p>{`This delivery was completed but the rider’s pay could not be calculated. It will be priced from the rate the rider accepted${selection.riderTrip?.distanceKm == null ? ' and the distance you enter' : ` and the measured ${selection.riderTrip.distanceKm} km`}, then held until the order’s payment is confirmed, like any delivery.`}</p>}
+        {action === 'rider-earning' && selection.riderTrip?.distanceKm == null && <label>Distance (km)<input required type="number" min="0" max="300" step="0.01" value={proof.distanceKm} onChange={e => setProof({ ...proof, distanceKm: e.target.value })} />{hint('Shop to customer, as the rider travelled it.', '3.4')}</label>}
         {action === 'cod/verify' && <label>Cash received (₹)<input required type="number" min="0" step="0.01" value={proof.amount} onChange={e => setProof({ ...proof, amount: e.target.value })} />{hint('What actually reached Bulkimart’s bank or cash desk, not what the rider reported. COD cash is due rounded to the nearest rupee; a different amount marks the order “Amount mismatch”.', String(((selection.cash?.duePaise ?? selection.cash?.expectedPaise) || 0) / 100))}</label>}
         <label>{action === 'complete' ? 'Bank reference (UTR)' : 'Evidence reference'}<input required={action !== 'reject'} minLength={4} value={proof.reference} autoComplete="off" onChange={e => setProof({ ...proof, reference: e.target.value })} />{hint(action === 'complete' ? 'From your bank statement, after the transfer succeeded.' : 'Deposit slip, bank UTR or cash-desk receipt number.', action === 'complete' ? 'UTR 412345678901' : 'Deposit slip 0098')}</label>
         <label>Reason<input required minLength={5} value={proof.reason} autoComplete="off" onChange={e => setProof({ ...proof, reason: e.target.value })} />{hint('Kept with the order’s history.', action === 'cod/writeoff' ? 'Customer paid ₹20 less at the door' : 'Counted at the cash desk on 23 Oct')}</label>
@@ -218,6 +222,7 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
               {row.paymentMethod === 'cod' && !['expected', 'disputed'].includes(row.cash.status) && <button disabled={busy || !operational} onClick={() => choose(row, 'cod/dispute')}>Report a cash problem</button>}
               {row.exceptions.includes('needs_admin_review') && !row.financialPosting && <button title={row.exceptions.includes('commission_rule_missing') ? 'A commission rate must be recorded for this order first.' : undefined} disabled={busy || !operational || row.exceptions.includes('commission_rule_missing') || row.exceptions.includes('discount_funding_policy_missing')} onClick={() => choose(row, 'allocate')}>Calculate seller earnings</button>}
               {row.exceptions.includes('needs_admin_review') && row.financialPosting === 'held' && <button disabled={busy || !operational} onClick={() => choose(row, 'release')}>Release seller earnings</button>}
+              {row.riderTrip?.earningStatus === 'reconciliation_required' && <button disabled={busy || !operational} onClick={() => choose(row, 'rider-earning')}>Price rider earnings</button>}
               {row.financeAutomation?.step === 'rider_release' && <button disabled={busy || !operational} onClick={() => choose(row, 'release-rider')}>Release rider earnings</button>}
             </div>);
   return <section className="finance-workflow">

@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import DeliveryPayout from '../models/DeliveryPayout.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
@@ -108,6 +110,34 @@ export const requestVerifiedRiderPayout = async ({ partnerId, userId, amount, ke
   return { payout: result.payout, earnings: result.earnings };
 };
 
+/**
+ * One bank transfer pays one payout. Rejects a transfer reference (UTR) that
+ * already marked another rider payout — or a seller payout — as paid, and
+ * claims it atomically by its hash so two simultaneous completions with the
+ * same reference cannot both succeed (the second hits the unique _id).
+ */
+const claimTransferReference = async ({ reference, payout, actorId, session }) => {
+  const normalized = reference.trim().toUpperCase();
+  const receiptId = crypto.createHash('sha256').update(normalized).digest('hex');
+  const db = mongoose.connection;
+  const sameRef = { $expr: { $eq: [{ $toUpper: { $trim: { input: { $ifNull: ['$transactionRef', ''] } } } }, normalized] } };
+  if (await DeliveryPayout.exists({ _id: { $ne: payout._id }, status: 'completed', ...sameRef }).session(session)) throw httpError(409, 'This bank reference was already used for another rider payout');
+  const { default: SellerPayout } = await import('../models/SellerPayout.js');
+  if (await SellerPayout.exists({ status: 'APPROVED', ...sameRef }).session(session)) throw httpError(409, 'This bank reference was already used for a seller payout');
+  if (await db.collection('seller_payout_receipts').findOne({ _id: receiptId }, { session })) throw httpError(409, 'This bank reference was already used for a seller payout');
+  const receipts = db.collection('rider_payout_receipts');
+  const claimed = await receipts.findOne({ _id: receiptId }, { session });
+  if (claimed && String(claimed.payoutId) !== String(payout._id)) throw httpError(409, 'This bank reference was already used for another rider payout');
+  if (!claimed) {
+    try {
+      await receipts.insertOne({ _id: receiptId, payoutId: payout._id, partnerId: payout.partnerId, amount: payout.amount, actorId, at: new Date() }, { session });
+    } catch (error) {
+      if (error?.code === 11000) throw httpError(409, 'This bank reference was already used for another rider payout');
+      throw error;
+    }
+  }
+};
+
 export const resolveVerifiedRiderPayout = async ({ payoutId, actorId, complete, input }) => {
   requireFinanceOperation('payouts');
   const reference = String(input.transactionRef || '').trim();
@@ -124,6 +154,7 @@ export const resolveVerifiedRiderPayout = async ({ payoutId, actorId, complete, 
       return payout;
     }
     if (payout.status !== 'pending') throw httpError(409, 'Payout is already resolved');
+    if (complete) await claimTransferReference({ reference, payout, actorId, session });
     // Mutate the claim and counters in one transaction; conflicting resolutions retry.
     payout.status = target; payout.processedAt = new Date(); payout.processedBy = actorId;
     payout.transactionRef = complete ? reference : undefined;

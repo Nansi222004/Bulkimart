@@ -1,4 +1,5 @@
 import express from "express";
+import { renderInvoicePrintPage } from '../controllers/taxInvoice.controller.js';
 import { storefrontRouter, storefrontAdminRouter } from './storefront.routes.js';
 import { mediaApiRouter, mediaAdminRouter } from './media.routes.js';
 import { advertisingRouter } from './advertising.routes.js';
@@ -37,6 +38,8 @@ import digitalCommerceRoutes from './digitalCommerce.routes.js';
 import helplineRoutes from './helpline.routes.js';
 
 const router = express.Router();
+// Printable seller invoice for the seller app; reachable only through a signed, 10-minute link.
+router.get('/invoice-print/:token', renderInvoicePrintPage);
 router.use('/media', mediaApiRouter);
 router.use('/admin/media', mediaAdminRouter);
 router.use('/storefront', storefrontRouter);

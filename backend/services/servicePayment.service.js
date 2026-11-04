@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import Application from '../models/ServiceApplication.js';
+import Service from '../models/Service.js';
 import Payment from '../models/Payment.js';
 import { fail } from './serviceForms.service.js';
 import { requireServiceGateway } from './servicePaymentPolicy.service.js';
@@ -14,15 +15,34 @@ import { notifyAllAdmins } from './notification.service.js';
 
 // 'vendor_service' marks every simple service-fee payment (sellers and customers); legal quotation payments never use it.
 const purpose = { servicePaymentKind: 'vendor_service' };
+/**
+ * What a fixed-price service charges: the admin's base price plus the GST rate the
+ * admin set on that service (0 when none), rounded half-up to the paisa.
+ * Nothing is assumed: every figure comes from the service record.
+ */
+export function serviceFeeQuote(service) {
+  const price = service?.pricing;
+  if (price?.mode !== 'fixed' || !(Number(price.amount) > 0)) return null;
+  const basePaise = moneyPaise(price.amount, 'Service fee');
+  const taxRate = Number(price.taxRate) || 0;
+  const rateBasisPoints = moneyPaise(taxRate, 'GST rate'); // percent × 100, e.g. 18 → 1800
+  const taxPaise = Math.floor((basePaise * rateBasisPoints + 5000) / 10000);
+  return { basePaise, taxRate, taxPaise, amountPaise: basePaise + taxPaise, currency: price.currency };
+}
+// Applicant-facing terms: the admin's own text for the service, or a plain default.
+export const serviceTermsText = service => (typeof service?.terms === 'string' && service.terms.trim())
+  || `Service fee for ${service?.name || 'this service'}, paid to Bulkimart when you submit. If your application is rejected, the fee is refunded to your Bulkimart wallet.`;
+
 // The fee a fixed-price service charges when the application is submitted, or null for a free service.
 export function serviceFeeBilling(service) {
-  const price = service.pricing;
-  if (price?.mode !== 'fixed' || !(Number(price.amount) > 0)) return null;
-  if (price.currency !== 'INR') fail('Only INR service fees can be paid online', 409);
-  const amountPaise = moneyPaise(price.amount, 'Service fee');
-  if (amountPaise <= 0 || amountPaise > MAX_CHECKOUT_PAISE) fail('Service fee is outside the supported payment limit', 409);
-  return { version: 1, amountPaise, currency: 'INR', status: 'unpaid', requestedAt: new Date(),
-    terms: `Service fee for ${service.name}, paid to Bulkimart when you submit. If your application is rejected, the fee is refunded to your Bulkimart wallet.` };
+  const quote = serviceFeeQuote(service);
+  if (!quote) return null;
+  if (quote.currency !== 'INR') fail('Only INR service fees can be paid online', 409);
+  if (quote.amountPaise <= 0 || quote.amountPaise > MAX_CHECKOUT_PAISE) fail('Service fee is outside the supported payment limit', 409);
+  // Frozen on the application, so later edits to the service never change this request's terms or price.
+  return { version: 1, amountPaise: quote.amountPaise, basePaise: quote.basePaise, taxRate: quote.taxRate, taxPaise: quote.taxPaise,
+    currency: 'INR', status: 'unpaid', requestedAt: new Date(), terms: serviceTermsText(service),
+    cancellationWindowHours: Number.isInteger(service.cancellationWindowHours) ? service.cancellationWindowHours : 0 };
 }
 // A seller's application (vendor set) or the signed-in customer's own request.
 async function owned(id, user, vendor, session = null) {
@@ -38,6 +58,8 @@ export async function initiateServicePayment(id, user, vendor, input, key) {
     if (a.status !== 'awaiting_payment' || !bill || bill.reviewRequired || ['paid', 'refunded', 'partial_refund'].includes(bill.status)) fail('This application has no service fee waiting to be paid', 409);
     if (input.acceptTerms !== true || input.feeVersion !== bill.version || input.amountPaise !== bill.amountPaise) fail('Refresh and accept the current service fee and payment terms', 409);
     if (bill.mode && bill.mode !== process.env.RAZORPAY_MODE) fail('Payment environment changed. Contact support.', 409);
+    // A deleted (archived) service takes no new payments; an attempt already started can still be confirmed.
+    if (!bill.paymentId && await Service.exists({ _id: a.service, status: 'archived' }).session(session)) fail('This service is no longer offered, so it cannot be paid for.', 410);
     let p = bill.paymentId ? await Payment.findOne({ _id: bill.paymentId, ...purpose, serviceApplicationId: a._id, userId: user }).session(session) : null;
     if (bill.paymentId && !p) fail('Service payment association requires review', 409);
     if (!p) {
@@ -94,7 +116,7 @@ export async function settleServicePayment(paymentId, live) {
           addRefundObligation(p, { key: `SERVICE_EXTRA:${live.paymentId}`, gatewayOrderId: live.orderId, gatewayPaymentId: live.paymentId, amountPaise: live.amountPaise, reason: 'Extra or late service capture requires refund review' });
           bill.reviewRequired = true;
         } else {
-          p.status = 'paid'; p.paidAt = new Date(); bill.status = 'paid'; bill.captureId = live.paymentId;
+          p.status = 'paid'; p.paidAt = new Date(); bill.status = 'paid'; bill.captureId = live.paymentId; bill.paidAt = p.paidAt;
           // A fee paid at submission makes the application real for the admin; an older admin-requested fee resumes review.
           a.status = bill.requestedBy ? 'payment_verified' : 'submitted'; if (!bill.requestedBy) submitted = a;
         }

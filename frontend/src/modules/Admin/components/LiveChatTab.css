@@ -1,4 +1,4 @@
-.alc { --alc-primary: var(--primary-hover, #078ccb); --alc-accent: var(--accent, #ff8500); --alc-line: #e2e8f0; display: flex; flex-direction: column; gap: 12px; color: #0f172a; min-width: 0; }
+.alc { --alc-primary: var(--primary-hover, #078ccb); --alc-accent: var(--accent, #ff8500); --alc-line: #e2e8f0; display: flex; flex-direction: column; gap: 12px; color: #0f172a; min-width: 0; padding: 24px; box-sizing: border-box; }
 .alc-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .alc-topbar h2 { margin: 0; font-size: 20px; font-weight: 800; }
 .alc-muted { color: #64748b; font-size: 12.5px; }
@@ -92,6 +92,7 @@
   .alc-right { grid-column: 1 / -1; max-height: 340px; }
 }
 @media (max-width: 760px) {
+  .alc { padding: 12px; }
   .alc-grid { grid-template-columns: 1fr; height: auto; }
   .alc-left { max-height: 420px; }
   .alc-center { height: 70vh; }

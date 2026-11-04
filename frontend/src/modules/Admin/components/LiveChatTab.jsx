@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { adminGet, adminPatch, adminPost, qs } from '../../../utils/adminApi';
 import { socket } from '../../../utils/socket';
 import { mergeMessages, newClientMessageId, deliveryState } from '../../../utils/supportChatCore';
@@ -30,9 +30,19 @@ const ago = (d) => {
   return `${Math.floor(s / 86400)}d`;
 };
 const time = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+// The open conversation and queue tab survive a refresh: the URL carries the
+// conversation id, and this tab's session storage backs it up in case the URL
+// was reset to /admin/live-chat.
+const LAST_CHAT_KEY = 'bulkimart_admin_live_chat_selected';
+const LAST_TAB_KEY = 'bulkimart_admin_live_chat_tab';
+const isObjectId = (id) => /^[a-f\d]{24}$/i.test(id || '');
+const readSession = (key) => { try { return sessionStorage.getItem(key); } catch { return null; } };
+const writeSession = (key, value) => { try { if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch { /* storage optional */ } };
 const pathConversationId = () => {
   const id = window.location.pathname.split('/')[3];
-  return /^[a-f\d]{24}$/i.test(id || '') ? id : null;
+  if (isObjectId(id)) return id;
+  const saved = readSession(LAST_CHAT_KEY);
+  return isObjectId(saved) ? saved : null;
 };
 
 function Attachments({ items }) {
@@ -53,7 +63,10 @@ function Attachments({ items }) {
 export default function LiveChatTab() {
   const { triggerToast } = useAdmin();
   const toast = useCallback((m) => (triggerToast ? triggerToast(m) : window.alert(m)), [triggerToast]);
-  const [tab, setTab] = useState('WAITING');
+  const savedTab = readSession(LAST_TAB_KEY);
+  const tabChosen = useRef(Boolean(savedTab));
+  const [tab, setTabState] = useState(savedTab || 'WAITING');
+  const setTab = useCallback((next) => { tabChosen.current = true; writeSession(LAST_TAB_KEY, next); setTabState(next); }, []);
   const [role, setRole] = useState('');
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
@@ -71,7 +84,6 @@ export default function LiveChatTab() {
   const [draft, setDraft] = useState('');
   const [files, setFiles] = useState([]);
   const [typing, setTyping] = useState({});
-  const [transferTo, setTransferTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [, forceTick] = useState(0);
   const selectedRef = useRef(selectedId);
@@ -92,6 +104,12 @@ export default function LiveChatTab() {
       const { data, meta } = await adminGet(`/support-chat/conversations${qs(params)}`);
       setList(data || []);
       setCounts(meta?.counts || {});
+      // First visit this session: with nobody waiting but chats in progress,
+      // open on "My chats" instead of an empty Waiting queue.
+      if (!tabChosen.current && tab === 'WAITING' && !(meta?.counts?.WAITING > 0) && meta?.counts?.ACTIVE > 0) {
+        tabChosen.current = true;
+        setTabState('mine');
+      }
     } catch (err) { toast(err.message); } finally { setListLoading(false); }
   }, [tab, role, q, from, to, unreadOnly, toast]);
 
@@ -107,6 +125,7 @@ export default function LiveChatTab() {
 
   const openConversation = useCallback(async (id) => {
     setSelectedId(id);
+    writeSession(LAST_CHAT_KEY, id);
     window.history.replaceState(null, '', `/admin/live-chat/${id}`);
     setMessages([]); setContext(null); setDraft(''); setFiles([]);
     try {
@@ -119,7 +138,11 @@ export default function LiveChatTab() {
       setMessages(page.messages);
       setHasMore(page.hasMore);
       if (document.visibilityState === 'visible') markRead(id);
-    } catch (err) { toast(err.message); }
+    } catch (err) {
+      // A remembered chat that no longer opens is forgotten, not retried on every refresh.
+      if (selectedRef.current === id) { writeSession(LAST_CHAT_KEY, null); setSelectedId(null); window.history.replaceState(null, '', '/admin/live-chat'); }
+      toast(err.message);
+    }
   }, [markRead, toast]);
 
   const refreshContext = useCallback(async () => {
@@ -263,8 +286,13 @@ export default function LiveChatTab() {
   const isMine = conversation && String(conversation.assignedAdminId) === me;
   const isSuper = myAgent?.role === 'superAdmin';
   const canReply = conversation && (conversation.status === 'WAITING' || (conversation.status === 'ACTIVE' && (isMine || isSuper)));
-  const otherAgents = useMemo(() => agents.filter((a) => String(a._id) !== String(conversation?.assignedAdminId || '')), [agents, conversation?.assignedAdminId]);
   const onlineCount = agents.filter((a) => a.status !== 'OFFLINE').length;
+  // "Agents" are the admins answering chats — you included — so say so plainly.
+  const iAmOnline = Boolean(myAgent && myAgent.status !== 'OFFLINE');
+  const othersOnline = onlineCount - (iAmOnline ? 1 : 0);
+  const agentsOnlineLabel = iAmOnline
+    ? (othersOnline > 0 ? `You + ${othersOnline} other agent${othersOnline === 1 ? '' : 's'} online` : "You're the only agent online")
+    : `${onlineCount} agent${onlineCount === 1 ? '' : 's'} online`;
   const peerTyping = selectedId ? typing[selectedId] : null;
 
   return (
@@ -272,7 +300,7 @@ export default function LiveChatTab() {
       <div className="alc-topbar">
         <div>
           <h2>Live Chat Support</h2>
-          <span className="alc-muted">{onlineCount} agent{onlineCount === 1 ? '' : 's'} online · {counts.WAITING || 0} waiting · {counts.ACTIVE || 0} active</span>
+          <span className="alc-muted">{agentsOnlineLabel} · {counts.WAITING || 0} waiting · {counts.ACTIVE || 0} active</span>
         </div>
         <label className="alc-mystatus">My status
           <select value={myAgent?.preference || 'AVAILABLE'} onChange={(e) => setMyStatus(e.target.value)}>
@@ -345,15 +373,6 @@ export default function LiveChatTab() {
                 <span className={`alc-status alc-status--${conversation.status.toLowerCase()}`}>{STATUS_LABEL[conversation.status]}{conversation.assignedAdminName ? ` · ${conversation.assignedAdminName}` : ''}</span>
                 <div className="alc-actions">
                   {conversation.status === 'WAITING' ? <button type="button" className="alc-btn" disabled={busy} onClick={() => act('accept', {}, 'Chat accepted')}>Accept</button> : null}
-                  {['WAITING', 'ACTIVE'].includes(conversation.status) && (conversation.status === 'WAITING' || isMine || isSuper) ? (
-                    <span className="alc-transfer">
-                      <select value={transferTo} onChange={(e) => setTransferTo(e.target.value)} aria-label="Assign to agent">
-                        <option value="">{conversation.status === 'WAITING' ? 'Assign to…' : 'Transfer to…'}</option>
-                        {otherAgents.map((a) => <option key={a._id} value={a._id}>{a.name} ({a.status.toLowerCase()}, {a.activeChats} active)</option>)}
-                      </select>
-                      <button type="button" className="alc-btn alc-btn--ghost" disabled={!transferTo || busy} onClick={async () => { await act('assign', { adminId: transferTo }, 'Chat assigned'); setTransferTo(''); }}>Go</button>
-                    </span>
-                  ) : null}
                   {conversation.status === 'ACTIVE' && (isMine || isSuper) ? <button type="button" className="alc-btn alc-btn--ghost" disabled={busy} onClick={() => act('resolve', {}, 'Chat resolved')}>Resolve</button> : null}
                   {conversation.status !== 'CLOSED' ? <button type="button" className="alc-btn alc-btn--ghost" disabled={busy} onClick={() => window.confirm('Close this chat?') && act('close', {}, 'Chat closed')}>Close</button> : null}
                   {['RESOLVED', 'CLOSED'].includes(conversation.status) ? <button type="button" className="alc-btn alc-btn--ghost" disabled={busy} onClick={() => act('reopen', {}, 'Chat reopened')}>Reopen</button> : null}

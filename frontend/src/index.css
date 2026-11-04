@@ -224,8 +224,11 @@ input, select, textarea { scroll-margin-block: 24px; }
 }
 
 @media (min-width: 769px) {
+  /* Full width on every desktop screen so the site header runs edge to edge.
+     Page sections keep their own max-widths (e.g. 1100px storefront rails). */
   .user-landing-page-container {
-    max-width: 1240px;
+    max-width: 100%;
+    box-shadow: none;
     height: 100vh;
     height: 100dvh;
     border-radius: 0;

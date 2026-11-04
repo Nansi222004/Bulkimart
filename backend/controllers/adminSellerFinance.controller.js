@@ -164,6 +164,8 @@ export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {
       const receipts = mongoose.connection.collection('seller_payout_receipts');
       const claimed = await receipts.findOne({ _id: receiptId }, { session });
       if (claimed && String(claimed.payoutId) !== String(payout._id)) throw httpError(409, 'Transfer reference already allocated');
+      // One bank transfer pays one payout: also refuse a reference already used to pay a rider.
+      if (await mongoose.connection.collection('rider_payout_receipts').findOne({ _id: receiptId }, { session })) throw httpError(409, 'Transfer reference already allocated to a rider payout');
       if (!claimed) await receipts.insertOne({ _id: receiptId, payoutId: payout._id, sellerId: payout.sellerId, amount: payout.amount, currency: payout.currency || 'INR', destinationFingerprint: destinationFingerprint(payout.bankDetails), actorId: req.user._id, at: new Date() }, { session });
       const reservation = await SellerLedgerEntry.findOne({
         payoutId: payout._id, sellerId: payout.sellerId?._id || payout.sellerId, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,

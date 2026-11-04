@@ -26,6 +26,7 @@ export function serviceRouter(isAdmin = false, uploads = serviceUploadControls) 
     r.post('/', asyncHandler(c.saveService));
     r.put('/:id', asyncHandler(c.saveService));
     r.post('/:id/publication', asyncHandler(c.publishService));
+    r.delete('/:id', asyncHandler(c.deleteService));
   } else {
     r.post('/payments/verify', asyncHandler(c.verifyApplicationPayment));
     r.post('/applications/:id/payment', asyncHandler(c.payApplication));

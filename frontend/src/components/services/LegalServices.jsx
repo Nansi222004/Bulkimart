@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from 'rea
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import { DynamicFields } from './ServicesPanel';
-import ServicePaymentPanel, { payServiceFee, feeText } from './ServicePaymentPanel';
+import ServicePaymentPanel, { payServiceFee, feeText, FeeBreakdown } from './ServicePaymentPanel';
 import { SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, SERVICE_ANSWER_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
 import './legalServices.css';
 import CustomerServiceHeading from './CustomerServiceHeading';
@@ -12,7 +12,7 @@ import { CustomerSessionContext } from '../../utils/customerSession';
 export const money = n => `₹${((n || 0) / 100).toFixed(2)}`;
 export const statusLabel = s => String(s || '').replaceAll('_', ' ');
 export const legalRequestPath = id => `/legal-services/requests/${id}`;
-const REQUEST_STATUS = { awaiting_payment: 'Payment pending', submitted: 'Submitted — waiting for review', payment_verified: 'Paid — waiting for review', under_review: 'Under review', information_required: 'More information needed', in_progress: 'In progress', completed: 'Completed', rejected: 'Rejected' };
+const REQUEST_STATUS = { cancelled: 'Cancelled', awaiting_payment: 'Payment pending', submitted: 'Submitted — waiting for review', payment_verified: 'Paid — waiting for review', under_review: 'Under review', information_required: 'More information needed', in_progress: 'In progress', completed: 'Completed', rejected: 'Rejected' };
 export function useLegalApi(admin = false) {
   return useCallback(async (path, options = {}, blob = false) => {
     const token = localStorage.getItem(admin ? 'adminToken' : 'userToken');
@@ -94,7 +94,10 @@ export default function LegalServices() {
   // Customer service payments use the shared fee checkout under /api/customer-services.
   const customerRequest = (suffix, options) => request(`/api/customer-services${suffix}`, options);
   const customerAuthorization = () => `Bearer ${localStorage.getItem('userToken') || ''}`;
-  const fee = !history && detail?.startingPrice ? Math.round(Number(detail.startingPrice.amount) * 100) : 0;
+  // Exact checkout figures from the server (base + the service's own GST rate).
+  const legacyPaise = detail?.startingPrice ? Math.round(Number(detail.startingPrice.amount) * 100) : 0;
+  const feeQuote = history ? null : detail?.fee || (legacyPaise ? { basePaise: legacyPaise, taxRate: 0, taxPaise: 0, totalPaise: legacyPaise } : null);
+  const fee = feeQuote ? feeQuote.totalPaise : 0;
   const base = detail?._id ? `/api/customer-services/applications/${detail._id}` : '';
   return <section className="legal-services customer-service-page" aria-label="Legal Services"><CustomerServiceHeading title={history ? 'My Legal Service Requests' : 'Legal Services'}><p>Explore legal services and submit a private request. Final pricing is confirmed after review.</p></CustomerServiceHeading><nav className="legal-nav" aria-label="Legal services navigation"><button type="button" className={`legal-nav-btn ${!history ? 'active' : ''}`} onClick={() => navigate('/legal-services')}>Browse services</button><button type="button" className={`legal-nav-btn ${history ? 'active' : ''}`} onClick={() => { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate('/legal-services/requests'); }}>My requests</button>{!isLoggedIn && <a className="legal-nav-auth" href="/account">Sign in</a>}</nav>
     {notice && <p role="status">{notice}</p>}{error && <section className="customer-service-state" role="alert"><h2>Legal Services update</h2><p>{error}</p><button disabled={busy} onClick={() => refresh(n => n + 1)}>Reload latest</button></section>}
@@ -110,9 +113,9 @@ export default function LegalServices() {
       <PrivateFiles files={detail.files} request={request} base={base} run={run} />
       {detail.status === 'information_required' && <FollowUp request={detail} busy={busy} submit={data => run(async () => { validateFollowUp(data); await request(`${base}/respond`, { method: 'POST', body: data }); refresh(n => n + 1); })} />}
       <h3>Request history</h3><RequestTimeline events={detail.events} />
-    </> : <><h3>{detail.name}</h3><p>{detail.description}</p><p>{detail.instructions}</p><p className="legal-price">{fee ? <>Service fee <strong>{feeText(fee)}</strong> · paid when you submit</> : 'Free service'}</p><p>Only submit information required for this service. Documents are private.</p>
+    </> : <><h3>{detail.name}</h3><p>{detail.description}</p><p>{detail.instructions}</p><p className="legal-price">{fee ? <>Total payable <strong>{feeText(fee)}</strong>{feeQuote.taxRate > 0 ? ` (incl. ${feeQuote.taxRate}% GST)` : ''} · paid when you submit</> : 'Free service'}</p>{fee > 0 && <FeeBreakdown fee={feeQuote} />}{detail.terms && <p className="service-fee-terms">{detail.terms}</p>}<p>Only submit information required for this service. Documents are private.</p>
       <form onSubmit={e => { e.preventDefault(); if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } if (!review) setReview(true); else submit(); }}><DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy || review} />{review && <p>Review the information above, then submit your request.</p>}
-        {review && fee > 0 && <div className="service-fee is-due"><div className="service-fee-row"><span>Service fee</span><strong>{feeText(fee)}</strong></div><label className="sm-agree"><input type="checkbox" checked={accepted} disabled={busy} onChange={e => setAccepted(e.target.checked)} />I agree to pay {feeText(fee)} now. If my request is rejected, the fee is refunded to my Bulkimart wallet.</label></div>}
+        {review && fee > 0 && <div className="service-fee is-due"><FeeBreakdown fee={feeQuote} />{detail.terms && <p className="service-fee-terms">{detail.terms}</p>}<label className="sm-agree"><input type="checkbox" checked={accepted} disabled={busy} onChange={e => setAccepted(e.target.checked)} />I have read and agree to the payment, cancellation and disclaimer terms above, and to pay {feeText(fee)} now.</label></div>}
         {review && <button type="button" onClick={() => setReview(false)}>Edit details</button>}<button disabled={busy || (review && fee > 0 && !accepted)}>{!review ? 'Review request' : busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${feeText(fee)} & submit` : 'Submit request'}</button></form></>
       : !error && <><div className="legal-grid">{items.map(a => <article className="legal-card" key={a._id}><h3>{a.name || a.serviceName}</h3>{history ? <><p><ServiceReference value={a._id} /></p><p>{statusLabel(a.status)} · {statusLabel(a.paymentStatus)}</p><p>{new Date(a.createdAt).toLocaleDateString()}</p></> : <p>{a.description}</p>}<button type="button" onClick={() => { if (history) { navigate(legalRequestPath(a._id)); } else { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate(`/legal-services/${a._id}`); } }}>{history ? 'View request' : 'View service'}</button></article>)}</div>{!items.length && <section className="customer-service-state" role="status"><h2>{history ? 'No requests yet' : 'No eligible services available'}</h2><p>{history ? 'Your private legal service requests will appear here.' : search ? 'Try another search to find a legal service.' : 'Legal services are currently unavailable. Please check back for available services.'}</p></section>}{meta.total > 20 && <nav className="customer-service-pagination"><button disabled={page === 1} onClick={() => setPage(n => n - 1)}>Previous</button><span>Page {page}</span><button disabled={page * 20 >= meta.total} onClick={() => setPage(n => n + 1)}>Next</button></nav>}</>}
   </section>;

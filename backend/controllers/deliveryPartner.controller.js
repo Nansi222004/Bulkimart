@@ -23,6 +23,7 @@ import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EV
 import DeliveryPayout from '../models/DeliveryPayout.js';
 import { requestVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
 import { recordDeliveryEarning, recordCodEvent } from '../services/orderFinance.service.js';
+import { codCashDuePaise } from '../utils/financeMoney.js';
 import { DELIVERY_PAYOUT_STATUS, DELIVERY_MIN_PAYOUT_AMOUNT } from '../constants/enums.js';
 import { normalizeRiderDocument, vehicleNumberError, drivingLicenceError } from '../shared/riderDocuments.mjs';
 
@@ -1573,6 +1574,22 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
 
   const delivery = await Delivery.findById(order.deliveryId);
   if (!delivery) throw httpError(404, 'Delivery record not found');
+
+  /**
+   * COD cash must be recorded with the delivery. The rider apps already insist
+   * on it; enforcing it here too means a COD order can never be completed with
+   * its cash untracked (untracked cash would not count as outstanding, so it
+   * would not block the rider's payouts or COD cash limit). Checked before the
+   * OTP, so a missing amount never uses up an attempt.
+   */
+  const codExpectedPaise = order.paymentMethod === 'cod' && order.financialSnapshot?.version === 2 ? order.financialSnapshot.expectedPaise : 0;
+  if (codExpectedPaise > 0 && !['collected', 'remittance_reported', 'verified', 'allocated', 'discrepancy', 'disputed'].includes(order.codFinance?.status)) {
+    const maxPaise = Math.max(codExpectedPaise, codCashDuePaise(codExpectedPaise));
+    const collectedRupees = Math.round(Number(codCollected));
+    if (codCollected == null || codCollected === '' || !Number.isFinite(collectedRupees) || collectedRupees <= 0 || collectedRupees * 100 > maxPaise) {
+      throw httpError(400, `Enter the cash you collected from the customer (up to ₹${(maxPaise / 100).toFixed(0)}).`, { code: 'COD_COLLECTION_REQUIRED' });
+    }
+  }
 
   /**
    * A 4-digit code is 10,000 possibilities — a couple of minutes of guessing

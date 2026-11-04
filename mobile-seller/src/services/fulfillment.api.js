@@ -42,6 +42,15 @@ export async function getOrderInvoice(orderId) {
   return body.data;
 }
 
+// POST /api/sellers/orders/:id/invoice/print-link → data { path, expiresInSeconds }
+// A 10-minute signed link to a printable copy, opened in the phone's browser (Print → Save as PDF).
+export async function getInvoicePrintLink(orderId) {
+  const body = await api.post(`/api/sellers/orders/${requireId(orderId)}/invoice/print-link`, {});
+  const path = body?.data?.path;
+  if (body?.success === false || typeof path !== 'string' || !path.startsWith('/api/invoice-print/')) throw new Error(body?.message || 'Could not prepare the invoice for printing');
+  return path;
+}
+
 // Shiprocket pickup registration for the store.
 // GET → data { status:'registered'|'pending'|'syncing'|..., message, locationName, registeredAt, shippingApproved, nextAttemptAt }
 export async function getPickupSync() {

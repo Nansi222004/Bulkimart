@@ -271,19 +271,29 @@
    -------------------------------------------------------------------------- */
 @media (min-width: 769px) {
   /* Festive sub-header banner constraint on desktop */
+  /* The feed clips horizontal overflow, which would cut the wider festive
+     banner back to 1100px. On desktop the clip moves up to the page's scroll
+     area instead: the banner fits inside it, and sideways scrolling stays off. */
+  .sf-storefront .home-feed-scrollable { overflow-x: visible; }
+  .sf-storefront .user-main-content.page-home { overflow-x: hidden; }
+
   .sf-festive {
-    width: 100% !important;
-    /* Taller, full-width banner: at least 240px, or the admin's chosen height if larger. */
-    min-height: max(240px, var(--sf-festive-height, 240px)) !important;
+    /* Wider than the 1100px home feed: up to 1400px, keeping 32px from each
+       screen edge, centred over the feed with negative side margins. */
+    --sf-festive-desktop-width: min(1400px, calc(100vw - 64px));
+    width: var(--sf-festive-desktop-width) !important;
+    /* Taller banner: at least 320px, or the admin's chosen height if larger. */
+    min-height: max(320px, var(--sf-festive-height, 320px)) !important;
     max-height: none !important;
-    margin: 8px auto 14px !important;
+    margin: 8px calc((100% - var(--sf-festive-desktop-width)) / 2) 14px !important;
     max-width: none !important;
+    align-self: center;
     border-radius: 16px !important;
     box-sizing: border-box !important;
   }
 
   .sf-festive-content {
-    min-height: max(240px, var(--sf-festive-height, 240px)) !important;
+    min-height: max(320px, var(--sf-festive-height, 320px)) !important;
     padding: 28px 40px !important;
     gap: 16px !important;
   }

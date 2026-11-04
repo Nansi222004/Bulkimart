@@ -18,7 +18,7 @@ import Category from '../models/Category.js';
 import Return from '../models/Return.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import { validateCommissionRule, calculateCommission, allocatePaise, saveCommissionVersion, buildOrderFinancialSnapshot } from '../services/vendorCommission.service.js';
-import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, recordDeliveryEarning, reverseRefundedReturn } from '../services/orderFinance.service.js';
+import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, recordDeliveryEarning, repriceDeliveryEarning, reverseRefundedReturn } from '../services/orderFinance.service.js';
 import { requestVerifiedRiderPayout, resolveVerifiedRiderPayout } from '../services/deliveryPayout.service.js';
 import { sellerBalances, postLedgerEntry } from '../services/sellerLedger.service.js';
 import { financialTransaction, requireFinanceOperation } from '../services/financeSafety.service.js';
@@ -310,9 +310,19 @@ test('rider earning is held once and cannot release from unverified COD', async 
   await verifyCash(); await Promise.all([releaseDeliveryEarning(order._id,admin._id),releaseDeliveryEarning(order._id,admin._id)]);
   expect((await Partner.findById(partner._id)).earnings).toMatchObject({held:0,pending:40});
 });
-const fundedRider = async () => {
+// The fixture rider has delivered a COD order. Cash a rider delivered for is
+// outstanding until Bulkimart confirms receiving it (recorded or not), so tests
+// about payouts themselves start with that cash already confirmed.
+const settleFixtureCash = async () => {
+  const expectedPaise = order.financialSnapshot?.expectedPaise;
+  if (!(expectedPaise > 0)) return;
+  const due = Math.round(expectedPaise / 100) * 100;
+  await Order.collection.updateOne({ _id: order._id }, { $set: { codFinance: { status: 'verified', expectedPaise, collectedPaise: due, verifiedPaise: due, events: [] } } });
+};
+const fundedRider = async ({ cashSettled = true } = {}) => {
   await postLedgerEntry({idempotencyKey:'fixture-rider-eligible',partnerId:partner._id,account:'rider_payable',type:'delivery_earning',direction:'credit',bucket:'eligible',amount:400,description:'Verified test earning'});
   await Partner.updateOne({_id:partner._id},{$set:{'earnings.pending':400,'earnings.total':400}});
+  if (cashSettled) await settleFixtureCash();
 };
 test('rider payout concurrent requests reserve once; paid requires evidence and resolves once', async () => {
   enable(); await fundedRider(); const args={partnerId:partner._id,userId:rider._id,amount:300,key:'fixture-request'};
@@ -327,7 +337,7 @@ test('rider payout concurrent requests reserve once; paid requires evidence and 
   expect(await Notification.find({ userId: rider._id, event: 'PAYOUT_COMPLETED' }).lean()).toEqual([expect.objectContaining({ title: 'Payout settled', route: '/delivery/earnings' })]);
 });
 test('rider cannot withdraw unverified legacy pending balance or exceed verified amount', async () => {
-  enable(); await Partner.updateOne({_id:partner._id},{$set:{'earnings.pending':1000}});
+  enable(); await settleFixtureCash(); await Partner.updateOne({_id:partner._id},{$set:{'earnings.pending':1000}});
   await expect(requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:300,key:'fixture-request'})).rejects.toThrow(/verified payable/);
 });
 test('concurrent reject and complete cannot both move reserved money', async () => {
@@ -853,7 +863,7 @@ test('a short doorstep collection is recorded honestly and settled by write-off'
 });
 
 test('rider cannot be paid while holding unverified COD cash', async () => {
-  enable(); await fundedRider(); await cod('collect');
+  enable(); await fundedRider({ cashSettled: false }); await cod('collect');
   await expect(requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'cash-in-hand' })).rejects.toThrow(/Hand over/);
   await cod('remit'); await cod('verify');
   expect((await requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 300, key: 'cash-in-hand' })).payout.amount).toBe(300);
@@ -982,11 +992,18 @@ test('rider records COD cash in the OTP delivery step', async () => {
   expect(overview.body.data.todo).toMatchObject({ cashWithRiders: 1, cashOverdue: 1 });
 });
 
-test('a failed cash record never undoes the delivery', async () => {
+test('a COD delivery cannot complete without a valid cash amount, and a refused amount uses no OTP attempt', async () => {
+  enable();
   await Order.updateOne({ _id: order._id }, { $set: { status: 'out_for_delivery' } });
-  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'in_transit', otp: '4321', otpVerified: false } });
-  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', codCollected: 999999 });
-  expect(response.status).toBe(200); expect(response.body.data.codCollection.recorded).toBe(false);
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'in_transit', otp: '4321', otpVerified: false, otpAttempts: 0 } });
+  for (const codCollected of [999999, undefined, 0]) {
+    const refused = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', ...(codCollected === undefined ? {} : { codCollected }) });
+    expect(refused.status).toBe(400); expect(refused.body.meta?.code).toBe('COD_COLLECTION_REQUIRED');
+  }
+  expect((await queryOrder()).status).toBe('out_for_delivery');
+  expect((await Delivery.findById(delivery._id)).otpAttempts || 0).toBe(0);
+  const response = await request(app).post(`/api/delivery/orders/${order._id}/verify-otp`).set('Authorization', bearer(rider)).send({ otp: '4321', codCollected: 100 });
+  expect(response.status).toBe(200); expect(response.body.data.codCollection).toEqual({ recorded: true });
   expect((await queryOrder()).status).toBe('delivered');
 });
 
@@ -1066,8 +1083,9 @@ test('an order whose breakdown cannot be frozen is still placed and flagged for 
 
 test('rider eligibility uses verified funds without a workflow marker and refreshes after COD confirmation', async()=>{
  const {riderFinancialSummary}=await import('../services/deliveryPayout.service.js');
- await fundedRider();let summary=await riderFinancialSummary(await Partner.findById(partner._id));
- expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(true);
+ await fundedRider({cashSettled:false});let summary=await riderFinancialSummary(await Partner.findById(partner._id));
+ // Delivered COD cash is outstanding even before the rider records collecting it.
+ expect(summary.verifiedPayable).toBe(400);expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('cod_outstanding');
  await cod('collect');await cod('remit');summary=await riderFinancialSummary(await Partner.findById(partner._id));
  expect(summary.payoutActionsEnabled).toBe(false);expect(summary.payoutBlockers.map(b=>b.code)).toContain('cod_outstanding');
  await expect(requestVerifiedRiderPayout({partnerId:partner._id,userId:rider._id,amount:300,key:'payout-refresh'})).rejects.toThrow(/confirmation/);
@@ -1136,4 +1154,42 @@ test('COD handling fee is collected by the rider, posted as platform income with
   const issues = report.exceptions.filter(row => String(row.orderId) === String(order._id)).map(row => row.code);
   expect(issues).not.toContain('cod_fee_posting_mismatch');
   expect(issues).not.toContain('order_total_mismatch');
+});
+
+// ---- Rider pay fixes (D-1, D-4)
+test('rider pay from built-in default rates (no saved rate id) is credited, not zeroed', async () => {
+  enable();
+  const rates = { mode: 'quick', base: 20, perKm: 10, minPayout: 0 };
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { 'route.distanceKm': 2, ratesUsed: rates } });
+  const fresh = await Delivery.findById(delivery._id);
+  const settlement = { mode: 'quick', base: 20, perKm: 10, distanceKm: 2, distancePay: 20, tip: 0, total: 40 };
+  expect(await recordDeliveryEarning({ order: await Order.findById(order._id), delivery: fresh, settlement })).toEqual({ credited: true, status: 'held' });
+  const entry = await Ledger.findOne({ idempotencyKey: `DELIVERY:${delivery._id}:EARNING` });
+  expect(entry).toMatchObject({ amount: 40, bucket: 'held', account: 'rider_payable' });
+  expect(entry.metadata.rateConfigurationId).toBe('default:quick');
+});
+
+test('admin reprices a delivery whose rider pay could not be calculated, exactly once', async () => {
+  enable();
+  await Delivery.collection.updateOne({ _id: delivery._id }, { $set: { status: 'delivered', financialEarningStatus: 'reconciliation_required', ratesUsed: { mode: 'quick', base: 20, perKm: 10 } }, $unset: { 'route.distanceKm': 1, partnerEarnings: 1 } });
+  const revision = async () => (await Order.findById(order._id)).financialRevision || 0;
+  const review = async extra => ({ expectedRevision: await revision(), reference: 'ADMIN-REPRICE', reason: 'Distance confirmed from the map', ...extra });
+  await expect(repriceDeliveryEarning(order._id, admin._id, await review())).rejects.toThrow(/distance/i);
+  const result = await repriceDeliveryEarning(order._id, admin._id, await review({ distanceKm: 3 }));
+  expect(result).toMatchObject({ status: 'held', earnings: 50, distanceKm: 3 });
+  expect(await Delivery.findById(delivery._id)).toMatchObject({ financialEarningStatus: 'held', partnerEarnings: 50 });
+  expect(await Ledger.countDocuments({ idempotencyKey: `DELIVERY:${delivery._id}:EARNING`, amount: 50 })).toBe(1);
+  expect(await repriceDeliveryEarning(order._id, admin._id, await review({ distanceKm: 3 }))).toMatchObject({ alreadyProcessed: true });
+  expect(await Ledger.countDocuments({ idempotencyKey: `DELIVERY:${delivery._id}:EARNING` })).toBe(1);
+});
+
+test('one bank reference cannot mark two rider payouts as paid', async () => {
+  enable(); await fundedRider();
+  const first = await requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 200, key: 'dup-ref-first' });
+  await resolveVerifiedRiderPayout({ payoutId: first.payout._id, actorId: admin._id, complete: true, input: { verified: true, transactionRef: 'BANK-DUP-1', reason: 'Verified bank statement' } });
+  const second = await requestVerifiedRiderPayout({ partnerId: partner._id, userId: rider._id, amount: 200, key: 'dup-ref-second' });
+  await expect(resolveVerifiedRiderPayout({ payoutId: second.payout._id, actorId: admin._id, complete: true, input: { verified: true, transactionRef: ' bank-dup-1 ', reason: 'Verified bank statement' } })).rejects.toThrow(/already used/);
+  expect((await DeliveryPayout.findById(second.payout._id)).status).toBe('pending');
+  await resolveVerifiedRiderPayout({ payoutId: second.payout._id, actorId: admin._id, complete: true, input: { verified: true, transactionRef: 'BANK-DUP-2', reason: 'Verified bank statement' } });
+  expect((await DeliveryPayout.findById(second.payout._id)).status).toBe('completed');
 });

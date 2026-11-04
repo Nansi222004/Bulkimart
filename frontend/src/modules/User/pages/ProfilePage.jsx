@@ -143,12 +143,25 @@ const ProfilePage = () => {
     }
   }, []);
 
+  // An open section lives in this page's history entry (see the effects below).
+  // A refresh keeps that entry, so the section is restored from it — otherwise
+  // the effect below would read it as "closed" and step back to the previous page.
   const [activeSection, setActiveSection] = useState(() => {
     const section = new URLSearchParams(window.location.search).get('section');
-    return section === 'wallet' ? 'real-wallet' : section === 'support' ? 'support' : null;
+    if (section === 'wallet') return 'real-wallet';
+    if (section === 'support') return 'support';
+    return window.history.state?.accountSection || null;
   });
   // Help & Support: existing tickets, or live chat (?section=support&chat=1[&order=<id>]).
-  const [supportView, setSupportView] = useState(() => (new URLSearchParams(window.location.search).get('chat') ? 'chat' : 'tickets'));
+  const [supportView, setSupportView] = useState(() => (new URLSearchParams(window.location.search).get('chat')
+    ? 'chat'
+    : window.history.state?.accountSupportView === 'chat' ? 'chat' : 'tickets'));
+  // Remember Tickets vs Chat on the same history entry, so a refresh reopens the same tab.
+  useEffect(() => {
+    if (activeSection !== 'support') return;
+    if (window.history.state?.accountSupportView === supportView) return;
+    window.history.replaceState({ ...(window.history.state || {}), accountSupportView: supportView }, '');
+  }, [activeSection, supportView]);
   const [chatOrderId, setChatOrderId] = useState(() => new URLSearchParams(window.location.search).get('order') || '');
   useEffect(() => {
     const open = (e) => { setActiveSection('support'); setSupportView('chat'); setChatOrderId(e.detail?.orderId || ''); };

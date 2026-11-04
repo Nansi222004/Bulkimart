@@ -252,9 +252,23 @@ const ensurePayment = async (order, session, allowCompensatedRefunds = false) =>
   const payment = await Payment.findOneAndUpdate({ _id: order.paymentId }, { $inc: { settlementRevision: 1 } }, { session, returnDocument: 'after' });
   if (!payment) throw httpError(409, 'Verified customer payment is required');
   if (payment.merchandiseSettlementHold) throw httpError(409, 'Payment dispute requires financial reconciliation');
+  // One checkout payment can fund several fulfilment orders. When one of them is
+  // cancelled, its own share is refunded under the obligation key
+  // `CANCEL:<thatOrderId>`. That refund belongs to the cancelled order only, so
+  // it must not freeze seller and rider money on the siblings that were
+  // delivered. Any other refund still requires the full reconciliation below.
+  const cancelledSiblings = new Set((await Order.find({ paymentId: payment._id, status: 'cancelled', _id: { $ne: order._id } }).select('_id').session(session)).map(row => String(row._id)));
+  const siblingCancellation = row => typeof row.key === 'string' && row.key.startsWith('CANCEL:') && cancelledSiblings.has(row.key.slice('CANCEL:'.length))
+    && (!row.orderId || cancelledSiblings.has(String(row.orderId)));
+  const ownObligations = (payment.refundObligations || []).filter(row => !siblingCancellation(row));
+  const siblingRefundedPaise = (payment.refundObligations || []).filter(row => siblingCancellation(row) && row.status === 'processed').reduce((sum, row) => sum + (row.amountPaise || 0), 0);
+  // Partially refunded only because cancelled siblings got their own money back.
+  const onlySiblingCancellationsRefunded = payment.status === 'partial_refund' && siblingRefundedPaise > 0
+    && moneyPaise(payment.refund?.totalRefundedAmount || 0) === siblingRefundedPaise;
+  const effectiveStatus = onlySiblingCancellationsRefunded ? 'paid' : payment.status;
   const cashReturns = allowCompensatedRefunds && await Return.exists({ orderId: { $in: (await Order.find({ paymentId: payment._id }).select('_id').session(session)).map(row => row._id) }, status: 'REFUNDED', refundAmount: { $gt: 0 } }).session(session);
-  const captureRefunds = allowCompensatedRefunds && payment.refundObligations.some(row => (row.status === 'processed' || !row.returnId) && payment.captures.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId === row.gatewayPaymentId));
-  if (payment.status !== 'paid' || cashReturns || captureRefunds) {
+  const captureRefunds = allowCompensatedRefunds && ownObligations.some(row => (row.status === 'processed' || !row.returnId) && payment.captures.some(capture => capture.disposition === 'settled' && capture.gatewayPaymentId === row.gatewayPaymentId));
+  if (effectiveStatus !== 'paid' || cashReturns || captureRefunds) {
     if (!allowCompensatedRefunds) throw httpError(409, 'Verified customer payment is required');
     await verifyRefundedFunding(payment, order, session);
   }
@@ -360,12 +374,18 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
   });
 };
 
+// A rate card frozen at acceptance is usable when its base and per-km figures
+// are real numbers. Cards from the built-in default rates have no database id;
+// they are still exactly what the rider was offered, so they are valid to pay.
+const frozenRatesUsable = rates => Boolean(rates) && ['base', 'perKm'].every(key => Number.isFinite(Number(rates[key])) && Number(rates[key]) >= 0);
+const rateConfigurationIdOf = rates => (rates?.rateId ? String(rates.rateId) : `default:${rates?.mode || 'quick'}`);
+
 export const recordDeliveryEarning = async ({ order, delivery, settlement, session }) => {
   // Called only within the existing OTP completion transaction. Legacy orders
   // keep their current behavior; v2 COD earns into held, never pending cash.
   if (!order.financialSnapshot) return false;
   const verified = ['total', 'tip', 'base', 'perKm', 'distanceKm'].every(key => Number.isFinite(settlement[key]) && settlement[key] >= 0)
-    && Number.isFinite(delivery.route?.distanceKm) && delivery.route.distanceKm >= 0 && delivery.ratesUsed?.rateId;
+    && Number.isFinite(delivery.route?.distanceKm) && delivery.route.distanceKm >= 0 && frozenRatesUsable(delivery.ratesUsed);
   if (!verified || settlement.total === 0) {
     const status = verified ? 'zero_value' : 'reconciliation_required';
     await Delivery.updateOne({ _id: delivery._id }, { $set: { financialEarningStatus: status }, ...(!verified ? { $unset: { partnerEarnings: 1, partnerTip: 1 } } : {}) }, { session });
@@ -373,9 +393,50 @@ export const recordDeliveryEarning = async ({ order, delivery, settlement, sessi
   }
   await postLedgerEntry({ idempotencyKey: `DELIVERY:${delivery._id}:EARNING`, orderId: order._id, partnerId: delivery.partnerId, deliveryId: delivery._id,
     account: 'rider_payable', type: 'delivery_earning', direction: 'credit', bucket: 'held', amount: settlement.total,
-    description: `Completed delivery ${order.orderNo}`, metadata: { source: 'order-finance-v2', ...settlement, rateConfigurationId: String(delivery.ratesUsed.rateId), ratesUsed: delivery.ratesUsed, snapshotId: order.financialSnapshot.snapshotId } }, { session });
+    description: `Completed delivery ${order.orderNo}`, metadata: { source: 'order-finance-v2', ...settlement, rateConfigurationId: rateConfigurationIdOf(delivery.ratesUsed), ratesUsed: delivery.ratesUsed, snapshotId: order.financialSnapshot.snapshotId } }, { session });
   await Delivery.updateOne({ _id: delivery._id }, { $set: { financialEarningStatus: 'held' } }, { session });
   return { credited: true, status: 'held' };
+};
+
+/**
+ * Admin repair for a completed delivery whose rider pay could not be priced at
+ * OTP time (status `reconciliation_required`: no usable frozen rate card, or no
+ * measured distance). Prices it once from the rate card frozen at acceptance
+ * (or today's card for that delivery type if none was frozen) and, when the
+ * distance is missing, the distance the admin supplies. The pay is posted on
+ * hold exactly like a normal completion, so the usual release rules still apply.
+ */
+export const repriceDeliveryEarning = async (orderId, actorId, review) => {
+  requireFinanceOperation();
+  const suppliedKm = review?.distanceKm === undefined || review?.distanceKm === null || review?.distanceKm === '' ? null : Number(review.distanceKm);
+  if (suppliedKm !== null && !(Number.isFinite(suppliedKm) && suppliedKm >= 0 && suppliedKm <= 300)) throw httpError(400, 'Distance must be between 0 and 300 km');
+  const { riderPayout, payoutModeOf, rateSnapshotFor } = await import('./riderPay.service.js');
+  return financialTransaction(async session => {
+    const order = await lockOrder(orderId, session, review && { ...review, actorId, action: 'repriceDeliveryEarning' });
+    if (order.status !== 'delivered') throw httpError(409, 'Delivered order required');
+    const delivery = await Delivery.findOne({ _id: order.deliveryId, orderId: order._id, status: 'delivered', direction: { $ne: 'return_pickup' } }).session(session);
+    if (!delivery) throw httpError(409, 'Completed delivery trip is missing');
+    if (['held', 'eligible', 'zero_value'].includes(delivery.financialEarningStatus)) return { status: delivery.financialEarningStatus, alreadyProcessed: true };
+    if (delivery.financialEarningStatus !== 'reconciliation_required') throw httpError(409, 'This delivery does not need repricing');
+    const km = Number.isFinite(delivery.route?.distanceKm) && delivery.route.distanceKm >= 0 ? delivery.route.distanceKm : suppliedKm;
+    if (km === null) throw httpError(400, 'This trip has no measured distance. Enter the shop-to-customer distance in km.');
+    const mode = delivery.ratesUsed?.mode || payoutModeOf(order);
+    const rates = frozenRatesUsable(delivery.ratesUsed) ? delivery.ratesUsed : rateSnapshotFor(mode);
+    const settlement = riderPayout(km, { mode, rates, tip: order.pricing?.tipAmount });
+    const set = { financialEarningStatus: settlement.total > 0 ? 'held' : 'zero_value', partnerEarnings: settlement.total, partnerTip: settlement.tip, 'route.distanceKm': km };
+    if (!frozenRatesUsable(delivery.ratesUsed)) set.ratesUsed = rates;
+    if (settlement.total > 0) {
+      await postLedgerEntry({ idempotencyKey: `DELIVERY:${delivery._id}:EARNING`, orderId: order._id, partnerId: delivery.partnerId, deliveryId: delivery._id,
+        account: 'rider_payable', type: 'delivery_earning', direction: 'credit', bucket: 'held', amount: settlement.total,
+        description: `Completed delivery ${order.orderNo} (priced by admin)`, postedBy: actorId, postedByRole: 'admin',
+        metadata: { source: 'order-finance-v2', ...settlement, rateConfigurationId: rateConfigurationIdOf(rates), ratesUsed: rates, snapshotId: order.financialSnapshot.snapshotId,
+          repriced: true, distanceSource: Number.isFinite(delivery.route?.distanceKm) ? 'measured' : 'admin' } }, { session });
+      await DeliveryPartner.updateOne({ _id: delivery.partnerId }, { $set: { financialWorkflowVersion: 2 },
+        $inc: { 'earnings.total': settlement.total, 'earnings.held': settlement.total, 'earnings.tips': settlement.tip } }, { session });
+    }
+    await Delivery.updateOne({ _id: delivery._id }, { $set: set }, { session });
+    return { status: set.financialEarningStatus, earnings: settlement.total, tip: settlement.tip, distanceKm: km };
+  });
 };
 
 export const releaseDeliveryEarning = async (orderId, actorId, review) => {

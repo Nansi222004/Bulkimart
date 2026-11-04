@@ -19,6 +19,15 @@ export function validateDefinition(body) {
   // Marketplace prices use major currency units. Require exact two-decimal precision.
   if (!['free', 'fixed'].includes(mode) || typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || amount > 10000000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001 || (mode === 'free' && amount !== 0) || (mode === 'fixed' && amount <= 0)) fail('Invalid service price');
   try { if (!/^[A-Z]{3}$/.test(currency) || !Intl.supportedValuesOf('currency').includes(currency)) fail('Invalid currency'); } catch { fail('Invalid currency'); }
+  // Tax and terms are per-service admin settings; nothing here assumes a rate.
+  const rawTax = body.pricing?.taxRate;
+  const taxRate = rawTax === undefined || rawTax === null || rawTax === '' ? 0 : rawTax;
+  if (typeof taxRate !== 'number' || !Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100 || Math.abs(taxRate * 100 - Math.round(taxRate * 100)) > 0.00001) fail('GST rate must be between 0 and 100, with at most two decimals');
+  if (mode === 'free' && taxRate !== 0) fail('A free service cannot charge GST');
+  const terms = text(body.terms ?? '', 'Terms and disclaimer', 5000);
+  const rawWindow = body.cancellationWindowHours;
+  const cancellationWindowHours = rawWindow === undefined || rawWindow === null || rawWindow === '' ? 0 : rawWindow;
+  if (!Number.isInteger(cancellationWindowHours) || cancellationWindowHours < 0 || cancellationWindowHours > 720) fail('Cancellation window must be a whole number of hours from 0 to 720');
   if (!Array.isArray(body.fields) || body.fields.length > 50) fail('Provide at most 50 form fields');
   const ids = new Set();
   const fields = body.fields.map(f => {
@@ -47,7 +56,7 @@ export function validateDefinition(body) {
     return field;
   });
   if (fields.filter(f => f.type === 'file').length > 10) fail('At most 10 document fields are supported');
-  return { name, slug, description, instructions, pricing: { mode, amount, currency }, fields, audiences, legalCategory };
+  return { name, slug, description, instructions, pricing: { mode, amount, currency, taxRate }, terms, cancellationWindowHours, fields, audiences, legalCategory };
 }
 export function validateAnswers(fields, answers, files = []) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) fail('Answers must be an object');

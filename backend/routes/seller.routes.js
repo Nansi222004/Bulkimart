@@ -26,7 +26,7 @@ import {
 } from '../controllers/fulfillment.controller.js';
 import { protect, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
-import { getSellerOrderInvoice } from '../controllers/taxInvoice.controller.js';
+import { getSellerOrderInvoice, createSellerInvoicePrintLink } from '../controllers/taxInvoice.controller.js';
 import {
   getSellerFinanceSummary, listSellerLedger, getSellerOrderFinance, requestSellerPayout, getSellerTaxStatement,
 } from '../controllers/sellerFinance.controller.js';
@@ -117,6 +117,7 @@ router.post('/orders/:id/fulfillment/manual', requireApprovedSeller, selectManua
 router.post('/orders/:id/fulfillment/shiprocket', requireApprovedSeller, createShiprocketShipment);
 router.get('/orders/:id/financial-breakdown', requireApprovedSeller, getSellerOrderFinance);
 router.get('/orders/:id/invoice', requireApprovedSeller, getSellerOrderInvoice);
+router.post('/orders/:id/invoice/print-link', requireApprovedSeller, createSellerInvoicePrintLink);
 router.get('/finances/summary', requireApprovedSeller, getSellerFinanceSummary);
 router.get('/finances/ledger', requireApprovedSeller, listSellerLedger);
 router.get('/finances/tax-statement', requireApprovedSeller, getSellerTaxStatement);

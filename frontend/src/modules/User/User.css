@@ -5633,6 +5633,25 @@ input[type="checkbox"] {
   object-fit: cover;
 }
 
+/* Desktop: normal-sized product cards (not two half-screen cards) with square
+   images that show the whole product instead of a cropped wide strip. */
+@media (min-width: 769px) {
+  .wishlist-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 240px));
+    gap: 18px;
+  }
+  .wishlist-card-img-wrapper {
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    background-color: #ffffff;
+  }
+  .wishlist-card-img {
+    object-fit: contain;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+}
+
 .wishlist-channel-tag {
   position: absolute;
   top: 8px;

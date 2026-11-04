@@ -11,7 +11,7 @@ import { ok, httpError, paginated } from '../utils/response.js';
 import { financeFlags } from '../services/financeSafety.service.js';
 import { financialReconciliation } from '../services/financialReconciliation.service.js';
 import { saveCommissionVersion, saveCommissionForAllChannels, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
-import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
+import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, repriceDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
 import { getFinancePolicy, saveFinancePolicy } from '../services/financePolicy.service.js';
 import { taxReport, journal, trialBalance, toCsv, rupees } from '../services/financeReports.service.js';
 import SellerPayout from '../models/SellerPayout.js';
@@ -107,8 +107,19 @@ export const listFinanceOrders = asyncHandler(async (req, res) => {
     admins.forEach(admin => actors.set(String(admin._id), { name: admin.name, role: 'Admin' }));
     stores.forEach(store => sellers.set(String(store._id), store.storeDetails?.name || store.businessName));
   }
+  // Rider pay status per order, so trips that could not be priced at delivery
+  // can be repaired from the order row.
+  const trips = new Map();
+  if (!rider && !exporting && orders.length) {
+    const deliveryIds = orders.map(order => order.deliveryId).filter(id => id && mongoose.isValidObjectId(String(id)));
+    if (deliveryIds.length) {
+      (await Delivery.find({ _id: { $in: deliveryIds } }).select('financialEarningStatus route.distanceKm partnerEarnings').lean())
+        .forEach(trip => trips.set(String(trip._id), { earningStatus: trip.financialEarningStatus || null,
+          distanceKm: Number.isFinite(trip.route?.distanceKm) ? trip.route.distanceKm : null, earnings: trip.partnerEarnings ?? null }));
+    }
+  }
   const rows = orders.map(({ items, ...order }) => ({ ...order, exceptions: exceptionCodes(order),
-    ...(!rider && !exporting ? { display: {
+    ...(!rider && !exporting ? { riderTrip: trips.get(String(order.deliveryId)) || null, display: {
       channel: order.salesChannel === 'wholesale' ? 'wholesale' : order.type === 'grocery' ? 'quick' : order.type,
       items: (order.financialSnapshot?.lines || []).map(line => ({ itemId: String(line.itemId), name: line.itemName || items?.find(item => String(item._id) === String(line.itemId))?.name || null, sellerName: sellers.get(String(line.sellerId)) || null })),
       actors: Object.fromEntries((order.codFinance?.events || []).map(event => [String(event.actorId), actors.get(String(event.actorId)) || null])),
@@ -174,6 +185,7 @@ const reviewed = req => {
 export const allocateOrder = asyncHandler(async (req, res) => ok(res, await postOrderFinance(req.params.id, req.user._id, reviewed(req))));
 export const releaseOrder = asyncHandler(async (req, res) => ok(res, await releaseOrderFinance(req.params.id, req.user._id, reviewed(req))));
 export const releaseRider = asyncHandler(async (req, res) => ok(res, await releaseDeliveryEarning(req.params.id, req.user._id, reviewed(req))));
+export const repriceRider = asyncHandler(async (req, res) => ok(res, await repriceDeliveryEarning(req.params.id, req.user._id, reviewed(req)), 'Rider earnings priced and put on hold'));
 export const reverseReturn = asyncHandler(async (req, res) => ok(res, await reverseRefundedReturn(req.params.id, req.user._id, reviewed(req))));
 export const getFinancialExceptions = asyncHandler(async (req, res) => ok(res, await financialReconciliation({ page: Math.max(1, parseInt(req.query.page, 10) || 1) })));
 

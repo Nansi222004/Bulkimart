@@ -156,3 +156,39 @@ test('live service payments require production mode and matching configured keys
   process.env.RAZORPAY_KEY_ID = 'rzp_live_isolated_fixture'; expect(() => requireServiceGateway()).not.toThrow();
   await pay(a).expect(409);
 });
+
+test('a service with an admin-set GST rate charges base + GST, freezes the breakdown and its own terms, and records when it was paid', async () => {
+  await Service.updateOne({ _id: service._id }, { $set: { 'pricing.amount': 2000, 'pricing.taxRate': 18, terms: 'Fixture terms: no refund once processing starts.', cancellationWindowHours: 24 } });
+  service = await Service.findById(service._id);
+  const a = await billed();
+  expect(a.billing).toMatchObject({ basePaise: 200000, taxRate: 18, taxPaise: 36000, amountPaise: 236000, cancellationWindowHours: 24, terms: 'Fixture terms: no refund once processing starts.' });
+  // A later rate or terms change never alters what this request was quoted.
+  await Service.updateOne({ _id: service._id }, { $set: { 'pricing.taxRate': 5, terms: 'Changed terms' } });
+  const checkout = (await pay(a).expect(200)).body.data;
+  expect(checkout.amountPaise).toBe(236000);
+  capture(checkout); await verify(a, checkout).expect(200);
+  const paid = await get(a._id);
+  expect(paid.billing).toMatchObject({ status: 'paid', amountPaise: 236000, taxPaise: 36000, terms: 'Fixture terms: no refund once processing starts.' });
+  expect(new Date(paid.billing.paidAt).getTime()).toBeGreaterThan(Date.now() - 60000);
+});
+
+test('admin deletes an unused service outright, archives a used one (keeping its requests), and refuses a stale version', async () => {
+  const del = (s, version = s.__v) => adminAuth(request(app).delete(`/api/admin/services/${s._id}?version=${version}`));
+  const unused = await Service.create({ name: 'Unused draft', slug: 'unused-draft', status: 'draft', pricing: { mode: 'fixed', amount: 50, currency: 'INR', taxRate: 18 }, fields: [] });
+  await del(unused, unused.__v + 1).expect(409);
+  expect((await del(unused).expect(200)).body.data).toMatchObject({ deleted: true, archived: false });
+  expect(await Service.exists({ _id: unused._id })).toBeNull();
+  const used = await billed();
+  await auth(request(app).delete(`/api/admin/services/${service._id}?version=${service.__v}`)).expect(403);
+  const res = await del(await Service.findById(service._id)).expect(200);
+  expect(res.body.data).toMatchObject({ deleted: true, archived: true, requests: 1 });
+  const archived = await Service.findById(service._id);
+  expect(archived).toMatchObject({ status: 'archived' }); expect(archived.slug).not.toBe('fixture-service');
+  // Its request is kept, the admin list and seller catalogue hide it, and it cannot come back or take new payments.
+  expect(await Application.exists({ _id: used._id })).not.toBeNull();
+  expect((await adminAuth(request(app).get('/api/admin/services')).expect(200)).body.data.map(x => String(x._id))).not.toContain(String(service._id));
+  expect((await auth(request(app).get('/api/services')).expect(200)).body.data.map(x => String(x._id))).not.toContain(String(service._id));
+  await adminAuth(request(app).post(`/api/admin/services/${service._id}/publication`)).send({ status: 'published', version: archived.__v }).expect(410);
+  await pay(used).expect(410);
+  await del(archived).expect(404);
+});
