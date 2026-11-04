@@ -327,11 +327,11 @@ export const OnboardingPage = ({ onSubmitted }) => {
                     <input
                       type="text"
                       className="onboarding-input"
-                      placeholder="Enter the OTP code"
-                      maxLength={6}
+                      placeholder="Enter 4-digit OTP"
+                      maxLength={4}
                       autoComplete="one-time-code"
                       value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     />
                     {otpTimer > 0 ? (
                       <span className="otp-countdown-lbl">Resend code in {otpTimer}s</span>
@@ -346,7 +346,7 @@ export const OnboardingPage = ({ onSubmitted }) => {
                       const res = await verifyOtpAndLogin('register');
                       if (res.ok) setOnboardingStep(3);
                     }}
-                    disabled={otpCode.length < 4}
+                    disabled={otpCode.length !== 4}
                   >
                     Verify &amp; Continue
                   </button>

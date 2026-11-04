@@ -212,13 +212,13 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
                   <label>Enter the OTP sent to +91 {sellerPhone}</label>
                   <input
                     type="text"
-                    maxLength={6}
+                    maxLength={4}
                     value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     placeholder="••••"
                     className="auth-otp-input"
                     autoFocus
-                    onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length >= 4) handleVerify(); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length === 4) handleVerify(); }}
                     required
                   />
                 </div>
@@ -226,7 +226,7 @@ export const SellerLoginPage = ({ mode = 'login', onLoggedIn, onBack, onToggleMo
                 <button
                   type="submit"
                   className="auth-submit-btn"
-                  disabled={otpCode.length < 4 || busy}
+                  disabled={otpCode.length !== 4 || busy}
                 >
                   {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Verify & Sign In')}
                 </button>

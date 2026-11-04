@@ -92,9 +92,9 @@ const AuthPage = () => {
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     if (isLoading) return;
-    // OTP length follows the server's OTP_LENGTH (4–6 digits).
-    if (!enteredOtp || !/^\d{4,6}$/.test(enteredOtp.trim())) {
-      setErrors({ otp: 'Please enter the OTP sent to your phone' });
+    // OTP length is 4 digits.
+    if (!enteredOtp || !/^\d{4}$/.test(enteredOtp.trim())) {
+      setErrors({ otp: 'Please enter the 4-digit OTP sent to your phone' });
       return;
     }
 
@@ -302,10 +302,10 @@ const AuthPage = () => {
               
               <input
                 type="text"
-                maxLength={6}
+                maxLength={4}
                 value={enteredOtp}
-                onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••••"
+                onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="••••"
                 style={{
                   fontSize: '28px',
                   letterSpacing: '12px',
@@ -315,7 +315,7 @@ const AuthPage = () => {
                   border: '1.5px solid #334155',
                   backgroundColor: '#0f172a',
                   color: '#fff',
-                  width: '180px',
+                  width: '150px',
                   margin: '16px auto',
                   display: 'block'
                 }}

@@ -251,13 +251,13 @@ export const DeliveryAuthPage = () => {
               <label>Enter OTP sent to +91 {phone}</label>
               <input
                 type="text"
-                maxLength={6}
+                maxLength={4}
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 placeholder="••••"
                 className="auth-otp-input"
                 autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter' && otp) handleVerify(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 4) handleVerify(); }}
                 required
               />
             </div>
@@ -265,7 +265,7 @@ export const DeliveryAuthPage = () => {
             <button
               type="submit"
               className="auth-submit-btn"
-              disabled={!otp || busy}
+              disabled={otp.length !== 4 || busy}
             >
               {busy ? 'Verifying…' : (isRegister ? 'Verify & Continue Registration' : 'Verify & Sign In')}
             </button>
