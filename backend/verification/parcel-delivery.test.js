@@ -651,3 +651,97 @@ test('a rider gets a parcel when its pickup or drop pincode is theirs, or the dr
   expect(await parcelRiderIneligibility(rider, booking('560050', '560099'))).toBeNull(); // neither, but the drop is within 10 km
   expect(await parcelRiderIneligibility(rider, booking('560050', '560099', { lat: 13.2, lng: 77.6 }))).toBe('zones_mismatch'); // neither, ~25 km away
 });
+
+// ---- Fare boost (admin-configured amounts; cash bookings)
+const enableBoost=()=>Policy.updateOne({_id:'parcel'},{$set:{'config.boostEnabled':true,'config.boostOptionsPaise':[2000,5000],'config.boostDriverShareBps':10000,'config.maxBoostPaise':6000}});
+const boostReq=(b,body)=>auth(request(app).post(`/c/bookings/${b._id}/boost`)).send(body);
+test('fare boost raises fare and rider earning, re-offers riders who declined, and cash must match the boosted total',async()=>{
+  await enableBoost();
+  const b=await booking();
+  const d=await driverDetail(b._id);
+  await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'reject',token:d.offer.token,version:d.version}).expect(200);
+  let view=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  expect(view.boost).toMatchObject({allowed:true,options:[2000,5000],boostedPaise:0});
+  await boostReq(b,{amountPaise:3000,version:view.version,key:crypto.randomUUID()}).expect(400);
+  const key=crypto.randomUUID();
+  const boosted=(await boostReq(b,{amountPaise:2000,version:view.version,key}).expect(200)).body.data;
+  expect(boosted).toMatchObject({feePaise:4040,status:'searching_for_driver'});
+  expect(boosted.boost).toMatchObject({boostedPaise:2000,options:[2000],remainingPaise:4000});
+  // Replaying the same request never boosts twice.
+  expect((await boostReq(b,{amountPaise:2000,version:view.version,key}).expect(200)).body.data.feePaise).toBe(4040);
+  // A fresh round reaches both riders, including the one who declined, at the higher earning.
+  const row=await Parcel.findById(b._id);
+  expect(row.assignment.offer.partnerIds.sort()).toEqual([String(partner._id),String(partner2._id)].sort());
+  expect(row.pricing).toMatchObject({totalPaise:4040,driverPaise:3020,platformPaise:1020,boostPaise:2000});
+  expect((await driverDetail(b._id)).earningPaise).toBe(3020);
+  view=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  await boostReq(b,{amountPaise:5000,version:view.version,key:crypto.randomUUID()}).expect(400);
+  await toDrop(b);
+  let dd=await driverDetail(b._id);
+  await drv(request(app).post(`/d/bookings/${b._id}/actions`)).send({action:'collect_cash',version:dd.version,amountPaise:2040}).expect(409);
+  await dact(b,'collect_cash',{amountPaise:4040});await dact(b,'delivery_code');
+  const c=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  await dact(b,'verify_delivery',{code:c.deliveryCode});
+  expect((await Ledger.findOne({parcelDeliveryId:b._id,account:'parcel_driver_payable'})).amount).toBe(30.2);
+  expect((await Ledger.findOne({parcelDeliveryId:b._id,account:'parcel_cash_custody',direction:'credit'})).amount).toBe(40.4);
+  // Once a rider has accepted, boosting is closed.
+  expect((await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data.boost.allowed).toBe(false);
+});
+test('fare boost is refused when not offered and for other customers',async()=>{
+  const off=await booking(); const v=(await auth(request(app).get(`/c/bookings/${off._id}`)).expect(200)).body.data;
+  expect(v.boost).toMatchObject({allowed:false,reason:'not_offered'});
+  await boostReq(off,{amountPaise:2000,version:v.version,key:crypto.randomUUID()}).expect(409);
+  await enableBoost();
+  const mine=await booking(); const mv=(await auth(request(app).get(`/c/bookings/${mine._id}`)).expect(200)).body.data;
+  await auth(request(app).post(`/c/bookings/${mine._id}/boost`),other).send({amountPaise:2000,version:mv.version,key:crypto.randomUUID()}).expect(404);
+});
+test('online booking boost is paid from the wallet once, keeps the original capture valid, and is refunded with the booking',async()=>{
+  await enableBoost();
+  const {creditWallet}=await import('../services/wallet.service.js');
+  const walletBalance=async()=>(await User.findById(customer._id)).wallet?.balance||0;
+  const b=await paid();
+  let view=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  expect(view.boost).toMatchObject({allowed:true,funding:'wallet'});
+  // Not enough in the wallet: refused with the shortfall so the app can offer a top-up.
+  const short=await boostReq(b,{amountPaise:2000,version:view.version,key:crypto.randomUUID()}).expect(409);
+  expect(short.body.meta).toMatchObject({code:'WALLET_BALANCE_SHORT',shortPaise:2000});
+  await creditWallet({userId:customer._id,amount:25,type:'WALLET_TOPUP',referenceType:'TOPUP',referenceId:'fixture',description:'Fixture top-up',idempotencyKey:`FIXTURE:${b._id}`});
+  const key=crypto.randomUUID();
+  const boosted=(await boostReq(b,{amountPaise:2000,version:view.version,key}).expect(200)).body.data;
+  expect(boosted.feePaise).toBe(4040);
+  await boostReq(b,{amountPaise:2000,version:view.version,key}).expect(200);
+  expect(await walletBalance()).toBe(5);
+  const row=await Parcel.findById(b._id);
+  expect(row.pricing).toMatchObject({totalPaise:4040,walletBoostPaise:2000,driverPaise:3020});
+  expect((await Ledger.find({parcelDeliveryId:b._id,account:'parcel_collections',direction:'credit'})).map(x=>x.amount).sort()).toEqual([20,20.4]);
+  // The original Razorpay capture (₹20.40) still verifies after the fare grew to ₹40.40.
+  const p=[...payments.values()][0];
+  expect((await webhook({event:'payment.captured',payload:{payment:{entity:p}}})).status).toBe(200);
+  expect((await Parcel.findById(b._id)).finance.dispute).toBeUndefined();
+  // Cancelled with a wallet refund: the capture and the boost come back in one credit, once.
+  const d=await adminDetail(b._id);
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Fixture change of plan'}).expect(200);
+  await aact(b,'approve_cancellation');
+  expect(await walletBalance()).toBe(45.4);
+  expect((await Parcel.findById(b._id)).finance).toMatchObject({refundedPaise:4040,boostRefund:{includedInWalletRefund:true}});
+});
+test('online boost is returned to the wallet when the original payment is refunded to its source',async()=>{
+  await enableBoost();
+  const {creditWallet}=await import('../services/wallet.service.js');
+  const b=await paid();
+  await creditWallet({userId:customer._id,amount:20,type:'WALLET_TOPUP',referenceType:'TOPUP',referenceId:'fixture',description:'Fixture top-up',idempotencyKey:`FIXTURE2:${b._id}`});
+  const view=(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+  await boostReq(b,{amountPaise:2000,version:view.version,key:crypto.randomUUID()}).expect(200);
+  expect((await User.findById(customer._id)).wallet.balance).toBe(0);
+  const d=await adminDetail(b._id);
+  await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Fixture change of plan'}).expect(200);
+  await aact(b,'approve_cancellation',{refundTo:'original'});
+  // Razorpay can refund at most the ₹20.40 it captured; the ₹20 boost goes back to the wallet.
+  await aact(b,'approve_refund',{amountPaise:2040});
+  expect((await User.findById(customer._id)).wallet.balance).toBe(20);
+  expect((await Parcel.findById(b._id)).finance.boostRefund).toMatchObject({amountPaise:2000});
+  const a=await adminDetail(b._id),key=a.payment.refundObligations[0].key;
+  await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);
+  expect((await adminDetail(b._id)).refund.refundedPaise).toBe(2040);
+  expect((await User.findById(customer._id)).wallet.balance).toBe(20);
+});

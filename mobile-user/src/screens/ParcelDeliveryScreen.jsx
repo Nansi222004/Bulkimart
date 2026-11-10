@@ -2,7 +2,7 @@
 // Web paths → params: /parcel-delivery[/book] → view=book · /history → view=history · /track/:id → view=track&id=.
 // Tracking and history stay live: parcel notifications, a 10 s poll, app foreground and socket reconnect.
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Package } from 'lucide-react-native';
@@ -147,7 +147,39 @@ function ParcelDelivery() {
     } finally { setCheckoutActive(false); }
   });
   const action = (suffix, data) => run(async () => { await parcelRequest(`/bookings/${track}/${suffix}`, { method: 'POST', body: JSON.stringify(data) }); refresh(x => x + 1); });
-  const retryRead = <PBtn title="Retry" disabled={loading} onPress={() => refresh(x => x + 1)} style={{ alignSelf: 'flex-start' }} />;
+  const sendBoost = body => parcelRequest(`/bookings/${track}/boost`, { method: 'POST', body: JSON.stringify(body) });
+  const topUpAndBoost = (rupees, body) => run(async () => {
+    const headers = parcelHeaders();
+    const res = await boundedFetch('/api/wallet/topup/initiate', { method: 'POST', headers, body: JSON.stringify({ amount: rupees }) });
+    const topup = await res.json().catch(() => ({}));
+    if (!res.ok || !topup.success) throw new Error(topup.message || 'Could not start wallet payment.');
+    const result = await openRazorpayCheckout(topup.data, headers);
+    if (!(result.ok && result.verified)) { setNotice(result.cancelled ? 'Wallet top-up was not completed. The fare was not changed.' : result.message || 'Payment has not been confirmed yet. Check your wallet, then try adding to the fare again.'); return; }
+    await sendBoost(body);
+    setNotice(`₹${rupees} added to your wallet and the fare was raised by ${parcelMoney(body.amountPaise)}.`);
+    refresh(x => x + 1);
+  });
+  const boostFare = amountPaise => {
+    const wallet = booking.boost?.funding === 'wallet';
+    const body = { amountPaise, version: booking.version, key: newIdempotencyKey() };
+    Alert.alert('Add to the fare?', `Add ${parcelMoney(amountPaise)}? Your new fare will be ${parcelMoney(booking.feePaise + amountPaise)}. ${wallet ? `The extra ${parcelMoney(amountPaise)} is paid from your Bulkimart wallet.` : 'The full fare is paid in cash.'}`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Add ' + parcelMoney(amountPaise), onPress: () => run(async () => {
+        try { await sendBoost(body); }
+        catch (e) {
+          if (e.meta?.code !== 'WALLET_BALANCE_SHORT') throw e;
+          const rupees = Math.max(1, Math.ceil((e.meta.shortPaise || amountPaise) / 100));
+          Alert.alert('Not enough wallet balance', `Your wallet has ${parcelMoney(e.meta.balancePaise)}. Add ₹${rupees} to your wallet to raise the fare?`, [
+            { text: 'Cancel', style: 'cancel' },
+            { text: `Add ₹${rupees}`, onPress: () => topUpAndBoost(rupees, body) },
+          ]);
+          return;
+        }
+        refresh(x => x + 1);
+      }) },
+    ]);
+  };
+  const retryRead =<PBtn title="Retry" disabled={loading} onPress={() => refresh(x => x + 1)} style={{ alignSelf: 'flex-start' }} />;
   const navBar = (showBook = true, showRefresh = false) => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16, marginBottom: 20 }} accessibilityLabel="Parcel navigation">
     {showBook && <PBtn variant={!history ? 'tab-on' : 'tab'} title="New booking" onPress={() => nav('book')} />}
     <PBtn variant={history ? 'tab-on' : 'tab'} title="Delivery history" onPress={() => nav('history')} />
@@ -203,6 +235,14 @@ function ParcelDelivery() {
             <PBtn disabled={busy} title={busy ? 'Payment in progress…' : 'Pay ' + parcelMoney(booking.feePaise) + ' online'} onPress={() => payOnline(booking)} />
             <PBtn disabled={busy} title="Check payment status" onPress={() => action('payment-status', {})} />
           </View>
+        </PCard>}
+        {booking.boost?.allowed && <PCard style={{ borderColor: '#f5c56b', backgroundColor: '#fffaf0' }}>
+          <Text style={{ fontWeight: '700', fontSize: 16, marginBottom: 4 }}>No partner yet? Add to the fare</Text>
+          <Text style={{ marginBottom: 8 }}>A higher fare is sent to nearby delivery partners straight away, so someone accepts sooner.{booking.boost.boostedPaise > 0 ? ` You've added ${parcelMoney(booking.boost.boostedPaise)} so far.` : ''}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {booking.boost.options.map(a => <PBtn key={a} disabled={busy} title={'+' + parcelMoney(a)} onPress={() => boostFare(a)} />)}
+          </View>
+          {booking.boost.funding === 'wallet' && <Text style={{ fontSize: 12.5, color: '#52647b', marginTop: 8 }}>You've already paid online, so the extra amount comes from your Bulkimart wallet. It's included in any refund you're due on this booking.</Text>}
         </PCard>}
         {['picked_up', 'in_transit', 'arrived_at_dropoff'].includes(booking.status) && !booking.canCancel && <PCard><Text>Your parcel has been picked up, so this booking can no longer be cancelled.</Text></PCard>}
         {booking.canCancel && <PCard>

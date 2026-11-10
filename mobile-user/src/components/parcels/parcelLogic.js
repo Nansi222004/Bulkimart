@@ -17,7 +17,7 @@ export async function parcelLocationLookup(direction, values, signal) {
 export async function parcelRequest(path, options = {}) {
   const r = await boundedFetch(`/api/parcel-delivery${path}`, { ...options, headers: { ...parcelHeaders(), ...options.headers } });
   const body = await r.json().catch(() => ({}));
-  if (!r.ok || body.success === false) { const error = new Error(body.message || 'Unable to load parcel delivery'); error.status = r.status; throw error; }
+  if (!r.ok || body.success === false) { const error = new Error(body.message || 'Unable to load parcel delivery'); error.status = r.status; error.meta = body.meta; throw error; }
   return body;
 }
 export async function saveParcelPickup(address) {

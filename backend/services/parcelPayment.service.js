@@ -9,6 +9,8 @@ import { ownedParcel, parcelKey, parcelEvent, postParcel, touchParcel } from './
 import { notifyParcel, assignParcel, dispatchReady } from './parcelAssignment.service.js';
 import { creditWallet } from './wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
+// The part of the fare paid through Razorpay: wallet-funded boosts are added after payment.
+export const parcelGatewayPaise = b => b.pricing.totalPaise - (b.pricing.walletBoostPaise || 0);
 export async function initiateParcelPayment(id,customerId,input,key) {
   requireParcelGateway(); parcelKey(key);
   const prepared = await financialTransaction(async session => {
@@ -47,7 +49,7 @@ export async function captureParcel(paymentId,live) {
     const p = await Payment.findById(paymentId).session(session), b = p?.parcelDeliveryId && await Parcel.findById(p.parcelDeliveryId).session(session);
     if (!b || b.paymentMethod !== 'online' || String(b.paymentId) !== String(p._id)) failParcel('Parcel payment reference mismatch',409);
     const a = p.gatewayAttempts.find(t=>t.gatewayOrderId===live.orderId);
-    if (!a || a.amountPaise !== b.pricing.totalPaise || p.quotationVersion !== b.pricing.policyVersion || live.currency !== 'INR' || live.amountPaise !== a.amountPaise || !live.paymentId) failParcel('Payment association, amount or currency mismatch',409);
+    if (!a || a.amountPaise !== parcelGatewayPaise(b) || p.quotationVersion !== b.pricing.policyVersion || live.currency !== 'INR' || live.amountPaise !== a.amountPaise || !live.paymentId) failParcel('Payment association, amount or currency mismatch',409);
     if (live.state === 'COMPLETED') {
       if (p.captures.some(c=>c.gatewayPaymentId===live.paymentId)) return b;
       const extra = p.captures.length > 0, late = !['payment_pending','payment_failed'].includes(b.status) || !!b.cancellation;
@@ -89,6 +91,21 @@ export async function approveParcelRefund(b,input,actor,session) {
   p.refundObligations.push({key,gatewayOrderId:capture.gatewayOrderId,gatewayPaymentId:capture.gatewayPaymentId,amountPaise:amount,currency:'INR',reason,status:'pending',createdAt:new Date()});
   b.finance.refundStatus='approved'; b.finance.held=true;
   parcelEvent(b,actor,'refund_approved',b.status,reason); await p.save({session});
+  // Refunding the Razorpay payment to its source does not cover boosts paid from the wallet.
+  await refundParcelBoostToWallet(b,actor,session);
+}
+// A cancelled online booking's wallet-paid boosts go back to the wallet, once, whenever the
+// original Razorpay payment is refunded to its source instead of to the wallet.
+export async function refundParcelBoostToWallet(b,actor,session) {
+  const amount = b.pricing.walletBoostPaise || 0;
+  if (!amount || b.finance.boostRefund || b.status !== 'cancelled') return;
+  const ref = `#${String(b.reference || b._id).slice(-6).toUpperCase()}`;
+  const credit = await creditWallet({ userId:b.customerId, amount:amount/100, type:WALLET_TRANSACTION_TYPE.CANCELLATION_REFUND, referenceType:WALLET_REFERENCE_TYPE.PARCEL, referenceId:b._id,
+    description:`Fare boost refund for cancelled parcel ${ref}`, idempotencyKey:`PARCEL_BOOST_REFUND:${b._id}`, session,
+    ...(actor.type === 'admin' ? { createdBy:actor.id, createdByModel:'Admin' } : {}), metadata:{ parcelDeliveryId:String(b._id) } });
+  await postParcel(b,'boost-refund','parcel_collections','debit',amount,session);
+  b.finance.boostRefund = { amountPaise:amount, transactionId:credit.transaction?.transactionId, at:new Date() };
+  parcelEvent(b,actor,'boost_refund_to_wallet',b.status);
 }
 // Money the company holds for a cancelled booking that has not been refunded in any way yet:
 // a settled online capture, or cash the rider has already deposited. Cash still with the rider
@@ -98,7 +115,8 @@ async function parcelRefundableCollection(b,session) {
   if (b.paymentMethod === 'pay_driver') return b.cash.status === 'reconciled' ? b.cash.amountPaise : 0;
   const p = b.paymentId && await Payment.findById(b.paymentId).session(session);
   if (!p || p.refundObligations.length || p.captures.some(c=>c.disposition !== 'settled')) return 0;
-  return p.captures.reduce((n,c)=>n+c.amountPaise,0);
+  // Wallet-paid fare boosts are held for the booking too, unless already returned.
+  return p.captures.reduce((n,c)=>n+c.amountPaise,0) + (b.finance.boostRefund ? 0 : (b.pricing.walletBoostPaise || 0));
 }
 // Refunds a cancelled booking to the customer's Bulkimart wallet, once per booking.
 export async function refundParcelToWallet(b,{amountPaise,actor,reason=''},session) {
@@ -113,6 +131,8 @@ export async function refundParcelToWallet(b,{amountPaise,actor,reason=''},sessi
   await postParcel(b,'wallet-refund','parcel_collections','debit',amount,session);
   b.finance.refundedPaise = amount; b.finance.refundStatus = 'confirmed';
   b.finance.walletRefund = { amountPaise:amount, transactionId:credit.transaction?.transactionId, at:new Date() };
+  // A full wallet refund already returned any wallet-paid boost; record it so it is never returned twice.
+  if (b.pricing.walletBoostPaise && amount >= collected) b.finance.boostRefund = { amountPaise:b.pricing.walletBoostPaise, includedInWalletRefund:true, at:new Date() };
   if (b.paymentMethod === 'pay_driver') b.cash.status = 'refunded_to_wallet';
   parcelEvent(b,actor,'refund_to_wallet',b.status,reason);
 }
@@ -125,7 +145,7 @@ export async function syncParcelRefunds(paymentId) {
   return financialTransaction(async session => {
     const p = await Payment.findById(paymentId).session(session), b = await Parcel.findById(p.parcelDeliveryId).session(session);
     const sum = p.refundObligations.filter(r=>r.status==='processed').reduce((n,r)=>n+r.amountPaise,0);
-    if (sum > b.pricing.totalPaise || b.finance.earningPosted) failParcel('Refund allocation requires manual review',409);
+    if (sum > parcelGatewayPaise(b) || b.finance.earningPosted) failParcel('Refund allocation requires manual review',409);
     if (sum > b.finance.refundedPaise) { await postParcel(b,`refund-${sum}`,'parcel_collections','debit',sum-b.finance.refundedPaise,session); b.finance.refundedPaise=sum; parcelEvent(b,{type:'system'},'refund_verified'); }
     b.finance.refundStatus = p.refundObligations.some(r=>r.status!=='processed')?'pending_review':'confirmed';
     touchParcel(b); await b.save({session}); return b;

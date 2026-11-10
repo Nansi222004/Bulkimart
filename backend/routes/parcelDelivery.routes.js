@@ -24,6 +24,7 @@ customerParcelRouter.post('/bookings',wrap(c.book));
 customerParcelRouter.get('/bookings',wrap(c.list));
 customerParcelRouter.get('/bookings/:id',wrap(c.detail));
 customerParcelRouter.post('/bookings/:id/cancellation',wrap(c.cancel));
+customerParcelRouter.post('/bookings/:id/boost',wrap(c.boost));
 customerParcelRouter.post('/bookings/:id/payment',wrap(c.pay));
 customerParcelRouter.post('/payments/verify',wrap(c.verify));
 customerParcelRouter.post('/bookings/:id/payment-status',wrap(c.paymentStatus));

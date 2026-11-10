@@ -14,7 +14,7 @@ export async function parcelLocationLookup(mode, direction, values, signal) {
 export async function parcelRequest(mode,path,options={}) {
   const base=mode==='admin'?'/api/admin/parcel-delivery':mode==='driver'?'/api/delivery/parcels':'/api/parcel-delivery';
   const r=await boundedFetch(apiUrl(base+path),{...options,headers:{...parcelHeaders(mode),...options.headers}}), body=await r.json().catch(()=>({}));
-  if(!r.ok || body.success === false) { const error = new Error(body.message || 'Unable to load parcel delivery'); error.status = r.status; throw error; }
+  if(!r.ok || body.success === false) { const error = new Error(body.message || 'Unable to load parcel delivery'); error.status = r.status; error.meta = body.meta; throw error; }
   return body;
 }
 export async function saveParcelPickup(address) {

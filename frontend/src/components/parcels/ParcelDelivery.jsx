@@ -92,6 +92,32 @@ export default function ParcelDelivery() {
   },[readKey,invalid,revision]);
   useEffect(()=>{const c=new AbortController();boundedFetch(apiUrl('/api/users/addresses'),{headers:parcelHeaders('customer'),signal:c.signal}).then(r=>r.json()).then(b=>{if(!c.signal.aborted)setAddresses(Array.isArray(b.data)?b.data:[]);}).catch(()=>{});return()=>c.abort();},[]);
   const run=async fn=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);lock.current=false;}};
+  // Fare boost. Cash bookings add it to the cash due; online bookings pay it from the Bulkimart
+  // wallet, and if the balance is short the shortfall can be added with Razorpay first. One request
+  // key per tap, so a retry after the top-up never boosts twice.
+  const boostFare=(b,amountPaise)=>{
+    const wallet=b.boost?.funding==='wallet';
+    if(!window.confirm(`Add ${money(amountPaise)} to the fare? Your new fare will be ${money(b.feePaise+amountPaise)}${wallet?'. The extra amount is paid from your Bulkimart wallet.':', paid in cash.'}`))return;
+    run(async()=>{
+      const body=JSON.stringify({amountPaise,version:b.version,key:crypto.randomUUID()});
+      const send=()=>request('customer',`/bookings/${b._id}/boost`,{method:'POST',body});
+      try{await send();}
+      catch(e){
+        if(e.meta?.code!=='WALLET_BALANCE_SHORT')throw e;
+        const rupees=Math.max(1,Math.ceil(e.meta.shortPaise/100));
+        if(!window.confirm(`${e.message}\n\nAdd ₹${rupees} to your Bulkimart wallet with Razorpay now?`))return;
+        const headers={...parcelHeaders('customer'),'Content-Type':'application/json'};
+        const r=await boundedFetch(apiUrl('/api/wallet/topup/initiate'),{method:'POST',headers,body:JSON.stringify({amount:rupees})});
+        const topup=await r.json().catch(()=>({}));
+        if(!r.ok||!topup.success)throw new Error(topup.message||'Could not start the wallet payment. Your fare was not changed.');
+        const result=await openRazorpayCheckout(topup.data,headers);
+        if(!(result.ok&&result.verified))throw new Error(result.message||'The wallet payment was not completed. Your fare was not changed.');
+        await send();
+      }
+      setNotice(`${money(amountPaise)} added. Nearby delivery partners have been notified of the new fare.`);
+      refresh(x=>x+1);
+    });
+  };
   const payOnline=b=>run(async()=>{
     setCheckoutActive(true);
     try {
@@ -115,6 +141,7 @@ export default function ParcelDelivery() {
     {error&&<p role="alert" className="parcel-error">{error}</p>}{notice&&<p role="status">{notice}</p>}{loading?<p role="status">Loading parcel delivery…</p>:!track&&!history&&!parcelBookingReady(flags,policy)?<section className="parcel-card customer-service-state"><h2>Parcel booking is currently unavailable</h2><p role="status">We’re not accepting new parcel deliveries right now. Please check back later.</p><p>You can still view and track your existing deliveries from Delivery history.</p><button onClick={()=>refresh(x=>x+1)}>Check availability</button><a className="customer-service-action" href="/grocery-home">Back to shopping</a></section>:track&&booking?<>
       <ParcelCustomerStatus booking={booking} justBooked={justBooked===track}/><ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route}/>
       {booking.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(booking.status)&&<section className="parcel-card"><p>{busy?"Opening secure Razorpay checkout…":"Complete your payment securely with Razorpay."}</p><button disabled={busy} onClick={()=>payOnline(booking)}>{busy?"Payment in progress…":"Pay "+money(booking.feePaise)+" online"}</button><button disabled={busy} onClick={()=>action('payment-status',{})}>Check payment status</button></section>}
+      {booking.boost?.allowed&&<section className="parcel-card parcel-boost" aria-label="Add to the fare"><h3>No partner yet? Add to the fare</h3><p>A higher fare is sent to nearby delivery partners straight away, so someone accepts sooner.{booking.boost.boostedPaise>0?` You’ve added ${money(booking.boost.boostedPaise)} so far.`:''}</p><div className="parcel-boost-options">{booking.boost.options.map(a=><button type="button" key={a} disabled={busy} onClick={()=>boostFare(booking,a)}>+{money(a)}</button>)}</div>{booking.boost.funding==='wallet'&&<small>Paid from your Bulkimart wallet. If your balance is low, you can add money with Razorpay.</small>}</section>}
       {['picked_up','in_transit','arrived_at_dropoff'].includes(booking.status)&&!booking.canCancel&&<p className="parcel-card parcel-cancel-closed">Your parcel has been picked up, so this booking can no longer be cancelled.</p>}
       {booking.canCancel&&<details className="parcel-card"><summary>Cancel this booking</summary><form onSubmit={e=>{e.preventDefault();action('cancellation',{version:booking.version,reason:new FormData(e.currentTarget).get('reason')});}}><label>Cancellation reason<input name="reason" required maxLength={500}/></label><p>Cancellation and any refund are reviewed under the accepted terms.</p><button disabled={busy}>Request cancellation review</button></form></details>}
     </>:history?<section className="parcel-card"><h2>Your parcel deliveries</h2>{!rows.length?<div className="parcel-empty-state"><div className="parcel-empty-icon" aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div><p className="parcel-empty-title">No parcel bookings yet.</p><p className="parcel-empty-subtitle">When you book a parcel pickup or delivery, its status and tracking will appear here.</p><button type="button" className="parcel-btn-book-now" onClick={()=>nav('/parcel-delivery/book')}>Book a parcel →</button></div>:<>{rows.map(b=><button type="button" className="parcel-row" key={b._id} onClick={()=>nav(`/parcel-delivery/track/${b._id}`)}><span className="parcel-row-text">{b.reference} · {parcelCustomerStatus(b.status)} · {money(b.feePaise)}</span><span className="parcel-row-arrow" aria-hidden="true">→</span></button>)}{meta.pages>1&&<nav className="customer-service-pagination" aria-label="Pagination"><button type="button" disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span> Page {page} </span><button type="button" disabled={page>=meta.pages} onClick={()=>setPage(x=>x+1)}>Next</button></nav>}</>}</section>:<>

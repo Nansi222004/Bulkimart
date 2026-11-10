@@ -160,7 +160,7 @@ export function ParcelLocationPicker({ value, onChange, label = 'Search address 
 }
 
 function PriceSummary({ pricing }) {
-  const rows = [['Base fare', pricing.basePaise], ['Distance charge', pricing.distancePaise], ...(pricing.minimumAdjustmentPaise > 0 ? [['Minimum fare adjustment', pricing.minimumAdjustmentPaise]] : []), ['Tax (included)', pricing.taxPaise]];
+  const rows = [[pricing.includedKm > 0 ? `Base fare (first ${pricing.includedKm} km)` : 'Base fare', pricing.basePaise], ['Distance charge', pricing.distancePaise], ...(pricing.weightSurchargePaise > 0 ? [['Weight surcharge', pricing.weightSurchargePaise]] : []), ...(pricing.handlingFeePaise > 0 ? [['Handling fee', pricing.handlingFeePaise]] : []), ...(pricing.minimumAdjustmentPaise > 0 ? [['Minimum fare adjustment', pricing.minimumAdjustmentPaise]] : []), ['Tax (included)', pricing.taxPaise]];
   return <View style={{ gap: 10, marginVertical: 10 }}>
     {rows.map(([t, v]) => <View key={t} style={styles.row}><Text>{t}</Text><Text>{parcelMoney(v)}</Text></View>)}
     <View style={styles.row}><Text style={{ fontWeight: '700' }}>Total payable</Text><Text style={{ fontWeight: '700' }}>{parcelMoney(pricing.totalPaise)}</Text></View>

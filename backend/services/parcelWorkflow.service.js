@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { httpError } from '../utils/response.js';
+const parcelMoneyText = paise => '₹' + (paise / 100).toFixed(2);
 import Parcel from '../models/ParcelDelivery.js';
 import Quote from '../models/ParcelQuote.js';
 import Policy from '../models/ParcelPolicy.js';
@@ -8,7 +10,7 @@ import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
-import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints } from './parcelPolicy.service.js';
+import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // Customers may cancel only until the rider has collected the parcel. After pickup,
 // problems go through the rider's help request and the admin review queue instead.
@@ -36,7 +38,7 @@ export async function quoteParcel(customerId, input) {
   const details = validateParcelDetails(input,p.config,distanceKm);
   let route;
   try { route = await getRoute(details.pickup,details.dropoff); } catch { failParcel('Verified route provider unavailable; booking quotation is disabled',503); }
-  const pricing = parcelFare(route?.distanceKm,p);
+  const pricing = parcelFare(route?.distanceKm,p,details);
   if (route?.provider) pricing.routeProvider = route.provider;
   const quote = await Quote.create({ customerId, details, pricing, expiresAt:new Date(Date.now()+p.config.quoteSeconds*1000) });
   // Geometry is for the current Google Map only, never a persistent route cache.
@@ -82,6 +84,7 @@ export function parcelDTO(b, mode = 'customer', partnerId) {
     route:mode === 'customer'?{ distanceMetres:v.pricing.distanceMetres, ...(v.pricing.routeProvider ? { provider:v.pricing.routeProvider } : {}) }:undefined,
     service:mode === 'customer'?{ id:'parcel', name:'Doorstep delivery' }:undefined,
     canCancel:mode === 'customer'?parcelCustomerCanCancel(v):undefined,
+    boost:mode === 'customer'?parcelBoostState(v):mode === 'admin'?{ boostedPaise:v.pricing.boostPaise||0, boosts:v.pricing.boosts||[] }:undefined,
     assignment:mode === 'admin'?v.assignment:undefined, partnerId:v.partnerId, history:h, cash:{ status:v.cash.status, amountPaise:v.cash.amountPaise },
     finance:mode === 'admin'?{...v.finance,settlementBlockers:parcelSettlementBlockers(v)}: mode === 'driver'?{ earningPaise:v.pricing.driverPaise, held:v.finance.held, payoutStatus:'not_released' }:undefined,
     pickupCode:mode === 'customer' && v.status === 'arrived_at_pickup' && !parcelOperationalHold(v) && v.proof.pickup && new Date(v.proof.pickup.expiresAt)>new Date() && !v.proof.pickup.verifiedAt ? v.proof.pickup.code:undefined,
@@ -101,6 +104,75 @@ export async function releaseParcelRider(b,session) {
     p.parcelReservation = undefined; await p.save({ session });
   }
 }
+/**
+ * Whether the customer can add a fare boost right now, and with which amounts.
+ * Boosting is for bookings still waiting for a rider. Online-paid bookings are
+ * excluded until a top-up payment flow exists (the captured amount must equal the fare).
+ */
+export function parcelBoostState(b) {
+  const c = b.pricing?.policy || {};
+  const used = b.pricing?.boostPaise || 0;
+  const remaining = Math.max(0, (c.maxBoostPaise || 0) - used);
+  const options = (c.boostOptionsPaise || []).filter(a => a <= remaining);
+  const base = { boostedPaise: used, options, remainingPaise: remaining };
+  // Cash bookings collect the boost in cash with the fare; online-paid bookings pay it
+  // from the customer's Bulkimart wallet (the original Razorpay payment is never changed).
+  const funding = b.paymentMethod === 'online' ? 'wallet' : 'cash';
+  Object.assign(base, { funding });
+  if (!c.boostEnabled) return { ...base, allowed: false, reason: 'not_offered' };
+  if (b.paymentMethod === 'online' && b.paymentStatus !== 'paid') return { ...base, allowed: false, reason: 'payment_pending' };
+  if (!['searching_for_driver', 'needs_admin_assignment'].includes(b.status) || b.partnerId || b.cancellation || parcelOperationalHold(b)) return { ...base, allowed: false, reason: 'not_waiting_for_rider' };
+  if (!options.length) return { ...base, allowed: false, reason: 'limit_reached' };
+  return { ...base, allowed: true };
+}
+
+/**
+ * The customer adds a boost to a booking nobody has accepted yet. The fare and the
+ * rider earning rise (cash is collected at the new total), the open offer round is
+ * closed, and a fresh round goes out at once — including to riders who declined the
+ * lower fare. Idempotent per request key.
+ */
+export async function boostParcel(id, customerId, input) {
+  requireParcel('booking');
+  const key = parcelKey(input.key);
+  const amountPaise = input.amountPaise;
+  const b = await financialTransaction(async session => {
+    const b = await ownedParcel(id, customerId, session);
+    if ((b.pricing.boosts || []).some(x => x.key === key)) return b; // replayed request
+    parcelVersion(b, input.version);
+    const state = parcelBoostState(b);
+    if (!state.allowed) failParcel(state.reason === 'payment_pending' ? 'Complete the booking payment before adding to the fare' : state.reason === 'limit_reached' ? 'The maximum fare boost for this booking has been reached' : 'This booking can no longer be boosted', 409);
+    if (!Number.isSafeInteger(amountPaise) || !state.options.includes(amountPaise)) failParcel('Choose one of the offered boost amounts');
+    const next = boostedParcelPricing(b.pricing, amountPaise);
+    if (state.funding === 'wallet') {
+      // Debited in this same transaction, keyed to the request, so a retry never charges twice.
+      const { default: UserModel } = await import('../models/User.js');
+      const balancePaise = Math.round(((await UserModel.findById(customerId).select('wallet.balance').session(session).lean())?.wallet?.balance || 0) * 100);
+      if (balancePaise < amountPaise) throw httpError(409, `Your Bulkimart wallet has ${parcelMoneyText(balancePaise)}. Add ${parcelMoneyText(amountPaise - balancePaise)} to pay this boost.`, { code: 'WALLET_BALANCE_SHORT', shortPaise: amountPaise - balancePaise, balancePaise });
+      const { debitWallet } = await import('./wallet.service.js');
+      const { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } = await import('../models/WalletLedger.js');
+      await debitWallet({ userId: customerId, amount: amountPaise / 100, type: WALLET_TRANSACTION_TYPE.ORDER_PAYMENT, referenceType: WALLET_REFERENCE_TYPE.PARCEL,
+        referenceId: String(b._id), description: `Fare boost for parcel #${String(b.reference || b._id).slice(-6).toUpperCase()}`, idempotencyKey: `PARCEL_BOOST:${b._id}:${key}`, session });
+      // Money now held for this booking, alongside the original online capture.
+      await postParcel(b, `boost-${key}`, 'parcel_collections', 'credit', amountPaise, session);
+    }
+    b.pricing = { ...b.pricing, totalPaise: next.totalPaise, driverPaise: next.driverPaise, taxPaise: next.taxPaise, platformPaise: next.platformPaise, boostPaise: next.boostPaise,
+      ...(state.funding === 'wallet' ? { walletBoostPaise: (b.pricing.walletBoostPaise || 0) + amountPaise } : {}),
+      boosts: [...(b.pricing.boosts || []), { key, amountPaise, driverPaise: next.driverBoostPaise, funding: state.funding, at: new Date() }] };
+    b.markModified('pricing');
+    // Close the current offer round and start counting rounds afresh at the new fare;
+    // earlier rounds (including declines) are kept for the record.
+    for (const a of b.assignment.attempts) if (a.outcome === 'offered') { a.outcome = 'superseded'; a.resolvedAt = new Date(); }
+    b.assignment.history = [...(b.assignment.history || []), ...b.assignment.attempts];
+    b.assignment.attempts = []; delete b.assignment.offer; b.assignment.reason = '';
+    parcelEvent(b, { id: customerId, type: 'customer' }, 'fare_boosted', 'searching_for_driver', `+₹${(amountPaise / 100).toFixed(2)}`);
+    touchParcel(b); await b.save({ session }); return b;
+  });
+  // Broadcast the higher earning straight away (also notifies customer and riders).
+  const { assignParcel } = await import('./parcelAssignment.service.js');
+  try { return await assignParcel(b._id); } catch { return Parcel.findById(b._id); }
+}
+
 export async function parcelCustomerCancel(id, customerId, input) {
   requireParcel('booking');
   return financialTransaction(async session => {

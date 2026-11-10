@@ -10,7 +10,7 @@ import Ledger from '../models/SellerLedgerEntry.js';
 import { ok, created, paginated, getPagination } from '../utils/response.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
 import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold, parcelCashCollectionPoints } from '../services/parcelPolicy.service.js';
-import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
+import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, boostParcel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
 import { assignParcel, respondParcelOffer, notifyParcel, parcelRiderIneligibility } from '../services/parcelAssignment.service.js';
 import { parcelOfferFilter } from '../services/parcelOffers.js';
 import { initiateParcelPayment, verifyParcelPayment, approveParcelRefund, executeParcelRefund, refundParcelToWallet, autoRefundParcelToWallet } from '../services/parcelPayment.service.js';
@@ -47,7 +47,7 @@ export async function catalogue(_req,res) {
 }
 export async function quote(req,res) {
   const q=await quoteParcel(req.user._id,req.body);
-  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(q.pricing.policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:q.pricing.policy.maxWeightKg,maxDimensionCm:q.pricing.policy.maxDimensionCm},pricing:{policyVersion:q.pricing.policyVersion,totalPaise:q.pricing.totalPaise,basePaise:q.pricing.basePaise,distancePaise:q.pricing.distancePaise,taxPaise:q.pricing.taxPaise,minimumAdjustmentPaise:q.pricing.totalPaise-q.pricing.basePaise-q.pricing.distancePaise,distanceMetres:q.pricing.distanceMetres,currency:'INR'},terms:q.pricing.policy.terms});
+  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(q.pricing.policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:q.pricing.policy.maxWeightKg,maxDimensionCm:q.pricing.policy.maxDimensionCm},pricing:{policyVersion:q.pricing.policyVersion,totalPaise:q.pricing.totalPaise,basePaise:q.pricing.basePaise,distancePaise:q.pricing.distancePaise,taxPaise:q.pricing.taxPaise,weightSurchargePaise:q.pricing.weightSurchargePaise||0,handlingFeePaise:q.pricing.handlingFeePaise||0,includedKm:q.pricing.includedKm||0,bands:q.pricing.bands||[],minimumAdjustmentPaise:q.pricing.totalPaise-q.pricing.basePaise-q.pricing.distancePaise-(q.pricing.weightSurchargePaise||0)-(q.pricing.handlingFeePaise||0),distanceMetres:q.pricing.distanceMetres,currency:'INR'},terms:q.pricing.policy.terms});
 }
 export async function book(req,res) {
   const b=await bookParcel(req.user._id,req.body,req.get('Idempotency-Key'));
@@ -81,6 +81,7 @@ export async function detail(req,res) {
   }
   return ok(res,dto);
 }
+export async function boost(req,res) { const b=await boostParcel(req.params.id,req.user._id,req.body); return ok(res,parcelDTO(b)); }
 export async function cancel(req,res) { const b=await parcelCustomerCancel(req.params.id,req.user._id,req.body); await notifyParcel(b); return ok(res,parcelDTO(b)); }
 export async function pay(req,res) { return ok(res,await initiateParcelPayment(req.params.id,req.user._id,req.body,req.get('Idempotency-Key'))); }
 export async function verify(req,res) { if(!mongoose.isValidObjectId(req.body.orderId)) failParcel('Invalid booking ID'); return ok(res,await verifyParcelPayment(req.body.orderId,req.user._id,req.body)); }

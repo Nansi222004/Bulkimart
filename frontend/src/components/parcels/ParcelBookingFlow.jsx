@@ -6,7 +6,9 @@ import { parcelRequest, parcelMoney, validParcelLocation, saveParcelPickup } fro
 import { initialParcelJourney, parcelDraftKey, readParcelDraft, savedParcelAddress, parcelJourneyInput, parcelAddressError, parcelDraftSnapshot } from './parcelJourney';
 
 export function ParcelPriceSummary({ pricing }) {
-  return <dl className="parcel-price-summary"><dt>Base fare</dt><dd>{parcelMoney(pricing.basePaise)}</dd><dt>Distance charge</dt><dd>{parcelMoney(pricing.distancePaise)}</dd>
+  return <dl className="parcel-price-summary"><dt>Base fare{pricing.includedKm > 0 ? ` (first ${pricing.includedKm} km)` : ''}</dt><dd>{parcelMoney(pricing.basePaise)}</dd><dt>Distance charge</dt><dd>{parcelMoney(pricing.distancePaise)}</dd>
+    {pricing.weightSurchargePaise > 0 && <><dt>Weight surcharge</dt><dd>{parcelMoney(pricing.weightSurchargePaise)}</dd></>}
+    {pricing.handlingFeePaise > 0 && <><dt>Handling fee</dt><dd>{parcelMoney(pricing.handlingFeePaise)}</dd></>}
     {pricing.minimumAdjustmentPaise > 0 && <><dt>Minimum fare adjustment</dt><dd>{parcelMoney(pricing.minimumAdjustmentPaise)}</dd></>}
     <dt>Tax (included)</dt><dd>{parcelMoney(pricing.taxPaise)}</dd><dt><strong>Total payable</strong></dt><dd><strong>{parcelMoney(pricing.totalPaise)}</strong></dd></dl>;
 }
