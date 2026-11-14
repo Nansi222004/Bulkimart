@@ -40,6 +40,8 @@ import SearchPage from './SearchPage';
 import WholesalePage from './WholesalePage';
 import WriteReviewPage from './WriteReviewPage';
 import DigitalLibraryPage from './DigitalLibraryPage';
+import SupportPage from './SupportPage';
+import PrivacyPolicyPage from './PrivacyPolicyPage';
 import VegetablesSection from '../components/VegetablesSection';
 import MilkSection from '../components/MilkSection';
 import ElectronicsSection from '../components/ElectronicsSection';
@@ -198,6 +200,7 @@ export const LandingPageContent = () => {
     'orders',
     'ebooks',
     'wishlist',
+    'support',
   ]);
 
   if (!currentUser && protectedNavItems.has(activeNav)) {
@@ -340,6 +343,10 @@ export const LandingPageContent = () => {
         return withDesktopHeader(<ProfilePage />);
       case 'wishlist':
         return withDesktopHeader(<WishlistPage />);
+      case 'support':
+        return withDesktopHeader(<SupportPage />);
+      case 'privacy-policy':
+        return withDesktopHeader(<PrivacyPolicyPage />);
       case 'cart':
         return withDesktopHeader(<CartPage />);
       case 'checkout':

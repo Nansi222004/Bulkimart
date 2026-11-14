@@ -18,6 +18,8 @@ import { sendPushNotification, sendBulkNotification } from './fcm.service.js';
 // Fine-grained business-event constants — stored on Notification.event.
 export const NOTIFICATION_EVENT = {
   PARCEL_UPDATED: 'PARCEL_UPDATED',
+  // A rider was offered a parcel booking. Timed; opens the rider's offer pop-up and rings their phone.
+  PARCEL_OFFER: 'PARCEL_OFFER',
   ORDER_CREATED: 'ORDER_CREATED',
   ORDER_STATUS_UPDATED: 'ORDER_STATUS_UPDATED',
   ORDER_CANCELLED: 'ORDER_CANCELLED',
@@ -85,6 +87,7 @@ export const NOTIFICATION_EVENT = {
 // keeps working unchanged.
 const EVENT_CATEGORY = {
   PARCEL_UPDATED: 'delivery',
+  PARCEL_OFFER: 'delivery',
   ORDER_CREATED: 'order',
   ORDER_STATUS_UPDATED: 'order',
   ORDER_CANCELLED: 'order',

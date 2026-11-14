@@ -3,6 +3,7 @@ import { listFinanceOrders, listFinanceLedger, getDeliveryFinance, collectCod, r
 import {
   startOnboarding,
   submitStep1,
+  changeVehicle,
   submitStep2,
   submitStep3,
   submitApplication,
@@ -69,6 +70,7 @@ router.post('/submit', submitApplication);
 // RIDER APP — approved partners only. Added as those features are built.
 // ---------------------------------------------------------------------------
 router.put('/availability', requireApprovedPartner, toggleAvailability);
+router.put('/vehicle', requireApprovedPartner, uploadSingle('license'), changeVehicle);
 // Restores a trip already in progress after a refresh.
 router.get('/orders/active', requireApprovedPartner, getActiveDelivery);
 router.get('/orders/pending', requireApprovedPartner, getPendingDeliveryOrders);

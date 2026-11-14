@@ -38,6 +38,13 @@ storefrontAdminRouter.get('/', asyncHandler(async (req, res) => {
   const filtered = req.query.status ? rows.filter(r => lifecycle(r) === req.query.status) : rows;
   return paginated(res, filtered.slice(skip, skip + limit).map(adminDTO), { page, limit, total: filtered.length });
 }));
+// One record, fresh: the editor opens from this so it never saves against a stale list row.
+storefrontAdminRouter.get('/:id', asyncHandler(async (req, res) => {
+  if (!objectId(req.params.id)) throw httpError(400, 'Invalid configuration ID');
+  const row = await Experience.findById(req.params.id).select('+history').lean();
+  if (!row) throw httpError(404, 'Configuration not found');
+  return ok(res, adminDTO(row));
+}));
 storefrontAdminRouter.post('/', asyncHandler(async (req, res) => created(res, adminDTO(await saveExperience(null, req.body, req.user._id)))));
 storefrontAdminRouter.patch('/:id', asyncHandler(async (req, res) => {
   if (!objectId(req.params.id)) throw httpError(400, 'Invalid configuration ID');

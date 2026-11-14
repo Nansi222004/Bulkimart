@@ -6,7 +6,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { ArrowDownUp, ArrowLeft, CheckCircle2, MapPin, Package } from 'lucide-react-native';
+import { ArrowDownUp, ArrowLeft, ChevronDown, ChevronRight, Clock, Heart, Info, LocateFixed, Pencil, TriangleAlert, X } from 'lucide-react-native';
+import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
+import { VEHICLE_ART_VIEWBOX, vehicleArt } from './vehicleArt';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { getCurrentPosition } from '../../lib/gps';
 import { session } from '../../lib/storage';
@@ -16,13 +19,21 @@ import { Text, TextInput } from '../ui';
 import { useAppTheme } from '../../theme/ThemeContext';
 import SelectField from '../SelectField';
 import { newIdempotencyKey } from '../services/ServicePayment';
-import { initialParcelJourney, parcelAddressError, parcelCustomerStatus, parcelDraftKey, parcelDraftSnapshot, parcelJourneyInput, parcelLocationLookup, parcelMoney, parcelRequest, readParcelDraft, saveParcelPickup, savedParcelAddress, validParcelLocation } from './parcelLogic';
+import { initPushNotifications } from '../../lib/push';
+import { bookedParcelAddress, initialParcelJourney, parcelAddressError, parcelCustomerStatus, parcelDraftKey, parcelGoodsError, parcelJourneyInput, parcelLocationLookup, parcelMoney, parcelRequest, parcelVehicleMode, readParcelDraft, saveParcelPickup, savedParcelAddress, validParcelLocation, writeParcelDraft } from './parcelLogic';
 
-const INK = '#172b46', MUTED = '#52647b';
+const INK = '#172b46', MUTED = '#52647b', LINE = '#e3e8ef', SOFT = '#f3f6fb';
 /** Parcel colours follow the admin storefront theme (button colour, its hover shade, button text). */
+/** A light tint of a theme colour (mixed with white), for card backgrounds and selected states. */
+export function parcelTint(color, amount = 0.12) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(color || '').trim());
+  if (!m) return '#eef3f7';
+  const n = parseInt(m[1], 16), mix = c => Math.round(255 - (255 - c) * amount).toString(16).padStart(2, '0');
+  return '#' + mix(n >> 16) + mix((n >> 8) & 255) + mix(n & 255);
+}
 function useParcelColors() {
   const theme = useAppTheme();
-  return { BLUE: theme.action, DARK: theme.actionHover || theme.action, ON: theme.actionText || '#fff' };
+  return { BLUE: theme.action, DARK: theme.actionHover || theme.action, ON: theme.actionText || '#fff', TINT: parcelTint(theme.action, 0.12), SOFT: parcelTint(theme.action, 0.05) };
 }
 const MAPS_CONFIGURED = Boolean(Constants.expoConfig?.extra?.mapsConfigured);
 
@@ -159,6 +170,18 @@ export function ParcelLocationPicker({ value, onChange, label = 'Search address 
   </View>;
 }
 
+// Flat colour illustrations (vehicleArt.js), shape-for-shape the same as the website. `size` is the
+// picture's height; it is 1.5× as wide.
+const ART_SHAPES = { path: Path, rect: Rect, circle: Circle, ellipse: Ellipse };
+export function ParcelVehicleIcon({ icon, size = 34 }) {
+  return <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+    <Svg viewBox={VEHICLE_ART_VIEWBOX} width={Math.round(size * 1.5)} height={size}>
+      {vehicleArt(icon).map(({ t, ...attrs }, i) => { const Shape = ART_SHAPES[t]; return <Shape key={i} {...attrs} />; })}
+    </Svg>
+  </View>;
+}
+/** Whole rupees when the fare has no paise (₹160), otherwise two decimals. */
+export const parcelRupees = paise => Number.isFinite(paise) ? (paise % 100 ? parcelMoney(paise) : '₹' + paise / 100) : '';
 function PriceSummary({ pricing }) {
   const rows = [[pricing.includedKm > 0 ? `Base fare (first ${pricing.includedKm} km)` : 'Base fare', pricing.basePaise], ['Distance charge', pricing.distancePaise], ...(pricing.weightSurchargePaise > 0 ? [['Weight surcharge', pricing.weightSurchargePaise]] : []), ...(pricing.handlingFeePaise > 0 ? [['Handling fee', pricing.handlingFeePaise]] : []), ...(pricing.minimumAdjustmentPaise > 0 ? [['Minimum fare adjustment', pricing.minimumAdjustmentPaise]] : []), ['Tax (included)', pricing.taxPaise]];
   return <View style={{ gap: 10, marginVertical: 10 }}>
@@ -167,13 +190,25 @@ function PriceSummary({ pricing }) {
   </View>;
 }
 function RouteSummary({ quote }) {
-  return <View style={{ marginVertical: 8 }}>
-    <Text>{quote.route?.provider === 'mock' ? <Text style={{ fontWeight: '700' }}>Simulated test route · </Text> : null}{(quote.pricing.distanceMetres / 1000).toFixed(2)} km{quote.route?.durationSeconds > 0 ? ' · about ' + Math.ceil(quote.route.durationSeconds / 60) + ' min travel' : ' · travel time unavailable'}</Text>
-    <Text style={styles.small}>Travel time is an estimate, not a confirmed pickup ETA.</Text>
-    {quote.route?.provider === 'google_routes' ? <Text style={styles.small}>Google Maps</Text> : null}
-  </View>;
+  return <Text style={{ marginVertical: 8, color: MUTED, fontSize: 13 }}>{quote.route?.provider === 'mock' ? 'Simulated test route · ' : ''}{(quote.pricing.distanceMetres / 1000).toFixed(2)} km{quote.route?.durationSeconds > 0 ? ' · about ' + Math.ceil(quote.route.durationSeconds / 60) + ' min travel' : ' · travel time unavailable'}{quote.route?.provider === 'google_routes' ? ' · Google Maps' : ''}</Text>;
+}
+/** Bottom sheet for vehicle details, goods, payment, fare breakup, lists and cancellation. */
+export function PSheet({ title, label, onClose, children, footer }) {
+  const insets = useSafeAreaInsets();
+  return <Modal visible transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <View style={styles.sheetOverlay}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+      <Pressable onPress={onClose} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close"><X size={20} color={INK} /></Pressable>
+      <View style={[styles.sheet, { paddingBottom: 18 + insets.bottom }]} accessibilityViewIsModal accessibilityLabel={label || title}>
+        {title ? <Text style={styles.sheetTitle}>{title}</Text> : null}
+        <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 460 }}>{children}</ScrollView>
+        {footer}
+      </View>
+    </View>
+  </Modal>;
 }
 function TermsDialog({ terms, policy, onClose }) {
+  const instant = (policy.customerCancel || 'instant_before_assignment') === 'instant_before_assignment';
   return <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
     <View style={styles.overlay}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
@@ -182,35 +217,61 @@ function TermsDialog({ terms, policy, onClose }) {
         <ScrollView style={{ marginVertical: 12 }}>
           {terms ? <Text style={{ marginBottom: 10 }}>{terms}</Text> : null}
           <Text style={styles.h3}>Delivery</Text>
-          <Text>• Parcels up to {policy.maxWeightKg} kg, each side up to {policy.maxDimensionCm} cm.</Text>
+          <Text>• {parcelVehicleMode(policy) ? 'Your goods must fit the vehicle you choose (its weight and load space are shown on the Select vehicle screen).' : `Parcels up to ${policy.maxWeightKg} kg, each side up to ${policy.maxDimensionCm} cm.`}</Text>
           {policy.prohibitedItems?.length > 0 && <Text>• Not allowed: {policy.prohibitedItems.join(', ')}.</Text>}
           <Text>• The delivery partner confirms pickup and delivery with one-time codes shown in your tracking page.</Text>
           <Text style={styles.h3}>Payment</Text>
           <Text>• Pay online with Razorpay, or pay the delivery partner in cash where offered.</Text>
           <Text>• Only the delivery fee is charged — never the value of your parcel.</Text>
           <Text style={styles.h3}>Cancellation and refunds</Text>
-          <Text>• You can request cancellation until the delivery partner picks up your parcel. After pickup it can no longer be cancelled.</Text>
-          <Text>• Cancellation requests are reviewed by our team.</Text>
-          <Text>• Once approved, the amount you paid is refunded to your Bulkimart wallet. Cash paid to the partner is refunded after it is deposited with us.</Text>
+          {instant ? <><Text>• Until a delivery partner accepts, you can cancel at once. Any amount you paid goes back to your Bulkimart wallet straight away.</Text><Text>• After a partner accepts and until pickup, cancellation requests are reviewed by our team.</Text></>
+            : <><Text>• You can request cancellation until the delivery partner picks up your parcel.</Text><Text>• Cancellation requests are reviewed by our team.</Text></>}
+          <Text>• After pickup the booking can no longer be cancelled.</Text>
+          <Text>• Approved refunds go to your Bulkimart wallet. Cash paid to the partner is refunded after it is deposited with us.</Text>
         </ScrollView>
         <PBtn variant="big" title="Close" onPress={onClose} />
       </View>
     </View>
   </Modal>;
 }
+const BACK = { pickup: 'start', pickupDetails: 'pickup', dropoff: 'pickupDetails', dropoffDetails: 'dropoff', vehicle: 'dropoffDetails', review: 'vehicle' };
+const TITLES = { start: 'Send a Parcel', pickup: 'Pickup location', pickupDetails: 'Pickup details', dropoff: 'Drop location', dropoffDetails: 'Drop details', vehicle: 'Select Vehicle', review: 'Review Booking' };
+const goodsText = (parcel, vehicle, categories) => [parcel.description?.trim() && categories.includes(parcel.category) ? parcel.category : '', parcel.weightKg !== '' && parcel.weightKg != null ? `${Number(parcel.weightKg)} kg` : vehicle ? `up to ${vehicle.maxWeightKg} kg` : '', `${Number(parcel.packages) || 1} ${Number(parcel.packages) > 1 ? 'packages' : 'package'}`].filter(Boolean).join(' · ');
+const Dot = ({ kind }) => <View style={[styles.dot, kind === 'dropoff' && styles.dotDrop]} />;
+export function ParcelStop({ kind, address: a, right }) {
+  return <View style={styles.stop}>
+    <Dot kind={kind} />
+    <View style={{ flex: 1 }}>
+      <Text style={{ fontWeight: '700', fontSize: 13.5 }} numberOfLines={1}>{[a?.name, a?.phone].filter(Boolean).join(' · ') || (kind === 'pickup' ? 'Pickup' : 'Drop')}</Text>
+      <Text style={{ color: MUTED, fontSize: 12, marginTop: 2 }} numberOfLines={1}>{[a?.building, a?.address].filter(Boolean).join(', ')}</Text>
+    </View>
+    {right}
+  </View>;
+}
 
-export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked }) {
-  const { BLUE, DARK, ON } = useParcelColors();
+export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip }) {
+  const { BLUE, TINT, SOFT } = useParcelColors();
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now()), [termsOpen, setTermsOpen] = useState(false);
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now());
+  const [sheet, setSheet] = useState(null), [termsOpen, setTermsOpen] = useState(false), [mapOpen, setMapOpen] = useState(false), [showAddresses, setShowAddresses] = useState(false), [goodsDraft, setGoodsDraft] = useState(null);
   const generation = useRef(0), lock = useRef(false), mounted = useRef(true), controller = useRef(null), latest = useRef(state);
   latest.current = state;
+  const vehicleMode = parcelVehicleMode(policy);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; controller.current?.abort(); }; }, []);
-  useEffect(() => { if (storageKey) session.setItem(storageKey, JSON.stringify({ version: 1, at: Date.now(), state: parcelDraftSnapshot(state) })); }, [state, storageKey]);
+  useEffect(() => { if (storageKey) writeParcelDraft(session, storageKey, state); }, [state, storageKey]);
   useEffect(() => { if (!state.quote) return undefined; const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval); }, [state.quote?._id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const change = patch => { generation.current++; controller.current?.abort(); setState(s => ({ ...s, ...patch, quote: null, terms: false })); setError(''); setNotice(''); };
-  const updateAddress = (kind, value) => change({ [kind]: value, ...(validParcelLocation(value) ? { editing: null } : {}) });
+  useEffect(() => { setMapOpen(false); setShowAddresses(false); }, [state.step]);
+  // Home shows the customer's last few trips (with Book Again), like the parcel app's home.
+  const [recent, setRecent] = useState([]);
+  useEffect(() => {
+    if (state.step !== 'start' || !onOpenHistory) return undefined;
+    const c = new AbortController();
+    parcelRequest('/bookings?page=1', { signal: c.signal }).then(b => { if (!c.signal.aborted && Array.isArray(b.data)) setRecent(b.data.slice(0, 3)); }).catch(() => {});
+    return () => c.abort();
+  }, [state.step, Boolean(onOpenHistory)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = step => { setError(''); setNotice(''); setState(s => ({ ...s, step })); };
+  const change = patch => { generation.current++; controller.current?.abort(); setState(s => ({ ...s, ...patch, quote: null })); setError(''); setNotice(''); };
   const run = async action => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(''); setNotice('');
@@ -225,180 +286,314 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
     if (!quote?._id || !Number.isSafeInteger(quote.pricing?.totalPaise) || quote.pricing.totalPaise <= 0 || !(new Date(quote.expiresAt).getTime() > Date.now())) throw new Error('A valid delivery quote could not be loaded. Please retry.');
     setNow(Date.now()); return quote;
   };
-  const calculate = () => run(async () => { const quote = await requestQuote(); if (quote) setState(s => ({ ...s, quote, step: 2, terms: false })); });
-  const expired = state.quote && new Date(state.quote.expiresAt).getTime() <= now;
-  const cashPoints = state.quote?.cashCollectionPoints || (policy.cashCollectionPoint === 'customer_choice' ? ['pickup', 'delivery'] : [policy.cashCollectionPoint === 'pickup' ? 'pickup' : 'delivery']);
+  const chooseVehicle = (quote, current) => {
+    if (!quote.vehicleOptions) return '';
+    const usable = quote.vehicleOptions.filter(o => o.available);
+    return (usable.find(o => o.vehicle.id === current) || usable[0])?.vehicle.id || '';
+  };
+  const loadQuote = () => run(async () => {
+    const quote = await requestQuote();
+    if (!quote) return;
+    setState(s => {
+      const vehicleId = chooseVehicle(quote, s.vehicleId);
+      const lost = s.step === 'review' && quote.vehicleOptions && vehicleId !== s.vehicleId;
+      if (lost) setNotice('The vehicle you chose cannot carry these goods. Choose another vehicle.');
+      return { ...s, quote, vehicleId, step: lost ? 'vehicle' : s.step };
+    });
+  });
+  const goodsReady = !parcelGoodsError(state.parcel, policy) && (vehicleMode || state.parcel.acceptRestrictions);
+  const wantsQuote = ['vehicle', 'review'].includes(state.step) && !state.quote && !state.pending && goodsReady && !error;
+  useEffect(() => { if (wantsQuote && !busy && !lock.current) loadQuote(); }, [wantsQuote, busy]); // eslint-disable-line react-hooks/exhaustive-deps
+  const quote = state.quote;
+  const option = quote?.vehicleOptions?.find(o => o.vehicle.id === state.vehicleId);
+  const fare = option?.pricing || (quote && !quote.vehicleOptions ? quote.pricing : null);
+  const vehicle = option?.vehicle || policy.vehicles?.find(v => v.id === state.vehicleId);
+  const vehicleName = option?.vehicle.name || (vehicleMode ? vehicle?.name || 'vehicle' : quote?.service?.name || 'Doorstep delivery');
+  const expired = quote && new Date(quote.expiresAt).getTime() <= now;
+  const cashPoints = quote?.cashCollectionPoints || policy.cashCollectionPoints || (policy.cashCollectionPoint === 'customer_choice' ? ['pickup', 'delivery'] : [policy.cashCollectionPoint === 'pickup' ? 'pickup' : 'delivery']);
+  const cashAllowed = Boolean(flags.pay_driver && policy.payDriverEnabled && policy.payDriverCategories?.includes(state.parcel.category));
+  const methods = [...(cashAllowed ? ['pay_driver'] : []), ...(flags.online_payment ? ['online'] : [])];
+  const paymentMethod = state.pending?.payload.paymentMethod || (methods.includes(state.paymentMethod) ? state.paymentMethod : methods[0] || '');
   const cashPoint = state.pending?.payload.paymentMethod === 'pay_driver' ? state.pending.payload.cashCollectionPoint || 'delivery' : cashPoints.includes(state.cashCollectionPoint) ? state.cashCollectionPoint : cashPoints.includes('delivery') ? 'delivery' : cashPoints[0];
+  const paymentLabel = paymentMethod === 'online' ? 'Pay online' : paymentMethod === 'pay_driver' ? `Cash at ${cashPoint === 'pickup' ? 'pickup' : 'drop'}` : 'Not available';
   const confirmBooking = () => run(async () => {
     let attempt = state.pending;
     if (!attempt) {
-      if (!state.terms || !state.paymentMethod) throw new Error('Choose a payment method and accept the delivery terms.');
-      const quote = state.quote;
-      if (!quote) throw new Error('Calculate your delivery quote again.');
+      if (!paymentMethod) throw new Error('No payment method is available for this parcel.');
+      if (!quote || !fare) throw new Error('Choose a vehicle to see your fare.');
       if (new Date(quote.expiresAt).getTime() - Date.now() < 30000) {
         const fresh = await requestQuote();
         if (!fresh) return;
-        setState(s => ({ ...s, quote: fresh, terms: false }));
-        setNotice('Your quote has been refreshed. Review the current fare and accept the terms before booking.');
+        setState(s => ({ ...s, quote: fresh, vehicleId: chooseVehicle(fresh, s.vehicleId) }));
+        setNotice('Your fare has been refreshed. Check it, then tap Book again.');
         return;
       }
-      attempt = { key: newIdempotencyKey(), payload: { quoteId: quote._id, policyVersion: quote.pricing.policyVersion, paymentMethod: state.paymentMethod, ...(state.paymentMethod === 'pay_driver' ? { cashCollectionPoint: cashPoint } : {}), acceptTerms: true } };
+      attempt = { key: newIdempotencyKey(), payload: { quoteId: quote._id, policyVersion: fare.policyVersion ?? quote.pricing.policyVersion, paymentMethod, ...(paymentMethod === 'pay_driver' ? { cashCollectionPoint: cashPoint } : {}), ...(quote.vehicleOptions ? { vehicleId: state.vehicleId } : {}), acceptTerms: true } };
       const snapshot = { ...latest.current, pending: attempt };
       // Saved before sending: a timeout must retry the same quote and key.
-      if (storageKey) session.setItem(storageKey, JSON.stringify({ version: 1, at: Date.now(), state: parcelDraftSnapshot(snapshot) }));
+      if (storageKey) writeParcelDraft(session, storageKey, snapshot);
       setState(snapshot);
     }
     let body;
     try { body = await parcelRequest('/bookings', { method: 'POST', headers: { 'Idempotency-Key': attempt.key }, body: JSON.stringify(attempt.payload) }); }
     catch (e) {
-      if (e.status === 409 && /Quotation expired|Policy changed/i.test(e.message)) setState(s => ({ ...s, pending: null, quote: null, step: 1, terms: false }));
+      if (e.status === 409 && /Quotation expired|Policy changed/i.test(e.message)) setState(s => ({ ...s, pending: null, quote: null, step: 'vehicle' }));
       if (e.status && e.status < 500 && e.status !== 409) setState(s => ({ ...s, pending: null }));
       throw new Error(e.message + ' If confirmation was interrupted, retry safely or check Delivery history.');
     }
     if (!body.data?._id || !body.data.reference) throw new Error('Booking confirmation was interrupted. Retry safely or check Delivery history.');
+    // Booking is an explicit action, like placing an order: ask for notifications now so the customer
+    // gets "partner assigned", pickup-code and delivery-code pushes (no prompt if already decided).
+    void initPushNotifications({ requestPermission: true }).catch(() => {});
     if (storageKey) session.removeItem(storageKey);
     if (mounted.current) onBooked(body.data);
   });
-  const back = () => { if (state.pending) return; setError(''); setState(s => ({ ...s, step: Math.max(0, s.step - 1) })); };
-  const saved = kind => addresses.length > 0 && <SelectField label={`Saved ${kind === 'pickup' ? 'pickup' : 'drop'} address`} value="" placeholder="Choose a saved address" style={{ marginTop: 8 }}
-    options={addresses.map(a => ({ value: a._id, label: `${a.label || a.name}: ${a.line1}` }))} onChange={idValue => { const a = addresses.find(x => x._id === idValue); if (a) updateAddress(kind, savedParcelAddress(a)); }} />;
-  const toggleEditing = kind => setState(s => ({ ...s, editing: s.editing === kind && validParcelLocation(s[kind]) ? null : kind }));
-  const locationCard = kind => <View style={styles.locCard}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <MapPin size={20} color={DARK} /><Text style={{ fontSize: 17, fontWeight: '700', flex: 1, color: DARK }}>{kind === 'pickup' ? 'Pickup' : 'Drop'}</Text>
-      <PBtn variant="text" disabled={busy} onPress={() => toggleEditing(kind)} title={state.editing === kind && validParcelLocation(state[kind]) ? 'Done' : validParcelLocation(state[kind]) ? 'Edit' : 'Choose location'} style={{ margin: 0 }} />
-    </View>
-    <Text style={{ marginVertical: 8, lineHeight: 22 }}>{state[kind].address || (kind === 'pickup' ? 'Where should we collect your parcel?' : 'Where is your parcel going?')}</Text>
-    {state[kind].pincode ? <Text style={styles.small}>Pincode: {state[kind].pincode}</Text> : null}
-    {state[kind].approximate ? <Text style={styles.small}>Approximate address — confirm the building details.</Text> : null}
-    {saved(kind)}
-    {state.editing === kind && <View style={{ marginTop: 12 }}>
-      <Text style={styles.h3}>{kind === 'pickup' ? 'Choose pickup location' : 'Choose drop location'}</Text>
-      <Text>Use your current location to find a nearby address, or search and confirm a pin.</Text>
-      <ParcelLocationPicker key={kind} showMap pinKind={kind} label={kind === 'pickup' ? 'Search pickup address' : 'Search drop address'} value={state[kind]} initialQuery={state[kind].address} onChange={v => updateAddress(kind, v)} />
-    </View>}
-  </View>;
-  const detailFields = kind => <View style={styles.fieldset}>
-    <Text style={{ fontSize: 18, fontWeight: '700' }}>{kind === 'pickup' ? 'Pickup details' : 'Drop details'}</Text>
-    {[['building', 'House / flat / building (optional)', 100], ['address', 'Street, locality and city', 400], ['landmark', 'Landmark (optional)', 100], ['pincode', 'Pincode', 6], ['name', 'Contact name', 100], ['phone', 'Contact phone', 16]].map(([key, title, max]) =>
-      <PField key={key} label={title} value={state[kind][key] || ''} maxLength={max} keyboardType={key === 'phone' ? 'phone-pad' : key === 'pincode' ? 'number-pad' : 'default'} onChangeText={t => change({ [kind]: { ...state[kind], [key]: t } })} />)}
-    <SelectField label="Address label" value={state[kind].label} onChange={v => change({ [kind]: { ...state[kind], label: v } })} options={['Home', 'Work', 'Other'].map(l => ({ value: l, label: l }))} />
-  </View>;
-  const addressSummary = <View style={[styles.card, { gap: 12 }]}>{['pickup', 'dropoff'].map(kind => <View key={kind}>
-    <Text style={{ fontWeight: '700' }}>{kind === 'pickup' ? 'Pickup' : 'Drop'}</Text>
-    <Text>{[state[kind].building, state[kind].address, state[kind].landmark].filter(Boolean).join(', ')}</Text>
-    <Text style={styles.small}>{state[kind].name} · {state[kind].phone}</Text>
-  </View>)}</View>;
-  const quote = state.quote;
-  const allowCash = flags.pay_driver && policy.payDriverEnabled && policy.payDriverCategories?.includes(state.parcel.category);
-  return <View>
-    {/* The page title bar (ParcelDeliveryScreen) carries the title and the Back to home button. */}
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-      {state.step > 0 ? <PBtn variant="outline" accessibilityLabel="Back to previous step" disabled={busy || !!state.pending} onPress={back} style={{ padding: 10 }}><ArrowLeft size={20} color={DARK} /></PBtn> : null}
-      <Text style={{ flex: 1, color: MUTED, fontSize: 15 }}>Doorstep pickup and delivery</Text>
-      <Package size={30} color={DARK} />
-    </View>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 6 }} accessibilityLabel="Booking progress">
-      {['Locations', 'Details', 'Delivery', 'Review'].map((title, i) => <View key={title} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <View style={[styles.stepDot, state.step >= i && { backgroundColor: BLUE }]}><Text style={{ fontSize: 12, color: state.step >= i ? ON : MUTED }}>{i + 1}</Text></View>
-        <Text style={{ fontSize: 12, color: state.step === i ? DARK : MUTED, fontWeight: state.step === i ? '700' : '400' }}>{title}</Text>
-      </View>)}
-    </View>
-    {state.step <= 1 && <Text style={{ fontSize: 13, color: '#146447', marginBottom: 8 }}>Set your parcel pickup and drop here. Changing the shopping delivery location does not change these addresses. Both pins and pincodes must be in an approved parcel service area.</Text>}
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+  const back = () => { if (state.pending || busy) return; go(BACK[state.step] || 'start'); };
+  const chooseLocation = (kind, value) => change({ [kind]: value, ...(validParcelLocation(value) ? { step: kind + 'Details' } : {}) });
+  const confirmDetails = kind => run(async () => {
+    const message = parcelAddressError(state[kind]);
+    if (message) throw new Error(message);
+    const label = state.saveAs?.[kind];
+    if (label) {
+      try { await saveParcelPickup({ ...state[kind], label }); setNotice('Address saved to your addresses.'); }
+      catch { setNotice('This address could not be saved, but your booking can continue.'); }
+    }
+    setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
+  });
+  const linkText = (title, onPress, Icon, disabled) => <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" hitSlop={8} style={[styles.link, disabled && { opacity: 0.5 }]}>
+    {Icon ? <Icon size={16} color={BLUE} /> : null}<Text style={{ color: BLUE, fontWeight: '700', fontSize: 13 }}>{title}</Text></Pressable>;
+  const messages = <>
+    {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text>{['vehicle', 'review'].includes(state.step) && !state.quote ? linkText('Try again', () => setError('')) : null}</View> : null}
     {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-    {state.step === 0 && <View>
-      <View style={{ gap: 12 }}>
-        {locationCard('pickup')}
-        <PBtn variant="outline" accessibilityLabel="Switch pickup and drop locations" disabled={busy} onPress={() => change({ pickup: state.dropoff, dropoff: state.pickup, editing: null })} style={{ alignSelf: 'flex-end', backgroundColor: '#fff5e8', borderColor: '#e2b778' }}>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}><ArrowDownUp size={20} color="#794508" /><Text style={{ color: '#794508' }}>Switch</Text></View>
-        </PBtn>
-        {locationCard('dropoff')}
+  </>;
+  const header = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+    {state.step !== 'start' ? <Pressable onPress={back} disabled={busy || !!state.pending} accessibilityRole="button" accessibilityLabel="Back to previous step" hitSlop={10} style={{ padding: 4, opacity: busy || state.pending ? 0.4 : 1 }}><ArrowLeft size={22} color={INK} /></Pressable> : null}
+    <Text accessibilityRole="header" style={{ flex: 1, fontSize: 18, fontWeight: '800', color: INK }}>{TITLES[state.step]}</Text>
+  </View>;
+  const tripCard = <View style={styles.tripCard}>
+    <View style={{ flex: 1 }}>
+      <View style={styles.stopBox}><ParcelStop kind="pickup" address={state.pickup} /></View>
+      <View style={styles.stopBox}><ParcelStop kind="dropoff" address={state.dropoff} /></View>
+      <View style={{ alignItems: 'center', borderTopWidth: 1, borderTopColor: LINE, marginTop: 6, paddingTop: 4 }}>{linkText('Edit Locations', () => go('pickupDetails'), Pencil, busy || !!state.pending)}</View>
+    </View>
+    <Pressable onPress={() => change({ pickup: state.dropoff, dropoff: state.pickup })} disabled={busy || !!state.pending} accessibilityRole="button" accessibilityLabel="Switch pickup and drop" style={styles.round}><ArrowDownUp size={18} color="#41526a" /></Pressable>
+  </View>;
+
+  // ---- Home (as in the parcel app): pickup bar, vehicles, recent trips and good-to-know cards
+  if (state.step === 'start') {
+    const tiles = vehicleMode ? policy.vehicles : [{ id: '', name: 'Doorstep delivery', icon: '', maxWeightKg: policy.maxWeightKg }];
+    const next = validParcelLocation(state.pickup) ? (validParcelLocation(state.dropoff) ? 'vehicle' : 'dropoff') : 'pickup';
+    const again = b => setState(s => ({ ...s, pickup: bookedParcelAddress(b.details.pickup), dropoff: bookedParcelAddress(b.details.dropoff), vehicleId: b.service?.id && b.service.id !== 'parcel' ? b.service.id : '', quote: null, pending: null, step: 'vehicle' }));
+    const instant = (policy.customerCancel || 'instant_before_assignment') === 'instant_before_assignment';
+    const info = [[instant ? 'Free cancellation' : 'Easy cancellation', instant ? 'Cancel at once until a partner accepts. Paid fares go back to your wallet.' : 'Request cancellation any time before pickup.'], ['Cash or online', 'Pay the partner in cash or online with Razorpay.'], ['Safe handover', 'Pickup and delivery are confirmed with one-time codes.']];
+    return <View>{messages}
+      <Pressable onPress={() => go('pickup')} accessibilityRole="button" style={styles.pickupBar}>
+        <Dot kind="pickup" />
+        <View style={{ flex: 1 }}><Text style={{ fontSize: 12, color: MUTED }}>Pick up from</Text><Text style={{ fontWeight: '700' }} numberOfLines={1}>{state.pickup.address || 'Set your pickup location'}</Text></View>
+        <ChevronRight size={20} color={MUTED} />
+      </Pressable>
+      <Text style={styles.homeTitle}>Choose a vehicle</Text>
+      <View style={styles.tiles}>{tiles.map(v => <Pressable key={v.id || 'parcel'} accessibilityRole="button" accessibilityLabel={`${v.name}, up to ${v.maxWeightKg} kg`} onPress={() => setState(s => ({ ...s, vehicleId: v.id, step: next }))} style={[styles.tile, { padding: 0, overflow: 'hidden', minHeight: 164 }]}>
+        <View style={{ height: 92, alignItems: 'center', justifyContent: 'center', backgroundColor: TINT, marginBottom: 8 }}><ParcelVehicleIcon icon={v.icon} size={58} /></View>
+        <Text style={{ fontWeight: '700', paddingHorizontal: 14 }}>{v.name}</Text><Text style={{ fontSize: 12, color: MUTED, paddingHorizontal: 14 }}>Up to {v.maxWeightKg} kg</Text>
+        <View style={{ position: 'absolute', right: 10, bottom: 12 }}><ChevronRight size={18} color={MUTED} /></View>
+      </Pressable>)}</View>
+      {recent.length > 0 ? <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={styles.homeTitle}>Your recent trips</Text>{onOpenHistory ? linkText('View all', onOpenHistory) : null}</View>
+        {recent.map(b => <View key={b._id} style={styles.orderCard}>
+          <Pressable onPress={() => onOpenTrip?.(b._id)} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+            <ParcelVehicleIcon icon={b.service?.icon} size={28} />
+            <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{b.service?.name || 'Parcel delivery'}</Text><Text style={{ fontSize: 12, color: MUTED }}>{b.createdAt ? new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</Text></View>
+            <Text style={{ fontWeight: '800' }}>{parcelRupees(b.feePaise)} ›</Text>
+          </Pressable>
+          {b.details?.pickup ? <View style={styles.stopBox}><ParcelStop kind="pickup" address={b.details.pickup} /></View> : null}
+          {b.details?.dropoff ? <View style={styles.stopBox}><ParcelStop kind="dropoff" address={b.details.dropoff} /></View> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            {['delivered', 'cancelled'].includes(b.status) ? <>
+              <Text style={{ backgroundColor: b.status === 'delivered' ? '#e3f6ea' : '#fde8eb', color: b.status === 'delivered' ? '#14804a' : '#b0233c', fontSize: 11, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' }}>{b.status === 'delivered' ? 'COMPLETED' : 'CANCELLED'}</Text>
+              {b.details?.pickup && b.details?.dropoff ? <PBtn title="Book Again" onPress={() => again(b)} style={{ minHeight: 38, paddingVertical: 8 }} /> : null}
+            </> : <>
+              <Text style={{ backgroundColor: TINT, color: BLUE, fontSize: 11, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' }}>IN PROGRESS</Text>
+              {linkText('Track', () => onOpenTrip?.(b._id))}
+            </>}
+          </View>
+        </View>)}
+      </View> : null}
+      <Text style={styles.homeTitle}>Good to know</Text>
+      <View style={{ gap: 10 }}>{info.map(([title, body]) => <View key={title} style={styles.infoCard}><Text style={{ fontWeight: '700', fontSize: 13 }}>{title}</Text><Text style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>{body}</Text></View>)}</View>
+      {policy.areas?.length > 0 ? <Text style={{ fontSize: 12.5, color: MUTED, marginTop: 14 }}>We pick up and deliver within: {policy.areas.map(a => a.name).join(', ')}.</Text> : null}
+      {onOpenHistory ? <PBtn variant="outline" title="Delivery history" onPress={onOpenHistory} style={{ alignSelf: 'center', marginTop: 16, borderColor: BLUE }} /> : null}
+    </View>;
+  }
+  // ---- Pickup / drop search
+  if (state.step === 'pickup' || state.step === 'dropoff') {
+    const kind = state.step;
+    return <View>{header}
+      {kind === 'dropoff' ? <View style={[styles.tripCard, { paddingRight: 12 }]}><View style={[styles.stopBox, { flex: 1 }]}><ParcelStop kind="pickup" address={state.pickup} right={<Pressable onPress={() => go('pickupDetails')} accessibilityLabel="Edit pickup" hitSlop={8}><ChevronRight size={18} color={MUTED} /></Pressable>} /></View></View> : null}
+      {messages}
+      <View style={styles.searchBox}>
+        <View style={{ paddingTop: 34 }}><Dot kind={kind} /></View>
+        <View style={{ flex: 1 }}><ParcelLocationPicker key={kind + (mapOpen ? ':map' : '')} showMap={mapOpen} pinKind={kind} label={kind === 'pickup' ? 'Where is your pickup?' : 'Where is your drop?'} value={state[kind]} initialQuery="" onChange={v => chooseLocation(kind, v)} /></View>
       </View>
-      <View style={styles.sticky}>
-        <PBtn variant="big" title="Confirm locations" disabled={busy || !validParcelLocation(state.pickup) || !validParcelLocation(state.dropoff)} onPress={() => { if (validParcelLocation(state.pickup) && validParcelLocation(state.dropoff)) setState(s => ({ ...s, step: 1 })); }} />
-        <Text style={[styles.small, { textAlign: 'center' }]}>Delivery availability is checked with your parcel details.</Text>
+      <View style={styles.searchLinks}>{linkText(mapOpen ? 'Hide map' : 'Select on map', () => setMapOpen(o => !o), LocateFixed)}{linkText('Saved addresses', () => {}, Heart)}</View>
+      <View style={styles.addressList} accessibilityLabel="Saved addresses">
+        {addresses.length === 0 ? <Text style={{ padding: 16, color: MUTED, fontSize: 13 }}>No saved addresses yet. You can save one on the next screen.</Text>
+          : addresses.map((a, i) => <Pressable key={a._id} accessibilityRole="button" onPress={() => chooseLocation(kind, { ...savedParcelAddress(a), ...(kind === 'pickup' && !a.name && !a.phone ? { name: state.pickup.name, phone: state.pickup.phone } : {}) })} style={[styles.addressRow, i > 0 && { borderTopWidth: 1, borderTopColor: LINE }]}>
+            <Clock size={18} color={MUTED} />
+            <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{a.label || 'Saved'}{a.name ? ' · ' + a.name : ''}</Text><Text style={{ fontSize: 12.5, color: MUTED, marginTop: 2 }}>{[a.line1, a.line2, a.city, a.pincode].filter(Boolean).join(', ')}</Text></View>
+          </Pressable>)}
       </View>
-    </View>}
-    {state.step === 1 && <View>
-      {detailFields('pickup')}{detailFields('dropoff')}
-      <PBtn title="Save pickup to my addresses" disabled={busy} style={{ alignSelf: 'flex-start', marginTop: 8 }} onPress={() => run(async () => {
-        const message = parcelAddressError(state.pickup); if (message) throw new Error(message);
-        await saveParcelPickup(state.pickup);
-        setNotice('Pickup location saved to your addresses using your profile contact. Recipient contact details stay on this booking.');
-      })} />
-      <PCard>
-        <Text style={styles.h2}>What are you sending?</Text>
-        <Text>Up to {policy.maxWeightKg} kg · Each side up to {policy.maxDimensionCm} cm</Text>
-        <SelectField label="Parcel category" value={state.parcel.category} style={{ marginTop: 12 }} onChange={v => change({ parcel: { ...state.parcel, category: v } })} options={policy.categories.map(c => ({ value: c, label: c }))} />
-        <PField label="Parcel description" multiline maxLength={500} value={state.parcel.description} onChangeText={t => change({ parcel: { ...state.parcel, description: t } })} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          {[['weightKg', 'Weight (kg)'], ['length', 'Length (cm)'], ['width', 'Width (cm)'], ['height', 'Height (cm)']].map(([key, title]) =>
-            <PField key={key} label={title} keyboardType="decimal-pad" value={String(state.parcel[key])} style={{ flexBasis: '45%', flexGrow: 1 }} onChangeText={t => change({ parcel: { ...state.parcel, [key]: t } })} />)}
+    </View>;
+  }
+  // ---- Pickup / drop details on the map
+  if (state.step === 'pickupDetails' || state.step === 'dropoffDetails') {
+    const kind = state.step === 'pickupDetails' ? 'pickup' : 'dropoff', a = state[kind], pickup = kind === 'pickup';
+    const mine = Boolean(profile?.phone && a.phone === profile.phone && a.name === (profile.name || a.name));
+    const edit = (key, value) => change({ [kind]: { ...a, [key]: value } });
+    return <View>{header}
+      <View>
+        <ParcelMap pickup={pickup ? a : null} dropoff={pickup ? null : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true } })} />
+        <View style={styles.pinTip} pointerEvents="none"><Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '600' }}>{pickup ? 'Your goods will be picked from here' : 'Your goods will be dropped here'}</Text></View>
+      </View>
+      <PCard style={{ marginTop: 0 }}>
+        <View style={styles.detailsAddress}>
+          <Dot kind={kind} />
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }} numberOfLines={1}>{a.address.split(',')[0] || 'Selected location'}</Text><Text style={{ fontSize: 12.5, color: MUTED }} numberOfLines={2}>{a.address}</Text>{a.approximate ? <Text style={styles.small}>Pin moved — check the address and pincode.</Text> : null}</View>
+          <PBtn variant="outline" title="Change" onPress={() => go(kind)} style={{ minHeight: 34, paddingVertical: 6, borderColor: BLUE }} />
         </View>
-        <PField label="Pickup instructions (optional)" multiline maxLength={500} value={state.parcel.instructions} onChangeText={t => change({ parcel: { ...state.parcel, instructions: t } })} />
+        {messages}
+        <PField label="House / Apartment / Shop (optional)" value={a.building || ''} maxLength={100} onChangeText={t => edit('building', t)} />
+        {!/^\d{6}$/.test(a.pincode || '') ? <PField label="Pincode" value={a.pincode || ''} maxLength={6} keyboardType="number-pad" onChangeText={t => edit('pincode', t.replace(/\D/g, ''))} /> : null}
+        <PField label={pickup ? 'Sender’s name' : 'Receiver’s name'} value={a.name || ''} maxLength={100} onChangeText={t => edit('name', t)} />
+        <PField label={pickup ? 'Sender’s mobile number' : 'Receiver’s mobile number'} value={a.phone || ''} maxLength={16} keyboardType="phone-pad" onChangeText={t => edit('phone', t)} />
+        {profile?.phone ? <PCheck checked={mine} onPress={() => change({ [kind]: { ...a, ...(mine ? { name: '', phone: '' } : { name: profile.name || a.name, phone: profile.phone }) } })}><Text>Use my mobile number: {profile.phone}</Text></PCheck> : null}
+        <Text style={{ fontSize: 13, fontWeight: '600', marginTop: 10 }}>Save as (optional)</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>{['Home', 'Work', 'Other'].map(label => { const on = state.saveAs?.[kind] === label; return <Pressable key={label} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setState(s => ({ ...s, saveAs: { ...s.saveAs, [kind]: on ? '' : label } }))} style={[styles.chip, on && { borderColor: BLUE, backgroundColor: TINT }]}><Text style={{ color: on ? BLUE : '#41526a', fontSize: 13, fontWeight: '600' }}>{label}</Text></Pressable>; })}</View>
+      </PCard>
+      <View style={styles.sticky}><PBtn variant="big" disabled={busy} title={busy ? 'Saving…' : 'Confirm and Proceed'} onPress={() => confirmDetails(kind)} /></View>
+    </View>;
+  }
+  // ---- Select vehicle
+  if (state.step === 'vehicle') {
+    const options = quote?.vehicleOptions || (quote ? [{ vehicle: { id: '', name: quote.service?.name || 'Doorstep delivery', icon: '', maxWeightKg: quote.service?.maxWeightKg || policy.maxWeightKg, description: 'Partner and pickup time confirmed after booking.' }, available: true, pricing: quote.pricing, etaMinutes: null }] : []);
+    const info = sheet?.type === 'vehicle' ? options.find(o => o.vehicle.id === sheet.id)?.vehicle : null;
+    const selectedId = state.vehicleId || options[0]?.vehicle.id || '';
+    return <View>{header}{tripCard}{messages}
+      {!vehicleMode ? <PCard>
+        <Text style={styles.h3}>What are you sending?</Text>
+        <Text style={{ color: MUTED }}>Up to {policy.maxWeightKg} kg · Each side up to {policy.maxDimensionCm} cm</Text>
+        <GoodsFields parcel={state.parcel} onChange={p => change({ parcel: p })} policy={policy} vehicle={null} />
         <Text style={{ marginVertical: 8 }}>Prohibited items: {policy.prohibitedItems.join(', ')}.</Text>
         <PCheck checked={state.parcel.acceptRestrictions} onPress={() => change({ parcel: { ...state.parcel, acceptRestrictions: !state.parcel.acceptRestrictions } })}><Text>My parcel meets these restrictions and limits.</Text></PCheck>
-      </PCard>
-      <View style={styles.sticky}><PBtn variant="big" disabled={busy} title={busy ? 'Checking route and delivery fee…' : 'Confirm drop details'} onPress={calculate} /></View>
-    </View>}
-    {state.step >= 2 && quote && <View>
-      {state.step === 2 && <ParcelMap pickup={state.pickup} dropoff={state.dropoff} route={quote.route} />}
-      <RouteSummary quote={quote} />
-      {addressSummary}
-      {state.step === 2 ? <>
-        <PCard>
-          <Text style={styles.h2}>Delivery service</Text>
-          <View style={[styles.service, { borderColor: BLUE }]} accessibilityState={{ selected: true }}>
-            <Package size={38} color={DARK} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '700' }}>{quote.service?.name || 'Doorstep delivery'}</Text>
-              <Text style={styles.small}>Up to {quote.service?.maxWeightKg || policy.maxWeightKg} kg · {quote.service?.maxDimensionCm || policy.maxDimensionCm} cm per side</Text>
-              <Text style={styles.small}>Partner and pickup time confirmed after booking.</Text>
-            </View>
-            <Text style={{ fontWeight: '700' }}>{parcelMoney(quote.pricing.totalPaise)}</Text>
-            <CheckCircle2 size={20} color={BLUE} />
+      </PCard> : null}
+      {busy && !quote ? <Text style={{ color: '#41526a', marginVertical: 8 }}>Finding prices for your route…</Text> : null}
+      {quote ? <RouteSummary quote={quote} /> : null}
+      <View style={{ gap: 8 }} accessibilityLabel="Vehicles">{options.map(o => { const selected = (o.vehicle.id || '') === selectedId; return <View key={o.vehicle.id || 'parcel'}>
+        <Pressable accessibilityRole="radio" accessibilityState={{ selected, disabled: !o.available || busy }} disabled={!o.available || busy} onPress={() => setState(s => ({ ...s, vehicleId: o.vehicle.id }))}
+          style={[styles.vehicle, selected && { borderColor: BLUE, borderWidth: 2, backgroundColor: SOFT, paddingVertical: 18 }, !o.available && { opacity: 0.5 }]}>
+          <ParcelVehicleIcon icon={o.vehicle.icon} size={selected ? 52 : 36} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '700' }}>{o.vehicle.name}</Text>
+            <Text style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{o.vehicle.maxWeightKg} kg{o.etaMinutes ? ` · ${o.etaMinutes} mins` : ''}</Text>
+            {selected && o.vehicle.dimensionsCm ? <Text style={{ fontSize: 12, color: MUTED }}>Load space {o.vehicle.dimensionsCm.join(' × ')} cm</Text> : null}
+            {!o.available ? <Text style={{ fontSize: 12, color: '#9c243a' }}>{o.reason === 'too_large' ? 'Can’t carry these goods' : 'Not available on this route'}</Text> : null}
           </View>
-        </PCard>
-        <View style={styles.sticky}><PBtn variant="big" disabled={busy || expired} title={`Review fare · ${parcelMoney(quote.pricing.totalPaise)}`} onPress={() => setState(s => ({ ...s, step: 3 }))} /></View>
-      </> : <>
-        <PCard>
-          <Text style={styles.h2}>Review your booking</Text>
-          <Text>{quote.service?.name || 'Doorstep delivery'} · {state.parcel.category} · {state.parcel.weightKg} kg · {state.parcel.length} × {state.parcel.width} × {state.parcel.height} cm</Text>
-          <Text style={{ marginTop: 6 }}>{state.parcel.description}</Text>
-          <PriceSummary pricing={quote.pricing} />
-          {quote.terms ? <Text style={{ fontSize: 13, color: MUTED }}>{quote.terms}</Text> : null}
-          <View style={styles.fieldset}>
-            <Text style={{ fontWeight: '700' }}>Payment method</Text>
-            {flags.online_payment && <PRadio checked={state.paymentMethod === 'online'} disabled={busy || !!state.pending} onPress={() => setState(s => ({ ...s, paymentMethod: 'online', terms: false }))}><Text>Pay online with Razorpay</Text></PRadio>}
-            {allowCash && <PRadio checked={state.paymentMethod === 'pay_driver'} disabled={busy || !!state.pending} onPress={() => setState(s => ({ ...s, paymentMethod: 'pay_driver', terms: false }))}><Text>Cash to delivery partner</Text></PRadio>}
-          </View>
-          {state.paymentMethod === 'pay_driver' && <>
-            <View style={styles.fieldset}>
-              <Text style={{ fontWeight: '700' }}>Pay at</Text>
-              {[['pickup', 'Pickup · sender pays'], ['delivery', 'Drop · recipient pays']].map(([point, title]) => <PRadio key={point} checked={cashPoint === point} disabled={busy || !!state.pending || !cashPoints.includes(point)} onPress={() => setState(s => ({ ...s, cashCollectionPoint: point, terms: false }))}>
-                <Text>{title}</Text>{!cashPoints.includes(point) ? <Text style={styles.small}>Unavailable under the current delivery policy</Text> : null}
-              </PRadio>)}
-            </View>
-            <Text>Keep {parcelMoney(quote.pricing.totalPaise)} ready at {cashPoint === 'pickup' ? 'pickup. The sender pays before handover' : 'drop-off. The recipient pays before delivery'}. Only the delivery fee is collected, not the parcel value.</Text>
-          </>}
-          <PCheck checked={state.terms} disabled={busy || !!state.pending} onPress={() => setState(s => ({ ...s, terms: !s.terms }))}>
-            <Text>I accept the <Text onPress={() => setTermsOpen(true)} style={{ color: DARK, textDecorationLine: 'underline' }}>delivery, payment and cancellation terms</Text>.</Text>
-          </PCheck>
-        </PCard>
-        <View style={styles.sticky}>
-          <PBtn variant="big" disabled={busy || (!state.pending && (!state.terms || !state.paymentMethod))} onPress={confirmBooking}
-            title={busy ? 'Confirming your booking…' : state.pending ? 'Retry booking safely' : (state.paymentMethod === 'online' ? 'Book & Pay · ' : 'Book Parcel · ') + parcelMoney(quote.pricing.totalPaise)} />
-          <Text style={[styles.small, { textAlign: 'center' }]}>Booking is created only when you confirm here.</Text>
+          <Text style={{ fontWeight: '800', fontSize: selected ? 18 : 16 }}>{o.pricing ? parcelRupees(o.pricing.totalPaise) : '—'}</Text>
+        </Pressable>
+        {o.vehicle.dimensionsCm ? <Pressable onPress={() => setSheet({ type: 'vehicle', id: o.vehicle.id })} accessibilityRole="button" accessibilityLabel={'About ' + o.vehicle.name} hitSlop={10} style={styles.infoBtn}><Info size={16} color="#41526a" /></Pressable> : null}
+      </View>; })}</View>
+      {quote && !expired ? <Text style={{ fontSize: 12.5, color: MUTED, marginTop: 10 }}>Fare valid until {new Date(quote.expiresAt).toLocaleTimeString()}.</Text> : null}
+      {expired ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}><Text>These prices have expired.</Text>{linkText('Refresh prices', () => change({}), null, busy)}</View> : null}
+      <View style={styles.sticky}><PBtn variant="big" disabled={busy || !fare || expired} title={fare ? `Proceed with ${vehicleName}` : busy ? 'Loading prices…' : 'Choose a vehicle'} onPress={() => go('review')} /></View>
+      {info ? <PSheet label={info.name} onClose={() => setSheet(null)} footer={<PBtn variant="big" title="Done" onPress={() => setSheet(null)} style={{ marginTop: 12 }} />}>
+        <View style={{ alignItems: 'center', backgroundColor: TINT, borderRadius: 12, padding: 20, marginBottom: 12 }}><ParcelVehicleIcon icon={info.icon} size={96} /></View>
+        <Text style={{ fontSize: 20, fontWeight: '800', textAlign: 'center' }}>{info.name}</Text>
+        <Text style={{ textAlign: 'center', fontWeight: '600', marginTop: 4 }}>{info.maxWeightKg} kg · {info.dimensionsCm.join(' cm × ')} cm</Text>
+        {info.description ? <Text style={{ textAlign: 'center', color: MUTED, fontSize: 13, marginTop: 6 }}>{info.description}</Text> : null}
+      </PSheet> : null}
+    </View>;
+  }
+  // ---- Review booking
+  const instant = (policy.customerCancel || 'instant_before_assignment') === 'instant_before_assignment';
+  const eta = option?.etaMinutes || (quote?.route?.durationSeconds ? Math.ceil(quote.route.durationSeconds / 60) : null);
+  return <View>{header}{messages}
+    {!quote ? <Text style={{ color: '#41526a', marginVertical: 8 }}>{busy ? 'Updating your fare…' : 'Your fare needs refreshing.'}</Text> : <>
+      <PCard>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <ParcelVehicleIcon icon={option?.vehicle.icon} size={44} />
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{vehicleName}</Text>{linkText('View Address Details', () => setShowAddresses(v => !v), null)}</View>
+          {eta ? <View style={styles.etaBox}><Text style={{ fontWeight: '800' }}>{eta}</Text><Text style={{ fontSize: 11, color: MUTED }}>mins</Text></View> : null}
         </View>
-      </>}
-      {!state.pending && <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 12 }}>
-        <Text>{expired ? 'Your quote has expired. ' : 'Fare valid until ' + new Date(quote.expiresAt).toLocaleTimeString() + '. '}</Text>
-        <PBtn title={busy ? 'Refreshing…' : 'Refresh quote'} disabled={busy} onPress={calculate} />
-      </View>}
-      {state.pending && <Text style={{ marginTop: 12 }}>A confirmation attempt is in progress. Retry uses the same booking identity; check Delivery history if the connection was interrupted.</Text>}
-      {termsOpen && <TermsDialog terms={quote.terms} policy={policy} onClose={() => setTermsOpen(false)} />}
-    </View>}
+        {showAddresses ? <View style={{ borderTopWidth: 1, borderTopColor: LINE, marginTop: 10, paddingTop: 6 }}><ParcelStop kind="pickup" address={state.pickup} /><ParcelStop kind="dropoff" address={state.dropoff} /></View> : null}
+      </PCard>
+      <RouteSummary quote={quote} />
+      <PCard>
+        <Text style={styles.h3}>Goods Description</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{state.parcel.description?.trim() || state.parcel.category}</Text><Text style={{ fontSize: 12.5, color: MUTED }}>{goodsText(state.parcel, vehicle, policy.categories)}</Text></View>
+          {linkText('Change', () => { setGoodsDraft({ ...state.parcel }); setSheet({ type: 'goods' }); }, null, busy || !!state.pending)}
+        </View>
+        {policy.prohibitedItems?.length > 0 ? <View style={styles.restricted}><TriangleAlert size={18} color="#7a5200" /><Text style={{ flex: 1, color: '#7a5200', fontSize: 13 }}>Do not send restricted items</Text>{linkText('View List', () => setSheet({ type: 'restricted' }))}</View> : null}
+      </PCard>
+      {fare ? <PCard>
+        <Text style={styles.h3}>Fare Summary</Text>
+        <View style={styles.row}><Text>Trip fare (incl. tax)</Text><Text>{parcelMoney(fare.totalPaise)}</Text></View>
+        {fare.taxPaise > 0 ? <View style={[styles.row, { marginTop: 8 }]}><Text>Tax included</Text><Text>{parcelMoney(fare.taxPaise)}</Text></View> : null}
+        <View style={[styles.row, { borderTopWidth: 1, borderTopColor: LINE, marginTop: 10, paddingTop: 10 }]}><Text style={{ fontWeight: '700' }}>Amount payable</Text><Text style={{ fontWeight: '700' }}>{parcelMoney(fare.totalPaise)}</Text></View>
+      </PCard> : null}
+      <PCard>
+        <Text style={styles.h3}>Read before Booking</Text>
+        {['The fare is fixed for this route and vehicle. It changes only if you choose to add to it while we find a partner.', 'Only the delivery fee is charged, never the value of your goods.', ...(vehicle ? [`Your goods must fit the ${vehicleName}: up to ${vehicle.maxWeightKg} kg${vehicle.dimensionsCm ? `, ${vehicle.dimensionsCm.join(' × ')} cm` : ''}.`] : []), instant ? 'You can cancel free of charge until a delivery partner accepts.' : 'Cancellation requests are reviewed by our team.', 'Pickup and delivery are confirmed with one-time codes shown on your tracking page.'].map(line => <Text key={line} style={{ fontSize: 13, color: '#41526a', lineHeight: 20 }}>• {line}</Text>)}
+        {linkText('Delivery, payment and cancellation terms', () => setTermsOpen(true))}
+      </PCard>
+      {!state.pending && expired ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Text>Your fare has expired.</Text>{linkText('Refresh fare', () => change({}), null, busy)}</View> : null}
+      {state.pending ? <Text style={styles.notice}>A confirmation attempt is in progress. Retry uses the same booking identity; check Delivery history if the connection was interrupted.</Text> : null}
+      <View style={[styles.sticky, { gap: 10 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <Pressable onPress={() => setSheet({ type: 'payment' })} disabled={busy || !!state.pending || methods.length === 0} accessibilityRole="button" accessibilityLabel={`Choose payment method, ${paymentLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: busy || state.pending ? 0.6 : 1 }}>
+            <View style={styles.payIcon}><Text style={{ color: '#14804a', fontWeight: '800' }}>₹</Text></View>
+            <View><Text style={{ fontSize: 11.5, color: MUTED }}>Choose payment method</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Text style={{ fontWeight: '700' }}>{paymentLabel}</Text><ChevronDown size={14} color={INK} /></View></View>
+          </Pressable>
+          {fare ? <View style={{ alignItems: 'flex-end' }}><Text style={{ fontWeight: '800', fontSize: 18 }}>{parcelRupees(fare.totalPaise)}</Text>{linkText('View Breakup', () => setSheet({ type: 'breakup' }))}</View> : null}
+        </View>
+        <PBtn variant="big" disabled={busy || !fare || (!state.pending && (expired || !paymentMethod))} onPress={confirmBooking} title={busy ? 'Confirming your booking…' : state.pending ? 'Retry booking safely' : `Book ${vehicleName}`} />
+        <Text style={[styles.small, { textAlign: 'center', marginTop: 0 }]}>By booking you accept the delivery, payment and cancellation terms.</Text>
+      </View>
+    </>}
+    {sheet?.type === 'payment' ? <PSheet title="Select Payment Method" onClose={() => setSheet(null)} footer={<PBtn variant="big" title={fare ? `Pay ${parcelRupees(fare.totalPaise)} ${paymentMethod === 'online' ? 'online' : 'using cash'}` : 'Confirm'} onPress={() => setSheet(null)} style={{ marginTop: 12 }} />}>
+      {methods.includes('online') ? <Pressable onPress={() => setState(s => ({ ...s, paymentMethod: 'online' }))} accessibilityRole="radio" accessibilityState={{ selected: paymentMethod === 'online' }} style={[styles.payOption, paymentMethod === 'online' && { borderColor: BLUE, backgroundColor: SOFT }]}>
+        <View style={[styles.radio, paymentMethod === 'online' && { borderColor: BLUE, borderWidth: 6 }]} /><View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>Pay online</Text><Text style={{ fontSize: 12.5, color: MUTED }}>UPI, cards and net banking with Razorpay</Text></View></Pressable> : null}
+      {methods.includes('pay_driver') ? <Pressable onPress={() => setState(s => ({ ...s, paymentMethod: 'pay_driver' }))} accessibilityRole="radio" accessibilityState={{ selected: paymentMethod === 'pay_driver' }} style={[styles.payOption, paymentMethod === 'pay_driver' && { borderColor: BLUE, backgroundColor: SOFT }]}>
+        <View style={[styles.radio, paymentMethod === 'pay_driver' && { borderColor: BLUE, borderWidth: 6 }]} /><View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>Cash</Text><Text style={{ fontSize: 12.5, color: MUTED }}>Pay the delivery partner in cash</Text></View></Pressable> : null}
+      {paymentMethod === 'pay_driver' ? <View style={{ marginTop: 8 }}><Text style={{ fontWeight: '700' }}>Pay at</Text>
+        {[['pickup', 'Pickup · sender pays'], ['delivery', 'Drop · receiver pays']].map(([point, title]) => <PRadio key={point} checked={cashPoint === point} disabled={!cashPoints.includes(point)} onPress={() => setState(s => ({ ...s, cashCollectionPoint: point }))}>
+          <Text>{title}</Text>{!cashPoints.includes(point) ? <Text style={styles.small}>Not available under the current delivery policy</Text> : null}</PRadio>)}
+      </View> : null}
+    </PSheet> : null}
+    {sheet?.type === 'breakup' && fare ? <PSheet title="Fare breakup" onClose={() => setSheet(null)}><PriceSummary pricing={fare} /></PSheet> : null}
+    {sheet?.type === 'restricted' ? <PSheet title="Items we do not deliver" onClose={() => setSheet(null)}>{policy.prohibitedItems.map(item => <Text key={item} style={{ lineHeight: 26 }}>• {item}</Text>)}</PSheet> : null}
+    {sheet?.type === 'goods' && goodsDraft ? <PSheet title="Goods description" onClose={() => setSheet(null)} footer={<PBtn variant="big" title="Save" style={{ marginTop: 12 }} onPress={() => {
+      const message = parcelGoodsError(goodsDraft, policy);
+      if (message) { setError(message); return; }
+      setSheet(null); change({ parcel: goodsDraft });
+    }} />}>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}<GoodsFields parcel={goodsDraft} onChange={setGoodsDraft} policy={policy} vehicle={vehicle} /></PSheet> : null}
+    {termsOpen ? <TermsDialog terms={quote?.terms || policy.terms} policy={policy} onClose={() => setTermsOpen(false)} /> : null}
+  </View>;
+}
+/** Goods inputs: category, description, weight and packages (plus all three sides without vehicles). */
+function GoodsFields({ parcel, onChange, policy, vehicle }) {
+  const vehicleMode = parcelVehicleMode(policy);
+  const set = (key, value) => onChange({ ...parcel, [key]: value });
+  return <View>
+    <SelectField label="What are you sending?" value={parcel.category} style={{ marginTop: 12 }} onChange={v => set('category', v)} options={policy.categories.map(c => ({ value: c, label: c }))} />
+    <PField label={vehicleMode ? 'Description (optional)' : 'Description'} maxLength={500} value={parcel.description} onChangeText={t => set('description', t)} />
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+      <PField label={vehicleMode ? 'Weight in kg (optional)' : 'Weight (kg)'} keyboardType="decimal-pad" value={String(parcel.weightKg ?? '')} style={{ flexBasis: '45%', flexGrow: 1 }} onChangeText={t => set('weightKg', t)} />
+      {vehicleMode ? <PField label="Packages" keyboardType="number-pad" value={String(parcel.packages ?? '')} style={{ flexBasis: '45%', flexGrow: 1 }} onChangeText={t => set('packages', t)} />
+        : [['length', 'Length (cm)'], ['width', 'Width (cm)'], ['height', 'Height (cm)']].map(([key, title]) => <PField key={key} label={title} keyboardType="decimal-pad" value={String(parcel[key])} style={{ flexBasis: '45%', flexGrow: 1 }} onChangeText={t => set(key, t)} />)}
+    </View>
+    {vehicle && Number(parcel.weightKg) > vehicle.maxWeightKg ? <Text style={styles.notice}>This is more than a {vehicle.name} carries ({vehicle.maxWeightKg} kg). You’ll be asked to choose a bigger vehicle.</Text> : null}
+    <PField label="Pickup instructions (optional)" maxLength={500} value={parcel.instructions} onChangeText={t => set('instructions', t)} />
   </View>;
 }
 
@@ -416,15 +611,26 @@ function PartnerCard({ partner: p, active }) {
     {p.phone ? <PBtn title="Call" accessibilityLabel={`Call ${p.name}`} onPress={() => Linking.openURL(`tel:${p.phone}`).catch(() => {})} /> : null}
   </View>;
 }
+/** Animated three-part bar shown while we look for a delivery partner. */
+function SearchingBar() {
+  const { BLUE } = useParcelColors();
+  const [step, setStep] = useState(0);
+  useEffect(() => { const t = setInterval(() => setStep(s => (s + 1) % 3), 1000); return () => clearInterval(t); }, []);
+  return <View style={{ flexDirection: 'row', gap: 6, marginVertical: 10 }} accessibilityRole="progressbar" accessibilityLabel="Finding a delivery partner">
+    {[0, 1, 2].map(i => <View key={i} style={{ flex: 1, height: 4, borderRadius: 4, backgroundColor: i <= step ? BLUE : LINE }} />)}
+  </View>;
+}
 
 export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
   const { DARK } = useParcelColors();
   const [details, setDetails] = useState(false);
   const unpaid = b.paymentMethod === 'online' && ['payment_pending', 'payment_failed'].includes(b.status);
+  const searching = !unpaid && ['searching_for_driver', 'needs_admin_assignment'].includes(b.status);
   return <>
-    <PCard>
-      <Text style={{ fontSize: 30, color: DARK }} importantForAccessibility="no">{unpaid ? '₹' : b.status === 'delivered' ? '✓' : '▣'}</Text>
-      <Text style={styles.h2}>{parcelCustomerStatus(b.status)}</Text>
+    <PCard style={searching ? { alignItems: 'stretch' } : null}>
+      <Text style={{ fontSize: 30, color: DARK, textAlign: searching ? 'center' : 'left' }} importantForAccessibility="no">{unpaid ? '₹' : b.status === 'delivered' ? '✓' : searching ? '⌕' : '▣'}</Text>
+      <Text style={[styles.h2, searching && { textAlign: 'center', fontSize: 18 }]}>{searching ? 'Searching for drivers nearby…' : parcelCustomerStatus(b.status)}</Text>
+      {searching ? <SearchingBar /> : null}
       <Text style={{ lineHeight: 22 }}>{unpaid ? 'Finish payment securely with Razorpay to confirm your booking.' : b.status === 'cancellation_review' ? 'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.' : b.status === 'searching_for_driver' ? 'Your request is with nearby delivery partners. We’ll update you when someone accepts.' : b.status === 'needs_admin_assignment' ? 'Our team is helping find an available delivery partner. You don’t need to book again.' : b.status === 'delivered' ? 'Your parcel has reached its destination.' : 'Follow your pickup and delivery updates here.'}</Text>
       {justBooked && !unpaid ? <Text style={styles.notice}>Booking received. {b.paymentMethod === 'online' ? 'Payment successful.' : 'Your pickup request is confirmed.'}</Text> : null}
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 10 }}>
@@ -442,11 +648,35 @@ export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
       {details && <View style={{ marginTop: 6 }}><Text selectable>{b.reference}</Text><Text>{b.service?.name || 'Doorstep delivery'}{b.route?.distanceMetres > 0 ? ` · ${(b.route.distanceMetres / 1000).toFixed(2)} km` : ''}</Text></View>}
     </PCard>
     {b.partner && <PartnerCard partner={b.partner} active={!!b.partner.phone} />}
-    <PCard style={{ gap: 12 }}>
-      <View><Text style={styles.small}>Pickup</Text><Text>{b.details.pickup.address}</Text></View>
-      <View><Text style={styles.small}>Deliver to</Text><Text>{b.details.dropoff.address}</Text></View>
+    <PCard>
+      <ParcelStop kind="pickup" address={b.details.pickup} /><ParcelStop kind="dropoff" address={b.details.dropoff} />
+      {b.service?.name ? <Text style={{ fontSize: 12.5, color: MUTED, marginTop: 6 }}>{[b.service.name, b.details.category, b.details.weightKg ? `${b.details.weightKg} kg` : '', b.details.packages > 1 ? `${b.details.packages} packages` : ''].filter(Boolean).join(' · ')}</Text> : null}
+    </PCard>
+    <PCard style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={styles.payIcon}><Text style={{ color: '#14804a', fontWeight: '800' }}>₹</Text></View>
+      <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{b.paymentMethod === 'pay_driver' ? 'Cash' : 'Online'}</Text><Text style={{ fontSize: 12, color: MUTED }}>Payment method</Text></View>
+      <Text style={{ fontWeight: '700' }}>{parcelMoney(b.feePaise)}</Text>
     </PCard>
   </>;
+}
+const statusChip = s => s === 'delivered' ? ['#e3f6ea', '#14804a', 'COMPLETED'] : s === 'cancelled' ? ['#fde8eb', '#b0233c', 'CANCELLED'] : s === 'cancellation_review' ? ['#fff3d6', '#7a5200', 'CANCELLATION REQUESTED'] : ['theme', 'theme', parcelCustomerStatus(s).toUpperCase()];
+/** One booking in Orders: vehicle, time, fare, both stops, status and Book Again. */
+export function ParcelOrderCard({ booking: b, onOpen, onBookAgain }) {
+  const { BLUE, TINT } = useParcelColors();
+  const chip = statusChip(b.status), [bg, fg, label] = chip[0] === 'theme' ? [TINT, BLUE, chip[2]] : chip;
+  return <View style={styles.orderCard}>
+    <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`Open ${b.reference}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+      <ParcelVehicleIcon icon={b.service?.icon} size={30} />
+      <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{b.service?.name || 'Parcel delivery'}</Text><Text style={{ fontSize: 12, color: MUTED }}>{b.createdAt ? new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</Text></View>
+      <Text style={{ fontWeight: '800' }}>{parcelRupees(b.feePaise)} ›</Text>
+    </Pressable>
+    {b.details?.pickup ? <View style={styles.stopBox}><ParcelStop kind="pickup" address={b.details.pickup} /></View> : null}
+    {b.details?.dropoff ? <View style={styles.stopBox}><ParcelStop kind="dropoff" address={b.details.dropoff} /></View> : null}
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+      <Text style={{ backgroundColor: bg, color: fg, fontSize: 11, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' }}>{label}</Text>
+      {onBookAgain && b.details?.pickup && b.details?.dropoff ? <PBtn title="Book Again" onPress={onBookAgain} style={{ minHeight: 38, paddingVertical: 8 }} /> : null}
+    </View>
+  </View>;
 }
 
 const styles = StyleSheet.create({
@@ -473,4 +703,34 @@ const styles = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#e3f2f7', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', padding: 16 },
   dialog: { backgroundColor: '#fff', borderRadius: 16, padding: 18, maxHeight: '85%' },
+  link: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6 },
+  dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 5, borderColor: '#1fa463', backgroundColor: '#fff', marginTop: 1 },
+  dotDrop: { borderColor: '#e5334b' },
+  stop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 6 },
+  stopBox: { backgroundColor: SOFT, borderRadius: 10, paddingHorizontal: 10, marginVertical: 4 },
+  tripCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, padding: 10, marginBottom: 12 },
+  round: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: LINE, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', marginTop: 26 },
+  pickupBar: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, padding: 14, marginBottom: 14 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  tile: { flexBasis: '47%', flexGrow: 1, minHeight: 128, backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, padding: 14 },
+  searchBox: { flexDirection: 'row', gap: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, paddingHorizontal: 12, paddingBottom: 10 },
+  searchLinks: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 12, marginVertical: 12, paddingVertical: 4 },
+  addressList: { backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14 },
+  addressRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', padding: 14 },
+  pinTip: { position: 'absolute', top: 28, alignSelf: 'center', backgroundColor: '#1d2533', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  detailsAddress: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: LINE },
+  chip: { borderWidth: 1, borderColor: LINE, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 7, backgroundColor: '#fff' },
+  vehicle: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  infoBtn: { position: 'absolute', right: 84, top: 10, width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: LINE, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  etaBox: { alignItems: 'center', borderWidth: 1, borderColor: LINE, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 },
+  restricted: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff7e0', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4, marginTop: 12 },
+  payIcon: { width: 36, height: 28, borderRadius: 6, backgroundColor: '#dff5e7', alignItems: 'center', justifyContent: 'center' },
+  payOption: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1, borderColor: LINE, borderRadius: 12, padding: 12, marginVertical: 6 },
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(11,20,36,0.65)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 22, paddingHorizontal: 18 },
+  sheetClose: { alignSelf: 'flex-end', marginRight: 12, marginBottom: 12, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  sheetTitle: { fontSize: 18, fontWeight: '800', color: INK, marginBottom: 12 },
+  homeTitle: { fontSize: 15, fontWeight: '800', color: INK, marginTop: 18, marginBottom: 10 },
+  infoCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, padding: 12 },
+  orderCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: LINE, borderRadius: 14, padding: 12, marginBottom: 12 },
 });

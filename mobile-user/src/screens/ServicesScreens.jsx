@@ -56,7 +56,6 @@ const styles = StyleSheet.create({
 });
 
 export function ServicesScreen() {
-  const { setActiveNav } = useUser();
   const [state, setState] = useState('loading'), [attempt, retry] = useState(0);
   useEffect(() => {
     const c = new AbortController(); setState('loading');
@@ -70,8 +69,8 @@ export function ServicesScreen() {
   }, [attempt]);
   return <Page>
     <View style={{ paddingTop: 16, paddingHorizontal: 12 }} accessibilityLabel="Services">
-      <Pressable onPress={() => setActiveNav('home')} accessibilityRole="link" style={{ alignSelf: 'flex-start', paddingVertical: 6 }}><Text style={{ textDecorationLine: 'underline', color: '#172b4d' }}>Back to home</Text></Pressable>
-      <Text accessibilityRole="header" style={{ fontSize: 26, fontWeight: '700', marginVertical: 10, color: '#172b4d' }}>Services</Text>
+      {/* A bottom-nav tab now, so no "Back to home" link. */}
+      <Text accessibilityRole="header" style={{ fontSize: 26, fontWeight: '700', marginBottom: 10, color: '#172b4d' }}>Services</Text>
       <ParcelServiceCard />
     </View>
     {state === 'enabled' ? <LegalServices />

@@ -82,7 +82,7 @@ export const UserProvider = ({ children }) => {
     if (parts.length === 0) return 'home';
     const firstPart = parts[0];
     // Retired legacy storefront URLs intentionally fall back to Bulkimart home.
-    if (['categories', 'orders', 'ebooks', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search', 'wholesale', 'services', 'legal-services', 'parcel-delivery'].includes(firstPart)) {
+    if (['categories', 'orders', 'ebooks', 'account', 'profile', 'cart', 'checkout', 'wishlist', 'search', 'wholesale', 'services', 'legal-services', 'parcel-delivery', 'support', 'privacy-policy'].includes(firstPart)) {
       if (firstPart === 'profile') return 'account';
       return firstPart;
     }

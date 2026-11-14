@@ -2528,3 +2528,19 @@ input[type="checkbox"] { accent-color: #08b9e8; }
   padding-bottom: min(env(safe-area-inset-bottom, 0px), 10px);
 }
 .delivery-main-viewport { padding-bottom: calc(72px + min(env(safe-area-inset-bottom, 0px), 10px)); }
+
+/* Rider: change vehicle (profile) */
+.rider-vehicle-editor{margin:12px 0}
+.rider-vehicle-form{display:grid;gap:10px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}
+.rider-vehicle-form h5{margin:0;font-size:15px}.rider-vehicle-form p,.rider-vehicle-form small{margin:0;font-size:12.5px;color:#64748b}
+.rider-vehicle-form label{display:grid;gap:6px;font-size:13px;font-weight:600}
+.rider-vehicle-form input,.rider-vehicle-form select{padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;background:#fff}
+.rider-vehicle-actions{display:flex;gap:10px}.rider-vehicle-actions button{flex:1}
+.rider-vehicle-primary,.rider-vehicle-secondary{min-height:42px;padding:9px 14px;border-radius:9px;font-weight:700;cursor:pointer;font:inherit}
+.rider-vehicle-primary{background:#0f766e;color:#fff;border:0}.rider-vehicle-secondary{background:#fff;color:#0f766e;border:1px solid #0f766e}
+.rider-vehicle-primary:disabled,.rider-vehicle-secondary:disabled{opacity:.55}
+.rider-vehicle-error{color:#9c243a!important;background:#fff0f1;padding:10px;border-radius:8px}
+.rider-vehicle-notice{color:#146447;background:#ecfdf5;padding:10px;border-radius:8px;font-size:13px}
+
+/* Parcel offer pop-up (components/parcels/ParcelOfferPopup.jsx) reuses the order ping sheet. */
+.parcel-offer-popup-note { margin: 4px 0 12px; font-size: 13px; color: #475569; text-align: center; }

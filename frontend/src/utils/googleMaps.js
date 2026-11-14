@@ -16,16 +16,25 @@ export function loadGoogleMaps(apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
       if (error) { script.remove(); reject(new Error('The map could not load. Try again or search for the address.')); }
       else resolve(window.google.maps);
     };
-    const ready = () => finish(!window.google?.maps);
+    // Google's recommended async loading: the script calls back when ready, then the libraries
+    // we use (map, markers, polyline geometry) are imported before anyone draws a map.
+    const ready = async () => {
+      try {
+        const maps = window.google?.maps;
+        if (!maps?.importLibrary) { finish(true); return; }
+        await Promise.all([maps.importLibrary('maps'), maps.importLibrary('marker'), maps.importLibrary('geometry')]);
+        finish(!window.google?.maps?.Map);
+      } catch { finish(true); }
+    };
     const failed = () => finish(true);
     const timeout = setTimeout(failed, 12000);
-    script.addEventListener('load', ready, { once: true });
+    window.__bulkimartMapsReady = ready;
     script.addEventListener('error', failed, { once: true });
     if (!existing) {
-      script.id = SCRIPT_ID; script.async = true; script.defer = true;
-      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&libraries=geometry&v=weekly';
+      script.id = SCRIPT_ID; script.async = true;
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&libraries=geometry&v=weekly&loading=async&callback=__bulkimartMapsReady';
       document.head.appendChild(script);
-    }
+    } else if (window.google?.maps?.importLibrary) ready();
   }).catch(error => { loadPromise = null; throw error; });
   return loadPromise;
 }

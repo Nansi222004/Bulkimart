@@ -16,7 +16,7 @@ import { useDuty } from '../context/DutyContext';
  */
 export default function PushManager() {
   const toast = useToast();
-  const { restoreActive, loadReturnPickups, loadSummary } = useDuty();
+  const { restoreActive, loadReturnPickups, loadSummary, checkParcelOffers } = useDuty();
   const seen = useRef(new Set());
 
   useEffect(() => {
@@ -28,7 +28,12 @@ export default function PushManager() {
       seen.current.add(id);
       return true;
     };
-    const open = (message) => { if (message && once(message)) navigateTo(routeForNotification(message.data?.route)); };
+    const open = (message) => {
+      if (!message || !once(message)) return;
+      navigateTo(routeForNotification(message.data?.route));
+      // A tapped parcel offer opens its pop-up straight away instead of waiting for the next poll.
+      if (message.data?.event === 'PARCEL_OFFER') checkParcelOffers();
+    };
 
     const offs = [
       onTokenRefresh(),
@@ -38,14 +43,14 @@ export default function PushManager() {
         const title = message?.notification?.title;
         const body = message?.notification?.body;
         if (title || body) toast.show([title, body].filter(Boolean).join(' — '));
-        restoreActive(); loadReturnPickups(); loadSummary();
+        restoreActive(); loadReturnPickups(); loadSummary(); checkParcelOffers();
       }),
     ];
     messaging().getInitialNotification().then((message) => {
       if (active && message) setTimeout(() => open(message), 400);
     }).catch(() => {});
     return () => { active = false; offs.forEach((off) => { try { off?.(); } catch { /* already removed */ } }); };
-  }, [toast, restoreActive, loadReturnPickups, loadSummary]);
+  }, [toast, restoreActive, loadReturnPickups, loadSummary, checkParcelOffers]);
 
   return null;
 }

@@ -1,6 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { roundCoord } from '../utils/location';
+import { queuePermission } from './permissionQueue';
 
 /**
  * Foreground location only. Asked for when the rider goes on duty, starts a trip,
@@ -26,13 +27,14 @@ export async function hasLocationPermission() {
 export async function requestLocationPermission() {
   if (Platform.OS !== 'android') return true;
   if (await hasLocationPermission()) return true;
-  const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
-    title: 'Allow location while you deliver',
-    message: 'Bulkimart uses your location while the app is open and you are on duty, to send nearby orders and show customers where their delivery is.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Not now',
+  // Queued so it never collides with the notification prompt (see permissionQueue.js). Fine and coarse are
+  // requested together, as Android 12+ expects; deliveries need the precise one.
+  return queuePermission(async () => {
+    if (await hasLocationPermission()) return true;
+    const { ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION } = PermissionsAndroid.PERMISSIONS;
+    const result = await PermissionsAndroid.requestMultiple([ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION]);
+    return result[ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
   });
-  return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 const readOnce = (options) => new Promise((resolve) => {

@@ -1,4 +1,5 @@
 import { PermissionsAndroid, Platform } from 'react-native';
+import { queuePermission } from './permissionQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import messaging from '@react-native-firebase/messaging';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,7 +24,8 @@ export async function getDeviceId() {
 // Android 13+ asks for POST_NOTIFICATIONS at runtime.
 export async function requestPushPermission() {
   if (Platform.OS !== 'android' || Platform.Version < 33) return true;
-  const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  // Queued so it never collides with the location prompt (see permissionQueue.js).
+  const result = await queuePermission(() => PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS));
   return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 

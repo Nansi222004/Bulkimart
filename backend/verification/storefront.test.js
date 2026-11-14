@@ -634,3 +634,14 @@ test('a live campaign can be renamed and re-described, but its discount and date
   await request(edit).patch(`/campaigns/${live._id}`).send({ ...form, endAt: new Date(endAt.getTime() + 86400000).toISOString() }).expect(400);
   expect((await Campaign.findById(live._id).lean()).discountValue).toBe(10);
 });
+test('a record stored without a revision (inserted directly) can still be opened, edited and published', async () => {
+  const row = await create(theme({ name: 'Inserted directly' }));
+  await Experience.collection.updateOne({ _id: new mongoose.Types.ObjectId(row._id) }, { $unset: { revision: '' } });
+  const opened = (await send('get', `/api/admin/storefront/${row._id}`).expect(200)).body.data;
+  expect(opened.revision).toBe(1);
+  const listed = (await send('get', '/api/admin/storefront?kind=theme&search=Inserted').expect(200)).body.data.find(r => r._id === row._id);
+  expect(listed.revision).toBe(1);
+  const saved = (await send('patch', `/api/admin/storefront/${row._id}`, { ...opened, name: 'Inserted directly, edited' }).expect(200)).body.data;
+  expect(saved.revision).toBe(2);
+  await transition(saved, 'archive');
+});

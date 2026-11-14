@@ -10,11 +10,15 @@ import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
-import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing } from './parcelPolicy.service.js';
+import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing, parcelVehicles, parcelVehicleFits, parcelVehicleSnapshot } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // Customers may cancel only until the rider has collected the parcel. After pickup,
 // problems go through the rider's help request and the admin review queue instead.
 export const parcelCustomerCanCancel = b => !['delivered','cancelled','cancellation_review','picked_up','in_transit','arrived_at_dropoff'].includes(b.status) && !b.proof?.pickup?.verifiedAt;
+// Before any rider accepts, a customer cancellation takes effect at once (unless the policy
+// frozen with the booking asks for admin review of every cancellation).
+export const parcelInstantCancel = b => (b.pricing?.policy?.customerCancel || 'instant_before_assignment') === 'instant_before_assignment'
+  && ['payment_pending','payment_failed','searching_for_driver','needs_admin_assignment'].includes(b.status) && !b.partnerId && !b.cancellation;
 export const parcelKey = key => { if (typeof key !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(key)) failParcel('Valid idempotency key required'); return key; };
 export function parcelEvent(b, actor, action, status = b.status, reason = '') {
   b.status = status; b.history.push({ status, action, actorId: actor.id, actorType: actor.type, at: new Date(), reason });
@@ -38,7 +42,21 @@ export async function quoteParcel(customerId, input) {
   const details = validateParcelDetails(input,p.config,distanceKm);
   let route;
   try { route = await getRoute(details.pickup,details.dropoff); } catch { failParcel('Verified route provider unavailable; booking quotation is disabled',503); }
-  const pricing = parcelFare(route?.distanceKm,p,details);
+  const vehicles = parcelVehicles(p.config);
+  let pricing;
+  if (!vehicles.length) pricing = parcelFare(route?.distanceKm,p,details);
+  else {
+    // One quote prices every vehicle; the customer picks one when booking.
+    const options = vehicles.map(v => {
+      if (!parcelVehicleFits(details, v)) return { vehicleId:v.id, unavailable:'too_large' };
+      try { const { policy:_policy, ...fare } = parcelFare(route?.distanceKm,p,details,v); return { vehicleId:v.id, pricing:fare }; }
+      catch { return { vehicleId:v.id, unavailable:'outside_limits' }; }
+    });
+    const priced = options.filter(o => o.pricing);
+    if (!priced.length) failParcel(options.some(o => o.unavailable === 'too_large') ? 'No vehicle can carry goods of this weight or size' : 'Route distance is unsupported',409);
+    const cheapest = priced.reduce((a,b) => b.pricing.totalPaise < a.pricing.totalPaise ? b : a);
+    pricing = { ...cheapest.pricing, policy:structuredClone(p.config), vehicleOptions:options };
+  }
   if (route?.provider) pricing.routeProvider = route.provider;
   const quote = await Quote.create({ customerId, details, pricing, expiresAt:new Date(Date.now()+p.config.quoteSeconds*1000) });
   // Geometry is for the current Google Map only, never a persistent route cache.
@@ -56,6 +74,7 @@ export async function bookParcel(customerId, input, key) {
   // Preserve legacy idempotency hashes for existing drop-off/online retries.
   const hashInputs = [String(input.quoteId),input.paymentMethod,input.acceptTerms];
   if (input.paymentMethod === 'pay_driver' && collectionPoint !== 'delivery') hashInputs.push(collectionPoint);
+  if (input.vehicleId !== undefined) hashInputs.push('vehicle:'+String(input.vehicleId));
   const id = digest([String(customerId),key]).slice(0,24), hash = digest(hashInputs);
   return financialTransaction(async session => {
     const prior = await Parcel.findById(id).session(session);
@@ -67,9 +86,21 @@ export async function bookParcel(customerId, input, key) {
     if (p.version !== q.pricing.policyVersion || input.policyVersion !== p.version) failParcel('Policy changed; request a new quotation',409);
     // Serialize policy edits against confirmation without changing its business version.
     await Policy.updateOne({ _id:p._id, version:p.version },{ $inc:{ __v:1 } },{ session });
+    // Vehicle quotes: the booking takes the chosen vehicle's frozen fare and records the vehicle,
+    // so only riders with a matching vehicle receive the offer.
+    let details = q.details, pricing = q.pricing;
+    if (q.pricing.vehicleOptions) {
+      const option = q.pricing.vehicleOptions.find(o => o.vehicleId === input.vehicleId);
+      const vehicle = (q.pricing.policy.vehicles || []).find(v => v.id === input.vehicleId);
+      if (!option || !vehicle) failParcel('Choose a vehicle from this quotation');
+      if (!option.pricing) failParcel('This vehicle cannot carry your goods; choose another',409);
+      const { vehicleOptions:_options, ...base } = q.pricing;
+      pricing = { ...base, ...option.pricing, policy:q.pricing.policy, ...(q.pricing.routeProvider ? { routeProvider:q.pricing.routeProvider } : {}) };
+      details = { ...q.details, weightKg:q.details.weightKg ?? vehicle.maxWeightKg, dimensions:q.details.dimensions || [...vehicle.dimensionsCm], vehicle:parcelVehicleSnapshot(vehicle) };
+    } else if (input.vehicleId !== undefined) failParcel('This quotation has no vehicle choice');
     if (input.paymentMethod === 'pay_driver' && (!p.config.payDriverEnabled || !p.config.payDriverCategories.includes(q.details.category))) failParcel('Pay-driver is not permitted for this parcel',409);
     if (input.paymentMethod === 'pay_driver' && !parcelCashCollectionPoints(p.config).includes(collectionPoint)) failParcel('Cash collection point is not permitted by this policy',409);
-    const [b] = await Parcel.create([{ _id:id, reference:`PD-${id.toUpperCase()}`, customerId, quoteId:q._id, requestHash:hash, details:q.details, pricing:q.pricing, paymentMethod:input.paymentMethod, paymentStatus:input.paymentMethod === 'online'?'pending':'cash_due', cash:{status:input.paymentMethod==='online'?'not_applicable':'outstanding',amountPaise:0,...(input.paymentMethod==='pay_driver'?{collectionPoint}:{})}, status:input.paymentMethod === 'online'?'payment_pending':'searching_for_driver', history:[] }],{ session });
+    const [b] = await Parcel.create([{ _id:id, reference:`PD-${id.toUpperCase()}`, customerId, quoteId:q._id, requestHash:hash, details, pricing, paymentMethod:input.paymentMethod, paymentStatus:input.paymentMethod === 'online'?'pending':'cash_due', cash:{status:input.paymentMethod==='online'?'not_applicable':'outstanding',amountPaise:0,...(input.paymentMethod==='pay_driver'?{collectionPoint}:{})}, status:input.paymentMethod === 'online'?'payment_pending':'searching_for_driver', history:[] }],{ session });
     parcelEvent(b,{ id:customerId,type:'customer' },'terms_accepted');
     q.bookingId = b._id; await q.save({ session }); await b.save({ session }); return b;
   });
@@ -77,12 +108,13 @@ export async function bookParcel(customerId, input, key) {
 export function parcelDTO(b, mode = 'customer', partnerId) {
   const v = b.toObject ? b.toObject() : b;
   const summary = { _id:v._id, reference:v.reference, version:v.__v, status:v.status, paymentMethod:v.paymentMethod, paymentStatus:v.paymentStatus, policyVersion:v.pricing.policyVersion, feePaise:v.pricing.totalPaise, currency:'INR', createdAt:v.createdAt, ...(v.paymentMethod==='pay_driver'?{cashCollectionPoint:v.cash.collectionPoint || 'delivery'}:{}) };
-  if (mode === 'driver' && String(v.partnerId || '') !== String(partnerId)) return { ...summary, offer:v.assignment.offer?{token:v.assignment.offer.token,expiresAt:v.assignment.offer.expiresAt}:undefined, pickupArea:v.details.pickup.pincode, dropoffArea:v.details.dropoff.pincode, weightKg:v.details.weightKg, category:v.details.category, earningPaise:v.pricing.driverPaise };
+  if (mode === 'driver' && String(v.partnerId || '') !== String(partnerId)) return { ...summary, offer:v.assignment.offer?{token:v.assignment.offer.token,expiresAt:v.assignment.offer.expiresAt}:undefined, pickupArea:v.details.pickup.pincode, dropoffArea:v.details.dropoff.pincode, weightKg:v.details.weightKg, category:v.details.category, earningPaise:v.pricing.driverPaise, ...(v.details.vehicle?{ vehicle:{ id:v.details.vehicle.id, name:v.details.vehicle.name } }:{}) };
   const h = v.history.map(e => ({ status:e.status, action:e.action, at:e.at, ...(mode === 'admin'?{ actorId:e.actorId,actorType:e.actorType,reason:e.reason }:{}) }));
   const terminal = ['delivered','cancelled'].includes(v.status);
   return { ...summary, details:mode === 'driver' && terminal ? { category:v.details.category } : v.details, terms:v.pricing.policy.terms, pricing:mode === 'admin'?v.pricing:undefined,
     route:mode === 'customer'?{ distanceMetres:v.pricing.distanceMetres, ...(v.pricing.routeProvider ? { provider:v.pricing.routeProvider } : {}) }:undefined,
-    service:mode === 'customer'?{ id:'parcel', name:'Doorstep delivery' }:undefined,
+    service:mode === 'customer'?(v.details.vehicle?{ id:v.details.vehicle.id, name:v.details.vehicle.name, ...(v.details.vehicle.icon?{ icon:v.details.vehicle.icon }:{}) }:{ id:'parcel', name:'Doorstep delivery' }):undefined,
+    vehicle:mode !== 'customer' && v.details.vehicle?{ id:v.details.vehicle.id, name:v.details.vehicle.name }:undefined,
     canCancel:mode === 'customer'?parcelCustomerCanCancel(v):undefined,
     boost:mode === 'customer'?parcelBoostState(v):mode === 'admin'?{ boostedPaise:v.pricing.boostPaise||0, boosts:v.pricing.boosts||[] }:undefined,
     assignment:mode === 'admin'?v.assignment:undefined, partnerId:v.partnerId, history:h, cash:{ status:v.cash.status, amountPaise:v.cash.amountPaise },
@@ -164,7 +196,8 @@ export async function boostParcel(id, customerId, input) {
     // earlier rounds (including declines) are kept for the record.
     for (const a of b.assignment.attempts) if (a.outcome === 'offered') { a.outcome = 'superseded'; a.resolvedAt = new Date(); }
     b.assignment.history = [...(b.assignment.history || []), ...b.assignment.attempts];
-    b.assignment.attempts = []; delete b.assignment.offer; b.assignment.reason = '';
+    // A boost is a fresh search: new offer rounds and a new search window (parcelAssignment.service).
+    b.assignment.attempts = []; delete b.assignment.offer; delete b.assignment.searchStartedAt; b.assignment.reason = '';
     parcelEvent(b, { id: customerId, type: 'customer' }, 'fare_boosted', 'searching_for_driver', `+₹${(amountPaise / 100).toFixed(2)}`);
     touchParcel(b); await b.save({ session }); return b;
   });
@@ -178,7 +211,22 @@ export async function parcelCustomerCancel(id, customerId, input) {
   return financialTransaction(async session => {
     const b = await ownedParcel(id,customerId,session); parcelVersion(b,input.version);
     if (!parcelCustomerCanCancel(b)) failParcel(b.proof?.pickup?.verifiedAt ? 'The parcel has been picked up and can no longer be cancelled' : 'Cancellation is unavailable',409);
-    b.cancellation = { status:'requested', priorState:b.status, reason:boundedText(input.reason,'Cancellation reason'), requestedAt:new Date() };
+    const reason = boundedText(input.reason,'Cancellation reason');
+    if (parcelInstantCancel(b)) {
+      // No rider has accepted: cancel now. Open offers are withdrawn and money already held
+      // (online capture, wallet-paid boosts) goes back to the customer's Bulkimart wallet.
+      const now = new Date();
+      b.cancellation = { status:'approved', priorState:b.status, reason, requestedAt:now, decidedAt:now, instant:true, refundTo:'wallet' };
+      for (const attempt of b.assignment.attempts || []) if (attempt.outcome === 'offered') { attempt.outcome = 'cancelled'; attempt.resolvedAt = now; }
+      await releaseParcelRider(b,session); delete b.assignment.offer;
+      b.finance.held = true;
+      parcelEvent(b,{ id:customerId,type:'customer' },'cancelled_by_customer','cancelled',reason);
+      const { autoRefundParcelToWallet, refundParcelBoostToWallet } = await import('./parcelPayment.service.js');
+      await autoRefundParcelToWallet(b,{ type:'system' },session);
+      await refundParcelBoostToWallet(b,{ type:'system' },session);
+      touchParcel(b); await b.save({ session }); return b;
+    }
+    b.cancellation = { status:'requested', priorState:b.status, reason, requestedAt:new Date() };
     parcelEvent(b,{ id:customerId,type:'customer' },'cancellation_requested','cancellation_review');
     touchParcel(b); await b.save({ session }); return b;
   });

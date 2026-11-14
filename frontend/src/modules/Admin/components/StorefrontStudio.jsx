@@ -12,9 +12,23 @@ import StorefrontHeaderFields from './StorefrontHeaderFields';
 import Celebration from '../../User/components/Celebration';
 import { FestiveHeader, normalizeHeader } from '../../User/components/FestiveHeader';
 import StorefrontSplashPreview from './StorefrontSplashPreview';
+import BannersTab from './BannersTab';
+import CampaignsTab from './CampaignsTab';
 import '../../User/Storefront.css';
 import './StorefrontStudio.css';
 const names = { theme: 'Themes', campaign: 'Promotional campaigns', section: 'Homepage sections' };
+// The banner library and deal pricing open inside the Studio, so its tab bar stays on screen.
+const embedded = { banners: 'Banner library', deals: 'Deal pricing' };
+// The open tab and editor live in the URL (?view=section&edit=<id>), so a reload returns to them.
+const studioQuery = () => new URLSearchParams(window.location.search);
+const initialView = () => { const v = studioQuery().get('view'); return v in names || v in embedded ? v : 'theme'; };
+const writeStudioQuery = patch => {
+  const q = studioQuery();
+  for (const [key, value] of Object.entries(patch)) value ? q.set(key, value) : q.delete(key);
+  const search = q.toString();
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? `?${search}` : ''}`);
+};
+const isConflict = err => /changed/i.test(err?.message || '') && /reload/i.test(err?.message || '');
 const blank = kind => ({ kind, name: '', description: '', scope: 'global', device: 'all', priority: 0, order: 0, startAt: '', endAt: '',
   config: kind === 'theme' ? { preset: 'Default Bulkimart', tokens: { ...DEFAULT_TOKENS }, header: { ...DEFAULT_HEADER } } : kind === 'campaign' ? { placement: 'hero', bannerId: '', themeId: '', frequency: 'session', duration: 5, countdown: false } : { title: '', source: 'recent', categoryId: '', campaignId: '', bannerId: '', maxPrice: 99, limit: 8, variant: 'plain' } });
 // Admin scheduling is explicitly Asia/Kolkata, independent of the workstation timezone.
@@ -50,8 +64,8 @@ export function SplashDurationField({ value, onChange }) {
   </div>;
 }
 export default function StorefrontStudio() {
-  const { triggerToast, setActiveTab } = useAdmin(), ui = useFeedback();
-  const [kind, setKind] = useState('theme'), [rows, setRows] = useState([]), [search, setSearch] = useState(''), [status, setStatus] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(0);
+  const { triggerToast } = useAdmin(), ui = useFeedback();
+  const [kind, setKind] = useState(initialView), [rows, setRows] = useState([]), [search, setSearch] = useState(''), [status, setStatus] = useState(''), [page, setPage] = useState(1), [pages, setPages] = useState(0);
   const [loading, setLoading] = useState(false), [error, setError] = useState(''), [reload, setReload] = useState(0);
   const [form, setForm] = useState(null), [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false), [formError, setFormError] = useState(''), [preview, setPreview] = useState('mobile');
   const [banners, setBanners] = useState([]), [themes, setThemes] = useState([]), [deals, setDeals] = useState([]), [categories, setCategories] = useState([]);
@@ -68,6 +82,7 @@ export default function StorefrontStudio() {
   });
 
   useEffect(() => {
+    if (!(kind in names)) return undefined; // banner library / deal pricing load themselves
     let cancelled = false; setLoading(true); setError('');
     const timer = setTimeout(() => adminGet(`/storefront?${new URLSearchParams({ kind, search, status, page, limit: 12 })}`).then(result => { if (!cancelled) { setRows(result.data); setPages(result.meta.pages); } }).catch(err => { if (!cancelled) setError(err.message); }).finally(() => { if (!cancelled) setLoading(false); }), 200);
     return () => { cancelled = true; clearTimeout(timer); };
@@ -91,7 +106,15 @@ export default function StorefrontStudio() {
   const config = patch => { setDirty(true); setForm(f => ({ ...f, config: { ...f.config, ...patch } })); };
   const cancelBannerUpload = () => { setShowUploadBanner(false); setBannerFile(null); setBannerPreviewUrl(''); setBannerUploadError(''); };
   
-  const open = row => {
+  const open = async row => {
+    // Always edit the server's current copy: a list row can be a moment old (e.g. just after a save),
+    // and saving against an old revision is refused with "This configuration changed".
+    if (row?._id) {
+      try { row = (await adminGet(`/storefront/${row._id}`)).data; }
+      catch (err) { setError(`Could not open this configuration: ${err.message}`); writeStudioQuery({ edit: null }); return; }
+      if (row.kind && row.kind !== kind) setKind(row.kind);
+    }
+    writeStudioQuery({ edit: row?._id || null, ...(row?.kind ? { view: row.kind } : {}) });
     // A live record with a saved draft opens its draft; the live version stays as listed.
     const source = row?.draft ? { ...row, ...row.draft.values } : row;
     setForm(row ? { ...source, config: structuredClone(source.config), startAt: scheduleInput(source.startAt), endAt: scheduleInput(source.endAt), draftRevision: row.draft?.revision || 0 } : blank(kind));
@@ -112,7 +135,9 @@ export default function StorefrontStudio() {
     });
   };
 
-  const close = async () => { if (operationBusy.current || uploadingBanner) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); setDirty(false); setBannerFile(null); setBannerPreviewUrl(''); } };
+  // Reopen the editor that was open before a page reload.
+  useEffect(() => { const id = studioQuery().get('edit'); if (id && /^[a-f\d]{24}$/i.test(id)) open({ _id: id }); else writeStudioQuery({ edit: null }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const close = async () => { if (operationBusy.current || uploadingBanner) return; if (!dirty || await ui.ask('Discard unsaved changes?')) { setForm(null); writeStudioQuery({ edit: null }); setDirty(false); setBannerFile(null); setBannerPreviewUrl(''); } };
   
   const bannerStorefrontLabel = (type) => {
     if (type === 'general') return 'All Storefronts (General)';
@@ -154,9 +179,21 @@ export default function StorefrontStudio() {
       // Retain saved identity even when subsequent publication fails validation.
       const liveDraft = !!result.data.draft;
       setForm(f => ({ ...f, _id: result.data._id, revision: result.data.revision, status: result.data.status, draftRevision: result.data.draft?.revision || 0 })); setDirty(false);
+      writeStudioQuery({ edit: result.data._id });
       if (publish) result = await adminPost(`/storefront/${result.data._id}/actions/publish`, { revision: result.data.revision, draftRevision: result.data.draft?.revision });
-      triggerToast(publish ? 'Published. Customers refresh within 30 seconds.' : liveDraft ? 'Draft saved. The live version is unchanged until you publish this draft.' : 'Draft saved. Publish when ready.'); setForm(null); setReload(r => r + 1);
-    } catch (err) { setFormError(err.message); setReload(r => r + 1); } finally { operationBusy.current = false; setBusy(false); }
+      triggerToast(publish ? 'Published. Customers refresh within 30 seconds.' : liveDraft ? 'Draft saved. The live version is unchanged until you publish this draft.' : 'Draft saved. Publish when ready.'); setForm(null); writeStudioQuery({ edit: null }); setReload(r => r + 1);
+    } catch (err) {
+      // Someone (often another open tab) saved this record first. Keep the admin's edits and move them
+      // onto the latest revision, so pressing Save again works instead of failing forever.
+      if (isConflict(err) && form._id) {
+        try {
+          const latest = (await adminGet(`/storefront/${form._id}`)).data;
+          setForm(f => ({ ...f, revision: latest.revision, status: latest.status, draftRevision: latest.draft?.revision || 0 }));
+          setFormError('This was changed somewhere else (another tab, or a save that just finished). Your edits are kept — press Save again to save them over the latest version, or Cancel to keep the other changes.');
+        } catch { setFormError(err.message); }
+      } else setFormError(err.message);
+      setReload(r => r + 1);
+    } finally { operationBusy.current = false; setBusy(false); }
   };
 
   const uploadBanner = async () => {
@@ -222,8 +259,9 @@ export default function StorefrontStudio() {
   const action = async (row, name) => {
     if (busy) return;
     if (['archive', 'rollback'].includes(name) && !await ui.ask(`${name === 'archive' ? 'Archive' : 'Roll back'} “${row.name}”? ${name === 'archive' ? 'This removes it from the storefront and preserves its history.' : 'The previous publication will be validated and published again.'}`)) return;
-    setBusy(true); setError('');
+    // Asked before marking busy: cancelling used to leave every button disabled.
     if (name === 'discard' && !await ui.ask(`Discard the unpublished changes to “${row.name}”? The live version is not affected.`)) return;
+    setBusy(true); setError('');
     try { await adminPost(`/storefront/${row._id}/actions/${name}`, { revision: row.revision, draftRevision: row.draftRevision ?? row.draft?.revision }); setReload(r => r + 1); triggerToast(name === 'discard' ? 'Draft discarded. The live version is unchanged.' : 'Configuration updated.'); return true; } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
@@ -236,7 +274,7 @@ export default function StorefrontStudio() {
       await adminDelete(`/storefront/${row._id}`);
       setReload(r => r + 1);
       triggerToast(`${kindLabel} deleted successfully.`);
-      if (form?._id === row._id) setForm(null);
+      if (form?._id === row._id) { setForm(null); writeStudioQuery({ edit: null }); }
     } catch (err) {
       setError(err.message || 'Failed to delete');
     } finally {
@@ -266,17 +304,41 @@ export default function StorefrontStudio() {
   const previewEffect = form?.config.animation && form.config.animation.scope !== 'banner' ? { ...form.config.animation, startAt: null, endAt: null } : null;
   const select = (label, value, choices, onChange) => <Field label={label}><select value={value ?? ''} onChange={e => onChange(e.target.value)}>{choices.map(option => <option key={option.value ?? option} value={option.value ?? option}>{option.label ?? option}</option>)}</select></Field>;
   const refs = list => [{ value: '', label: 'None selected' }, ...list.map(r => ({ value: r._id, label: r.name || r.title || r._id }))];
-  const bannerRefs = list => [
-    { value: '', label: 'None selected' },
-    ...list.map(r => ({
-      value: r._id,
-      label: `${r.title || r.name || r._id} [${bannerStorefrontLabel(r.type)}]`,
-    }))
+  // Only banners that can actually be published here are offered (the server refuses the rest on
+  // publish): enabled, published, not archived, not a seller promotion, and for this storefront.
+  // A saved choice that no longer qualifies stays visible, marked, so the admin can see and replace it.
+  const bannerUsable = b => b.isActive !== false && !b.isDraft && !b.isArchived && b.actionType !== 'SELLER_PROMOTION' && !b.targetPromotion
+    && (b.type === 'general' || b.type === (form?.scope === 'quick' ? 'grocery' : form?.scope === 'shop-all' ? 'ecommerce' : 'general'));
+  const shortDate = d => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
+  const bannerLabel = r => {
+    const until = r.endDate ? ` · until ${shortDate(r.endDate)}` : '';
+    return `${r.title || r.name || r._id} [${bannerStorefrontLabel(r.type)}]${until}`;
+  };
+  const bannerRefs = selectedId => {
+    const usable = banners.filter(bannerUsable);
+    const current = selectedId && banners.find(b => b._id === selectedId);
+    return [
+      { value: '', label: 'None selected' },
+      ...usable.map(r => ({ value: r._id, label: bannerLabel(r) })),
+      ...(current && !usable.includes(current) ? [{ value: current._id, label: `${bannerLabel(current)} — not usable here (disabled, unpublished, archived or other storefront)` }] : []),
+    ];
+  };
+  // Section categories: only active categories of the section's own storefront. A saved category that
+  // was deleted (or belongs to the other storefront) is shown marked, so it can be replaced.
+  const sectionCategoryType = form?.scope === 'quick' ? 'grocery' : 'ecommerce';
+  const sectionCategories = categories.filter(c => c.type === sectionCategoryType);
+  const sectionCategoryRefs = [
+    ...refs(sectionCategories),
+    ...(form?.config?.categoryId && !sectionCategories.some(c => c._id === form.config.categoryId)
+      ? [{ value: form.config.categoryId, label: 'Saved category is deleted or in another storefront — choose another' }] : []),
   ];
 
   return <div className="studio-workspace">
-    <header className="studio-header"><div><span className="studio-kicker">MARKETING & CMS</span><h1>Storefront Studio</h1><p>Design your everyday storefront and campaigns. Preview, schedule and publish.</p></div><button className="sa-btn-primary" onClick={() => open(null)}>+ Create {kind}</button></header>
-    <nav className="studio-tabs" aria-label="Studio sections">{Object.entries(names).map(([key, label]) => <button key={key} aria-pressed={kind === key} onClick={() => { setKind(key); setPage(1); }}>{label}</button>)}<button onClick={() => setActiveTab('banners')}>Banner library ↗</button><button onClick={() => setActiveTab('campaigns')}>Deal pricing ↗</button></nav>
+    <header className="studio-header"><div><span className="studio-kicker">MARKETING & CMS</span><h1>Storefront Studio</h1><p>Design your everyday storefront and campaigns. Preview, schedule and publish.</p></div>{kind in names && <button className="sa-btn-primary" onClick={() => open(null)}>+ Create {kind}</button>}</header>
+    <nav className="studio-tabs" aria-label="Studio sections">{Object.entries({ ...names, ...embedded }).map(([key, label]) => <button key={key} aria-pressed={kind === key} onClick={() => { setKind(key); setPage(1); setError(''); writeStudioQuery({ view: key, edit: null }); }}>{label}</button>)}</nav>
+    {kind === 'banners' && <div className="studio-embedded"><BannersTab /></div>}
+    {kind === 'deals' && <div className="studio-embedded"><CampaignsTab /></div>}
+    {kind in names && <>
     <div className="studio-toolbar"><input aria-label="Search configurations" placeholder="Search by name…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /><select aria-label="Filter by status" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option>{['draft', 'scheduled', 'active', 'paused', 'expired', 'archived'].map(s => <option key={s}>{s}</option>)}</select><span>Schedules use Asia/Kolkata (IST)</span></div>
     {error && <p className="studio-error" role="alert">{error} <button onClick={() => setReload(r => r + 1)}>Retry</button></p>}
     {loading ? <p role="status">Loading configurations…</p> : !rows.length ? <div className="studio-empty"><h2>Room for your next idea</h2><p>Create a draft to start. Nothing appears to customers until you publish.</p></div> : <div className="studio-grid">{rows.map(row => <article key={row._id} className="studio-record">
@@ -293,6 +355,7 @@ export default function StorefrontStudio() {
       </div>
     </article>)}</div>}
     <div className="studio-pagination"><button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} of {Math.max(1, pages)}</span><button disabled={page >= pages} onClick={() => setPage(p => p + 1)}>Next</button></div>
+    </>}
     {form && <ModalPortal className="studio-overlay" role="dialog" aria-modal="true" aria-label={`${form._id ? 'Edit' : 'Create'} ${form.kind}`} onKeyDown={e => { if (e.key === 'Escape') close(); }}>
       <div className="studio-editor"><header><div><span className="studio-kicker">{form.kind.toUpperCase()} EDITOR</span><h2>{form.name || 'Untitled draft'}</h2></div><button disabled={busy || uploadingBanner} onClick={close} aria-label="Close editor">✕</button></header>
       <div className="studio-editor-body"><form id="studio-form" onSubmit={e => { e.preventDefault(); save(false); }}>
@@ -316,7 +379,7 @@ export default function StorefrontStudio() {
           {Object.entries({ font: ['system', 'sans', 'serif'], card: ['rounded', 'square'], button: ['rounded', 'pill'], gradient: ['none', 'soft'], category: ['framed', 'minimal'], product: ['elevated', 'flat'], motion: ['none', 'gentle'] }).map(([key, options]) => <React.Fragment key={key}>{select(key, tokens[key], options, value => config({ tokens: { ...tokens, [key]: value } }))}</React.Fragment>)}<p className="studio-help">Text and buttons require 4.5:1 contrast. Invalid combinations cannot be saved.</p><h3>Category artwork</h3><p className="studio-help">Select published artwork from Banner library. Tiles always open the selected category. Add only accurate campaign labels.</p>
 {(form.config.categoryTiles || []).map((tile, index) => <div key={index} className="studio-category-tile">
 {select('Tile category', tile.categoryId, refs(categories), categoryId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, categoryId } : t) }))}
-{select('Tile artwork', tile.bannerId, bannerRefs(banners.filter(b => !b.isArchived)), bannerId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, bannerId } : t) }))}
+{select('Tile artwork', tile.bannerId, bannerRefs(tile.bannerId), bannerId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, bannerId } : t) }))}
 <Field label="Campaign label (optional)"><input maxLength={24} value={tile.badge || ''} onChange={e => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, badge: e.target.value } : t) })} /></Field>
 <button type="button" onClick={() => config({ categoryTiles: form.config.categoryTiles.filter((_, i) => i !== index) })}>Remove tile override</button></div>)}
 <button type="button" disabled={(form.config.categoryTiles || []).length >= 24} onClick={() => config({ categoryTiles: [...(form.config.categoryTiles || []), { categoryId: '', bannerId: '', badge: '' }] })}>Add category artwork</button></>}
@@ -355,7 +418,7 @@ export default function StorefrontStudio() {
                     value={form.config.bannerId ?? ''}
                     onChange={e => config({ bannerId: e.target.value })}
                   >
-                    {bannerRefs(banners.filter(b => !b.isArchived)).map(option => (
+                    {bannerRefs(form.config.bannerId).map(option => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -538,7 +601,9 @@ export default function StorefrontStudio() {
           {form.config.placement === 'splash' && <>{select('Frequency', form.config.frequency, [{ value: 'launch', label: 'Every eligible launch' }, { value: 'session', label: 'Once per browser tab session' }, { value: 'daily', label: 'Once per day (IST)' }, { value: 'version', label: 'Once per publication version' }], frequency => config({ frequency }))}<SplashDurationField value={form.config.duration} onChange={duration => config({ duration })} /><label className="studio-check"><input type="checkbox" checked={form.config.countdown} onChange={e => config({ countdown: e.target.checked })} />Show countdown to configured end time</label><p className="studio-help">The time counts from when the image has loaded. One splash maximum per app launch: when several splash campaigns are live at the same time, only the one with the highest priority is shown. Changes reach customers only after you publish. Audience: all visitors to the selected storefront.</p></>}
         </>}
         {form.kind === 'section' && <><Field label="Customer-facing title"><input maxLength={100} value={form.config.title} onChange={e => config({ title: e.target.value })} /></Field>{select('Product collection', form.config.source, [{ value: 'recent', label: 'Recently added' }, { value: 'featured', label: 'Featured / curated picks' }, { value: 'category', label: 'Category collection' }, { value: 'price', label: 'Under a price' }, { value: 'campaign', label: 'Flash sale / accepted deal products' }, { value: 'wholesale', label: 'Wholesale discovery' }], source => config({ source }))}
-          {form.config.source === 'category' && select('Category', form.config.categoryId, refs(categories), categoryId => config({ categoryId }))}
+          {form.config.source === 'category' && (form.scope === 'global'
+            ? <p className="studio-error" role="alert">A category collection belongs to one storefront. Set <strong>Storefront</strong> above to <strong>quick</strong> or <strong>shop-all</strong>, then pick its category.</p>
+            : select('Category', form.config.categoryId, sectionCategoryRefs, categoryId => config({ categoryId })))}
           {form.config.source === 'campaign' && select('Deal campaign', form.config.campaignId, refs(deals), campaignId => config({ campaignId }))}
           {form.config.source === 'price' && <Field label="Maximum price (INR)"><input type="number" min="1" value={form.config.maxPrice} onChange={e => config({ maxPrice: Number(e.target.value) })} /></Field>}
           <div className="studio-pair"><Field label="Display order (lower first)"><input type="number" min="0" max="1000" value={form.order} onChange={e => change({ order: Number(e.target.value) })} /></Field><Field label="Product limit"><input type="number" min="1" max="24" value={form.config.limit} onChange={e => config({ limit: Number(e.target.value) })} /></Field></div>

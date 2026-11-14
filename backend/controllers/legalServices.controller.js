@@ -18,6 +18,7 @@ import { serviceFeeBilling, serviceFeeQuote, serviceTermsText, initiateServicePa
 import { applicantCancellation } from '../services/serviceWorkflow.service.js';
 import { refundServiceFeeToWallet } from '../services/serviceRefund.service.js';
 import { notifyAllAdmins } from '../services/notification.service.js';
+import { emailServiceConfirmation } from '../services/email.service.js';
 
 export const send = (res, data, meta = {}) => res.json({ success: true, data, meta });
 const visibility = { status: 'published', audiences: 'customer' };
@@ -100,7 +101,7 @@ export async function submit(req, res) {
     throw error;
   }
   // A fixed-price request reaches the admins once its fee is paid (see servicePayment.service).
-  if (a.status === 'submitted') await notifyLegal(a, 'submitted');
+  if (a.status === 'submitted') { await notifyLegal(a, 'submitted'); void emailServiceConfirmation(a); }
   send(res.status(201), requestDTO(a));
 }
 export async function loadRequest(req) {

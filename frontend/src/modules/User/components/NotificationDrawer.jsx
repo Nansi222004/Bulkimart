@@ -38,9 +38,9 @@ export const NotificationDrawer = ({ isOpen, onClose }) => {
     if (!n.isRead) markRead(n._id);
     if (/^\/legal-services\/requests\/[a-f\d]{24}$/i.test(n.route || '')) { window.history.pushState(null, '', n.route); onClose(); return; }
     if ((n.route || '').startsWith('/support/chat')) {
-      // Live chat reply: Profile → Help & Support → Chat. The URL covers a fresh mount, the event an open page.
-      window.history.replaceState(null, '', '?section=support&chat=1');
-      setActiveNav('account');
+      // Live chat reply: Help & Support page → Chat. The URL covers a fresh mount, the event an open page.
+      setActiveNav('support');
+      window.history.replaceState(window.history.state, '', '/support?chat=1');
       window.dispatchEvent(new CustomEvent('bulkimart:open-support-chat'));
       onClose();
       return;

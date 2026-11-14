@@ -19,7 +19,7 @@ for(const path of ['/parcel-delivery/track','/parcel-delivery/track/bad','/parce
 test('tracking succeeds without policy and browser back ignores older request',async()=>{const h=hookHarness(Parcel,{},track);try{const old=read(h);window.history.pushState(null,'','/parcel-delivery/history');window.dispatchEvent(new Event('popstate'));h.rerender();await reply(h,[]);old.resolve({data:booking});await h.settle();assert.ok(has(h,'No parcel bookings yet.'));assert.equal(has(h,'PD-TEST'),undefined);}finally{h.close();}});
 test('unmount aborts tracking and late response cannot update',async()=>{const h=hookHarness(Parcel,{},track);try{const r=read(h);h.unmount();const count=h.updates;r.resolve({data:booking});await h.settle();assert.equal(h.updates,count);assert.equal(r.options.signal.aborted,true);}finally{h.close();}});
 test('history empty only after successful empty read',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/history');try{assert.ok(has(h,'Loading parcel history'));assert.equal(has(h,'No parcel bookings yet.'),undefined);await reply(h,[]);assert.ok(has(h,'No parcel bookings yet.'));}finally{h.close();}});
-for(const code of [401,403,503])test('history failure '+code+' is not empty and retry recovers',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/history');try{await reply(h,null,code);assert.ok(has(h,'Unable to load parcel history'));assert.equal(has(h,'No parcel bookings yet.'),undefined);h.click('Retry');await reply(h,[booking]);assert.ok(h.find(n=>n.props?.className==='parcel-row'));h.click('Refresh status');await reply(h,null,503);assert.ok(h.find(n=>n.props?.className==='parcel-row'));assert.ok(has(h,'Previously loaded deliveries'));assert.equal(has(h,'No parcel bookings yet.'),undefined);h.find(n=>n.props?.className==='parcel-row').props.onClick();assert.equal(window.location.pathname,track);}finally{h.close();}});
+for(const code of [401,403,503])test('history failure '+code+' is not empty and retry recovers',async()=>{const h=hookHarness(Parcel,{},'/parcel-delivery/history');try{await reply(h,null,code);assert.ok(has(h,'Unable to load parcel history'));assert.equal(has(h,'No parcel bookings yet.'),undefined);h.click('Retry');await reply(h,[booking]);assert.ok(h.find(n=>n.props?.booking?._id===booking._id&&n.props.onOpen));h.click('Refresh status');await reply(h,null,503);assert.ok(h.find(n=>n.props?.className==='parcel-row'));assert.ok(has(h,'Previously loaded deliveries'));assert.equal(has(h,'No parcel bookings yet.'),undefined);h.find(n=>n.props?.className==='parcel-row').props.onClick();assert.equal(window.location.pathname,track);}finally{h.close();}});
 test('legal entry enabled destination and disabled/error states',async()=>{const h=hookHarness(ui.LegalServiceCard);try{h.requests[0].resolve({data:{catalogue:true}});await h.settle();h.requests[1].resolve({data:[{_id:id}],meta:{total:1}});await h.settle();assert.ok(h.find(n=>n.props?.href==='/legal-services'));}finally{h.close();}for(const status of [200,503]){const r=hookHarness(ui.LegalServiceCard);try{r.requests[0].resolve({data:{catalogue:false}},status);await r.settle();assert.ok(has(r,status===200?'currently available':'could not be checked'));assert.equal(r.find(n=>n.props?.href==='/legal-services'),undefined);}finally{r.close();}}});
 test('home mounts two independent cards with separate capabilities',()=>{const h=hookHarness(ui.HomeServiceEntries);try{assert.ok(h.find(n=>n.type===ui.LegalServiceCard));assert.ok(h.find(n=>n.type===ui.ParcelServiceCard));}finally{h.close();}});
 import {readFile} from 'node:fs/promises';
@@ -34,7 +34,7 @@ test('booking received notice belongs only to the newly confirmed reference',asy
     h.find(n=>n.type===Flow).props.onBooked({_id:id});h.rerender();await reply(h,booking);
     assert.ok(has(h,'Booking received.'));
     h.click('Delivery history');await reply(h,[{...booking,_id:otherId}]);
-    h.find(n=>n.props?.className==='parcel-row').props.onClick();h.rerender();await reply(h,{...booking,_id:otherId});
+    h.find(n=>n.props?.booking?._id===otherId&&n.props.onOpen).props.onOpen();h.rerender();await reply(h,{...booking,_id:otherId});
     assert.equal(has(h,'Booking received.'),undefined);
   }finally{h.close();}
 });
@@ -70,7 +70,7 @@ test('customer receipt uses clear progress, hides irrelevant finance fields and 
   const unpaid=renderToStaticMarkup(React.createElement(Status,{booking:onlineBooking,justBooked:true}));
   assert.ok(unpaid.includes('Complete your payment'));assert.ok(!unpaid.includes('Booking received.'));assert.ok(!unpaid.includes('Cash:'));assert.ok(!unpaid.includes('Refund: none'));
   const paid=renderToStaticMarkup(React.createElement(Status,{booking:{...onlineBooking,paymentStatus:'paid',status:'searching_for_driver'},justBooked:true}));
-  assert.ok(paid.includes('Finding your delivery partner'));assert.ok(paid.includes('Payment successful.'));assert.ok(paid.includes('Paid online'));assert.ok(paid.includes('<summary>Booking details</summary>'));
+  assert.ok(paid.includes('Searching for drivers nearby'));assert.ok(paid.includes('role="progressbar"'));assert.ok(paid.includes('Payment successful.'));assert.ok(paid.includes('Paid online'));assert.ok(paid.includes('<summary>Booking details</summary>'));
 });
 
 test('existing online tracking remains recoverable and never opens checkout merely from a page visit',async()=>{
@@ -122,7 +122,7 @@ test('parcel card offers a usable service link while booking is disabled',async(
   }finally{h.close();}
 });
 test('the cancel option follows the server and disappears once the parcel is picked up',async()=>{
-  const summary=h=>h.find(n=>n.type==='summary'&&[n.props.children].flat().includes('Cancel this booking'));
+  const summary=h=>h.find(n=>n.type==='button'&&n.props.className==='parcel-cancel-trip');
   for(const [status,canCancel] of [['driver_assigned',true],['arrived_at_pickup',true],['picked_up',false],['in_transit',false],['arrived_at_dropoff',false]]){
     const h=hookHarness(Parcel,{},track);
     try{
@@ -150,4 +150,24 @@ test('parcel tracking explains pending cancellation approval separately from a c
   const html = renderToStaticMarkup(React.createElement(Status, { booking: { ...booking, status: 'cancellation_review', paymentStatus: 'paid', paymentMethod: 'online' } }));
   assert.match(html, /awaiting admin approval/); assert.match(html, /refund is processed after approval/);
   assert.doesNotMatch(html, /refunded to your Bulkimart wallet/);
+});
+test('Cancel Trip asks for a reason, cancels with the booking version and confirms Booking cancelled',async()=>{
+  const h=hookHarness(Parcel,{},track);
+  try{
+    await reply(h,{...booking,status:'searching_for_driver',canCancel:true,version:3});
+    h.click('Cancel Trip');
+    const sheet=()=>h.find(n=>n.props?.label==='Cancel trip');
+    assert.ok(sheet());
+    const submit=()=>[sheet().props.footer.props.children].flat().find(b=>b.props.children==='Submit'||b.props.children==='Please wait…');
+    assert.equal(submit().props.disabled,true);
+    h.find(n=>n.type==='input'&&n.props.value==='Changed my mind').props.onChange();h.flush();
+    assert.equal(submit().props.disabled,false);
+    submit().props.onClick();h.flush();
+    const post=h.requests.findLast(r=>r.url.endsWith('/cancellation'));
+    assert.deepEqual(JSON.parse(post.options.body),{version:3,reason:'Changed my mind'});
+    post.resolve({data:{...booking,status:'cancelled',canCancel:false,version:4}});await h.settle();
+    assert.ok(has(h,'Booking cancelled'));assert.equal(sheet(),undefined);
+    await reply(h,{...booking,status:'cancelled',canCancel:false,version:4});
+    h.click('Okay');assert.equal(window.location.pathname,'/parcel-delivery/history');
+  }finally{h.close();}
 });

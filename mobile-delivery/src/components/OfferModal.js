@@ -128,6 +128,66 @@ export function ReturnOfferModal({ offer, onAccept, onDecline, onExpire }) {
   );
 }
 
+const secondsLeft = (at) => Math.max(0, Math.ceil((new Date(at).getTime() - Date.now()) / 1000));
+
+/**
+ * Parcel booking offer. Unlike orders, the deadline is the server's own `offer.expiresAt`
+ * (the admin's acceptance window), so the countdown runs to that. Running out only closes
+ * the pop-up; the server times the offer out and moves on.
+ */
+export function ParcelOfferModal({ booking, onAccept, onDecline, onExpire }) {
+  const key = booking?.offer?.token || null;
+  const [left, setLeft] = useState(() => (booking ? secondsLeft(booking.offer.expiresAt) : 0));
+  const [acting, setActing] = useState(false);
+  const expired = useRef(false);
+
+  useEffect(() => {
+    if (!key) return undefined;
+    setLeft(secondsLeft(booking.offer.expiresAt)); expired.current = false; setActing(false);
+    Vibration.vibrate([0, 600, 400, 600]);
+    const t = setInterval(() => setLeft(secondsLeft(booking.offer.expiresAt)), 500);
+    return () => { clearInterval(t); Vibration.cancel(); };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (key && left === 0 && !acting && !expired.current) { expired.current = true; onExpire(booking); }
+  }, [left, key, acting, booking, onExpire]);
+
+  if (!booking) return null;
+  const earning = booking.earningPaise ?? booking.finance?.earningPaise;
+  const run = async (fn) => { setActing(true); try { await fn(booking); } finally { setActing(false); } };
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={() => {}}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet} accessibilityViewIsModal>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.headerRow}>
+              <Text style={styles.badge}>NEW PARCEL REQUEST</Text>
+              <Text style={[styles.timer, left <= 10 && styles.timerUrgent]} accessibilityLabel={`${left} seconds left`}>{left}s</Text>
+            </View>
+            {earning != null ? (
+              <View style={styles.payBox}>
+                <Text style={type.small}>You earn</Text>
+                <Text style={styles.pay}>{formatRupees(earning / 100)}</Text>
+              </View>
+            ) : null}
+            <KeyValueRow label="Pickup area" value={booking.pickupArea || '—'} />
+            <KeyValueRow label="Drop area" value={booking.dropoffArea || '—'} />
+            {booking.weightKg != null ? <KeyValueRow label="Weight" value={`${booking.weightKg} kg`} /> : null}
+            {booking.vehicle?.name ? <KeyValueRow label="Vehicle" value={booking.vehicle.name} /> : null}
+            <Text style={type.small}>Pickup address and contact are shown after you accept.</Text>
+          </ScrollView>
+          <View style={styles.actions}>
+            <AppButton title="Decline" variant="danger" style={styles.decline} disabled={acting} onPress={() => run(onDecline)} />
+            <AppButton title="Accept parcel" style={styles.accept} loading={acting} disabled={left === 0} onPress={() => run(onAccept)} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(7,59,120,0.55)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.white, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' },

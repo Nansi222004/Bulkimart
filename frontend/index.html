@@ -82,7 +82,7 @@
       if (/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) document.querySelector('.boot-home').classList.add('boot-home--partner');
       else { var bootEl = document.querySelector('.boot-home'); if (bootEl) bootEl.style.display = 'none'; }
       // The shop starts in the theme it last showed (same rules as bootLook in utils/storefront.js).
-      else try {
+      if (!/^\/(seller|admin|delivery)(\/|$)/.test(location.pathname)) try {
         var look = JSON.parse(localStorage.getItem('bulkimart:boot-look')), boot = document.querySelector('.boot-home');
         if (look && (!look.until || Date.parse(look.until) > Date.now())) [['--boot-header', look.header], ['--boot-header-text', look.headerText], ['--boot-background', look.background], ['--boot-search', look.search]]
           .forEach(function (pair) { if (typeof pair[1] === 'string' && /^#[0-9a-f]{3,8}$/i.test(pair[1])) boot.style.setProperty(pair[0], pair[1]); });

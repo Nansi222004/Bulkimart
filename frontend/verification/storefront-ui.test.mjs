@@ -875,7 +875,11 @@ test('studio opens the saved draft of a live theme, previews it with the real fe
   const row = liveTheme(), { h, toasts } = await studioWithRows([row]);
   try {
     assert.match(text(h.tree), /Unpublished draft saved .*Customers still see the live version/);
-    h.click('Edit draft & preview');
+    h.click('Edit draft & preview'); h.flush();
+    // The editor opens the server's current copy, not the (possibly stale) list row.
+    const fresh = h.requests.find(r => !r.settled && /\/storefront\/507f1f77bcf86cd799439031$/.test(r.url));
+    assert.ok(fresh, 'Opening the editor re-reads the record');
+    fresh.resolve({ data: row }); await h.settle();
     for (const request of h.requests.filter(r => !r.settled)) request.resolve({ data: [] }); await h.settle();
     assert.equal(h.find(n => n.type === Festive.FestiveHeader).props.header.title, 'Draft title');
     assert.equal(h.find(n => n.props?.label === 'Name').props.children.props.value, 'Live theme (draft)');

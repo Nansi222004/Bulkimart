@@ -7,6 +7,8 @@ const S = ({ size = 20, color = '#172b4d', width = 2, fill = 'none', children, s
   <Svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" style={style}>{children}</Svg>
 );
 
+// Briefcase: the Services tab in the bottom nav (Parcel + Legal services).
+export const ServicesIcon = p => <S {...p}><Rect x="2" y="7" width="20" height="14" rx="2" /><Path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" /><Path d="M2 13h20" /></S>;
 export const SearchIcon = p => <S {...p}><Circle cx="11" cy="11" r="8" /><Line x1="21" y1="21" x2="16.65" y2="16.65" /></S>;
 export const MicIcon = p => <S {...p}><Path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><Path d="M19 10v2a7 7 0 0 1-14 0v-2" /><Line x1="12" y1="19" x2="12" y2="23" /><Line x1="8" y1="23" x2="16" y2="23" /></S>;
 export const CameraIcon = p => <S {...p}><Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><Circle cx="12" cy="13" r="4" /></S>;

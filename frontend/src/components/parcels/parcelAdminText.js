@@ -28,5 +28,6 @@ export function adminUnavailableReason(partner) {
     account_unavailable:'The rider account is inactive or does not have delivery access.',
     approval_required:'The rider account needs approval before receiving pickup requests.',
     tasks_disabled:'The partner cannot take another task under the current delivery settings.',
+    vehicle_mismatch:'The partner’s registered vehicle cannot carry the vehicle the customer booked.',
   })[partner.reason]||'This partner cannot take this pickup right now.';
 }

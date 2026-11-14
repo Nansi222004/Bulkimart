@@ -1,11 +1,12 @@
 // Port of modules/User/pages/ProfilePage.jsx (route /account?section=wallet, sign-in required).
-// The menu opens each section in a full-screen panel (web: a slide-over with its own history entry), so the
+// Help & Support and Privacy Policy are their own pages (/support, /privacy-policy).
+// The other menu items open a full-screen panel (web: a slide-over with its own history entry), so the
 // Android back button closes the section first. Native replacements:
 //  - avatar photo: the photo picker, resized to 256 px and kept on the device like the web's localStorage copy;
 //  - "Use Current Location": expo-location + the backend's /api/geo/reverse (same as the web);
 //  - wallet top-up: the native Razorpay SDK, verified by the backend's existing verify endpoint;
 //  - "Become a Seller / Your Shop" is not shown in the app (owner decision, 2026-10-31); sellers use the seller app.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
@@ -22,14 +23,10 @@ import { local } from '../lib/storage';
 import { useFeedback } from '../lib/feedback';
 import { openRazorpayCheckout } from '../lib/razorpay';
 import { getCurrentPosition } from '../lib/gps';
-import { useTickets } from '../hooks/useTickets';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { CustomerPage } from '../components/Shell';
 import { Text, TextInput } from '../components/ui';
-import SelectField from '../components/SelectField';
-import TicketDetailModal from '../components/TicketDetailModal';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
-import AttachmentUploader from '../components/AttachmentUploader';
 
 const avatarSvg = (bg, fg) => `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23${bg}"/><circle cx="50" cy="38" r="20" fill="%23${fg}"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%23${fg}"/></svg>`;
 const DEFAULT_NEUTRAL_AVATAR = avatarSvg('1e293b', '94a3b8');
@@ -195,51 +192,6 @@ export default function ProfileScreen() {
     setNewAddrName(''); setNewAddrPhone(''); setNewAddrLine1(''); setNewAddrLine2(''); setNewAddrCity(''); setNewAddrState(''); setNewAddrPincode(''); setNewAddrLandmarkImage('');
   };
 
-  // Support tickets (backend-persisted)
-  const { tickets: supportTickets, categories: supportCategories, loading: supportLoading, fetchCategories: fetchSupportCategories, fetchMyTickets: fetchSupportTickets,
-    createTicket: createSupportTicket, fetchTicketDetail: fetchSupportTicketDetail, sendMessage: sendSupportMessage, reopenTicket: reopenSupportTicket } = useTickets('customer');
-  const [supportCategory, setSupportCategory] = useState('');
-  const [supportSubject, setSupportSubject] = useState('');
-  const [supportDesc, setSupportDesc] = useState('');
-  const [supportFiles, setSupportFiles] = useState([]);
-  const [supportSubmitting, setSupportSubmitting] = useState(false);
-  const [supportJustCreated, setSupportJustCreated] = useState(null);
-  const [openSupportTicket, setOpenSupportTicket] = useState(null);
-  const [openSupportMessages, setOpenSupportMessages] = useState([]);
-  useEffect(() => { if (activeSection === 'support') { fetchSupportCategories(); fetchSupportTickets(); } }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
-  const handleSupportSubmit = async () => {
-    if (!supportCategory || !supportSubject.trim() || !supportDesc.trim()) { ui.notify('Please choose a category and fill in the subject and description.', { type: 'error' }); return; }
-    setSupportSubmitting(true);
-    try {
-      const t = await createSupportTicket({ category: supportCategory, subject: supportSubject, description: supportDesc }, supportFiles);
-      setSupportJustCreated(t);
-      setSupportCategory(''); setSupportSubject(''); setSupportDesc(''); setSupportFiles([]);
-    } catch (err) { ui.notify(err.message, { type: 'error' }); } finally { setSupportSubmitting(false); }
-  };
-  const openSupportDetail = async t => {
-    try {
-      const body = await fetchSupportTicketDetail(t._id);
-      setOpenSupportTicket(body.data.ticket); setOpenSupportMessages(body.data.messages);
-    } catch (err) { ui.notify(err.message, { type: 'error' }); }
-  };
-  const refreshSupportDetail = async () => {
-    const body = await fetchSupportTicketDetail(openSupportTicket._id);
-    setOpenSupportTicket(body.data.ticket); setOpenSupportMessages(body.data.messages);
-    fetchSupportTickets();
-  };
-
-  // Privacy policy (CMS)
-  const privacyTab = 'user-policy'; // customer app shows the customer policy only
-  const [privacyPolicyData, setPrivacyPolicyData] = useState(null);
-  const [loadingPrivacy, setLoadingPrivacy] = useState(false);
-  const loadPrivacyPolicy = useCallback(async slug => {
-    setLoadingPrivacy(true);
-    try {
-      const { body } = await request(`/api/privacy-policy/${slug}`, { auth: false });
-      setPrivacyPolicyData(body.success && body.data ? body.data : null);
-    } catch { setPrivacyPolicyData(null); } finally { setLoadingPrivacy(false); }
-  }, []);
-  useEffect(() => { if (activeSection === 'privacy') loadPrivacyPolicy(privacyTab); }, [activeSection, privacyTab, currentUser, loadPrivacyPolicy]);
 
   const menuItems = [
     { id: 'profile', label: 'My Profile', icon: c => <Icon color={c}><Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><Circle cx="12" cy="7" r="4" /></Icon>, action: () => setActiveSection('profile') },
@@ -249,10 +201,10 @@ export default function ProfileScreen() {
     { id: 'ebooks', label: 'My E-books', icon: () => <Text style={{ fontSize: 20 }}>📚</Text>, action: () => setActiveNav('ebooks') },
     { id: 'legal-services', label: 'My Legal Service Requests', icon: c => <Text style={{ fontSize: 18, color: c }}>▤</Text>, action: () => setActiveNav('legal-services?view=requests') },
     { id: 'addresses', label: 'My Addresses', icon: c => <Icon color={c}><Path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><Circle cx="12" cy="10" r="3" /></Icon>, action: () => setActiveSection('addresses') },
-    { id: 'support', label: 'Help & Support', icon: c => <Icon color={c}><Circle cx="12" cy="12" r="10" /><Path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><Line x1="12" y1="17" x2="12.01" y2="17" /></Icon>, action: () => setActiveSection('support') },
-    { id: 'privacy', label: 'Privacy Policy', icon: c => <Icon color={c}><Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Icon>, action: () => setActiveSection('privacy') },
+    { id: 'support', label: 'Help & Support', icon: c => <Icon color={c}><Circle cx="12" cy="12" r="10" /><Path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><Line x1="12" y1="17" x2="12.01" y2="17" /></Icon>, action: () => router.push('/support') },
+    { id: 'privacy', label: 'Privacy Policy', icon: c => <Icon color={c}><Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Icon>, action: () => router.push('/privacy-policy') },
   ];
-  const closeSection = () => { setActiveSection(null); setProfileMsg(''); setSupportJustCreated(null); };
+  const closeSection = () => { setActiveSection(null); setProfileMsg(''); };
   const SubmitButton = ({ title, onPress, disabled, style }) => <Pressable onPress={onPress} disabled={disabled} style={[styles.submit, submitBtn, disabled && { opacity: 0.7 }, style]}><Text style={{ color: theme.actionText || '#fff', fontSize: 14, fontWeight: '800' }}>{title}</Text></Pressable>;
   const sectionPad = { padding: 20, paddingTop: 24, paddingBottom: 40 + insets.bottom, gap: 20 };
 
@@ -378,79 +330,6 @@ export default function ProfileScreen() {
           </View>
         </View>}
       </ScrollView>;
-
-      case 'support': return <ScrollView contentContainerStyle={sectionPad} keyboardShouldPersistTaps="handled">
-        {supportJustCreated ? <View style={[styles.emptyCard, { paddingVertical: 24, paddingHorizontal: 10, gap: 12, alignItems: 'center' }]}>
-          <Text style={{ fontSize: 48 }}>✉️</Text>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a', textAlign: 'center' }}>Ticket Submitted Successfully!</Text>
-          <Text style={{ fontSize: 13, color: '#64748b', lineHeight: 19.5, textAlign: 'center' }}>Your support ticket ID is <Text style={{ fontWeight: '700', fontSize: 13 }}>#{supportJustCreated.ticketNumber}</Text>. Our team is reviewing the issue and will alert you shortly.</Text>
-          <SubmitButton title="Back to Help" onPress={() => setSupportJustCreated(null)} style={{ marginTop: 12, alignSelf: 'stretch' }} />
-        </View> : <>
-          <Pressable onPress={() => router.push('/support/chat')} accessibilityRole="button" accessibilityLabel="Chat with Support"
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1.5, borderColor: '#078ccb', backgroundColor: '#eaf9fe' }}>
-            <Text style={{ fontSize: 24 }}>💬</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>Chat with Support</Text>
-              <Text style={{ fontSize: 12.5, color: '#475569' }}>Talk to a support agent in real time</Text>
-            </View>
-            <Text style={{ fontSize: 18, color: '#078ccb' }}>→</Text>
-          </Pressable>
-          <Text style={{ fontSize: 16, color: '#0f172a', fontWeight: '800' }}>Contact Customer Support</Text>
-          <Text style={{ fontSize: 13, color: '#64748b', lineHeight: 19.5 }}>Need help with an order, payment, or delivery timing? Open a support ticket and our team will get back within 24 hours.</Text>
-          <View style={{ gap: 16 }}>
-            <SelectField label="CATEGORY" labelStyle={styles.inputLabel} value={supportCategory} onChange={setSupportCategory} placeholder="Select a category" options={supportCategories.map(c => ({ value: c, label: c }))} />
-            <Input label="Query Subject" placeholder="e.g. Wallet balance query" value={supportSubject} onChangeText={setSupportSubject} />
-            <Input label="How can we assist you?" placeholder="Explain your problem or questions in details..." value={supportDesc} onChangeText={setSupportDesc} multiline />
-            <View style={{ gap: 6 }}>
-              <Text style={styles.inputLabel}>Attachments (optional, up to 5)</Text>
-              <AttachmentUploader files={supportFiles} maxFiles={5} onAddFiles={selected => setSupportFiles(prev => [...prev, ...selected].slice(0, 5))} onRemoveFile={i => setSupportFiles(prev => prev.filter((_, idx) => idx !== i))} />
-            </View>
-            <SubmitButton title={supportSubmitting ? 'Submitting…' : 'Submit Support Ticket'} onPress={handleSupportSubmit} disabled={supportSubmitting} />
-          </View>
-          <View style={{ borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 16 }}>
-            <Text style={{ marginBottom: 12, fontSize: 14, color: '#0f172a', fontWeight: '800' }}>MY TICKETS</Text>
-            {supportLoading ? <Text style={{ fontSize: 12, color: '#64748b' }}>Loading…</Text>
-              : supportTickets.length === 0 ? <View style={[styles.emptyCard, { padding: 16, borderRadius: 12 }]}><Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>No tickets yet</Text></View>
-                : supportTickets.map(t => <Pressable key={t._id} onPress={() => openSupportDetail(t)} style={styles.ticket}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b' }}>#{t.ticketNumber}</Text>
-                    <Text style={[styles.ticketStatus, { backgroundColor: theme.highlight, color: theme.highlightText }]}>{(t.status || '').replace(/_/g, ' ')}</Text>
-                  </View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', marginTop: 6, color: '#0f172a' }}>{t.subject}</Text>
-                </Pressable>)}
-          </View>
-        </>}
-        {openSupportTicket && <TicketDetailModal ticket={openSupportTicket} messages={openSupportMessages} currentUserId={currentUser?._id} onClose={() => setOpenSupportTicket(null)}
-          onReply={async msg => { await sendSupportMessage(openSupportTicket._id, msg); await refreshSupportDetail(); }}
-          onReopen={async () => { try { await reopenSupportTicket(openSupportTicket._id); await refreshSupportDetail(); } catch (err) { ui.notify(err.message, { type: 'error' }); } }} />}
-      </ScrollView>;
-
-      case 'privacy': {
-        // Customer app: only the customer (user) policy. The seller policy belongs to the seller app.
-        return <ScrollView contentContainerStyle={[sectionPad, { paddingTop: 20, gap: 16 }]}>
-          {loadingPrivacy ? <View style={styles.policyEmpty}><Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>Loading privacy policy...</Text></View>
-            : !privacyPolicyData ? <View style={styles.policyEmpty}><Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>Privacy policy content unavailable for this role.</Text></View>
-              : <>
-                <View style={styles.policyHead}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                    <View style={[styles.policyIcon, { backgroundColor: theme.highlight }]}><Icon color={theme.actionHover}><Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Icon></View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>{privacyPolicyData.roleTitle}</Text>
-                      <Text style={{ fontSize: 11, color: '#64748b' }}>Version {privacyPolicyData.version || '1.0.0'} • Updated {new Date(privacyPolicyData.effectiveDate || privacyPolicyData.updatedAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</Text>
-                    </View>
-                  </View>
-                  {privacyPolicyData.summary ? <Text style={{ fontSize: 12, lineHeight: 19, color: '#475569' }}>{privacyPolicyData.summary}</Text> : null}
-                </View>
-                <View style={{ gap: 12 }}>
-                  {(privacyPolicyData.sections || []).map((sec, idx) => <View key={sec.id || idx} style={styles.policySection}>
-                    <Text style={{ fontSize: 13, color: '#0f172a', fontWeight: '700', marginBottom: 4 }}>{sec.title}</Text>
-                    <Text style={{ fontSize: 12, color: '#64748b', lineHeight: 18 }}>{sec.content}</Text>
-                    {sec.points?.length > 0 && <View style={{ marginTop: 8, gap: 2 }}>{sec.points.map((pt, i) => <Text key={i} style={{ fontSize: 11.5, color: '#475569', lineHeight: 18.4 }}>{'•  '}{pt}</Text>)}</View>}
-                  </View>)}
-                </View>
-              </>}
-        </ScrollView>;
-      }
       default: return null;
     }
   };
@@ -570,12 +449,6 @@ const styles = StyleSheet.create({
   addrLabel: { fontSize: 11, fontWeight: '800', paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1, borderColor: '#BAEAF8', overflow: 'hidden' },
   typeBtn: { flex: 1, padding: 10, borderRadius: 10, borderWidth: 1.5, borderColor: '#cbd5e1', backgroundColor: '#fff', alignItems: 'center' },
   cancel: { flex: 1, borderRadius: 10, borderWidth: 1.5, borderColor: '#cbd5e1', backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  ticket: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 },
-  ticketStatus: { fontSize: 11, fontWeight: '800', paddingVertical: 3, paddingHorizontal: 10, borderRadius: 20, overflow: 'hidden' },
-  policyEmpty: { backgroundColor: '#fff', padding: 30, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  policyHead: { backgroundColor: '#fff', paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  policyIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  policySection: { backgroundColor: '#fff', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0' },
   topupOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.65)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   topupBox: { backgroundColor: '#fff', borderRadius: 20, maxWidth: 440, width: '100%', padding: 24 },
   topupError: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#fef2f2', color: '#b91c1c', borderWidth: 1, borderColor: '#fecaca', fontSize: 12.5, fontWeight: '600', marginBottom: 14, overflow: 'hidden' },

@@ -6,13 +6,9 @@ import { apiUrl } from '../../../utils/api';
 import { openRazorpayCheckout } from '../../../utils/razorpayCheckout';
 import { boundedFetch, clearPortalRequests } from '../../../utils/portalRequests';
 import { SELLER_SESSION_CHANGED } from '../../../utils/portalSession';
-import { useTickets } from '../../../utils/useTickets';
-import TicketDetailModal from '../../../components/support/TicketDetailModal';
-import LiveChatPanel from '../../../components/support/LiveChatPanel';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { useRefreshHandler } from '../../../utils/refreshRegistry';
-import { AttachmentPreview, AttachmentUploader } from '../../../components/common/AttachmentPreview';
 
 const DEFAULT_NEUTRAL_AVATAR = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231e293b"/><circle cx="50" cy="38" r="20" fill="%2394a3b8"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%2394a3b8"/></svg>`;
 
@@ -38,7 +34,6 @@ const ProfilePage = () => {
     uploadLandmarkImage,
     fetchWalletBalance,
     setWalletBalance,
-    orders: userOrders,
   } = useUser();
 
   const handleDeleteAccount = () => {
@@ -149,27 +144,19 @@ const ProfilePage = () => {
   const [activeSection, setActiveSection] = useState(() => {
     const section = new URLSearchParams(window.location.search).get('section');
     if (section === 'wallet') return 'real-wallet';
-    if (section === 'support') return 'support';
-    return window.history.state?.accountSection || null;
+    const saved = window.history.state?.accountSection || null;
+    // Help & Support and Privacy Policy are their own pages now; ignore an old saved entry.
+    return saved === 'support' || saved === 'privacy' ? null : saved;
   });
-  // Help & Support: existing tickets, or live chat (?section=support&chat=1[&order=<id>]).
-  const [supportView, setSupportView] = useState(() => (new URLSearchParams(window.location.search).get('chat')
-    ? 'chat'
-    : window.history.state?.accountSupportView === 'chat' ? 'chat' : 'tickets'));
-  // Remember Tickets vs Chat on the same history entry, so a refresh reopens the same tab.
+  // Old links (/account?section=support[&chat=1&order=<id>]) open the Help & Support page.
   useEffect(() => {
-    if (activeSection !== 'support') return;
-    if (window.history.state?.accountSupportView === supportView) return;
-    window.history.replaceState({ ...(window.history.state || {}), accountSupportView: supportView }, '');
-  }, [activeSection, supportView]);
-  const [chatOrderId, setChatOrderId] = useState(() => new URLSearchParams(window.location.search).get('order') || '');
-  useEffect(() => {
-    const open = (e) => { setActiveSection('support'); setSupportView('chat'); setChatOrderId(e.detail?.orderId || ''); };
-    window.addEventListener('bulkimart:open-support-chat', open);
-    return () => window.removeEventListener('bulkimart:open-support-chat', open);
-  }, []);
-  const chatOrders = (userOrders || []).slice(0, 30).map((o) => ({ id: o._id, label: `${o.orderNo || o._id} · ${new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` }));
-
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('section') !== 'support') return;
+    params.delete('section');
+    const query = params.toString();
+    setActiveNav('support');
+    window.history.replaceState(window.history.state, '', `/support${query ? `?${query}` : ''}`);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Each Account section gets its own history entry, so the phone's back button closes the
   // section and lands on the Account menu instead of leaving the page for Home.
   const isPoppingRef = useRef(false);
@@ -332,58 +319,6 @@ const ProfilePage = () => {
   };
 
 
-  // Support ticket state — real backend-persisted tickets, not a fake
-  // client-side success screen.
-  const {
-    tickets: supportTickets, categories: supportCategories, loading: supportLoading,
-    fetchCategories: fetchSupportCategories, fetchMyTickets: fetchSupportTickets,
-    createTicket: createSupportTicket, fetchTicketDetail: fetchSupportTicketDetail,
-    sendMessage: sendSupportMessage, reopenTicket: reopenSupportTicket,
-  } = useTickets('customer');
-  const [supportCategory, setSupportCategory] = useState('');
-  const [supportSubject, setSupportSubject] = useState('');
-  const [supportDesc, setSupportDesc] = useState('');
-  const [supportFiles, setSupportFiles] = useState([]);
-  const [supportSubmitting, setSupportSubmitting] = useState(false);
-  const [supportJustCreated, setSupportJustCreated] = useState(null);
-  const [openSupportTicket, setOpenSupportTicket] = useState(null);
-  const [openSupportMessages, setOpenSupportMessages] = useState([]);
-
-  useEffect(() => {
-    if (activeSection === 'support') {
-      fetchSupportCategories();
-      fetchSupportTickets();
-    }
-  }, [activeSection]);
-
-  const handleSupportSubmit = async (e) => {
-    e.preventDefault();
-    if (!supportCategory || !supportSubject.trim() || !supportDesc.trim()) return;
-    setSupportSubmitting(true);
-    try {
-      const t = await createSupportTicket({ category: supportCategory, subject: supportSubject, description: supportDesc }, supportFiles);
-      setSupportJustCreated(t);
-      setSupportCategory(''); setSupportSubject(''); setSupportDesc(''); setSupportFiles([]);
-    } catch (err) {
-      ui.notify(err.message, {type:'error'});
-    } finally {
-      setSupportSubmitting(false);
-    }
-  };
-
-  const openSupportDetail = async (t) => {
-    const body = await fetchSupportTicketDetail(t._id);
-    setOpenSupportTicket(body.data.ticket);
-    setOpenSupportMessages(body.data.messages);
-  };
-
-  const refreshSupportDetail = async () => {
-    const body = await fetchSupportTicketDetail(openSupportTicket._id);
-    setOpenSupportTicket(body.data.ticket);
-    setOpenSupportMessages(body.data.messages);
-    fetchSupportTickets();
-  };
-
   // Settings states
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [langSelection, setLangSelection] = useState('English');
@@ -394,39 +329,6 @@ const ProfilePage = () => {
   });
   // Pull down on the wallet screen to reload the balance and history (replaces the Refresh wallet button).
   useRefreshHandler(() => loadRealWalletDetails(), activeSection === 'real-wallet');
-
-  // Dynamic Privacy Policy states
-  const [privacyTab, setPrivacyTab] = useState('user-policy');
-  const [privacyPolicyData, setPrivacyPolicyData] = useState(null);
-  const [loadingPrivacy, setLoadingPrivacy] = useState(false);
-
-  const loadPrivacyPolicy = async (slug) => {
-    setLoadingPrivacy(true);
-    try {
-      const res = await fetch(apiUrl(`/api/privacy-policy/${slug}`));
-      const body = await res.json();
-      if (body.success && body.data) {
-        setPrivacyPolicyData(body.data);
-      } else {
-        setPrivacyPolicyData(null);
-      }
-    } catch (err) {
-      setPrivacyPolicyData(null);
-    } finally {
-      setLoadingPrivacy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeSection === 'privacy') {
-      let targetTab = privacyTab;
-      if (privacyTab === 'delivery-policy') {
-        targetTab = 'user-policy';
-        setPrivacyTab('user-policy');
-      }
-      loadPrivacyPolicy(targetTab);
-    }
-  }, [activeSection, privacyTab, currentUser]);
 
   // Handle Profile Save
   const handleSaveProfile = async (e) => {
@@ -623,7 +525,7 @@ const ProfilePage = () => {
         </svg>
       ),
       badge: null,
-      action: () => setActiveSection('support')
+      action: () => setActiveNav('support')
     },
     {
       id: 'privacy',
@@ -634,7 +536,7 @@ const ProfilePage = () => {
         </svg>
       ),
       badge: null,
-      action: () => setActiveSection('privacy')
+      action: () => setActiveNav('privacy-policy')
     }
   ];
 
@@ -655,7 +557,6 @@ const ProfilePage = () => {
         onClick={() => {
           setActiveSection(null);
           setProfileMsg('');
-          setSupportJustCreated(null);
         }}
         style={{
           background: 'none',
@@ -1332,231 +1233,6 @@ const ProfilePage = () => {
         );
 
 
-
-      case 'support':
-        return (
-          <div style={{ padding: '24px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            <div role="tablist" aria-label="Help and support" style={{ display: 'flex', gap: 6, background: '#eaf9fe', borderRadius: 12, padding: 4 }}>
-              {[['tickets', 'Support Tickets'], ['chat', 'Chat with Support']].map(([id, label]) => (
-                <button key={id} type="button" role="tab" aria-selected={supportView === id} onClick={() => setSupportView(id)}
-                  style={{ flex: 1, border: 0, borderRadius: 9, padding: '10px 8px', fontWeight: 800, fontSize: 13, cursor: 'pointer', background: supportView === id ? '#ffffff' : 'transparent', color: supportView === id ? 'var(--primary-hover, #078ccb)' : '#475569', boxShadow: supportView === id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {supportView === 'chat' ? (
-              <LiveChatPanel relatedOrders={chatOrders} initialRelatedOrderId={chatOrderId} onCreateTicket={() => setSupportView('tickets')} />
-            ) : supportJustCreated ? (
-              <div style={{ textAlign: 'center', padding: '24px 10px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '12px', background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '48px' }}>✉️</span>
-                <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Ticket Submitted Successfully!</h4>
-                <p style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.5' }}>
-                  Your support ticket ID is <strong>#{supportJustCreated.ticketNumber}</strong>. Our team is reviewing the issue and will alert you shortly.
-                </p>
-                <button onClick={() => setSupportJustCreated(null)} className="auth-submit-btn" style={{ marginTop: '12px' }}>
-                  Back to Help
-                </button>
-              </div>
-            ) : (
-              <>
-                <h4 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '800' }}>Contact Customer Support</h4>
-                <p style={{ fontSize: '13px', color: '#64748b', lineHeight: '1.5', margin: 0 }}>
-                  Need help with an order, payment, or delivery timing? Open a support ticket and our team will get back within 24 hours.
-                </p>
-
-                <form onSubmit={handleSupportSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div className="auth-input-group">
-                    <label style={{ color: '#475569', fontWeight: '600' }}>Category</label>
-                    <select
-                      value={supportCategory}
-                      onChange={(e) => setSupportCategory(e.target.value)}
-                      required
-                      style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #cbd5e1', backgroundColor: '#ffffff', color: '#0f172a', fontSize: '14px' }}
-                    >
-                      <option value="">Select a category</option>
-                      {supportCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="auth-input-group">
-                    <label style={{ color: '#475569', fontWeight: '600' }}>Query Subject</label>
-                    <input type="text" placeholder="e.g. Wallet balance query" value={supportSubject} onChange={(e) => setSupportSubject(e.target.value)} required />
-                  </div>
-
-                  <div className="auth-input-group">
-                    <label style={{ color: '#475569', fontWeight: '600' }}>How can we assist you?</label>
-                    <textarea
-                      placeholder="Explain your problem or questions in details..."
-                      value={supportDesc}
-                      onChange={(e) => setSupportDesc(e.target.value)}
-                      style={{
-                        width: '100%',
-                        height: '100px',
-                        padding: '12px 14px',
-                        borderRadius: '10px',
-                        border: '1.5px solid #cbd5e1',
-                        backgroundColor: '#ffffff',
-                        color: '#0f172a',
-                        fontSize: '14px',
-                        outline: 'none',
-                        boxSizing: 'border-box',
-                        resize: 'none'
-                      }}
-                      required
-                    />
-                  </div>
-
-                  <div className="auth-input-group">
-                    <label style={{ color: '#475569', fontWeight: '600' }}>Attachments (optional, up to 5)</label>
-                    <AttachmentUploader
-                      files={supportFiles}
-                      onAddFiles={(selected) => setSupportFiles((prev) => [...prev, ...selected].slice(0, 5))}
-                      onRemoveFile={(idxToRemove) => setSupportFiles((prev) => prev.filter((_, idx) => idx !== idxToRemove))}
-                      maxFiles={5}
-                    />
-                  </div>
-
-                  <button type="submit" className="auth-submit-btn" disabled={supportSubmitting}>
-                    {supportSubmitting ? 'Submitting…' : 'Submit Support Ticket'}
-                  </button>
-                </form>
-
-                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
-                  <h4 style={{ margin: '0 0 12px', fontSize: '14px', color: '#0f172a', fontWeight: '800' }}>MY TICKETS</h4>
-                  {supportLoading ? (
-                    <p style={{ fontSize: 12, color: '#64748b' }}>Loading…</p>
-                  ) : supportTickets.length === 0 ? (
-                    <div style={{ padding: '16px', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                      <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>No tickets yet</p>
-                    </div>
-                  ) : supportTickets.map((t) => (
-                    <div
-                      key={t._id}
-                      onClick={() => openSupportDetail(t)}
-                      style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b' }}>#{t.ticketNumber}</span>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: 'var(--sf-highlight)', color: 'var(--sf-highlight-text)' }}>
-                          {(t.status || '').replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, marginTop: 6, color: '#0f172a' }}>{t.subject}</div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {openSupportTicket && (
-              <TicketDetailModal
-                ticket={openSupportTicket}
-                messages={openSupportMessages}
-                currentUserId={currentUser?._id}
-                onClose={() => setOpenSupportTicket(null)}
-                onReply={async (msg) => { await sendSupportMessage(openSupportTicket._id, msg); await refreshSupportDetail(); }}
-                onReopen={async () => { await reopenSupportTicket(openSupportTicket._id); await refreshSupportDetail(); }}
-              />
-            )}
-          </div>
-        );
-
-      case 'privacy':
-        const PRIVACY_ROLE_TABS = [
-          { slug: 'user-policy', label: 'User', icon: '👤' },
-          { slug: 'seller-policy', label: 'Seller', icon: '🏪' },
-        ];
-
-        // Ensure active tab is valid for current role visibility
-        const isTabValid = PRIVACY_ROLE_TABS.some((t) => t.slug === privacyTab);
-        const currentActiveTab = isTabValid ? privacyTab : 'user-policy';
-
-        return (
-          <div style={{ padding: '20px 20px 140px 20px', color: '#0f172a', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: '#f8fafc', minHeight: '100%' }}>
-            {/* Role Filter Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PRIVACY_ROLE_TABS.length}, 1fr)`, gap: '8px' }}>
-              {PRIVACY_ROLE_TABS.map((t) => {
-                const isActive = currentActiveTab === t.slug;
-                return (
-                  <button
-                    key={t.slug}
-                    onClick={() => setPrivacyTab(t.slug)}
-                    style={{
-                      padding: '10px 6px',
-                      borderRadius: '12px',
-                      border: isActive ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
-                      backgroundColor: isActive ? 'var(--sf-highlight, #FFF0B3)' : '#ffffff',
-                      color: isActive ? 'var(--sf-action-hover, #B50918)' : '#475569',
-                      fontSize: '12px',
-                      fontWeight: isActive ? '800' : '600',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: isActive ? '0 2px 8px color-mix(in srgb, var(--sf-primary, #B50918) 14%, transparent)' : 'none',
-                    }}
-                  >
-                    <span style={{ fontSize: '16px' }}>{t.icon}</span>
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {loadingPrivacy ? (
-              <div style={{ backgroundColor: '#ffffff', padding: '30px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Loading privacy policy...</p>
-              </div>
-            ) : !privacyPolicyData ? (
-              <div style={{ backgroundColor: '#ffffff', padding: '30px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Privacy policy content unavailable for this role.</p>
-              </div>
-            ) : (
-              <>
-                <div style={{ backgroundColor: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'var(--sf-highlight, #FFF0B3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sf-action-hover, #B50918)', flexShrink: 0 }}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#0f172a' }}>{privacyPolicyData.roleTitle}</h4>
-                      <span style={{ fontSize: '11px', color: '#64748b' }}>
-                        Version {privacyPolicyData.version || '1.0.0'} • Updated {new Date(privacyPolicyData.effectiveDate || privacyPolicyData.updatedAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
-                      </span>
-                    </div>
-                  </div>
-                  {privacyPolicyData.summary && (
-                    <p style={{ margin: 0, fontSize: '12px', lineHeight: '1.6', color: '#475569' }}>
-                      {privacyPolicyData.summary}
-                    </p>
-                  )}
-                </div>
-
-                {/* Policy Dynamic Sections */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {(privacyPolicyData.sections || []).map((sec, idx) => (
-                    <div key={sec.id || idx} style={{ backgroundColor: '#ffffff', padding: '14px 16px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
-                      <strong style={{ fontSize: '13px', color: '#0f172a', display: 'block', marginBottom: '4px' }}>{sec.title}</strong>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#64748b', lineHeight: '1.5' }}>
-                        {sec.content}
-                      </p>
-                      {sec.points && sec.points.length > 0 && (
-                        <ul style={{ margin: '8px 0 0 0', paddingLeft: '18px', fontSize: '11.5px', color: '#475569', lineHeight: '1.6' }}>
-                          {sec.points.map((pt, pIdx) => (
-                            <li key={pIdx}>{pt}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        );
 
       default:
         return null;

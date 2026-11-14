@@ -83,3 +83,6 @@
 .studio-upload-button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 14px;border:1px solid #0b7fa5;border-radius:8px;color:#0b7fa5;background:#fff;font-weight:700;font-size:13px;cursor:pointer}
 .studio-upload-button:hover{background:#eaf6fb}
 fieldset:disabled .studio-upload-button{opacity:.6;cursor:not-allowed}
+
+/* Banner library and deal pricing shown inside the Studio, under its tab bar. */
+.studio-embedded { margin-top: 16px; }

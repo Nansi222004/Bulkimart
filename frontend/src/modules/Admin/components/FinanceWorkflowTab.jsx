@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import useUrlState from '../../../utils/useUrlState';
 import { adminGet, adminPost, adminPatch, adminGetBlob } from '../../../utils/adminApi';
 import './FinanceWorkflow.css';
 import ModalPortal from '../../../components/ModalPortal';
@@ -43,7 +44,10 @@ export default function FinanceWorkflowTab({ initialTab = 'commissions', hideNav
   const [filtersApplied, setFiltersApplied] = useState({ search: '', status: '', from: '', to: '' });
   const [refundPreview, setRefundPreview] = useState(null), [refundProof, setRefundProof] = useState({ reason: '', reference: '' });
   const [review, setReview] = useState(false);
-  const [tab, setTab] = useState(initialTab), [rules, setRules] = useState([]), [flags, setFlags] = useState({});
+  // Standalone, the tab is kept in the URL (?tab=) for refresh. Embedded in Finance Center (hideNavigation),
+  // that page's own ?view= decides it, so the URL is not read here.
+  const urlTab = useUrlState('tab', initialTab), localTab = useState(initialTab);
+  const [tab, setTab] = hideNavigation ? localTab : urlTab, [rules, setRules] = useState([]), [flags, setFlags] = useState({});
   const [current, setCurrent] = useState([]), [coverage, setCoverage] = useState([]);
   const [draft, setDraft] = useState(empty), [rows, setRows] = useState([]), [balances, setBalances] = useState([]);
   const [report, setReport] = useState(null);

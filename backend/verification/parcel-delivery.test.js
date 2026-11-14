@@ -18,7 +18,7 @@ const [{customerParcelRouter,adminParcelRouter,driverParcelRouter},{default:Parc
 const app=express();app.set('trust proxy',1);app.use(express.json({verify:(req,_res,buf)=>{req.rawBody=Buffer.from(buf);}}));app.use('/c',customerParcelRouter);app.use('/a',adminParcelRouter);app.use('/d',driverParcelRouter);app.post('/webhook',razorpayWebhook);app.use(errorHandler);
 let testNetwork=0;
 let db,customer,other,driver,driver2,partner,partner2,admin,limited,ops;
-const fixture=()=>({approvalReference:'SYNTHETIC TEST POLICY ONLY',terms:'Synthetic admin-reviewed cancellation and delivery failure terms; exact cash at delivery. No production approval.',effectiveAt:'2020-01-01',categories:['test_documents'],prohibitedItems:['synthetic_restricted'],areas:[{name:'Synthetic test area',pincodes:['560001'],lat:12.97,lng:77.59,radiusKm:10}],basePaise:1000,perKmPaise:200,minimumPaise:1000,maximumPaise:10000,driverBasePaise:500,driverPerKmPaise:100,quoteSeconds:300,acceptanceSeconds:30,maxAttempts:2,maxActiveTasks:1,locationMaxAgeSeconds:300,maxWeightKg:5,maxDimensionCm:50,assignmentRadiusKm:5,maxRouteKm:20,taxTreatment:'inclusive',taxRateBps:0,surcharges:'none',cancellationMode:'admin_review',failureMode:'admin_review',cashCollectionPoint:'delivery',partialCash:false,payDriverEnabled:true,payDriverCategories:['test_documents']});
+const fixture=()=>({approvalReference:'SYNTHETIC TEST POLICY ONLY',terms:'Synthetic admin-reviewed cancellation and delivery failure terms; exact cash at delivery. No production approval.',effectiveAt:'2020-01-01',categories:['test_documents'],prohibitedItems:['synthetic_restricted'],areas:[{name:'Synthetic test area',pincodes:['560001'],lat:12.97,lng:77.59,radiusKm:10}],basePaise:1000,perKmPaise:200,minimumPaise:1000,maximumPaise:10000,driverBasePaise:500,driverPerKmPaise:100,quoteSeconds:300,acceptanceSeconds:30,maxAttempts:2,maxActiveTasks:1,locationMaxAgeSeconds:300,maxWeightKg:5,maxDimensionCm:50,assignmentRadiusKm:5,maxRouteKm:20,taxTreatment:'inclusive',taxRateBps:0,surcharges:'none',cancellationMode:'admin_review',failureMode:'admin_review',cashCollectionPoint:'delivery',partialCash:false,payDriverEnabled:true,payDriverCategories:['test_documents'],customerCancel:'admin_review'});
 const details=()=>({pickup:{address:'Private pickup fixture',name:'Sender',phone:'9876500011',pincode:'560001',lat:12.97,lng:77.59},dropoff:{address:'Private dropoff fixture',name:'Recipient',phone:'9876500012',pincode:'560001',lat:12.98,lng:77.60},category:'test_documents',description:'Synthetic parcel',weightKg:1,dimensions:[10,10,10],acceptRestrictions:true});
 function auth(r,u=customer,type='user',role='buyer'){return r.set('X-Forwarded-For',`192.0.2.${testNetwork}`).set('Authorization',`Bearer ${jwt.sign({id:String(u._id),type,...(type==='user'?{role}:{})},JWT_SECRET)}`);}
 const adm=r=>auth(r,admin,'admin'),drv=(r,second=false)=>auth(r,second?driver2:driver,'user','delivery');
@@ -52,6 +52,8 @@ test.each([
   expect(result.body.message).toMatch(message);
   expect(await Quote.countDocuments()).toBe(0);expect(await Parcel.countDocuments()).toBe(0);
 });
+// The no-rider search window (acceptanceSeconds × maxAttempts) has passed: the next retry hands over to an admin.
+async function searchWindowPassed(id){await Parcel.updateOne({_id:id},{$set:{'assignment.searchStartedAt':new Date(0)}});await assignment.assignParcel(id);return Parcel.findById(id);}
 async function booking(method='pay_driver',key=crypto.randomUUID(),quote){const quoteRow=quote||await q();return (await auth(request(app).post('/c/bookings')).set('Idempotency-Key',key).send({quoteId:quoteRow._id,policyVersion:1,paymentMethod:method,acceptTerms:true}).expect(201)).body.data;}
 const adminDetail=async id=>(await adm(request(app).get(`/a/bookings/${id}`)).expect(200)).body.data;
 const driverDetail=async(id,second=false)=>(await drv(request(app).get(`/d/bookings/${id}`),second).expect(200)).body.data;
@@ -102,12 +104,13 @@ test('customer ownership, driver privacy and admin finance permission enforcemen
   const second=await driverDetail(b._id,true);expect(JSON.stringify(second)).not.toMatch(/Private pickup|9876500011|pickupCode|requestHash/);const offer=await driverDetail(b._id);expect(JSON.stringify(offer)).not.toMatch(/Private pickup|9876500011|pickupCode|requestHash/);await accept(b);expect(JSON.stringify(await driverDetail(b._id))).toContain('Private pickup');await drv(request(app).get(`/d/bookings/${b._id}`),true).expect(404);
 });
 test('all eligible drivers receive offers and only acceptance reserves the winning rider',async()=>{const b=await booking();const row=await Parcel.findById(b._id);expect(row.assignment.offer.partnerIds).toEqual([String(partner._id),String(partner2._id)]);expect((await Partner.findById(partner._id)).isAvailable).toBe(true);expect((await Partner.findById(partner2._id)).isAvailable).toBe(true);await accept(b);const p=await Partner.findById(partner._id);expect(p.isAvailable).toBe(false);expect(riderIneligibility(p,driver,{},{})).toBe('parcel_reserved');expect((await Partner.findById(partner2._id)).isAvailable).toBe(true);});
-test('suspended, inactive, offline and stale drivers are excluded with explicit admin fallback',async()=>{await Partner.updateOne({_id:partner._id},{$set:{status:'suspended'}});await Partner.updateOne({_id:partner2._id},{$set:{'currentLocation.updatedAt':new Date(0)}});const b=await booking();expect(b.status).toBe('needs_admin_assignment');const d=await adminDetail(b._id);expect(d.assignment.reason).toBe('no_eligible_driver');});
+test('suspended, inactive, offline and stale drivers are excluded with explicit admin fallback',async()=>{await Partner.updateOne({_id:partner._id},{$set:{status:'suspended'}});await Partner.updateOne({_id:partner2._id},{$set:{'currentLocation.updatedAt':new Date(0)}});const b=await booking();expect(b.status).toBe('searching_for_driver');expect((await Parcel.findById(b._id)).assignment.reason).toBe('waiting_for_driver');expect((await searchWindowPassed(b._id)).status).toBe('needs_admin_assignment');const d=await adminDetail(b._id);expect(d.assignment.reason).toBe('no_eligible_driver');});
+test('no rider at booking keeps searching quietly, then offers the rider who becomes available',async()=>{await Partner.updateMany({},{$set:{'currentLocation.updatedAt':new Date(0)}});const b=await booking();expect(b.status).toBe('searching_for_driver');const v=(await Parcel.findById(b._id)).__v;notify.mockClear();await assignment.sweepParcelsOnce();let row=await Parcel.findById(b._id);expect(row.status).toBe('searching_for_driver');expect(row.__v).toBe(v);expect(notify).not.toHaveBeenCalled();await Partner.updateOne({_id:partner._id},{$set:{'currentLocation.updatedAt':new Date()}});await assignment.sweepParcelsOnce();row=await Parcel.findById(b._id);expect(row.status).toBe('searching_for_driver');expect(row.assignment.offer.partnerIds).toEqual([String(partner._id)]);});
 test('existing active orders exclude driver from parcel offers',async()=>{await Order.collection.insertOne({deliveryPartnerId:partner._id,status:'dispatched'});const b=await booking();expect((await Parcel.findById(b._id)).assignment.offer.partnerIds).toEqual([String(partner2._id)]);});
 test('concurrent dispatch creates one broadcast and leaves riders available',async()=>{const b=await booking('online'),c=await checkout(b);capture(c);await verify(b,c);await Promise.all([assignment.assignParcel(b._id),assignment.assignParcel(b._id)]);const row=await Parcel.findById(b._id);expect(row.assignment.attempts).toHaveLength(2);expect(new Set(row.assignment.attempts.map(a=>a.token)).size).toBe(1);expect(await Partner.countDocuments({'parcelReservation.bookingId':row._id})).toBe(0);});
 test('expired broadcast cannot be accepted; sweep rebroadcasts and respects the round limit',async()=>{const b=await booking(),old=await driverDetail(b._id);await Parcel.updateOne({_id:b._id},{$set:{'assignment.offer.expiresAt':new Date(0)}});await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'accept',version:old.version,token:old.offer.token}).expect(409);await assignment.sweepParcelsOnce();let row=await Parcel.findById(b._id);expect(row.assignment.attempts[0].outcome).toBe('timeout');expect(row.assignment.offer.partnerIds).toEqual([String(partner._id),String(partner2._id)]);expect(row.assignment.offer.token).not.toBe(old.offer.token);await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'accept',version:old.version,token:old.offer.token}).expect(409);await Parcel.updateOne({_id:b._id},{$set:{'assignment.offer.expiresAt':new Date(0)}});await assignment.sweepParcelsOnce();row=await Parcel.findById(b._id);expect(row.status).toBe('needs_admin_assignment');expect(row.assignment.reason).toBe('attempts_exhausted');expect((await Partner.findById(partner._id)).isAvailable).toBe(true);});
-test('rejection retries and exhaustion enters admin queue; old driver cannot see next offer token',async()=>{const b=await booking(),d=await driverDetail(b._id);const response=await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'reject',token:d.offer.token,version:d.version}).expect(200);expect(response.body.data).toEqual({status:'rejected'});const d2=await driverDetail(b._id,true);await drv(request(app).post(`/d/bookings/${b._id}/offer`),true).send({action:'reject',token:d2.offer.token,version:d2.version}).expect(200);expect((await Parcel.findById(b._id)).status).toBe('needs_admin_assignment');});
-test('manual fallback assignment rechecks eligibility and requires version/reason',async()=>{await Partner.updateMany({},{$set:{isAvailable:false}});const b=await booking();await adm(request(app).post(`/a/bookings/${b._id}/assign`)).send({partnerId:String(partner._id),version:b.version,reason:'Fixture'}).expect(409);await Partner.updateOne({_id:partner._id},{$set:{isAvailable:true}});const d=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/assign`)).send({partnerId:String(partner._id),version:d.version,reason:'Fixture fallback'}).expect(200);expect((await Parcel.findById(b._id)).assignment.offer.partnerIds).toEqual([String(partner._id)]);});
+test('rejection retries and exhaustion enters admin queue; old driver cannot see next offer token',async()=>{const b=await booking(),d=await driverDetail(b._id);const response=await drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'reject',token:d.offer.token,version:d.version}).expect(200);expect(response.body.data).toEqual({status:'rejected'});const d2=await driverDetail(b._id,true);await drv(request(app).post(`/d/bookings/${b._id}/offer`),true).send({action:'reject',token:d2.offer.token,version:d2.version}).expect(200);expect((await Parcel.findById(b._id)).status).toBe('searching_for_driver');expect((await searchWindowPassed(b._id)).status).toBe('needs_admin_assignment');});
+test('manual fallback assignment rechecks eligibility and requires version/reason',async()=>{await Partner.updateMany({},{$set:{isAvailable:false}});const b0=await booking();const b={...b0,version:(await searchWindowPassed(b0._id)).__v};await adm(request(app).post(`/a/bookings/${b._id}/assign`)).send({partnerId:String(partner._id),version:b.version,reason:'Fixture'}).expect(409);await Partner.updateOne({_id:partner._id},{$set:{isAvailable:true}});const d=await adminDetail(b._id);await adm(request(app).post(`/a/bookings/${b._id}/assign`)).send({partnerId:String(partner._id),version:d.version,reason:'Fixture fallback'}).expect(200);expect((await Parcel.findById(b._id)).assignment.offer.partnerIds).toEqual([String(partner._id)]);});
 test('concurrent offer acceptance has one winner and stale mutation is rejected',async()=>{const b=await booking(),d=await driverDetail(b._id),send=()=>drv(request(app).post(`/d/bookings/${b._id}/offer`)).send({action:'accept',token:d.offer.token,version:d.version});const r=await Promise.all([send(),send()]);expect(r.map(x=>x.status).sort()).toEqual([200,409]);await drv(request(app).post(`/d/bookings/${b._id}/actions`)).send({action:'driver_arriving',version:d.version}).expect(409);});
 test('online pending booking never dispatches or accepts driver cash',async()=>{const b=await booking('online');expect(b.status).toBe('payment_pending');await expect(assignment.assignParcel(b._id)).rejects.toThrow(/dispatch eligible/);expect(await Partner.countDocuments({'parcelReservation.bookingId':b._id})).toBe(0);});
 test('verified online payment immediately broadcasts to eligible riders without waiting for the sweep',async()=>{
@@ -139,7 +142,8 @@ test('an expired paid booking in admin fallback can be re-offered without anothe
   const b=await booking('online'),checkoutData=await checkout(b);capture(checkoutData);await verify(b,checkoutData);
   await Parcel.updateOne({_id:b._id},{$set:{'assignment.offer.expiresAt':new Date(0)}});
   await Partner.updateMany({},{$set:{'currentLocation.updatedAt':new Date(0)}});await assignment.sweepParcelsOnce();
-  let row=await Parcel.findById(b._id);expect(row.status).toBe('needs_admin_assignment');
+  expect((await Parcel.findById(b._id)).status).toBe('searching_for_driver');
+  let row=await searchWindowPassed(b._id);expect(row.status).toBe('needs_admin_assignment');
   await Partner.updateOne({_id:partner._id},{$set:{'currentLocation.updatedAt':new Date()}});
   await adm(request(app).post(`/a/bookings/${b._id}/assign`)).send({partnerId:String(partner._id),version:row.__v,reason:'Re-offer paid booking after rider location refreshed'}).expect(200);
   await accept(b);row=await Parcel.findById(b._id);expect(row.paymentStatus).toBe('paid');expect(row.status).toBe('driver_assigned');
@@ -178,6 +182,15 @@ test.each(['busy','offline','stale','outside radius'])('acceptance rechecks ride
 test('notification fanout reaches both riders for offer and withdrawal without private details',async()=>{
   notify.mockClear();const b=await booking();
   for(const p of [partner,partner2])expect(notify.mock.calls.some(([id,opts])=>id===String(p._id)&&opts.route==='/delivery/parcels')).toBe(true);
+  // Each offered rider gets one timed offer push (earning + deadline), not a second generic update.
+  for(const p of [partner,partner2]){
+    const sent=notify.mock.calls.filter(([id])=>id===String(p._id)).map(([,opts])=>opts);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({event:'PARCEL_OFFER',metadata:{parcelDeliveryId:String(b._id)}});
+    expect(sent[0].title).toMatch(/New parcel request — earn ₹/);
+    expect(sent[0].message).toMatch(/Accept within \d+ seconds/);
+    expect(new Date(sent[0].metadata.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  }
   notify.mockClear();await accept(b);
   for(const p of [partner,partner2])expect(notify.mock.calls.some(([id,opts])=>id===String(p._id)&&opts.event==='PARCEL_UPDATED')).toBe(true);
   for(const args of notify.mock.calls)expect(JSON.stringify(args)).not.toMatch(/Private pickup|9876500011|pickupCode/);
@@ -339,7 +352,7 @@ test('readiness: an incomplete ASSIGNED reverse pickup blocks parcel assignment'
   const {default:Return}=await import('../models/Return.js');
   await Partner.updateOne({_id:partner2._id},{$set:{isAvailable:false}});
   await Return.collection.insertOne({returnNumber:'SYNTHETIC-INCOMPLETE',pickup:{partnerId:partner._id,status:'ASSIGNED'}});
-  const b=await booking();expect(b.status).toBe('needs_admin_assignment');expect(await Delivery.countDocuments()).toBe(0);
+  const b=await booking();expect(b.status).toBe('searching_for_driver');expect((await searchWindowPassed(b._id)).status).toBe('needs_admin_assignment');expect(await Delivery.countDocuments()).toBe(0);
 });
 test('readiness: driver task mutations require the booking reservation to remain held',async()=>{
   const b=await booking();await accept(b);
@@ -744,4 +757,109 @@ test('online boost is returned to the wallet when the original payment is refund
   await adm(request(app).post(`/a/bookings/${b._id}/refund`)).send({key}).expect(200);
   expect((await adminDetail(b._id)).refund.refundedPaise).toBe(2040);
   expect((await User.findById(customer._id)).wallet.balance).toBe(20);
+});
+
+// ---- Vehicles (select-vehicle screen) and instant customer cancellation
+const vehicleFixture=()=>({...fixture(),maximumPaise:50000,customerCancel:undefined,vehicles:[
+  {id:'two_wheeler',name:'2 Wheeler',riderVehicleTypes:['bike'],maxWeightKg:20,dimensionsCm:[40,40,40],basePaise:4000,perKmPaise:1000,minimumPaise:4000,driverBasePaise:3000,driverPerKmPaise:600},
+  {id:'three_wheeler',name:'3 Wheeler',riderVehicleTypes:['auto'],maxWeightKg:500,dimensionsCm:[180,140,150],basePaise:6000,perKmPaise:1500,minimumPaise:6000,driverBasePaise:4500,driverPerKmPaise:1000},
+  {id:'hidden',name:'Hidden',enabled:false,riderVehicleTypes:['car'],maxWeightKg:50,dimensionsCm:[50,50,50],basePaise:1,perKmPaise:1,minimumPaise:1,driverBasePaise:0,driverPerKmPaise:0},
+]});
+const useVehicles=async()=>{const p=await Policy.findById('parcel');await adm(request(app).post('/a/policy')).send({version:p.version,config:vehicleFixture()}).expect(200);};
+const goods=()=>{const d=details();delete d.weightKg;delete d.dimensions;delete d.description;return d;};
+const custView=async b=>(await auth(request(app).get(`/c/bookings/${b._id}`)).expect(200)).body.data;
+async function vehicleBooking(vehicleId,method='pay_driver',input=goods()){const quote=(await auth(request(app).post('/c/quotes')).send(input).expect(201)).body.data;return (await auth(request(app).post('/c/bookings')).set('Idempotency-Key',crypto.randomUUID()).send({quoteId:quote._id,policyVersion:2,paymentMethod:method,acceptTerms:true,vehicleId}).expect(201)).body.data;}
+test('policy validates vehicles: rider types, size, unique codes and at least one enabled',()=>{
+  expect(()=>policy.validateParcelPolicy(vehicleFixture())).not.toThrow();
+  const bad=[v=>({...v,riderVehicleTypes:['truck']}),v=>({...v,riderVehicleTypes:[]}),v=>({...v,dimensionsCm:[1,2]}),v=>({...v,id:'bad code!'}),v=>({...v,minimumPaise:0}),v=>({...v,maxWeightKg:6000})];
+  for(const change of bad){const c=vehicleFixture();c.vehicles[0]=change(c.vehicles[0]);expect(()=>policy.validateParcelPolicy(c)).toThrow();}
+  const dup=vehicleFixture();dup.vehicles[1].id='two_wheeler';expect(()=>policy.validateParcelPolicy(dup)).toThrow(/used twice/);
+  const off=vehicleFixture();off.vehicles.forEach(v=>{v.enabled=false;});expect(()=>policy.validateParcelPolicy(off)).toThrow(/at least one/);
+  expect(policy.validateParcelPolicy(fixture()).vehicles).toEqual([]);
+});
+test('one quote prices every enabled vehicle without weight or size; goods that are too heavy grey a vehicle out',async()=>{
+  await useVehicles();
+  partner.vehicleType='bike';await partner.save();
+  const catalogue=(await request(app).get('/c/catalogue').expect(200)).body.data;
+  expect(catalogue.vehicles.map(v=>v.id)).toEqual(['two_wheeler','three_wheeler']);expect(catalogue.customerCancel).toBe('instant_before_assignment');
+  const quote=(await auth(request(app).post('/c/quotes')).send(goods()).expect(201)).body.data;
+  const [two,three]=quote.vehicleOptions;
+  // 5.2 km: ₹40 + 5.2 × ₹10 = ₹92; ₹60 + 5.2 × ₹15 = ₹138
+  expect(two).toMatchObject({vehicle:{id:'two_wheeler',name:'2 Wheeler',maxWeightKg:20},available:true,pricing:{totalPaise:9200}});
+  expect(three).toMatchObject({available:true,pricing:{totalPaise:13800},etaMinutes:null});
+  expect(two.etaMinutes).toBeGreaterThan(0);
+  expect(JSON.stringify(quote)).not.toMatch(/driverPaise|riderVehicleTypes/);
+  const heavy=(await auth(request(app).post('/c/quotes')).send({...goods(),weightKg:100}).expect(201)).body.data;
+  expect(heavy.vehicleOptions[0]).toMatchObject({available:false,reason:'too_large'});expect(heavy.vehicleOptions[0]).not.toHaveProperty('pricing');
+  expect(heavy.vehicleOptions[1].available).toBe(true);
+  await auth(request(app).post('/c/quotes')).send({...goods(),weightKg:600}).expect(400);
+  const r=await auth(request(app).post('/c/bookings')).set('Idempotency-Key',crypto.randomUUID()).send({quoteId:heavy._id,policyVersion:2,paymentMethod:'pay_driver',acceptTerms:true,vehicleId:'two_wheeler'}).expect(409);
+  expect(r.body.message).toMatch(/cannot carry/);
+  await auth(request(app).post('/c/bookings')).set('Idempotency-Key',crypto.randomUUID()).send({quoteId:heavy._id,policyVersion:2,paymentMethod:'pay_driver',acceptTerms:true}).expect(400);
+  await auth(request(app).post('/c/bookings')).set('Idempotency-Key',crypto.randomUUID()).send({quoteId:heavy._id,policyVersion:2,paymentMethod:'pay_driver',acceptTerms:true,vehicleId:'hidden'}).expect(400);
+});
+test('a vehicle booking freezes that vehicle fare and is offered only to riders with a matching vehicle',async()=>{
+  await useVehicles();
+  partner.vehicleType='bike';partner2.vehicleType='auto';await partner.save();await partner2.save();
+  const b=await vehicleBooking('three_wheeler');
+  expect(b.feePaise).toBe(13800);expect(b.service).toEqual({id:'three_wheeler',name:'3 Wheeler',icon:'auto'});
+  const row=await Parcel.findById(b._id);
+  expect(row.details).toMatchObject({weightKg:500,dimensions:[180,140,150],packages:1,description:'test_documents',vehicle:{id:'three_wheeler',riderVehicleTypes:['auto']}});
+  expect(row.pricing).toMatchObject({totalPaise:13800,driverPaise:4500+5200});expect(row.pricing.vehicleOptions).toBeUndefined();
+  expect(row.assignment.offer.partnerIds).toEqual([String(partner2._id)]);
+  expect(await assignment.parcelRiderIneligibility(await Partner.findById(partner._id),row,null)).toBe('vehicle_mismatch');
+  await drv(request(app).get(`/d/bookings/${b._id}`)).expect(404);
+  expect((await driverDetail(b._id,true)).vehicle).toEqual({id:'three_wheeler',name:'3 Wheeler'});
+});
+test('cancel before a rider accepts is instant: offers are withdrawn and a paid fare returns to the wallet',async()=>{
+  await useVehicles();
+  partner.vehicleType='bike';await partner.save();
+  const cash=await vehicleBooking('two_wheeler');
+  let d=await custView(cash);
+  notify.mockClear();
+  const done=(await auth(request(app).post(`/c/bookings/${cash._id}/cancellation`)).send({version:d.version,reason:'Changed my mind'}).expect(200)).body.data;
+  expect(done.status).toBe('cancelled');expect(done.canCancel).toBe(false);
+  const row=await Parcel.findById(cash._id);
+  expect(row.assignment.offer).toBeUndefined();expect(row.assignment.attempts.every(a=>a.outcome!=='offered')).toBe(true);
+  expect(row.cancellation).toMatchObject({status:'approved',instant:true,reason:'Changed my mind'});
+  expect((await Partner.findById(partner._id)).isAvailable).toBe(true);
+  expect(notify.mock.calls.filter(([,o])=>/cancellation requested/.test(o?.title||''))).toHaveLength(0);
+  // Online and paid, still searching: the full fare goes back to the Bulkimart wallet at once.
+  const quote=(await auth(request(app).post('/c/quotes')).send(goods()).expect(201)).body.data;
+  const b=(await auth(request(app).post('/c/bookings')).set('Idempotency-Key',crypto.randomUUID()).send({quoteId:quote._id,policyVersion:2,paymentMethod:'online',acceptTerms:true,vehicleId:'two_wheeler'}).expect(201)).body.data;
+  const c=(await auth(request(app).post(`/c/bookings/${b._id}/payment`)).set('Idempotency-Key',crypto.randomUUID()).send({policyVersion:2,acceptTerms:true}).expect(200)).body.data;
+  capture(c);expect((await verify(b,c)).status).toBe(200);
+  d=await custView(b);expect(d.status).toBe('searching_for_driver');
+  const cancelled=(await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Driver was not allocated'}).expect(200)).body.data;
+  expect(cancelled.status).toBe('cancelled');expect(cancelled.refund).toMatchObject({status:'confirmed',refundedPaise:9200,toWallet:true});
+  expect((await User.findById(customer._id)).wallet.balance).toBe(92);
+});
+test('once a rider has accepted, a customer cancellation still goes to admin review',async()=>{
+  await useVehicles();
+  partner.vehicleType='bike';await partner.save();
+  const b=await vehicleBooking('two_wheeler');await accept(b);
+  const d=await custView(b);
+  const r=(await auth(request(app).post(`/c/bookings/${b._id}/cancellation`)).send({version:d.version,reason:'Changed my mind'}).expect(200)).body.data;
+  expect(r.status).toBe('cancellation_review');
+});
+test('an approved rider can change vehicle while free, not while carrying a parcel, and parcel offers follow the new vehicle',async()=>{
+  const {default:deliveryRoutes}=await import('../routes/delivery.routes.js');
+  const riderApp=express();riderApp.set('trust proxy',1);riderApp.use(express.json());riderApp.use('/r',deliveryRoutes);riderApp.use(errorHandler);
+  const put=fields=>{let r=auth(request(riderApp).put('/r/vehicle'),driver,'user','delivery');for(const [k,v] of Object.entries(fields))r=r.field(k,v);return r;};
+  await useVehicles();
+  partner.vehicleType='bike';partner.vehicleNo='MH31AB1234';partner.drivingLicense={no:'MH3120230001234',url:'https://example.test/licence.jpg'};await partner.save();
+  // Needs a valid licence number for a motor vehicle, like registration.
+  await put({vehicleType:'auto',vehicleNo:'MH31AB9999',licenseNo:'bad'}).expect(400);
+  const changed=(await put({vehicleType:'auto',vehicleNo:'MH31AB9999',licenseNo:'MH3120230001234'}).expect(200)).body.data;
+  expect(changed).toMatchObject({vehicleType:'auto',vehicleNo:'MH31AB9999'});
+  const saved=await Partner.findById(partner._id);
+  expect(saved.vehicleChanges.at(-1)).toMatchObject({fromType:'bike',fromNo:'MH31AB1234',toType:'auto',toNo:'MH31AB9999'});
+  expect(notify.mock.calls.some(([o])=>o?.title==='Rider changed vehicle')).toBe(true);
+  // The 3 Wheeler booking now reaches this rider.
+  const b=await vehicleBooking('three_wheeler');
+  expect((await Parcel.findById(b._id)).assignment.offer.partnerIds).toContain(String(partner._id));
+  await accept(b);
+  const busy=await put({vehicleType:'bike',vehicleNo:'MH31AB1234',licenseNo:'MH3120230001234'}).expect(409);
+  expect(busy.body.message).toMatch(/Finish (your current delivery|or resolve the active parcel task)/);
+  expect((await Partner.findById(partner._id)).vehicleType).toBe('auto');
 });

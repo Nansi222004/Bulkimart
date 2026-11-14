@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 import { useToast } from '../components/Toast';
 import * as deliveryApi from '../services/delivery.api';
 import { connectRiderSocket, disconnectRiderSocket, onRiderEvent } from '../services/socket';
-import { getCurrentPoint, watchPoint } from '../services/geo';
+import { getCurrentPoint, requestLocationPermission, watchPoint } from '../services/geo';
 import { registerPush } from '../services/push';
 import { getUnreadCount } from '../services/notifications.api';
 import { codDueRupees, validateCodCollection } from '../utils/money';
@@ -48,6 +48,8 @@ export function DutyProvider({ children }) {
   const [activeLoaded, setActiveLoaded] = useState(false);
   const [returnPickups, setReturnPickups] = useState({ pending: [], active: [], history: [] });
   const [returnOffer, setReturnOffer] = useState(null);
+  const [parcelOffer, setParcelOffer] = useState(null); // a parcel booking carrying a live `offer`
+  const closedParcelOffers = useRef(new Set());          // offer tokens answered or expired on this phone
   const [summary, setSummary] = useState(null);       // GET /earnings/summary data
   const [summaryError, setSummaryError] = useState('');
   const [presence, setPresence] = useState({ state: 'idle', message: '', updatedAt: null });
@@ -102,6 +104,14 @@ export function DutyProvider({ children }) {
     } catch { /* keep the current offer; the next poll reconciles */ }
   }, [approved, online]);
 
+  const checkParcelOffers = useCallback(async () => {
+    if (!approved || !online) return;
+    try {
+      const open = (await deliveryApi.getParcelOffers()).filter((b) => !closedParcelOffers.current.has(b.offer.token));
+      setParcelOffer((curr) => (curr && open.some((b) => b.offer.token === curr.offer.token) ? curr : open[0] || null));
+    } catch { /* keep the current offer; the next poll reconciles */ }
+  }, [approved, online]);
+
   const loadReturnPickups = useCallback(async () => {
     if (!approved) return;
     try {
@@ -130,7 +140,12 @@ export function DutyProvider({ children }) {
   }, [approved, restoreActive, loadSummary, loadReturnPickups]);
 
   // Push: an approved rider is reachable even off duty (same as the web portal).
-  useEffect(() => { if (approved) registerPush({ askPermission: true }); }, [approved, profile?._id]);
+  // Location is asked on first open too (right after the notification prompt), not only when going on duty,
+  // so a fresh install shows both prompts. Both go through the permission queue, one dialog at a time.
+  useEffect(() => {
+    if (!approved) return;
+    (async () => { await registerPush({ askPermission: true }); await requestLocationPermission(); })();
+  }, [approved, profile?._id]);
 
   // ------------------------------------------------------------ live: socket + polling (foreground only)
   useEffect(() => {
@@ -143,25 +158,28 @@ export function DutyProvider({ children }) {
       onRiderEvent('return_pickup_ping', (incoming) => setReturnOffer((curr) => (curr && String(curr.returnId) === String(incoming?.returnId) ? curr : incoming))),
       onRiderEvent('notification_new', (n) => {
         if (['COD_CASH_SETTLED', 'PAYOUT_COMPLETED', 'PAYOUT_REJECTED'].includes(n?.event)) { refreshProfile(); loadSummary(); }
+        if (n?.event === 'PARCEL_OFFER' || n?.event === 'PARCEL_UPDATED') checkParcelOffers();
       }),
       onRiderEvent('rider_rating_updated', () => refreshProfile()),
-      onRiderEvent('connect', () => { checkOffers(); restoreActive(); }),
+      onRiderEvent('connect', () => { checkOffers(); checkParcelOffers(); restoreActive(); }),
     ];
     return () => offs.forEach((off) => off());
-  }, [approved, token, appActive, restoreActive, refreshProfile, loadSummary, checkOffers]);
+  }, [approved, token, appActive, restoreActive, refreshProfile, loadSummary, checkOffers, checkParcelOffers]);
 
   // No live connection in the background; push notifications reach the rider instead.
   useEffect(() => { if (!appActive || !approved) disconnectRiderSocket(); }, [appActive, approved]);
 
   useEffect(() => {
-    if (!online) { setOffer(null); setReturnOffer(null); return undefined; }
+    if (!online) { setOffer(null); setReturnOffer(null); setParcelOffer(null); return undefined; }
     if (!appActive) return undefined;
     checkOffers();
+    checkParcelOffers();
     const a = setInterval(checkOffers, OFFER_POLL_MS);
     const b = setInterval(loadReturnPickups, RETURN_POLL_MS);
+    const c = setInterval(checkParcelOffers, OFFER_POLL_MS);
     loadReturnPickups();
-    return () => { clearInterval(a); clearInterval(b); };
-  }, [online, appActive, checkOffers, loadReturnPickups]);
+    return () => { clearInterval(a); clearInterval(b); clearInterval(c); };
+  }, [online, appActive, checkOffers, loadReturnPickups, checkParcelOffers]);
 
   useEffect(() => {
     if (!approved || !appActive) return undefined;
@@ -307,6 +325,29 @@ export function DutyProvider({ children }) {
     catch (e) { if (e.status) setOffer(null); } // network: leave it for the next poll to reconcile
   }), [guarded]);
 
+  // ------------------------------------------------------------ parcel offers
+  // The server's `offer.expiresAt` is the deadline; an expired offer just closes (the server moves it on).
+  const closeParcelOffer = useCallback((b) => {
+    if (b?.offer?.token) closedParcelOffers.current.add(b.offer.token);
+    setParcelOffer(null);
+    checkParcelOffers(); // another offer may be waiting
+  }, [checkParcelOffers]);
+
+  const respondParcel = useCallback((b, action) => guarded('parcel-offer', async () => {
+    try {
+      await deliveryApi.respondParcelOffer(b, action);
+      closeParcelOffer(b);
+      toast.show(action === 'accept' ? 'Parcel assigned to you. Open it for pickup details.' : 'Parcel offer declined.', 'success');
+      return true;
+    } catch (e) {
+      if (e.status) { closeParcelOffer(b); toast.show(e.status === 409 || e.status === 404 ? 'This parcel is no longer available.' : (e.message || 'Could not answer this offer.'), 'error'); }
+      else toast.show(e.message || 'No connection. Try again.', 'error'); // network: keep it, the server never heard
+      return false;
+    }
+  }), [guarded, closeParcelOffer, toast]);
+  const acceptParcel = useCallback((b) => respondParcel(b, 'accept'), [respondParcel]);
+  const declineParcel = useCallback((b) => respondParcel(b, 'reject'), [respondParcel]);
+
   // ------------------------------------------------------------ active delivery
   const afterStage = useCallback(async (patch) => {
     const fresh = await restoreActive();
@@ -438,11 +479,13 @@ export function DutyProvider({ children }) {
     offer, acceptOffer, declineOffer, expireOffer,
     activeOrder, activeLoaded, restoreActive, markArrivedAtStore, confirmPickup, markArrivedAtCustomer, sendDeliveryCode, completeDelivery, cancelActive,
     returnPickups, loadReturnPickups, returnOffer, acceptReturn, declineReturn, expireReturn, sendReturnCode, confirmReturnPickup,
+    parcelOffer, checkParcelOffers, acceptParcel, declineParcel, closeParcelOffer,
     summary, summaryError, loadSummary,
     presence, tripSharing, riderLocation, unreadCount, loadUnread,
   }), [approved, online, toggling, setDuty, licenseExpired, codOutstanding, codBlocked, offer, acceptOffer, declineOffer, expireOffer,
     activeOrder, activeLoaded, restoreActive, markArrivedAtStore, confirmPickup, markArrivedAtCustomer, sendDeliveryCode, completeDelivery, cancelActive,
     returnPickups, loadReturnPickups, returnOffer, acceptReturn, declineReturn, expireReturn, sendReturnCode, confirmReturnPickup,
+    parcelOffer, checkParcelOffers, acceptParcel, declineParcel, closeParcelOffer,
     summary, summaryError, loadSummary, presence, tripSharing, riderLocation, unreadCount, loadUnread]);
 
   return <DutyContext.Provider value={value}>{children}</DutyContext.Provider>;

@@ -52,7 +52,7 @@ export async function checkConflicts(row) {
 export async function saveExperience(id, input, actor) {
   const existing = id ? await Experience.findById(id) : null;
   if (id && !existing) throw httpError(404, 'Configuration not found');
-  if (existing && input.revision !== existing.revision) throw httpError(409, 'This configuration changed. Reload before saving.');
+  if (existing && input.revision !== (existing.revision ?? 1)) throw httpError(409, 'This configuration changed. Reload before saving.');
   const kind = existing?.kind || input.kind;
   const values = validateExperience(input, kind);
   // A record with a live (or paused) publication keeps it: edits go to its draft copy,
@@ -76,7 +76,7 @@ export async function transitionExperience(id, action, revision, actor, draftRev
   if (!objectId(id)) throw httpError(400, 'Invalid configuration ID');
   const row = await Experience.findById(id).select('+history');
   if (!row) throw httpError(404, 'Configuration not found');
-  if (revision !== row.revision) throw httpError(409, 'This configuration changed. Reload before continuing.');
+  if (revision !== (row.revision ?? 1)) throw httpError(409, 'This configuration changed. Reload before continuing.');
   if (!['publish', 'pause', 'archive', 'rollback', 'discard'].includes(action)) throw httpError(400, 'Unsupported action');
   if (action === 'discard') {
     if (!row.draft) throw httpError(400, 'There is no draft to discard');
@@ -110,7 +110,10 @@ export async function transitionExperience(id, action, revision, actor, draftRev
 }
 export const adminDTO = row => {
   const { history, draft, ...rest } = row.toObject ? row.toObject() : row;
-  return { ...rest, lifecycle: lifecycle(row), canRollback: (history?.length || 0) > 1,
+  // A record inserted without `revision` (e.g. straight into the database) reads as revision 1, which is
+  // what the model default gives it when it is saved. Otherwise the editor sent no revision and every
+  // save was refused with "This configuration changed".
+  return { ...rest, revision: rest.revision ?? 1, lifecycle: lifecycle(row), canRollback: (history?.length || 0) > 1,
     draft: draft ? { values: draft.values, revision: draft.revision, savedAt: draft.savedAt, stale: draft.base !== liveHash(row) } : null };
 };
 

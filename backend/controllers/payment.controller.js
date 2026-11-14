@@ -211,6 +211,12 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
             metadata: { orderId: targetOrder._id },
             route: '/orders',
           }).catch((e) => console.error('[NOTIFICATION] notifyUser (paid order) failed:', e.message));
+          // Confirmation email listing every order paid in this checkout (sent once; see email.service).
+          const paidOrders = payment.groupRef
+            ? await Order.find({ groupRef: payment.groupRef, status: { $ne: ORDER_STATUS.CANCELLED } }).sort({ createdAt: 1 })
+            : [targetOrder];
+          const { emailOrderConfirmation } = await import('../services/email.service.js');
+          void emailOrderConfirmation(payment.userId, paidOrders);
         }
       } catch { /* buyer notification failure is non-fatal */ }
 

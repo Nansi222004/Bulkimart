@@ -1071,9 +1071,9 @@ export const OrderTrackingPage = () => {
           <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
           <button type="button" className="order-action-btn-sm" style={{ alignSelf: 'flex-start' }}
             onClick={() => {
-              // Live chat about this order: Profile → Help & Support → Chat, order preselected.
-              window.history.replaceState(null, '', `?section=support&chat=1&order=${selectedOrder._id}`);
-              setActiveNav('account');
+              // Live chat about this order: Help & Support page → Chat, order preselected.
+              setActiveNav('support');
+              window.history.replaceState(window.history.state, '', `/support?chat=1&order=${selectedOrder._id}`);
               window.dispatchEvent(new CustomEvent('bulkimart:open-support-chat', { detail: { orderId: selectedOrder._id } }));
             }}>
             Chat with support about this order

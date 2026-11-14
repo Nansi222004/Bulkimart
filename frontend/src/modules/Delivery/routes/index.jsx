@@ -11,20 +11,22 @@ import RiderHistoryPage from '../pages/RiderHistoryPage';
 import ReturnPickupsPage from '../pages/ReturnPickupsPage';
 import DeliveryProfilePage from '../pages/DeliveryProfilePage';
 import DeliverySupportPage from '../pages/DeliverySupportPage';
+import PrivacyPolicyView from '../../../components/PrivacyPolicyView';
 import ParcelOperations from '../../../components/parcels/ParcelOperations';
 import DeliveryNavbar from '../components/DeliveryNavbar';
 import DeliveryNotifications, { DeliveryNotificationBell } from '../components/DeliveryNotifications';
 import ReturnPickupPingModal from '../components/ReturnPickupPingModal';
+import ParcelOfferPopup from '../../../components/parcels/ParcelOfferPopup';
 import '../Delivery.css';
 import { DELIVERY_SESSION_CHANGED } from '../../../utils/deliverySession';
 
-const PAGE_TITLES = { earnings: 'Earnings', history: 'Trip History', returns: 'Return Pickups', profile: 'My Profile', support: 'Help & Support' };
+const PAGE_TITLES = { earnings: 'Earnings', history: 'Trip History', returns: 'Return Pickups', profile: 'My Profile', support: 'Help & Support', 'privacy-policy': 'Privacy Policy' };
 
 const DeliveryRoutesContent = () => {
   const {
     isOnboarded, riderAuthed, bootstrapping, activeOrder, toastMessage, sessionError, retrySession,
     returnPickupPingOffer, acceptReturnPickup, declineReturnPickup, expireReturnPickup,
-    refreshRiderFinances, refreshRiderStatus,
+    refreshRiderFinances, refreshRiderStatus, isOnline, riderProfile,
   } = useDelivery();
   const mainScroll = useRef(null);
   // Pull down to refresh the rider's profile, earnings and balances. A page with its own refresh overrides this.
@@ -64,6 +66,7 @@ const DeliveryRoutesContent = () => {
     if (/\/returns(?:\/[a-f\d]{24})?$/i.test(currentPath)) return 'returns';
     if (currentPath.endsWith('/profile')) return 'profile';
     if (currentPath.endsWith('/support')) return 'support';
+    if (currentPath.endsWith('/privacy-policy')) return 'privacy-policy';
     return 'dashboard';
   };
 
@@ -135,6 +138,8 @@ const DeliveryRoutesContent = () => {
         return <DeliveryProfilePage />;
       case 'support':
         return <DeliverySupportPage />;
+      case 'privacy-policy':
+        return <div style={{ padding: 16 }}><PrivacyPolicyView slug="delivery-policy" /></div>;
       default:
         return <DeliveryDashboardPage />;
     }
@@ -174,6 +179,12 @@ const DeliveryRoutesContent = () => {
           onExpire={() => expireReturnPickup(returnPickupPingOffer.returnId)}
         />
       )}
+
+      {/* Parcel offers pop up on every tab too, with the server's acceptance countdown. */}
+      <ParcelOfferPopup
+        enabled={isOnline && riderProfile?.status === 'approved'}
+        onAccepted={(id) => { window.history.pushState(null, '', `/delivery/parcels?parcel=${id}`); setCurrentPath('/delivery/parcels'); }}
+      />
 
       {/* Bottom navbar for mobile viewport (hidden if in active delivery) */}
       {!activeOrder && (

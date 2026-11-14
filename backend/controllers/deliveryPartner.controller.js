@@ -143,6 +143,66 @@ export const submitStep1 = asyncHandler(async (req, res) => {
   return ok(res, partner, 'Vehicle details saved');
 });
 
+// @desc    An approved rider changes their vehicle (e.g. bike → auto)
+// @route   PUT /api/delivery/vehicle
+// @access  Private (approved rider)
+//
+// Same rules as registration step 1 (vehicle number format, licence number and
+// photo for anything but a bicycle). Not allowed while the rider is carrying
+// anything, because parcel and order offers were matched to the old vehicle.
+// Admins are told so they can re-check the new documents.
+export const changeVehicle = asyncHandler(async (req, res) => {
+  const partner = await requireProfile(req.user._id);
+  if (partner.status !== VENDOR_STATUS.APPROVED) {
+    throw httpError(400, 'Vehicle changes are for approved riders. Edit your registration instead.');
+  }
+  const { vehicleType, vehicleNo, licenseNo, licenseExpiry } = req.body;
+  if (!['bicycle', 'bike', 'auto', 'car'].includes(vehicleType)) {
+    throw httpError(400, 'Vehicle type must be bicycle, bike, auto or car');
+  }
+  const vehicleProblem = vehicleNumberError(vehicleNo, vehicleType);
+  if (vehicleProblem) throw httpError(400, vehicleProblem);
+  const needsLicence = vehicleType !== 'bicycle';
+  if (needsLicence) {
+    const licenceProblem = drivingLicenceError(licenseNo);
+    if (licenceProblem) throw httpError(400, licenceProblem);
+    if (!req.file && !partner.drivingLicense?.url) throw httpError(400, 'Please upload a photo of your driving licence');
+  }
+  if (licenseExpiry) {
+    const expiry = new Date(licenseExpiry);
+    if (Number.isNaN(expiry.getTime())) throw httpError(400, 'Licence expiry date is not valid');
+    if (expiry < new Date()) throw httpError(400, 'That licence has already expired');
+  }
+
+  const busy = partner.parcelReservation?.bookingId
+    || await Order.exists({ deliveryPartnerId: partner._id, status: { $nin: ['delivered', 'cancelled', 'returned', 'refunded'] } })
+    || await Delivery.exists({ partnerId: partner._id, direction: 'return_pickup', status: { $nin: ['rejected', 'delivered', 'failed'] } });
+  if (busy) throw httpError(409, 'Finish your current delivery before changing your vehicle');
+
+  const nextNo = normalizeRiderDocument(vehicleNo);
+  if (partner.vehicleType === vehicleType && partner.vehicleNo === nextNo && !req.file && (!needsLicence || normalizeRiderDocument(licenseNo) === partner.drivingLicense?.no)) {
+    return ok(res, partner, 'No changes to save');
+  }
+  const url = req.file
+    ? await uploadToCloudinary(req.file.buffer, `delivery-kyc/${req.user._id}`, mediaContext(req, req.file))
+    : partner.drivingLicense?.url;
+  partner.vehicleChanges = [...(partner.vehicleChanges || []), { fromType: partner.vehicleType, fromNo: partner.vehicleNo, toType: vehicleType, toNo: nextNo, at: new Date() }].slice(-20);
+  partner.vehicleType = vehicleType;
+  partner.vehicleNo = nextNo;
+  partner.drivingLicense = needsLicence
+    ? { no: normalizeRiderDocument(licenseNo), url, expiryDate: licenseExpiry || partner.drivingLicense?.expiryDate }
+    : undefined;
+  await partner.save();
+  notifyAllAdmins({
+    event: NOTIFICATION_EVENT.SYSTEM,
+    title: 'Rider changed vehicle',
+    message: `A rider changed their vehicle to ${vehicleType} (${nextNo}). Please check their documents.`,
+    metadata: { partnerId: String(partner._id) },
+    route: '/admin/delivery',
+  }).catch(() => {});
+  return ok(res, partner, 'Vehicle updated');
+});
+
 // @desc    Step 2 — Aadhaar
 // @route   PUT /api/delivery/step/2
 // @access  Private

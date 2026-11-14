@@ -6,8 +6,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { DutyProvider, useDuty } from '../context/DutyContext';
-import { OrderOfferModal, ReturnOfferModal } from '../components/OfferModal';
+import { OrderOfferModal, ParcelOfferModal, ReturnOfferModal } from '../components/OfferModal';
 import PushManager from '../components/PushManager';
+import { navigateTo } from './navigationRef';
 import LoginScreen from '../screens/auth/LoginScreen';
 import { ApplicationStatusScreen, SessionErrorScreen, SplashScreen } from '../screens/auth/SessionScreens';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
@@ -21,6 +22,7 @@ import ProfileScreen from '../screens/profile/ProfileScreen';
 import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import { SupportScreen, TicketDetailScreen } from '../screens/support/SupportScreens';
 import SupportChatScreen from '../screens/support/SupportChatScreen';
+import PrivacyPolicyScreen from '../screens/profile/PrivacyPolicyScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -102,6 +104,10 @@ function OfferHost() {
   const d = useDuty();
   if (d.offer) return <OrderOfferModal offer={d.offer} onAccept={d.acceptOffer} onDecline={d.declineOffer} onExpire={d.expireOffer} />;
   if (d.returnOffer) return <ReturnOfferModal offer={d.returnOffer} onAccept={d.acceptReturn} onDecline={d.declineReturn} onExpire={d.expireReturn} />;
+  if (d.parcelOffer) {
+    return <ParcelOfferModal booking={d.parcelOffer} onDecline={d.declineParcel} onExpire={d.closeParcelOffer}
+      onAccept={async (b) => { if (await d.acceptParcel(b)) navigateTo({ name: 'ParcelDetail', params: { id: b._id } }); }} />;
+  }
   return null;
 }
 
@@ -118,6 +124,8 @@ function ApprovedStack() {
         <Stack.Screen name="Support" component={SupportScreen} options={{ title: 'Help & support' }} />
         <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
         <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
+
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={{ title: 'Privacy policy' }} />
       </Stack.Navigator>
       <OfferHost />
       <PushManager />
@@ -135,6 +143,8 @@ function ApplicantStack({ status }) {
       <Stack.Screen name="Support" component={SupportScreen} options={{ title: 'Help & support' }} />
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} options={{ title: 'Ticket' }} />
       <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ title: 'Chat with Support' }} />
+
+      <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={{ title: 'Privacy policy' }} />
     </Stack.Navigator>
   );
 }

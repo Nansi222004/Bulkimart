@@ -7,6 +7,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { Text } from './ui';
+import { appHrefFromWebPath } from '../lib/webPath';
 
 const EVENT_ICON = { order: '📦', delivery: '🚴', promotion: '🎉', system: 'ℹ️', broadcast: '📢' };
 const timeAgo = iso => {
@@ -28,9 +29,10 @@ export default function NotificationDrawer({ isOpen, onClose }) {
   const unread = visible.filter(item => !item.isRead).length;
   const handlePress = n => {
     if (!n.isRead) markRead(n._id);
-    const legal = (n.route || '').match(/^\/legal-services\/requests\/([a-f\d]{24})$/i);
-    if (legal) { onClose(); router.push(`/legal-services?request=${legal[1]}`); return; }
-    if ((n.route || '').startsWith('/orders')) { setActiveNav('orders'); onClose(); }
+    const route = n.route || '';
+    if (route.startsWith('/orders')) { setActiveNav('orders'); onClose(); return; }
+    // Legal requests, live chat replies (web: Help & Support → Chat), parcels, support: same mapping as push taps.
+    if (/^\/(legal-services\/requests|support|parcel-delivery|privacy-policy)/i.test(route)) { onClose(); router.push(appHrefFromWebPath(route)); }
   };
   return <Modal visible={isOpen} transparent animationType="slide" statusBarTranslucent onRequestClose={() => (lightbox ? setLightbox(null) : onClose())}>
     <View style={styles.overlay}>

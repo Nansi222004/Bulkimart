@@ -27,6 +27,7 @@ import { resolveCampaignPricesForProducts } from '../services/campaign.service.j
 import { isWithinRadius } from '../services/radius.service.js';
 import { forwardGeocode } from '../services/geocode.service.js';
 import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { emailOrderConfirmation } from '../services/email.service.js';
 import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
 import { buildReturnPolicySnapshotsFor } from '../services/returnPolicy.service.js';
@@ -716,6 +717,8 @@ export const createOrder = asyncHandler(async (req, res) => {
         metadata: { orderId: order._id },
         route: '/orders',
       }).catch((e) => console.error('[NOTIFICATION] notifyUser (new order) failed:', e.message));
+      // Online orders are emailed once the payment is verified (payment.controller).
+      void emailOrderConfirmation(req.user._id, order);
     }
 
     await publishEligibleSellerOrder(order._id);
@@ -965,6 +968,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         }
       }
     }
+    // One confirmation email for the whole basket (one order per seller). Online: after payment (payment.controller).
+    if (paymentMethod !== 'online') void emailOrderConfirmation(req.user._id, orders);
   } catch { console.warn('[NOTIFICATION] Eligible seller order delivery will retry.'); }
 
   return created(res, {

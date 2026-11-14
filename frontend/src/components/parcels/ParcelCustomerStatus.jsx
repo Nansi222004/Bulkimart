@@ -20,10 +20,12 @@ export function ParcelPartnerCard({partner:p,active}) {
 }
 export default function ParcelCustomerStatus({booking:b,justBooked}) {
   const unpaid=b.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(b.status);
+  const searching=!unpaid&&['searching_for_driver','needs_admin_assignment'].includes(b.status);
   return <>
-    <section className="parcel-card parcel-customer-status">
-      <div className="parcel-status-symbol" aria-hidden="true">{unpaid?'₹':b.status==='delivered'?'✓':'▣'}</div>
-      <h2>{parcelCustomerStatus(b.status)}</h2>
+    <section className={'parcel-card parcel-customer-status'+(searching?' searching':'')}>
+      <div className="parcel-status-symbol" aria-hidden="true">{unpaid?'₹':b.status==='delivered'?'✓':searching?'⌕':'▣'}</div>
+      <h2>{searching?'Searching for drivers nearby…':parcelCustomerStatus(b.status)}</h2>
+      {searching&&<div className="parcel-search-progress" role="progressbar" aria-label="Finding a delivery partner"><span/><span/><span/></div>}
       <p>{unpaid?'Finish payment securely with Razorpay to confirm your booking.':b.status==='cancellation_review'?'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.':b.status==='searching_for_driver'?'Your request is with nearby delivery partners. We’ll update you when someone accepts.':b.status==='needs_admin_assignment'?'Our team is helping find an available delivery partner. You don’t need to book again.':b.status==='delivered'?'Your parcel has reached its destination.':'Follow your pickup and delivery updates here.'}</p>
       {justBooked&&!unpaid&&<p role="status" className="parcel-notice">Booking received. {b.paymentMethod==='online'?'Payment successful.':'Your pickup request is confirmed.'}</p>}
       <div className="parcel-payment-receipt"><strong>{parcelMoney(b.feePaise)}</strong><span>{b.paymentStatus==='paid'?'Paid online':b.paymentMethod==='pay_driver'?`Cash at ${b.cashCollectionPoint==='pickup'?'pickup':'delivery'}`:'Online payment'}{b.boost?.boostedPaise>0?` · includes ${parcelMoney(b.boost.boostedPaise)} you added`:''}</span></div>
@@ -37,6 +39,8 @@ export default function ParcelCustomerStatus({booking:b,justBooked}) {
       <details className="parcel-booking-reference"><summary>Booking details</summary><p>{b.reference}</p><p>{b.service?.name||'Doorstep delivery'}{b.route?.distanceMetres>0?` · ${(b.route.distanceMetres/1000).toFixed(2)} km`:''}</p></details>
     </section>
     {b.partner&&<ParcelPartnerCard partner={b.partner} active={!!b.partner.phone}/>}
-    <section className="parcel-card parcel-trip-addresses"><div><span>Pickup</span><p>{b.details.pickup.address}</p></div><div><span>Deliver to</span><p>{b.details.dropoff.address}</p></div></section>
+    <section className="parcel-card parcel-trip-addresses"><div className="parcel-trip-stops">{[['pickup',b.details.pickup],['dropoff',b.details.dropoff]].map(([kind,a])=><div key={kind} className={'parcel-stop '+kind}><span className="parcel-stop-dot" aria-hidden="true"/><div><strong>{[a.name,a.phone].filter(Boolean).join(' · ')||(kind==='pickup'?'Pickup':'Deliver to')}</strong><small>{a.address}</small></div></div>)}</div>
+      {b.service?.name&&<p className="parcel-trip-goods">{[b.service.name,b.details.category,b.details.weightKg?`${b.details.weightKg} kg`:'',b.details.packages>1?`${b.details.packages} packages`:''].filter(Boolean).join(' · ')}</p>}</section>
+    <section className="parcel-card parcel-pay-card"><span className="parcel-pay-icon" aria-hidden="true">₹</span><div><strong>{b.paymentMethod==='pay_driver'?'Cash':'Online'}</strong><small>Payment method</small></div><strong>{parcelMoney(b.feePaise)}</strong></section>
   </>;
 }

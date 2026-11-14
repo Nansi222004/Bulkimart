@@ -361,7 +361,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
                 >
                   {link.icon}
                   <span>{link.label}</span>
-                  {link.id === 'parcel-delivery' && parcelReviews > 0 && <b className="sa-nav-badge" aria-label={`${parcelReviews} paused ${parcelReviews === 1 ? 'booking needs' : 'bookings need'} review`}>{parcelReviews > 99 ? '99+' : parcelReviews}</b>}
+                  {link.id === 'parcel-delivery' && parcelReviews > 0 && <b className="sa-nav-badge" title="Parcel bookings waiting for your decision (cancellation requests or rider help). Open Parcel Deliveries → Needs review to clear it." aria-label={`${parcelReviews} paused ${parcelReviews === 1 ? 'booking needs' : 'bookings need'} review`}>{parcelReviews > 99 ? '99+' : parcelReviews}</b>}
                 </button>
                 {link.id === sectionParent && !collapsed && <div className="sa-nav-sub-links-container" role="group" aria-label={`${link.label} pages`} style={{ paddingLeft: 12 }}>
                   {sectionLinks.map(sub => <button key={sub.id} className={`sa-nav-link sa-nav-sub-link ${activeTab === sub.id ? 'active' : ''}`} aria-current={activeTab === sub.id ? 'page' : undefined} title={sub.label} onClick={() => handleNavClick(sub.id, sub.label)}>{sub.icon}<span>{sub.label}</span></button>)}

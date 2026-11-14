@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
 import Card from '../../components/Card';
@@ -16,6 +16,8 @@ import { getCurrentPoint } from '../../services/geo';
 import { capitalize, formatDate, maskAccount, partnerCode, ratingSummary } from '../../utils/format';
 import { isValidPincodeList, parsePincodes } from '../../utils/riderDocuments';
 import { partnerStatusLabel } from '../../utils/status';
+import VehicleChangeCard from './VehicleChangeCard';
+import HelpCard from './HelpCard';
 import { colors, spacing, type } from '../../theme';
 
 /**
@@ -77,12 +79,12 @@ export default function ProfileScreen({ navigation }) {
     finally { setBusy(''); }
   };
 
-  const deleteAccount = () => Alert.alert('Delete delivery account?', 'Active deliveries, returns or pending earnings block deletion. This cannot be undone.', [
+  const deleteAccount = () => Alert.alert('Delete account?', 'Active deliveries, returns or pending earnings block deletion. This cannot be undone.', [
     { text: 'Keep account', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: async () => {
       setBusy('delete');
-      try { const body = await deliveryApi.deleteAccount(); toast.show(body?.message || 'Delivery account deleted.'); await signOut(); }
-      catch (e) { toast.show(e.message || 'Could not delete delivery account.', 'error'); setBusy(''); }
+      try { const body = await deliveryApi.deleteAccount(); toast.show(body?.message || 'Account deleted.'); await signOut(); }
+      catch (e) { toast.show(e.message || 'Could not delete your account.', 'error'); setBusy(''); }
     } },
   ]);
 
@@ -111,7 +113,8 @@ export default function ProfileScreen({ navigation }) {
         {p.vehicleType !== 'bicycle' ? <KeyValueRow label="Licence photo" value={onFile(p.drivingLicense?.url)} /> : null}
         <KeyValueRow label="Aadhaar" value={p.aadhaar?.number || '—'} />
         <KeyValueRow label="Aadhaar photos" value={onFile(p.aadhaar?.frontUrl && p.aadhaar?.backUrl)} />
-        <Text style={type.small}>Documents are locked after approval. To change them, raise a support ticket.</Text>
+        <Text style={type.small}>You can change your vehicle below. Other documents are locked after approval; to change them, raise a support ticket.</Text>
+        <VehicleChangeCard profile={p} onSaved={refreshProfile} toast={toast} />
       </Card>
 
       <Card title="Delivery pincodes">
@@ -148,11 +151,7 @@ export default function ProfileScreen({ navigation }) {
         <AppButton small variant="outline" title="Request a bank change" onPress={() => navigation.navigate('Support', { subject: 'Bank account change request' })} />
       </Card>
 
-      <Card title="Help">
-        <AppButton title={`🚨 Emergency SOS (${sos})`} variant="danger" onPress={() => Linking.openURL(`tel:${sos.replace(/[^\d+]/g, '')}`).catch(() => {})} />
-        <AppButton title="Support tickets" variant="outline" onPress={() => navigation.navigate('Support')} />
-        <AppButton title="Notifications" variant="outline" onPress={() => navigation.navigate('Notifications')} />
-      </Card>
+      <HelpCard sos={sos} navigation={navigation} />
 
       <AppButton title="Sign out" variant="outline" disabled={Boolean(duty.activeOrder)} onPress={() => Alert.alert('Sign out?', duty.online ? 'You will be set offline first, so no new orders are sent to you.' : 'You can sign in again with your phone number.', [
         { text: 'Cancel', style: 'cancel' },
@@ -160,7 +159,7 @@ export default function ProfileScreen({ navigation }) {
         { text: 'Sign out', onPress: async () => { if (duty.online) await duty.setDuty(false); await signOut(); } },
       ])} />
       {duty.activeOrder ? <Text style={type.small}>Finish or cancel your active delivery before signing out.</Text> : null}
-      <AppButton title="Delete delivery account" variant="ghost" loading={busy === 'delete'} onPress={deleteAccount} />
+      <AppButton title="Delete account" variant="danger" loading={busy === 'delete'} onPress={deleteAccount} />
     </Screen>
   );
 }

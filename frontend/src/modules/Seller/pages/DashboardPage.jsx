@@ -21,6 +21,7 @@ import MoneyRequestTab from '../components/MoneyRequestTab';
 import PaymentHistoryTab from '../components/PaymentHistoryTab';
 import EarningsTab from '../components/EarningsTab';
 import SupportTab from '../components/SupportTab';
+import PrivacyPolicyView from '../../../components/PrivacyPolicyView';
 import FaqsTab from '../components/FaqsTab';
 import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
@@ -60,6 +61,7 @@ const TAB_TITLES = {
   earnings: 'Earnings',
   faqs: 'Product FAQs',
   support: 'Support & Help',
+  'privacy-policy': 'Privacy Policy',
   profile: 'Profile',
   account: 'Account',
 };
@@ -124,6 +126,7 @@ export const DashboardPage = () => {
       case 'item-returns':  return <SellerReturnsTab onDetailChange={setReturnDetailId} />;
       case 'faqs':          return <FaqsTab />;
       case 'support':       return <SupportTab />;
+      case 'privacy-policy': return <section className="seller-tab-panel"><PrivacyPolicyView slug="seller-policy" /></section>;
       case 'profile':       return <ProfileTab />;
       case 'account':       return <AccountTab />;
       default: return <section className="seller-tab-panel"><h2>Page unavailable</h2><p>This seller page is no longer available.</p><a href="/seller">Back to seller dashboard</a></section>;

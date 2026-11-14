@@ -28,6 +28,7 @@ export const MENU_SECTIONS = [
       { title: 'KYC & payout details', route: 'KycDetails', icon: 'shield', hint: 'Bank, GST, PAN and documents' },
       { title: 'Notifications', route: 'Notifications', icon: 'bell', hint: 'Order, return and payout updates' },
       { title: 'Support', route: 'Support', icon: 'headset', hint: 'Help line and support tickets' },
+      { title: 'Privacy policy', route: 'PrivacyPolicy', icon: 'file', hint: 'How Bulkimart uses seller data' },
     ],
   },
 ];

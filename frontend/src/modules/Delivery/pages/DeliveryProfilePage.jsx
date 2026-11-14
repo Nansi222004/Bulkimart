@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import { enterCustomerSession } from '../../../utils/userSession';
 import ServiceAreaEditor from '../components/ServiceAreaEditor';
+import RiderVehicleEditor from '../components/RiderVehicleEditor';
 import { riderRatingSummary } from '../utils/riderRating';
 import { apiUrl } from '../../../utils/api';
 
@@ -160,6 +161,7 @@ export const DeliveryProfilePage = () => {
             <strong>{riderProfile?.zones?.join(', ') || onboardingForm.zones || 'All Zones'}</strong>
           </div>
         </div>
+        <RiderVehicleEditor profile={riderProfile} onSaved={refreshRiderStatus}/>
         <ServiceAreaEditor profile={riderProfile} onSave={saveRiderServiceArea} onReload={refreshRiderStatus}/>
       </div>
 
@@ -331,6 +333,13 @@ export const DeliveryProfilePage = () => {
           onClick={() => { window.history.pushState(null, '', '/delivery/support'); window.dispatchEvent(new PopStateEvent('popstate')); }}
         >
           💬 Chat with Support Helpdesk
+        </button>
+        <button
+          type="button"
+          className="profile-support-btn outline"
+          onClick={() => { window.history.pushState(null, '', '/delivery/privacy-policy'); window.dispatchEvent(new PopStateEvent('popstate')); }}
+        >
+          🔒 Privacy Policy
         </button>
         <button 
           className="profile-logout-btn"

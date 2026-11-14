@@ -105,3 +105,209 @@
 
 /* Fare boost: quick add-to-fare buttons while no partner has accepted. */
 .parcel-boost{border-color:#f5c56b;background:#fffaf0}.parcel-boost h3{margin:0 0 6px;font-size:17px}.parcel-boost p{margin:0 0 10px}.parcel-boost-options{display:flex;flex-wrap:wrap;gap:8px}.parcel-workspace .parcel-boost-options button{margin:0;background:#fff;color:#7a4a00;border-color:#e0a63a;font-weight:700}
+
+/* Parcel colours follow the admin storefront theme (--sf-action); tints are mixed from it. */
+.parcel-workspace,.parcel-sheet-overlay,.parcel-booking-flow{--pc-tint:color-mix(in srgb,var(--sf-action,#087c9f) 12%,#fff);--pc-tint-soft:color-mix(in srgb,var(--sf-action,#087c9f) 5%,#fff)}
+/* ---- Parcel booking screens (pickup → drop → select vehicle → review → trip) ---- */
+.parcel-booking-flow{--pc-blue:var(--sf-action,#087c9f);--pc-green:#1fa463;--pc-red:#e5334b;--pc-line:#e3e8ef;--pc-soft:#f3f6fb;max-width:560px;margin:0 auto 24px}
+.parcel-booking-flow .parcel-flow-header{margin:4px 0 14px}
+.parcel-booking-flow .parcel-flow-header h2{font-size:19px}
+.parcel-booking-flow .parcel-flow-header>button{border:0;background:transparent;margin:0}
+.parcel-booking-flow .parcel-card{border-radius:14px;padding:16px;margin:12px 0;border-color:var(--pc-line)}
+.parcel-booking-flow h3{margin:0 0 10px;font-size:15px}
+.parcel-booking-flow .parcel-primary{border-radius:10px;background:var(--pc-blue);min-height:48px}
+.parcel-booking-flow .parcel-sticky-action{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:3;box-shadow:0 -6px 18px #14364d14;border-radius:14px}
+.parcel-booking-flow .parcel-text-button,.parcel-link-button{display:inline-flex;align-items:center;gap:4px;background:none!important;border:0!important;color:var(--pc-blue,#087c9f)!important;padding:6px 0!important;margin:0!important;font-weight:700;font-size:13px;text-decoration:none;cursor:pointer}
+.parcel-outline-button{display:inline-flex;align-items:center;gap:6px;background:#fff!important;color:var(--sf-action,#087c9f)!important;border:1px solid var(--sf-action,#087c9f)!important;border-radius:8px;padding:7px 12px!important;margin:0!important;font-weight:700;font-size:13px}
+.parcel-icon-button{display:grid!important;place-items:center;width:34px;height:34px;padding:0!important;margin:0!important;border-radius:50%!important;border:1px solid var(--pc-line,#e3e8ef)!important;background:#fff!important;color:#41526a!important}
+.parcel-visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.parcel-stop-dot{flex:none;width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;background:var(--pc-green,#1fa463);box-shadow:inset 0 0 0 5px #fff;border:2px solid var(--pc-green,#1fa463);box-sizing:border-box}
+.parcel-stop-dot.dropoff,.parcel-stop.dropoff .parcel-stop-dot{background:var(--pc-red,#e5334b);border-color:var(--pc-red,#e5334b)}
+.parcel-stop{display:flex;gap:10px;align-items:flex-start;padding:8px 0;min-width:0}
+.parcel-stop>div{flex:1;min-width:0}
+.parcel-stop strong{display:block;font-size:13.5px}
+.parcel-stop small{display:block;margin:2px 0 0!important;font-size:12px;color:#62748a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.parcel-trip-stops{position:relative}
+.parcel-trip-card{position:relative;background:#fff;border:1px solid var(--pc-line);border-radius:14px;padding:8px 54px 4px 14px;margin:0 0 12px}
+.parcel-trip-card.compact{padding-right:14px}
+.parcel-trip-card .parcel-swap{position:absolute;right:12px;top:34px}
+.parcel-trip-actions{display:flex;justify-content:center;border-top:1px solid var(--pc-line);margin:4px -40px 0 0}
+.parcel-trip-card .parcel-stop,.parcel-order-card .parcel-stop{background:var(--pc-soft,#f3f6fb);border-radius:10px;padding:8px 10px;margin:6px 0}
+/* Start */
+.parcel-pickup-bar{display:flex!important;align-items:center;gap:12px;width:100%;text-align:left;background:#fff!important;color:#172b46!important;border:1px solid var(--pc-line)!important;border-radius:14px!important;padding:14px!important;margin:0 0 14px!important;box-shadow:0 3px 12px #14364d0d}
+.parcel-pickup-bar>span:nth-child(2){flex:1;min-width:0}.parcel-pickup-bar small{margin:0!important;font-size:12px}.parcel-pickup-bar strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.parcel-vehicle-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.parcel-vehicle-tile{position:relative;display:flex!important;flex-direction:column;align-items:flex-start;gap:4px;min-height:132px;text-align:left;background:#fff!important;color:#172b46!important;border:1px solid var(--pc-line)!important;border-radius:14px!important;padding:14px!important;margin:0!important}
+.parcel-vehicle-tile small{margin:0!important}.parcel-vehicle-tile>svg{position:absolute;right:12px;bottom:14px;color:#62748a}
+.parcel-start-note{font-size:12.5px;color:#62748a;margin:14px 2px}
+.parcel-vehicle-icon{display:inline-grid;place-items:center;color:var(--sf-action,#087c9f);flex:none}
+/* Search */
+.parcel-search-box{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--pc-line);border-radius:14px;padding:6px 12px}
+.parcel-search-box>.parcel-stop-dot{margin-top:40px}
+.parcel-search-box .parcel-location-picker{flex:1;min-width:0}
+.parcel-search-links{display:flex;justify-content:space-around;gap:12px;background:#fff;border:1px solid var(--pc-line);border-radius:12px;margin:12px 0;padding:4px}
+.parcel-address-list{list-style:none;margin:0;padding:0;background:#fff;border:1px solid var(--pc-line);border-radius:14px}
+.parcel-address-list li+li{border-top:1px solid var(--pc-line)}
+.parcel-address-list button{display:flex!important;gap:12px;align-items:flex-start;width:100%;text-align:left;background:#fff!important;color:#172b46!important;border:0!important;border-radius:14px!important;margin:0!important;padding:14px!important}
+.parcel-address-list button span{min-width:0}.parcel-address-list small{margin:2px 0 0!important}
+.parcel-address-empty{padding:16px;color:#62748a;font-size:13px}
+/* Pickup / drop details */
+.parcel-map-hero{position:relative;margin:0 -16px}
+.parcel-map-hero .parcel-map{min-height:280px;border-radius:0}
+.parcel-pin-tip{position:absolute;z-index:2;top:12px;left:50%;transform:translateX(-50%);background:#1d2533;color:#fff;font-size:12.5px;font-weight:600;padding:8px 12px;border-radius:8px;white-space:nowrap;pointer-events:none}
+.parcel-details-card{border-radius:18px 18px 14px 14px!important;margin-top:-18px!important;position:relative;z-index:2}
+.parcel-details-address{display:flex;gap:10px;align-items:flex-start;padding-bottom:10px;border-bottom:1px solid var(--pc-line)}
+.parcel-details-address>div{flex:1;min-width:0}.parcel-details-address small{margin:2px 0 0!important}
+.parcel-save-as{border:0!important;padding:0!important;margin:12px 0 0}
+.parcel-save-as legend{font-size:13px;font-weight:600;margin-bottom:8px}
+.parcel-save-as button{background:#fff!important;color:#41526a!important;border:1px solid var(--pc-line,#e3e8ef)!important;border-radius:20px!important;padding:7px 16px!important;font-size:13px}
+.parcel-save-as button.selected{background:var(--pc-tint)!important;border-color:var(--sf-action,#087c9f)!important;color:var(--sf-action,#087c9f)!important}
+/* Select vehicle */
+.parcel-vehicle-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.parcel-vehicle-option{position:relative}
+.parcel-vehicle-option>button:first-child{display:flex!important;align-items:center;gap:14px;width:100%;text-align:left;background:#fff!important;color:#172b46!important;border:1px solid var(--pc-line)!important;border-radius:14px!important;padding:12px 14px!important;margin:0!important}
+.parcel-vehicle-option.selected>button:first-child{border:2px solid var(--sf-action,#087c9f)!important;background:linear-gradient(180deg,var(--pc-tint-soft),#fff)!important;padding:18px 14px!important;min-height:112px}
+.parcel-vehicle-option.unavailable>button:first-child{opacity:.5}
+.parcel-vehicle-text{flex:1;min-width:0}.parcel-vehicle-text strong{display:block}.parcel-vehicle-text small{margin:2px 0 0!important;font-size:12px}
+.parcel-vehicle-price{font-size:16px}
+.parcel-vehicle-option.selected .parcel-vehicle-price{font-size:18px}
+.parcel-vehicle-info{position:absolute;right:84px;top:10px;width:26px!important;height:26px!important}
+.parcel-vehicle-hero{display:grid;place-items:center;background:var(--pc-tint);border-radius:12px;padding:20px;margin-bottom:12px}
+.parcel-vehicle-spec{text-align:center;font-weight:600;margin:4px 0}.parcel-vehicle-desc{text-align:center;color:#62748a;font-size:13px}
+.parcel-sheet .parcel-vehicle-hero+h2{text-align:center;margin-right:0}
+.parcel-loading-line{color:#41526a;font-size:14px;padding:6px 2px}
+/* Review */
+.parcel-review-vehicle{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.parcel-review-vehicle>div{flex:1;min-width:0}.parcel-review-vehicle>div strong{display:block}
+.parcel-review-vehicle .parcel-trip-stops{flex-basis:100%;border-top:1px solid var(--pc-line);padding-top:6px}
+.parcel-eta-box{display:grid;place-items:center;border:1px solid var(--pc-line);border-radius:10px;padding:6px 12px;line-height:1.1}.parcel-eta-box small{margin:0!important;font-size:11px}
+.parcel-goods-row{display:flex;justify-content:space-between;align-items:center;gap:12px}.parcel-goods-row small{margin:2px 0 0!important}
+.parcel-restricted{display:flex;align-items:center;gap:8px;background:#fff7e0;border-radius:10px;padding:8px 12px;margin-top:12px;font-size:13px;color:#7a5200}.parcel-restricted span{flex:1}
+.parcel-restricted-list{padding-left:20px;line-height:1.8}
+.parcel-fare-card dl{display:grid;grid-template-columns:1fr auto;gap:8px 12px;margin:0}.parcel-fare-card dd{margin:0;text-align:right}
+.parcel-fare-total{font-weight:700;border-top:1px solid var(--pc-line);padding-top:8px}
+.parcel-read-before ul{margin:0;padding-left:18px;font-size:13px;color:#41526a;line-height:1.6}
+.parcel-book-bar{display:grid;gap:10px}
+.parcel-book-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.parcel-pay-choice{display:flex!important;align-items:center;gap:10px;text-align:left;background:#fff!important;color:#172b46!important;border:0!important;padding:4px!important;margin:0!important}
+.parcel-pay-choice small{margin:0!important;font-size:11.5px}.parcel-pay-choice strong{display:flex;align-items:center;gap:4px;font-size:14px}
+.parcel-pay-icon{display:inline-grid;place-items:center;width:36px;height:28px;border-radius:6px;background:#dff5e7;color:#14804a;font-weight:800;flex:none}
+.parcel-book-total{text-align:right}.parcel-book-total strong{display:block;font-size:18px}
+.parcel-pay-option{display:flex!important;gap:12px;align-items:flex-start;border:1px solid var(--pc-line,#e3e8ef);border-radius:12px;padding:12px;margin:8px 0!important;cursor:pointer}
+.parcel-pay-option.selected{border-color:var(--sf-action,#087c9f);background:var(--pc-tint-soft)}.parcel-pay-option small{margin:2px 0 0!important}
+.parcel-goods-fields .parcel-measurements{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0 12px}
+/* Bottom sheet */
+.parcel-sheet-overlay{position:fixed;inset:0;z-index:1000;background:#0b1424a6;display:flex;align-items:flex-end;justify-content:center}
+.parcel-sheet{position:relative;width:min(560px,100%);max-height:88vh;overflow:visible;background:#fff;border-radius:20px 20px 0 0;padding:22px 18px calc(18px + env(safe-area-inset-bottom));color:#172b46;animation:parcel-sheet-up .2s ease-out;box-sizing:border-box}
+.parcel-sheet-body{max-height:calc(88vh - 140px);overflow:auto}
+.parcel-sheet h2,.parcel-sheet-title{font-size:18px;margin:0 0 12px}
+.parcel-sheet-close{position:absolute;top:-52px;right:12px;width:40px;height:40px;border-radius:50%!important;display:grid!important;place-items:center;padding:0!important;background:#fff!important;color:#172b46!important;border:0!important;cursor:pointer}
+.parcel-sheet label{display:block;margin:12px 0;font-size:14px;font-weight:600}
+.parcel-sheet input:not([type=checkbox]):not([type=radio]),.parcel-sheet select,.parcel-sheet textarea{display:block;width:100%;padding:11px;margin-top:7px;border:1px solid #bdcddd;border-radius:8px;font:inherit;box-sizing:border-box}
+.parcel-sheet textarea{min-height:80px}
+.parcel-sheet .parcel-primary{width:100%;min-height:48px;border-radius:10px;border:0;background:var(--sf-action,#087c9f);color:#fff;font-weight:700;margin-top:12px;cursor:pointer}
+.parcel-sheet fieldset{border:0;padding:0;margin:0}
+.parcel-sheet-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.parcel-sheet-actions .parcel-primary{margin:0}.parcel-sheet-actions .parcel-outline-button{justify-content:center;min-height:48px}
+.parcel-cancel-reasons .parcel-check{font-weight:500}
+@keyframes parcel-sheet-up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+.parcel-result-overlay{align-items:center}
+.parcel-result-dialog{margin:auto;width:min(340px,calc(100% - 32px));background:#fff;border-radius:16px;padding:22px;text-align:center;color:#172b46;box-sizing:border-box}
+.parcel-result-icon{display:inline-grid;place-items:center;width:52px;height:52px;border-radius:12px;background:var(--pc-tint);color:var(--pc-red,#e5334b);font-weight:800;font-size:22px}
+/* Trip */
+.parcel-trip-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0}.parcel-trip-header h2{margin:0;font-size:17px}
+.parcel-customer-status.searching{text-align:center}
+.parcel-search-progress{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 4px}
+.parcel-search-progress span{height:4px;border-radius:4px;background:#e3e8ef;overflow:hidden;position:relative}
+.parcel-search-progress span::after{content:"";position:absolute;inset:0;background:var(--sf-action,#087c9f);transform:translateX(-100%);animation:parcel-search 3s linear infinite}
+.parcel-search-progress span:nth-child(2)::after{animation-delay:1s}.parcel-search-progress span:nth-child(3)::after{animation-delay:2s}
+@keyframes parcel-search{0%{transform:translateX(-100%)}33%,100%{transform:translateX(0)}}
+@media (prefers-reduced-motion:reduce){.parcel-search-progress span::after{animation:none;transform:none;opacity:.4}.parcel-sheet{animation:none}}
+.parcel-trip-goods{font-size:12.5px;color:#62748a;margin:6px 0 0}
+.parcel-pay-card{display:flex;align-items:center;gap:12px}.parcel-pay-card>div{flex:1}.parcel-pay-card small{margin:0!important}
+.parcel-support-card{display:flex;align-items:center;gap:10px}.parcel-support-card strong{flex:1}.parcel-support-card a{color:var(--sf-action,#087c9f);font-weight:700;text-decoration:none}
+.parcel-cancel-trip{display:block!important;margin:8px auto 20px!important;background:none!important;border:0!important;color:#b0233c!important;font-weight:700}
+/* Orders */
+.parcel-order-card{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:12px 14px;margin:0 0 12px}
+.parcel-order-head{display:flex!important;align-items:center;gap:12px;width:100%;text-align:left;background:none!important;color:#172b46!important;border:0!important;padding:0!important;margin:0 0 6px!important}
+.parcel-order-head>span{flex:1;min-width:0}.parcel-order-head small{margin:0!important;font-size:12px}
+.parcel-order-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px}
+.parcel-status-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:12px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;background:var(--pc-tint);color:var(--sf-action,#087c9f)}
+.parcel-status-chip.done{background:#e3f6ea;color:#14804a}.parcel-status-chip.cancelled{background:#fde8eb;color:#b0233c}.parcel-status-chip.review{background:#fff3d6;color:#7a5200}
+.parcel-book-again{width:auto!important;min-height:38px!important;padding:8px 22px!important;border-radius:8px!important}
+@media(max-width:480px){.parcel-vehicle-tile{min-height:120px}.parcel-map-hero{margin:0 -10px}}
+
+/* ---- Parcel home (pickup bar, vehicle cards, recent trips, good to know) ---- */
+.parcel-home{padding-top:4px}
+.parcel-home-title{margin:18px 2px 10px!important;font-size:15px!important}
+.parcel-home-head{display:flex;align-items:center;justify-content:space-between}
+.parcel-home .parcel-vehicle-tile{min-height:168px;padding:0 0 14px!important;overflow:hidden;box-shadow:0 3px 12px #14364d0d}
+.parcel-home .parcel-vehicle-tile>strong{padding:0 14px;font-size:15px}
+.parcel-home .parcel-vehicle-tile>small{padding:0 14px}
+.parcel-tile-art{display:grid;place-items:center;width:100%;height:96px;margin-bottom:8px;background:linear-gradient(135deg,var(--pc-tint),var(--pc-tint-soft))}
+.parcel-home-section{margin-top:6px}
+.parcel-info-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.parcel-info-card{background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:12px}
+.parcel-info-card strong{display:block;font-size:13px}.parcel-info-card small{margin:4px 0 0!important;font-size:11.5px;line-height:1.45}
+.parcel-home-history{display:flex!important;margin:16px auto 0!important}
+@media(max-width:480px){.parcel-info-cards{grid-template-columns:1fr}}
+
+/* Left-aligned text inside card-style buttons (the shared button style centres text). */
+.parcel-pickup-bar,.parcel-pickup-bar *,.parcel-order-head,.parcel-order-head *,.parcel-vehicle-tile,.parcel-vehicle-tile *,.parcel-vehicle-option>button:first-child,.parcel-vehicle-option>button:first-child *,.parcel-address-list button,.parcel-address-list button *,.parcel-pay-choice,.parcel-pay-choice *{text-align:left!important}
+.parcel-order-fare,.parcel-vehicle-price{text-align:right!important;white-space:nowrap}
+.parcel-status-chip{background:var(--pc-tint);color:var(--sf-action,#087c9f)}
+
+/* Admin parcel: Bookings | Settings pages, and settings sections */
+.parcel-admin-pages{display:flex;gap:4px;padding:4px;margin:0 0 16px;background:#eef2f6;border-radius:12px;width:max-content;max-width:100%}
+.parcel-admin-pages button{background:transparent!important;color:#41526a!important;border:0!important;border-radius:9px!important;padding:9px 22px!important;margin:0!important;font-weight:700}
+.parcel-admin-pages button.active{background:#fff!important;color:var(--sf-action,#087c9f)!important;box-shadow:0 1px 4px #14364d1f}
+.parcel-settings-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 4px;padding-bottom:12px;border-bottom:1px solid #dae4ed;position:sticky;top:0;background:#fff;z-index:2}
+.parcel-settings-tabs button{background:#fff!important;color:#41526a!important;border:1px solid #dae4ed!important;border-radius:20px!important;padding:8px 16px!important;margin:0!important;font-weight:600}
+.parcel-settings-tabs button.active{background:var(--sf-action,#087c9f)!important;border-color:var(--sf-action,#087c9f)!important;color:#fff!important}
+[data-section][hidden]{display:none!important}
+
+/* Admin: vehicle cards in parcel settings */
+.parcel-settings-tabs{position:static!important}
+.parcel-vehicle-settings{border:0!important;padding:0!important}
+.parcel-vehicle-settings>legend{font-size:17px;font-weight:800;padding:0!important}
+.parcel-vehicle-help{color:#52647b;font-size:13.5px;line-height:1.55;margin:6px 0 16px}
+.parcel-vehicle-empty{padding:18px;border:1px dashed #bdcddd;border-radius:12px;color:#52647b;text-align:center}
+.parcel-vehicle-card{border:1px solid #dae4ed;border-radius:14px;padding:16px 18px 18px;margin:0 0 16px;background:#fff;box-shadow:0 2px 10px #14364d0a}
+.parcel-vehicle-card.is-hidden{background:#f8fafc;opacity:.8}
+.parcel-vehicle-card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:12px;margin-bottom:4px;border-bottom:1px solid #edf1f5}
+.parcel-vehicle-number{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--pc-tint,#e6f3f7);color:var(--sf-action,#087c9f);font-weight:800;flex:none}
+.parcel-vehicle-title{flex:1;min-width:180px}.parcel-vehicle-title strong{display:block;font-size:15px}.parcel-vehicle-title small{margin:2px 0 0!important;font-size:12px}
+.parcel-workspace .parcel-visible-toggle{display:inline-flex!important;align-items:center;gap:6px;margin:0!important;font-size:13px;padding:6px 10px;border-radius:20px;background:#f1f5f9;cursor:pointer}
+.parcel-visible-toggle input{margin:0!important}
+.parcel-vehicle-actions{display:flex;gap:6px}
+.parcel-workspace .parcel-mini{padding:6px 12px!important;margin:0!important;min-height:34px;border-radius:8px!important;background:#fff!important;color:#41526a!important;border:1px solid #cbd5e1!important;font-size:13px;font-weight:700}
+.parcel-workspace .parcel-mini.danger{color:#b0233c!important;border-color:#f3c2cb!important}
+.parcel-workspace .parcel-mini.danger:hover{background:#fff0f2!important}
+.parcel-vehicle-card h4{margin:16px 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#64748b}
+.parcel-vehicle-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 14px}
+.parcel-workspace .parcel-vehicle-grid label{margin:8px 0}
+.parcel-vehicle-grid label.wide{grid-column:1/-1}
+.parcel-rider-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.parcel-workspace .parcel-rider-chip{position:relative;display:inline-flex!important;align-items:center;margin:0!important;padding:8px 16px;border:1px solid #cbd5e1;border-radius:20px;background:#fff;font-size:13.5px;cursor:pointer;user-select:none}
+.parcel-workspace .parcel-rider-chip.on{background:var(--sf-action,#087c9f);border-color:var(--sf-action,#087c9f);color:#fff}
+.parcel-rider-chip{position:relative}
+/* The real checkbox stays inside its chip, so focusing it on click never scrolls the page away. */
+.parcel-rider-chip input,.parcel-workspace .parcel-rider-chip input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.parcel-rider-chip:focus-within{outline:2px solid var(--sf-action,#087c9f);outline-offset:2px}
+.parcel-vehicle-warn{color:#9a5b00!important}
+.parcel-workspace .parcel-add-vehicle{width:100%;min-height:48px;margin:0!important;background:#fff!important;color:var(--sf-action,#087c9f)!important;border:2px dashed var(--sf-action,#087c9f)!important;border-radius:12px!important;font-weight:800}
+
+/* Save button with its "Saved" confirmation beside it (the editor stays on the same tab after saving). */
+.parcel-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.parcel-saved-note{color:#166534;font-weight:700;font-size:14px}
+
+/* Customer trip (track) page on a phone: short title + wrapping booking ID, a Share button that never
+   squeezes, and room at the bottom so the app's bottom navigation never covers the last card. */
+.parcel-trip-header{align-items:flex-start}
+.parcel-trip-title{min-width:0;flex:1}
+.customer-service-page .parcel-trip-header h2{margin:0;font-size:19px;line-height:1.3}
+.parcel-trip-id{display:block;margin-top:2px;color:#64748b;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.customer-service-page .parcel-trip-share{flex:none;white-space:nowrap;min-height:38px;padding:7px 14px}
+@media (max-width:900px){
+  .parcel-workspace.customer-service-page{padding-left:14px;padding-right:14px;padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+  .customer-service-page .parcel-live-status{margin:0 0 10px}
+}

@@ -1,6 +1,9 @@
 import ParcelPolicy from '../models/ParcelPolicy.js';
 import { httpError } from '../utils/response.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
+export const RIDER_VEHICLE_TYPES = ['bicycle', 'bike', 'auto', 'car'];
+// Pictures customers see for a vehicle (the admin picks one).
+export const PARCEL_VEHICLE_ICONS = ['bike', 'scooter', 'auto', 'car', 'van', 'truck'];
 export const failParcel = (message, status = 400) => { throw httpError(status, message); };
 export const flagNames = ['catalogue', 'booking', 'online_payment', 'pay_driver', 'auto_assignment', 'admin_fallback', 'fulfilment', 'refunds'];
 export const parcelFlags = () => Object.fromEntries(flagNames.map(k => [k, true]));
@@ -79,6 +82,38 @@ export function validateParcelPolicy(input) {
   c.boostDriverShareBps = input.boostDriverShareBps === undefined || input.boostDriverShareBps === null || input.boostDriverShareBps === '' ? 10000 : integer(input.boostDriverShareBps, 'driver share of boosts', 0, 10000);
   c.maxBoostPaise = input.maxBoostPaise === undefined || input.maxBoostPaise === null || input.maxBoostPaise === '' ? 0 : integer(input.maxBoostPaise, 'maximum total boost');
   if (c.boostEnabled && (!c.boostOptionsPaise.length || c.maxBoostPaise < c.boostOptionsPaise[0])) failParcel('Fare boost needs at least one amount and a maximum total boost of at least the smallest amount');
+  // ---- Vehicles (optional). With none, the policy prices one "Doorstep delivery" service as before.
+  // Each vehicle has its own capacity, rates and the rider vehicle types allowed to carry it.
+  const rawVehicles = input.vehicles ?? [];
+  if (!Array.isArray(rawVehicles) || rawVehicles.length > 20) failParcel('Provide at most 20 vehicles');
+  const vehicleIds = new Set();
+  c.vehicles = rawVehicles.map((v, i) => {
+    const label = `Vehicle ${i + 1}`;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) failParcel(`Invalid ${label.toLowerCase()}`);
+    const id = boundedText(v.id, `${label} code`, 40).toLowerCase();
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(id)) failParcel(`${label} code may use only letters, numbers, - and _`);
+    if (vehicleIds.has(id)) failParcel(`Vehicle code ${id} is used twice`);
+    vehicleIds.add(id);
+    const riderVehicleTypes = [...new Set(Array.isArray(v.riderVehicleTypes) ? v.riderVehicleTypes : [])];
+    if (!riderVehicleTypes.length || riderVehicleTypes.some(t => !RIDER_VEHICLE_TYPES.includes(t))) failParcel(`${label}: choose which rider vehicles (${RIDER_VEHICLE_TYPES.join(', ')}) can carry it`);
+    if (!Array.isArray(v.dimensionsCm) || v.dimensionsCm.length !== 3) failParcel(`${label}: length, width and height are required`);
+    const vehicle = {
+      id, name: boundedText(v.name, `${label} name`, 60),
+      description: typeof v.description === 'string' ? v.description.trim().slice(0, 200) : '',
+      enabled: v.enabled !== false, riderVehicleTypes,
+      icon: PARCEL_VEHICLE_ICONS.includes(v.icon) ? v.icon : ({ bicycle:'bike', bike:'bike', auto:'auto', car:'car' })[riderVehicleTypes[0]],
+      maxWeightKg: positive(v.maxWeightKg, `${label} capacity`, 5000),
+      dimensionsCm: v.dimensionsCm.map(n => positive(n, `${label} size`, 1000)),
+      includedKm: v.includedKm === undefined || v.includedKm === null || v.includedKm === '' ? 0 : nonNegative(v.includedKm, `${label} included kilometres`, c.maxRouteKm),
+    };
+    for (const [k, min] of [['basePaise', 0], ['perKmPaise', 0], ['minimumPaise', 1], ['driverBasePaise', 0], ['driverPerKmPaise', 0]]) vehicle[k] = integer(v[k], `${label} ${k}`, min);
+    if (vehicle.minimumPaise > c.maximumPaise || vehicle.driverBasePaise > c.maximumPaise) failParcel(`${label}: fares must stay within the highest delivery fee`);
+    return vehicle;
+  });
+  if (c.vehicles.length && !c.vehicles.some(v => v.enabled)) failParcel('Enable at least one vehicle');
+  // Customer cancellation: instant while no rider has accepted (default), or always admin-reviewed.
+  if (![undefined, 'instant_before_assignment', 'admin_review'].includes(input.customerCancel)) failParcel('Unsupported customer cancellation setting');
+  c.customerCancel = input.customerCancel || 'instant_before_assignment';
   // Supported initial policy combinations are intentionally explicit.
   if (input.taxTreatment !== 'inclusive' || !['none', 'weight', undefined].includes(input.surcharges) || input.cancellationMode !== 'admin_review' || input.failureMode !== 'admin_review' || !['pickup','delivery','customer_choice'].includes(input.cashCollectionPoint) || input.partialCash !== false || typeof input.payDriverEnabled !== 'boolean') failParcel('Unsupported policy: require inclusive approved taxes, no surcharges, admin review, an approved cash collection point and exact cash');
   Object.assign(c, { taxTreatment: 'inclusive', surcharges: c.weightTiers.length ? 'weight' : 'none', cancellationMode: 'admin_review', failureMode: 'admin_review', cashCollectionPoint: input.cashCollectionPoint, partialCash: false, payDriverEnabled: input.payDriverEnabled });
@@ -109,9 +144,31 @@ export function validateParcelDetails(input, c, distance) {
     return v;
   };
   if (!c.categories.includes(input.category) || input.acceptRestrictions !== true) failParcel('Select an approved category and accept parcel restrictions');
+  const instructions = typeof input.instructions === 'string' ? input.instructions.trim().slice(0,500) : '';
+  const vehicles = parcelVehicles(c);
+  if (vehicles.length) {
+    // Vehicle bookings: goods default to "<category>, up to the vehicle's capacity, in the vehicle's
+    // load space". A stated weight or size must fit at least one vehicle; the chosen one is checked at booking.
+    const blank = v => v === undefined || v === null || v === '';
+    const weightKg = blank(input.weightKg) ? null : positive(input.weightKg, 'weight', Math.max(...vehicles.map(v => v.maxWeightKg)));
+    const dimensions = blank(input.dimensions) ? null : input.dimensions;
+    if (dimensions && (!Array.isArray(dimensions) || dimensions.length !== 3)) failParcel('Three dimensions required');
+    const packages = blank(input.packages) ? 1 : integer(input.packages, 'number of packages', 1, 99);
+    const description = typeof input.description === 'string' && input.description.trim() ? boundedText(input.description, 'Parcel description') : input.category;
+    return { pickup: address(input.pickup, 'Pickup'), dropoff: address(input.dropoff, 'Drop'), category: input.category, description, weightKg, ...(dimensions ? { dimensions: dimensions.map(n => positive(n, 'dimension', 1000)) } : {}), packages, instructions, acceptRestrictions: true };
+  }
   const dimensions = input.dimensions;
   if (!Array.isArray(dimensions) || dimensions.length !== 3) failParcel('Three dimensions required');
-  return { pickup: address(input.pickup, 'Pickup'), dropoff: address(input.dropoff, 'Drop'), category: input.category, description: boundedText(input.description,'Parcel description'), weightKg: positive(input.weightKg,'weight',c.maxWeightKg), dimensions: dimensions.map(n => positive(n,'dimension',c.maxDimensionCm)), instructions: typeof input.instructions === 'string' ? input.instructions.trim().slice(0,500) : '', acceptRestrictions: true };
+  return { pickup: address(input.pickup, 'Pickup'), dropoff: address(input.dropoff, 'Drop'), category: input.category, description: boundedText(input.description,'Parcel description'), weightKg: positive(input.weightKg,'weight',c.maxWeightKg), dimensions: dimensions.map(n => positive(n,'dimension',c.maxDimensionCm)), instructions, acceptRestrictions: true };
+}
+/** Whether goods described in quote details fit a vehicle. */
+export function parcelVehicleFits(details, v) {
+  if (details.weightKg != null && details.weightKg > v.maxWeightKg) return false;
+  if (details.dimensions) {
+    const goods = [...details.dimensions].sort((a, b) => b - a), space = [...v.dimensionsCm].sort((a, b) => b - a);
+    if (goods.some((n, i) => n > space[i])) return false;
+  }
+  return true;
 }
 /**
  * Splits a route into charged distance bands from the admin's settings:
@@ -134,6 +191,19 @@ export function parcelDistanceBands(metres, c) {
 /** The weight tier for a parcel: the highest tier the weight exceeds, or none. */
 export const parcelWeightTier = (weightKg, c) => (c.weightTiers || []).filter(t => Number(weightKg) > t.aboveKg).sort((a, b) => b.aboveKg - a.aboveKg)[0] || null;
 
+/** Vehicles customers can choose now. Empty means the legacy single service. */
+export const parcelVehicles = c => (c?.vehicles || []).filter(v => v.enabled);
+/**
+ * The policy as it applies to one vehicle: the vehicle's own flat rates and capacity.
+ * Distance slabs and weight tiers belong to the single-service policy; a vehicle's
+ * price already reflects what it can carry.
+ */
+export function parcelVehicleConfig(c, v) {
+  return { ...c, basePaise: v.basePaise, perKmPaise: v.perKmPaise, minimumPaise: v.minimumPaise, driverBasePaise: v.driverBasePaise, driverPerKmPaise: v.driverPerKmPaise,
+    includedKm: v.includedKm || 0, distanceSlabs: [], weightTiers: [], maxWeightKg: v.maxWeightKg, maxDimensionCm: Math.max(...v.dimensionsCm) };
+}
+/** What a booking records about its vehicle (frozen with the booking). */
+export const parcelVehicleSnapshot = v => ({ id: v.id, name: v.name, icon: v.icon, riderVehicleTypes: [...v.riderVehicleTypes], maxWeightKg: v.maxWeightKg, dimensionsCm: [...v.dimensionsCm] });
 /**
  * Customer fare and driver earning, entirely from the admin's policy:
  *   customer = max(minimum, starting fee + slab distance charges + weight surcharge + handling fee)
@@ -141,9 +211,9 @@ export const parcelWeightTier = (weightKg, c) => (c.weightTiers || []).filter(t 
  * GST is included in the customer fare. Older policies (no included km, slabs, tiers or
  * handling fee) produce exactly the previous figures.
  */
-export function parcelFare(distanceKm, p, details = {}) {
+export function parcelFare(distanceKm, p, details = {}, vehicle) {
   if (!Number.isFinite(distanceKm) || distanceKm <= 0 || distanceKm > p.config.maxRouteKm) failParcel('Route distance is unsupported', 409);
-  const c = p.config, metres = Math.ceil(distanceKm * 1000);
+  const c = vehicle ? parcelVehicleConfig(p.config, vehicle) : p.config, metres = Math.ceil(distanceKm * 1000);
   const bands = parcelDistanceBands(metres, c);
   // One rounding per side (up to the paisa), so a single-band policy equals the old formula.
   const distanceFee = Math.ceil(bands.reduce((sum, b) => sum + b.metres * b.perKmPaise, 0) / 1000);
@@ -155,7 +225,7 @@ export function parcelFare(distanceKm, p, details = {}) {
   const driverPaise = c.driverBasePaise + driverDistance + (tier?.driverPaise || 0);
   const taxPaise = Math.round(totalPaise * c.taxRateBps / (10000 + c.taxRateBps));
   if (!Number.isSafeInteger(totalPaise) || totalPaise > c.maximumPaise || driverPaise > totalPaise-taxPaise) failParcel('Fare or earning exceeds approved limits',409);
-  return { policyVersion: p.version, policy: structuredClone(c), distanceMetres: metres, basePaise: c.basePaise, distancePaise: distanceFee,
+  return { policyVersion: p.version, policy: structuredClone(p.config), distanceMetres: metres, basePaise: c.basePaise, distancePaise: distanceFee,
     weightSurchargePaise, handlingFeePaise, includedKm: c.includedKm || 0,
     bands: bands.map(b => ({ fromKm: b.fromKm, toKm: b.toKm, perKmPaise: b.perKmPaise })),
     totalPaise, taxPaise, driverPaise, platformPaise: totalPaise - taxPaise - driverPaise, currency: 'INR' };

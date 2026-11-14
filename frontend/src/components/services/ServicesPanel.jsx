@@ -1,6 +1,7 @@
 import { useFeedback } from '../feedback/FeedbackProvider';
 import { getPortalToken } from '../../utils/portalSession';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import useUrlState from '../../utils/useUrlState';
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import ServicePaymentPanel, { payServiceFee, feeText, FeeBreakdown, serviceFeeQuote } from './ServicePaymentPanel';
@@ -124,11 +125,12 @@ export default function ServicesPanel({ admin = false, applicant = 'vendor' }) {
   const ui = useFeedback();
   const customers = admin && applicant === 'customer';
   // The header GST chip opens this page straight on My applications.
-  const [tab, setTab] = useState(() => {
+  // Kept in the URL (?servicesTab=) so a refresh stays on the same tab.
+  const [tab, setTab] = useUrlState('servicesTab', () => {
     if (customers) return 'applications';
     try { const hint = sessionStorage.getItem('seller-services-tab'); sessionStorage.removeItem('seller-services-tab'); if (hint === 'applications') return hint; } catch { /* no storage: default tab */ }
     return 'services';
-  });
+  }, customers ? ['applications'] : ['services', 'applications']);
   const [agreed, setAgreed] = useState(false);
   const [items, setItems] = useState([]), [meta, setMeta] = useState({ total: 0 }), [page, setPage] = useState(1);
   const [filter, setFilter] = useState(''), [from, setFrom] = useState(''), [to, setTo] = useState('');

@@ -58,7 +58,7 @@
 .sf-splash-card>.sf-media-fallback{display:grid;min-height:0}
 .sf-splash-actions{position:absolute;z-index:1;left:calc(16px + env(safe-area-inset-left,0px));right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none}
 .sf-splash-actions>*{pointer-events:auto}.sf-splash-actions p{margin:0;padding:8px 12px;border-radius:20px;background:#000b;color:#fff;font-size:13px}.sf-splash-actions .sf-cta{max-width:100%;text-align:center}
-.sf-splash-skip{position:absolute;z-index:2;top:calc(14px + env(safe-area-inset-top,0px));right:calc(14px + env(safe-area-inset-right,0px));min-height:36px;padding:0 16px;border:0;border-radius:999px;background:#000b;color:#fff;font-size:13px;font-weight:700;cursor:pointer}.sf-splash-skip:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.sf-splash-skip{position:absolute;z-index:2;bottom:calc(20px + env(safe-area-inset-bottom,0px));right:calc(16px + env(safe-area-inset-right,0px));min-height:36px;padding:0 16px;border:0;border-radius:999px;background:#000b;color:#fff;font-size:13px;font-weight:700;cursor:pointer}.sf-splash-skip:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .sf-media-fallback{min-height:180px;display:grid;place-items:center;padding:24px;background:var(--sf-gradient);color:white;font-size:24px;font-weight:750;text-align:center}
 .sf-storefront[data-decoration="dots"] .sf-hero-copy{background-image:radial-gradient(var(--sf-border) 1px,transparent 1px);background-size:12px 12px}
 .sf-storefront[data-decoration="confetti"] .sf-hero{border-bottom:5px dashed var(--sf-accent)}
@@ -454,3 +454,6 @@
 @media (min-width: 1024px) {
   .sf-festive-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 220px)) !important; gap: 18px !important; }
 }
+
+/* Skip sits at the bottom; the countdown / button move up a row so they never overlap it. */
+.sf-splash-skip~.sf-splash-actions{bottom:calc(72px + env(safe-area-inset-bottom,0px))}

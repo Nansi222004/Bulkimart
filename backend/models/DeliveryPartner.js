@@ -80,6 +80,13 @@ const deliveryPartnerSchema = new Schema(
     isAvailable:     { type: Boolean, default: false },
     // Parcel-only reservation; existing order dispatch sees the duty switch off.
     parcelReservation: { bookingId: { type: ObjectId, ref: 'ParcelDelivery' }, previousDuty: Boolean },
+    // Vehicle changes an approved rider made themselves (newest last); admins re-check the documents.
+    vehicleChanges: [{
+      _id: false,
+      fromType: String, fromNo: String,
+      toType: String, toNo: String,
+      at: Date,
+    }],
     parcelReturnClaim: { token: String, startedAt: Date },
     currentLocation: {
       lat:       Number,

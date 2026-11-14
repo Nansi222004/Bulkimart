@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import useUrlState from '../../../utils/useUrlState';
 import { adminGet, adminGetBlob, qs } from '../../../utils/adminApi';
 import { rupeesFromPaise as money } from './financeText';
 import { DashboardBars } from './DashboardCharts';
@@ -347,7 +348,7 @@ const download = async path => {
 };
 
 export default function ReportsTab() {
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useUrlState('report', 'overview');
   const [preset, setPreset] = useState('last30');
   const [draft, setDraft] = useState(() => ({ from: '', to: istToday() })), [custom, setCustom] = useState(null), [rangeError, setRangeError] = useState('');
   const [tables, setTables] = useState(() => Object.fromEntries(Object.entries(TABLE_DEFAULTS).map(([key, value]) => [key, { search: '', dir: 'desc', page: 1, limit: 20, ...value }])));

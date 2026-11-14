@@ -9,7 +9,7 @@ import Payment from '../models/Payment.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import { ok, created, paginated, getPagination } from '../utils/response.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
-import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold, parcelCashCollectionPoints } from '../services/parcelPolicy.service.js';
+import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold, parcelCashCollectionPoints, parcelVehicles } from '../services/parcelPolicy.service.js';
 import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, boostParcel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
 import { assignParcel, respondParcelOffer, notifyParcel, parcelRiderIneligibility } from '../services/parcelAssignment.service.js';
 import { parcelOfferFilter } from '../services/parcelOffers.js';
@@ -43,11 +43,31 @@ const dtoFor = (req,b) => {
 export async function catalogue(_req,res) {
   requireParcel('catalogue');
   const p=await Policy.findById('parcel');
-  return ok(res,p?{version:p.version,terms:p.config.terms,categories:p.config.categories,prohibitedItems:p.config.prohibitedItems,maxWeightKg:p.config.maxWeightKg,maxDimensionCm:p.config.maxDimensionCm,payDriverEnabled:p.config.payDriverEnabled,payDriverCategories:p.config.payDriverCategories,cashCollectionPoint:p.config.cashCollectionPoint,cashCollectionPoints:parcelCashCollectionPoints(p.config),areas:p.config.areas.map(a=>({name:a.name,pincodes:a.pincodes})),ready:new Date(p.config.effectiveAt)<=new Date()}:null);
+  return ok(res,p?{version:p.version,terms:p.config.terms,categories:p.config.categories,prohibitedItems:p.config.prohibitedItems,maxWeightKg:p.config.maxWeightKg,maxDimensionCm:p.config.maxDimensionCm,payDriverEnabled:p.config.payDriverEnabled,payDriverCategories:p.config.payDriverCategories,cashCollectionPoint:p.config.cashCollectionPoint,cashCollectionPoints:parcelCashCollectionPoints(p.config),areas:p.config.areas.map(a=>({name:a.name,pincodes:a.pincodes})),vehicles:parcelVehicles(p.config).map(publicVehicle),customerCancel:p.config.customerCancel||'instant_before_assignment',ready:new Date(p.config.effectiveAt)<=new Date()}:null);
+}
+const publicVehicle=v=>({id:v.id,name:v.name,icon:v.icon||'bike',description:v.description||'',maxWeightKg:v.maxWeightKg,dimensionsCm:v.dimensionsCm});
+const quotePricing=x=>({policyVersion:x.policyVersion,totalPaise:x.totalPaise,basePaise:x.basePaise,distancePaise:x.distancePaise,taxPaise:x.taxPaise,weightSurchargePaise:x.weightSurchargePaise||0,handlingFeePaise:x.handlingFeePaise||0,includedKm:x.includedKm||0,bands:x.bands||[],minimumAdjustmentPaise:x.totalPaise-x.basePaise-x.distancePaise-(x.weightSurchargePaise||0)-(x.handlingFeePaise||0),distanceMetres:x.distanceMetres,currency:'INR'});
+// A hint only: minutes for the nearest on-duty rider with a matching vehicle to reach the pickup.
+// Booking never depends on it; offers still go through normal eligibility checks.
+async function vehicleEtas(policy,pickup,vehicles) {
+  const delta=policy.assignmentRadiusKm/111, cos=Math.max(.1,Math.cos(pickup.lat*Math.PI/180));
+  const riders=await Partner.find({status:'approved',isAvailable:true,'parcelReservation.bookingId':{$exists:false},'currentLocation.updatedAt':{$gte:new Date(Date.now()-policy.locationMaxAgeSeconds*1000)},
+    'currentLocation.lat':{$gte:pickup.lat-delta,$lte:pickup.lat+delta},'currentLocation.lng':{$gte:pickup.lng-delta/cos,$lte:pickup.lng+delta/cos}}).select('vehicleType currentLocation').limit(200).lean();
+  return Object.fromEntries(vehicles.map(v=>{
+    const km=riders.filter(r=>v.riderVehicleTypes.includes(r.vehicleType)).map(r=>distanceKm(r.currentLocation,pickup)).filter(n=>Number.isFinite(n)&&n<=policy.assignmentRadiusKm);
+    return [v.id,km.length?Math.max(2,Math.ceil(Math.min(...km)/20*60)+1):null];
+  }));
 }
 export async function quote(req,res) {
   const q=await quoteParcel(req.user._id,req.body);
-  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(q.pricing.policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:q.pricing.policy.maxWeightKg,maxDimensionCm:q.pricing.policy.maxDimensionCm},pricing:{policyVersion:q.pricing.policyVersion,totalPaise:q.pricing.totalPaise,basePaise:q.pricing.basePaise,distancePaise:q.pricing.distancePaise,taxPaise:q.pricing.taxPaise,weightSurchargePaise:q.pricing.weightSurchargePaise||0,handlingFeePaise:q.pricing.handlingFeePaise||0,includedKm:q.pricing.includedKm||0,bands:q.pricing.bands||[],minimumAdjustmentPaise:q.pricing.totalPaise-q.pricing.basePaise-q.pricing.distancePaise-(q.pricing.weightSurchargePaise||0)-(q.pricing.handlingFeePaise||0),distanceMetres:q.pricing.distanceMetres,currency:'INR'},terms:q.pricing.policy.terms});
+  const policy=q.pricing.policy, options=q.pricing.vehicleOptions;
+  let vehicleOptions;
+  if(options) {
+    const vehicles=options.map(o=>policy.vehicles.find(v=>v.id===o.vehicleId)).filter(Boolean);
+    const etas=await vehicleEtas(policy,q.details.pickup,vehicles).catch(()=>({}));
+    vehicleOptions=options.map(o=>{const v=vehicles.find(x=>x.id===o.vehicleId);return {vehicle:publicVehicle(v),available:Boolean(o.pricing),...(o.unavailable?{reason:o.unavailable}:{}),etaMinutes:etas[v.id]??null,...(o.pricing?{pricing:quotePricing({...o.pricing,policyVersion:q.pricing.policyVersion})}:{})};});
+  }
+  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:policy.maxWeightKg,maxDimensionCm:policy.maxDimensionCm},...(vehicleOptions?{vehicleOptions}:{}),pricing:quotePricing(q.pricing),terms:policy.terms});
 }
 export async function book(req,res) {
   const b=await bookParcel(req.user._id,req.body,req.get('Idempotency-Key'));

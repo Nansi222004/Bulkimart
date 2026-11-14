@@ -40,6 +40,19 @@ export const getMyProfile = () => api.get('/api/delivery/me').then(data);
 
 const file = (f) => ({ uri: f.uri, name: f.name || 'document.jpg', type: f.type || 'image/jpeg' });
 
+// PUT /api/delivery/vehicle multipart (approved riders): same fields as step 1. Refused while carrying a delivery.
+export function changeVehicle({ vehicleType, vehicleNo, licenseNo, licenseExpiry, licenseFile }) {
+  const fd = new FormData();
+  fd.append('vehicleType', vehicleType);
+  fd.append('vehicleNo', vehicleNo || '');
+  if (vehicleType !== 'bicycle') {
+    fd.append('licenseNo', licenseNo || '');
+    if (licenseExpiry) fd.append('licenseExpiry', licenseExpiry);
+    if (licenseFile) fd.append('license', file(licenseFile));
+  }
+  return api.put('/api/delivery/vehicle', fd, multipart);
+}
+
 // PUT /api/delivery/step/1 multipart: vehicleType, vehicleNo, licenseNo, licenseExpiry?, license(file)
 export function submitVehicleStep({ vehicleType, vehicleNo, licenseNo, licenseExpiry, licenseFile }) {
   const fd = new FormData();
@@ -139,6 +152,9 @@ export const verifyReturnOtp = (returnId, otp) => api.post(`/api/delivery/return
 
 // ---------------------------------------------------------------- parcels (/api/delivery/parcels, approved driver)
 export const getParcels = (page = 1, limit = 20) => api.get('/api/delivery/parcels/bookings', { params: { page, limit } });
+// Open parcel offers for this rider (bookings still searching; the server lists only live offers sent to them).
+export const getParcelOffers = () => api.get('/api/delivery/parcels/bookings', { params: { status: 'searching_for_driver', limit: 10 } })
+  .then((body) => (body?.data || []).filter((b) => b.offer && new Date(b.offer.expiresAt) > new Date()));
 export const getParcel = (bookingId) => api.get(`/api/delivery/parcels/bookings/${id(bookingId)}`).then(data);
 // POST /offer { action:'accept'|'reject', token, version }
 export const respondParcelOffer = (booking, action) => api.post(`/api/delivery/parcels/bookings/${id(booking._id)}/offer`, { action, token: booking.offer?.token, version: booking.version });

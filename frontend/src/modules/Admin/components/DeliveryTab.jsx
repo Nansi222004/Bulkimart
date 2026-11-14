@@ -1,6 +1,7 @@
 import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import useUrlState from '../../../utils/useUrlState';
 import { useAdmin } from '../context/AdminContext';
 
 /**
@@ -88,7 +89,8 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [cityFilter, setCityFilter] = useState('');
-  const [tab, setTab] = useState(defaultStatusFilter || 'All');
+  const [tab, setTab] = useUrlState('status', defaultStatusFilter || 'All');
+  const lastDefaultFilter = useRef(defaultStatusFilter);
   const [dossierTab, setDossierTab] = useState('application');
   const [riderRadiusInput, setRiderRadiusInput] = useState('');
   const [removing, setRemoving] = useState(false);
@@ -119,6 +121,9 @@ export const DeliveryTab = ({ defaultStatusFilter }) => {
 
   // The sidebar mounts this with a different filter per entry, so follow it.
   useEffect(() => {
+    // Only a different sidebar entry changes it; on first load the tab in the URL wins.
+    if (lastDefaultFilter.current === defaultStatusFilter) return;
+    lastDefaultFilter.current = defaultStatusFilter;
     if (defaultStatusFilter) setTab(defaultStatusFilter);
   }, [defaultStatusFilter]);
 

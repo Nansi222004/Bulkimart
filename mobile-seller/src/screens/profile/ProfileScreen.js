@@ -140,6 +140,8 @@ export default function ProfileScreen({ navigation }) {
       <Card>
         <SectionTitle icon="settings" title="Account" />
         <ActionRow icon="edit" label="Edit profile" onPress={() => navigation.navigate('EditProfile')} />
+        <ActionRow icon="headset" label="Help & support" onPress={() => navigation.navigate('Support')} />
+        <ActionRow icon="file" label="Privacy policy" onPress={() => navigation.navigate('PrivacyPolicy')} />
         <ActionRow icon="logout" label="Sign out" onPress={confirmSignOut} />
       </Card>
 

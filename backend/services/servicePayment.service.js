@@ -12,6 +12,7 @@ import { postLedgerEntry } from './sellerLedger.service.js';
 import { moneyPaise } from './vendorCommission.service.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
 import { notifyAllAdmins } from './notification.service.js';
+import { emailServiceConfirmation } from './email.service.js';
 
 // 'vendor_service' marks every simple service-fee payment (sellers and customers); legal quotation payments never use it.
 const purpose = { servicePaymentKind: 'vendor_service' };
@@ -139,6 +140,7 @@ export async function settleServicePayment(paymentId, live) {
     a.markModified('billing'); await a.save({ session }); await p.save({ session });
     return bill.status;
   });
+  if (submitted) void emailServiceConfirmation(submitted, { paid: true });
   if (submitted) await notifyAllAdmins({ event: 'SYSTEM', title: 'New paid service application', message: `${submitted.snapshot.name}: service fee paid and application submitted`,
     metadata: { applicationId: String(submitted._id) }, route: `/admin/services?${submitted.applicantType === 'customer' ? 'legalRequest' : 'application'}=${submitted._id}` }).catch(() => {});
   return status;

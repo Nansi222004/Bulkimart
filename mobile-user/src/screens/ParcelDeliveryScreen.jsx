@@ -2,10 +2,10 @@
 // Web paths → params: /parcel-delivery[/book] → view=book · /history → view=history · /track/:id → view=track&id=.
 // Tracking and history stay live: parcel notifications, a 10 s poll, app foreground and socket reconnect.
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Modal, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Package } from 'lucide-react-native';
+import { ArrowLeft, Headset, Package, Share2 } from 'lucide-react-native';
 import { useSession } from '../context/SessionContext';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -18,8 +18,11 @@ import { Spinner, Text, TextInput } from '../components/ui';
 import { ServiceHeading } from '../components/services/LegalServices';
 import { newIdempotencyKey } from '../components/services/ServicePayment';
 import { parcelBookingEnabled, parcelBookingReady } from '../components/services/ServiceEntries';
-import { PBtn, PCard, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap } from '../components/parcels/ParcelUI';
-import { parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from '../components/parcels/parcelLogic';
+import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard } from '../components/parcels/ParcelUI';
+import { bookAgainDraft, parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from '../components/parcels/parcelLogic';
+import { session } from '../lib/storage';
+
+export const PARCEL_CANCEL_REASONS = ['Driver was not allocated', 'Changed my mind', 'My reason is not listed'];
 
 const ID = /^[a-f\d]{24}$/i;
 const INTRO = 'Your parcel, collected and delivered by a Bulkimart delivery partner.';
@@ -82,7 +85,7 @@ function ParcelDelivery() {
   const [rows, setRows] = useState([]), [page, setPage] = useState(1), [meta, setMeta] = useState({}), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [revision, refresh] = useState(0);
   const [readError, setReadError] = useState(''), [loadedKey, setLoadedKey] = useState(''), [updatedAt, setUpdatedAt] = useState(null);
-  const [cancelOpen, setCancelOpen] = useState(false), [reason, setReason] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false), [cancelChoice, setCancelChoice] = useState(''), [cancelComment, setCancelComment] = useState(''), [cancelResult, setCancelResult] = useState('');
   const lock = useRef(false), paymentKey = useRef(newIdempotencyKey());
   const readKey = `${view}:${track || ''}:${history ? page : 1}`;
   const nav = (nextView, id) => router.push({ pathname: '/parcel-delivery', params: { view: nextView, ...(id ? { id } : {}) } });
@@ -147,6 +150,17 @@ function ParcelDelivery() {
     } finally { setCheckoutActive(false); }
   });
   const action = (suffix, data) => run(async () => { await parcelRequest(`/bookings/${track}/${suffix}`, { method: 'POST', body: JSON.stringify(data) }); refresh(x => x + 1); });
+  // Cancel Trip: before a partner accepts this cancels at once; afterwards our team reviews it.
+  const submitCancel = () => run(async () => {
+    const comment = cancelComment.trim();
+    const reason = cancelChoice === 'My reason is not listed' ? (comment || cancelChoice) : cancelChoice + (comment ? ': ' + comment : '');
+    const r = await parcelRequest(`/bookings/${track}/cancellation`, { method: 'POST', body: JSON.stringify({ version: booking.version, reason: reason.slice(0, 500) }) });
+    setCancelOpen(false); setCancelChoice(''); setCancelComment('');
+    if (r.data) setBooking(previous => (previous?._id === r.data._id ? { ...previous, ...r.data } : previous));
+    setCancelResult(r.data?.status === 'cancelled' ? 'cancelled' : 'review'); refresh(x => x + 1);
+  });
+  const bookAgain = b => { bookAgainDraft(session, sessionState?.profile?._id, b); nav('book'); };
+  const shareTrip = b => Share.share({ message: `Parcel ${b.reference}: ${parcelCustomerStatus(b.status)}` }).catch(() => {});
   const sendBoost = body => parcelRequest(`/bookings/${track}/boost`, { method: 'POST', body: JSON.stringify(body) });
   const topUpAndBoost = (rupees, body) => run(async () => {
     const headers = parcelHeaders();
@@ -187,11 +201,7 @@ function ParcelDelivery() {
   </View>;
   const heading = <ServiceHeading parcel Icon={Package}><Text style={{ color: '#52647b', lineHeight: 22 }}>{INTRO}</Text></ServiceHeading>;
   const shell = content => <Shell>{heading}{navBar()}{content}</Shell>;
-  const historyRow = b => <Pressable key={b._id} onPress={() => nav('track', b._id)} accessibilityRole="button"
-    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12 }}>
-    <Text style={{ flex: 1, fontSize: 13.5, fontWeight: '600', color: '#1e293b' }}>{b.reference} · {parcelCustomerStatus(b.status)} · {parcelMoney(b.feePaise)}</Text>
-    <Text style={{ color: theme.action, fontWeight: '700', fontSize: 16, marginLeft: 8 }}>→</Text>
-  </Pressable>;
+  const historyRow = b => <ParcelOrderCard key={b._id} booking={b} onOpen={() => nav('track', b._id)} onBookAgain={['delivered', 'cancelled'].includes(b.status) ? () => bookAgain(b) : undefined} />;
 
   if (checkoutActive) return <Shell><PCard style={{ alignItems: 'center', gap: 8 }}>
     <Spinner size="large" />
@@ -213,7 +223,7 @@ function ParcelDelivery() {
   const bookingReady = parcelBookingReady(flags, policy);
   return <Shell>
     {(track || history || !bookingReady) && heading}
-    {navBar(Boolean(track || history), Boolean(track || history))}
+    {(track || history || !bookingReady) && navBar(Boolean(track || history), Boolean(track || history))}
     {(track || history) && updatedAt ? <Text style={{ fontSize: 12.5, color: '#146447', marginBottom: 6 }}>● Live · updated {updatedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={{ color: '#9c243a', backgroundColor: '#fff0f1', padding: 14, borderRadius: 8 }}>{error}</Text> : null}
     {notice ? <Text style={{ marginVertical: 6 }}>{notice}</Text> : null}
@@ -227,8 +237,12 @@ function ParcelDelivery() {
       </View>
     </PCard>
       : track && booking ? <>
-        <ParcelCustomerStatus booking={booking} justBooked={justBooked === track} onWallet={() => router.push('/account?section=wallet')} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <Text style={{ fontSize: 16, fontWeight: '800', flex: 1 }} numberOfLines={1}>Trip {booking.reference}</Text>
+          <PBtn variant="outline" accessibilityLabel="Share trip" onPress={() => shareTrip(booking)} style={{ minHeight: 36, paddingVertical: 6, borderColor: theme.action }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Share2 size={16} color={theme.action} /><Text style={{ color: theme.action, fontWeight: '700' }}>Share</Text></View></PBtn>
+        </View>
         <ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route} />
+        <ParcelCustomerStatus booking={booking} justBooked={justBooked === track} onWallet={() => router.push('/account?section=wallet')} />
         {booking.paymentMethod === 'online' && ['payment_pending', 'payment_failed'].includes(booking.status) && <PCard>
           <Text style={{ marginBottom: 8 }}>{busy ? 'Opening secure Razorpay checkout…' : 'Complete your payment securely with Razorpay.'}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -245,15 +259,34 @@ function ParcelDelivery() {
           {booking.boost.funding === 'wallet' && <Text style={{ fontSize: 12.5, color: '#52647b', marginTop: 8 }}>You've already paid online, so the extra amount comes from your Bulkimart wallet. It's included in any refund you're due on this booking.</Text>}
         </PCard>}
         {['picked_up', 'in_transit', 'arrived_at_dropoff'].includes(booking.status) && !booking.canCancel && <PCard><Text>Your parcel has been picked up, so this booking can no longer be cancelled.</Text></PCard>}
-        {booking.canCancel && <PCard>
-          <Pressable onPress={() => setCancelOpen(v => !v)} accessibilityState={{ expanded: cancelOpen }}><Text style={{ fontWeight: '600' }}>{cancelOpen ? '▾' : '▸'} Cancel this booking</Text></Pressable>
-          {cancelOpen && <View style={{ marginTop: 10 }}>
-            <Text style={{ fontWeight: '600' }}>Cancellation reason</Text>
-            <TextInput value={reason} onChangeText={setReason} maxLength={500} accessibilityLabel="Cancellation reason" style={{ padding: 11, marginTop: 7, borderWidth: 1, borderColor: '#bdcddd', borderRadius: 8, backgroundColor: '#fff', fontSize: 16, color: '#172b46' }} />
-            <Text style={{ marginVertical: 8 }}>Cancellation and any refund are reviewed under the accepted terms.</Text>
-            <PBtn disabled={busy || !reason.trim()} title="Request cancellation review" style={{ alignSelf: 'flex-start' }} onPress={() => action('cancellation', { version: booking.version, reason: reason.trim() })} />
-          </View>}
-        </PCard>}
+        <PCard style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Headset size={20} color="#41526a" /><Text style={{ flex: 1, fontWeight: '700' }}>Facing issues?</Text>
+          <Pressable onPress={() => router.push('/support')} accessibilityRole="link" hitSlop={8}><Text style={{ color: theme.action, fontWeight: '700' }}>Contact Support</Text></Pressable>
+        </PCard>
+        {booking.canCancel && <Pressable onPress={() => setCancelOpen(true)} disabled={busy} accessibilityRole="button" style={{ alignSelf: 'center', padding: 12, marginBottom: 8 }}><Text style={{ color: '#b0233c', fontWeight: '700' }}>Cancel Trip</Text></Pressable>}
+        {cancelOpen && <PSheet label="Cancel trip" onClose={() => { if (!busy) setCancelOpen(false); }} footer={<View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+          <PBtn variant="outline" title="Go Back" disabled={busy} onPress={() => setCancelOpen(false)} style={{ flex: 1, borderColor: theme.action }} />
+          <PBtn title={busy ? 'Please wait…' : 'Submit'} disabled={busy || !cancelChoice || (cancelChoice === 'My reason is not listed' && !cancelComment.trim())} onPress={submitCancel} style={{ flex: 1 }} />
+        </View>}>
+          <Text style={{ fontSize: 17, fontWeight: '800', marginBottom: 8 }}>Please choose a reason for cancellation</Text>
+          {error ? <Text accessibilityRole="alert" style={{ color: '#9c243a', backgroundColor: '#fff0f1', padding: 12, borderRadius: 8, marginBottom: 8 }}>{error}</Text> : null}
+          {PARCEL_CANCEL_REASONS.map(r => <Pressable key={r} onPress={() => setCancelChoice(r)} accessibilityRole="radio" accessibilityState={{ selected: cancelChoice === r }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
+            <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: cancelChoice === r ? 6 : 2, borderColor: cancelChoice === r ? theme.action : '#64748b' }} /><Text>{r}</Text>
+          </Pressable>)}
+          <TextInput value={cancelComment} onChangeText={setCancelComment} maxLength={400} multiline placeholder="You can add additional comment to help us improve" placeholderTextColor="#94a3b8" accessibilityLabel="Additional comment"
+            style={{ minHeight: 80, textAlignVertical: 'top', padding: 11, marginTop: 8, borderWidth: 1, borderColor: '#bdcddd', borderRadius: 8, backgroundColor: '#fff', fontSize: 15, color: '#172b46' }} />
+          <Text style={{ fontSize: 12.5, color: '#52647b', marginTop: 8 }}>{booking.partner || !['payment_pending', 'payment_failed', 'searching_for_driver', 'needs_admin_assignment'].includes(booking.status) ? 'A delivery partner has accepted, so our team reviews this request.' : 'No partner has accepted yet, so your booking is cancelled straight away. Any amount you paid goes back to your Bulkimart wallet.'}</Text>
+        </PSheet>}
+        {cancelResult ? <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => setCancelResult('')}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(11,20,36,0.65)', justifyContent: 'center', padding: 24 }}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 22, alignItems: 'center' }} accessibilityViewIsModal>
+              <View style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: parcelTint(theme.action), alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#e5334b', fontSize: 22, fontWeight: '800' }}>✕</Text></View>
+              <Text accessibilityRole="header" style={{ fontSize: 18, fontWeight: '800', marginTop: 12 }}>{cancelResult === 'cancelled' ? 'Booking cancelled' : 'Cancellation requested'}</Text>
+              <Text style={{ textAlign: 'center', marginVertical: 10, color: '#41526a' }}>{cancelResult === 'cancelled' ? `Your booking with ${booking.reference} has been cancelled.${booking.refund?.toWallet ? ' The amount you paid is back in your Bulkimart wallet.' : ''}` : 'Our team will review your request. We’ll update you here.'}</Text>
+              <PBtn variant="big" title="Okay" onPress={() => { const done = cancelResult === 'cancelled'; setCancelResult(''); if (done) nav('history'); }} />
+            </View>
+          </View>
+        </Modal> : null}
       </>
         : history ? <PCard>
           <Text style={{ fontSize: 21, fontWeight: '700', marginBottom: 12 }}>Your parcel deliveries</Text>
@@ -271,7 +304,7 @@ function ParcelDelivery() {
             </View>}
           </>}
         </PCard>
-          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} profile={sessionState?.profile}
+          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} profile={sessionState?.profile} onOpenHistory={() => nav('history')} onOpenTrip={id => nav('track', id)}
             onBooked={b => { setBooking(b); setJustBooked(b.paymentMethod === 'online' ? false : b._id); router.setParams({ view: 'track', id: b._id }); if (b.paymentMethod === 'online') void payOnline(b); }} />}
   </Shell>;
 }

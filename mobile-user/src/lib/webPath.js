@@ -16,7 +16,15 @@ export function appHrefFromWebPath(input) {
   if ((m = path.match(new RegExp(`^/review/(${ID})$`, 'i')))) return `/review/${m[1]}`;
   if (path === '/wholesale/cart') return '/wholesale-cart';
   if ((m = path.match(new RegExp(`^/wholesale/(${ID})$`, 'i')))) return `/product?id=${m[1]}&purchase=wholesale`;
+  if ((m = path.match(new RegExp(`^/legal-services/requests/(${ID})$`, 'i')))) return `/legal-services?view=requests&id=${m[1]}`;
+  if (path === '/legal-services/requests') return '/legal-services?view=requests';
   if ((m = path.match(new RegExp(`^/legal-services/(${ID})$`, 'i')))) return `/legal-services?id=${m[1]}`;
+  // Live chat replies (web: /support/chat or /support?chat=1, optionally with ?order=<id>).
+  if (path === '/support/chat' || (path === '/support' && url.searchParams.get('chat') === '1')) {
+    const order = url.searchParams.get('order');
+    return order && new RegExp(`^${ID}$`, 'i').test(order) ? `/support/chat?order=${order}` : '/support/chat';
+  }
+  if (path === '/support' || path === '/privacy-policy') return path;
   if ((m = path.match(/^\/parcel-delivery\/(book|history|track\/[a-f\d]{24})$/i))) return `/parcel-delivery?view=${encodeURIComponent(m[1])}`;
   if (path === '/profile') return '/account';
   const first = path.split('/').filter(Boolean)[0];

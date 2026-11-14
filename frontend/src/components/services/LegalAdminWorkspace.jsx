@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import useUrlState from '../../utils/useUrlState';
 import ServicesPanel from './ServicesPanel';
 import { BriefcaseBusiness, Users } from 'lucide-react';
 import './adminServices.css';
@@ -14,7 +15,7 @@ function legalLinkToApplication() {
 // Admin services: the service catalogue with seller applications, and customer requests.
 // Both use the same steps: review → more information → work → completed, or reject (paid fees go back to the wallet).
 export default function AdminServicesWorkspace() {
-  const [section, setSection] = useState(() => legalLinkToApplication() ? 'customers' : 'catalogue');
+  const [section, setSection] = useUrlState('section', () => legalLinkToApplication() ? 'customers' : 'catalogue');
   useEffect(() => {
     const open = () => { if (legalLinkToApplication()) { setSection('customers'); window.dispatchEvent(new Event('service-application-open')); } };
     window.addEventListener('app:locationchange', open); window.addEventListener('legal-request-open', open);

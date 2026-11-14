@@ -7098,3 +7098,21 @@ html[data-customer-header-inset-owner="native"] :is(.unified-header-container, .
 /* "Similar product photos" bar: same button look as the image-search popup. */
 .image-search-summary span { font-weight: 700; }
 .image-search-summary button { border: 1px solid var(--border-color, #dbe9ee); background: var(--brand-aqua-light, var(--sf-highlight, #FFF0B3)); color: var(--brand-primary-dark, var(--sf-action-hover, #B50918)); border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+
+/* Help & Support and Privacy Policy: full pages opened from the Account menu. */
+.user-main-content.page-support,
+.user-main-content.page-privacy-policy { padding: 0; background: #f8fafc; }
+.account-subpage { width: 100%; max-width: 720px; margin: 0 auto; min-height: 100%; background: #f8fafc; color: #0f172a; box-sizing: border-box; }
+.account-page-header {
+  display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+  background: linear-gradient(135deg, var(--sf-action-hover, #B50918) 0%, var(--sf-action, #D91430) 100%);
+  color: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.account-page-header button { background: none; border: 0; color: inherit; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; }
+.account-page-header h1 { margin: 0; font-size: 18px; font-weight: 800; color: #fff; }
+.account-subpage-body { padding: 24px 20px 140px; display: flex; flex-direction: column; gap: 20px; min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 768px) {
+  .account-subpage { padding: 24px 16px 0; }
+  .account-page-header { border-radius: 16px 16px 0 0; position: static; }
+  .account-subpage-body { background: #f8fafc; padding-bottom: 60px; }
+}

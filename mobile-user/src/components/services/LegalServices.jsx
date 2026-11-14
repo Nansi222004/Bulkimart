@@ -13,6 +13,7 @@ import { File, Paths } from 'expo-file-system';
 import { ChevronRight, FileText, Scale, Search } from 'lucide-react-native';
 import { apiUrl, boundedFetch, getToken } from '../../api/client';
 import { session } from '../../lib/storage';
+import { initPushNotifications } from '../../lib/push';
 import { useSession } from '../../context/SessionContext';
 import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
@@ -153,13 +154,17 @@ export default function LegalServices({ view, id: routeId }) {
     const b = await request(`/api/customer-services/catalogue/${detail._id}/applications`, { method: 'POST', headers: { 'Idempotency-Key': pendingKey }, body: data });
     if (!ID.test(b.data?._id || '')) throw new Error('The submission response is incomplete. Retry to recover the existing request.');
     session.removeItem(storageKey); key.current = newIdempotencyKey();
+    // Submitting a request is an explicit action: ask for notifications so review updates reach the customer.
+    void initPushNotifications({ requestPermission: true }).catch(() => {});
     if (b.data.status === 'awaiting_payment' && b.data.billing) {
       const outcome = await payServiceFee({ application: b.data, request: customerRequest, authorization: customerAuthorization }).catch(e => ({ message: e.message }));
       setNotice(outcome.verified ? 'Payment received. Your request has been submitted for review.' : `${outcome.message || 'Payment was not completed.'} Your request is saved — pay the fee below to submit it.`);
     } else setNotice('Request submitted. Our team will review it shortly.');
     navigate('requests', b.data._id);
   });
-  const fee = !history && detail?.startingPrice ? Math.round(Number(detail.startingPrice.amount) * 100) : 0;
+  // The amount actually charged at submit is base + GST (backend serviceFeeQuote), so show the total, not the base.
+  const feeQuote = !history && detail?.fee?.totalPaise > 0 ? detail.fee : null;
+  const fee = feeQuote ? feeQuote.totalPaise : !history && detail?.startingPrice ? Math.round(Number(detail.startingPrice.amount) * 100) : 0;
   const base = detail?._id ? `/api/customer-services/applications/${detail._id}` : '';
   const adminNote = history && detail ? [...(detail.events || [])].reverse().find(e => e.message && !['customer_response', 'information_required', 'rejected', 'submitted'].includes(e.action)) : null;
 
@@ -205,12 +210,16 @@ export default function LegalServices({ view, id: routeId }) {
         <Text style={styles.h3}>{detail.name}</Text>
         {detail.description ? <Text style={styles.p}>{detail.description}</Text> : null}
         {detail.instructions ? <Text style={styles.p}>{detail.instructions}</Text> : null}
-        <Text style={{ marginVertical: 8, fontSize: 15, color: '#334155' }}>{fee ? <>Service fee <Text style={{ fontWeight: '700', color: '#0f172a', fontSize: 15 }}>{feeText(fee)}</Text> · paid when you submit</> : 'Free service'}</Text>
+        <Text style={{ marginVertical: 8, fontSize: 15, color: '#334155' }}>{fee ? <>Service fee <Text style={{ fontWeight: '700', color: '#0f172a', fontSize: 15 }}>{feeText(fee)}</Text>{feeQuote?.taxPaise > 0 ? ' incl. GST' : ''} · paid when you submit</> : 'No payment now. Final price is confirmed after review.'}</Text>
         <Text style={styles.p}>Only submit information required for this service. Documents are private.</Text>
         <DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} files={files} setFiles={setFiles} errors={errors} disabled={busy || review} />
         {review && <Text style={styles.p}>Review the information above, then submit your request.</Text>}
         {review && fee > 0 && <View style={[styles.card, { borderColor: '#99d5e6', backgroundColor: '#f0f9fc' }]}>
-          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><Text style={{ color: '#475569', fontWeight: '700' }}>Service fee</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{feeText(fee)}</Text></View>
+          {feeQuote?.taxPaise > 0 && <>
+            <View style={styles.feeLine}><Text style={{ color: '#475569' }}>Service charge</Text><Text>{feeText(feeQuote.basePaise)}</Text></View>
+            <View style={styles.feeLine}><Text style={{ color: '#475569' }}>GST ({feeQuote.taxRate}%)</Text><Text>{feeText(feeQuote.taxPaise)}</Text></View>
+          </>}
+          <View style={[styles.feeLine, { alignItems: 'center', marginTop: 8 }]}><Text style={{ color: '#475569', fontWeight: '700' }}>Total payable</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{feeText(fee)}</Text></View>
           <Pressable disabled={busy} onPress={() => setAccepted(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: accepted }} style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
             <View style={[styles.box, accepted && { backgroundColor: '#0f766e', borderColor: '#0f766e' }]}>{accepted ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}</View>
             <Text style={{ flex: 1 }}>I agree to pay {feeText(fee)} now. If my request is rejected, the fee is refunded to my Bulkimart wallet.</Text>
@@ -232,9 +241,15 @@ export default function LegalServices({ view, id: routeId }) {
               {history ? <>
                 <Text style={[styles.chip, { backgroundColor: theme.highlight, color: theme.highlightText }]}>{REQUEST_STATUS[a.status] || statusLabel(a.status)}</Text>
                 <Text style={styles.itemMeta}>{new Date(a.createdAt).toLocaleDateString()} · <ServiceReference value={a._id} /></Text>
-              </> : a.description ? <Text numberOfLines={2} style={styles.itemMeta}>{a.description}</Text> : null}
+              </> : <>
+                {a.description ? <Text numberOfLines={2} style={styles.itemMeta}>{a.description}</Text> : null}
+                <View style={styles.bookRow}>
+                  <Text style={styles.price}>{a.fee?.totalPaise > 0 ? `${feeText(a.fee.totalPaise)}${a.fee.taxPaise > 0 ? ' incl. GST' : ''}` : 'Price after review'}</Text>
+                  <Text style={[styles.bookBtn, { backgroundColor: theme.action, color: theme.actionText || '#fff' }]}>{a.fee?.totalPaise > 0 ? 'Book now' : 'Request'}</Text>
+                </View>
+              </>}
             </View>
-            <ChevronRight size={20} color="#94a3b8" />
+            {history ? <ChevronRight size={20} color="#94a3b8" /> : null}
           </Pressable>)}</View>
           {!items.length && <View style={styles.state}>
             <Text style={styles.h2}>{history ? 'No requests yet' : 'No eligible services available'}</Text>
@@ -261,6 +276,10 @@ const styles = StyleSheet.create({
   itemIcon: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   itemTitle: { fontSize: 15.5, fontWeight: '700', color: '#172b4d', lineHeight: 21 },
   itemMeta: { fontSize: 13, color: '#64748b', lineHeight: 18 },
+  bookRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6 },
+  price: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  bookBtn: { fontSize: 13, fontWeight: '700', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8, overflow: 'hidden' },
+  feeLine: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   chip: { alignSelf: 'flex-start', fontSize: 11.5, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999, overflow: 'hidden' },
   btn: { minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   card: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 16, marginVertical: 16 },

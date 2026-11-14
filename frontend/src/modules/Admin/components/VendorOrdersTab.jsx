@@ -1,6 +1,7 @@
 import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import ModalPortal from '../../../components/ModalPortal';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import useUrlState from '../../../utils/useUrlState';
 import { apiUrl } from '../../../utils/api';
 
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -8,7 +9,8 @@ const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-di
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
 
 export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
-  const [mode, setMode] = useState(defaultMode); // 'active' | 'history'
+  const [mode, setMode] = useUrlState('view', defaultMode);
+  const lastDefaultMode = useRef(defaultMode); // 'active' | 'history'
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [orders, setOrders] = useState([]);
@@ -55,6 +57,9 @@ export const VendorOrdersTab = ({ defaultMode = 'active' }) => {
   }, [mode, statusFilter, search]);
 
   useEffect(() => {
+    // Only a different sidebar entry changes it; on first load the view in the URL wins.
+    if (lastDefaultMode.current === defaultMode) return;
+    lastDefaultMode.current = defaultMode;
     setMode(defaultMode);
     setStatusFilter('all');
   }, [defaultMode]);

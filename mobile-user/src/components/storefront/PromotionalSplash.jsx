@@ -48,8 +48,10 @@ function SplashCard({ banner, endAt, showCountdown, onNavigate, onSkip }) {
   return <View style={StyleSheet.absoluteFill}>
     <StorefrontMedia banner={banner} fit="cover" priority="high" />
     <Celebration effect={banner.animation} />
-    {onSkip && <Pressable accessibilityRole="button" onPress={onSkip} style={[styles.skip, { top: 14 + insets.top, right: 14 + insets.right }]}><Text style={styles.skipText}>Skip</Text></Pressable>}
-    {((showCountdown && endAt) || hasDestination) && <View pointerEvents="box-none" style={[styles.actions, { bottom: 20 + insets.bottom }]}>
+    {/* Skip sits at the bottom, above the phone's navigation bar, away from the artwork's logo and headline.
+        The countdown / button move up a row when Skip is shown, so nothing overlaps. */}
+    {onSkip && <Pressable accessibilityRole="button" onPress={onSkip} hitSlop={8} style={[styles.skip, { bottom: 20 + insets.bottom, right: 16 + insets.right }]}><Text style={styles.skipText}>Skip</Text></Pressable>}
+    {((showCountdown && endAt) || hasDestination) && <View pointerEvents="box-none" style={[styles.actions, { bottom: 20 + insets.bottom + (onSkip ? 52 : 0) }]}>
       {showCountdown && endAt ? <Text style={styles.countdown}>Ends in {countdown(endAt, now)}</Text> : null}
       {hasDestination && <Pressable accessibilityRole="button" onPress={() => onNavigate(banner.destination)} style={({ pressed }) => [styles.cta, { backgroundColor: theme.action, borderRadius: theme.buttonRadius }, pressed && { opacity: 0.85 }]}>
         <Text style={[styles.ctaText, { color: theme.actionText }]}>{banner.cta || 'Explore now'} →</Text>

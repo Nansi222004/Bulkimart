@@ -20,6 +20,9 @@ export async function parcelRiderIneligibility(p,b,session,reserved = false) {
   if (p.parcelReturnClaim?.token) return 'return_pickup_in_progress';
   if (p.parcelReservation?.bookingId && String(p.parcelReservation.bookingId) !== String(b._id)) return 'reserved_for_another_parcel';
   if (!p.isAvailable && !reserved) return 'off_duty';
+  // A vehicle booking goes only to riders whose registered vehicle can carry it.
+  const vehicleTypes = b.details?.vehicle?.riderVehicleTypes;
+  if (vehicleTypes?.length && !vehicleTypes.includes(p.vehicleType)) return 'vehicle_mismatch';
   const u = await User.findById(p.userId).select('isActive roles').session(session);
   if (!u?.isActive || !u.roles?.includes('delivery')) return 'account_unavailable';
   const origin = p.currentLocation, km = distanceKm(origin,b.details.pickup);
@@ -47,12 +50,44 @@ export async function parcelRiderIneligibility(p,b,session,reserved = false) {
 }
 export async function eligibleParcelRider(p,b,session,reserved = false) {return !await parcelRiderIneligibility(p,b,session,reserved);}
 export const dispatchReady = b => !b.cancellation && !parcelOperationalHold(b) && (b.paymentMethod === 'online' ? b.paymentStatus === 'paid' : b.paymentStatus === 'cash_due');
-export async function notifyParcel(b) {
+const rupees = paise => { const r = (Number(paise) || 0) / 100; return `₹${Number.isInteger(r) ? r : r.toFixed(2)}`; };
+// The offer push is the whole offer for a rider whose phone is in their pocket, like an order's
+// RIDER_PING: what they earn and how long they have. No addresses (shared only after accepting).
+export function parcelOfferNotice(b, rider) {
+  const offer = b.assignment.offer, seconds = Math.max(0, Math.round((new Date(offer.expiresAt) - Date.now()) / 1000));
+  return {
+    event: 'PARCEL_OFFER',
+    dedupeKey: `PARCEL_OFFER:${b._id}:${offer.token}:${rider}`,
+    title: `New parcel request — earn ${rupees(b.pricing?.driverPaise)}`,
+    message: `Accept within ${seconds} seconds. Open the app to accept or decline.`,
+    metadata: { parcelDeliveryId: String(b._id), expiresAt: new Date(offer.expiresAt).toISOString() },
+    route: '/delivery/parcels',
+  };
+}
+// What the customer is told after each step (the booking's latest history action). Each step has its own text:
+// identical pushes for the same parcel within 4 s are dropped as duplicates (notification.service isRecentDuplicate),
+// and a rider taps "Arrived" then "Send code" within seconds. Codes stay out of the push; the app shows them.
+const PARCEL_CUSTOMER_TEXT = {
+  offer_accepted: ['Delivery partner assigned', 'A delivery partner has accepted your parcel.'],
+  driver_arriving: ['Delivery partner on the way', 'Your delivery partner is heading to the pickup point.'],
+  arrived_at_pickup: ['Delivery partner has arrived', 'Your delivery partner is at the pickup point.'],
+  pickup_code: ['Pickup code ready', 'Open the app to see your pickup code and share it with the delivery partner.'],
+  verify_pickup: ['Parcel picked up', 'Your parcel has been picked up.'],
+  in_transit: ['Parcel on the way', 'Your parcel is on the way to the drop point.'],
+  arrived_at_dropoff: ['Delivery partner at drop point', 'Your delivery partner has reached the drop point.'],
+  delivery_code: ['Delivery code ready', 'Open the app to see the delivery code and share it with the person receiving the parcel.'],
+  verify_delivery: ['Parcel delivered', 'Your parcel has been delivered.'],
+};
+export async function notifyParcel(b, { offered = [] } = {}) {
   // Financial commits precede best-effort notifications; no addresses or proof codes.
   const opts = { event:'PARCEL_UPDATED',dedupeKey:`PARCEL:${b._id}:${b.__v}:customer`,title:'Parcel delivery update',message:'Open Parcel Deliveries for the latest status.',metadata:{parcelDeliveryId:String(b._id)},route:`/parcel-delivery/track/${b._id}` };
-  const jobs = [notifyUser(String(b.customerId),opts)];
+  const [title, message] = PARCEL_CUSTOMER_TEXT[b.history?.at(-1)?.action] || [opts.title, opts.message];
+  const jobs = [notifyUser(String(b.customerId),{ ...opts, title, message })];
+  // Riders who were just offered this booking get the offer itself, not a second "update" push.
+  const fresh = new Set(b.assignment.offer ? offered.map(String) : []);
+  for (const rider of fresh) jobs.push(notifyRider(rider, parcelOfferNotice(b, rider)));
   const recipients = new Set([...parcelOfferRecipients(b.assignment.offer), ...b.assignment.attempts.map(a=>String(a.partnerId)), ...(b.partnerId?[String(b.partnerId)]:[])]);
-  for (const rider of recipients) jobs.push(notifyRider(rider,{...opts,dedupeKey:`PARCEL:${b._id}:${b.__v}:${rider}`,route:'/delivery/parcels'}));
+  for (const rider of recipients) if (!fresh.has(rider)) jobs.push(notifyRider(rider,{...opts,dedupeKey:`PARCEL:${b._id}:${b.__v}:${rider}`,route:'/delivery/parcels'}));
   if (b.status === 'needs_admin_assignment') jobs.push(notifyAllAdmins({...opts,route:'/admin/parcel-delivery'}));
   const review = parcelReviewAlert(b);
   if (review) jobs.push(notifyAllAdmins({ event:'PARCEL_UPDATED', ...review, metadata:{ parcelDeliveryId:String(b._id) }, route:`/admin/parcel-delivery?parcel=${b._id}` }));
@@ -69,7 +104,9 @@ export function parcelReviewAlert(b) {
 }
 export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
   requireParcel(partnerId?'admin_fallback':'auto_assignment');
+  let offered = [], waiting = false;
   const b = await financialTransaction(async session => {
+    offered = []; waiting = false; // a retried transaction starts over
     const b = await Parcel.findById(id).session(session);
     if (!b) failParcel('Booking not found',404);
     if (partnerId) { parcelVersion(b,version); if (!reason || typeof reason !== 'string' || reason.length > 500) failParcel('Assignment reason required'); }
@@ -88,6 +125,7 @@ export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
     else if (new Set(b.assignment.attempts.map(a=>a.token)).size < b.pricing.policy.maxAttempts) {
       const lat = b.details.pickup.lat, lng = b.details.pickup.lng, delta = b.pricing.policy.assignmentRadiusKm/111;
       candidates = await Partner.find({status:'approved',isAvailable:true,'parcelReservation.bookingId':{$exists:false},'parcelReturnClaim.token':{$exists:false},
+        ...(b.details.vehicle?.riderVehicleTypes?.length?{vehicleType:{$in:b.details.vehicle.riderVehicleTypes}}:{}),
         'currentLocation.lat':{$gte:lat-delta,$lte:lat+delta},'currentLocation.lng':{$gte:lng-delta/Math.max(.1,Math.cos(lat*Math.PI/180)),$lte:lng+delta/Math.max(.1,Math.cos(lat*Math.PI/180))}}).session(session);
       candidates = candidates.filter(p=>!b.assignment.attempts.some(a=>String(a.partnerId) === String(p._id) && a.outcome === 'rejected')).sort((a,c)=>distanceKm(riderPickupPosition(a),b.details.pickup)-distanceKm(riderPickupPosition(c),b.details.pickup));
     }
@@ -99,17 +137,34 @@ export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
     if (!selected.length) {
       if (partnerId) failParcel('Driver unavailable, stale, outside coverage or at capacity',409);
       requireParcel('admin_fallback');
-      b.assignment.reason = new Set(b.assignment.attempts.map(a=>a.token)).size >= b.pricing.policy.maxAttempts?'attempts_exhausted':'no_eligible_driver';
+      // No rider qualifies right now (none online nearby, or their location is a few minutes old).
+      // Keep searching instead of handing over to an admin at once: the 30 s sweep retries until the
+      // admin's own window (time to accept × offer rounds) has passed, then the admin queue takes over.
+      const rounds = new Set(b.assignment.attempts.map(a=>a.token)).size, policy = b.pricing.policy;
+      const firstMiss = !b.assignment.searchStartedAt;
+      // The search began at booking, at online payment, or at the latest fare boost (which restarts it).
+      if (firstMiss) b.assignment.searchStartedAt = [...(b.history || [])].reverse().find(e => ['payment_verified','fare_boosted'].includes(e.action))?.at || b.createdAt || new Date();
+      const searchedMs = Date.now() - new Date(b.assignment.searchStartedAt).getTime();
+      if (rounds < policy.maxAttempts && searchedMs < policy.acceptanceSeconds * 1000 * policy.maxAttempts) {
+        waiting = true;
+        if (!firstMiss) return b; // nothing changed: no save, no version bump, no notification
+        b.assignment.reason = 'waiting_for_driver';
+        touchParcel(b); await b.save({session}); return b;
+      }
+      b.assignment.reason = rounds >= policy.maxAttempts?'attempts_exhausted':'no_eligible_driver';
       parcelEvent(b,{type:'system'},'admin_fallback','needs_admin_assignment',b.assignment.reason);
     } else {
       const attempt = {number:new Set(b.assignment.attempts.map(a=>a.token)).size+1,token:crypto.randomUUID(),offeredAt:new Date(),expiresAt:new Date(Date.now()+b.pricing.policy.acceptanceSeconds*1000),outcome:'offered',by:actor?.id,reason};
       for (const rider of selected) b.assignment.attempts.push({...attempt,partnerId:rider});
       b.assignment.offer = {...attempt,partnerIds:selected};
+      offered = selected;
       parcelEvent(b,actor || {type:'system'},partnerId?'manual_offer':'automatic_offer','searching_for_driver',reason);
     }
     touchParcel(b); await b.save({session}); return b;
   });
-  await notifyParcel(b); return b;
+  // Still quietly searching: the customer's screen already says so; no push every retry.
+  if (!waiting) await notifyParcel(b, { offered });
+  return b;
 }
 export async function respondParcelOffer(id,partnerId,input) {
   requireParcel('fulfilment');
