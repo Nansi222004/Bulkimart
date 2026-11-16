@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Building2, ChevronRight, Factory, FileText, MapPin, Package, ReceiptIndianRupee, Scale, Search, Stamp, Utensils } from 'lucide-react-native';
+import { ChevronRight, ClipboardList, History, MapPin, Package, Scale, Search } from 'lucide-react-native';
+import { blend, rupees, serviceIcon } from './serviceUi';
 import { boundedFetch, getToken } from '../../api/client';
 import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
@@ -13,7 +14,6 @@ import { ParcelVehicleIcon } from '../parcels/ParcelUI';
 import { parcelCustomerStatus, parcelMoney, parcelRequest } from '../parcels/parcelLogic';
 import { parcelBookingEnabled } from './ServiceEntries';
 import { useLegalApi } from './LegalServices';
-import { feeText } from './ServicePayment';
 
 const ID = /^[a-f\d]{24}$/i;
 const ACTIVE = ['payment_pending', 'searching_for_driver', 'needs_admin_assignment', 'driver_assigned', 'driver_arriving', 'arrived_at_pickup', 'picked_up', 'in_transit', 'arrived_at_dropoff'];
@@ -24,41 +24,38 @@ function useColors() {
     text: t.text || '#172b4d', muted: t.muted || '#64748b', border: t.border || '#e2e8f0', surface: t.surface || '#fff', page: t.background || '#f6f8fb' };
 }
 
-// A picture for each kind of service, picked from its name.
-function serviceIcon(name = '') {
-  const n = name.toLowerCase();
-  if (/trademark|brand|logo/.test(n)) return Stamp;
-  if (/private limited|llp|company|incorporat|partnership/.test(n)) return Building2;
-  if (/fssai|food/.test(n)) return Utensils;
-  if (/msme|udyam|factory|shop act/.test(n)) return Factory;
-  if (/gst|tax|itr|account/.test(n)) return ReceiptIndianRupee;
-  if (/agreement|deed|contract|affidavit/.test(n)) return FileText;
-  return Scale;
-}
-
-// A soft wash of a theme colour over the surface (the web uses CSS color-mix for the same tint).
-function blend(hex, base, amount) {
-  const rgb = v => { const h = String(v || '').replace('#', ''); const f = h.length === 3 ? h.split('').map(x => x + x).join('') : h; const n = parseInt(f, 16); return Number.isFinite(n) && f.length === 6 ? [n >> 16, (n >> 8) & 255, n & 255] : null; };
-  const a = rgb(hex), b = rgb(base) || [255, 255, 255];
-  if (!a) return base;
-  return '#' + a.map((x, i) => Math.round(b[i] + (x - b[i]) * amount).toString(16).padStart(2, '0')).join('');
-}
-
-// Header tabs (same as the website): big cards with the icon above the label; the selected card joins a tinted strip
-// carrying its tagline, like a folder tab.
+// Header tabs (same as the website): big cards with the icon above the label; the selected card joins a thin tinted
+// strip, like a folder tab.
 const SERVICE_TABS = [
   ['parcel', 'Parcel', Package, 'Doorstep pickup | Live tracking'],
   ['legal', 'Legal Services', Scale, 'Expert paperwork | Prices include GST'],
 ];
 
-export default function ServicesHub() {
+export default function ServicesHub({ initialTab }) {
   const c = useColors();
-  const [tab, setTab] = useState('parcel');
+  const router = useRouter();
+  const { currentUser } = useUser();
+  // /services?tab=legal (the home Services tile) opens with Legal Services selected.
+  const [tab, setTab] = useState(initialTab === 'legal' ? 'legal' : 'parcel');
+  useEffect(() => { if (initialTab === 'legal' || initialTab === 'parcel') setTab(initialTab); }, [initialTab]);
+  // Shortcuts to the customer's own history; guests are sent to sign in first.
+  const openMine = path => router.push(currentUser && getToken() ? path : '/account');
   const [revision, reload] = useState(0);
   useRefreshHandler(async () => { reload(n => n + 1); });
   const soft = blend(c.action, c.surface, 0.07), softEdge = blend(c.action, c.surface, 0.22);
   return <View>
     <View style={[styles.head, { backgroundColor: c.surface }]}>
+      <View style={styles.topbar}>
+        <Text accessibilityRole="header" style={[styles.topTitle, { color: c.text }]}>Services</Text>
+        <View style={styles.shortcuts}>
+          <Pressable onPress={() => openMine('/legal-services?view=requests')} accessibilityRole="button" accessibilityLabel="My requests" hitSlop={6} style={styles.shortcut}>
+            <ClipboardList size={20} color={c.action} /><Text style={[styles.shortcutText, { color: c.muted }]}>My requests</Text>
+          </Pressable>
+          <Pressable onPress={() => openMine('/parcel-delivery?view=history')} accessibilityRole="button" accessibilityLabel="My parcels" hitSlop={6} style={styles.shortcut}>
+            <History size={20} color={c.action} /><Text style={[styles.shortcutText, { color: c.muted }]}>My parcels</Text>
+          </Pressable>
+        </View>
+      </View>
       <View style={styles.toggle} accessibilityRole="tablist">
         {SERVICE_TABS.map(([key, label, Icon]) => {
           const on = key === tab;
@@ -70,9 +67,8 @@ export default function ServicesHub() {
           </Pressable>;
         })}
       </View>
-      <View style={[styles.tagline, { backgroundColor: soft, borderTopColor: softEdge }]}>
-        <Text style={[styles.taglineText, { color: c.text }]}>{SERVICE_TABS.find(([key]) => key === tab)[3]}</Text>
-      </View>
+      {/* Thin tinted strip (no tagline text) so the selected tab keeps its folder shape. */}
+      <View style={[styles.tagline, { backgroundColor: soft, borderTopColor: softEdge }]} />
     </View>
     {tab === 'parcel' ? <ParcelPanel key={revision} c={c} /> : <LegalPanel key={revision} c={c} />}
   </View>;
@@ -192,7 +188,6 @@ function ParcelPanel({ c }) {
 function LegalPanel({ c }) {
   const router = useRouter();
   const request = useLegalApi();
-  const { currentUser } = useUser();
   const [query, setQuery] = useState(''), [search, setSearch] = useState('');
   const [items, setItems] = useState([]), [state, setState] = useState('loading');
   useEffect(() => { const id = setTimeout(() => setSearch(query.trim()), 300); return () => clearTimeout(id); }, [query]);
@@ -206,25 +201,46 @@ function LegalPanel({ c }) {
   }, [request, search]);
   // Service details are public; the page asks guests to sign in only when they submit, so the chosen service isn't lost.
   const open = useCallback(id => router.push({ pathname: '/legal-services', params: { id } }), [router]);
+  // Buy opens the service straight at its order form; paying needs the details that service asks for.
+  const buy = useCallback(id => router.push({ pathname: '/legal-services', params: { id, buy: '1' } }), [router]);
+  const buySoft = blend(c.action, c.surface, 0.1), buyEdge = blend(c.action, c.surface, 0.22);
   return <View style={styles.panel}>
     <View style={[styles.search, { backgroundColor: c.surface, borderColor: c.border }]}>
       <Search size={18} color={c.muted} />
       <TextInput value={query} onChangeText={setQuery} maxLength={100} placeholder="Search company setup, trademark, GST…" placeholderTextColor={c.muted} accessibilityLabel="Search services" style={[styles.searchInput, { color: c.text }]} />
     </View>
-    <Section title="Business & legal services" action={currentUser ? 'My requests' : undefined} onAction={() => router.push('/legal-services?view=requests')} c={c}>
+    <Section title="Business & legal services" c={c}>
       <Text style={{ color: c.muted, fontSize: 13, marginTop: -6, marginBottom: 12 }}>Prices include GST. Our experts handle the paperwork.</Text>
       {state === 'loading' ? <Text style={{ color: c.muted }}>Loading services…</Text>
         : state === 'error' ? <Text style={{ color: c.muted }} accessibilityRole="alert">Services could not be loaded. Pull down to try again.</Text>
           : !items.length ? <Text style={{ color: c.muted }}>{search ? 'No service matches your search.' : 'No services are available right now.'}</Text>
-            : <View style={styles.grid}>
+            : <View style={styles.list}>
+              {/* One full-width card per row: icon + name/description, then price and View / Buy now. */}
               {items.map(s => {
                 const Icon = serviceIcon(s.name), paise = s.fee?.totalPaise;
-                return <Pressable key={s._id} onPress={() => open(s._id)} accessibilityRole="button" accessibilityLabel={`Open ${s.name}`}
-                  style={({ pressed }) => [styles.tile, { backgroundColor: c.surface, borderColor: c.border }, pressed && styles.pressed]}>
-                  <View style={[styles.iconTile, { backgroundColor: c.tint }]}><Icon size={22} color={c.onTint} /></View>
-                  <Text numberOfLines={2} style={[styles.tileTitle, { color: c.text }]}>{s.name}</Text>
-                  <Text style={[styles.price, { color: paise > 0 ? c.text : c.muted }]}>{paise > 0 ? feeText(paise) : 'Price after review'}</Text>
-                </Pressable>;
+                return <View key={s._id} style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.iconTile, { backgroundColor: c.tint }]}><Icon size={22} color={c.onTint} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.tileTitle, { color: c.text }]}>{s.name}</Text>
+                      {s.description ? <Text numberOfLines={2} style={{ color: c.muted, fontSize: 12.5, lineHeight: 17, marginTop: 3 }}>{s.description}</Text> : null}
+                    </View>
+                  </View>
+                  <View style={[styles.cardFoot, { borderTopColor: c.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.price, { color: paise > 0 ? c.text : c.muted }]}>{paise > 0 ? rupees(paise) : 'Price after review'}</Text>
+                      {paise > 0 ? <Text style={{ color: c.muted, fontSize: 11 }}>incl. GST</Text> : null}
+                    </View>
+                    <Pressable onPress={() => open(s._id)} accessibilityRole="button" accessibilityLabel={`View ${s.name}`}
+                      style={({ pressed }) => [styles.actionBtn, { borderColor: c.border, backgroundColor: c.surface }, pressed && styles.pressed]}>
+                      <Text style={[styles.actionText, { color: c.text }]}>View</Text>
+                    </Pressable>
+                    <Pressable onPress={() => buy(s._id)} accessibilityRole="button" accessibilityLabel={`Buy ${s.name}`}
+                      style={({ pressed }) => [styles.actionBtn, { borderColor: buyEdge, backgroundColor: buySoft }, pressed && styles.pressed]}>
+                      <Text style={[styles.actionText, { color: c.action }]}>Buy now</Text>
+                    </Pressable>
+                  </View>
+                </View>;
               })}
             </View>}
     </Section>
@@ -233,14 +249,18 @@ function LegalPanel({ c }) {
 
 const styles = StyleSheet.create({
   head: { paddingTop: 14, paddingHorizontal: 12 },
+  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  topTitle: { fontSize: 20, fontWeight: '800' },
+  shortcuts: { flexDirection: 'row', gap: 6 },
+  shortcut: { alignItems: 'center', gap: 2, minWidth: 64, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 12 },
+  shortcutText: { fontSize: 11, fontWeight: '600' },
   toggle: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, zIndex: 1 },
   toggleBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 84, paddingVertical: 12, paddingHorizontal: 8,
     borderRadius: 16, borderWidth: 1.5, elevation: 1, shadowColor: '#0f172a', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
   // The selected card sits on the strip's top border so the two read as one shape.
   toggleBtnOn: { minHeight: 96, marginBottom: -1.5, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, elevation: 0, shadowOpacity: 0 },
   toggleText: { fontSize: 15 },
-  tagline: { marginHorizontal: -12, paddingTop: 16, paddingBottom: 14, paddingHorizontal: 12, borderTopWidth: 1.5, alignItems: 'center' },
-  taglineText: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  tagline: { marginHorizontal: -12, height: 10, borderTopWidth: 1.5 },
   panel: { paddingHorizontal: 16, paddingTop: 16 },
   liveCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 14 },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
@@ -265,10 +285,14 @@ const styles = StyleSheet.create({
   recent: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 14, borderWidth: 1, marginBottom: 8 },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 14, borderWidth: 1, borderRadius: 14 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 8 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  tile: { width: '47%', flexGrow: 1, borderRadius: 14, borderWidth: 1, padding: 12, gap: 8, minHeight: 128 },
+  list: { gap: 12 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 12, elevation: 1, shadowColor: '#0f172a', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  cardFoot: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12, borderTopWidth: 1, borderStyle: 'dashed' },
+  actionBtn: { minHeight: 36, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  actionText: { fontSize: 13.5, fontWeight: '700' },
   iconTile: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  tileTitle: { fontSize: 14, fontWeight: '700', lineHeight: 19 },
-  price: { fontSize: 14, fontWeight: '800', marginTop: 'auto' },
+  tileTitle: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  price: { fontSize: 15, fontWeight: '800' },
   pressed: { opacity: 0.85 },
 });

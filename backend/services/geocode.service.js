@@ -551,3 +551,92 @@ export const resolveLocation = async (lat, lng, accuracy) => {
     },
   };
 };
+
+// ---------------------------------------------------------------------------
+// Type-ahead: place suggestions while the customer types (parcel pickup/drop).
+// ---------------------------------------------------------------------------
+
+const AUTOCOMPLETE_ENDPOINT = 'https://places.googleapis.com/v1/places:autocomplete';
+
+/**
+ * Up to 5 place suggestions for partly typed text, biased towards the customer
+ * when a point is known. Suggestions carry no coordinates: the chosen one is
+ * resolved with geocodePlaceId, so only that pick costs a geocode.
+ *
+ * @returns {Promise<{ok:true, suggestions:Array<{placeId,main,secondary}>}|{ok:false, message}>}
+ */
+export const suggestPlaces = async (input, bias) => {
+  if (!isGeocodingConfigured()) return { ok: false, message: 'Address lookup is not configured' };
+  const text = String(input || '').trim().slice(0, 200);
+  if (text.length < 3) return { ok: true, suggestions: [] };
+  const hasBias = bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lng);
+  const key = `sug:${text.toLowerCase()}:${hasBias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : ''}`;
+  const cached = cacheGet(key);
+  if (cached) return { ok: true, suggestions: cached, cached: true };
+
+  let body;
+  try {
+    const res = await fetch(AUTOCOMPLETE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': process.env.GOOGLE_MAPS_API_KEY },
+      body: JSON.stringify({
+        input: text,
+        includedRegionCodes: ['in'],
+        languageCode: 'en',
+        ...(hasBias ? { locationBias: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: 50000 } } } : {}),
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    body = await res.json();
+    if (!res.ok) return { ok: false, message: 'Place suggestions are unavailable right now' };
+  } catch {
+    return { ok: false, message: 'Could not reach the address service' };
+  }
+
+  const suggestions = (body.suggestions || [])
+    .map((s) => s.placePrediction)
+    .filter((p) => p?.placeId)
+    .slice(0, 5)
+    .map((p) => ({
+      placeId: p.placeId,
+      main: p.structuredFormat?.mainText?.text || p.text?.text || '',
+      secondary: p.structuredFormat?.secondaryText?.text || '',
+    }));
+  cacheSet(key, suggestions);
+  return { ok: true, suggestions };
+};
+
+/**
+ * The point and postal address of a suggestion the customer picked.
+ * @returns {Promise<{ok:true, lat, lng, precision, matched, pincode}|{ok:false, message}>}
+ */
+export const geocodePlaceId = async (placeId) => {
+  if (!isGeocodingConfigured()) return { ok: false, message: 'Address lookup is not configured' };
+  const id = String(placeId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,300}$/.test(id)) return { ok: false, message: 'Invalid place' };
+  const cached = cacheGet(`pid:${id}`);
+  if (cached) return { ...cached, cached: true };
+
+  const url = `${GOOGLE_ENDPOINT}?place_id=${encodeURIComponent(id)}`
+    + `&key=${encodeURIComponent(process.env.GOOGLE_MAPS_API_KEY)}&language=en`;
+  let body;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    body = await res.json();
+  } catch {
+    return { ok: false, message: 'Could not reach the address service' };
+  }
+  const best = body.status === 'OK' ? body.results?.[0] : null;
+  const { lat, lng } = best?.geometry?.location || {};
+  if (typeof lat !== 'number' || typeof lng !== 'number') return { ok: false, message: 'That place could not be located' };
+  const result = {
+    ok: true,
+    lat: Number(lat.toFixed(6)),
+    lng: Number(lng.toFixed(6)),
+    precision: best.geometry?.location_type || 'UNKNOWN',
+    matched: best.formatted_address,
+    pincode: toAddressFields(best).pincode,
+  };
+  cacheSet(`pid:${id}`, result);
+  return result;
+};

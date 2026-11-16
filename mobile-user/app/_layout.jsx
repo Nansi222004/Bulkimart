@@ -14,12 +14,25 @@ import { useAppTheme } from '../src/theme/ThemeContext';
 import ErrorBoundary from '../src/components/ErrorBoundary';
 import FeedbackHost from '../src/components/FeedbackHost';
 import AppEvents from '../src/components/AppEvents';
-import PromotionalSplash from '../src/components/storefront/PromotionalSplash';
+import PromotionalSplash, { useLaunchSplash } from '../src/components/storefront/PromotionalSplash';
+import { askNotificationPermissionOnce } from '../src/lib/push';
 import LocationPromptModal from '../src/components/LocationPromptModal';
 import VoiceSearchModal from '../src/components/VoiceSearchModal';
 import CouponSuccessCelebration from '../src/components/CouponSuccessCelebration';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Launch order: splash → location prompt → the one-time "Allow notifications" popup, never on top of each other.
+function LaunchPermissions() {
+  const { showLocationModal } = useUser();
+  const launchSplash = useLaunchSplash();
+  useEffect(() => {
+    if (launchSplash || showLocationModal) return undefined;
+    const timer = setTimeout(() => { askNotificationPermissionOnce(); }, 600);
+    return () => clearTimeout(timer);
+  }, [launchSplash, showLocationModal]);
+  return null;
+}
 
 function Shell() {
   const theme = useAppTheme();
@@ -44,6 +57,7 @@ function Shell() {
       if (queryText && queryText.trim()) { setPendingVoiceQuery(queryText.trim()); setActiveNav('search'); }
     }} />
     <LocationPromptModal />
+    <LaunchPermissions />
     <CouponSuccessCelebration event={couponCelebration} active={Boolean(couponView && appliedCoupon?.code === couponCelebration?.code)} />
     <PromotionalSplash />
     <FeedbackHost />

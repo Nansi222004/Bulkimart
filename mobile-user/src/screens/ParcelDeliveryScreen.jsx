@@ -15,7 +15,6 @@ import { socket } from '../lib/socket';
 import { on, EVENTS } from '../lib/events';
 import { CustomerPage } from '../components/Shell';
 import { Spinner, Text, TextInput } from '../components/ui';
-import { ServiceHeading } from '../components/services/LegalServices';
 import { newIdempotencyKey } from '../components/services/ServicePayment';
 import { parcelBookingEnabled, parcelBookingReady } from '../components/services/ServiceEntries';
 import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard } from '../components/parcels/ParcelUI';
@@ -26,7 +25,6 @@ import { runRefresh, useRefreshHandler } from '../lib/refresh';
 export const PARCEL_CANCEL_REASONS = ['Driver was not allocated', 'Changed my mind', 'My reason is not listed'];
 
 const ID = /^[a-f\d]{24}$/i;
-const INTRO = 'Your parcel, collected and delivered by a Bulkimart delivery partner.';
 
 // Opens as its own page like Legal Services: a theme-coloured title bar with Back, no storefront header/search.
 // `refreshable`: only pages that register their own reload (Track, History) get pull-to-refresh. Elsewhere a pull
@@ -67,7 +65,6 @@ export default function ParcelDeliveryScreen() {
   const { setActiveNav } = useUser();
   if (sessionState.verified) return <ParcelDelivery />;
   return <Shell>
-    <ServiceHeading parcel Icon={Package}><Text style={{ color: '#52647b' }}>Book a pickup and delivery for your parcel.</Text></ServiceHeading>
     <PCard style={{ borderTopWidth: 3, borderTopColor: '#ff8500' }}>
       <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10 }}>Sign in to send a parcel</Text>
       <Text style={{ marginBottom: 12 }}>Sign in to book a parcel or view your private delivery history.</Text>
@@ -91,7 +88,7 @@ function ParcelDelivery() {
   const [flags, setFlags] = useState({}), [policy, setPolicy] = useState(null), [addresses, setAddresses] = useState([]), [booking, setBooking] = useState(null);
   const [rows, setRows] = useState([]), [page, setPage] = useState(1), [meta, setMeta] = useState({}), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [revision, refresh] = useState(0);
-  const [readError, setReadError] = useState(''), [loadedKey, setLoadedKey] = useState(''), [updatedAt, setUpdatedAt] = useState(null);
+  const [readError, setReadError] = useState(''), [loadedKey, setLoadedKey] = useState(''), [addressRev, setAddressRev] = useState(0);
   const [cancelOpen, setCancelOpen] = useState(false), [cancelChoice, setCancelChoice] = useState(''), [cancelComment, setCancelComment] = useState(''), [cancelResult, setCancelResult] = useState('');
   const lock = useRef(false), paymentKey = useRef(newIdempotencyKey());
   const readKey = `${view}:${track || ''}:${history ? page : 1}`;
@@ -134,7 +131,7 @@ function ParcelDelivery() {
         if (c.signal.aborted) return;
         setPolicy(p?.data && Array.isArray(p.data.areas) && Array.isArray(p.data.categories) && Array.isArray(p.data.prohibitedItems) ? p.data : null);
       }
-      setLoadedKey(readKey); if (track || history) setUpdatedAt(new Date());
+      setLoadedKey(readKey);
     })().catch(e => { if (!c.signal.aborted && e.name !== 'AbortError') setReadError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); });
     return () => c.abort();
   }, [readKey, invalid, revision]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,7 +140,7 @@ function ParcelDelivery() {
     const c = new AbortController();
     boundedFetch('/api/users/addresses', { headers: parcelHeaders(), signal: c.signal }).then(r => r.json()).then(b => { if (!c.signal.aborted) setAddresses(Array.isArray(b.data) ? b.data : []); }).catch(() => {});
     return () => c.abort();
-  }, []);
+  }, [addressRev]);
 
   const run = async fn => { if (lock.current) return; lock.current = true; setBusy(true); setError(''); setNotice(''); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); lock.current = false; } };
   const payOnline = b => run(async () => {
@@ -206,13 +203,11 @@ function ParcelDelivery() {
     <PBtn variant={history ? 'tab-on' : 'tab'} title="Delivery history" onPress={() => nav('history')} />
     {showRefresh && <PBtn variant="tab" title="Refresh status" disabled={busy} onPress={() => refresh(x => x + 1)} style={{ marginLeft: 'auto' }} />}
   </View>;
-  const heading = <ServiceHeading parcel Icon={Package}><Text style={{ color: '#52647b', lineHeight: 22 }}>{INTRO}</Text></ServiceHeading>;
   // Track Parcel and Delivery History: the title bar already names the page and Back returns, so no
   // "Send a Parcel" heading or tabs there. Pull down to refresh replaces the Refresh buttons.
   const listPage = Boolean(track || history);
-  const shell = content => <Shell refreshable={listPage}>{!listPage && heading}{!listPage && navBar()}{content}</Shell>;
+  const shell = content => <Shell refreshable={listPage}>{content}</Shell>;
   useRefreshHandler(async () => { refresh(x => x + 1); }, listPage);
-  const liveLine = updatedAt ? <Text style={{ fontSize: 12.5, color: '#146447', marginBottom: 8 }}>● Live · updated {updatedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} · pull down to refresh</Text> : null;
   const historyRow = b => <ParcelOrderCard key={b._id} booking={b} onOpen={() => nav('track', b._id)} onBookAgain={['delivered', 'cancelled'].includes(b.status) ? () => bookAgain(b) : undefined} />;
 
   if (checkoutActive) return <Shell><PCard style={{ alignItems: 'center', gap: 8 }}>
@@ -234,9 +229,7 @@ function ParcelDelivery() {
 
   const bookingReady = parcelBookingReady(flags, policy);
   return <Shell refreshable={listPage}>
-    {!listPage && !bookingReady && heading}
     {!listPage && !bookingReady && navBar(false, false)}
-    {(track || history) && liveLine}
     {error ? <Text accessibilityRole="alert" style={{ color: '#9c243a', backgroundColor: '#fff0f1', padding: 14, borderRadius: 8 }}>{error}</Text> : null}
     {notice ? <Text style={{ marginVertical: 6 }}>{notice}</Text> : null}
     {!track && !history && !bookingReady ? <PCard style={{ borderTopWidth: 3, borderTopColor: '#ff8500' }}>
@@ -316,7 +309,7 @@ function ParcelDelivery() {
             </View>}
           </>}
         </PCard>
-          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} profile={sessionState?.profile} onOpenHistory={() => nav('history')} onOpenTrip={id => nav('track', id)}
+          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} onAddressSaved={() => setAddressRev(n => n + 1)} profile={sessionState?.profile} onOpenHistory={() => nav('history')} onOpenTrip={id => nav('track', id)}
             onBooked={b => { setBooking(b); setJustBooked(b.paymentMethod === 'online' ? false : b._id); router.setParams({ view: 'track', id: b._id }); if (b.paymentMethod === 'online') void payOnline(b); }} />}
   </Shell>;
 }

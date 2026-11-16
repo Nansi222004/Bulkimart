@@ -100,6 +100,27 @@ export function initPushNotifications({ requestPermission = false } = {}) {
   return promise;
 }
 
+const ASKED_KEY = 'bulkimart_notification_permission_asked';
+/**
+ * The Android "Allow notifications" popup, asked once per install at launch (after the splash and the location
+ * prompt). Asking is about the device, not the account, so guests are asked too; the token is registered once the
+ * customer is signed in. Customers who said no keep the Enable banner on My Orders.
+ */
+export async function askNotificationPermissionOnce() {
+  if (local.getItem(ASKED_KEY)) return null;
+  local.setItem(ASKED_KEY, '1');
+  try {
+    await ensureChannel(); // Android 13+ shows the popup only once a notification channel exists.
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status === 'granted' || current.canAskAgain === false) return current.status;
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status === 'granted' && getToken()) initPushNotifications().catch(() => {});
+    return status;
+  } catch {
+    return null;
+  }
+}
+
 // FCM can rotate the token; send the new one for the current session.
 Notifications.addPushTokenListener(device => {
   const authToken = getToken();

@@ -92,3 +92,14 @@ export const supportChatMessageLimiter = rateLimit({
   windowMs: 60 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, keyGenerator: chatKey,
   message: jsonMessage('You are sending messages too quickly. Please wait a moment.'),
 });
+
+// Type-ahead fires while the customer types, so it gets its own, larger budget instead of eating the
+// 30/min shared by "find address" and current-location lookups.
+export const placeSuggestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.MAPS_SUGGEST_RL_USER_PER_MIN) || 90,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user?._id ? `u:${req.user._id}` : `ip:${ipKeyGenerator(req.ip)}`),
+  message: jsonMessage('Too many location lookups. Please wait a minute.'),
+});

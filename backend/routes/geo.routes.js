@@ -1,7 +1,7 @@
 import express from 'express';
-import { lookupAddress, lookupPlace } from '../controllers/geo.controller.js';
+import { lookupAddress, lookupPlace, suggestPlace, lookupPlaceId } from '../controllers/geo.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
-import { geocodeLimiter } from '../middlewares/rateLimit.middleware.js';
+import { geocodeLimiter, placeSuggestLimiter } from '../middlewares/rateLimit.middleware.js';
 
 const router = express.Router();
 
@@ -16,5 +16,8 @@ const router = express.Router();
 router.get('/reverse', protect, geocodeLimiter, lookupAddress);
 // Typed text to a point, for anyone entering a location by hand.
 router.get('/forward', protect, geocodeLimiter, lookupPlace);
+// Type-ahead suggestions, then the chosen suggestion's exact point.
+router.get('/suggest', protect, placeSuggestLimiter, suggestPlace);
+router.get('/place', protect, geocodeLimiter, lookupPlaceId);
 
 export default router;

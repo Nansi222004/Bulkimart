@@ -18,7 +18,6 @@ import { CustomerPage, useNavPadding } from '../components/Shell';
 import { HeaderTop, HeaderPinned } from '../components/UnifiedHeader';
 import { alpha } from '../theme';
 import HeroBanner, { StorefrontFestiveHeader, hasFestiveHeader, normalizeHeader } from '../components/storefront/HeroBanner';
-import { HomeServiceEntries } from '../components/services/ServiceEntries';
 import {
   HOME_NEAR_END, QuickActions, PopularCategories, StorefrontSections, StorefrontAnnouncement, TopProducts,
   VegetablesSection, MilkSection, ElectronicsSection, MensWearSection, WomenWearSection, ChildWearSection,
@@ -124,8 +123,8 @@ export default function HomeScreen() {
           {festiveHeading('Quick explore & categories')}
           <QuickActions />
           {/* The promo banner follows the Categories / Offers / Wholesale shortcuts. */}
+          {/* Legal Services / Send a Parcel live in the Services tab (and the Services tile above), not as home cards. */}
           <HeroBanner showDefault />
-          <HomeServiceEntries />
           <PopularCategories />
           {experience.sections.length ? <StorefrontSections /> : <TopProducts />}
         </>}

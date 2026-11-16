@@ -1,5 +1,5 @@
 // Routes /services and /legal-services (web: UnifiedHeader + CustomerServices / LegalServices).
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
@@ -18,7 +18,9 @@ export function LegalServicesScreen() {
   const router = useRouter();
   const { setActiveNav } = useUser();
   const insets = useSafeAreaInsets();
-  const { view, id } = useLocalSearchParams();
+  const { view, id, buy } = useLocalSearchParams();
+  const scroller = useRef(null);
+  const scrollTo = useCallback(y => scroller.current?.scrollTo({ y, animated: true }), []);
   const [refreshing, setRefreshing] = useState(false);
   const back = () => (router.canGoBack() ? router.back() : setActiveNav('home'));
   return <CustomerPage headerColor={theme.header} nav={false}>
@@ -26,9 +28,9 @@ export function LegalServicesScreen() {
       <Pressable onPress={back} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} style={styles.backBtn}><ArrowLeft size={24} color={theme.headerText || '#fff'} /></Pressable>
       <Text accessibilityRole="header" numberOfLines={1} style={[styles.appbarTitle, { color: theme.headerText || '#fff' }]}>{view === 'requests' ? 'My Legal Requests' : 'Legal Services'}</Text>
     </View>
-    <ScrollView keyboardShouldPersistTaps="handled" style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingBottom: 24 + insets.bottom, flexGrow: 1 }}
+    <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingBottom: 24 + insets.bottom, flexGrow: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await runRefresh(); setRefreshing(false); }} colors={[theme.action]} />}>
-      <LegalServices key={`${view || ''}:${id || ''}`} view={view} id={id} />
+      <LegalServices key={`${view || ''}:${id || ''}`} view={view} id={id} buy={buy === '1'} scrollTo={scrollTo} />
     </ScrollView>
   </CustomerPage>;
 }
@@ -41,6 +43,7 @@ const styles = StyleSheet.create({
 
 export function ServicesScreen() {
   const theme = useAppTheme();
+  const { tab } = useLocalSearchParams();
   const bottom = useNavPadding(16);
   const [refreshing, setRefreshing] = useState(false);
   // No title bar: the bottom nav already says "Services", so the Parcel | Legal toggle sits at the top.
@@ -48,7 +51,7 @@ export function ServicesScreen() {
   return <CustomerPage background={theme.pageBackground} headerColor={theme.pageBackground}>
     <ScrollView keyboardShouldPersistTaps="handled" style={{ backgroundColor: theme.pageBackground }} contentContainerStyle={{ paddingBottom: bottom }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await runRefresh(); setRefreshing(false); }} colors={[theme.action]} />}>
-      <ServicesHub />
+      <ServicesHub initialTab={tab} />
     </ScrollView>
   </CustomerPage>;
 }

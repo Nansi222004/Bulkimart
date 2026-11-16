@@ -20,6 +20,7 @@ import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { Text, TextInput } from '../ui';
 import ServicePaymentPanel, { DynamicFields, feeText, newIdempotencyKey, payServiceFee, pickedFile } from './ServicePayment';
+import { blend, rupees, serviceIcon } from './serviceUi';
 import { SERVICE_ANSWER_BYTES, SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, serializedAnswerBytes } from '../../shared/serviceLimits';
 
 export const statusLabel = s => String(s || '').replaceAll('_', ' ');
@@ -109,7 +110,8 @@ function FollowUp({ busy, submit }) {
 }
 
 // `embedded`: shown inside the Services tab, which supplies its own heading and "My requests" link.
-export default function LegalServices({ view, id: routeId, embedded = false }) {
+// `buy`: opened from "Buy now" on the Services tab — jump to the order form. `scrollTo(y)` scrolls the page.
+export default function LegalServices({ view, id: routeId, embedded = false, buy = false, scrollTo }) {
   const router = useRouter();
   const theme = useAppTheme();
   const request = useLegalApi();
@@ -123,8 +125,21 @@ export default function LegalServices({ view, id: routeId, embedded = false }) {
   const [answers, setAnswers] = useState({}), [files, setFiles] = useState({}), [errors, setErrors] = useState({}), [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [review, setReview] = useState(false);
   const lock = useRef(false), key = useRef(newIdempotencyKey());
+  const [termsOpen, setTermsOpen] = useState(false);
   const navigate = (nextView, nextId) => router.push({ pathname: '/legal-services', params: { ...(nextView ? { view: nextView } : {}), ...(nextId ? { id: nextId } : {}) } });
   const signIn = () => setActiveNav('account');
+  // The service list lives on the Services tab (Legal Services toggle); the old list page forwards there.
+  const listPage = !history && !id;
+  useEffect(() => { if (listPage && !embedded) router.replace({ pathname: '/services', params: { tab: 'legal' } }); }, [listPage, embedded, router]);
+  // "Buy now": once the service has loaded, scroll to its order form. A service that asks for nothing goes straight to Pay.
+  const detailY = useRef(0), formY = useRef(0), jumped = useRef(false);
+  useEffect(() => {
+    if (!buy || history || !detail?._id || jumped.current) return;
+    jumped.current = true;
+    if (!detail.fields?.length) setReview(true);
+    const t = setTimeout(() => scrollTo?.(Math.max(0, detailY.current + formY.current - 8)), 250);
+    return () => clearTimeout(t);
+  }, [buy, history, detail, scrollTo]);
 
   useEffect(() => {
     const c = new AbortController(); setLoading(true); setError(''); setDetail(null); setAnswers({}); setFiles({}); setAccepted(false); setReview(false);
@@ -173,14 +188,14 @@ export default function LegalServices({ view, id: routeId, embedded = false }) {
   const adminNote = history && detail ? [...(detail.events || [])].reverse().find(e => e.message && !['customer_response', 'information_required', 'rejected', 'submitted'].includes(e.action)) : null;
 
   return <View accessibilityLabel="Legal Services" style={{ padding: embedded ? 0 : 16 }}>
-    {!embedded && <Text style={styles.intro}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>}
-    {!embedded && <View style={[styles.segment, { borderColor: theme.border }]} accessibilityRole="tablist" accessibilityLabel="Legal services navigation">
+    {listPage && !embedded && <Text style={styles.intro}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>}
+    {listPage && !embedded && <View style={[styles.segment, { borderColor: theme.border }]} accessibilityRole="tablist" accessibilityLabel="Legal services navigation">
       {[['Browse services', !history, () => navigate()], ['My requests', history, () => (isLoggedIn ? navigate('requests') : signIn())]].map(([label, on, press]) =>
         <Pressable key={label} onPress={press} accessibilityRole="tab" accessibilityState={{ selected: on }} style={[styles.segmentBtn, on && { backgroundColor: theme.action }]}>
           <Text style={{ fontSize: 14, fontWeight: '700', color: on ? theme.actionText || '#fff' : '#475569' }}>{label}</Text>
         </Pressable>)}
     </View>}
-    {!isLoggedIn && !embedded && <ActionButton variant="plain" title="Sign in to view your requests" onPress={signIn} style={{ marginBottom: 16 }} />}
+    {listPage && !isLoggedIn && !embedded && <ActionButton variant="plain" title="Sign in to view your requests" onPress={signIn} style={{ marginBottom: 16 }} />}
     {notice ? <Text accessibilityLiveRegion="polite" style={{ marginBottom: 8 }}>{notice}</Text> : null}
     {error ? <View style={styles.state} accessibilityRole="alert"><Text style={styles.h2}>Legal Services update</Text><Text style={{ marginBottom: 10 }}>{error}</Text><ActionButton variant="soft" disabled={busy} title="Reload latest" onPress={() => refresh(n => n + 1)} style={{ alignSelf: 'flex-start' }} /></View> : null}
     {!history && !id && <View style={[styles.search, { borderColor: theme.border }]}>
@@ -209,29 +224,57 @@ export default function LegalServices({ view, id: routeId, embedded = false }) {
         })} />}
         <Text style={[styles.h3, { marginTop: 12 }]}>Request history</Text>
         <RequestTimeline events={detail.events} />
-      </View> : <View>
-        <Text style={styles.h3}>{detail.name}</Text>
-        {detail.description ? <Text style={styles.p}>{detail.description}</Text> : null}
-        {detail.instructions ? <Text style={styles.p}>{detail.instructions}</Text> : null}
-        <Text style={{ marginVertical: 8, fontSize: 15, color: '#334155' }}>{fee ? <>Service fee <Text style={{ fontWeight: '700', color: '#0f172a', fontSize: 15 }}>{feeText(fee)}</Text>{feeQuote?.taxPaise > 0 ? ' incl. GST' : ''} · paid when you submit</> : 'No payment now. Final price is confirmed after review.'}</Text>
-        <Text style={styles.p}>Only submit information required for this service. Documents are private.</Text>
-        <DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} files={files} setFiles={setFiles} errors={errors} disabled={busy || review} />
-        {review && <Text style={styles.p}>Review the information above, then submit your request.</Text>}
-        {review && fee > 0 && <View style={[styles.card, { borderColor: '#99d5e6', backgroundColor: '#f0f9fc' }]}>
-          {feeQuote?.taxPaise > 0 && <>
-            <View style={styles.feeLine}><Text style={{ color: '#475569' }}>Service charge</Text><Text>{feeText(feeQuote.basePaise)}</Text></View>
-            <View style={styles.feeLine}><Text style={{ color: '#475569' }}>GST ({feeQuote.taxRate}%)</Text><Text>{feeText(feeQuote.taxPaise)}</Text></View>
-          </>}
-          <View style={[styles.feeLine, { alignItems: 'center', marginTop: 8 }]}><Text style={{ color: '#475569', fontWeight: '700' }}>Total payable</Text><Text style={{ fontSize: 18, fontWeight: '700' }}>{feeText(fee)}</Text></View>
-          <Pressable disabled={busy} onPress={() => setAccepted(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: accepted }} style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-            <View style={[styles.box, accepted && { backgroundColor: '#0f766e', borderColor: '#0f766e' }]}>{accepted ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}</View>
-            <Text style={{ flex: 1 }}>I agree to pay {feeText(fee)} now. If my request is rejected, the fee is refunded to my Bulkimart wallet.</Text>
-          </Pressable>
-        </View>}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-          {review && <ActionButton variant="soft" title="Edit details" onPress={() => setReview(false)} />}
-          <ActionButton disabled={busy || (review && fee > 0 && !accepted)} title={!review ? 'Review request' : busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${feeText(fee)} & submit` : 'Submit request'}
-            onPress={() => { if (!isLoggedIn) { signIn(); return; } if (!review) setReview(true); else submit(); }} />
+      </View> : <View onLayout={e => { detailY.current = e.nativeEvent.layout.y; }} style={{ gap: 12 }}>
+        {/* Service summary: what it is and what it costs. */}
+        <View style={styles.dCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+            <View style={[styles.dIcon, { backgroundColor: theme.highlight }]}>{React.createElement(serviceIcon(detail.name), { size: 24, color: theme.highlightText || theme.action })}</View>
+            <View style={{ flex: 1 }}>
+              <Text accessibilityRole="header" style={styles.dTitle}>{detail.name}</Text>
+              {detail.description ? <Text style={styles.dMuted}>{detail.description}</Text> : null}
+            </View>
+          </View>
+          <View style={[styles.dPrice, { backgroundColor: blend(theme.action, '#ffffff', 0.07), borderColor: blend(theme.action, '#ffffff', 0.2) }]}>
+            {fee ? <>
+              <Text style={styles.dPriceLabel}>{feeQuote?.taxRate > 0 ? 'TOTAL PAYABLE' : 'SERVICE FEE'}</Text>
+              <Text style={styles.dPriceValue}>{rupees(fee)} <Text style={styles.dMuted}>{feeQuote?.taxRate > 0 ? `incl. ${feeQuote.taxRate}% GST · ` : '· '}paid when you submit</Text></Text>
+            </> : <Text style={styles.dPriceValue}>Price confirmed after review</Text>}
+          </View>
+        </View>
+        {detail.instructions ? <View style={[styles.dCard, { backgroundColor: '#fffdf5', borderColor: '#f3e7bd' }]}>
+          <Text style={styles.dH3}>How it works</Text><Text style={styles.dBody}>{detail.instructions}</Text>
+        </View> : null}
+        {fee > 0 && feeQuote ? <View style={styles.dCard}>
+          <Text style={styles.dH3}>Price details</Text>
+          <View style={styles.feeLine}><Text style={styles.dBody}>Service fee</Text><Text style={styles.dBody}>{rupees(feeQuote.basePaise ?? fee)}</Text></View>
+          {feeQuote.taxPaise > 0 && <View style={styles.feeLine}><Text style={styles.dBody}>GST ({feeQuote.taxRate}%)</Text><Text style={styles.dBody}>{rupees(feeQuote.taxPaise)}</Text></View>}
+          <View style={[styles.feeLine, styles.feeTotal]}><Text style={{ fontWeight: '800', color: '#0f172a' }}>Total payable</Text><Text style={{ fontWeight: '800', color: '#0f172a' }}>{rupees(fee)}</Text></View>
+          {detail.terms ? <Pressable onPress={() => setTermsOpen(v => !v)} accessibilityRole="button" accessibilityState={{ expanded: termsOpen }} style={styles.termsToggle}>
+            <Text style={{ color: theme.header || theme.action, fontWeight: '700', fontSize: 13 }}>{termsOpen ? '▾' : '▸'} Payment, cancellation & disclaimer terms</Text>
+          </Pressable> : null}
+          {termsOpen && detail.terms ? <Text style={[styles.dMuted, { marginTop: 8 }]}>{detail.terms}</Text> : null}
+        </View> : null}
+        {/* Order form: the customer's details, then the agree-and-pay step. */}
+        <View style={styles.dCard} onLayout={e => { formY.current = e.nativeEvent.layout.y; }}>
+          <Text style={styles.dH3}>{review ? 'Review & pay' : 'Your details'}</Text>
+          <Text style={styles.dMuted}>{detail.fields?.length ? 'Only share what this service needs. Your documents stay private.' : 'No details needed. Continue to pay and submit your request.'}</Text>
+          <DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} files={files} setFiles={setFiles} errors={errors} disabled={busy || review} />
+          {review && detail.fields?.length > 0 && <Text style={[styles.dMuted, { marginTop: 8 }]}>Check the details above, then submit your request.</Text>}
+          {review && fee > 0 && <Pressable disabled={busy} onPress={() => setAccepted(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: accepted }}
+            style={[styles.agree, { backgroundColor: blend(theme.action, '#ffffff', 0.07) }]}>
+            <View style={[styles.box, accepted && { backgroundColor: theme.header || theme.action, borderColor: theme.header || theme.action }]}>{accepted ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}</View>
+            <Text style={{ flex: 1, fontSize: 13, lineHeight: 19 }}>I agree to the payment, cancellation and disclaimer terms, and to pay {rupees(fee)} now. If my request is rejected, the fee is refunded to my Bulkimart wallet.</Text>
+          </Pressable>}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+            {review && detail.fields?.length > 0 && <Pressable onPress={() => setReview(false)} accessibilityRole="button" style={[styles.dBtn, { borderWidth: 1, borderColor: '#d5dde7', backgroundColor: '#fff' }]}>
+              <Text style={{ color: '#172b4d', fontWeight: '800', fontSize: 15 }}>Edit details</Text>
+            </Pressable>}
+            <Pressable disabled={busy || (review && fee > 0 && !accepted)} accessibilityRole="button"
+              onPress={() => { if (!isLoggedIn) { signIn(); return; } if (!review) setReview(true); else submit(); }}
+              style={[styles.dBtn, { flex: 1, backgroundColor: theme.header || theme.action }, (busy || (review && fee > 0 && !accepted)) && { opacity: 0.45 }]}>
+              <Text style={{ color: theme.headerText || '#fff', fontWeight: '800', fontSize: 15 }}>{!isLoggedIn ? 'Sign in to continue' : !review ? 'Continue' : busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${rupees(fee)} & submit` : 'Submit request'}</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
         : !error && <View>
@@ -294,5 +337,18 @@ const styles = StyleSheet.create({
   reference: { alignSelf: 'flex-start', paddingVertical: 3, paddingHorizontal: 7, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, backgroundColor: '#f8fafc', color: '#334155', fontSize: 12, fontWeight: '600', overflow: 'hidden' },
   input: { padding: 12, borderWidth: 1, borderColor: '#94a3b8', borderRadius: 7, backgroundColor: '#fff', fontSize: 16, color: '#172b4d', marginTop: 6 },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  dCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e8edf3', borderRadius: 16, padding: 16, elevation: 1, shadowColor: '#0f172a', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 3 } },
+  dIcon: { width: 46, height: 46, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  dTitle: { fontSize: 18, lineHeight: 24, fontWeight: '800', color: '#172b4d', marginTop: 2, marginBottom: 4 },
+  dMuted: { fontSize: 13, lineHeight: 19, color: '#64748b', fontWeight: '400' },
+  dH3: { fontSize: 15, fontWeight: '800', color: '#172b4d', marginBottom: 8 },
+  dBody: { fontSize: 13.5, lineHeight: 20, color: '#334155' },
+  dPrice: { marginTop: 14, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1 },
+  dPriceLabel: { fontSize: 12, fontWeight: '700', color: '#64748b', letterSpacing: 0.4, marginBottom: 2 },
+  dPriceValue: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
+  feeTotal: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0', borderStyle: 'dashed' },
+  termsToggle: { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eef2f6' },
+  agree: { flexDirection: 'row', gap: 10, marginTop: 14, padding: 12, borderRadius: 12 },
+  dBtn: { minHeight: 48, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   box: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#64748b', alignItems: 'center', justifyContent: 'center' },
 });

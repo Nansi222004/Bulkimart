@@ -30,8 +30,10 @@ const shownThisLaunch = new Set();
 const splashKey = splash => `${splash.id}:${splash.revision}`;
 let launchScreenHidden = false;
 // Other launch dialogs (location prompt, voice search) wait while the splash is on screen (web: useLaunchSplash).
+// Starts "busy": until the launch decision is made (show a splash or not), nothing else may open on top — otherwise
+// the location prompt would appear before the splash.
 const visibilityListeners = new Set();
-let splashVisible = false;
+let splashVisible = true;
 const setSplashVisible = value => { if (splashVisible !== value) { splashVisible = value; visibilityListeners.forEach(fn => fn(value)); } };
 export function useLaunchSplash() {
   const [visible, setVisible] = useState(splashVisible);
@@ -101,7 +103,9 @@ export default function PromotionalSplash() {
   }, [open, artReady]);
 
   const visible = Boolean(open && open.id === splash?.id && (!open.endAt || Date.parse(open.endAt) > now) && homeLaunch);
-  useEffect(() => { setSplashVisible(visible); }, [visible]);
+  useEffect(() => { setSplashVisible(!launchChecked || visible); }, [launchChecked, visible]);
+  // Safety net: never keep other launch dialogs waiting if the storefront answer never arrives.
+  useEffect(() => { const timer = setTimeout(() => setLaunchChecked(true), 6000); return () => clearTimeout(timer); }, []);
   useEffect(() => {
     if (!visible) return undefined;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { setOpen(null); return true; });

@@ -11,7 +11,8 @@ import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 import { VEHICLE_ART_VIEWBOX, vehicleArt } from './vehicleArt';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { getCurrentPosition } from '../../lib/gps';
+import * as Location from 'expo-location';
+import { deviceAddressLabel, getCurrentPosition } from '../../lib/gps';
 import { session } from '../../lib/storage';
 import { mediaUrl } from '../../api/client';
 import { decodePolyline } from '../DeliveryMap';
@@ -112,6 +113,16 @@ export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
     if (!ready || !map.current || !region) return;
     map.current.animateToRegion(region, 300);
   }, [ready, signature]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Select on map" with nothing chosen yet: open on the customer's own area, not the whole of India.
+  useEffect(() => {
+    if (!ready || !editable || region) return undefined;
+    let live = true;
+    Location.getForegroundPermissionsAsync()
+      .then(p => (p.granted ? Location.getLastKnownPositionAsync() : null))
+      .then(pos => { if (live && pos && map.current) map.current.animateToRegion({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, latitudeDelta: 0.03, longitudeDelta: 0.03 }, 300); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [ready, editable]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!MAPS_CONFIGURED) return <View style={styles.mapWrap}><Text style={styles.mapMessage}>Interactive map unavailable. You can still find an address using search.</Text></View>;
   const pin = e => onPinChange?.({ lat: e.nativeEvent.coordinate.latitude, lng: e.nativeEvent.coordinate.longitude });
   return <View style={styles.mapWrap}>
@@ -126,8 +137,43 @@ export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
   </View>;
 }
 
+/**
+ * Place suggestions for typed text: the server's Google type-ahead when available, otherwise the phone's own
+ * geocoder (so search still works before the server is updated). Each item: { placeId } or { lat, lng }, plus labels.
+ */
+async function placeSuggestions(text, signal) {
+  try {
+    const list = await parcelLocationLookup('suggest', { q: text }, signal);
+    if (Array.isArray(list)) return list.map(x => ({ ...x, key: x.placeId }));
+  } catch (e) { if (e.name === 'AbortError') throw e; }
+  // Server without type-ahead: its Google "find address" lookup still knows landmarks (e.g. Rajwada) that the
+  // phone's geocoder often does not, so offer its match as the one suggestion.
+  try {
+    const hit = await parcelLocationLookup('forward', { q: text }, signal);
+    if (validParcelLocation(hit)) {
+      const [main, ...rest] = String(hit.matched || text).split(', ');
+      return [{ key: 'f', lat: hit.lat, lng: hit.lng, main, secondary: rest.join(', '), address: hit.matched || text, pincode: hit.pincode || '', precision: hit.precision }];
+    }
+  } catch (e) { if (e.name === 'AbortError') throw e; }
+  const points =(await Location.geocodeAsync(text + ', India').catch(() => [])).slice(0, 4);
+  const items = await Promise.all(points.map(async (pt, i) => {
+    const label = await deviceAddressLabel({ lat: pt.latitude, lng: pt.longitude }, 5000);
+    if (!label) return null;
+    const [main, ...rest] = label.split(', ');
+    return { key: 'd' + i, lat: pt.latitude, lng: pt.longitude, main, secondary: rest.join(', '), address: label };
+  }));
+  return items.filter(Boolean);
+}
+
+// Same place: within ~30 m, or the same written address.
+const sameParcelPlace = (a, b) => validParcelLocation(a) && validParcelLocation(b)
+  && (Math.abs(Number(a.lat) - Number(b.lat)) < 0.0003 && Math.abs(Number(a.lng) - Number(b.lng)) < 0.0003
+    || (String(a.address || '').trim().toLowerCase() === String(b.address || '').trim().toLowerCase() && String(a.building || '') === String(b.building || '')));
+
 export function ParcelLocationPicker({ value, onChange, label = 'Search address or landmark', initialQuery = '', showMap = false, pinKind = 'pickup' }) {
   const [query, setQuery] = useState(initialQuery), [busy, setBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState([]), [suggesting, setSuggesting] = useState(false);
+  const typed = useRef(false);
   const [candidate, setCandidate] = useState(null), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const operation = useRef(0), controller = useRef(null), latest = useRef({ value, onChange });
   latest.current = { value, onChange };
@@ -166,6 +212,32 @@ export function ParcelLocationPicker({ value, onChange, label = 'Search address 
       if (/^\d{6}$/.test(point.pincode || '')) setCandidate(match); else await prepare(match, id, signal);
     } catch (e) { if (id === operation.current && e.name !== 'AbortError') setError(e.message); } finally { if (id === operation.current) setBusy(false); }
   };
+  useEffect(() => {
+    const text = query.trim();
+    if (!typed.current || text.length < 3) { setSuggestions([]); setSuggesting(false); return undefined; }
+    const ctl = new AbortController();
+    setSuggesting(true);
+    const timer = setTimeout(() => {
+      placeSuggestions(text, ctl.signal)
+        .then(list => { if (!ctl.signal.aborted) setSuggestions(list); })
+        .catch(() => { if (!ctl.signal.aborted) setSuggestions([]); })
+        .finally(() => { if (!ctl.signal.aborted) setSuggesting(false); });
+    }, 400);
+    return () => { clearTimeout(timer); ctl.abort(); };
+  }, [query]);
+  const pick = async item => {
+    typed.current = false; setSuggestions([]); setQuery([item.main, item.secondary].filter(Boolean).join(', '));
+    const { id, signal } = start();
+    try {
+      const point = item.placeId ? await parcelLocationLookup('place', { id: item.placeId }, signal) : { lat: item.lat, lng: item.lng, matched: item.address, pincode: item.pincode, precision: item.precision };
+      if (id !== operation.current) return;
+      if (!validParcelLocation(point)) throw new Error('That place could not be located. Try another suggestion.');
+      const match = { ...point, address: point.matched || [item.main, item.secondary].filter(Boolean).join(', '), approximate: point.precision !== 'ROOFTOP' };
+      // Choosing a suggestion selects it straight away (the next screen shows it on the map to adjust).
+      if (/^\d{6}$/.test(match.pincode || '')) select(match, { address: match.address, pincode: match.pincode, approximate: match.approximate });
+      else { await prepare(match, id, signal); }
+    } catch (e) { if (id === operation.current && e.name !== 'AbortError') setError(e.message); } finally { if (id === operation.current) setBusy(false); }
+  };
   const locate = async () => {
     const { id, signal } = start();
     try {
@@ -181,8 +253,19 @@ export function ParcelLocationPicker({ value, onChange, label = 'Search address 
   return <View>
     <Text style={{ fontSize: 14, fontWeight: '600', color: INK, marginTop: 8 }}>{label}</Text>
     <TextInput value={query} placeholder="Street, landmark or area, city" placeholderTextColor="#94a3b8" maxLength={500} returnKeyType="search" onSubmitEditing={search} accessibilityLabel={label}
-      onChangeText={t => { operation.current++; controller.current?.abort(); setBusy(false); setCandidate(null); setError(''); setNotice(''); setQuery(t); onChange({ ...value, lat: '', lng: '' }); }}
+      onChangeText={t => { typed.current = true; operation.current++; controller.current?.abort(); setBusy(false); setCandidate(null); setError(''); setNotice(''); setQuery(t); onChange({ ...value, lat: '', lng: '' }); }}
       style={styles.input} />
+    {suggesting && !suggestions.length ? <Text style={[styles.small, { marginTop: 6 }]}>Searching…</Text> : null}
+    {suggestions.length > 0 && <View style={styles.suggestList} accessibilityLabel="Suggested places">
+      {suggestions.map((item, i) => <Pressable key={item.key || i} onPress={() => pick(item)} accessibilityRole="button" accessibilityLabel={[item.main, item.secondary].filter(Boolean).join(', ')}
+        style={({ pressed }) => [styles.suggestRow, i > 0 && { borderTopWidth: 1, borderTopColor: LINE }, pressed && { backgroundColor: SOFT }]}>
+        <Clock size={16} color={MUTED} />
+        <View style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={{ fontWeight: '700', color: INK, fontSize: 14 }}>{item.main}</Text>
+          {item.secondary ? <Text numberOfLines={1} style={{ color: MUTED, fontSize: 12.5, marginTop: 1 }}>{item.secondary}</Text> : null}
+        </View>
+      </Pressable>)}
+    </View>}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
       <PBtn title="Find address" onPress={search} disabled={busy} />
       <PBtn title="Use current location" onPress={locate} disabled={busy} />
@@ -279,7 +362,7 @@ export function ParcelStop({ kind, address: a, right }) {
   </View>;
 }
 
-export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip }) {
+export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved }) {
   const { BLUE, TINT, SOFT } = useParcelColors();
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
@@ -383,12 +466,18 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
   const confirmDetails = kind => run(async () => {
     const message = parcelAddressError(state[kind]);
     if (message) throw new Error(message);
-    const label = state.saveAs?.[kind];
-    if (label) {
-      try { await saveParcelPickup({ ...state[kind], label }); setNotice('Address saved to your addresses.'); }
-      catch { setNotice('This address could not be saved, but your booking can continue.'); }
+    if (kind === 'dropoff' && sameParcelPlace(state.pickup, state.dropoff)) throw new Error('The drop location is the same as the pickup. Choose where the parcel should be delivered.');
+    // New pickup / drop addresses are kept for next time by default (the customer can untick it). Addresses picked
+    // from the saved list are already there, so they are not saved again. Saved in the background so a slow
+    // network never holds up the booking.
+    const a = state[kind], line1 = [a.building, a.address, a.landmark].filter(Boolean).join(', ');
+    const known = a.savedId || addresses.some(x => [x.line1, x.line2, x.city, x.state].filter(Boolean).join(', ') === line1 && String(x.pincode || '') === String(a.pincode || ''));
+    if (state.keep?.[kind] !== false && !known) {
+      saveParcelPickup({ ...a, label: state.saveAs?.[kind] || 'Other' })
+        .then(() => { if (mounted.current) { setNotice('Address saved for your next booking.'); onAddressSaved?.(); } })
+        .catch(() => { if (mounted.current) setNotice('This address could not be saved, but your booking can continue.'); });
     }
-    setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
+    setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address && !sameParcelPlace(s.pickup, s.dropoff) ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
   });
   const linkText = (title, onPress, Icon, disabled) => <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" hitSlop={8} style={[styles.link, disabled && { opacity: 0.5 }]}>
     {Icon ? <Icon size={16} color={BLUE} /> : null}<Text style={{ color: BLUE, fontWeight: '700', fontSize: 13 }}>{title}</Text></Pressable>;
@@ -482,7 +571,7 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
     const edit = (key, value) => change({ [kind]: { ...a, [key]: value } });
     return <View>{header}
       <View>
-        <ParcelMap pickup={pickup ? a : null} dropoff={pickup ? null : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true } })} />
+        <ParcelMap pickup={pickup ? a : null} dropoff={pickup ? null : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true, savedId: '' } })} />
         <View style={styles.pinTip} pointerEvents="none"><Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '600' }}>{pickup ? 'Your goods will be picked from here' : 'Your goods will be dropped here'}</Text></View>
       </View>
       <PCard style={{ marginTop: 0 }}>
@@ -497,8 +586,9 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
         <PField label={pickup ? 'Sender’s name' : 'Receiver’s name'} value={a.name || ''} maxLength={100} onChangeText={t => edit('name', t)} />
         <PField label={pickup ? 'Sender’s mobile number' : 'Receiver’s mobile number'} value={a.phone || ''} maxLength={16} keyboardType="phone-pad" onChangeText={t => edit('phone', t)} />
         {profile?.phone ? <PCheck checked={mine} onPress={() => change({ [kind]: { ...a, ...(mine ? { name: '', phone: '' } : { name: profile.name || a.name, phone: profile.phone }) } })}><Text>Use my mobile number: {profile.phone}</Text></PCheck> : null}
-        <Text style={{ fontSize: 13, fontWeight: '600', marginTop: 10 }}>Save as (optional)</Text>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>{['Home', 'Work', 'Other'].map(label => { const on = state.saveAs?.[kind] === label; return <Pressable key={label} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setState(s => ({ ...s, saveAs: { ...s.saveAs, [kind]: on ? '' : label } }))} style={[styles.chip, on && { borderColor: BLUE, backgroundColor: TINT }]}><Text style={{ color: on ? BLUE : '#41526a', fontSize: 13, fontWeight: '600' }}>{label}</Text></Pressable>; })}</View>
+        {!a.savedId ? <PCheck checked={state.keep?.[kind] !== false} onPress={() => setState(s => ({ ...s, keep: { ...s.keep, [kind]: s.keep?.[kind] === false } }))}><Text>Save this address for future bookings</Text></PCheck> : null}
+        {!a.savedId && state.keep?.[kind] !== false ? <><Text style={{ fontSize: 13, fontWeight: '600', marginTop: 10 }}>Save as</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>{['Home', 'Work', 'Other'].map(label => { const on = state.saveAs?.[kind] === label; return <Pressable key={label} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => setState(s => ({ ...s, saveAs: { ...s.saveAs, [kind]: on ? '' : label } }))} style={[styles.chip, on && { borderColor: BLUE, backgroundColor: TINT }]}><Text style={{ color: on ? BLUE : '#41526a', fontSize: 13, fontWeight: '600' }}>{label}</Text></Pressable>; })}</View></> : null}
       </PCard>
       <View style={styles.sticky}><PBtn variant="big" disabled={busy} title={busy ? 'Saving…' : 'Confirm and Proceed'} onPress={() => confirmDetails(kind)} /></View>
     </View>;
@@ -557,14 +647,15 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
         {showAddresses ? <View style={{ borderTopWidth: 1, borderTopColor: LINE, marginTop: 10, paddingTop: 6 }}><ParcelStop kind="pickup" address={state.pickup} /><ParcelStop kind="dropoff" address={state.dropoff} /></View> : null}
       </PCard>
       <RouteSummary quote={quote} />
-      <PCard>
+      {vehicleMode ? (policy.prohibitedItems?.length > 0 ? <PCard><View style={[styles.restricted, { marginTop: 0 }]}><TriangleAlert size={18} color="#7a5200" /><Text style={{ flex: 1, color: '#7a5200', fontSize: 13 }}>Do not send restricted items</Text>{linkText('View List', () => setSheet({ type: 'restricted' }))}</View></PCard> : null)
+      : <PCard>
         <Text style={styles.h3}>Goods Description</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1 }}><Text style={{ fontWeight: '700' }}>{state.parcel.description?.trim() || state.parcel.category}</Text><Text style={{ fontSize: 12.5, color: MUTED }}>{goodsText(state.parcel, vehicle, policy.categories)}</Text></View>
           {linkText('Change', () => { setGoodsDraft({ ...state.parcel }); setSheet({ type: 'goods' }); }, null, busy || !!state.pending)}
         </View>
         {policy.prohibitedItems?.length > 0 ? <View style={styles.restricted}><TriangleAlert size={18} color="#7a5200" /><Text style={{ flex: 1, color: '#7a5200', fontSize: 13 }}>Do not send restricted items</Text>{linkText('View List', () => setSheet({ type: 'restricted' }))}</View> : null}
-      </PCard>
+      </PCard>}
       {fare ? <PCard>
         <Text style={styles.h3}>Fare Summary</Text>
         <View style={styles.row}><Text>Trip fare (incl. tax)</Text><Text>{parcelMoney(fare.totalPaise)}</Text></View>
@@ -724,6 +815,8 @@ const styles = StyleSheet.create({
   fieldset: { borderWidth: 1, borderColor: '#dae4ed', borderRadius: 12, padding: 16, marginVertical: 8, backgroundColor: '#fff' },
   mapWrap: { overflow: 'hidden', borderWidth: 1, borderColor: '#d5e5eb', borderRadius: 18, backgroundColor: '#eef6f8', marginVertical: 16 },
   mapMessage: { paddingVertical: 12, paddingHorizontal: 16, backgroundColor: '#f3fafc', fontSize: 13, lineHeight: 19.5 },
+  suggestList: { marginTop: 6, borderWidth: 1, borderColor: LINE, borderRadius: 10, backgroundColor: '#fff', overflow: 'hidden' },
+  suggestRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12 },
   result: { padding: 12, borderWidth: 1, borderColor: '#bcdce5', backgroundColor: '#f1fafc', borderRadius: 10, marginTop: 10 },
   small: { color: MUTED, marginTop: 6, fontSize: 12.5 },
   error: { color: '#9c243a', backgroundColor: '#fff0f1', padding: 14, borderRadius: 8, marginVertical: 8, overflow: 'hidden' },

@@ -14,6 +14,7 @@ import { socket, connectSocket, disconnectSocket } from '../lib/socket';
 import { initPushNotifications, deregisterPushToken, setPushRecipient } from '../lib/push';
 import { rememberCommittedCheckout, committedCheckouts, deferCommittedCheckout } from '../lib/committedCheckout';
 import { readBrowsingLocation, saveBrowsingLocation, shouldPromptForLocation, rememberLocationChoice, validPoint } from '../lib/locationState';
+import { deviceAddressLabel, looksLikeCoordinates } from '../lib/gps';
 import { productHref } from '../lib/productRoute';
 import { normalizeProduct } from '../hooks/useProducts';
 import { useSession } from './SessionContext';
@@ -161,6 +162,18 @@ export function UserProvider({ children }) {
   const [location, setLocation] = useState(() => readBrowsingLocation()?.label || 'Set your location');
   const [showLocationModal, setLocationModalOpen] = useState(() => shouldPromptForLocation());
   const setShowLocationModal = value => { if (!value) rememberLocationChoice('dismissed'); setLocationModalOpen(value); };
+  // A guest location saved earlier as bare coordinates ("22.7196, 75.8577") is renamed to a readable address.
+  useEffect(() => {
+    const saved = readBrowsingLocation();
+    if (!saved?.coords || !looksLikeCoordinates(saved.label)) return undefined;
+    let alive = true;
+    deviceAddressLabel(saved.coords).then(label => {
+      if (!alive || !label) return;
+      try { saveBrowsingLocation(label, saved.coords, saved.source); } catch { /* keep the old label */ }
+      setLocation(current => (looksLikeCoordinates(current) ? label : current));
+    });
+    return () => { alive = false; };
+  }, []);
 
   // ---------------- Product detail (opened as the /product route) ----------------
   const [selectedProduct, setSelectedProductState] = useState(null);
@@ -776,7 +789,9 @@ export function UserProvider({ children }) {
     const snapshot = captureUserSession();
     if (!validPoint(coords)) return { ok: false, message: 'Invalid coordinates. Enter your location manually.' };
     if (!isSignedIn()) {
-      const label = `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
+      // Guests: name the place with the phone's own geocoder (the server lookup needs sign-in); coordinates only
+      // if the phone cannot resolve it.
+      const label = (await deviceAddressLabel(coords)) || `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
       setLocation(label);
       saveBrowsingLocation(label, coords, source);
       return { ok: true, label, resolved: {} };
@@ -786,6 +801,11 @@ export function UserProvider({ children }) {
       const { ok, body } = await apiRequest(`/api/geo/reverse?lat=${coords.lat}&lng=${coords.lng}${coords.accuracy ? `&accuracy=${Math.round(coords.accuracy)}` : ''}`);
       if (ok) resolved = body.data || {};
     } catch { /* the pin is still worth saving */ }
+    // Server lookup failed or came back empty: fall back to the phone's geocoder for a readable name.
+    if (!resolved.address && !resolved.placeName && !resolved.city) {
+      const label = await deviceAddressLabel(coords);
+      if (label) resolved = { placeName: label.split(',')[0], address: label };
+    }
     if (!isCurrentUserSession(snapshot)) return { ok: false, message: 'Your session changed. Please select the location again.' };
     const existing = savedAddresses.find(a => a.isDefault) || savedAddresses[0];
     const payload = {

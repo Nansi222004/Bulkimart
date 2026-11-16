@@ -1,7 +1,7 @@
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { parseLocation } from '../utils/geo.js';
-import { resolveLocation, forwardGeocode, isGeocodingConfigured } from '../services/geocode.service.js';
+import { resolveLocation, forwardGeocode, isGeocodingConfigured, suggestPlaces, geocodePlaceId } from '../services/geocode.service.js';
 
 // @desc    Turn GPS coordinates into address fields a form can fill in
 // @route   GET /api/geo/reverse?lat=&lng=
@@ -74,4 +74,26 @@ export const lookupPlace = asyncHandler(async (req, res) => {
     matched: hit.matched,
     pincode: hit.pincode,
   }, 'Location found');
+});
+
+/**
+ * Place suggestions while typing (parcel pickup / drop). An empty list is a
+ * normal answer; an unreachable address service is a 503 so the app can fall
+ * back to "Find address".
+ */
+export const suggestPlace = asyncHandler(async (req, res) => {
+  if (!isGeocodingConfigured()) throw httpError(503, 'Address lookup is unavailable right now.');
+  const lat = Number(req.query.lat), lng = Number(req.query.lng);
+  const bias = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+  const result = await suggestPlaces(req.query.q, bias);
+  if (!result.ok) throw httpError(503, result.message);
+  return ok(res, result.suggestions, 'Suggestions');
+});
+
+/** The exact point for a suggestion the customer picked. */
+export const lookupPlaceId = asyncHandler(async (req, res) => {
+  if (!isGeocodingConfigured()) throw httpError(503, 'Address lookup is unavailable right now.');
+  const hit = await geocodePlaceId(req.query.id);
+  if (!hit.ok) throw httpError(404, hit.message);
+  return ok(res, { lat: hit.lat, lng: hit.lng, precision: hit.precision, matched: hit.matched, pincode: hit.pincode }, 'Location found');
 });

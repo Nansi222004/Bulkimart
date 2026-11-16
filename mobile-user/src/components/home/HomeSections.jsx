@@ -16,6 +16,7 @@ import { captureUserSession, isCurrentUserSession } from '../../lib/session';
 import { on } from '../../lib/events';
 import { Text } from '../ui';
 import { GridIcon, TicketIcon, BulkIcon } from '../icons';
+import { Briefcase } from 'lucide-react-native';
 import StorefrontMedia from '../storefront/StorefrontMedia';
 import Celebration from '../Celebration';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
@@ -746,6 +747,8 @@ const QUICK_ACTIONS = [
   { id: 'categories', title: 'Categories', subtitle: 'Explore all', Icon: GridIcon },
   { id: 'offers', title: 'Offers', subtitle: 'Best deals', Icon: TicketIcon },
   { id: 'wholesale', title: 'Wholesale', subtitle: 'Bulk quantities', Icon: BulkIcon },
+  // Opens the Services tab with Legal Services selected (same as the website's Services tile).
+  { id: 'services', title: 'Services', subtitle: 'Legal & business', Icon: ({ size, color }) => <Briefcase size={size} color={color} strokeWidth={2.2} /> },
 ];
 
 export function QuickActions() {
@@ -769,6 +772,7 @@ export function QuickActions() {
     if (id === 'categories') setActiveNav('categories');
     else if (id === 'offers') { setActiveNav('home'); setActiveSubNav('coupons'); }
     else if (id === 'wholesale') setActiveNav('wholesale');
+    else if (id === 'services') setActiveNav('services?tab=legal');
   };
   const iconColor = id => (id === 'offers' ? theme.highlightText : theme.actionHover);
   const actions = QUICK_ACTIONS.filter(action => action.id !== 'wholesale' || wholesaleAvailable);

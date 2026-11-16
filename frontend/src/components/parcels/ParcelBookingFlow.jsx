@@ -57,6 +57,11 @@ const BACK = { pickup: 'start', pickupDetails: 'pickup', dropoff: 'pickupDetails
 // The line under the goods title: the category (when a description is the title), weight and packages.
 const goodsText = (parcel, vehicle, categories) => [parcel.description?.trim() && categories.includes(parcel.category) ? parcel.category : '', parcel.weightKg !== '' && parcel.weightKg != null ? `${Number(parcel.weightKg)} kg` : vehicle ? `up to ${vehicle.maxWeightKg} kg` : '', `${Number(parcel.packages) || 1} ${Number(parcel.packages) > 1 ? 'packages' : 'package'}`].filter(Boolean).join(' · ');
 
+// Same place: within ~30 m, or the same written address.
+const sameParcelPlace = (a, b) => validParcelLocation(a) && validParcelLocation(b)
+  && (Math.abs(Number(a.lat) - Number(b.lat)) < 0.0003 && Math.abs(Number(a.lng) - Number(b.lng)) < 0.0003
+    || (String(a.address || '').trim().toLowerCase() === String(b.address || '').trim().toLowerCase() && String(a.building || '') === String(b.building || '')));
+
 export default function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved }) {
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
@@ -165,6 +170,7 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
   const confirmDetails = kind => run(async () => {
     const message = parcelAddressError(state[kind]);
     if (message) throw new Error(message);
+    if (kind === 'dropoff' && sameParcelPlace(state.pickup, state.dropoff)) throw new Error('The drop location is the same as the pickup. Choose where the parcel should be delivered.');
     // New pickup / drop addresses are kept for next time by default (the customer can untick it). Addresses picked
     // from the saved list are already there, so they are not saved again.
     const a = state[kind], line1 = [a.building, a.address, a.landmark].filter(Boolean).join(', ');
@@ -175,7 +181,7 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
         .then(() => { if (mounted.current) { setNotice('Address saved for your next booking.'); onAddressSaved?.(); } })
         .catch(() => { if (mounted.current) setNotice('This address could not be saved, but your booking can continue.'); });
     }
-    setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
+    setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address && !sameParcelPlace(s.pickup, s.dropoff) ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
   });
   const stop = (kind, extra) => <div className={'parcel-stop ' + kind}><span className="parcel-stop-dot" aria-hidden="true"/><div><strong>{[state[kind].name, state[kind].phone].filter(Boolean).join(' · ') || (kind === 'pickup' ? 'Pickup' : 'Drop')}</strong><small>{[state[kind].building, state[kind].address].filter(Boolean).join(', ')}</small></div>{extra}</div>;
   const header = (title, sub) => <header className="parcel-flow-header">{state.step === 'start' ? <a href="/" aria-label="Back to home"><ArrowLeft size={22}/></a> : <button type="button" aria-label="Back to previous step" disabled={busy || !!state.pending} onClick={back}><ArrowLeft size={22}/></button>}<div><h2>{title}</h2>{sub && <p>{sub}</p>}</div></header>;
