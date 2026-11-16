@@ -11,7 +11,7 @@ import { distanceKm } from '../utils/geo.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { requireParcel, parcelFlags, productionParcel, failParcel, parcelOperationalHold } from './parcelPolicy.service.js';
 import { RETURN_PICKUP_STATUS } from '../constants/enums.js';
-import { parcelEvent, parcelVersion, touchParcel, releaseParcelRider } from './parcelWorkflow.service.js';
+import { parcelEvent, parcelVersion, touchParcel, releaseParcelRider, parcelAdminQueueDeadline, parcelAutoCancelExpired } from './parcelWorkflow.service.js';
 import { notifyUser, notifyRider, notifyAllAdmins } from './notification.service.js';
 import { parcelOfferRecipients } from './parcelOffers.js';
 export async function parcelRiderIneligibility(p,b,session,reserved = false) {
@@ -77,6 +77,7 @@ const PARCEL_CUSTOMER_TEXT = {
   arrived_at_dropoff: ['Delivery partner at drop point', 'Your delivery partner has reached the drop point.'],
   delivery_code: ['Delivery code ready', 'Open the app to see the delivery code and share it with the person receiving the parcel.'],
   verify_delivery: ['Parcel delivered', 'Your parcel has been delivered.'],
+  expired_no_driver: ['Booking cancelled: no partner available', 'We could not find a delivery partner in time. Your booking is cancelled and any payment is refunded to your Bulkimart wallet.'],
 };
 export async function notifyParcel(b, { offered = [] } = {}) {
   // Financial commits precede best-effort notifications; no addresses or proof codes.
@@ -208,6 +209,19 @@ export async function sweepParcelsOnce() {
   try {
     const rows = await Parcel.find({status:'searching_for_driver',$or:[{'assignment.offer':{$exists:false}},{'assignment.offer.expiresAt':{$lte:new Date()}}]}).select('_id').sort({createdAt:1}).limit(50);
     for (const row of rows) { try { await assignParcel(row._id); } catch { /* Durable state remains for next sweep. */ } }
-    return {processed:rows.length};
+    // Bookings nobody picked up from the admin queue in time are cancelled and refunded (parcelAutoCancelExpired
+    // re-checks the deadline inside its transaction, so a booking assigned meanwhile is left alone).
+    // Every queued booking is checked (not just the first page): ones with auto-cancel off or not yet due must not
+    // hide expired ones behind them. Only the cancellations themselves are capped per sweep.
+    const queued = Parcel.find({status:'needs_admin_assignment',partnerId:null,cancellation:null}).select('_id status partnerId cancellation history pricing.policy.adminQueueSeconds').lean().cursor();
+    let expired = 0;
+    for await (const row of queued) {
+      if (expired >= 50) break;
+      const deadline = parcelAdminQueueDeadline(row);
+      if (!deadline || deadline.cancelAt > new Date()) continue;
+      try { const b = await parcelAutoCancelExpired(row._id); if (b) { expired++; await notifyParcel(b); } } catch { /* Retried on the next sweep. */ }
+    }
+    await queued.close().catch(() => {});
+    return {processed:rows.length,expired};
   } finally { sweeping=false; }
 }

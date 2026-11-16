@@ -14,6 +14,7 @@ import {
   deleteProduct,
   getMyProducts,
   addProductReview,
+  getReviewEligibility,
   getProductReviews,
   getMyReviewedProductIds,
   askProductQuestion,
@@ -92,6 +93,8 @@ router.get('/:id', getProductById);
 router.post('/:id/digital-file', protect, requireRole('seller'), requireApprovedSeller, uploadEbookFile('file'), uploadDigitalProductFile);
 // Public: approved reviews + the star breakdown a product page renders.
 router.get('/:id/reviews', getProductReviews);
+// Signed-in: whether this customer may review (verified purchase, not their own store, not already reviewed).
+router.get('/:id/reviews/eligibility', protect, getReviewEligibility);
 // Public: answered Q&A only — an unanswered question isn't public yet.
 router.get('/:id/faqs', getProductFaqs);
 

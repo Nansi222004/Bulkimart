@@ -57,7 +57,7 @@ const BACK = { pickup: 'start', pickupDetails: 'pickup', dropoff: 'pickupDetails
 // The line under the goods title: the category (when a description is the title), weight and packages.
 const goodsText = (parcel, vehicle, categories) => [parcel.description?.trim() && categories.includes(parcel.category) ? parcel.category : '', parcel.weightKg !== '' && parcel.weightKg != null ? `${Number(parcel.weightKg)} kg` : vehicle ? `up to ${vehicle.maxWeightKg} kg` : '', `${Number(parcel.packages) || 1} ${Number(parcel.packages) > 1 ? 'packages' : 'package'}`].filter(Boolean).join(' · ');
 
-export default function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip }) {
+export default function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved }) {
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now());
@@ -165,10 +165,15 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
   const confirmDetails = kind => run(async () => {
     const message = parcelAddressError(state[kind]);
     if (message) throw new Error(message);
-    const label = state.saveAs?.[kind];
-    if (label) {
-      try { await saveParcelPickup({ ...state[kind], label }); setNotice('Address saved to your addresses.'); }
-      catch { setNotice('This address could not be saved, but your booking can continue.'); }
+    // New pickup / drop addresses are kept for next time by default (the customer can untick it). Addresses picked
+    // from the saved list are already there, so they are not saved again.
+    const a = state[kind], line1 = [a.building, a.address, a.landmark].filter(Boolean).join(', ');
+    const known = a.savedId || addresses.some(x => [x.line1, x.line2, x.city, x.state].filter(Boolean).join(', ') === line1 && String(x.pincode || '') === String(a.pincode || ''));
+    // Saved in the background so a slow network never holds up the booking.
+    if (state.keep?.[kind] !== false && !known) {
+      saveParcelPickup({ ...a, label: state.saveAs?.[kind] || 'Other' })
+        .then(() => { if (mounted.current) { setNotice('Address saved for your next booking.'); onAddressSaved?.(); } })
+        .catch(() => { if (mounted.current) setNotice('This address could not be saved, but your booking can continue.'); });
     }
     setState(s => ({ ...s, step: kind === 'pickup' ? (validParcelLocation(s.dropoff) && s.dropoff.address ? 'dropoffDetails' : 'dropoff') : 'vehicle' }));
   });
@@ -225,7 +230,7 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
     return <form className="parcel-booking-flow parcel-details-screen" onSubmit={e => { e.preventDefault(); confirmDetails(kind); }}>
       {header(pickup ? 'Pickup details' : 'Drop details')}
       <div className="parcel-map-hero"><span className={'parcel-pin-tip ' + kind}>{pickup ? 'Your goods will be picked from here' : 'Your goods will be dropped here'}</span>
-        <ParcelMap pickup={pickup ? a : undefined} dropoff={pickup ? undefined : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true } })}/></div>
+        <ParcelMap pickup={pickup ? a : undefined} dropoff={pickup ? undefined : a} editable={kind} onPinChange={p => change({ [kind]: { ...a, lat: p.lat, lng: p.lng, approximate: true, savedId: '' } })}/></div>
       <section className="parcel-card parcel-details-card">
         <div className="parcel-details-address"><span className={'parcel-stop-dot ' + kind} aria-hidden="true"/><div><strong>{a.address.split(',')[0] || 'Selected location'}</strong><small>{a.address}</small>{a.approximate && <small>Pin moved — check the address and pincode.</small>}</div><button type="button" className="parcel-outline-button" onClick={() => go(kind)}>Change</button></div>
         {messages}
@@ -234,7 +239,8 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
         <label>{pickup ? 'Sender’s name' : 'Receiver’s name'}<input name={kind + '.name'} required maxLength={100} autoComplete="name" value={a.name || ''} onChange={e => edit('name', e.target.value)}/></label>
         <label>{pickup ? 'Sender’s mobile number' : 'Receiver’s mobile number'}<input name={kind + '.phone'} required type="tel" maxLength={16} pattern="\+?[1-9][0-9]{9,14}" autoComplete="tel" value={a.phone || ''} onChange={e => edit('phone', e.target.value)}/></label>
         {profile?.phone && <label className="parcel-check"><input type="checkbox" checked={Boolean(mine)} onChange={e => change({ [kind]: { ...a, ...(e.target.checked ? { name: profile.name || a.name, phone: profile.phone } : { name: '', phone: '' }) } })}/>Use my mobile number: {profile.phone}</label>}
-        <fieldset className="parcel-save-as"><legend>Save as (optional)</legend>{['Home', 'Work', 'Other'].map(label => <button type="button" key={label} aria-pressed={state.saveAs?.[kind] === label} className={state.saveAs?.[kind] === label ? 'selected' : ''} onClick={() => setState(s => ({ ...s, saveAs: { ...s.saveAs, [kind]: s.saveAs?.[kind] === label ? '' : label } }))}>{label}</button>)}</fieldset>
+        {!a.savedId && <label className="parcel-check"><input type="checkbox" checked={state.keep?.[kind] !== false} onChange={e => setState(s => ({ ...s, keep: { ...s.keep, [kind]: e.target.checked } }))}/>Save this address for future bookings</label>}
+        {!a.savedId && state.keep?.[kind] !== false && <fieldset className="parcel-save-as"><legend>Save as</legend>{['Home', 'Work', 'Other'].map(label => <button type="button" key={label} aria-pressed={state.saveAs?.[kind] === label} className={state.saveAs?.[kind] === label ? 'selected' : ''} onClick={() => setState(s => ({ ...s, saveAs: { ...s.saveAs, [kind]: s.saveAs?.[kind] === label ? '' : label } }))}>{label}</button>)}</fieldset>}
       </section>
       <div className="parcel-sticky-action"><button className="parcel-primary" disabled={busy}>{busy ? 'Saving…' : 'Confirm and Proceed'}</button></div>
     </form>;
@@ -277,8 +283,11 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
       <section className="parcel-card parcel-review-vehicle"><ParcelVehicleIcon icon={option?.vehicle.icon} size={44}/><div><strong>{vehicleName}</strong><button type="button" className="parcel-text-button" aria-expanded={showAddresses} onClick={() => setShowAddresses(v => !v)}>View Address Details <ChevronRight size={14} aria-hidden="true"/></button></div>{eta && <span className="parcel-eta-box"><strong>{eta}</strong><small>mins</small></span>}
         {showAddresses && <div className="parcel-trip-stops">{stop('pickup')}{stop('dropoff')}</div>}</section>
       <ParcelRouteSummary quote={quote}/>
-      <section className="parcel-card parcel-goods-card"><h3>Goods Description</h3><div className="parcel-goods-row"><span><strong>{state.parcel.description?.trim() || state.parcel.category}</strong><small>{goodsText(state.parcel, vehicle, policy.categories)}</small></span><button type="button" className="parcel-text-button" disabled={busy || !!state.pending} onClick={() => { setGoodsDraft({ ...state.parcel }); setSheet({ type: 'goods' }); }}>Change <ChevronRight size={14} aria-hidden="true"/></button></div>
-        {policy.prohibitedItems?.length > 0 && <div className="parcel-restricted"><TriangleAlert size={18} aria-hidden="true"/><span>Do not send restricted items</span><button type="button" className="parcel-text-button" onClick={() => setSheet({ type: 'restricted' })}>View List <ChevronRight size={14} aria-hidden="true"/></button></div>}</section>
+      {/* With vehicles, what is being sent (type, weight, packages) is optional, so customers are not asked for it:
+          the vehicle's capacity is the limit. Only the restricted-items reminder stays. */}
+      {vehicleMode ? policy.prohibitedItems?.length > 0 && <section className="parcel-card parcel-goods-card"><div className="parcel-restricted"><TriangleAlert size={18} aria-hidden="true"/><span>Do not send restricted items</span><button type="button" className="parcel-text-button" onClick={() => setSheet({ type: 'restricted' })}>View List <ChevronRight size={14} aria-hidden="true"/></button></div></section>
+      : <section className="parcel-card parcel-goods-card"><h3>Goods Description</h3><div className="parcel-goods-row"><span><strong>{state.parcel.description?.trim() || state.parcel.category}</strong><small>{goodsText(state.parcel, vehicle, policy.categories)}</small></span><button type="button" className="parcel-text-button" disabled={busy || !!state.pending} onClick={() => { setGoodsDraft({ ...state.parcel }); setSheet({ type: 'goods' }); }}>Change <ChevronRight size={14} aria-hidden="true"/></button></div>
+        {policy.prohibitedItems?.length > 0 && <div className="parcel-restricted"><TriangleAlert size={18} aria-hidden="true"/><span>Do not send restricted items</span><button type="button" className="parcel-text-button" onClick={() => setSheet({ type: 'restricted' })}>View List <ChevronRight size={14} aria-hidden="true"/></button></div>}</section>}
       {fare && <section className="parcel-card parcel-fare-card"><h3>Fare Summary</h3><dl><dt>Trip fare (incl. tax)</dt><dd>{parcelMoney(fare.totalPaise)}</dd>{fare.taxPaise > 0 && <><dt>Tax included</dt><dd>{parcelMoney(fare.taxPaise)}</dd></>}<dt className="parcel-fare-total">Amount payable</dt><dd className="parcel-fare-total">{parcelMoney(fare.totalPaise)}</dd></dl></section>}
       <section className="parcel-card parcel-read-before"><h3>Read before Booking</h3><ul>
         <li>The fare is fixed for this route and vehicle. It changes only if you choose to add to it while we find a partner.</li>

@@ -55,6 +55,11 @@ export const cancelReverseOrder = async orderId => {
   await prepareReverseClient();
   return (await axios.post(`${baseUrl()}/v1/external/orders/cancel`, { ids: [orderId] }, await authenticated())).data;
 };
+// Forward shipment tracking poll for scheduled reconciliation (missed webhooks). Mock mode has nothing to report.
+export const trackForwardShipment = async shipmentId => {
+  if (isMockIntegrationEnabled('SHIPROCKET_MODE')) return null;
+  return (await axios.get(`${baseUrl()}/v1/external/courier/track/shipment/${encodeURIComponent(shipmentId)}`, await authenticated())).data;
+};
 export const trackReverseShipment = async shipmentId => {
   await prepareReverseClient();
   return (await axios.get(`${baseUrl()}/v1/external/courier/track/shipment/${encodeURIComponent(shipmentId)}`, await authenticated())).data;

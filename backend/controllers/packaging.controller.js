@@ -11,6 +11,7 @@ import { mediaContext } from '../services/media.service.js';
 import { resolvePackagingItems, pricePackage, BULK_ORDER_MIN_TOTAL_ITEMS } from '../services/packaging.service.js';
 import { notifySeller, notifyAllAdmins, NOTIFICATION_EVENT } from '../services/notification.service.js';
 import { PAYMENT_STATUS } from '../constants/enums.js';
+import { escapeRegex } from "../utils/regex.js";
 import {
   createPayment, getOrderStatus, rupeesToPaise, isConfigured,
 } from '../services/phonepe.service.js';
@@ -42,7 +43,7 @@ export const listPackagingMaterialsAdmin = asyncHandler(async (req, res) => {
   const filter = {};
   if (status === 'active') filter.isActive = true;
   if (status === 'inactive') filter.isActive = false;
-  if (search) filter.name = new RegExp(search, 'i');
+  if (search) filter.name = new RegExp(escapeRegex(search), 'i');
 
   const materials = await PackagingMaterial.find(filter).sort({ createdAt: -1 });
   return ok(res, materials);

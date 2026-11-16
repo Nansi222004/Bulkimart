@@ -136,7 +136,7 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
             {subTab === 'payouts' && 'Vendor Payouts & Disbursals'}
           </h2>
           <p style={{ margin: '6px 0 0 0', opacity: 0.8, fontSize: '14px' }}>
-            {subTab === 'sales' && 'Gross item sales aggregates only. Commission and seller entitlement require the authoritative finance ledger.'}
+            {subTab === 'sales' && 'Commission and GST come from each order’s checkout snapshot; seller earning is the posted ledger when available, otherwise the expected net.'}
             {subTab === 'earnings' && 'Comprehensive net payable ledger, commission breakdown, and bank account details for sellers.'}
             {subTab === 'payouts' && 'Manage IMPS/NEFT bank transfers, approve pending payouts, and view settled history.'}
           </p>
@@ -320,16 +320,17 @@ export const VendorFinancialsTab = ({ defaultSubTab = 'sales' }) => {
                             </span>
                           </td>
                           <td style={{ padding: '14px 16px', fontWeight: 600, color: '#0f172a' }}>
-                            {money(item.totalAmount || item.subTotal)}
+                            {money(item.totalAmount ?? item.subTotal)}
                           </td>
                           <td style={{ padding: '14px 16px', color: '#475569' }}>
                             {item.adminCommissionPercent != null ? `${item.adminCommissionPercent}%` : '—'}
                           </td>
                           <td style={{ padding: '14px 16px', fontWeight: 600, color: '#16a34a' }}>
-                            {money(item.adminCommissionAmount)}
+                            {item.commissionStatus === 'not_configured' ? <span style={{ color: '#b45309', fontWeight: 500, fontSize: '12px' }}>Not configured at checkout</span> : money(item.adminCommissionAmount)}
                           </td>
                           <td style={{ padding: '14px 16px', fontWeight: 700, color: '#2563eb' }}>
                             {money(item.vendorEarnings)}
+                            {item.earningBasis === 'snapshot' && <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>Expected (not yet posted)</div>}
                           </td>
                           <td style={{ padding: '14px 16px' }}>
                             <span style={{

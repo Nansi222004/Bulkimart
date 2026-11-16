@@ -113,25 +113,52 @@ export const listSellerPayoutsLedgerAdmin = asyncHandler(async (req, res) => {
   const flags = financeFlags();
   const enabled = flags.payouts && flags.policyApproved && flags.testsApproved;
   const { requireIndependentPayoutReviewer: requireIndependent } = await getFinancePolicy();
-  const payouts = await SellerPayout.find({}).populate('sellerId', 'businessName storeDetails.name').sort({ createdAt: -1 }).lean();
-  const rows = await Promise.all(payouts.map(async (payout) => {
-    const reservation = await SellerLedgerEntry.findOne({
-      payoutId: payout._id, sellerId: payout.sellerId?._id || payout.sellerId, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved', amount: payout.amount,
-    }).select('_id').lean();
+  // Paginated in the database with one batched reservation lookup per page (audit P1); the admin tab sends
+  // page/limit/status/search and reads the summary below. UI status words map to the stored statuses.
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 15));
+  const filter = {};
+  const statusMap = { pending: 'PENDING', paid: 'APPROVED', approved: 'APPROVED', rejected: 'REJECTED' };
+  if (typeof req.query.status === 'string' && statusMap[req.query.status.toLowerCase()]) filter.status = statusMap[req.query.status.toLowerCase()];
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+  if (search) {
+    const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const sellerIds = (await Seller.find({ $or: [{ businessName: rx }, { 'storeDetails.name': rx }] }).select('_id').limit(500).lean()).map((s) => s._id);
+    filter.$or = [{ payoutNo: rx }, { sellerId: { $in: sellerIds } }];
+  }
+  const [payouts, total, byStatus] = await Promise.all([
+    SellerPayout.find(filter).populate('sellerId', 'businessName storeDetails.name').sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    SellerPayout.countDocuments(filter),
+    SellerPayout.aggregate([{ $match: filter }, { $group: { _id: '$status', count: { $sum: 1 }, paise: { $sum: { $round: [{ $multiply: ['$amount', 100] }, 0] } } } }]),
+  ]);
+  const reservations = await SellerLedgerEntry.find({
+    payoutId: { $in: payouts.map((p) => p._id) }, account: 'seller_payable', currency: 'INR', type: 'payout_reservation', direction: 'credit', bucket: 'reserved',
+  }).select('payoutId sellerId amount').lean();
+  const processes = new Map();
+  const rows = [];
+  for (const payout of payouts) {
+    const sellerId = String(payout.sellerId?._id || payout.sellerId);
+    const reservation = reservations.find((r) => String(r.payoutId) === String(payout._id) && String(r.sellerId) === sellerId && r.amount === payout.amount);
     let reviewBlocker = null, beneficiaryReviewRequired = !payout.beneficiaryVerification?.verifiedAt;
     try {
       assertBeneficiaryReview(payout, req.user._id, { requireIndependent });
-      const process = await approvedBeneficiaryProcess(mongoose.connection, payout.beneficiaryVerification.approvalReference, null);
-      if (process.version !== payout.beneficiaryVerification.processVersion) { reviewBlocker = 'Beneficiary process changed; reviewed evidence must be renewed'; beneficiaryReviewRequired = true; }
+      const ref = payout.beneficiaryVerification.approvalReference;
+      if (!processes.has(ref)) processes.set(ref, await approvedBeneficiaryProcess(mongoose.connection, ref, null));
+      if (processes.get(ref).version !== payout.beneficiaryVerification.processVersion) { reviewBlocker = 'Beneficiary process changed; reviewed evidence must be renewed'; beneficiaryReviewRequired = true; }
     } catch (error) { if (!error.status) throw error; reviewBlocker = error.message; }
-    return {
+    rows.push({
       ...payoutPublic(payout), destinationFingerprint: destinationFingerprint(payout.bankDetails, false), status: payout.status.toLowerCase(), payoutRef: payout.payoutNo,
       storeName: payout.sellerId?.storeDetails?.name || payout.sellerId?.businessName,
       beneficiaryReviewRequired, settlementEligible: Boolean(reservation) && enabled && !reviewBlocker,
       settlementBlocker: !enabled ? 'Payout reconciliation disabled pending approval' : reviewBlocker ? reviewBlocker : reservation ? null : 'No matching ledger reservation; legacy payout cannot be settled from the ledger',
-    };
-  }));
-  return ok(res, rows);
+    });
+  }
+  const stat = (status) => byStatus.find((row) => row._id === status) || { count: 0, paise: 0 };
+  return ok(res, rows, '', {
+    summary: { pendingAmount: stat('PENDING').paise / 100, paidAmount: stat('APPROVED').paise / 100, rejectedAmount: stat('REJECTED').paise / 100,
+      pendingRequests: stat('PENDING').count, totalPayouts: total },
+    page, limit, total, pages: Math.ceil(total / limit) || 1,
+  });
 });
 
 export const settleSellerPayoutLedgerAdmin = asyncHandler(async (req, res) => {

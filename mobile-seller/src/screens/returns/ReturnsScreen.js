@@ -7,7 +7,7 @@ import ChipRow from '../../components/ChipRow';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
 import useApiResource from '../../hooks/useApiResource';
 import { listSellerReturns } from '../../services/returns.api';
-import { KPI_GROUPS, RETURN_COLORS, RETURN_STATUS_LABEL, humanize } from '../../utils/returns';
+import { KPI_GROUPS, RETURN_COLORS, RETURN_STATUS_LABEL, exchangeLabel, humanize } from '../../utils/returns';
 import { colors, radius, spacing, type } from '../../theme';
 
 // Port of SellerReturnsTab.jsx (list). Counts come from the server's meta.statusCounts.
@@ -74,6 +74,7 @@ export default function ReturnsScreen({ navigation }) {
               <Text style={type.label} numberOfLines={2}>{r.productName}</Text>
               <Text style={type.small}>{r.returnNumber ? `${r.returnNumber} · ` : ''}Qty {r.quantity}</Text>
               <Text style={type.small} numberOfLines={1}>{humanize(r.reason)} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}</Text>
+              {r.resolution === 'EXCHANGE' ? <Text style={[type.small, { color: '#075985', fontWeight: '700' }]} numberOfLines={1}>{exchangeLabel(r)}</Text> : null}
               <Text style={[styles.badge, { backgroundColor: bg, color: fg }]}>{RETURN_STATUS_LABEL[r.status] || r.status}</Text>
               {r.rejectionReason ? <Text style={styles.rejected} numberOfLines={2}>Rejected: {r.rejectionReason}</Text> : null}
               {r.refundStatus ? <Text style={type.small}>Refund status: {r.refundStatus}{r.refundAmount != null ? ` · ₹${r.refundAmount}` : ''}</Text> : null}

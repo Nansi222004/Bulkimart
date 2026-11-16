@@ -12,6 +12,49 @@ import { socket } from '../../../utils/socket';
 import { AttachmentUploader } from '../../../components/common/AttachmentPreview';
 import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../utils/deliveryLabel';
 
+/** Refund or Exchange, and for an exchange which option (same product, same price) to receive. */
+function ResolutionPicker({ eligibility, resolution, setResolution, variantId, setVariantId, qty }) {
+  const options = eligibility?.exchangeOptions || [];
+  const refundAvailable = eligibility?.refundAvailable !== false;
+  if (!options.length && refundAvailable) return null;
+  const choices = [...(refundAvailable ? [['REFUND', 'Refund', 'Get your money back']] : []), ...(options.length ? [['EXCHANGE', 'Exchange', 'Get the same product, free']] : [])];
+  const labelStyle = { display: 'block', fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <span style={labelStyle}>What would you like?</span>
+      <div role="radiogroup" aria-label="Refund or exchange" style={{ display: 'flex', gap: 8, marginBottom: resolution === 'EXCHANGE' ? 10 : 0 }}>
+        {choices.map(([key, title, hint]) => (
+          <button key={key} type="button" role="radio" aria-checked={resolution === key} onClick={() => setResolution(key)}
+            style={{ flex: 1, textAlign: 'left', padding: 10, borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${resolution === key ? 'var(--primary)' : '#e2e8f0'}`, background: resolution === key ? '#f8fafc' : '#fff' }}>
+            <div style={{ fontWeight: 800, fontSize: 13, color: resolution === key ? 'var(--primary)' : 'var(--text-primary)' }}>{title}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{hint}</div>
+          </button>
+        ))}
+      </div>
+      {!refundAvailable && <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 8px' }}>This item was a free replacement, so it can be exchanged again. For a refund, please chat with support.</p>}
+      {resolution === 'EXCHANGE' && (
+        <div role="radiogroup" aria-label="Exchange for">
+          <span style={labelStyle}>Exchange for</span>
+          {options.map((o) => {
+            const value = o.variantId ? String(o.variantId) : '';
+            const enough = (o.stock || 0) >= qty;
+            const selected = variantId === value;
+            return (
+              <button key={value || 'same'} type="button" role="radio" aria-checked={selected} disabled={!enough} onClick={() => setVariantId(value)}
+                style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: 10, marginBottom: 6, borderRadius: 10, background: '#fff', cursor: enough ? 'pointer' : 'not-allowed', opacity: enough ? 1 : 0.5, border: `1.5px solid ${selected ? 'var(--primary)' : '#e2e8f0'}` }}>
+                <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 7, border: `2px solid ${selected ? 'var(--primary)' : '#cbd5e1'}`, background: selected ? 'var(--primary)' : '#fff', flexShrink: 0 }} />
+                <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 700 }}>{o.name}{o.sameAsBought ? ' (same as before)' : ''}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: enough ? '#16a34a' : '#b91c1c' }}>{enough ? 'In stock' : 'Out of stock'}</span>
+              </button>
+            );
+          })}
+          <p style={{ fontSize: 11, color: '#64748b', margin: 0 }}>We pick up your item first. After it is checked, the replacement is sent at no charge. If it can't be sent, you get a refund instead.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATUS_LABELS = {
   placed: 'Order Placed',
   confirmed: 'Confirmed by Store',
@@ -177,6 +220,9 @@ export const OrderTrackingPage = () => {
   const [submittingReturn, setSubmittingReturn] = useState(false);
   const [returnFormError, setReturnFormError] = useState('');
   const [returnRequestKey, setReturnRequestKey] = useState('');
+  // REFUND (money back) or EXCHANGE (same product, same price); exchangeVariantId '' = the same option again.
+  const [returnResolution, setReturnResolution] = useState('REFUND');
+  const [exchangeVariantId, setExchangeVariantId] = useState('');
   const [viewingReturn, setViewingReturn] = useState(null);
 
   const authHeader = () => ({ Authorization: 'Bearer ' + localStorage.getItem('userToken') });
@@ -270,6 +316,10 @@ export const OrderTrackingPage = () => {
     setReturnDescription('');
     setReturnFiles([]);
     setReturnFormError('');
+    // A replacement can only be exchanged again; otherwise refund is the default.
+    setReturnResolution(eligibility?.refundAvailable === false ? 'EXCHANGE' : 'REFUND');
+    const firstOption = (eligibility?.exchangeOptions || []).find((o) => o.inStock);
+    setExchangeVariantId(firstOption?.variantId ? String(firstOption.variantId) : '');
     if (!eligibility?.eligible) setReturnFormError(eligibility?.reason || 'This item is no longer eligible for return.');
   };
 
@@ -290,6 +340,12 @@ export const OrderTrackingPage = () => {
       fd.append('orderItemId', returnModalItem._id);
       fd.append('quantity', String(returnQty));
       fd.append('reason', returnReason);
+      fd.append('resolution', returnResolution);
+      if (returnResolution === 'EXCHANGE') {
+        const ok = (returnEligibilityByItem[returnModalItem._id]?.exchangeOptions || []).some((o) => (o.stock || 0) >= returnQty && String(o.variantId || '') === exchangeVariantId);
+        if (!ok) throw new Error('Choose an option that is in stock to exchange for.');
+        if (exchangeVariantId) fd.append('exchangeVariantId', exchangeVariantId);
+      }
       if (returnDescription.trim()) fd.append('customerDescription', returnDescription.trim());
       returnFiles.forEach((f) => fd.append('attachments', f));
 
@@ -301,7 +357,7 @@ export const OrderTrackingPage = () => {
       // Server state is the only source of truth — refetch rather than
       // guess what the new eligibility/return list looks like.
       await refreshReturnData();
-      ui.notify(`Return ${body.data.returnNumber} requested.`);
+      ui.notify(`${returnResolution === 'EXCHANGE' ? 'Exchange' : 'Return'} ${body.data.returnNumber} requested.`);
     } catch (err) {
       setReturnFormError(err.message || 'Error submitting return request');
     } finally {
@@ -358,6 +414,22 @@ export const OrderTrackingPage = () => {
     REFUNDED: 'Refund completed',
     REJECTED: 'Return rejected',
     CANCELLED: 'Return cancelled',
+    EXCHANGED: 'Replacement sent',
+  };
+  // An exchange runs the same steps as a return, but ends with a free replacement instead of money.
+  const EXCHANGE_STATUS_LABEL = {
+    RETURN_REQUESTED: 'Exchange requested', UNDER_REVIEW: 'Exchange under review', APPROVED: 'Exchange approved', AWAITING_RETURN: 'Awaiting pickup',
+    RETURN_RECEIVED: 'Item received — preparing replacement', EXCHANGED: 'Replacement order placed', REJECTED: 'Exchange rejected', CANCELLED: 'Exchange cancelled',
+  };
+  const returnLabel = (ret, status = ret.status) => (ret.resolution === 'EXCHANGE' && EXCHANGE_STATUS_LABEL[status]) || RETURN_STATUS_LABEL[status] || status;
+  const openReplacementOrder = async (replacementId) => {
+    try {
+      const res = await fetch(apiUrl(`/api/orders/${replacementId}`), { headers: authHeader() });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.data?._id) throw new Error(body.message || 'Could not open the replacement order');
+      setViewingReturn(null);
+      setSelectedOrder(body.data);
+    } catch (err) { ui.notify(err.message); }
   };
 
   useEffect(() => {
@@ -954,7 +1026,7 @@ export const OrderTrackingPage = () => {
                         </span>
                       )}
                     </div>
-                    <strong style={{ color: 'var(--text-primary)' }}>₹{item.qty * item.price}</strong>
+                    <strong style={{ color: 'var(--text-primary)' }}>₹{(Math.round(Number(item.qty) * Number(item.price) * 100) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
                   </div>
 
                   {/* Only a delivered order's items can be rated — there is
@@ -1020,12 +1092,12 @@ export const OrderTrackingPage = () => {
                             }}
                             style={{
                               fontSize: 11, fontWeight: 700,
-                              color: ret.status === 'REJECTED' ? '#b91c1c' : ret.status === 'REFUNDED' ? '#16a34a' : '#92400e',
-                              backgroundColor: ret.status === 'REJECTED' ? '#fef2f2' : ret.status === 'REFUNDED' ? '#f0fdf4' : '#fffbeb',
+                              color: ret.status === 'REJECTED' ? '#b91c1c' : ['REFUNDED', 'EXCHANGED'].includes(ret.status) ? '#16a34a' : '#92400e',
+                              backgroundColor: ret.status === 'REJECTED' ? '#fef2f2' : ['REFUNDED', 'EXCHANGED'].includes(ret.status) ? '#f0fdf4' : '#fffbeb',
                               border: 'none', padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
                             }}
                           >
-                            {RETURN_STATUS_LABEL[ret.status] || ret.status} ({ret.quantity}) ›
+                            {returnLabel(ret)} ({ret.quantity}) ›
                           </button>
                         ))}
 
@@ -1041,7 +1113,7 @@ export const OrderTrackingPage = () => {
                                 borderRadius: 8, padding: '4px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer',
                               }}
                             >
-                              ↩ Return Item
+                              {eligibility.exchangeOptions?.length ? '↩ Return / Exchange' : '↩ Return Item'}
                             </button>
                           </div>
                         )}
@@ -1064,6 +1136,11 @@ export const OrderTrackingPage = () => {
           <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
             Bill Details
           </div>
+          {selectedOrder.exchange && (
+            <div style={{ fontSize: 12.5, color: '#166534', backgroundColor: '#f0fdf4', padding: 10, borderRadius: 10 }}>
+              Free replacement for exchange {selectedOrder.exchange.returnNumber || ''}. Nothing to pay.
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--text-secondary)' }}>Subtotal (including product GST)</span>
             <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
@@ -1114,7 +1191,7 @@ export const OrderTrackingPage = () => {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
             <span>Payment Method</span>
-            <span style={{ textTransform: 'uppercase' }}>{selectedOrder.paymentMethod}</span>
+            <span style={{ textTransform: 'uppercase' }}>{selectedOrder.exchange ? 'Exchange — no charge' : selectedOrder.paymentMethod}</span>
           </div>
         </div>
       </div>
@@ -1257,7 +1334,7 @@ export const OrderTrackingPage = () => {
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 {returnModalItem.image && <img src={returnModalItem.image} alt={returnModalItem.name} style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} />}
                 <div>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Return Item</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{returnResolution === 'EXCHANGE' ? 'Exchange Item' : 'Return Item'}</div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>{returnModalItem.name}</div>
                 </div>
               </div>
@@ -1266,6 +1343,7 @@ export const OrderTrackingPage = () => {
 
             {returnEligibilityByItem[returnModalItem._id]?.eligible ? (
               <>
+                <ResolutionPicker eligibility={returnEligibilityByItem[returnModalItem._id]} resolution={returnResolution} setResolution={setReturnResolution} variantId={exchangeVariantId} setVariantId={setExchangeVariantId} qty={returnQty} />
                 <label style={{ display: 'block', fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
                   Quantity (max {returnEligibilityByItem[returnModalItem._id]?.maxReturnableQuantity})
                 </label>
@@ -1318,7 +1396,7 @@ export const OrderTrackingPage = () => {
                 <div className="user-form-actions" style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => setReturnModalItem(null)} disabled={submittingReturn} style={{ flex: 1, padding: '12px 0', borderRadius: 12, border: '1.5px solid #cbd5e1', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 800, cursor: submittingReturn ? 'not-allowed' : 'pointer' }}>Cancel</button>
                   <button onClick={submitReturn} disabled={submittingReturn} style={{ flex: 2, padding: '12px 0', borderRadius: 12, border: 'none', background: submittingReturn ? '#94a3b8' : '#b45309', color: '#fff', fontSize: 13, fontWeight: 900, cursor: submittingReturn ? 'not-allowed' : 'pointer' }}>
-                    {submittingReturn ? 'Submitting…' : 'Submit Return Request'}
+                    {submittingReturn ? 'Submitting…' : returnResolution === 'EXCHANGE' ? 'Submit Exchange Request' : 'Submit Return Request'}
                   </button>
                 </div>
               </>
@@ -1344,7 +1422,15 @@ export const OrderTrackingPage = () => {
               <button onClick={() => setViewingReturn(null)} aria-label="Close" style={{ border: 'none', background: 'none', fontSize: 18, color: '#94a3b8', cursor: 'pointer', padding: 2, lineHeight: 1 }}>✕</button>
             </div>
 
-            <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Status:</b> {RETURN_STATUS_LABEL[viewingReturn.status] || viewingReturn.status}</p>
+            <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Status:</b> {returnLabel(viewingReturn)}</p>
+            {viewingReturn.resolution === 'EXCHANGE' && <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Exchange for:</b> {viewingReturn.exchange?.variantName || viewingReturn.productName} · sent free after we receive your item</p>}
+            {viewingReturn.exchange?.replacementOrderId && (
+              <button type="button" onClick={() => openReplacementOrder(viewingReturn.exchange.replacementOrderId)}
+                style={{ border: 'none', background: 'none', padding: 0, margin: '0 0 8px', color: 'var(--primary)', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+                Track replacement order {viewingReturn.exchange.replacementOrderNo || ''} ›
+              </button>
+            )}
+            {viewingReturn.exchange?.status === 'CONVERTED_TO_REFUND' && <p style={{ fontSize: 12.5, margin: '0 0 6px', color: '#92400e' }}>Your exchange changed to a refund because {viewingReturn.exchange.convertedReason || 'the replacement could not be sent'}.</p>}
             {viewingReturn.pickup && viewingReturn.pickup.status !== 'NOT_ASSIGNED' && (
               <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>
                 <b>Pickup:</b> {{
@@ -1374,7 +1460,7 @@ export const OrderTrackingPage = () => {
             <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Reason:</b> {viewingReturn.reason?.replace(/_/g, ' ')}</p>
             {viewingReturn.customerDescription && <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Description:</b> {viewingReturn.customerDescription}</p>}
             {viewingReturn.rejectionReason && <p style={{ fontSize: 12.5, margin: '0 0 6px', color: '#b91c1c' }}><b>Rejection reason:</b> {viewingReturn.rejectionReason}</p>}
-            {viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && (
+            {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && (
               <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>
                 <b>Refund:</b> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}
                 {viewingReturn.status === 'REFUNDED'
@@ -1398,7 +1484,7 @@ export const OrderTrackingPage = () => {
               <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Timeline</div>
               {(viewingReturn.history || []).map((h, i) => (
                 <div key={i} style={{ fontSize: 12, marginBottom: 8, paddingLeft: 12, borderLeft: '2px solid #e2e8f0' }}>
-                  <div style={{ fontWeight: 700 }}>{RETURN_STATUS_LABEL[h.toStatus] || h.toStatus}</div>
+                  <div style={{ fontWeight: 700 }}>{returnLabel(viewingReturn, h.toStatus)}</div>
                   <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>{formatDate(h.timestamp)} · {formatTime(h.timestamp)}</div>
                   {h.comment && <div style={{ color: '#475569', fontSize: 11.5 }}>{h.comment}</div>}
                 </div>

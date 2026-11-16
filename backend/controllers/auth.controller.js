@@ -6,6 +6,7 @@ import { resolveLoginSession } from "../services/loginSession.service.js";
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { httpError } from "../utils/response.js";
 import { sendOTP, verifyOTP } from "../services/sms.service.js";
+import { revokeSessionToken } from "../services/sessionRevocation.service.js";
 import { signSessionToken } from "../config/jwt.js";
 import { isMockIntegrationEnabled } from "../config/runtime.js";
 import { normalizePhone, phoneLookupCandidates } from "../utils/phone.js";
@@ -446,9 +447,15 @@ export const getMe = asyncHandler(async (req, res) => {
 // @desc    Logout user/seller and invalidate session
 // @route   POST /api/auth/logout
 // @access  Public
+// Server-side logout: the presented session token is revoked, so a copy of it can no longer be used. Other devices
+// and other accounts stay signed in. Always succeeds (idempotent); an absent or invalid token has nothing to revoke.
 export const logout = asyncHandler(async (req, res) => {
+  // Same Bearer syntax protect() accepts.
+  const bearer = typeof req.headers.authorization === 'string' && /^Bearer[\t ]+([^\s,]+)[\t ]*$/i.exec(req.headers.authorization);
+  const result = bearer ? await revokeSessionToken(bearer[1]) : { revoked: false };
   res.status(200).json({
     success: true,
+    data: { sessionRevoked: result.revoked },
     message: "Logged out successfully"
   });
 });

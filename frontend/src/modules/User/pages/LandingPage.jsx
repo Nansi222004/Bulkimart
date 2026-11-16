@@ -8,7 +8,8 @@ import { clearCatalogCache } from '../hooks/useProducts';
 import { clearCategoryCache } from '../hooks/useCategoryTree';
 import StorefrontSections, { StorefrontAnnouncement } from '../components/StorefrontSections';
 import '../Storefront.css';
-import CustomerServices, { HomeServiceEntries } from '../../../components/services/CustomerServices';
+// The Services tab is the same screen as the customer app's (Parcel | Legal Services toggle).
+import ServicesHub from '../../../components/services/ServicesHub';
 import LegalServices from '../../../components/services/LegalServices';
 // Legal Services / Send a Parcel open as their own page with an app-style title bar (as in the customer app).
 import ServiceAppBar from '../../../components/services/ServiceAppBar';
@@ -234,8 +235,8 @@ export const LandingPageContent = () => {
                   <QuickActions />
 
                   {/* Home: the promo banner follows the Categories / Offers / Wholesale shortcuts. */}
+                  {/* Legal Services / Send a Parcel live in the Services tab (and the Services tile above), not as home cards. */}
                   <HeroBanner />
-                  <HomeServiceEntries />
 
                   {/* Popular circular categories */}
                   <PopularCategories />
@@ -328,7 +329,8 @@ export const LandingPageContent = () => {
       case 'search':
         return <SearchPage />;
       case 'services':
-        return <><UnifiedHeader /><PageErrorBoundary name="services" key={activeNav}><CustomerServices /></PageErrorBoundary></>;
+        // Like the app, no header on phones: the bottom nav already says Services. Desktop keeps the site header.
+        return withDesktopHeader(<PageErrorBoundary name="services" key={activeNav}><ServicesHub /></PageErrorBoundary>);
       case 'legal-services':
         return <><ServiceAppBar section="legal-services" onHome={() => setActiveNav('home')} /><PageErrorBoundary name="legal-services" key={activeNav}><LegalServices /></PageErrorBoundary></>;
       case 'parcel-delivery':

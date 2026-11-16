@@ -78,7 +78,9 @@ export const getLiveDispatch = asyncHandler(async (req, res) => {
       {
         $match: {
           status: { $in: FINISHED_STATUSES },
-          $or: [{ endTime: { $gte: todayStart } }, { updatedAt: { $gte: todayStart } }],
+          // updatedAt only stands in when endTime was never written: a trip finished yesterday and touched today
+          // (rating, payout, admin edit) is not a delivery today.
+          $or: [{ endTime: { $gte: todayStart } }, { endTime: null, updatedAt: { $gte: todayStart } }],
         },
       },
       { $group: { _id: '$status', count: { $sum: 1 } } },

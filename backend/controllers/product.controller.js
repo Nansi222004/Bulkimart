@@ -9,8 +9,9 @@ import { assertWholesaleBuyer, quoteWholesaleVariant, wholesaleAvailability } fr
 import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import { CHANNEL, CHANNELS, APPROVAL, LOW_STOCK_THRESHOLD, WHOLESALE_CHANNEL } from '../constants/enums.js';
-import { httpError, ok, created } from '../utils/response.js';
+import { httpError, ok, created, getPagination } from '../utils/response.js';
 import Seller from '../models/Seller.js';
+import Order from '../models/Order.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
@@ -98,7 +99,9 @@ const withCustomerLegacyExclusions = async (extraAnd = []) => {
 // @route   GET /api/products
 // @access  Public
 export const getProducts = asyncHandler(async (req, res) => {
-  const { type, category, subCategory, minPrice, maxPrice, inStock, isFeatured, page = 1, limit = 20 } = req.query;
+  const { type, category, subCategory, minPrice, maxPrice, inStock, isFeatured } = req.query;
+  // Clamped: a public endpoint must not return the whole catalogue (limit=0) or 500 on page=abc.
+  const { page, limit, skip } = getPagination(req.query, 20, 100);
 
   // Public search query — must be approved and active
   const filter = { status: 'approved', isActive: true, isDeleted: false };
@@ -134,7 +137,6 @@ export const getProducts = asyncHandler(async (req, res) => {
     filter.isFeatured = true;
   }
 
-  const skip = (Number(page) - 1) * Number(limit);
   let products = await Product.find(filter).select('-digital.file')
     .populate('category', 'name')
     .populate('sellerId', 'storeDetails businessName serviceRadiusKm')
@@ -1325,19 +1327,59 @@ export const getMyReviewedProductIds = asyncHandler(async (req, res) => {
  * Published reviews contribute to the product's score. Admins can subsequently
  * moderate them through the existing review management screen.
  */
+/**
+ * Why this customer may not review this product, or null when they may. The single source for both submitting a
+ * review and the product page deciding whether to show the review box.
+ */
+const reviewBlock = async (product, userId) => {
+  // A shop cannot publish a rating for its own product (reviews go live immediately and move the score).
+  if (product.sellerId && await Seller.exists({ _id: product.sellerId, userId })) {
+    return { code: 'REVIEW_OWN_PRODUCT', message: 'You cannot review a product from your own store' };
+  }
+  // Verified purchases only: an order containing this product that reached the customer
+  // (digital-only orders are marked delivered when access is activated).
+  if (!await Order.exists({ userId, status: 'delivered', 'items.productId': product._id })) {
+    return { code: 'REVIEW_PURCHASE_REQUIRED', message: 'You can review this product after it has been delivered to you.' };
+  }
+  if (product.ratings?.reviews?.some((r) => r.userId && String(r.userId) === String(userId))) {
+    return { code: 'REVIEW_ALREADY_SUBMITTED', message: 'You have already reviewed this product' };
+  }
+  return null;
+};
+
+/**
+ * @desc    Can the signed-in customer review this product? Lets the product page show the review box only to them.
+ * @route   GET /api/products/:id/reviews/eligibility
+ * @access  Private
+ */
+export const getReviewEligibility = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, 'Product not found');
+  const product = await Product.findById(req.params.id).select('sellerId ratings.reviews.userId');
+  if (!product) throw httpError(404, 'Product not found');
+  const blocked = await reviewBlock(product, req.user._id);
+  return ok(res, { canReview: !blocked, reason: blocked?.code || null, message: blocked?.message || null });
+});
+
 export const addProductReview = asyncHandler(async (req, res) => {
-  const { rating, comment, images } = req.body;
+  const { rating, images } = req.body;
 
   const stars = Number(rating);
   if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
     throw httpError(400, 'Please give a rating between 1 and 5 stars');
   }
+  // Published as-is on the product page: text only and bounded.
+  if (req.body.comment != null && typeof req.body.comment !== 'string') throw httpError(400, 'Review text must be text');
+  const comment = (req.body.comment || '').trim();
+  if (comment.length > 2000) throw httpError(400, 'Please keep your review under 2000 characters');
 
   const product = await Product.findById(req.params.id);
   if (!product) {
     res.status(404);
     throw new Error('Product not found');
   }
+
+  const blocked = await reviewBlock(product, req.user._id);
+  if (blocked && blocked.code !== 'REVIEW_ALREADY_SUBMITTED') throw httpError(403, blocked.message, { code: blocked.code });
 
   // One review per shopper per product, whatever state it is in — a rejected
   // review is still an answer, and re-posting would be a way around it.

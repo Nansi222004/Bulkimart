@@ -9,6 +9,7 @@ import { clearDeliverySession, hasActiveDeliveryRegistration } from '../../../ut
 import { completeDeliveryLogin } from '../utils/deliveryAuth';
 import { deliveryDraftOwner, readDeliveryRegistrationDraft, saveDeliveryRegistrationDraft, clearDeliveryRegistrationDraft } from '../../../utils/deliveryRegistrationDraft';
 import { startRiderPresence } from '../utils/riderPresence';
+import { revokeServerSession } from '../../../utils/serverLogout';
 
 const DeliveryContext = createContext();
 
@@ -1199,7 +1200,8 @@ export const DeliveryProvider = ({ children }) => {
 
     // The session has to go too. Clearing only the onboarding flag left the
     // token in place, so the next person to open the app landed straight back
-    // inside the previous rider's account.
+    // inside the previous rider's account. Revoked on the server first.
+    void revokeServerSession(localStorage.getItem('deliveryToken'));
     clearDeliverySession();
     disconnectSocket();
     stopLocationBroadcast();

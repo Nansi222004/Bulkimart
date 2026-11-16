@@ -148,7 +148,7 @@ export const parseRazorpayWebhookEvent = (body = {}) => {
     refundPaymentId: refund?.payment_id,
     refundReceipt: refund?.receipt,
     refundNotes: refund?.notes,
-    amountPaise: payment?.amount || refund?.amount,
+    amountPaise: payment?.amount ?? refund?.amount,
     currency: payment?.currency || refund?.currency,
     errorCode: payment?.error_code || refund?.error_code,
     paymentDetails: payment ? [{

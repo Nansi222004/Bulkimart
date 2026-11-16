@@ -3,7 +3,7 @@ import { validParcelLocation } from './parcelApi';
 // Booking screens, in order (as in the parcel flow: pickup → drop → vehicle → review).
 export const PARCEL_STEPS = ['start', 'pickup', 'pickupDetails', 'dropoff', 'dropoffDetails', 'vehicle', 'review'];
 export const blankParcelAddress = (profile = {}) => ({ address: '', building: '', landmark: '', name: profile.name || '', phone: profile.phone || '', pincode: '', lat: '', lng: '', label: 'Other' });
-export const savedParcelAddress = address => ({ ...blankParcelAddress(), address: [address.line1, address.line2, address.city, address.state].filter(Boolean).join(', '), name: address.name || '', phone: address.phone || '', pincode: address.pincode || '', lat: address.lat ?? '', lng: address.lng ?? '', label: address.label || 'Other' });
+export const savedParcelAddress = address => ({ ...blankParcelAddress(), address: [address.line1, address.line2, address.city, address.state].filter(Boolean).join(', '), name: address.name || '', phone: address.phone || '', pincode: address.pincode || '', lat: address.lat ?? '', lng: address.lng ?? '', label: address.label || 'Other', savedId: address._id || '' });
 /** A pickup or drop from an earlier booking (Book Again). */
 export const bookedParcelAddress = a => ({ ...blankParcelAddress(), address: a?.address || '', name: a?.name || '', phone: a?.phone || '', pincode: a?.pincode || '', lat: a?.lat ?? '', lng: a?.lng ?? '' });
 export function parcelAddressError(address) {

@@ -52,6 +52,7 @@ export const activateDigitalEntitlements = async ({ payment, session }) => {
           : null;
       }
       order.status = 'delivered';
+      order.deliveredAt = deliveredAt;
       order.timeline.push({ status: 'delivered', timestamp: deliveredAt, note: 'Digital purchase access activated' });
       await order.save({ session });
     }

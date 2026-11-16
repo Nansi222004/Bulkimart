@@ -7,10 +7,12 @@ import Order from '../models/Order.js';
 import Delivery from '../models/Delivery.js';
 import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
-import { ok, httpError, paginated } from '../utils/response.js';
+import { ok, httpError, paginated, getPagination } from '../utils/response.js';
 import { financeFlags } from '../services/financeSafety.service.js';
 import { financialReconciliation } from '../services/financialReconciliation.service.js';
 import { saveCommissionVersion, saveCommissionForAllChannels, describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
+import { recordCourierCodRemittance, courierCodReconciliationReport } from '../services/orderFinance.service.js';
+import CourierCodRemittance from '../models/CourierCodRemittance.js';
 import { recordCodEvent, postOrderFinance, releaseOrderFinance, releaseDeliveryEarning, repriceDeliveryEarning, reverseRefundedReturn, refundCompensation } from '../services/orderFinance.service.js';
 import { getFinancePolicy, saveFinancePolicy } from '../services/financePolicy.service.js';
 import { taxReport, journal, trialBalance, toCsv, rupees } from '../services/financeReports.service.js';
@@ -175,6 +177,20 @@ export const getDeliveryFinance = asyncHandler(async (req, res) => {
 });
 export const collectCod = asyncHandler(async (req, res) => ok(res, await recordCodEvent({ orderId: req.params.id, partnerId: req.partner._id, actorId: req.user._id, action: 'collect', input: req.body })));
 export const reportCodRemittance = asyncHandler(async (req, res) => ok(res, await recordCodEvent({ orderId: req.params.id, partnerId: req.partner._id, actorId: req.user._id, action: 'remit', input: req.body })));
+// Courier COD (audit H1): settlement only from a recorded provider remittance (finance permission, audited).
+export const recordCourierCodRemittanceAdmin = asyncHandler(async (req, res) => {
+  const result = await recordCourierCodRemittance({ ...req.body, actorId: req.user._id });
+  return ok(res, result.remittance, result.alreadyRecorded ? 'Remittance already recorded' : 'Courier remittance recorded');
+});
+export const listCourierCodRemittances = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = getPagination(req.query, 20, 100);
+  const [rows, total] = await Promise.all([CourierCodRemittance.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), CourierCodRemittance.countDocuments()]);
+  return ok(res, { rows, total, page, limit });
+});
+export const getCourierCodReport = asyncHandler(async (req, res) => {
+  const { page, limit } = getPagination(req.query, 50, 200);
+  return ok(res, await courierCodReconciliationReport({ page, limit, needsAction: req.query.needsAction === 'true' }));
+});
 export const verifyCodRemittance = asyncHandler(async (req, res) => ok(res, await recordCodEvent({ orderId: req.params.id, actorId: req.user._id, action: 'verify', input: reviewed(req) })));
 export const disputeCod = asyncHandler(async (req, res) => ok(res, await recordCodEvent({ orderId: req.params.id, actorId: req.user._id, action: 'dispute', input: reviewed(req) })));
 export const writeOffCodShortage = asyncHandler(async (req, res) => ok(res, await recordCodEvent({ orderId: req.params.id, actorId: req.user._id, action: 'writeoff', input: reviewed(req) }), 'Shortage absorbed by Bulkimart'));

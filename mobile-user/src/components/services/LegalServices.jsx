@@ -14,6 +14,7 @@ import { ChevronRight, FileText, Scale, Search } from 'lucide-react-native';
 import { apiUrl, boundedFetch, getToken } from '../../api/client';
 import { session } from '../../lib/storage';
 import { initPushNotifications } from '../../lib/push';
+import { useRefreshHandler } from '../../lib/refresh';
 import { useSession } from '../../context/SessionContext';
 import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
@@ -107,7 +108,8 @@ function FollowUp({ busy, submit }) {
   </View>;
 }
 
-export default function LegalServices({ view, id: routeId }) {
+// `embedded`: shown inside the Services tab, which supplies its own heading and "My requests" link.
+export default function LegalServices({ view, id: routeId, embedded = false }) {
   const router = useRouter();
   const theme = useAppTheme();
   const request = useLegalApi();
@@ -140,6 +142,8 @@ export default function LegalServices({ view, id: routeId }) {
     return () => c.abort();
   }, [request, history, id, search, page, revision]);
 
+  // Pull down to refresh (LegalServicesScreen / Services tab) reloads this list or request; no Refresh button.
+  useRefreshHandler(async () => { refresh(n => n + 1); });
   const run = async fn => { if (lock.current) return; lock.current = true; setBusy(true); setError(''); setErrors({}); try { await fn(); } catch (e) { setError(e.message); setErrors(e.fields || {}); } finally { lock.current = false; setBusy(false); } };
   const customerRequest = (suffix, options) => request(`/api/customer-services${suffix}`, options);
   const customerAuthorization = () => `Bearer ${getToken() || ''}`;
@@ -168,15 +172,15 @@ export default function LegalServices({ view, id: routeId }) {
   const base = detail?._id ? `/api/customer-services/applications/${detail._id}` : '';
   const adminNote = history && detail ? [...(detail.events || [])].reverse().find(e => e.message && !['customer_response', 'information_required', 'rejected', 'submitted'].includes(e.action)) : null;
 
-  return <View accessibilityLabel="Legal Services" style={{ padding: 16 }}>
-    <Text style={styles.intro}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>
-    <View style={[styles.segment, { borderColor: theme.border }]} accessibilityRole="tablist" accessibilityLabel="Legal services navigation">
+  return <View accessibilityLabel="Legal Services" style={{ padding: embedded ? 0 : 16 }}>
+    {!embedded && <Text style={styles.intro}>Explore legal services and submit a private request. Final pricing is confirmed after review.</Text>}
+    {!embedded && <View style={[styles.segment, { borderColor: theme.border }]} accessibilityRole="tablist" accessibilityLabel="Legal services navigation">
       {[['Browse services', !history, () => navigate()], ['My requests', history, () => (isLoggedIn ? navigate('requests') : signIn())]].map(([label, on, press]) =>
         <Pressable key={label} onPress={press} accessibilityRole="tab" accessibilityState={{ selected: on }} style={[styles.segmentBtn, on && { backgroundColor: theme.action }]}>
           <Text style={{ fontSize: 14, fontWeight: '700', color: on ? theme.actionText || '#fff' : '#475569' }}>{label}</Text>
         </Pressable>)}
-    </View>
-    {!isLoggedIn && <ActionButton variant="plain" title="Sign in to view your requests" onPress={signIn} style={{ marginBottom: 16 }} />}
+    </View>}
+    {!isLoggedIn && !embedded && <ActionButton variant="plain" title="Sign in to view your requests" onPress={signIn} style={{ marginBottom: 16 }} />}
     {notice ? <Text accessibilityLiveRegion="polite" style={{ marginBottom: 8 }}>{notice}</Text> : null}
     {error ? <View style={styles.state} accessibilityRole="alert"><Text style={styles.h2}>Legal Services update</Text><Text style={{ marginBottom: 10 }}>{error}</Text><ActionButton variant="soft" disabled={busy} title="Reload latest" onPress={() => refresh(n => n + 1)} style={{ alignSelf: 'flex-start' }} /></View> : null}
     {!history && !id && <View style={[styles.search, { borderColor: theme.border }]}>
@@ -188,7 +192,6 @@ export default function LegalServices({ view, id: routeId }) {
         <Text style={styles.h3}>{detail.serviceName}</Text>
         <Text>Reference: <ServiceReference value={detail._id} /></Text>
         <Text style={{ fontWeight: '700', marginVertical: 8 }}>{REQUEST_STATUS[detail.status] || statusLabel(detail.status)}</Text>
-        <ActionButton variant="soft" disabled={busy} title="Refresh request" onPress={() => refresh(n => n + 1)} style={{ alignSelf: 'flex-start' }} />
         {detail.informationRequest ? <Text style={{ marginTop: 8 }}>Information requested: {detail.informationRequest}</Text> : null}
         {detail.rejectionReason ? <Text style={{ marginTop: 8 }}>{detail.rejectionReason}</Text> : null}
         {adminNote ? <Text style={styles.note}><Text style={{ fontWeight: '700', color: '#1e3a8a' }}>Note from Bulkimart:</Text> {adminNote.message}</Text> : null}

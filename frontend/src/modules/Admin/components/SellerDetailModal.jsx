@@ -13,6 +13,11 @@ const STATUS_COLORS = {
 
 const prettyStatus = (s) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+// Commission comes from the admin commission rules (per channel), never a per-seller default.
+const commissionLabel = (rules) => (Array.isArray(rules) && rules.length
+  ? rules.map((r) => `${r.channel} ${r.method === 'percentage' ? `${r.value}%` : `₹${r.value}`}`).join(' · ')
+  : 'Not configured');
+
 export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
   const ui = useFeedback();
   const { approveSeller, rejectSeller, suspendSeller, setSellerRadius, setSellerWholesaleStatus, setSellerThirdPartyFulfillment, removeSellerAccount } = useAdmin();
@@ -393,8 +398,8 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
 
                 <div style={{ padding: '14px 16px', backgroundColor: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Commission</div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>
-                    {d.metrics?.commissionRate ?? 10}%
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4, textTransform: 'capitalize' }}>
+                    {commissionLabel(d.metrics?.commissionRules)}
                   </div>
                 </div>
 
@@ -406,7 +411,7 @@ export const SellerDetailModal = ({ seller, loading, onClose, onRefresh }) => {
                   Performance
                 </div>
                 <p style={{ margin: 0, fontSize: 12, color: '#334155', lineHeight: 1.5, fontWeight: 600 }}>
-                  Active platform vendor listing with {d.metrics?.commissionRate ?? 10}% commission rate applied.
+                  Active platform vendor listing. Commission: {commissionLabel(d.metrics?.commissionRules)} (frozen into each order at checkout).
                 </p>
               </div>
 

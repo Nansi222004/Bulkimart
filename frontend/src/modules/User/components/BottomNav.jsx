@@ -17,6 +17,14 @@ const ICONS = {
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
+  // Same briefcase icon as the customer app's Services tab (mobile-user/src/components/icons.jsx).
+  services: (color) => (
+    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="20" height="14" rx="2" />
+      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+      <path d="M2 13h20" />
+    </svg>
+  ),
   orders: (color) => (
     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 2h12l3 5-9 5-9-5 3-5z" />
@@ -38,6 +46,8 @@ const BottomNav = () => {
   const items = [
     { id: 'home', label: 'Home' },
     { id: 'categories', label: 'Categories' },
+    // Services hub (Send a Parcel, then legal services), in the same place as the customer app's tab bar.
+    { id: 'services', label: 'Services' },
     { id: 'orders', label: 'Orders' },
     { id: 'account', label: 'Profile' },
   ];
@@ -47,7 +57,8 @@ const BottomNav = () => {
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
-        const active = activeNav === item.id;
+        // Like the app, the Services tab stays highlighted inside Send a Parcel and Legal Services.
+        const active = activeNav === item.id || (item.id === 'services' && ['legal-services', 'parcel-delivery'].includes(activeNav));
         const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
           <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>

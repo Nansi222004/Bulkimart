@@ -1,6 +1,8 @@
 import Order from '../models/Order.js';
 import Seller from '../models/Seller.js';
 import TaxInvoice, { InvoiceCounter } from '../models/TaxInvoice.js';
+import CreditNote, { CreditNoteCounter } from '../models/CreditNote.js';
+import Return from '../models/Return.js';
 import { PRODUCT_GST_VERSION } from './productGst.service.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { resolveIndianState, indianStateByCode } from '../utils/indianStates.js';
@@ -77,6 +79,8 @@ export function buildInvoiceDocument({ order, seller, issuedAt, invoiceNumber })
 const deliveredOrder = async (orderId) => {
   const order = await Order.findById(orderId).lean();
   if (!order) throw httpError(404, 'Order not found');
+  // An exchange replacement is not a new sale (audit N3): the goods were invoiced on the original order.
+  if (order.exchange?.originalOrderId) throw httpError(409, `This is a free exchange replacement. The goods are covered by the invoice on the original order${order.exchange.returnNumber ? ` (exchange ${order.exchange.returnNumber})` : ''}.`);
   const isDelivered = order.status === 'delivered' || Boolean(order.deliveredAt) || order.items?.some(i => Boolean(i.deliveredAt));
   if (!isDelivered) throw httpError(409, 'An invoice is available once the order is delivered');
   if (order.productTax?.version !== PRODUCT_GST_VERSION) throw httpError(409, 'An invoice is available for orders placed after GST invoicing started');
@@ -133,4 +137,99 @@ export async function sellerOrderInvoice(orderId, sellerId) {
   const order = await deliveredOrder(orderId);
   if (!order.items.some(item => String(item.sellerId) === String(sellerId))) throw httpError(404, 'Order not found');
   return issueSellerInvoice(order, sellerId);
+}
+
+/* ============================================================================
+ * GST CREDIT NOTES (audit G1)
+ * One per refunded return, linked to the seller's original invoice, built only from the return's frozen
+ * refund breakdown. ACCOUNTANT REVIEW REQUIRED: the assumptions below are stated in every document.
+ * ========================================================================== */
+export const CREDIT_NOTE_ASSUMPTIONS = [
+  'Issued in the seller’s name as the supplier (CGST Act s.34) by Bulkimart as the marketplace; to be confirmed by the seller’s accountant.',
+  'Value credited is the GST-inclusive price of the returned quantity as shown on the original invoice; discounts paid by Bulkimart do not reduce it, matching the invoice.',
+  'GST split (CGST+SGST or IGST) follows the original invoice; the GST amount is the residual of the frozen checkout split, so partial returns conserve every paisa.',
+  'Delivery and COD fees are Bulkimart’s own charges and are not credited here.',
+  'Exchanges (a replacement sent instead of a refund) get no credit note: the same goods at the same price were supplied.',
+  'The s.34(2) time limit for declaring the credit note in the seller’s return is not enforced by Bulkimart.',
+];
+
+export const creditNoteNumberOf = (financialYear, sequence) => `CN${financialYear.replace('-', '').slice(2)}-${String(sequence).padStart(6, '0')}`;
+
+export function buildCreditNoteDocument({ ret, invoice, issuedAt, creditNoteNumber }) {
+  const tax = ret.refundBreakdown?.productTax;
+  if (!tax || !Number.isSafeInteger(tax.grossPaise)) throw httpError(409, 'This refund has no frozen GST breakdown, so a credit note cannot be issued automatically');
+  const inv = invoice.document;
+  const gstin = inv.seller?.gstin || null;
+  const split = inv.gstSplit;
+  const cgstPaise = split === 'cgst_sgst' ? Math.floor(tax.gstPaise / 2) : 0;
+  const invoiceLine = (inv.lines || [])[0];
+  const line = {
+    description: (inv.lines || []).find(l => l.qty >= ret.quantity)?.description || invoiceLine?.description || 'Returned item',
+    qty: ret.quantity, grossPaise: tax.grossPaise,
+    ...(gstin ? { gstRate: tax.gstRate, taxableValuePaise: tax.taxableValuePaise, gstPaise: tax.gstPaise,
+      cgstPaise, sgstPaise: split === 'cgst_sgst' ? tax.gstPaise - cgstPaise : 0, igstPaise: split === 'igst' ? tax.gstPaise : 0 } : {}),
+  };
+  return {
+    title: gstin ? 'Credit Note (GST)' : 'Credit Note', creditNoteNumber, issuedAt,
+    originalInvoice: { invoiceNumber: invoice.invoiceNumber, issuedAt: invoice.issuedAt },
+    returnNumber: ret.returnNumber, orderId: String(ret.orderId), orderNo: inv.orderNo || null,
+    reason: 'Goods returned by the customer', refundedAt: ret.refundedAt || null, pricesIncludeGst: true, gstSplit: split,
+    seller: inv.seller, customer: inv.customer, placeOfSupply: inv.placeOfSupply,
+    lines: [line], totals: { ...line },
+    customerRefundPaise: tax.customerRefundPaise ?? null,
+    accountantReviewRequired: true, assumptions: CREDIT_NOTE_ASSUMPTIONS,
+  };
+}
+
+/** The credit note for a refunded return, issued on first request and stored for good. */
+export async function issueCreditNote(returnId) {
+  const existing = await CreditNote.findOne({ returnId }).lean();
+  if (existing) return existing;
+  const ret = await Return.findById(returnId).lean();
+  if (!ret) throw httpError(404, 'Return not found');
+  if (ret.status !== 'REFUNDED') throw httpError(409, 'A credit note is issued once the return is refunded');
+  if (!ret.sellerId) throw httpError(409, 'This return has no seller');
+  const order = await deliveredOrder(ret.orderId);
+  const invoice = await issueSellerInvoice(order, ret.sellerId);
+  try {
+    return await financialTransaction(async (session) => {
+      const again = await CreditNote.findOne({ returnId }).session(session).lean();
+      if (again) return again;
+      const issuedAt = new Date(), financialYear = financialYearOf(issuedAt);
+      // Built before the number is taken, so a refund with no breakdown never consumes a number.
+      const preview = buildCreditNoteDocument({ ret, invoice, issuedAt, creditNoteNumber: 'pending' });
+      const { sequence } = await CreditNoteCounter.findOneAndUpdate({ sellerId: ret.sellerId, financialYear }, { $inc: { sequence: 1 } },
+        { upsert: true, returnDocument: 'after', session });
+      const creditNoteNumber = creditNoteNumberOf(financialYear, sequence);
+      const [note] = await CreditNote.create([{ returnId, orderId: ret.orderId, sellerId: ret.sellerId, userId: ret.customerId,
+        invoiceId: invoice._id, invoiceNumber: invoice.invoiceNumber, creditNoteNumber, financialYear, sequence,
+        kind: preview.seller?.gstin ? 'gst_credit_note' : 'credit_note', issuedAt, document: { ...preview, creditNoteNumber } }], { session });
+      return note.toObject();
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      const issued = await CreditNote.findOne({ returnId }).lean();
+      if (issued) return issued;
+    }
+    throw error;
+  }
+}
+
+const refundedReturnsOf = (filter) => Return.find({ ...filter, status: 'REFUNDED' }).select('_id').sort({ refundedAt: 1, _id: 1 }).lean();
+
+/** Credit notes for the customer's refunded returns on one order. */
+export async function customerOrderCreditNotes(orderId, { userId, isAdmin = false }) {
+  const order = await Order.findById(orderId).select('userId').lean();
+  if (!order) throw httpError(404, 'Order not found');
+  if (!isAdmin && String(order.userId) !== String(userId)) throw httpError(403, 'This is not your order');
+  const notes = [];
+  for (const ret of await refundedReturnsOf({ orderId })) notes.push(await issueCreditNote(ret._id));
+  return notes;
+}
+
+/** The seller's credit notes for refunded returns of their items on one order. */
+export async function sellerOrderCreditNotes(orderId, sellerId) {
+  const notes = [];
+  for (const ret of await refundedReturnsOf({ orderId, sellerId })) notes.push(await issueCreditNote(ret._id));
+  return notes;
 }

@@ -15,6 +15,7 @@
  */
 import './environment.js';
 import jwt from 'jsonwebtoken';
+import crypto from 'node:crypto';
 
 const secret = process.env.JWT_SECRET;
 
@@ -30,7 +31,9 @@ export const JWT_SECRET = secret;
 // without changing keys, claims, expiry policy, or requiring issuer migrations.
 export const JWT_ALGORITHM = 'HS256';
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
-export const signSessionToken = payload => jwt.sign(payload, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: JWT_EXPIRES_IN });
+// A random token id makes every issued token unique, so logging out one session can never revoke a token issued
+// for another login in the same second.
+export const signSessionToken = payload => jwt.sign(payload, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: JWT_EXPIRES_IN, jwtid: crypto.randomUUID() });
 export const verifySessionToken = token => jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
 
 export default JWT_SECRET;

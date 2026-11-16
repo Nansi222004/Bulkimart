@@ -151,6 +151,8 @@ start();
 const shutdown = (signal) => {
   console.log(`\n${signal} received — shutting down gracefully`);
   import('./services/orderSweeper.service.js').then((m) => m.stopOrderSweeper()).catch(() => {});
+  // Cancel pending rider-broadcast retries (they would otherwise run against a closing database) and refuse new ones.
+  import('./services/retryScheduler.service.js').then((m) => m.stopRetryScheduler()).catch(() => {});
   // Allow in-flight requests to drain for up to 10 s before forcing exit.
   setTimeout(() => process.exit(0), 10_000).unref();
 };

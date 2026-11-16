@@ -10,7 +10,8 @@ import SelectField from '../SelectField';
 import DateField from '../DateField';
 import { SERVICE_TEXT_CHARS } from '../../shared/serviceLimits';
 
-export const feeText = paise => `₹${(paise / 100).toFixed(2)}`;
+// Indian grouping: ₹8,258.82 and ₹1,25,000.00.
+export const feeText = paise => `₹${(Number(paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const newIdempotencyKey = () => globalThis.crypto?.randomUUID?.() || `k-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 const STATUS_TEXT = { unpaid: 'Not paid yet', pending: 'Payment processing', failed: 'Payment failed — try again', paid: 'Paid', refunded: 'Refunded', partial_refund: 'Partly refunded' };
 const STATUS_STYLE = { paid: ['#dcfce7', '#166534'], unpaid: ['#fef3c7', '#92400e'], pending: ['#fef3c7', '#92400e'], failed: ['#fef3c7', '#92400e'], refunded: ['#e0e7ff', '#3730a3'], partial_refund: ['#e0e7ff', '#3730a3'], review: ['#fee2e2', '#991b1b'] };

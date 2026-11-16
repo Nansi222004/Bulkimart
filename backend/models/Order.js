@@ -188,6 +188,9 @@ const orderItemSchema = new Schema({
    * the live "still returnable" amount.
    */
   returnedQty: { type: Number, default: 0 },
+  // The exchange that used this line's one allowed exchange (business rule: one exchange per purchased item).
+  // Claimed atomically with the quantity reservation; released only if that exchange is rejected or cancelled.
+  exchangeReturnId: { type: ObjectId, ref: 'Return' },
 
   /**
    * NHCONE Coins — return-window-aware earning (Phase 7). Coins are no
@@ -257,6 +260,22 @@ const orderSchema = new Schema(
      * today. Nothing reads it unless it is there.
      */
     groupRef: { type: String, index: true },
+
+    /**
+     * Set only on a replacement order created by an exchange (returnExchange.service.js). The customer pays
+     * nothing (100% exchange credit, ₹0 prepaid), there is no finance snapshot so no seller earnings or
+     * commission are posted (the original sale already did that), and cancelling it turns the exchange into
+     * a normal refund of the original item instead of refunding this order.
+     */
+    exchange: {
+      type: new Schema({
+        returnId:        { type: ObjectId, ref: 'Return', required: true },
+        returnNumber:    String,
+        originalOrderId: { type: ObjectId, ref: 'Order', required: true },
+        originalItemId:  { type: ObjectId, required: true },
+      }, { _id: false }),
+      default: undefined,
+    },
 
     /**
      * The subscription this order was generated from, when it was one.
@@ -403,6 +422,42 @@ const orderSchema = new Schema(
       labelUrl:    String,
       trackingUrl: String,
       status:      String,
+      // Latest courier scan from the webhook (never Bulkimart's own setup state).
+      trackingStatus: String,
+      trackingUpdatedAt: Date,
+      // Shiprocket shipment_status_id of the latest applied scan, and its rank in the forward journey
+      // (courierTracking.service.js). Scans ranked below the current one are recorded but never applied.
+      trackingStatusId: Number,
+      trackingRank: Number,
+      // Last scheduled reconciliation poll (for shipments whose webhooks were missed).
+      trackingCheckedAt: Date,
+      // Shiprocket confirmed delivery: the only way a Shiprocket-booked order becomes Delivered.
+      deliveredConfirmedAt: Date,
+      /**
+       * RTO / lost / damaged / destroyed / cancelled / undelivered shipment, waiting for an admin decision.
+       * Nothing is refunded, restocked, cancelled or released automatically: the admin decides in
+       * resolveShipmentException, which claims the exception before acting so a decision runs once.
+       */
+      exception: {
+        status: { type: String, enum: ['open', 'resolving', 'resolved'] },
+        type: { type: String, enum: ['UNDELIVERED', 'RTO_INITIATED', 'RTO_DELIVERED', 'LOST', 'DAMAGED', 'DESTROYED', 'CANCELLED'] },
+        statusId: Number,
+        providerStatus: String,
+        detectedAt: Date,
+        updatedAt: Date,
+        history: [{ _id: false, type: { type: String }, statusId: Number, providerStatus: String, at: Date }],
+        resolution: {
+          decision: { type: String, enum: ['CANCEL_AND_REFUND', 'CLOSE_WITHOUT_REFUND', 'DELIVERED'] },
+          restock: Boolean,
+          sellerSettlement: { type: String, enum: ['NO_EARNING', 'FINANCE_REVIEW'] },
+          customerMessage: String,
+          note: String,
+          by: { type: ObjectId, ref: 'Admin' },
+          at: Date,
+          token: String,
+          outcome: String,
+        },
+      },
       idempotencyKey: String,
       operationId: String,
       requestedAt: Date,
@@ -416,6 +471,10 @@ const orderSchema = new Schema(
         eventId: String,
         status: String,
         receivedAt: Date,
+        // Audit: provider status id, where it came from and what it changed.
+        statusId: Number,
+        source: { type: String, enum: ['webhook', 'reconciliation'] },
+        outcome: String,
       }],
     },
 
@@ -475,6 +534,10 @@ const orderSchema = new Schema(
       default: "placed",
     },
     timeline:     [timelineSchema],
+    // When the order reached "delivered" (audit P5). Every delivery path already wrote it (stampDelivered, the rider
+    // OTP update, digital activation) but it was not in the schema, so strict mode dropped it. Older orders fall back
+    // to the delivered timeline entry or the item deliveredAt.
+    deliveredAt:  { type: Date, index: true },
     cancelReason: String,
 
     /**
@@ -553,7 +616,9 @@ for (const operation of ['replaceOne', 'findOneAndReplace']) orderSchema.pre(ope
 // so a pre('save') hook would fire too late and the first two orders would collide on null.
 orderSchema.pre("validate", async function () {
   if (this.isNew) validateProductTaxSnapshot(this);
-  if (this.isNew && !this.financialSnapshot) {
+  // An exchange replacement is not a sale: the original order's snapshot already carries the seller's earning.
+  // Freezing one here would book the goods again as gross revenue with a 100% platform-funded discount.
+  if (this.isNew && !this.financialSnapshot && !this.exchange?.returnId) {
     const { buildOrderFinancialSnapshot } = await import('../services/vendorCommission.service.js');
     try {
       this.financialSnapshot = await buildOrderFinancialSnapshot(this, this.$session());

@@ -93,12 +93,12 @@ export const priceOrder = (items = [], user = {}, applied = null, sameDay = null
    * Same-Day is charged ON TOP of the ordinary delivery charge, not instead of it.
    *
    * The rule above is untouched and still decides what carrying the parcel
-   * costs — including the spend threshold and a free-shipping coupon, both of
-   * which have already been applied by the time we get here. Same-Day is a
-   * separate thing the customer opted into: getting it today. So it is added,
-   * and neither waiver reaches it. A ₹600 basket earns free shipping; it does
-   * not earn a rider's trip within the hour, and a coupon promising free
-   * shipping is not promising free same-day.
+   * costs — including a free-shipping coupon, the only waiver (there is no spend
+   * threshold; see above), which has already been applied by the time we get
+   * here. Same-Day is a separate thing the customer opted into: getting it
+   * today. So it is added, and the waiver never reaches it: a coupon promising
+   * free shipping is not promising free same-day. (Audit I4: this comment used
+   * to describe a free-delivery spend threshold the code does not have.)
    *
    * `deliveryCharge` remains the one customer-facing figure — what the total is
    * built from and what the payment is taken against. `standardFee` is captured

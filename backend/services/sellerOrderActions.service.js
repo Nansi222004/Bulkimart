@@ -24,7 +24,10 @@ export function sellerOrderActions(order, paymentReady = true) {
   }
   // Existing courier reporting policy remains; internal delivery is rider-only.
   if (transitions.includes('out_for_delivery')) actions.push({ to: 'out_for_delivery', label: 'Out for delivery' });
-  if (transitions.includes('delivered')) actions.push({ to: 'delivered', label: 'Mark delivered' });
+  // A Shiprocket-booked shipment is marked delivered by Shiprocket's confirmation (courierTracking.service.js),
+  // so sellers only get the button for couriers outside Shiprocket.
+  const shiprocketBooked = order.deliveryType === 'shiprocket' && order.shiprocket?.orderId && order.shiprocket?.shipmentId;
+  if (transitions.includes('delivered') && !shiprocketBooked) actions.push({ to: 'delivered', label: 'Mark delivered' });
   if (transitions.includes('cancelled') && !locked) actions.push({ to: 'cancelled', label: order.vendorDecision?.status === 'accepted' ? 'Cancel order' : 'Reject', reject: true });
   return actions;
 }

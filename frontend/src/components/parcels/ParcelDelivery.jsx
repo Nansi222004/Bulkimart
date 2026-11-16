@@ -5,7 +5,6 @@ import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import { openRazorpayCheckout } from '../../utils/razorpayCheckout';
 import './parcels.css';
-import CustomerServiceHeading from '../services/CustomerServiceHeading';
 import { parcelBookingEnabled, parcelBookingReady } from './parcelAvailability';
 import ParcelLocationPicker from './ParcelLocationPicker';
 import ParcelBookingFlow, { ParcelSheet, ParcelVehicleIcon, parcelRupees } from './ParcelBookingFlow';
@@ -29,7 +28,7 @@ import ParcelCustomerStatus,{parcelCustomerStatus} from './ParcelCustomerStatus'
 import {socket} from '../../utils/socket';
 export function ParcelCustomerEntry() {
   const session=useContext(CustomerSessionContext);
-  return session?.verified?<ParcelDelivery/>:<section className="parcel-workspace customer-service-page"><CustomerServiceHeading parcel><p>Book a pickup and delivery for your parcel.</p></CustomerServiceHeading><section className="parcel-card customer-service-state"><h2>Sign in to send a parcel</h2><p>Sign in to book a parcel or view your private delivery history.</p><a className="customer-service-action" href="/account" onClick={()=>{try{sessionStorage.setItem('bulkimart:parcel-return',window.location.pathname);}catch{}}}>Sign in to Bulkimart</a></section></section>;
+  return session?.verified?<ParcelDelivery/>:<section className="parcel-workspace customer-service-page"><section className="parcel-card customer-service-state"><h2>Sign in to send a parcel</h2><p>Sign in to book a parcel or view your private delivery history.</p><a className="customer-service-action" href="/account" onClick={()=>{try{sessionStorage.setItem('bulkimart:parcel-return',window.location.pathname);}catch{}}}>Sign in to Bulkimart</a></section></section>;
 }
 export function ParcelDiscovery({driver=false}) {
   const [enabled,setEnabled]=useState(false);
@@ -60,7 +59,7 @@ export default function ParcelDelivery() {
   const track=/^\/parcel-delivery\/track\/([a-f\d]{24})$/i.exec(routePath)?.[1],history=routePath==='/parcel-delivery/history';
   const invalid=!track&&!history&&!['/parcel-delivery','/parcel-delivery/book'].includes(routePath);
   const readKey=routePath+':'+(history?page:1);
-  const [readError,setReadError]=useState(''),[loadedKey,setLoadedKey]=useState(''),[updatedAt,setUpdatedAt]=useState(null);
+  const [readError,setReadError]=useState(''),[loadedKey,setLoadedKey]=useState(''),[addressRev,setAddressRev]=useState(0);
   const nav=p=>{window.history.pushState(null,'',p);setPath(p);};
   const trackingBusy=useRef(false);trackingBusy.current=busy||checkoutActive;
   // Tracking and history stay live: every parcel update, a 10s poll, and whenever the app returns to the foreground or reconnects.
@@ -101,12 +100,12 @@ export default function ParcelDelivery() {
         if(c.signal.aborted)return;
         setPolicy(p?.data&&Array.isArray(p.data.areas)&&Array.isArray(p.data.categories)&&Array.isArray(p.data.prohibitedItems)?p.data:null);
       }
-      setLoadedKey(readKey);if(track||history)setUpdatedAt(new Date());
+      setLoadedKey(readKey);
     }
     load().catch(e=>{if(!c.signal.aborted)setReadError(e.message);}).finally(()=>{if(!c.signal.aborted)setLoading(false);});
     return()=>c.abort();
   },[readKey,invalid,revision]);
-  useEffect(()=>{const c=new AbortController();boundedFetch(apiUrl('/api/users/addresses'),{headers:parcelHeaders('customer'),signal:c.signal}).then(r=>r.json()).then(b=>{if(!c.signal.aborted)setAddresses(Array.isArray(b.data)?b.data:[]);}).catch(()=>{});return()=>c.abort();},[]);
+  useEffect(()=>{const c=new AbortController();boundedFetch(apiUrl('/api/users/addresses'),{headers:parcelHeaders('customer'),signal:c.signal}).then(r=>r.json()).then(b=>{if(!c.signal.aborted)setAddresses(Array.isArray(b.data)?b.data:[]);}).catch(()=>{});return()=>c.abort();},[addressRev]);
   const run=async fn=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);lock.current=false;}};
   // Fare boost. Cash bookings add it to the cash due; online bookings pay it from the Bulkimart
   // wallet, and if the balance is short the shortfall can be added with Razorpay first. One request
@@ -158,15 +157,17 @@ export default function ParcelDelivery() {
     if(navigator.share)navigator.share({title:'Parcel trip',text,url}).catch(()=>{});
     else navigator.clipboard?.writeText(url).then(()=>setNotice('Trip link copied.'),()=>{});};
   const retryRead=<button disabled={loading} onClick={()=>refresh(x=>x+1)}>Retry</button>;
-  const shell=content=><section className="parcel-workspace customer-service-page"><CustomerServiceHeading parcel><p>Your parcel, collected and delivered by a Bulkimart delivery partner.</p></CustomerServiceHeading><nav className="parcel-nav" aria-label="Parcel navigation"><button type="button" className={`parcel-nav-btn ${!history?'active':''}`} onClick={()=>nav('/parcel-delivery/book')}>New booking</button><button type="button" className={`parcel-nav-btn ${history?'active':''}`} onClick={()=>nav('/parcel-delivery/history')}>Delivery history</button></nav>{content}</section>;
+  // The title bar above already names the page (Delivery History / Track Parcel / Send a Parcel) and the Services
+  // header has My parcels, so no repeated heading or New booking / Delivery history buttons here.
+  const shell=content=><section className="parcel-workspace customer-service-page">{content}</section>;
   if(checkoutActive)return <section className="parcel-workspace customer-service-page"><section className="parcel-card parcel-checkout-screen" role="status" aria-live="polite"><div className="parcel-payment-spinner" aria-hidden="true"/><h2>Complete your payment</h2><strong>{money(booking?.feePaise)}</strong><p>Opening secure Razorpay checkout…</p><small>Your booking will be confirmed after payment is verified. Keep this page open.</small></section></section>;
   if(invalid)return shell(<section className="parcel-card"><h2>Invalid parcel link</h2><p>The tracking identifier or parcel page is invalid. Open a delivery from your history.</p></section>);
   if(loading)return shell(<p role="status">{track?'Loading parcel tracking…':history?'Loading parcel history…':'Loading parcel delivery…'}</p>);
   if(loadedKey!==readKey&&!readError)return shell(<p role="status">Loading parcel delivery…</p>);
   if(readError)return shell(<section className="parcel-card"><h2>{track?'Unable to load parcel tracking':history?'Unable to load parcel history':'Unable to load parcel delivery'}</h2><p role="alert" className="parcel-error">{readError}</p>{retryRead}{history&&loadedKey===readKey&&rows.length>0&&<><p>Previously loaded deliveries. Refresh failed; statuses may be outdated.</p>{rows.map(b=><button type="button" className="parcel-row" key={b._id} onClick={()=>nav('/parcel-delivery/track/'+b._id)}><span className="parcel-row-text">{b.reference} · {parcelCustomerStatus(b.status)} · {money(b.feePaise)}</span><span className="parcel-row-arrow" aria-hidden="true">→</span></button>)}</>}</section>);
   if(track&&(loadedKey!==readKey||!booking))return shell(<section className="parcel-card"><h2>Parcel tracking unavailable</h2><p>This booking is unavailable or could not be found for your account.</p>{retryRead}</section>);
-  return <section className="parcel-workspace customer-service-page">{(track||history||!parcelBookingReady(flags,policy))&&<CustomerServiceHeading parcel><p>Your parcel, collected and delivered by a Bulkimart delivery partner.</p></CustomerServiceHeading>}{(track||history||!parcelBookingReady(flags,policy))&&<nav className={track||history?'parcel-nav':'parcel-nav parcel-nav-booking'} aria-label="Parcel navigation">{(track||history)&&<button type="button" className="parcel-nav-btn" onClick={()=>nav('/parcel-delivery/book')}>New booking</button>}<button type="button" className={'parcel-nav-btn '+(history?'active':'')} onClick={()=>nav('/parcel-delivery/history')}>Delivery history</button>{(track||history)&&<button type="button" className="parcel-nav-refresh" disabled={busy} onClick={()=>refresh(x=>x+1)}>Refresh status</button>}</nav>}
-    {(track||history)&&updatedAt&&<p className="parcel-live-status" aria-live="off"><span aria-hidden="true"/>Live · updated {updatedAt.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit',second:'2-digit'})}</p>}
+  return <section className="parcel-workspace customer-service-page">{!track&&!history&&!parcelBookingReady(flags,policy)&&<nav className="parcel-nav parcel-nav-booking" aria-label="Parcel navigation"><button type="button" className="parcel-nav-btn" onClick={()=>nav('/parcel-delivery/history')}>Delivery history</button></nav>}
+    {/* No "Live · updated" line or Refresh button: statuses still update live, and pulling down refreshes the page. */}
     {error&&<p role="alert" className="parcel-error">{error}</p>}{notice&&<p role="status">{notice}</p>}{loading?<p role="status">Loading parcel delivery…</p>:!track&&!history&&!parcelBookingReady(flags,policy)?<section className="parcel-card customer-service-state"><h2>Parcel booking is currently unavailable</h2><p role="status">We’re not accepting new parcel deliveries right now. Please check back later.</p><p>You can still view and track your existing deliveries from Delivery history.</p><button onClick={()=>refresh(x=>x+1)}>Check availability</button><a className="customer-service-action" href="/grocery-home">Back to shopping</a></section>:track&&booking?<>
       {/* Short trip number as the title (same "#XXXXXX" the delivery partner and support see); the full
           booking ID stays on its own line so it can wrap on a phone instead of squeezing the Share button. */}
@@ -186,7 +187,7 @@ export default function ParcelDelivery() {
       </ParcelSheet>}
       {cancelResult&&<div className="parcel-sheet-overlay parcel-result-overlay"><section className="parcel-result-dialog" role="alertdialog" aria-modal="true" aria-labelledby="parcel-cancel-result"><span className="parcel-result-icon" aria-hidden="true">✕</span><h2 id="parcel-cancel-result">{cancelResult==='cancelled'?'Booking cancelled':'Cancellation requested'}</h2><p>{cancelResult==='cancelled'?`Your booking with ${booking.reference} has been cancelled.${booking.refund?.toWallet?' The amount you paid is back in your Bulkimart wallet.':''}`:'Our team will review your request. We’ll update you here.'}</p><button type="button" className="parcel-primary" onClick={()=>{setCancelResult('');if(cancelResult==='cancelled')nav('/parcel-delivery/history');}}>Okay</button></section></div>}
     </>:history?<section className="parcel-card"><h2>Your parcel deliveries</h2>{!rows.length?<div className="parcel-empty-state"><div className="parcel-empty-icon" aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div><p className="parcel-empty-title">No parcel bookings yet.</p><p className="parcel-empty-subtitle">When you book a parcel pickup or delivery, its status and tracking will appear here.</p><button type="button" className="parcel-btn-book-now" onClick={()=>nav('/parcel-delivery/book')}>Book a parcel →</button></div>:<>{rows.map(b=><ParcelOrderCard key={b._id} booking={b} onOpen={()=>nav(`/parcel-delivery/track/${b._id}`)} onBookAgain={['delivered','cancelled'].includes(b.status)?()=>bookAgain(b):undefined}/>)}{meta.pages>1&&<nav className="customer-service-pagination" aria-label="Pagination"><button type="button" disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span> Page {page} </span><button type="button" disabled={page>=meta.pages} onClick={()=>setPage(x=>x+1)}>Next</button></nav>}</>}</section>:<>
-      <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} onOpenHistory={()=>nav('/parcel-delivery/history')} onOpenTrip={id=>nav('/parcel-delivery/track/'+id)} profile={session?.profile} onBooked={b=>{setBooking(b);setJustBooked(b.paymentMethod==='online'?false:b._id);nav('/parcel-delivery/track/'+b._id);if(b.paymentMethod==='online')void payOnline(b);}}/>
+      <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} onAddressSaved={()=>setAddressRev(n=>n+1)}onOpenHistory={()=>nav('/parcel-delivery/history')} onOpenTrip={id=>nav('/parcel-delivery/track/'+id)} profile={session?.profile} onBooked={b=>{setBooking(b);setJustBooked(b.paymentMethod==='online'?false:b._id);nav('/parcel-delivery/track/'+b._id);if(b.paymentMethod==='online')void payOnline(b);}}/>
     </>}
   </section>;
 }

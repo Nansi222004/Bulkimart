@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { setApiToken, setUnauthorizedHandler } from '../services/apiClient';
+import { api, setApiToken, setUnauthorizedHandler } from '../services/apiClient';
 import { clearSessionToken, readSessionToken, saveSessionToken } from '../services/storage';
 import { deregisterPush } from '../services/push';
 import { disconnectRiderSocket } from '../services/socket';
@@ -32,6 +32,9 @@ export function AuthProvider({ children }) {
     registrationToken.current = null;
     disconnectRiderSocket();
     if (deregister && token) await deregisterPush(token);
+    // A rider's own sign-out revokes this session on the server (a 401 sign-out has nothing left to revoke).
+    // Never blocks the local sign-out.
+    if (deregister && token) await api.post('/api/auth/logout', null, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }).catch(() => {});
     setApiToken(null);
     await clearSessionToken();
     setState({ phase: 'signedOut', token: null, profile: null, error: '' });

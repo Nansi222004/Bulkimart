@@ -68,7 +68,29 @@ function PRadio({ checked, onPress, disabled, children }) {
     <View style={{ flex: 1 }}>{children}</View>
   </Pressable>;
 }
+// "We're arranging your pickup": how long it has waited and when it is cancelled automatically if still unassigned.
+export function adminQueueText(b) {
+  const q = b.adminQueue;
+  if (!q?.cancelAt) return 'Our team is helping find an available delivery partner. You don’t need to book again.';
+  const at = new Date(q.cancelAt), now = new Date();
+  const waited = Math.max(1, Math.round((now.getTime() - new Date(q.since).getTime()) / 60000));
+  // The sweep runs shortly after the deadline; until then don't quote a time that has already passed.
+  if (at <= now) return `Still looking for a delivery partner (waiting ${waited} min). No partner was assigned in time, so this booking is being cancelled and any payment refunded to your Bulkimart wallet.`;
+  // The wait can be up to 24 hours, so name the day when it isn't today.
+  const sameDay = at.toDateString() === now.toDateString();
+  const when = at.toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', ...(sameDay ? {} : { day: 'numeric', month: 'short' }) });
+  return `Still looking for a delivery partner (waiting ${waited} min). If none is assigned by ${when}, we’ll cancel this booking and refund any payment to your Bulkimart wallet. You can add to the fare to reach more partners, or cancel any time.`;
+}
 export const PCard = ({ children, style }) => <View style={[styles.card, style]}>{children}</View>;
+
+/** A pickup or delivery code in large spaced digits, easy to read out to the rider. */
+function CodeBox({ label, code, hint }) {
+  return <View style={styles.codeBox} accessibilityLabel={`${label.toLowerCase()} ${String(code).split('').join(' ')}`}>
+    <Text style={styles.codeLabel}>{label}</Text>
+    <Text selectable style={styles.codeDigits}>{String(code).split('').join(' ')}</Text>
+    <Text style={styles.codeHint}>{hint}</Text>
+  </View>;
+}
 
 export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
   const { BLUE } = useParcelColors();
@@ -77,16 +99,24 @@ export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
   const points = [['pickup', pickup, 'P'], ['dropoff', dropoff, 'D']].filter(([, p]) => validParcelLocation(p)).map(([kind, p, label]) => ({ kind, label, coordinate: { latitude: Number(p.lat), longitude: Number(p.lng) } }));
   const line = decodePolyline(route?.polyline);
   const signature = points.map(p => `${p.coordinate.latitude},${p.coordinate.longitude}`).join('|');
+  // The view is computed from the pins themselves (centre + span with a margin). fitToCoordinates depended on the
+  // map's measured size, and inside a ScrollView it could run before layout and zoom in so far that both pins
+  // were off-screen on the tracking page.
+  const region = points.length ? (() => {
+    const lats = points.map(p => p.coordinate.latitude), lngs = points.map(p => p.coordinate.longitude);
+    const span = (a, b) => Math.max(0.008, (b - a) * 1.8);
+    return { latitude: (Math.min(...lats) + Math.max(...lats)) / 2, longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
+      latitudeDelta: span(Math.min(...lats), Math.max(...lats)), longitudeDelta: span(Math.min(...lngs), Math.max(...lngs)) };
+  })() : null;
   useEffect(() => {
-    if (!ready || !map.current || !points.length) return;
-    if (points.length > 1) map.current.fitToCoordinates(points.map(p => p.coordinate), { edgePadding: { top: 48, bottom: 48, left: 48, right: 48 }, animated: true });
-    else map.current.animateCamera({ center: points[0].coordinate, zoom: 16 }, { duration: 300 });
+    if (!ready || !map.current || !region) return;
+    map.current.animateToRegion(region, 300);
   }, [ready, signature]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!MAPS_CONFIGURED) return <View style={styles.mapWrap}><Text style={styles.mapMessage}>Interactive map unavailable. You can still find an address using search.</Text></View>;
   const pin = e => onPinChange?.({ lat: e.nativeEvent.coordinate.latitude, lng: e.nativeEvent.coordinate.longitude });
   return <View style={styles.mapWrap}>
     <MapView ref={map} provider={PROVIDER_GOOGLE} style={{ height: 300, width: '100%' }} onMapReady={() => setReady(true)} onPress={editable ? pin : undefined}
-      initialRegion={{ latitude: 22.5, longitude: 79, latitudeDelta: 20, longitudeDelta: 20 }} toolbarEnabled={false}
+      initialRegion={region || { latitude: 22.5, longitude: 79, latitudeDelta: 20, longitudeDelta: 20 }} toolbarEnabled={false}
       accessibilityLabel={editable ? `Adjust the ${editable} pin on the map` : 'Pickup and delivery route map'}>
       {points.map(p => <Marker key={p.kind} coordinate={p.coordinate} title={p.kind === 'pickup' ? 'Pickup location' : 'Drop location'} description={p.label}
         draggable={editable === p.kind} onDragEnd={editable === p.kind ? pin : undefined} pinColor={p.kind === 'pickup' ? '#087c9f' : '#dc2626'} />)}
@@ -631,14 +661,14 @@ export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
       <Text style={{ fontSize: 30, color: DARK, textAlign: searching ? 'center' : 'left' }} importantForAccessibility="no">{unpaid ? '₹' : b.status === 'delivered' ? '✓' : searching ? '⌕' : '▣'}</Text>
       <Text style={[styles.h2, searching && { textAlign: 'center', fontSize: 18 }]}>{searching ? 'Searching for drivers nearby…' : parcelCustomerStatus(b.status)}</Text>
       {searching ? <SearchingBar /> : null}
-      <Text style={{ lineHeight: 22 }}>{unpaid ? 'Finish payment securely with Razorpay to confirm your booking.' : b.status === 'cancellation_review' ? 'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.' : b.status === 'searching_for_driver' ? 'Your request is with nearby delivery partners. We’ll update you when someone accepts.' : b.status === 'needs_admin_assignment' ? 'Our team is helping find an available delivery partner. You don’t need to book again.' : b.status === 'delivered' ? 'Your parcel has reached its destination.' : 'Follow your pickup and delivery updates here.'}</Text>
+      <Text style={{ lineHeight: 22 }}>{unpaid ? 'Finish payment securely with Razorpay to confirm your booking.' : b.status === 'cancellation_review' ? 'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.' : b.status === 'searching_for_driver' ? 'Your request is with nearby delivery partners. We’ll update you when someone accepts.' : b.status === 'needs_admin_assignment' ? adminQueueText(b) : b.status === 'delivered' ? 'Your parcel has reached its destination.' : 'Follow your pickup and delivery updates here.'}</Text>
       {justBooked && !unpaid ? <Text style={styles.notice}>Booking received. {b.paymentMethod === 'online' ? 'Payment successful.' : 'Your pickup request is confirmed.'}</Text> : null}
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 10 }}>
         <Text style={{ fontSize: 20, fontWeight: '700' }}>{parcelMoney(b.feePaise)}</Text>
         <Text style={{ color: MUTED }}>{b.paymentStatus === 'paid' ? 'Paid online' : b.paymentMethod === 'pay_driver' ? `Cash at ${b.cashCollectionPoint === 'pickup' ? 'pickup' : 'delivery'}` : 'Online payment'}</Text>
       </View>
-      {b.pickupCode ? <Text style={styles.notice}>Pickup code: <Text style={{ fontWeight: '700' }} selectable>{b.pickupCode}</Text>. Share only when your partner arrives.</Text> : null}
-      {b.deliveryCode ? <Text style={styles.notice}>Delivery code: <Text style={{ fontWeight: '700' }} selectable>{b.deliveryCode}</Text>. Share only when your parcel arrives.</Text> : null}
+      {b.pickupCode ? <CodeBox label="PICKUP CODE" code={b.pickupCode} hint="Share only when your partner arrives" /> : null}
+      {b.deliveryCode ? <CodeBox label="DELIVERY CODE" code={b.deliveryCode} hint="Share only when your parcel arrives" /> : null}
       {b.refund?.toWallet ? <Text style={styles.notice}><Text style={{ fontWeight: '700' }}>{parcelMoney(b.refund.refundedPaise)}</Text> refunded to your Bulkimart wallet. <Text onPress={onWallet} style={{ color: DARK, textDecorationLine: 'underline' }}>View Bulkimart Wallet</Text></Text>
         : b.refund?.status === 'confirmed' ? <Text style={styles.notice}>{parcelMoney(b.refund.refundedPaise)} refunded to your original payment method.</Text>
           : b.refund?.status && b.refund.status !== 'none' ? <Text style={{ marginTop: 8 }}>Your refund is being processed.</Text>
@@ -659,11 +689,15 @@ export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
     </PCard>
   </>;
 }
-const statusChip = s => s === 'delivered' ? ['#e3f6ea', '#14804a', 'COMPLETED'] : s === 'cancelled' ? ['#fde8eb', '#b0233c', 'CANCELLED'] : s === 'cancellation_review' ? ['#fff3d6', '#7a5200', 'CANCELLATION REQUESTED'] : ['theme', 'theme', parcelCustomerStatus(s).toUpperCase()];
+// Colour says how the trip is going, not the brand red: red only when something needs the customer's attention.
+const statusChip = s => s === 'delivered' ? ['#e3f6ea', '#14804a', 'COMPLETED'] : s === 'cancelled' ? ['#f1f5f9', '#475569', 'CANCELLED']
+  : s === 'cancellation_review' ? ['#fff3d6', '#7a5200', 'CANCELLATION REQUESTED']
+  : ['payment_pending', 'payment_failed', 'delivery_failed'].includes(s) ? ['#fde8eb', '#b0233c', parcelCustomerStatus(s).toUpperCase()]
+  : ['searching_for_driver', 'needs_admin_assignment'].includes(s) ? ['#fff3d6', '#7a5200', parcelCustomerStatus(s).toUpperCase()]
+  : ['#e8f1fd', '#1d4ed8', parcelCustomerStatus(s).toUpperCase()];
 /** One booking in Orders: vehicle, time, fare, both stops, status and Book Again. */
 export function ParcelOrderCard({ booking: b, onOpen, onBookAgain }) {
-  const { BLUE, TINT } = useParcelColors();
-  const chip = statusChip(b.status), [bg, fg, label] = chip[0] === 'theme' ? [TINT, BLUE, chip[2]] : chip;
+  const [bg, fg, label] = statusChip(b.status);
   return <View style={styles.orderCard}>
     <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`Open ${b.reference}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 }}>
       <ParcelVehicleIcon icon={b.service?.icon} size={30} />
@@ -694,6 +728,10 @@ const styles = StyleSheet.create({
   small: { color: MUTED, marginTop: 6, fontSize: 12.5 },
   error: { color: '#9c243a', backgroundColor: '#fff0f1', padding: 14, borderRadius: 8, marginVertical: 8, overflow: 'hidden' },
   notice: { marginTop: 8, padding: 12, borderRadius: 8, backgroundColor: '#ecfdf5', color: '#146447', overflow: 'hidden' },
+  codeBox: { marginTop: 12, paddingVertical: 14, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#16a34a', backgroundColor: '#f0fdf4', alignItems: 'center' },
+  codeLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 1, color: '#15803d' },
+  codeDigits: { fontSize: 32, fontWeight: '900', letterSpacing: 4, color: '#14532d', marginVertical: 4, fontVariant: ['tabular-nums'] },
+  codeHint: { fontSize: 13, color: '#475569', textAlign: 'center' },
   h2: { fontSize: 21, fontWeight: '700', marginVertical: 8, color: INK },
   h3: { fontSize: 16, fontWeight: '700', marginTop: 12, marginBottom: 4, color: INK },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },

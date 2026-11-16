@@ -1,11 +1,19 @@
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
-import { customerOrderInvoices, sellerOrderInvoice } from '../services/taxInvoice.service.js';
+import { customerOrderInvoices, sellerOrderInvoice, customerOrderCreditNotes, sellerOrderCreditNotes } from '../services/taxInvoice.service.js';
 import { createInvoicePrintToken, verifyInvoicePrintToken, renderInvoiceHtml, INVOICE_PRINT_HEADERS } from '../services/invoicePrint.service.js';
 
 // @route GET /api/orders/:id/invoices — one invoice per seller on the customer's delivered order
 export const getOrderInvoices = asyncHandler(async (req, res) => ok(res,
   await customerOrderInvoices(req.params.id, { userId: req.user._id, isAdmin: req.userType === 'admin' })));
+
+// @route GET /api/orders/:id/credit-notes — GST credit notes for the customer's refunded returns (audit G1)
+export const getOrderCreditNotes = asyncHandler(async (req, res) => ok(res,
+  await customerOrderCreditNotes(req.params.id, { userId: req.user._id, isAdmin: req.userType === 'admin' })));
+
+// @route GET /api/seller/orders/:id/credit-notes — the seller's credit notes for refunded returns on an order
+export const getSellerOrderCreditNotes = asyncHandler(async (req, res) => ok(res,
+  await sellerOrderCreditNotes(req.params.id, req.seller._id)));
 
 // @route GET /api/seller/orders/:id/invoice — the seller's own invoice for a delivered order
 export const getSellerOrderInvoice = asyncHandler(async (req, res) => ok(res,

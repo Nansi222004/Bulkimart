@@ -2,6 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import Seller from '../models/Seller.js';
 import User from '../models/User.js';
 import { getShiprocketCapabilities, listPickupLocations, addPickupLocation } from './shiprocket.service.js';
+import { notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
+
+// Shiprocket activates a new pickup only after its phone number is verified in the Shiprocket panel.
+// Until then the pickup is re-checked (a read, never another create) this often, for this long.
+const VERIFICATION_RECHECK_MS = 60 * 60 * 1000;
+const VERIFICATION_WAIT_MS = 7 * 24 * 60 * 60 * 1000;
 
 const text = value => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
 const equal = (a, b) => text(String(a ?? '')).toLowerCase() === text(String(b ?? '')).toLowerCase();
@@ -47,7 +53,7 @@ export async function queueSellerPickupSync(sellerId, { retry = false } = {}) {
     'pickupSync.fingerprint': definition.fingerprint, 'pickupSync.locationName': definition.locationName,
     'pickupSync.attempts': 0, 'pickupSync.nextAttemptAt': new Date(), 'pickupSync.lastError': definition.error || null,
     'pickupSync.leaseUntil': null, 'pickupSync.operationId': null,
-    ...(changed ? { 'pickupSync.createStartedAt': priorIntent || null, 'pickupSync.providerId': null, 'pickupSync.registeredAt': null } : {}),
+    ...(changed ? { 'pickupSync.verificationWaitSince': null, 'pickupSync.createStartedAt': priorIntent || null, 'pickupSync.providerId': null, 'pickupSync.registeredAt': null } : {}),
   } };
   const oldName = previous.locationName || seller.thirdPartyFulfillment?.shiprocketPickupLocation;
   if (changed && oldName) update.$push = { 'pickupSync.history': { locationName: oldName, providerId: previous.providerId, fingerprint: previous.fingerprint, createStartedAt: previous.createStartedAt, changedAt: new Date() } };
@@ -70,6 +76,7 @@ export async function syncSellerPickup(sellerId) {
   if (!user?.isActive || !user.roles?.includes('seller') || ['rejected', 'suspended'].includes(seller.status)) definition.error = 'An active eligible seller account is required for pickup registration.';
   let safeError = 'Shiprocket pickup synchronization is unavailable. Retry later.';
   let permanent = false;
+  let created = false;
   try {
     if (definition.fingerprint !== seller.pickupSync.fingerprint) { await queueSellerPickupSync(seller._id); return; }
     if (definition.error) { safeError = definition.error; permanent = true; throw new Error(); }
@@ -89,16 +96,31 @@ export async function syncSellerPickup(sellerId) {
       if (intent.matchedCount !== 1) return;
       safeError = 'Pickup creation acknowledgement is unconfirmed. Retry reconciles the saved provider reference without creating a duplicate.';
       await addPickupLocation(definition.payload);
+      created = true;
       rows = await listPickupLocations(); row = rows.find(entry => entry.pickup_location === definition.locationName);
     }
     if (!row) { safeError = 'Pickup creation outcome is unconfirmed. Reconciliation will check the provider; do not create another location manually.'; throw new Error(); }
     if (!pickupMatches(row, { ...definition.payload, pickup_location: row.pickup_location })) { safeError = 'Provider pickup details do not match this store. Contact platform support.'; permanent = true; throw new Error(); }
-    if (!pickupUsable(row)) { safeError = 'Pickup exists but Shiprocket has not confirmed it active with phone verification. Contact support to complete provider verification, then retry.'; permanent = true; throw new Error(); }
+    if (!pickupUsable(row)) {
+      const waitingSince = new Date(seller.pickupSync.verificationWaitSince || now).getTime();
+      if (Date.now() - waitingSince < VERIFICATION_WAIT_MS) {
+        // Not a failure: keep re-checking so shipping becomes available by itself once the phone is verified.
+        await Seller.updateOne(owner, { $set: { 'pickupSync.status': 'pending', 'pickupSync.leaseUntil': null,
+          'pickupSync.verificationWaitSince': seller.pickupSync.verificationWaitSince || now,
+          'pickupSync.lastError': 'Waiting for Shiprocket to verify the pickup phone number. This is checked every hour; no action is needed from the seller.',
+          'pickupSync.nextAttemptAt': new Date(Date.now() + VERIFICATION_RECHECK_MS) }, $inc: { 'pickupSync.attempts': -1 } });
+        if (created) notifyAllAdmins({ event: NOTIFICATION_EVENT.SYSTEM, title: 'Verify a Shiprocket pickup address',
+          message: `${definition.payload.name}'s pickup address (${row.pickup_location}) was added to Shiprocket. Verify its phone number in the Shiprocket panel so the seller can ship by courier.`,
+          metadata: { sellerId: String(seller._id) }, route: `/admin/sellers?seller=${seller._id}` }).catch(() => {});
+        return;
+      }
+      safeError = 'Shiprocket still has not verified this pickup phone number after 7 days. Verify it in the Shiprocket panel, then retry from the store profile.'; permanent = true; throw new Error();
+    }
     await Seller.updateOne({ ...owner, storeDetails: seller.storeDetails.toObject?.() || seller.storeDetails }, { $set: {
       'pickupSync.status': 'registered', 'pickupSync.locationName': row.pickup_location, 'pickupSync.providerId': String(row.id), 'pickupSync.registeredAt': new Date(),
       'pickupSync.createStartedAt': seller.pickupSync.createStartedAt || new Date(),
       'pickupSync.lastError': null, 'pickupSync.leaseUntil': null, 'pickupSync.verificationMode': process.env.SHIPROCKET_MODE === 'live' ? 'provider' : process.env.SHIPROCKET_MODE,
-      'thirdPartyFulfillment.shiprocketPickupLocation': row.pickup_location,
+      'thirdPartyFulfillment.shiprocketPickupLocation': row.pickup_location, 'pickupSync.verificationWaitSince': null,
       // Approval remains a separate admin-controlled policy. Never set enabled.
     } });
   } catch {

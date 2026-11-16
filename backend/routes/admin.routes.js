@@ -12,7 +12,7 @@ import { getCommissionConfiguration, createCommissionConfiguration, listFinanceO
   writeOffCodShortage, getFinanceOverview, getFinancePolicySettings, saveFinancePolicySettings,
   getTaxReport, getAccountingJournal, getTrialBalance,
   getHistoricalBatches, postHistoricalBatch, reviewHistoricalBatchRoute, applyHistoricalBatchRoute, releaseHistoricalBatchRoute,
-  getCourierCosts, recordCourierCost, disputeCourierCharge } from '../controllers/financeWorkflow.controller.js';
+  getCourierCosts, recordCourierCost, disputeCourierCharge, recordCourierCodRemittanceAdmin, listCourierCodRemittances, getCourierCodReport } from '../controllers/financeWorkflow.controller.js';
 import { getShiprocketCapabilities } from '../services/shiprocket.service.js';
 import { getPaymentRecovery, processRefundRecovery, reconcilePaymentCreation, listUnresolvedPaymentAttempts } from '../controllers/paymentRecovery.controller.js';
 import { paymentRecoveryLimiter } from '../middlewares/rateLimit.middleware.js';
@@ -46,7 +46,7 @@ import { supportChatMessageLimiter } from '../middlewares/rateLimit.middleware.j
 import { CHAT_MAX_ATTACHMENTS } from '../constants/enums.js';
 import {
   listReturnsAdmin, getReturnAdmin, updateReturnStatusAdmin,
-  processReturnRefundAdmin, codSettleReturnAdmin,
+  processReturnRefundAdmin, codSettleReturnAdmin, sendExchangeReplacementAdmin,
 } from '../controllers/return.controller.js';
 import {
   createBroadcastAdmin, listBroadcastsAdmin, getBroadcastAdmin, sendBroadcastAdmin,
@@ -59,7 +59,7 @@ import {
   getTipSettingForAdmin, setTipSettingForAdmin,
 } from '../controllers/tip.controller.js';
 import {
-  listCampaignsForAdmin, getCampaignForAdmin, createCampaign, updateCampaign, deleteCampaign,
+  listCampaignsForAdmin, getCampaignForAdmin, createCampaign, updateCampaign, deleteCampaign, auditAutoAcceptedParticipation,
 } from '../controllers/campaign.controller.js';
 import {
   getAllPolicies, getPolicyByRole, getPolicyBySlug, updatePolicy,
@@ -74,6 +74,7 @@ import {
 } from '../controllers/accountManagement.controller.js';
 import { getManualAssignmentQueue, assignDeliveryPartner, setStorePickupLocation } from '../controllers/deliveryAssignment.controller.js';
 import { getLiveDispatch, getDeliveryHistory, exportDeliveryHistory } from '../controllers/adminDeliveryOps.controller.js';
+import { getShipmentExceptions, getShipmentEvents, resolveShipmentExceptionAdmin } from '../controllers/shipmentException.controller.js';
 import {
   getQuickCommerceDeliveryConfigAdmin, updateQuickCommerceDeliveryConfigAdmin,
   listQuickShiprocketFeesAdmin,
@@ -89,7 +90,7 @@ router.use(protect, requireAdmin);
 router.use('/campaigns', marketingPermission);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
-  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle))/.test(req.path)) return requireFinancePermission(req, res, next);
+  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle)|shipment-exceptions(?:\/|$))/.test(req.path)) return requireFinancePermission(req, res, next);
   next();
 });
 router.patch('/vendor-payouts/:id/beneficiary-review', verifySellerPayoutBeneficiaryAdmin);
@@ -100,6 +101,11 @@ router.get('/finance/ledger', listFinanceLedger);
 router.get('/finance/historical-exceptions', getHistoricalExceptions);
 router.get('/finance/reconciliation', getFinancialExceptions);
 router.post('/finance/orders/:id/cod/verify', verifyCodRemittance);
+// Courier COD remittance (finance permission via the /finance prefix): record from the provider report, list, and a
+// read-only reconciliation report of every courier COD order.
+router.post('/finance/courier-cod/remittances', recordCourierCodRemittanceAdmin);
+router.get('/finance/courier-cod/remittances', listCourierCodRemittances);
+router.get('/finance/courier-cod/report', getCourierCodReport);
 router.post('/finance/orders/:id/cod/dispute', disputeCod);
 router.post('/finance/orders/:id/cod/writeoff', writeOffCodShortage);
 // Reports: read-only, period-scoped; financial and personal data, so manage_finance (gate above).
@@ -164,6 +170,11 @@ router.post('/payment-recovery/:paymentId/attempt/reconcile', reconcilePaymentCr
 router.get('/sellers/:id', getSellerDetail);      // full registration data + documents
 router.patch('/sellers/:id/radius', setSellerRadius);
 router.patch('/sellers/:id/third-party-fulfillment', setSellerThirdPartyFulfillment);
+// Shiprocket shipment exceptions (RTO / lost / damaged / destroyed / cancelled / undelivered). Finance permission:
+// resolving one can cancel and refund the order.
+router.get('/shipment-exceptions', getShipmentExceptions);
+router.get('/shipment-exceptions/:orderId/events', getShipmentEvents);
+router.post('/shipment-exceptions/:orderId/resolve', resolveShipmentExceptionAdmin);
 router.patch('/sellers/:id/wholesale', decideSellerWholesaleChannel);
 router.patch('/sellers/:id/approve', approveSeller);
 router.patch('/sellers/:id/reject', rejectSeller);
@@ -219,6 +230,8 @@ router.put('/helpline-setting', updateAdminHelpline);
 
 // ---- Campaigns / Deals -----------------------------------------------------
 router.get('/campaigns', listCampaignsForAdmin);
+// Read-only: rows accepted at publication without a seller decision (before the PENDING rule).
+router.get('/campaigns/participation-audit', auditAutoAcceptedParticipation);
 router.post('/campaigns', uploadSingle('image'), createCampaign);
 router.get('/campaigns/:id', getCampaignForAdmin);
 router.patch('/campaigns/:id', uploadSingle('image'), updateCampaign);
@@ -263,6 +276,8 @@ router.get('/returns', listReturnsAdmin);
 router.get('/returns/:id', getReturnAdmin);
 router.patch('/returns/:id/status', updateReturnStatusAdmin);
 router.post('/returns/:id/refund', processReturnRefundAdmin);
+// Exchange: place (or retry) the free replacement order after inspection; falls back to a refund.
+router.post('/returns/:id/exchange/replacement', sendExchangeReplacementAdmin);
 router.post('/returns/:id/cod-settle', codSettleReturnAdmin);
 
 // ---- Push Notifications Broadcaster --------------------------------------

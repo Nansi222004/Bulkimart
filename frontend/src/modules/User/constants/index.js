@@ -90,6 +90,14 @@ export const QUICK_ACTIONS = [
     icon: 'bulk',
     color: 'var(--sf-highlight, #FFF0B3)',
     iconColor: 'var(--sf-action-hover, #B50918)'
+  },
+  {
+    id: 'services',
+    title: 'Services',
+    subtitle: 'Legal & business',
+    icon: 'briefcase',
+    color: 'var(--sf-highlight, #FFF0B3)',
+    iconColor: 'var(--sf-action-hover, #B50918)'
   }
 ];
 

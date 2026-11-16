@@ -10,8 +10,9 @@ import { httpError } from '../utils/response.js';
 import {
   ORDER_STATUS, RETURN_STATUS, RETURN_QUANTITY_RELEASING_STATUSES,
   RETURN_REFUND_MACHINERY_STATUSES, RESTOCK_DECISION, RESTOCK_STATUS,
-  RETURN_REFUND_STATUS, PAYMENT_METHOD, PAYMENT_STATUS,
+  RETURN_REFUND_STATUS, PAYMENT_METHOD, PAYMENT_STATUS, RETURN_RESOLUTION, RETURN_RESOLUTIONS,
 } from '../constants/enums.js';
+import { resolveExchangeChoice, createExchangeReplacement } from './returnExchange.service.js';
 import * as coinService from './coin.service.js';
 import { ensureReturnObligation, processRefundObligation } from './paymentRecovery.service.js';
 import { refundToWallet } from './wallet.service.js';
@@ -38,12 +39,23 @@ const RETURN_TRANSITIONS = {
   [RETURN_STATUS.UNDER_REVIEW]:     [RETURN_STATUS.APPROVED, RETURN_STATUS.REJECTED],
   [RETURN_STATUS.APPROVED]:         [RETURN_STATUS.AWAITING_RETURN],
   [RETURN_STATUS.AWAITING_RETURN]:  [RETURN_STATUS.RETURN_RECEIVED],
-  [RETURN_STATUS.RETURN_RECEIVED]:  [RETURN_STATUS.REFUND_PENDING],
+  [RETURN_STATUS.RETURN_RECEIVED]:  [RETURN_STATUS.REFUND_PENDING, RETURN_STATUS.EXCHANGED],
   [RETURN_STATUS.REFUND_PENDING]:   [RETURN_STATUS.REFUNDED, RETURN_STATUS.REFUND_FAILED],
   [RETURN_STATUS.REFUND_FAILED]:    [RETURN_STATUS.REFUND_PENDING],
   [RETURN_STATUS.REFUNDED]:  [],
+  // Back to RETURN_RECEIVED only when the replacement order is cancelled (exchange becomes a refund).
+  [RETURN_STATUS.EXCHANGED]: [RETURN_STATUS.RETURN_RECEIVED],
   [RETURN_STATUS.REJECTED]:  [],
   [RETURN_STATUS.CANCELLED]: [],
+};
+
+/**
+ * A rejected or cancelled exchange never gave the customer an exchange, so the line's one exchange is available
+ * again. Only this exchange's own claim is released (matched by id).
+ */
+const releaseExchangeClaim = async (ret, session) => {
+  if (ret.resolution !== RETURN_RESOLUTION.EXCHANGE) return;
+  await Order.updateOne({ _id: ret.orderId, items: { $elemMatch: { _id: ret.orderItemId, exchangeReturnId: ret._id } } }, { $unset: { 'items.$.exchangeReturnId': 1 } }, { session });
 };
 
 /** The one place a Return status transition is judged valid or not. */
@@ -86,6 +98,12 @@ export const getReturnEligibility = async ({ orderId, orderItemId, customerId, q
   const order = await Order.findById(orderId);
   if (!order || String(order.userId) !== String(customerId)) {
     throw httpError(404, 'Order not found', { code: 'RETURN_NOT_FOUND' });
+  }
+
+  // A free replacement from an exchange cannot start another exchange or a self-service refund (one exchange per
+  // purchased item, and the replacement was never paid for). Problems with it go to support.
+  if (order.exchange?.returnId) {
+    throw httpError(400, 'This item is a free replacement from an exchange, so it cannot be returned or exchanged again here. If it has a problem, please contact support.', { code: 'EXCHANGE_REPLACEMENT_SUPPORT_ONLY' });
   }
 
   if (order.status !== ORDER_STATUS.DELIVERED) {
@@ -148,16 +166,24 @@ export const getReturnEligibility = async ({ orderId, orderItemId, customerId, q
  * want) or is rejected as RETURN_QUANTITY_EXCEEDED — never silently
  * duplicated, never double-reserved.
  */
-export const createReturnRequest = async ({ orderId, orderItemId, customerId, quantity, reason, customerDescription, attachments, requestKey }) => {
+export const createReturnRequest = async ({ orderId, orderItemId, customerId, quantity, reason, customerDescription, attachments, requestKey, resolution = RETURN_RESOLUTION.REFUND, exchangeVariantId }) => {
+  if (!RETURN_RESOLUTIONS.includes(resolution)) throw httpError(400, 'Choose a refund or an exchange');
   if (requestKey != null && (typeof requestKey !== 'string' || !requestKey.trim() || requestKey.length > 100)) throw httpError(400, 'Invalid Idempotency-Key');
   const replay = requestKey && await Return.findOne({ customerId, requestKey });
   if (replay) {
-    if (String(replay.orderId) !== String(orderId) || String(replay.orderItemId) !== String(orderItemId) || replay.quantity !== Number(quantity) || replay.reason !== reason || (replay.customerDescription || '') !== (customerDescription || '')) throw httpError(409, 'Return key reused with different data');
+    if (String(replay.orderId) !== String(orderId) || String(replay.orderItemId) !== String(orderItemId) || replay.quantity !== Number(quantity) || replay.reason !== reason || (replay.customerDescription || '') !== (customerDescription || '') || (replay.resolution || RETURN_RESOLUTION.REFUND) !== resolution) throw httpError(409, 'Return key reused with different data');
     return replay;
   }
   const { order, item } = await getReturnEligibility({ orderId, orderItemId, customerId, quantity });
   // No Easy Returns: only wrong/damaged/defective, from the order's frozen choice.
   assertReturnReasonAllowed(item, reason);
+  // A replacement was never paid for: it can be exchanged again, but a refund goes through the original item.
+  if (order.exchange?.returnId && resolution !== RETURN_RESOLUTION.EXCHANGE) {
+    throw httpError(400, 'This item was sent as an exchange replacement. You can exchange it again; for a refund please contact support.', { code: 'EXCHANGE_REPLACEMENT_NOT_REFUNDABLE' });
+  }
+  const exchange = resolution === RETURN_RESOLUTION.EXCHANGE
+    ? await resolveExchangeChoice({ order, item, variantId: exchangeVariantId, quantity: Number(quantity) })
+    : undefined;
 
   const session = await mongoose.startSession();
   let created;
@@ -176,11 +202,21 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
         await Seller.updateOne({ _id: item.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
         if (new Date(item.returnEligibleUntil) <= new Date()) throw httpError(409, 'Return window expired before reservation');
       }
+      const isExchange = resolution === RETURN_RESOLUTION.EXCHANGE;
+      const returnId = new mongoose.Types.ObjectId();
       const guardResult = await Order.updateOne(
-        { _id: orderId, status: ORDER_STATUS.DELIVERED, items: { $elemMatch: { _id: orderItemId, returnEligibleUntil: { $gt: new Date() }, returnedQty: { $lte: item.qty - quantity } } } },
-        { $inc: { 'items.$.returnedQty': quantity } },
+        { _id: orderId, status: ORDER_STATUS.DELIVERED, items: { $elemMatch: { _id: orderItemId, returnEligibleUntil: { $gt: new Date() }, returnedQty: { $lte: item.qty - quantity },
+          // One exchange per purchased line, claimed in the same atomic write so concurrent requests cannot both win.
+          ...(isExchange ? { exchangeReturnId: null } : {}) } } },
+        { $inc: { 'items.$.returnedQty': quantity }, ...(isExchange ? { $set: { 'items.$.exchangeReturnId': returnId } } : {}) },
         { session }
       );
+      if (guardResult.modifiedCount !== 1 && isExchange) {
+        const fresh = await Order.findById(orderId).select('items._id items.exchangeReturnId').session(session).lean();
+        if (fresh?.items?.find((row) => String(row._id) === String(orderItemId))?.exchangeReturnId) {
+          throw httpError(409, 'This item has already been exchanged once. You can request a refund instead, or contact support.', { code: 'EXCHANGE_LIMIT_REACHED' });
+        }
+      }
       if (guardResult.modifiedCount !== 1) {
         // Someone else's concurrent request consumed the remaining quantity
         // between the eligibility read above and this write.
@@ -188,6 +224,7 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
       }
 
       const [doc] = await Return.create([{
+        _id: returnId,
         orderId,
         ...(requestKey ? { requestKey } : {}),
         orderItemId,
@@ -203,13 +240,15 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
         reason,
         customerDescription,
         attachments,
+        resolution,
+        ...(exchange ? { exchange } : {}),
         status: RETURN_STATUS.RETURN_REQUESTED,
         history: [{
           toStatus: RETURN_STATUS.RETURN_REQUESTED,
           changedBy: customerId,
           changedByModel: 'User',
           changedByRole: 'customer',
-          comment: 'Return requested',
+          comment: resolution === RETURN_RESOLUTION.EXCHANGE ? `Exchange requested${exchange?.variantName ? ` for ${exchange.variantName}` : ''}` : 'Return requested',
         }],
         returnWindowDaysSnapshot: item.returnPolicy?.returnWindowDays,
         ...(item.returnOption ? { returnOptionSnapshot: item.returnOption } : {}),
@@ -224,17 +263,21 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
     await session.endSession();
   }
 
+  const isExchange = created.resolution === RETURN_RESOLUTION.EXCHANGE;
+  const exchangeFor = isExchange && created.exchange?.variantName ? ` for ${created.exchange.variantName}` : '';
   notifyUser(created.customerId, {
     event: NOTIFICATION_EVENT.RETURN_REQUESTED,
-    title: 'Return requested',
-    message: `Your return ${created.returnNumber} for ${created.productName} has been submitted.`,
+    title: isExchange ? 'Exchange requested' : 'Return requested',
+    message: isExchange
+      ? `Your exchange ${created.returnNumber} for ${created.productName}${exchangeFor} has been submitted. We'll send the replacement after we receive your item.`
+      : `Your return ${created.returnNumber} for ${created.productName} has been submitted.`,
     metadata: { returnId: created._id, returnNumber: created.returnNumber },
     route: `/orders/${created.orderId}`,
   }).catch(() => {});
   notifyAllAdmins({
     event: NOTIFICATION_EVENT.RETURN_REQUESTED,
-    title: 'New return request',
-    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}`,
+    title: isExchange ? 'New exchange request' : 'New return request',
+    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}${isExchange ? ` (exchange${exchangeFor})` : ''}`,
     metadata: { returnId: created._id, returnNumber: created.returnNumber },
     route: `/admin/returns/${created._id}`,
   }).catch(() => {});
@@ -245,8 +288,8 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
   if (created.sellerId) await notifySeller(created.sellerId, {
     event: NOTIFICATION_EVENT.RETURN_REQUESTED,
     dedupeKey: `seller-return-requested:${created._id}:${created.sellerId}`,
-    title: 'New return request',
-    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}. Review it and approve or reject.`,
+    title: isExchange ? 'New exchange request' : 'New return request',
+    message: `${created.returnNumber} — ${created.productName} × ${created.quantity}${isExchange ? ` (exchange${exchangeFor}; you send a free replacement after the item comes back)` : ''}. Review it and approve or reject.`,
     metadata: { returnId: created._id, returnNumber: created.returnNumber, orderId: created.orderId },
     route: `/seller/item-returns?return=${created._id}`,
   }).catch(() => {});
@@ -258,18 +301,23 @@ export const createReturnRequest = async ({ orderId, orderItemId, customerId, qu
  * STATUS TRANSITIONS (admin)
  * ========================================================================== */
 
+// "exchange" or "return" in customer and seller messages.
+const kindOf = (r) => (r?.resolution === RETURN_RESOLUTION.EXCHANGE ? 'exchange' : 'return');
+const KindOf = (r) => (kindOf(r) === 'exchange' ? 'Exchange' : 'Return');
+const titleOf = (notif, r) => (typeof notif.title === 'function' ? notif.title(r) : notif.title);
+
 const RETURN_NOTIFICATION_BY_STATUS = {
-  [RETURN_STATUS.UNDER_REVIEW]:    { event: NOTIFICATION_EVENT.RETURN_UNDER_REVIEW, title: 'Return under review', message: (r) => `Your return ${r.returnNumber} is now under review.` },
-  [RETURN_STATUS.APPROVED]:        { event: NOTIFICATION_EVENT.RETURN_APPROVED,     title: 'Return approved',      message: (r) => `Your return ${r.returnNumber} has been approved.` },
-  [RETURN_STATUS.REJECTED]:        { event: NOTIFICATION_EVENT.RETURN_REJECTED,     title: 'Return rejected',      message: (r) => `Your return ${r.returnNumber} was rejected: ${r.rejectionReason || ''}`.trim() },
+  [RETURN_STATUS.UNDER_REVIEW]:    { event: NOTIFICATION_EVENT.RETURN_UNDER_REVIEW, title: (r) => `${KindOf(r)} under review`, message: (r) => `Your ${kindOf(r)} ${r.returnNumber} is now under review.` },
+  [RETURN_STATUS.APPROVED]:        { event: NOTIFICATION_EVENT.RETURN_APPROVED,     title: (r) => `${KindOf(r)} approved`, message: (r) => `Your ${kindOf(r)} ${r.returnNumber} has been approved.${kindOf(r) === 'exchange' ? ' We will send the replacement once we receive your item.' : ''}` },
+  [RETURN_STATUS.REJECTED]:        { event: NOTIFICATION_EVENT.RETURN_REJECTED,     title: (r) => `${KindOf(r)} rejected`, message: (r) => `Your ${kindOf(r)} ${r.returnNumber} was rejected: ${r.rejectionReason || ''}`.trim() },
   [RETURN_STATUS.RETURN_RECEIVED]: { event: NOTIFICATION_EVENT.RETURN_RECEIVED,     title: 'Return received',      message: (r) => `We've received your returned item for ${r.returnNumber}.` },
 };
 
 // The seller's side of the same transitions — what it means for them, not the
 // customer-facing "Your return..." copy above.
 const SELLER_RETURN_MESSAGE_BY_STATUS = {
-  [RETURN_STATUS.APPROVED]:        (r) => `Return ${r.returnNumber} (${r.productName} × ${r.quantity}) was approved. Choose a pickup method to collect it.`,
-  [RETURN_STATUS.REJECTED]:        (r) => `Return ${r.returnNumber} (${r.productName}) was rejected — no pickup is needed.`,
+  [RETURN_STATUS.APPROVED]:        (r) => `${KindOf(r)} ${r.returnNumber} (${r.productName} × ${r.quantity}) was approved. Choose a pickup method to collect it.${kindOf(r) === 'exchange' ? ' After it is received and inspected you will get a free replacement order to send.' : ''}`,
+  [RETURN_STATUS.REJECTED]:        (r) => `${KindOf(r)} ${r.returnNumber} (${r.productName}) was rejected — no pickup is needed.`,
   [RETURN_STATUS.RETURN_RECEIVED]: (r) => `Return ${r.returnNumber} passed inspection (${r.restockDecision === RESTOCK_DECISION.RESTOCKABLE ? 'restocked' : 'not restocked'}).`,
 };
 
@@ -351,6 +399,7 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
           { $inc: { 'items.$.returnedQty': -ret.quantity } },
           { session }
         );
+        await releaseExchangeClaim(ret, session);
       }
 
       updated = ret;
@@ -362,7 +411,7 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
   const notif = RETURN_NOTIFICATION_BY_STATUS[toStatus];
   if (notif) {
     notifyUser(updated.customerId, {
-      event: notif.event, title: notif.title, message: notif.message(updated),
+      event: notif.event, title: titleOf(notif, updated), message: notif.message(updated),
       metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
       route: `/orders/${updated.orderId}`,
     }).catch(() => {});
@@ -370,16 +419,28 @@ export const transitionReturnStatus = async ({ returnId, toStatus, adminId, comm
   const sellerMessage = SELLER_RETURN_MESSAGE_BY_STATUS[toStatus];
   if (notif && sellerMessage && updated.sellerId) {
     notifySeller(updated.sellerId, {
-      event: notif.event, title: notif.title, message: sellerMessage(updated),
+      event: notif.event, title: titleOf(notif, updated), message: sellerMessage(updated),
       metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
       route: `/seller/item-returns?return=${updated._id}`,
     }).catch(() => {});
   }
 
+  // Exchange: the old item is back and inspected, so the replacement goes out now (its own transaction,
+  // idempotent). A failure here leaves the return at RETURN_RECEIVED for the admin's "Send replacement" retry;
+  // no stock / product withdrawn converts the exchange to a refund inside createExchangeReplacement.
+  if (toStatus === RETURN_STATUS.RETURN_RECEIVED && updated.resolution === RETURN_RESOLUTION.EXCHANGE) {
+    try {
+      const result = await createExchangeReplacement(updated._id);
+      return result.ret || await Return.findById(updated._id);
+    } catch (err) {
+      console.error(`[EXCHANGE] replacement for ${updated.returnNumber} not created:`, err.message);
+    }
+  }
+
   return updated;
 };
 
-const adminComment = (c) => typeof c === 'string' && c.trim().length > 0;
+const adminComment =(c) => typeof c === 'string' && c.trim().length > 0;
 
 /**
  * The seller's own approve/reject decision on a return of their item. Same
@@ -419,6 +480,7 @@ export const sellerDecideReturn = async ({ returnId, sellerId, sellerUserId, dec
 
       if (RETURN_QUANTITY_RELEASING_STATUSES.includes(decision)) {
         await Order.updateOne({ _id: ret.orderId, 'items._id': ret.orderItemId }, { $inc: { 'items.$.returnedQty': -ret.quantity } }, { session });
+        await releaseExchangeClaim(ret, session);
       }
       updated = ret;
     });
@@ -428,7 +490,7 @@ export const sellerDecideReturn = async ({ returnId, sellerId, sellerUserId, dec
 
   const notif = RETURN_NOTIFICATION_BY_STATUS[decision];
   notifyUser(updated.customerId, {
-    event: notif.event, title: notif.title, message: notif.message(updated),
+    event: notif.event, title: titleOf(notif, updated), message: notif.message(updated),
     metadata: { returnId: updated._id, returnNumber: updated.returnNumber },
     route: `/orders/${updated.orderId}`,
   }).catch(() => {});
@@ -536,6 +598,7 @@ const acquireRefundLock = async (returnId) => {
     {
       _id: returnId,
       status: { $in: [RETURN_STATUS.RETURN_RECEIVED, RETURN_STATUS.REFUND_PENDING, RETURN_STATUS.REFUND_FAILED] },
+      resolution: { $ne: RETURN_RESOLUTION.EXCHANGE },
       $or: [{ refundLockedAt: null }, { refundLockedAt: { $exists: false } }, { refundLockedAt: { $lt: staleCutoff } }],
     },
     { $set: { refundLockedAt: now } },
@@ -558,6 +621,10 @@ const releaseRefundLock = async (returnId, lockedAt) => {
 export const processReturnRefund = async ({ returnId, adminId }) => {
   if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
 
+  const pre = await Return.findById(returnId).select('resolution status').lean();
+  if (pre?.resolution === RETURN_RESOLUTION.EXCHANGE) {
+    throw httpError(409, 'This is an exchange: a replacement is sent instead of a refund. If the replacement cannot be sent it changes to a refund automatically.', { code: 'RETURN_IS_EXCHANGE' });
+  }
   const locked = await acquireRefundLock(returnId);
   if (!locked) {
     const existing = await Return.findById(returnId).lean();

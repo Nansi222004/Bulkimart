@@ -1,4 +1,19 @@
 import { sweepSellerPickupSync } from './sellerPickupSync.service.js';
+import { reconcileForwardTracking } from './courierTracking.service.js';
+import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
+
+// Shiprocket tracking reconciliation (missed webhooks) runs at most this often.
+const COURIER_TRACKING_INTERVAL_MS = 10 * 60 * 1000;
+let lastCourierTrackingSweep = 0;
+export const sweepCourierTrackingOnce = async () => {
+  if (Date.now() - lastCourierTrackingSweep < COURIER_TRACKING_INTERVAL_MS) return null;
+  lastCourierTrackingSweep = Date.now();
+  let environment;
+  try { environment = shiprocketEnvironment().mode; } catch { return null; } // Shiprocket not configured
+  if (environment === 'mock') return null;
+  const provider = await import('./shiprocket.service.js');
+  return reconcileForwardTracking({ provider, environment });
+};
 import { sweepParcelsOnce } from './parcelAssignment.service.js';
 import Order from '../models/Order.js';
 import { cancelOrderAndRestore } from '../controllers/order.controller.js';
@@ -73,6 +88,7 @@ export const startOrderSweeper = () => {
     sweepParcelsOnce().catch(() => console.warn('[PARCEL] Durable assignment sweep will retry.'));
     sweepEligibleSellerOrders().catch(() => console.warn('[NOTIFICATION] Eligible order reconciliation will retry.'));
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
+    sweepCourierTrackingOnce().catch((err) => console.warn('[COURIER TRACKING] reconciliation will retry:', err.message));
     sweepUnacceptedOrdersOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
     // Admin Push Notifications Broadcaster — scheduled sends. Same sibling-
     // job pattern as the two above: its own try/catch, so a broadcast bug

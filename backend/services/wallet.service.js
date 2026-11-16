@@ -8,6 +8,7 @@ import WalletLedger, {
 
 import { httpError } from "../utils/response.js";
 import { notifyUser, NOTIFICATION_EVENT } from "./notification.service.js";
+import { escapeRegex } from "../utils/regex.js";
 
 const generateTransactionId = () => {
   const prefix = "WAL";
@@ -51,12 +52,16 @@ export const getWalletBalance = async (userId) => {
 /**
  * Get paginated wallet transactions for a user
  */
-export const getWalletTransactions = async (userId, { page = 1, limit = 20, type, direction } = {}) => {
+export const getWalletTransactions = async (userId, { page: rawPage = 1, limit: rawLimit = 20, type, direction } = {}) => {
+  // Query-string values: NaN made skip() throw (500) and limit 0 returned the whole ledger.
+  const page = Number.isInteger(Number(rawPage)) && Number(rawPage) >= 1 ? Number(rawPage) : 1;
+  const limit = Math.min(100, Math.max(1, Number.isInteger(Number(rawLimit)) ? Number(rawLimit) : 20));
   const query = { userId };
-  if (type) query.type = type;
-  if (direction) query.direction = direction;
+  // Strings only, so a query like ?type[$ne]=x cannot become an operator.
+  if (typeof type === 'string' && type) query.type = type;
+  if (typeof direction === 'string' && direction) query.direction = direction;
 
-  const skip = (Math.max(1, page) - 1) * limit;
+  const skip = (page - 1) * limit;
 
   const [transactions, total] = await Promise.all([
     WalletLedger.find(query)
@@ -484,7 +489,7 @@ export const getAdminUserWallets = async ({ page = 1, limit = 20, search, minBal
   const query = {};
 
   if (search && search.trim()) {
-    const regex = new RegExp(search.trim(), "i");
+    const regex = new RegExp(escapeRegex(search.trim()), "i");
     query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
   }
 
@@ -542,7 +547,7 @@ export const getAdminWalletTransactions = async ({ page = 1, limit = 20, type, s
   }
 
   if (search && search.trim()) {
-    const regex = new RegExp(search.trim(), "i");
+    const regex = new RegExp(escapeRegex(search.trim()), "i");
     query.$or = [
       { transactionId: regex },
       { description: regex },

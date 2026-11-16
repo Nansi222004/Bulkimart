@@ -17,6 +17,7 @@ import BusinessSettingsScreen from '../screens/profile/BusinessSettingsScreen';
 import KycDetailsScreen from '../screens/profile/KycDetailsScreen';
 import PushManager from '../components/PushManager';
 import ProductFaqsScreen from '../screens/products/ProductFaqsScreen';
+import CampaignOffersScreen from '../screens/campaigns/CampaignOffersScreen';
 import WholesalePricingScreen from '../screens/products/WholesalePricingScreen';
 import StoreLocationScreen from '../screens/profile/StoreLocationScreen';
 import AdvertisingScreen from '../screens/advertising/AdvertisingScreen';
@@ -124,6 +125,7 @@ export default function RootNavigator() {
       <Stack.Screen name="BusinessSettings" component={BusinessSettingsScreen} options={{ title: 'Business settings' }} />
       <Stack.Screen name="KycDetails" component={KycDetailsScreen} options={{ title: 'KYC & payout details' }} />
       <Stack.Screen name="ProductFaqs" component={ProductFaqsScreen} options={{ title: 'Product questions' }} />
+      <Stack.Screen name="CampaignOffers" component={CampaignOffersScreen} options={{ title: 'Campaign offers' }} />
       <Stack.Screen name="WholesalePricing" component={WholesalePricingScreen} options={{ title: 'Wholesale prices' }} />
       <Stack.Screen name="StoreLocation" component={StoreLocationScreen} options={{ title: 'Store location' }} />
       <Stack.Screen name="Advertising" component={AdvertisingScreen} options={{ title: 'Advertising' }} />

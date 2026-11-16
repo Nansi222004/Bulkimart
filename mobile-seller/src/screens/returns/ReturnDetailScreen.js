@@ -93,6 +93,11 @@ export default function ReturnDetailScreen({ route, navigation }) {
 
       {showMethodChoice ? <ReturnPickupSection ret={ret} onChanged={() => load(true)} /> : null}
 
+      {ret.resolution === 'EXCHANGE' || ret.exchange ? <Card title="Exchange">
+        <KeyValueRow label="Customer wants" value={`${ret.exchange?.variantName || ret.productName} (same price, no payment)`} />
+        {ret.exchange?.replacementOrderNo ? <KeyValueRow label="Replacement order" value={ret.exchange.replacementOrderNo} /> : null}
+        {ret.exchange?.status === 'CONVERTED_TO_REFUND' ? <KeyValueRow label="Changed to refund" value={ret.exchange.convertedReason || 'The replacement could not be sent'} /> : null}
+      </Card> : null}
       <Card title="Customer's return reason">
         <KeyValueRow label="Reason" value={humanize(ret.reason) || '—'} />
         {ret.returnOptionSnapshot ? <KeyValueRow label="Bought with" value={ret.returnOptionSnapshot === 'EASY_RETURN' ? 'Easy Returns' : 'No Easy Returns (wrong/damaged/defective only)'} /> : null}

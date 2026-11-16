@@ -1,6 +1,7 @@
 import { itemGrossPaise } from '../services/productGst.service.js';
 import { sellerDashboardMetrics, SELLER_PENDING_STATUSES } from '../services/sellerDashboard.service.js';
 import { queueSellerPickupSync } from '../services/sellerPickupSync.service.js';
+import { stampDelivered, isShiprocketBooked } from '../services/courierTracking.service.js';
 import { parseGstChoice, createGstRequest } from '../services/gstAssistance.service.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
 import { storePickup, pickupLocationError, pickupCoordinates } from '../services/storePickup.service.js';
@@ -818,6 +819,11 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error(`Invalid status transition from ${currentStatus} to ${status}`);
   }
+  // A Shiprocket-booked shipment is delivered only on Shiprocket's confirmation (courierTracking.service.js),
+  // which marks the order Delivered automatically. Couriers outside Shiprocket keep the seller's manual step.
+  if (status === ORDER_STATUS.DELIVERED && isShiprocketBooked(order) && !order.shiprocket?.deliveredConfirmedAt) {
+    throw httpError(409, 'Shiprocket has not confirmed delivery yet. The order is marked delivered automatically as soon as it does.', { code: 'COURIER_DELIVERY_UNCONFIRMED' });
+  }
 
   /**
    * Declining is not just another status write.
@@ -929,20 +935,9 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
    * happens at most once per order.
    */
   if (status === ORDER_STATUS.DELIVERED && currentStatus !== ORDER_STATUS.DELIVERED) {
-    const deliveredAt = new Date();
-    order.deliveredAt = deliveredAt;
-    for (const item of order.items) {
-      const { returnEligible, returnWindowDays } = item.returnPolicy || {};
-      const eligibleUntil = returnEligible && Number.isFinite(returnWindowDays) && returnWindowDays > 0
-        ? new Date(deliveredAt.getTime() + returnWindowDays * 24 * 60 * 60 * 1000)
-        : null;
-      item.deliveredAt = deliveredAt;
-      item.returnEligibleUntil = eligibleUntil;
-      // NHCONE Coins (Phase 7) — see deliveryPartner.controller.js::verifyDeliveryOtp
-      // for the identical rider-carried case; this is the courier-carried one.
-      item.coinRewardStatus = 'PENDING';
-      item.coinRewardEligibleAt = eligibleUntil || deliveredAt;
-    }
+    // Return window and Coins eligibility — the same stamps Shiprocket's confirmed delivery applies
+    // (courierTracking.service.js::stampDelivered); see deliveryPartner.controller.js for the rider case.
+    stampDelivered(order, new Date());
   }
 
   await saveOrderState();

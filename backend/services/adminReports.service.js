@@ -100,8 +100,9 @@ const securedOrderStages = () => [
   { $match: { $or: [{ paymentMethod: 'cod' }, { '_pay.status': { $in: ['paid', 'partial_refund', 'refunded'] } }] } },
   { $unset: '_pay' },
 ];
+// Exchange replacements (₹0, Order.exchange set) are a fulfilment of an earlier sale, not a new order (audit P4).
 const placedOrders = (range, project) => Order.aggregate([
-  { $match: { createdAt: { $gte: range.from, $lt: range.to } } }, ...securedOrderStages(), { $project: project },
+  { $match: { createdAt: { $gte: range.from, $lt: range.to }, exchange: { $exists: false } } }, ...securedOrderStages(), { $project: project },
 ]).allowDiskUse(true);
 // Completed = status delivered; completion time = latest "delivered" timeline entry,
 // else the latest item deliveredAt, else updatedAt (Bug #194 fix: orders marked
@@ -115,6 +116,7 @@ const completedOrders = (range, project) => Order.aggregate([
   {
     $match: {
       status: 'delivered',
+      exchange: { $exists: false },
       $or: [
         { timeline: { $elemMatch: { status: 'delivered', timestamp: { $gte: range.from, $lt: range.to } } } },
         { 'items.deliveredAt': { $gte: range.from, $lt: range.to } },
@@ -382,8 +384,14 @@ export async function deliveryReport(params, { all = false } = {}) {
   for (const order of await Order.find({ paymentMethod: 'cod', 'codFinance.status': 'remittance_reported' }).select('codFinance.reportedPaise').lean()) addPaise(reported, order.codFinance.reportedPaise);
   const discrepancies = await Order.countDocuments({ paymentMethod: 'cod', 'codFinance.status': { $in: ['disputed', 'discrepancy'] } });
   const filter = params.status && params.status !== 'all' ? { status: params.status } : {};
-  let partners = await DeliveryPartner.find(filter).select('userId vehicleType status').populate('userId', 'name phone').lean();
-  if (params.search) { const rx = new RegExp(escapeRegex(params.search), 'i'), digits = params.search.replace(/\D/g, ''); partners = partners.filter(p => rx.test(p.userId?.name || '') || (digits.length >= 4 && String(p.userId?.phone || '').includes(digits))); }
+  // Search runs in the database (audit P1). Rows stay sorted in memory because the sort keys (delivered, success
+  // rate, cash) are period statistics computed above; the rider roster is small and the export needs every row.
+  if (params.search) {
+    const rx = new RegExp(escapeRegex(params.search), 'i'), digits = params.search.replace(/\D/g, '');
+    const users = await User.find({ $or: [{ name: rx }, ...(digits.length >= 4 ? [{ phone: { $regex: escapeRegex(digits) } }] : [])] }).select('_id').lean();
+    filter.userId = { $in: users.map(u => u._id) };
+  }
+  const partners = await DeliveryPartner.find(filter).select('userId vehicleType status').populate('userId', 'name phone').lean();
   const outstanding = await riderCodCashBalances((await DeliveryPartner.find({}).select('_id').lean()).map(p => p._id));
   const average = list => list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null;
   let list = partners.map(p => {

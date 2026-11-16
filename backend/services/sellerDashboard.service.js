@@ -15,7 +15,9 @@ export async function sellerDashboardMetrics(sellerId, channel, now = new Date()
     days.set(dayKey(new Date(now.getTime() - offset * 86400000)), { ecommerce: 0, grocery: 0 });
   }
   const cursor = Order.aggregate([
-    { $match: { 'items.sellerId': sellerId, type: { $in: ['ecommerce', 'grocery'] }, status: { $nin: ['cancelled', 'returned', 'refunded'] } } },
+    // Exchange replacements (₹0, no finance snapshot) are not new sales: counting them inflated orders and left
+    // revenue "pending" forever (audit P4). They still appear in the seller's pending work queue below.
+    { $match: { 'items.sellerId': sellerId, type: { $in: ['ecommerce', 'grocery'] }, status: { $nin: ['cancelled', 'returned', 'refunded'] }, exchange: { $exists: false } } },
     ...sellerHistoryPaymentStages(),
     { $project: { type: 1, status: 1, items: 1, pricing: 1, financialSnapshot: 1, financialPosting: 1, financialReturnQuantities: 1, timeline: 1, updatedAt: 1, createdAt: 1 } },
   ]).cursor({ batchSize: 250 });

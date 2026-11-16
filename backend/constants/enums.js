@@ -524,13 +524,31 @@ export const RETURN_STATUS = {
   REFUNDED:          'REFUNDED',
   REJECTED:          'REJECTED',
   CANCELLED:         'CANCELLED',
+  // Exchange resolved: the old item came back and a ₹0 replacement order was created. Final, like REFUNDED.
+  EXCHANGED:         'EXCHANGED',
 };
 export const RETURN_STATUSES = Object.values(RETURN_STATUS);
+
+/**
+ * What the customer wants back for a returned item. REFUND is every return before exchanges existed.
+ * EXCHANGE: the same product (same variant, or another variant at the same price) is sent after the old
+ * item is received and inspected; it falls back to a normal refund if the replacement cannot be sent.
+ */
+export const RETURN_RESOLUTION = { REFUND: 'REFUND', EXCHANGE: 'EXCHANGE' };
+export const RETURN_RESOLUTIONS = Object.values(RETURN_RESOLUTION);
+export const RETURN_EXCHANGE_STATUS = {
+  REQUESTED:            'REQUESTED',             // waiting for approval, pickup and inspection
+  REPLACEMENT_CREATED:  'REPLACEMENT_CREATED',   // replacement order placed with the seller
+  CONVERTED_TO_REFUND:  'CONVERTED_TO_REFUND',   // replacement impossible (stock) or cancelled: refund instead
+};
+export const RETURN_EXCHANGE_STATUSES = Object.values(RETURN_EXCHANGE_STATUS);
 
 // Statuses reachable ONLY through the dedicated refund service (Phase 6) —
 // never through the generic admin status-transition endpoint.
 export const RETURN_REFUND_MACHINERY_STATUSES = [
   RETURN_STATUS.REFUND_PENDING, RETURN_STATUS.REFUND_FAILED, RETURN_STATUS.REFUNDED,
+  // Set only by the exchange service (returnExchange.service.js), never by a generic status change.
+  RETURN_STATUS.EXCHANGED,
 ];
 
 // Tracks whether the ONE allowed inventory mutation for a RESTOCKABLE return

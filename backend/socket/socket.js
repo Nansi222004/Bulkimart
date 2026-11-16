@@ -28,6 +28,7 @@ import Seller from "../models/Seller.js";
 import DeliveryPartner from "../models/DeliveryPartner.js";
 import { VENDOR_STATUS } from "../constants/enums.js";
 import { verifySessionToken } from "../config/jwt.js";
+import { isSessionRevoked } from "../services/sessionRevocation.service.js";
 import { getAllowedOrigins } from "../config/cors.js";
 import { registerSupportChatHandlers } from "./supportChat.socket.js";
 
@@ -45,12 +46,14 @@ export const initSocket = (httpServer) => {
     pingTimeout: 60000,
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("Authentication required"));
 
     try {
       const payload = verifySessionToken(token);
+      // A signed-out session gets no socket either.
+      if (await isSessionRevoked(token)) return next(new Error("Session signed out"));
       socket.userId = payload.id;
       socket.userType = payload.type;
       // Signed entry-point claim (buyer | seller | delivery) — decides the live-chat role.

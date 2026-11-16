@@ -13,7 +13,7 @@ import Seller from '../models/Seller.js';
 import { checkCartSameDayEligibility } from '../services/sameDay.service.js';
 import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
-import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
+import { resolveCampaignPricesForProducts, campaignUnitPrice } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { inventoryIdentityKey, resolveInventoryItem, isUnlimitedDigital } from '../services/inventory.service.js';
 import { calculateCodFee, resolveCodChargeSetting } from '../services/codCharge.service.js';
@@ -113,7 +113,7 @@ export const loadReconciledCart = async (userId, channel, { persist = true } = {
 
   const items = keep.map(({ line, product, inventory }) => {
     const deal = campaignPrices.get(String(product._id));
-    const basePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
+    const basePrice = deal ? campaignUnitPrice(inventory.price, deal.discountValue) : inventory.price;
     // The Easy Returns charge is part of the unit price, so tax, totals and payment all include it.
     const effectivePrice = priceWithReturnOption(basePrice, product, line.returnOption);
     return {

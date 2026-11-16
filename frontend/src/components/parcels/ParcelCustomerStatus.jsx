@@ -1,5 +1,19 @@
 import React from 'react';
 import {parcelMoney} from './parcelApi';
+
+// "We're arranging your pickup": how long it has waited and when it is cancelled automatically if still unassigned.
+export function adminQueueText(b) {
+  const q = b.adminQueue;
+  if (!q?.cancelAt) return 'Our team is helping find an available delivery partner. You don’t need to book again.';
+  const at = new Date(q.cancelAt), now = new Date();
+  const waited = Math.max(1, Math.round((now.getTime() - new Date(q.since).getTime()) / 60000));
+  // The sweep runs shortly after the deadline; until then don't quote a time that has already passed.
+  if (at <= now) return `Still looking for a delivery partner (waiting ${waited} min). No partner was assigned in time, so this booking is being cancelled and any payment refunded to your Bulkimart wallet.`;
+  // The wait can be up to 24 hours, so name the day when it isn't today.
+  const sameDay = at.toDateString() === now.toDateString();
+  const when = at.toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', ...(sameDay ? {} : { day: 'numeric', month: 'short' }) });
+  return `Still looking for a delivery partner (waiting ${waited} min). If none is assigned by ${when}, we’ll cancel this booking and refund any payment to your Bulkimart wallet. You can add to the fare to reach more partners, or cancel any time.`;
+}
 export const parcelCustomerStatus = status => ({
   payment_pending:'Complete your payment',payment_failed:'Payment needs attention',
   searching_for_driver:'Finding your delivery partner',needs_admin_assignment:'We’re arranging your pickup',
@@ -26,7 +40,7 @@ export default function ParcelCustomerStatus({booking:b,justBooked}) {
       <div className="parcel-status-symbol" aria-hidden="true">{unpaid?'₹':b.status==='delivered'?'✓':searching?'⌕':'▣'}</div>
       <h2>{searching?'Searching for drivers nearby…':parcelCustomerStatus(b.status)}</h2>
       {searching&&<div className="parcel-search-progress" role="progressbar" aria-label="Finding a delivery partner"><span/><span/><span/></div>}
-      <p>{unpaid?'Finish payment securely with Razorpay to confirm your booking.':b.status==='cancellation_review'?'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.':b.status==='searching_for_driver'?'Your request is with nearby delivery partners. We’ll update you when someone accepts.':b.status==='needs_admin_assignment'?'Our team is helping find an available delivery partner. You don’t need to book again.':b.status==='delivered'?'Your parcel has reached its destination.':'Follow your pickup and delivery updates here.'}</p>
+      <p>{unpaid?'Finish payment securely with Razorpay to confirm your booking.':b.status==='cancellation_review'?'Your cancellation request is awaiting admin approval. Any eligible payment refund is processed after approval.':b.status==='searching_for_driver'?'Your request is with nearby delivery partners. We’ll update you when someone accepts.':b.status==='needs_admin_assignment'?adminQueueText(b):b.status==='delivered'?'Your parcel has reached its destination.':'Follow your pickup and delivery updates here.'}</p>
       {justBooked&&!unpaid&&<p role="status" className="parcel-notice">Booking received. {b.paymentMethod==='online'?'Payment successful.':'Your pickup request is confirmed.'}</p>}
       <div className="parcel-payment-receipt"><strong>{parcelMoney(b.feePaise)}</strong><span>{b.paymentStatus==='paid'?'Paid online':b.paymentMethod==='pay_driver'?`Cash at ${b.cashCollectionPoint==='pickup'?'pickup':'delivery'}`:'Online payment'}{b.boost?.boostedPaise>0?` · includes ${parcelMoney(b.boost.boostedPaise)} you added`:''}</span></div>
       {b.pickupCode&&<p className="parcel-notice">Pickup code: <strong>{b.pickupCode}</strong>. Share only when your partner arrives.</p>}

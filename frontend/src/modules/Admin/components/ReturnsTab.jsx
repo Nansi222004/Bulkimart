@@ -9,11 +9,11 @@ import { adminGet, adminPatch, adminPost } from '../../../utils/adminApi';
 const STATUS_LABEL = {
   RETURN_REQUESTED: 'Requested', UNDER_REVIEW: 'Under Review', APPROVED: 'Approved',
   AWAITING_RETURN: 'Awaiting Return', RETURN_RECEIVED: 'Received', REFUND_PENDING: 'Refund Pending',
-  REFUND_FAILED: 'Refund Failed', REFUNDED: 'Refunded', REJECTED: 'Rejected', CANCELLED: 'Cancelled',
+  REFUND_FAILED: 'Refund Failed', REFUNDED: 'Refunded', REJECTED: 'Rejected', CANCELLED: 'Cancelled', EXCHANGED: 'Exchanged',
 };
 const STATUS_BADGE = {
   RETURN_REQUESTED: 'pending', UNDER_REVIEW: 'pending', APPROVED: 'approved', AWAITING_RETURN: 'approved',
-  RETURN_RECEIVED: 'approved', REFUND_PENDING: 'approved', REFUND_FAILED: 'rejected', REFUNDED: 'approved', REJECTED: 'rejected', CANCELLED: 'rejected',
+  RETURN_RECEIVED: 'approved', REFUND_PENDING: 'approved', REFUND_FAILED: 'rejected', REFUNDED: 'approved', REJECTED: 'rejected', CANCELLED: 'rejected', EXCHANGED: 'approved',
 };
 
 export const ReturnsTab = () => {
@@ -82,6 +82,24 @@ export const ReturnsTab = () => {
       load();
     } catch (err) {
       triggerToast(err.message || 'Could not process this refund', {type:'error'});
+      openDetail(id);
+      load();
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // Exchange: place (or retry) the free replacement order. The server turns the exchange into a refund
+  // when the replacement can't be sent (out of stock, product withdrawn).
+  const sendReplacement = async (id) => {
+    setProcessing(true);
+    try {
+      const res = await adminPost(`/returns/${id}/exchange/replacement`, {});
+      triggerToast(res.message || 'Replacement order placed');
+      setDetail(res.data);
+      load();
+    } catch (err) {
+      triggerToast(err.message || 'Could not send the replacement', {type:'error'});
       openDetail(id);
       load();
     } finally {
@@ -168,6 +186,14 @@ export const ReturnsTab = () => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
               <p style={{ margin: 0 }}><b>Status:</b> <span className={`sa-status-pill ${STATUS_BADGE[detail.status]}`}>{STATUS_LABEL[detail.status] || detail.status}</span></p>
+              {(detail.resolution === 'EXCHANGE' || detail.exchange) && (
+                <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: 10 }}>
+                  <p style={{ margin: 0 }}><b>{detail.resolution === 'EXCHANGE' ? 'Exchange' : 'Exchange (changed to refund)'}:</b> {detail.exchange?.variantName || detail.productName}, same price, no payment</p>
+                  {detail.exchange?.replacementOrderNo && <p style={{ margin: '4px 0 0' }}><b>Replacement order:</b> {detail.exchange.replacementOrderNo}</p>}
+                  {detail.exchange?.status === 'CONVERTED_TO_REFUND' && <p style={{ margin: '4px 0 0', color: '#92400e' }}><b>Why a refund:</b> {detail.exchange.convertedReason}</p>}
+                  {detail.resolution === 'EXCHANGE' && !detail.exchange?.replacementOrderId && <p style={{ margin: '4px 0 0', color: '#475569' }}>After you mark the item received, the replacement order is placed automatically.</p>}
+                </div>
+              )}
               <p style={{ margin: 0 }}>
                 <b>Customer:</b> {detail.customerId?.name || '—'}
                 {detail.customerId?.phone ? ` · ${detail.customerId.phone}` : ''}
@@ -220,7 +246,7 @@ export const ReturnsTab = () => {
                 </div>
               )}
 
-              {detail.refundEstimate && (
+              {detail.refundEstimate && detail.resolution !== 'EXCHANGE' && (
                 <div style={{ background: '#f8fafc', border: '1px solid var(--sa-border)', borderRadius: 10, padding: 10 }}>
                   <p style={{ margin: 0, fontWeight: 800 }}>
                     {['REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED'].includes(detail.status) ? 'Refund breakdown' : 'Estimated refund'}: ₹{detail.refundEstimate.refundAmount}
@@ -285,7 +311,12 @@ export const ReturnsTab = () => {
                   </button>
                 </div>
               )}
-              {detail.status === 'RETURN_RECEIVED' && (
+              {detail.status === 'RETURN_RECEIVED' && detail.resolution === 'EXCHANGE' && (
+                <button className="sa-btn-primary" disabled={processing} onClick={() => sendReplacement(detail._id)}>
+                  {processing ? 'Sending…' : 'Send Replacement'}
+                </button>
+              )}
+              {detail.status === 'RETURN_RECEIVED' && detail.resolution !== 'EXCHANGE' && (
                 <button className="sa-btn-primary" disabled={processing} onClick={() => processRefund(detail._id)}>
                   {processing ? 'Processing…' : 'Process Refund'}
                 </button>

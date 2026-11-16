@@ -58,12 +58,20 @@ export function addOrderCollection(metric, payment, orders, returns, seenCapture
           const expected = moneyPaise(order.pricing?.totalAmount);
           const remit = cash.events?.find(row => row.action === 'remit');
           const verified = cash.events?.filter(row => row.action === 'verify').at(-1);
-          if (!expected || order.financialSnapshot?.version !== 2 || order.financialSnapshot.expectedPaise !== expected || cash.verifiedPaise !== codCashDuePaise(expected)
-            || !remit?.actorId || !verified?.actorId || id(remit.actorId) === id(verified.actorId) || verified.amountPaise !== codCashDuePaise(expected)|| !verified.reference) throw Error('Unverified cash');
+          // Rider cash: a reported handover verified by a different admin at the rupee-rounded due.
+          const riderVerified = cash.source !== 'courier_remittance' && cash.verifiedPaise === codCashDuePaise(expected)
+            && remit?.actorId && verified?.actorId && id(remit.actorId) !== id(verified.actorId) && verified.amountPaise === codCashDuePaise(expected) && verified.reference;
+          // Courier cash (audit H1): recorded provider remittances, each referenced and attributed, summing to the exact amount.
+          const courierLines = (cash.events || []).filter(row => row.action === 'courier_remittance');
+          const courierVerified = cash.source === 'courier_remittance' && cash.verifiedPaise === expected && courierLines.length > 0
+            && courierLines.every(row => row.reference && row.actorId) && courierLines.reduce((total, row) => sum(total, row.amountPaise), 0) === expected;
+          if (!expected || order.financialSnapshot?.version !== 2 || order.financialSnapshot.expectedPaise !== expected || !(riderVerified || courierVerified)) throw Error('Unverified cash');
           let refunds = 0;
           for (const ret of returns.filter(row => id(row.orderId) === id(order._id) && row.status === 'REFUNDED')) {
             const amount = moneyPaise(ret.refundAmount);
-            if (amount && (!ret.codSettledBy || !ret.codSettledAt || ret.refundReference !== 'MANUAL-COD' || ret.codSettlementNote?.length < 5)) throw Error('Unverified COD refund');
+            // COD refunds now credit the Bulkimart wallet with a ledger reference; legacy offline cash refunds need their evidence.
+            const walletRefund = ret.refundDestination === 'wallet' && ret.refundReference;
+            if (amount && !walletRefund && (!ret.codSettledBy || !ret.codSettledAt || ret.refundReference !== 'MANUAL-COD' || ret.codSettlementNote?.length < 5)) throw Error('Unverified COD refund');
             refunds = sum(refunds, amount);
           }
           if (refunds > expected) throw Error('Excess refund');
@@ -152,7 +160,7 @@ export function addPostedRevenue(metric, entry) {
 }
 
 const orderProjection = { _id:1, userId:1, groupRef:1, paymentMethod:1, paymentId:1, status:1, 'pricing.totalAmount':1,
-  'codFinance.status':1,'codFinance.verifiedPaise':1,'codFinance.events.action':1,'codFinance.events.actorId':1,'codFinance.events.amountPaise':1,'codFinance.events.reference':1,
+  'codFinance.status':1,'codFinance.source':1,'codFinance.verifiedPaise':1,'codFinance.events.action':1,'codFinance.events.actorId':1,'codFinance.events.amountPaise':1,'codFinance.events.reference':1,
   'financialSnapshot.version':1,'financialSnapshot.expectedPaise':1,financialPosting:1,'items._id':1 };
 const otherPurposes = ['isWalletTopup','advertising','parcelDeliveryId','serviceApplicationId','quickFeeSnapshotId','subscriptionId','shgSubscriptionId','premiumMembershipId','sellerPromotionId','packagingOrderId'];
 
@@ -165,7 +173,9 @@ export async function getAdminFinancialMetrics() {
       commission.breakdown = { orderCommissionPaise: 0, parcelRevenuePaise: 0, advertisingRevenuePaise: 0 };
       const seenCaptures = new Set(), seenRefunds = new Set();
       // Project only finance fields; no names, contacts, destinations or provider calls.
-      for await (const order of Order.aggregate([{$project:orderProjection},{$lookup:{from:Payment.collection.name,localField:'paymentId',foreignField:'_id',pipeline:[{$project:Object.fromEntries(['_id','userId','orderId','groupRef','method',...otherPurposes].map(key=>[key,1]))}],as:'paymentEvidence'}},
+      // Exchange replacements move no money and carry no commission (the original order does), so they are
+      // neither order value nor a missing-commission issue.
+      for await (const order of Order.aggregate([{$match:{exchange:{$exists:false}}},{$project:orderProjection},{$lookup:{from:Payment.collection.name,localField:'paymentId',foreignField:'_id',pipeline:[{$project:Object.fromEntries(['_id','userId','orderId','groupRef','method',...otherPurposes].map(key=>[key,1]))}],as:'paymentEvidence'}},
         {$lookup:{from:Ledger.collection.name,localField:'_id',foreignField:'orderId',pipeline:[{$match:{'metadata.source':'historical-reviewed-v1',account:'merchandise_gross',direction:'credit'}},{$project:{'metadata.itemId':1}}],as:'historicalEvidence'}}]).session(session).cursor()) {
         addCompletedOrder(orderValue,order);
         const historicalCovered = order.items?.length > 0 && order.items.every(item => order.historicalEvidence.some(entry => entry.metadata?.itemId === id(item._id)));
@@ -182,7 +192,7 @@ export async function getAdminFinancialMetrics() {
       for (const key of otherPurposes.filter(key=>key!=='isWalletTopup')) purposeMatch[key] = {$exists:false};
       const pipeline = [{$match:purposeMatch}, {$project:{_id:1,userId:1,orderId:1,groupRef:1,amount:1,method:1,status:1,captures:1,refundObligations:1,refund:1}},
         {$lookup:{from:Order.collection.name,let:{payment:'$_id'},pipeline:[{$match:{$expr:{$eq:['$paymentId','$$payment']}}},{$project:orderProjection}],as:'orders'}},
-        {$lookup:{from:Return.collection.name,localField:'orders._id',foreignField:'orderId',pipeline:[{$project:{_id:1,orderId:1,status:1,refundAmount:1,refundReference:1,codSettledBy:1,codSettledAt:1,codSettlementNote:1}}],as:'returns'}}];
+        {$lookup:{from:Return.collection.name,localField:'orders._id',foreignField:'orderId',pipeline:[{$project:{_id:1,orderId:1,status:1,refundAmount:1,refundReference:1,refundDestination:1,codSettledBy:1,codSettledAt:1,codSettlementNote:1}}],as:'returns'}}];
       for await (const payment of Payment.aggregate(pipeline).session(session).cursor()) addOrderCollection(collections,payment,payment.orders,payment.returns,seenCaptures,seenRefunds);
       for await (const entry of Ledger.find({account:{$in:['commission_revenue','parcel_revenue','advertising_revenue']}}).select('account amount currency direction type metadata serviceApplicationId parcelDeliveryId advertisingCampaignId paymentId').session(session).lean().cursor()) addPostedRevenue(commission, entry);
       result = {version:1,currency:'INR',unit:'paise',scope:'all-time',timezone:'Asia/Kolkata',asOf:new Date().toISOString(),

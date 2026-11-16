@@ -46,6 +46,7 @@ import StorefrontStudio from '../components/StorefrontStudio';
 import CampaignsTab from '../components/CampaignsTab';
 import AdvertisingWorkspace from '../../../components/advertising/AdvertisingWorkspace';
 import ReturnsTab from '../components/ReturnsTab';
+import ShipmentExceptionsTab from '../components/ShipmentExceptionsTab';
 import ReturnPolicySettingsTab from '../components/ReturnPolicySettingsTab';
 import RadiusSettingsTab from '../components/RadiusSettingsTab';
 import NotificationBroadcasterTab from '../components/NotificationBroadcasterTab';
@@ -55,6 +56,7 @@ import AdminLoginPage from '../pages/AdminLoginPage';
 import WholesaleManagementTab from '../components/WholesaleManagementTab';
 import FinanceCenter from '../components/FinanceCenter';
 import HelplineSettingsTab from '../components/HelplineSettingsTab';
+import { revokeServerSession } from '../../../utils/serverLogout';
 
 import '../SuperAdmin.css';
 import '../Admin.css'; // Toast alert styles
@@ -107,6 +109,7 @@ const AdminRoutesContent = ({ onLogout }) => {
       case 'storefront-studio':  return <StorefrontStudio />;
       case 'campaigns':          return <CampaignsTab />;
       case 'returns':            return <ReturnsTab />;
+      case 'shipment-exceptions': return <ShipmentExceptionsTab />;
       case 'return-policies':    return <ReturnPolicySettingsTab />;
       case 'radius-settings':    return <RadiusSettingsTab />;
       case 'helpline-settings':  return <HelplineSettingsTab />;
@@ -184,6 +187,8 @@ export const AdminRoutes = () => {
   const logout = async () => {
     const pushCleanup = deregisterPushToken('admin').catch(() => {});
     disconnectSocket();
+    // Revoke this admin session on the server before the token is cleared locally.
+    void revokeServerSession(localStorage.getItem('adminToken'));
     clearPortalRequests('admin'); localStorage.removeItem('adminToken'); localStorage.removeItem('adminUser'); setToken(null);
     await pushCleanup;
   };

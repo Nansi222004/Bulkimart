@@ -2,6 +2,8 @@ import ParcelPolicy from '../models/ParcelPolicy.js';
 import { httpError } from '../utils/response.js';
 import { MAX_CHECKOUT_PAISE } from '../utils/money.js';
 export const RIDER_VEHICLE_TYPES = ['bicycle', 'bike', 'auto', 'car'];
+// Bookings frozen before the admin-queue deadline existed use this (30 minutes).
+export const PARCEL_ADMIN_QUEUE_DEFAULT_SECONDS = 1800;
 // Pictures customers see for a vehicle (the admin picks one).
 export const PARCEL_VEHICLE_ICONS = ['bike', 'scooter', 'auto', 'car', 'van', 'truck'];
 export const failParcel = (message, status = 400) => { throw httpError(status, message); };
@@ -114,6 +116,11 @@ export function validateParcelPolicy(input) {
   // Customer cancellation: instant while no rider has accepted (default), or always admin-reviewed.
   if (![undefined, 'instant_before_assignment', 'admin_review'].includes(input.customerCancel)) failParcel('Unsupported customer cancellation setting');
   c.customerCancel = input.customerCancel || 'instant_before_assignment';
+  // How long a booking may wait in the admin queue ("We're arranging your pickup") before it is cancelled
+  // automatically and any payment refunded to the customer's wallet. 0 turns auto-cancel off.
+  c.adminQueueSeconds = input.adminQueueSeconds === undefined || input.adminQueueSeconds === null || input.adminQueueSeconds === ''
+    ? PARCEL_ADMIN_QUEUE_DEFAULT_SECONDS : integer(input.adminQueueSeconds, 'adminQueueSeconds', 0, 86400);
+  if (c.adminQueueSeconds > 0 && c.adminQueueSeconds < 300) failParcel('Auto-cancel waiting time must be at least 5 minutes, or 0 to turn it off');
   // Supported initial policy combinations are intentionally explicit.
   if (input.taxTreatment !== 'inclusive' || !['none', 'weight', undefined].includes(input.surcharges) || input.cancellationMode !== 'admin_review' || input.failureMode !== 'admin_review' || !['pickup','delivery','customer_choice'].includes(input.cashCollectionPoint) || input.partialCash !== false || typeof input.payDriverEnabled !== 'boolean') failParcel('Unsupported policy: require inclusive approved taxes, no surcharges, admin review, an approved cash collection point and exact cash');
   Object.assign(c, { taxTreatment: 'inclusive', surcharges: c.weightTiers.length ? 'weight' : 'none', cancellationMode: 'admin_review', failureMode: 'admin_review', cashCollectionPoint: input.cashCollectionPoint, partialCash: false, payDriverEnabled: input.payDriverEnabled });

@@ -7,6 +7,7 @@ export const MENU_SECTIONS = [
       { title: 'Track orders', route: 'TrackOrders', icon: 'truck', hint: 'Partners, couriers and status trails' },
       { title: 'Returns', route: 'Returns', icon: 'returns', hint: 'Review returns and arrange pickups' },
       { title: 'Product questions', route: 'ProductFaqs', icon: 'help', hint: 'Answer customer questions' },
+      { title: 'Campaign offers', route: 'CampaignOffers', icon: 'percent', hint: 'Accept or decline sale campaigns' },
       { title: 'Advertising', route: 'Advertising', icon: 'megaphone', hint: 'Sponsored-category campaigns' },
     ],
   },

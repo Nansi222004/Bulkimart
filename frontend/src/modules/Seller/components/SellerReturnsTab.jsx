@@ -35,6 +35,7 @@ const STATUS_LABEL = {
   REFUNDED: 'Refunded',
   REJECTED: 'Rejected',
   CANCELLED: 'Cancelled',
+  EXCHANGED: 'Exchanged',
 };
 
 // Each KPI card counts, and filters to, the same group of statuses.
@@ -56,6 +57,11 @@ const formatDate = value => value ? new Date(value).toLocaleString('en-IN', { da
 
 /** What happens next for this return, from the seller's point of view. */
 const nextStep = r => {
+  // Exchange: the same steps as a return, but a free replacement order is sent instead of a refund.
+  if (r.resolution === 'EXCHANGE') {
+    if (r.status === 'EXCHANGED') return `Send replacement order ${r.exchange?.replacementOrderNo || ''} from Orders like a normal order. There is no payment to collect.`;
+    if (r.status === 'RETURN_RECEIVED' || r.pickup?.status === 'DELIVERED_TO_SELLER') return 'You confirmed receipt. After Bulkimart inspects the item, a free replacement order appears in your Orders to send.';
+  }
   switch (r.status) {
     case 'RETURN_REQUESTED':
     case 'UNDER_REVIEW': return 'Review the reason and photos, then approve or reject this return.';
@@ -87,7 +93,13 @@ const STATUS_COLOR = {
   REFUNDED: { bg: '#dcfce7', fg: '#166534', label: 'Refunded ✓' },
   REJECTED: { bg: '#fee2e2', fg: '#991b1b', label: 'Rejected' },
   CANCELLED: { bg: '#f1f5f9', fg: '#64748b', label: 'Cancelled' },
+  EXCHANGED: { bg: '#dcfce7', fg: '#166534', label: 'Exchanged ✓' },
 };
+
+/** "Exchange → Medium" for exchange requests; nothing for refunds. */
+const ExchangeBadge = ({ ret }) => ret?.resolution === 'EXCHANGE'
+  ? <span style={{ fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 20, background: '#e0f2fe', color: '#075985' }}>Exchange → {ret.exchange?.variantName || 'same item'}</span>
+  : null;
 
 export const SellerReturnsTab = ({ onDetailChange } = {}) => {
   const { selectedTypes, activeMode, setActiveMode } = useSeller();
@@ -577,6 +589,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
                       {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}
                       {r.returnOptionSnapshot && <> · <EasyReturnBadge option={r.returnOptionSnapshot} /></>}
+                      {r.resolution === 'EXCHANGE' && <> · <ExchangeBadge ret={r} /></>}
                     </div>
                     {r.customerDescription && (
                       <div className="seller-return-description" style={{ fontSize: 12, color: '#334155', marginTop: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, overflowWrap: 'anywhere', border: '1px solid #e2e8f0' }}>
@@ -668,6 +681,13 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
       </section>
       {pickupPanel(r)}
       <div className="seller-order-detail-sections seller-return-sections">
+      {r.resolution === 'EXCHANGE' && (
+        <Section title="Exchange">
+          <Row label="Customer wants">{r.exchange?.variantName || r.productName} (same price, no payment)</Row>
+          <Row label="What you do">{r.exchange?.replacementOrderNo ? `Send replacement order ${r.exchange.replacementOrderNo} like a normal order. There is no payment to collect.` : 'After the item is back and inspected, a free replacement order appears in your Orders to send.'}</Row>
+          {r.exchange?.status === 'CONVERTED_TO_REFUND' && <Row label="Changed to refund">{r.exchange.convertedReason || 'The replacement could not be sent'}</Row>}
+        </Section>
+      )}
       <Section title="Customer's return reason">
         <Row label="Reason">{r.reason?.replace(/_/g, ' ')}</Row>
         <Row label="Description">{r.customerDescription || 'No description provided'}</Row>

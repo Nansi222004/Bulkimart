@@ -4,6 +4,7 @@ import { asyncHandler } from './error.middleware.js';
 import { verifySessionToken } from '../config/jwt.js';
 import { authFailure } from '../utils/authFailure.js';
 import { normalizeMediaInput } from '../services/mediaUrl.service.js';
+import { isSessionRevoked } from '../services/sessionRevocation.service.js';
 
 export const protect = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization;
@@ -33,6 +34,11 @@ export const protect = asyncHandler(async (req, res, next) => {
   // interpretation; /auth/me resolves their role from live membership records.
   if ((decoded.type !== undefined && !['admin', 'user'].includes(decoded.type)) || (decoded.role !== undefined && !['buyer', 'seller', 'delivery'].includes(decoded.role))) {
     throw authFailure(req, 'AUTH_CLAIMS_UNSUPPORTED', 'Not authorized — unsupported session');
+  }
+
+  // Server-side logout: a signed-out token is refused even though its signature and expiry are still valid.
+  if (await isSessionRevoked(token)) {
+    throw authFailure(req, 'AUTH_SESSION_REVOKED', 'Not authorized — this session was signed out. Please sign in again.');
   }
 
   if (decoded.type === 'admin') {

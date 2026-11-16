@@ -206,6 +206,8 @@ const sellerSchema = new Schema(
       registeredAt: Date,
       lastError: String,
       verificationMode: String,
+      // When this address started waiting for Shiprocket phone verification (bounds the hourly re-checks).
+      verificationWaitSince: Date,
       history: [{ locationName: String, providerId: String, fingerprint: String, createStartedAt: Date, changedAt: Date }],
     },
 

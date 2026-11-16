@@ -7,6 +7,7 @@ import { ok, created, paginated, getPagination, httpError } from '../utils/respo
 import { evaluateCoupon, applyCouponCode, buildEvaluationContext } from '../services/coupon.service.js';
 import { priceOrder } from '../services/pricing.service.js';
 import { CHANNEL, CHANNELS } from '../constants/enums.js';
+import { escapeRegex } from "../utils/regex.js";
 
 /* ==========================================================================
    SHOPPER SIDE
@@ -213,8 +214,8 @@ export const listCoupons = asyncHandler(async (req, res) => {
   const filter = {};
   if (channel && channel !== 'all') filter.channel = { $in: [channel, 'all'] };
   if (search) filter.$or = [
-    { code: new RegExp(search, 'i') },
-    { title: new RegExp(search, 'i') },
+    { code: new RegExp(escapeRegex(search), 'i') },
+    { title: new RegExp(escapeRegex(search), 'i') },
   ];
   if (status === 'active') Object.assign(filter, { isActive: true, $or: [{ expiresAt: { $gte: now } }, { expiresAt: null }] });
   if (status === 'expired') Object.assign(filter, { expiresAt: { $lt: now } });

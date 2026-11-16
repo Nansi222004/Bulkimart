@@ -48,6 +48,7 @@ const resolveSearchTab = (query) => {
   if (/coupon|promo|campaign/.test(q)) return 'campaigns';
   if (/helpline|sos|emergency/.test(q)) return 'helpline-settings';
   if (/notification|broadcast/.test(q)) return 'notifications';
+  if (/rto|shipment exception|lost parcel|damaged parcel/.test(q)) return 'shipment-exceptions';
   if (/return|refund/.test(q)) return 'returns';
   if (/review|rating/.test(q)) return 'user-reviews';
   return null;

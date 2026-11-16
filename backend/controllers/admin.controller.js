@@ -3,7 +3,6 @@ import { itemGrossPaise } from '../services/productGst.service.js';
 import { moneyPaise as dashboardMoneyPaise } from '../utils/financeMoney.js';
 import { resolveVerifiedRiderPayout, riderFinancialSummary } from '../services/deliveryPayout.service.js';
 import { requireFinanceOperation } from '../services/financeSafety.service.js';
-import { sellerBalances } from '../services/sellerLedger.service.js';
 import User from '../models/User.js';
 import { saveWholesaleTransition } from '../services/wholesaleLifecycle.service.js';
 import { notifySeller } from '../services/notification.service.js';
@@ -44,6 +43,12 @@ import { TICKET_STATUS, TICKET_MAX_ATTACHMENTS, LEGACY_TICKET_STATUS_MAP } from 
 import { getEligibleWholesaleCatalog } from '../services/wholesaleCatalog.service.js';
 import { assertEbookReadyForApproval } from '../services/digitalProduct.service.js';
 import { openStoredEbook } from '../services/ebookStorage.service.js';
+import { escapeRegex } from "../utils/regex.js";
+import { describeCurrentCommissionRules } from '../services/vendorCommission.service.js';
+import Return from '../models/Return.js';
+import SellerLedgerEntry, { SELLER_COURIER_OBLIGATION_TYPES } from '../models/SellerLedgerEntry.js';
+import { sellerHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
+import { ORDER_STATUS } from '../constants/enums.js';
 
 /* ============================================================================
  * SELLER (GENERAL VENDOR) MANAGEMENT — BRD §6 Seller Management
@@ -60,7 +65,7 @@ export const listSellers = asyncHandler(async (req, res) => {
   if (status && status !== 'all') filter.status = status;
 
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     filter.$or = [{ businessName: rx }, { 'storeDetails.name': rx }, { 'storeDetails.city': rx }];
   }
 
@@ -187,7 +192,11 @@ export const getSellerDetail = asyncHandler(async (req, res) => {
 
     // --- business metrics ------------------------------------------------
     metrics: {
-      commissionRate: seller.commissionRate,
+      // Commission is charged from the admin commission rules frozen into each order (audit F3); the legacy
+      // Seller.commissionRate field (schema default 10) is never used in any calculation, so it is not shown as the rate.
+      commissionRules: (await describeCurrentCommissionRules()).current
+        .filter((rule) => rule.isActive && rule.vendorType === 'general' && !rule.categoryId && !rule.productId)
+        .map((rule) => ({ channel: rule.channel, method: rule.method, value: rule.value, taxTreatment: rule.taxTreatment, taxRate: rule.taxRate })),
       rating: seller.rating,
       totalOrders: orderMetrics?.totalOrders || 0,
       totalRevenue: (orderMetrics?.revenuePaise || 0) / 100,
@@ -236,8 +245,18 @@ export const setSellerThirdPartyFulfillment = asyncHandler(async (req, res) => {
   const seller = await Seller.findById(req.params.id);
   if (!seller) throw httpError(404, 'Seller not found');
   const enabled = req.body?.enabled === true;
-  const pickupLocation = String(req.body?.shiprocketPickupLocation || '').trim();
-  if (enabled && !pickupLocation) throw httpError(400, 'A registered Shiprocket pickup location is required');
+  // The store address is registered in Shiprocket automatically (sellerPickupSync). Its location name is the
+  // default here, and a different typed name is refused: a typo would silently block every courier booking.
+  const synced = seller.pickupSync?.status === 'registered' ? seller.pickupSync.locationName : null;
+  const typed = String(req.body?.shiprocketPickupLocation || '').trim();
+  if (synced && typed && typed !== synced) throw httpError(409, `This store's address is registered in Shiprocket as "${synced}". Leave the pickup name empty or use that name.`);
+  const pickupLocation = typed || synced || seller.thirdPartyFulfillment?.shiprocketPickupLocation || '';
+  if (enabled) {
+    // Shiprocket delivery is an explicit admin step, separate from seller approval, and only for an approved seller
+    // whose pickup is registered and verified (active, phone-verified) in Shiprocket by the pickup sync.
+    if (seller.status !== VENDOR_STATUS.APPROVED) throw httpError(409, 'Approve the seller before enabling Shiprocket delivery.');
+    if (!synced) throw httpError(409, "The store's pickup address is not registered and verified in Shiprocket yet. Check the seller's pickup status (it may be waiting for phone verification in Shiprocket), then try again.", { code: 'PICKUP_NOT_VERIFIED' });
+  }
   seller.thirdPartyFulfillment = { enabled, shiprocketPickupLocation: pickupLocation || undefined };
   await seller.save();
   return ok(res, { sellerId: seller._id, thirdPartyFulfillment: seller.thirdPartyFulfillment }, enabled ? 'Third-party fulfillment enabled' : 'Third-party fulfillment disabled');
@@ -440,7 +459,7 @@ export const listProducts = asyncHandler(async (req, res) => {
   if (status && status !== 'all') filter.status = status;
   if (type) filter.type = type;
   if (sellerId) filter.sellerId = sellerId;
-  if (search) filter.name = new RegExp(search, 'i');
+  if (search) filter.name = new RegExp(escapeRegex(search), 'i');
 
   const [products, total] = await Promise.all([
     Product.find(filter)
@@ -601,7 +620,7 @@ export const listUsers = asyncHandler(async (req, res) => {
 
   const filter = {};
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     filter.$or = [{ phone: rx }, { name: rx }, { email: rx }];
   }
   if (role) {
@@ -797,7 +816,7 @@ export const listDeliveryPartners = asyncHandler(async (req, res) => {
   if (state) filter['baseLocation.state'] = state;
   if (city) filter['baseLocation.city'] = city;
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     filter.$or = [{ vehicleNo: rx }, { 'drivingLicense.no': rx }, { zones: rx }];
   }
 
@@ -1773,7 +1792,7 @@ export const getCustomerReviews = asyncHandler(async (req, res) => {
     pipeline.push({ $match: { status } });
   }
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     pipeline.push({ $match: { $or: [{ productName: rx }, { userName: rx }, { comment: rx }] } });
   }
 
@@ -1977,7 +1996,7 @@ export const getTickets = asyncHandler(async (req, res) => {
   if (category && category !== 'all') filter.category = category;
   if (requesterRole && requesterRole !== 'all') filter.requesterRole = requesterRole;
   if (search) {
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     filter.$or = [{ subject: rx }, { userName: rx }, { userEmail: rx }, { ticketNumber: rx }];
   }
 
@@ -2749,7 +2768,7 @@ export const listRiderPayouts = asyncHandler(async (req, res) => {
   const filter = { status: VENDOR_STATUS.APPROVED };
   if (search) {
     // A rider's name lives on their linked User doc, not on DeliveryPartner.
-    const rx = new RegExp(search, 'i');
+    const rx = new RegExp(escapeRegex(search), 'i');
     const matchingUserIds = await User.find({ name: rx }).distinct('_id');
     filter.userId = { $in: matchingUserIds };
   }
@@ -2865,7 +2884,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
   if (sellerId) filter['items.sellerId'] = sellerId;
 
   if (search && search.trim()) {
-    const rx = new RegExp(search.trim(), 'i');
+    const rx = new RegExp(escapeRegex(search.trim()), 'i');
     const searchConditions = [
       { orderNo: rx },
       { 'shippingAddress.name': rx },
@@ -2909,7 +2928,7 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
       customerPhone: o.shippingAddress?.phone || o.userId?.phone || '—',
       city: o.shippingAddress?.city || '—',
       itemCount: (o.items || []).reduce((sum, i) => sum + (i.qty || 1), 0),
-      totalAmount: o.pricing?.totalAmount || o.pricing?.subtotal || 0,
+      totalAmount: o.pricing?.totalAmount ?? o.pricing?.subtotal ?? 0,
       paymentMethod: o.paymentMethod || 'Online',
       paymentStatus: o.paymentId?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
       paymentRefund: o.paymentId?.refund,
@@ -2937,149 +2956,89 @@ export const getVendorOrdersAdmin = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/vendor-sales?search=
 // @access  Private/Admin
 export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
-  const { search, status } = req.query;
-
-  const sellers = await Seller.find({})
-    .populate('userId', 'name phone email')
-    .lean();
-
-  const sellerMap = new Map();
-  sellers.forEach((s) => {
-    sellerMap.set(String(s._id), s);
-  });
-
-  const filterStatus = status && status !== 'all' ? status : null;
-  const orderFilter = filterStatus ? { status: filterStatus } : {};
-  const orders = await Order.find(orderFilter).sort({ createdAt: -1 }).lean();
-
-  // Map each order to seller sales entries
-  const orderRows = [];
-  const sellersWithOrders = new Set();
-
-  orders.forEach((o) => {
-    // Group items by seller in this order
-    const sellerItems = new Map();
-    (o.items || []).forEach((item) => {
-      const sId = String(item.sellerId?._id || item.sellerId || '');
-      if (sId) {
-        if (!sellerItems.has(sId)) sellerItems.set(sId, []);
-        sellerItems.get(sId).push(item);
-      }
-    });
-
-    sellerItems.forEach((items, sId) => {
-      const s = sellerMap.get(sId);
-      if (!s) return;
-      sellersWithOrders.add(sId);
-
-      const grossSales = items.reduce((sum, item) => sum + (itemGrossPaise(item) / 100), 0);
-
-      // Extract commission from financialSnapshot if present, otherwise from seller commissionRate (or default 10%)
-      const sLines = (o.financialSnapshot?.lines || []).filter(l => String(l.sellerId) === sId);
-      let commAmount = 0;
-      let commRate = typeof s.commissionRate === 'number' && s.commissionRate >= 0 ? s.commissionRate : 10;
-
-      if (sLines.length > 0 && sLines.every(l => Number.isInteger(l.commissionPaise))) {
-        commAmount = sLines.reduce((tot, l) => tot + l.commissionPaise, 0) / 100;
-        if (grossSales > 0) {
-          commRate = Number(((commAmount / grossSales) * 100).toFixed(1));
-        }
-      } else {
-        commAmount = Number((grossSales * (commRate / 100)).toFixed(2));
-      }
-
-      const netShare = Number(Math.max(0, grossSales - commAmount).toFixed(2));
-
-      orderRows.push({
-        _id: `${o._id}_${sId}`,
-        sellerId: s._id,
-        orderId: o.orderNo || String(o._id),
-        orderDbId: String(o._id),
-        businessName: s.businessName || 'General Seller',
-        storeName: s.storeDetails?.name || s.businessName || 'Store',
-        city: s.storeDetails?.city || '—',
-        sellerName: s.userId?.name || s.businessName || 'Seller',
-        sellerPhone: s.userId?.phone || s.phone || '—',
-        subTotal: Number(grossSales.toFixed(2)),
-        totalAmount: Number(grossSales.toFixed(2)),
-        grossSales: Number(grossSales.toFixed(2)),
-        adminCommissionPercent: commRate,
-        adminCommissionAmount: Number(commAmount.toFixed(2)),
-        vendorEarnings: netShare,
-        netEarnings: netShare,
-        paymentMethod: (o.payment?.method || o.paymentMethod || 'Online').toUpperCase(),
-        status: o.status || 'placed',
-        createdAt: o.createdAt || new Date(),
-      });
-    });
-  });
-
-  // For sellers who do not have any orders yet, include a placeholder row so they remain visible in vendor sales
-  sellers.forEach((s) => {
-    const sId = String(s._id);
-    if (!sellersWithOrders.has(sId)) {
-      orderRows.push({
-        _id: s._id,
-        sellerId: s._id,
-        orderId: '—',
-        orderDbId: '',
-        businessName: s.businessName || 'General Seller',
-        storeName: s.storeDetails?.name || s.businessName || 'Store',
-        city: s.storeDetails?.city || '—',
-        sellerName: s.userId?.name || s.businessName || 'Seller',
-        sellerPhone: s.userId?.phone || s.phone || '—',
-        subTotal: 0,
-        totalAmount: 0,
-        grossSales: 0,
-        adminCommissionPercent: typeof s.commissionRate === 'number' ? s.commissionRate : 10,
-        adminCommissionAmount: 0,
-        vendorEarnings: 0,
-        netEarnings: 0,
-        paymentMethod: '—',
-        status: 'No orders yet',
-        createdAt: s.createdAt || new Date(),
-      });
-    }
-  });
-
-  let rows = orderRows;
-
-  // Search by orderId, orderDbId, businessName, storeName, sellerPhone, sellerName
-  if (search && search.trim()) {
-    const q = search.trim().toLowerCase();
-    rows = rows.filter((r) =>
-      (r.orderId && r.orderId.toLowerCase().includes(q)) ||
-      (r.orderDbId && r.orderDbId.toLowerCase().includes(q)) ||
-      (r.businessName && r.businessName.toLowerCase().includes(q)) ||
-      (r.storeName && r.storeName.toLowerCase().includes(q)) ||
-      (r.sellerPhone && r.sellerPhone.toLowerCase().includes(q)) ||
-      (r.sellerName && r.sellerName.toLowerCase().includes(q))
-    );
+  // Canonical vendor sales (audit M1/F2/F3): paid (or COD) non-cancelled orders, exchange replacements excluded, paginated
+  // in the database. Commission, commission GST, TCS/TDS and seller net come only from each order's frozen finance
+  // snapshot (never a default rate); the seller's actual earning comes from the posted ledger when it exists.
+  const { page, limit, skip } = getPagination(req.query, 15, 100);
+  const status = typeof req.query.status === 'string' && req.query.status && req.query.status !== 'all' ? req.query.status : null;
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+  const match = { exchange: { $exists: false }, 'items.sellerId': { $exists: true }, status: status || { $ne: ORDER_STATUS.CANCELLED } };
+  if (search) {
+    const rx = new RegExp(escapeRegex(search), 'i');
+    const sellerIds = (await Seller.find({ $or: [{ businessName: rx }, { 'storeDetails.name': rx }] }).select('_id').limit(500).lean()).map((s) => s._id);
+    match.$or = [{ orderNo: rx }, { 'items.sellerId': { $in: sellerIds } }];
   }
+  const base = [{ $match: match }, ...sellerHistoryPaymentStages()];
+  const [orders, [counts], [snapshotTotals], [grossTotals]] = await Promise.all([
+    Order.aggregate([...base, { $sort: { createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit },
+      { $project: { orderNo: 1, status: 1, paymentMethod: 1, createdAt: 1, financialPosting: 1, 'items.sellerId': 1, 'items.price': 1, 'items.qty': 1, 'items.productTax': 1, 'financialSnapshot.state': 1, 'financialSnapshot.lines': 1 } }]),
+    Order.aggregate([...base, { $group: { _id: null, orders: { $sum: 1 }, delivered: { $sum: { $cond: [{ $eq: ['$status', ORDER_STATUS.DELIVERED] }, 1, 0] } }, unconfigured: { $sum: { $cond: [{ $eq: ['$financialSnapshot.state', 'configured'] }, 0, 1] } } } }]),
+    Order.aggregate([...base, { $match: { 'financialSnapshot.state': 'configured' } }, { $unwind: '$financialSnapshot.lines' },
+      { $group: { _id: null, commission: { $sum: { $add: [{ $ifNull: ['$financialSnapshot.lines.commissionPaise', 0] }, { $ifNull: ['$financialSnapshot.lines.taxPaise', 0] }] } },
+        tcs: { $sum: { $ifNull: ['$financialSnapshot.lines.tcsPaise', 0] } }, tds: { $sum: { $ifNull: ['$financialSnapshot.lines.tdsPaise', 0] } }, net: { $sum: { $ifNull: ['$financialSnapshot.lines.netPaise', 0] } } } }]),
+    Order.aggregate([...base, { $unwind: '$items' }, { $group: { _id: null, gross: { $sum: itemGrossExpression('$items') } } }]),
+  ]);
 
-  const totalGrossSales = rows.reduce((sum, r) => sum + (r.grossSales || 0), 0);
-  const totalCommission = rows.reduce((sum, r) => sum + (r.adminCommissionAmount || 0), 0);
-  const realOrders = rows.filter(r => r.orderId && r.orderId !== '—');
+  const orderIds = orders.map((o) => o._id);
+  const [refundRows, ledgerRows] = await Promise.all([
+    Return.aggregate([{ $match: { orderId: { $in: orderIds }, status: 'REFUNDED' } }, { $group: { _id: { orderId: '$orderId', sellerId: '$sellerId' }, amount: { $sum: '$refundAmount' } } }]),
+    SellerLedgerEntry.aggregate([{ $match: { orderId: { $in: orderIds }, account: 'seller_payable', type: { $in: ['order_earning', 'reversal'] } } },
+      { $group: { _id: { orderId: '$orderId', sellerId: '$sellerId' }, paise: { $sum: { $multiply: [{ $round: [{ $multiply: ['$amount', 100] }, 0] }, { $cond: [{ $eq: ['$direction', 'credit'] }, 1, -1] }] } } } }]),
+  ]);
+  const key = (orderId, sellerId) => `${orderId}:${sellerId}`;
+  const refunds = new Map(refundRows.map((r) => [key(r._id.orderId, r._id.sellerId), Math.round((r.amount || 0) * 100)]));
+  const ledger = new Map(ledgerRows.map((r) => [key(r._id.orderId, r._id.sellerId), r.paise]));
+  const sellerIds = [...new Set(orders.flatMap((o) => o.items.map((i) => String(i.sellerId || ''))).filter(Boolean))];
+  const sellers = new Map((await Seller.find({ _id: { $in: sellerIds } }).select('businessName storeDetails.name storeDetails.city phone userId').populate('userId', 'name phone').lean()).map((s) => [String(s._id), s]));
+  const rupees = (paise) => (paise == null ? null : Math.round(paise) / 100);
 
-  // Pagination support
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.max(1, parseInt(req.query.limit) || 15);
-  const total = rows.length;
-  const paginatedRows = rows.slice((page - 1) * limit, page * limit);
-
-  return ok(res, paginatedRows, {
-    summary: {
-      totalGrossSales: Number(totalGrossSales.toFixed(2)),
-      totalCommission: Number(totalCommission.toFixed(2)),
-      totalOrders: realOrders.length,
-      deliveredOrders: realOrders.filter(r => r.status === 'delivered').length,
-    },
-    meta: {
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit) || 1,
+  const rows = [];
+  for (const o of orders) {
+    const bySeller = new Map();
+    for (const item of o.items) if (item.sellerId) bySeller.set(String(item.sellerId), [...(bySeller.get(String(item.sellerId)) || []), item]);
+    for (const [sellerId, items] of bySeller) {
+      const s = sellers.get(sellerId);
+      const grossPaise = items.reduce((sum, item) => sum + itemGrossPaise(item), 0);
+      const lines = (o.financialSnapshot?.lines || []).filter((l) => String(l.sellerId) === sellerId);
+      const configured = o.financialSnapshot?.state === 'configured' && lines.length > 0;
+      const sumOf = (field) => lines.reduce((sum, l) => sum + (l[field] || 0), 0);
+      const commissionPaise = configured ? sumOf('commissionPaise') + sumOf('taxPaise') : null;
+      const eligiblePaise = configured ? sumOf('eligiblePaise') : null;
+      const ledgerPaise = ledger.get(key(o._id, sellerId));
+      const earningBasis = ledgerPaise != null ? 'ledger' : configured ? 'snapshot' : 'not_configured';
+      rows.push({
+        _id: `${o._id}_${sellerId}`, id: `${o._id}_${sellerId}`, sellerId, orderId: o.orderNo || String(o._id), orderDbId: String(o._id),
+        businessName: s?.businessName || 'Seller', storeName: s?.storeDetails?.name || s?.businessName || 'Store', city: s?.storeDetails?.city || '—',
+        sellerName: s?.userId?.name || s?.businessName || 'Seller', sellerPhone: s?.userId?.phone || s?.phone || '—',
+        paymentMethod: String(o.paymentMethod || '').toUpperCase(), status: o.status, createdAt: o.createdAt,
+        // Gross merchandise value of this seller's lines (GST-inclusive, before platform-funded coupons).
+        subTotal: rupees(grossPaise), totalAmount: rupees(grossPaise), grossSales: rupees(grossPaise),
+        // Commission + GST on commission, from the order's frozen snapshot; null when no rule was configured at checkout.
+        adminCommissionAmount: rupees(commissionPaise),
+        adminCommissionPercent: configured && eligiblePaise > 0 ? Math.round((sumOf('commissionPaise') / eligiblePaise) * 1000) / 10 : null,
+        tcsAmount: rupees(configured ? sumOf('tcsPaise') : null), tdsAmount: rupees(configured ? sumOf('tdsPaise') : null),
+        refundedAmount: rupees(refunds.get(key(o._id, sellerId)) || 0),
+        // Seller earning: the posted ledger (net of return reversals) when posted, else the frozen snapshot's expected net.
+        vendorEarnings: rupees(ledgerPaise != null ? ledgerPaise : configured ? sumOf('netPaise') : null),
+        netEarnings: rupees(ledgerPaise != null ? ledgerPaise : configured ? sumOf('netPaise') : null),
+        earningBasis, commissionStatus: configured ? 'configured' : 'not_configured', financialPosting: o.financialPosting || null,
+      });
     }
+  }
+  const total = counts?.orders || 0;
+  return ok(res, rows, 'Vendor sales', {
+    summary: {
+      totalGrossSales: rupees(grossTotals?.gross || 0), grossSalesVolume: rupees(grossTotals?.gross || 0),
+      totalCommission: rupees(snapshotTotals?.commission || 0), totalTcs: rupees(snapshotTotals?.tcs || 0), totalTds: rupees(snapshotTotals?.tds || 0),
+      expectedSellerNet: rupees(snapshotTotals?.net || 0),
+      totalOrders: total, deliveredOrders: counts?.delivered || 0, ordersWithoutCommissionRule: counts?.unconfigured || 0,
+      definitions: {
+        grossSales: 'GST-inclusive item value before platform-funded coupons, non-cancelled paid or COD orders, exchange replacements excluded',
+        commission: 'Commission plus GST on commission, from each order’s frozen finance snapshot',
+        sellerEarning: 'Posted seller ledger net of return reversals (basis "ledger"), otherwise the snapshot’s expected net (basis "snapshot")',
+      },
+    },
+    page, limit, total, pages: Math.ceil(total / limit) || 1,
   });
 });
 
@@ -3087,15 +3046,60 @@ export const getVendorSalesAdmin = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/vendor-earnings?search=
 // @access  Private/Admin
 export const getVendorEarningsAdmin = asyncHandler(async (req, res) => {
-  const sellers = await Seller.find({ status: 'approved' }).select('businessName storeDetails.name').lean();
-  let rows = await Promise.all(sellers.map(async seller => {
-    const balances = await sellerBalances(seller._id);
-    return { sellerId: seller._id, businessName: seller.businessName, storeName: seller.storeDetails?.name || seller.businessName,
-      balances, netPayable: balances.eligible, status: balances.eligible > 0 ? 'Eligible' : 'Held or no verified earnings' };
-  }));
-  const search = String(req.query.search || '').toLowerCase();
-  if (search) rows = rows.filter(row => (row.businessName + ' ' + row.storeName).toLowerCase().includes(search));
-  return ok(res, { rows, coverage: { historicalOrdersIncluded: false, source: 'seller_ledger_entries' },
-    summary: { vendorCount: rows.length, totalNetPayable: rows.reduce((n, row) => n + row.netPayable, 0) } });
+  // Per-seller earnings from the posted ledger only (audit F5/P1): one batched aggregation for the page instead of a
+  // balance query per seller, database pagination, and the fields the Vendor Earnings tab renders.
+  const { page, limit, skip } = getPagination(req.query, 15, 100);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+  const filter = { status: 'approved' };
+  if (search) { const rx = new RegExp(escapeRegex(search), 'i'); filter.$or = [{ businessName: rx }, { 'storeDetails.name': rx }]; }
+  const allIds = (await Seller.find(filter).select('_id').sort({ businessName: 1, _id: 1 }).lean()).map((s) => s._id);
+  const pageIds = allIds.slice(skip, skip + limit);
+  const paise = { $round: [{ $multiply: ['$amount', 100] }, 0] };
+  const signed = { $cond: [{ $eq: ['$direction', 'credit'] }, paise, { $multiply: [paise, -1] }] };
+  const isPayable = { $and: [{ $in: [{ $ifNull: ['$account', 'seller_payable'] }, ['seller_payable']] }, { $not: [{ $in: ['$type', SELLER_COURIER_OBLIGATION_TYPES] }] }] };
+  const when = (cond) => ({ $sum: { $cond: [cond, signed, 0] } });
+  const payableIn = (bucket) => when({ $and: [isPayable, { $eq: ['$bucket', bucket] }] });
+  const groupStage = (by) => ({ $group: {
+    _id: by,
+    pending: payableIn('pending'), held: payableIn('held'), eligible: payableIn('eligible'), reserved: payableIn('reserved'), settled: payableIn('settled'),
+    gross: when({ $eq: ['$account', 'merchandise_gross'] }),
+    commission: when({ $in: ['$account', ['commission_revenue', 'tax_liability']] }),
+    orders: { $addToSet: { $cond: [{ $eq: ['$type', 'order_earning'] }, '$orderId', '$$REMOVE'] } },
+  } });
+  const [perSeller, [totals], sellers] = await Promise.all([
+    SellerLedgerEntry.aggregate([{ $match: { sellerId: { $in: pageIds } } }, groupStage('$sellerId')]),
+    SellerLedgerEntry.aggregate([{ $match: { sellerId: { $in: allIds } } }, groupStage(null)]),
+    Seller.find({ _id: { $in: pageIds } }).select('businessName storeDetails.name phone bankDetails.bankName bankDetails.accountNo bankDetails.ifsc userId').populate('userId', 'name phone').lean(),
+  ]);
+  const bySeller = new Map(perSeller.map((row) => [String(row._id), row]));
+  const sellerById = new Map(sellers.map((s) => [String(s._id), s]));
+  const rupees = (value) => Math.round(value || 0) / 100;
+  const unsettled = (row) => (row?.pending || 0) + (row?.held || 0) + (row?.eligible || 0) + (row?.reserved || 0);
+  const rows = pageIds.map((sid) => {
+    const s = sellerById.get(String(sid)) || {};
+    const l = bySeller.get(String(sid));
+    const balances = Object.fromEntries(['pending', 'held', 'eligible', 'reserved', 'settled'].map((b) => [b, rupees(l?.[b])]));
+    const account = s.bankDetails?.accountNo ? String(s.bankDetails.accountNo) : '';
+    return {
+      sellerId: sid, businessName: s.businessName, storeName: s.storeDetails?.name || s.businessName,
+      ownerName: s.userId?.name || '', phone: s.userId?.phone || s.phone || '',
+      // Masked: the earnings list never needs the full account number.
+      bankAccount: account ? { bankName: s.bankDetails?.bankName, accountNumber: `XXXX${account.slice(-4)}`, ifsc: s.bankDetails?.ifsc } : null,
+      deliveredOrders: l?.orders?.length || 0,
+      grossSales: rupees(l?.gross), totalCommission: rupees(l?.commission),
+      totalSettled: balances.settled, unsettledBalance: rupees(unsettled(l)),
+      balances, netPayable: balances.eligible, status: balances.eligible > 0 ? 'Eligible' : 'Held or no verified earnings',
+    };
+  });
+  const total = allIds.length;
+  const summary = {
+      vendorCount: total, grossSalesVolume: rupees(totals?.gross), platformCommission: rupees(totals?.commission),
+      totalVendorPayable: rupees((totals?.eligible || 0)), totalNetPayable: rupees(totals?.eligible), totalUnsettledBalance: rupees(unsettled(totals)),
+      totalSettled: rupees(totals?.settled),
+      definitions: { grossSales: 'Posted merchandise gross net of return reversals', platformCommission: 'Posted commission plus GST on commission, net of reversals', totalVendorPayable: 'Eligible (withdrawable) seller balance' },
+  };
+  // `summary` stays in data too for existing readers; the tab reads meta.summary with the page meta.
+  return ok(res, { rows, coverage: { historicalOrdersIncluded: false, source: 'seller_ledger_entries' }, summary }, 'Vendor earnings',
+    { summary, page, limit, total, pages: Math.ceil(total / limit) || 1 });
 });
 

@@ -483,8 +483,10 @@ const ProfilePage = () => {
       id: 'legal-services', label: 'My Legal Service Requests',
       icon: <span aria-hidden="true">▤</span>, badge: null,
       action: () => {
+        // Open the requests list itself. setActiveNav would rewrite the address to /legal-services (the
+        // services list), so switch tabs through the same popstate path the browser's own navigation uses.
         window.history.pushState({ nav: 'legal-services', fromNav: 'account' }, '', '/legal-services/requests');
-        setActiveNav('legal-services', { fromNav: 'account' });
+        window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
       }
     },
     {

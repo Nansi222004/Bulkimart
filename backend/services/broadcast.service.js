@@ -6,6 +6,7 @@ import Seller from '../models/Seller.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import { httpError } from '../utils/response.js';
 import { notifyUser, notifySeller, notifyRider, NOTIFICATION_EVENT } from './notification.service.js';
+import { escapeRegex } from "../utils/regex.js";
 
 /**
  * Admin Push Notifications Broadcaster — the send-side engine. Reuses the
@@ -285,7 +286,7 @@ export const listBroadcasts = async ({ page = 1, limit = 20, status, audience, c
   if (status) filter.status = status;
   if (audience) filter.targetAudience = audience;
   if (channel) filter.channels = channel;
-  if (search) filter.title = new RegExp(search, 'i');
+  if (search) filter.title = new RegExp(escapeRegex(search), 'i');
 
   const skip = (page - 1) * limit;
   const [rows, total] = await Promise.all([

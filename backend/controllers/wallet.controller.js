@@ -25,29 +25,6 @@ import { PAYMENT_STATUS } from "../constants/enums.js";
 // CUSTOMER WALLET ENDPOINTS & TOP-UP
 // ============================================================================
 
-// @desc    Direct quick credit for testing/dev mode
-// @route   POST /api/wallet/dev-topup
-// @access  Private (Customer)
-export const devQuickTopup = asyncHandler(async (req, res) => {
-  const { amount } = req.body;
-  const numAmount = Number(amount);
-  if (!Number.isFinite(numAmount) || numAmount < 1) {
-    throw httpError(400, "Amount must be a positive number");
-  }
-
-  const result = await creditWallet({
-    userId: req.user._id,
-    amount: numAmount,
-    type: "WALLET_TOPUP",
-    referenceType: "TOPUP",
-    referenceId: `DEV-${Date.now()}`,
-    description: `Dev Mode Instant Wallet Top-up (₹${numAmount})`,
-    idempotencyKey: `DEV_TOPUP:${req.user._id}:${Date.now()}`,
-  });
-
-  return ok(res, result, `₹${numAmount} credited to your wallet instantly`);
-});
-
 // Settle Topup payment (called from webhook, return redirect or status polling)
 export const settleWalletTopupPayment = async ({
   payment,

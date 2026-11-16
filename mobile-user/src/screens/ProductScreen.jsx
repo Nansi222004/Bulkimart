@@ -170,6 +170,16 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
     } catch { setReviews([]); setRatingSummary({ average: 0, count: 0, breakdown: [] }); } finally { setReviewsLoading(false); }
   }, [product.id, wholesaleDetail]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadReviews(); }, [loadReviews]);
+  // Reviews are for verified purchases: ask the server whether to show the review box (null while unknown).
+  const [reviewEligibility, setReviewEligibility] = useState(null);
+  const loadReviewEligibility = useCallback(async () => {
+    if (!currentUser || wholesaleDetail) { setReviewEligibility(null); return; }
+    try {
+      const { ok, body } = await request(`/api/products/${product.id}/reviews/eligibility`);
+      setReviewEligibility(ok ? body.data : null);
+    } catch { setReviewEligibility(null); }
+  }, [product.id, currentUser, wholesaleDetail]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadReviewEligibility(); }, [loadReviewEligibility]);
   const submitReview = async () => {
     if (!myRating || submittingReview) return;
     setSubmittingReview(true); setReviewError('');
@@ -177,7 +187,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
       if (!currentUser) throw new Error('Please sign in to review this product.');
       const { ok, body } = await request(`/api/products/${product.id}/reviews`, { method: 'POST', body: { rating: myRating, comment: myComment.trim() } });
       if (!ok) throw new Error(body.message || 'Could not submit your review');
-      setMyRating(0); setMyComment(''); loadReviews();
+      setMyRating(0); setMyComment(''); loadReviews(); loadReviewEligibility();
     } catch (err) { setReviewError(err.message); } finally { setSubmittingReview(false); }
   };
 
@@ -464,7 +474,15 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
           </View>
           <View style={{ flex: 1 }}>{ratingSummary.breakdown.map(rd => <RatingBar key={rd.star} label={String(rd.star)} pct={rd.percent} count={rd.count} color={primary} />)}</View>
         </View>
-        {retailAvailable && !wholesaleDetail && <>
+        {retailAvailable && !wholesaleDetail && !reviewEligibility?.canReview && (
+          <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginBottom: 8 }}>
+            {!currentUser ? 'Sign in and buy this product to review it.'
+              : reviewEligibility?.reason === 'REVIEW_ALREADY_SUBMITTED' ? 'Thanks — you have already reviewed this product.'
+                : reviewEligibility?.reason === 'REVIEW_OWN_PRODUCT' ? 'You cannot review a product from your own store.'
+                  : 'Only customers who received this product can review it.'}
+          </Text>
+        )}
+        {retailAvailable && !wholesaleDetail && reviewEligibility?.canReview && <>
           <Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center', marginBottom: 8 }}>{myRating ? 'Your rating — add a comment below' : 'Tap to rate this product'}</Text>
           <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
             {[1, 2, 3, 4, 5].map(i => <Pressable key={i} onPress={() => setMyRating(i)} accessibilityRole="button" accessibilityLabel={`Rate ${i} star${i === 1 ? '' : 's'}`}><Svg width={32} height={32} viewBox="0 0 24 24"><Polygon points={STAR} fill={i <= myRating ? '#f59e0b' : '#e2e8f0'} /></Svg></Pressable>)}

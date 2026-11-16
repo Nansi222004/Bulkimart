@@ -19,7 +19,7 @@ temp_interactive_push.bat
 # Local browser QA output (screenshots/profiles); never commit.
 /test-artifacts/
 
-# Test directories (backend/__tests__ is tracked: it is the backend API test suite)
+# Test directories: kept on the developer machine only, never pushed to GitHub or the server.
 test/
 tests/
 
@@ -62,3 +62,16 @@ signing.properties
 # Play Store upload keys backup (never commit)
 playstore-keys/
 PASSWORDS-README.txt
+
+# Automated tests (local only; the app and server never use them)
+**/__tests__/
+/backend/verification/
+/frontend/verification/
+*.test.js
+*.test.mjs
+*.test.jsx
+*.spec.js
+
+# Notes, audits and reports (.md) stay local; they can describe internals and should not be published.
+*.md
+!**/node_modules/**/*.md

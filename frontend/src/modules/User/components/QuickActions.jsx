@@ -68,6 +68,12 @@ const QuickActions = () => {
             <path d="m3 7 9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7" /><path d="M12 11v10" /><path d="m7.5 5 9 4" />
           </svg>
         );
+      case 'briefcase':
+        return (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="7" width="20" height="14" rx="2.2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+          </svg>
+        );
       case 'ticket':
         return (
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -92,6 +98,10 @@ const QuickActions = () => {
       }, 50);
     } else if (actionId === 'wholesale') {
       setActiveNav('wholesale');
+    } else if (actionId === 'services') {
+      // Open the Services tab with the Legal Services toggle already selected.
+      window.history.pushState({ nav: 'services' }, '', '/services?tab=legal');
+      setActiveNav('services');
     }
   };
 

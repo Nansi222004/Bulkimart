@@ -13,6 +13,7 @@ import { getPaymentGateway } from '../config/runtime.js';
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { httpError, ok } from '../utils/response.js';
+import { assertShiprocketCodAllowed } from '../services/courierTracking.service.js';
 
 const eligible = async (req) => {
   const context = await sellerAndOrder(req);
@@ -28,6 +29,8 @@ const checkout = (payment) => ({ keyId: process.env.RAZORPAY_KEY_ID, razorpayOrd
 
 export const initiateQuickShiprocketFee = asyncHandler(async (req, res) => {
   const { seller, order } = await eligible(req);
+  // The fee only pays for a Shiprocket booking, which COD orders cannot have yet (audit H1).
+  assertShiprocketCodAllowed(order);
   const state = await getQuickCommerceConfig();
   if (!state.config.enabled || !state.activationReady || getPaymentGateway() !== 'razorpay') throw httpError(409, 'Seller charging is disabled. Platform approval and complete configuration are required.');
   validateServiceFeeConfiguration(state.config);

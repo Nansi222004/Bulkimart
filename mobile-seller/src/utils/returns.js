@@ -3,7 +3,7 @@
 export const RETURN_STATUS_LABEL = {
   RETURN_REQUESTED: 'Requested', UNDER_REVIEW: 'Under Review', APPROVED: 'Approved', AWAITING_RETURN: 'Awaiting Return',
   RETURN_RECEIVED: 'Received', REFUND_PENDING: 'Refund Pending', REFUND_FAILED: 'Refund Failed', REFUNDED: 'Refunded',
-  REJECTED: 'Rejected', CANCELLED: 'Cancelled',
+  REJECTED: 'Rejected', CANCELLED: 'Cancelled', EXCHANGED: 'Exchanged',
 };
 
 export const PICKUP_LABEL = {
@@ -15,7 +15,11 @@ export const RETURN_COLORS = {
   RETURN_REQUESTED: ['#fef3c7', '#92400e'], UNDER_REVIEW: ['#fef3c7', '#92400e'], APPROVED: ['#dbeafe', '#1e40af'],
   AWAITING_RETURN: ['#dbeafe', '#1e40af'], RETURN_RECEIVED: ['#e0e7ff', '#3730a3'], REFUND_PENDING: ['#ede9fe', '#6d28d9'],
   REFUND_FAILED: ['#fee2e2', '#b91c1c'], REFUNDED: ['#dcfce7', '#166534'], REJECTED: ['#fee2e2', '#b91c1c'], CANCELLED: ['#f1f5f9', '#475569'],
+  EXCHANGED: ['#dcfce7', '#166534'],
 };
+
+/** "Exchange → Medium" for exchange requests, '' for refunds. */
+export const exchangeLabel = (r) => (r?.resolution === 'EXCHANGE' ? `Exchange → ${r.exchange?.variantName || 'same item'}` : '');
 
 export const KPI_GROUPS = {
   requested: ['RETURN_REQUESTED', 'UNDER_REVIEW'],
@@ -32,6 +36,11 @@ export const canCancelManualRequest = (r) => r?.pickupMethod === 'MANUAL' && r?.
 export const canCancelCourier = (r) => r?.pickupMethod === 'SHIPROCKET' && r?.reverseBooking?.state === 'booked' && (r?.reverseBooking?.trackingRank || 0) < 2;
 
 export function nextStep(r) {
+  // Exchange: the same steps as a return, but a free replacement order is sent instead of a refund.
+  if (r.resolution === 'EXCHANGE') {
+    if (r.status === 'EXCHANGED') return `Send replacement order ${r.exchange?.replacementOrderNo || ''} from Orders like a normal order. There is no payment to collect.`;
+    if (r.status === 'RETURN_RECEIVED' || r.pickup?.status === 'DELIVERED_TO_SELLER') return 'You confirmed receipt. After Bulkimart inspects the item, a free replacement order appears in your Orders to send.';
+  }
   switch (r.status) {
     case 'RETURN_REQUESTED':
     case 'UNDER_REVIEW': return 'Review the reason and photos, then approve or reject this return.';

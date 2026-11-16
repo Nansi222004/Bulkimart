@@ -2,7 +2,7 @@
 // Web paths → params: /parcel-delivery[/book] → view=book · /history → view=history · /track/:id → view=track&id=.
 // Tracking and history stay live: parcel notifications, a 10 s poll, app foreground and socket reconnect.
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Modal, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Modal, Pressable, RefreshControl, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Headset, Package, Share2 } from 'lucide-react-native';
@@ -21,6 +21,7 @@ import { parcelBookingEnabled, parcelBookingReady } from '../components/services
 import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard } from '../components/parcels/ParcelUI';
 import { bookAgainDraft, parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from '../components/parcels/parcelLogic';
 import { session } from '../lib/storage';
+import { runRefresh, useRefreshHandler } from '../lib/refresh';
 
 export const PARCEL_CANCEL_REASONS = ['Driver was not allocated', 'Changed my mind', 'My reason is not listed'];
 
@@ -28,7 +29,9 @@ const ID = /^[a-f\d]{24}$/i;
 const INTRO = 'Your parcel, collected and delivered by a Bulkimart delivery partner.';
 
 // Opens as its own page like Legal Services: a theme-coloured title bar with Back, no storefront header/search.
-function Shell({ children }) {
+// `refreshable`: only pages that register their own reload (Track, History) get pull-to-refresh. Elsewhere a pull
+// would run the screen underneath's handler, and reloading the booking page would discard the form.
+function Shell({ children, refreshable = false }) {
   const theme = useAppTheme();
   const router = useRouter();
   const { setActiveNav } = useUser();
@@ -36,13 +39,17 @@ function Shell({ children }) {
   const { view } = useLocalSearchParams();
   const title = view === 'history' ? 'Delivery History' : view === 'track' ? 'Track Parcel' : 'Send a Parcel';
   const back = () => (router.canGoBack() ? router.back() : setActiveNav('home'));
+  const [pulling, setPulling] = useState(false);
+  // Pull down to refresh (as on Home) runs the open page's reload; no Refresh buttons.
+  const onPull = async () => { setPulling(true); try { await runRefresh(); } finally { setPulling(false); } };
   return <CustomerPage headerColor={theme.header} nav={false}>
     <View style={[styles.appbar, { backgroundColor: theme.header }]}>
       <Pressable onPress={back} accessibilityRole="button" accessibilityLabel="Back" hitSlop={10} style={styles.backBtn}><ArrowLeft size={24} color={theme.headerText || '#fff'} /></Pressable>
       <Text accessibilityRole="header" numberOfLines={1} style={[styles.appbarTitle, { color: theme.headerText || '#fff' }]}>{title}</Text>
     </View>
     {/* scrollsChildToFocus off: tapping the native map moved focus and Android scrolled the page to the top. */}
-    <ScrollView keyboardShouldPersistTaps="handled" scrollsChildToFocus={false} style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 12, paddingBottom: 24 + insets.bottom, flexGrow: 1 }}>
+    <ScrollView keyboardShouldPersistTaps="handled" scrollsChildToFocus={false} style={{ backgroundColor: '#f6f8fb' }} contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 12, paddingBottom: 24 + insets.bottom, flexGrow: 1 }}
+      refreshControl={refreshable ? <RefreshControl refreshing={pulling} onRefresh={onPull} colors={[theme.action]} /> : undefined}>
       {children}
     </ScrollView>
   </CustomerPage>;
@@ -200,7 +207,12 @@ function ParcelDelivery() {
     {showRefresh && <PBtn variant="tab" title="Refresh status" disabled={busy} onPress={() => refresh(x => x + 1)} style={{ marginLeft: 'auto' }} />}
   </View>;
   const heading = <ServiceHeading parcel Icon={Package}><Text style={{ color: '#52647b', lineHeight: 22 }}>{INTRO}</Text></ServiceHeading>;
-  const shell = content => <Shell>{heading}{navBar()}{content}</Shell>;
+  // Track Parcel and Delivery History: the title bar already names the page and Back returns, so no
+  // "Send a Parcel" heading or tabs there. Pull down to refresh replaces the Refresh buttons.
+  const listPage = Boolean(track || history);
+  const shell = content => <Shell refreshable={listPage}>{!listPage && heading}{!listPage && navBar()}{content}</Shell>;
+  useRefreshHandler(async () => { refresh(x => x + 1); }, listPage);
+  const liveLine = updatedAt ? <Text style={{ fontSize: 12.5, color: '#146447', marginBottom: 8 }}>● Live · updated {updatedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} · pull down to refresh</Text> : null;
   const historyRow = b => <ParcelOrderCard key={b._id} booking={b} onOpen={() => nav('track', b._id)} onBookAgain={['delivered', 'cancelled'].includes(b.status) ? () => bookAgain(b) : undefined} />;
 
   if (checkoutActive) return <Shell><PCard style={{ alignItems: 'center', gap: 8 }}>
@@ -221,10 +233,10 @@ function ParcelDelivery() {
   if (track && !booking) return shell(<PCard><Text style={{ fontSize: 21, fontWeight: '700' }}>Parcel tracking unavailable</Text><Text style={{ marginVertical: 8 }}>This booking is unavailable or could not be found for your account.</Text>{retryRead}</PCard>);
 
   const bookingReady = parcelBookingReady(flags, policy);
-  return <Shell>
-    {(track || history || !bookingReady) && heading}
-    {(track || history || !bookingReady) && navBar(Boolean(track || history), Boolean(track || history))}
-    {(track || history) && updatedAt ? <Text style={{ fontSize: 12.5, color: '#146447', marginBottom: 6 }}>● Live · updated {updatedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</Text> : null}
+  return <Shell refreshable={listPage}>
+    {!listPage && !bookingReady && heading}
+    {!listPage && !bookingReady && navBar(false, false)}
+    {(track || history) && liveLine}
     {error ? <Text accessibilityRole="alert" style={{ color: '#9c243a', backgroundColor: '#fff0f1', padding: 14, borderRadius: 8 }}>{error}</Text> : null}
     {notice ? <Text style={{ marginVertical: 6 }}>{notice}</Text> : null}
     {!track && !history && !bookingReady ? <PCard style={{ borderTopWidth: 3, borderTopColor: '#ff8500' }}>

@@ -27,3 +27,9 @@ export const cumulativePaise = (amount, quantity, totalQuantity) => {
 // rounded to the nearest rupee (₹839.20 → ₹839, ₹839.50 → ₹840). Every COD
 // collection, verification and mismatch check compares against this figure.
 export const codCashDuePaise = expectedPaise => Math.round(expectedPaise / 100) * 100;
+/**
+ * The amount that settles an order's COD cash. A rider hands over whole rupees (rounded due); a courier remits the
+ * exact amount it collected, so courier-remitted cash (codFinance.source 'courier_remittance') settles at the exact
+ * expected amount.
+ */
+export const codSettlementTargetPaise = (cash, expectedPaise) => (cash?.source === 'courier_remittance' ? expectedPaise : codCashDuePaise(expectedPaise));

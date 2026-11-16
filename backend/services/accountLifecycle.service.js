@@ -24,7 +24,7 @@ import Notification from '../models/Notification.js';
 import AccountActionAudit from '../models/AccountActionAudit.js';
 
 const TERMINAL_ORDER_STATUSES = ['delivered', 'cancelled', 'returned', 'refunded'];
-const TERMINAL_RETURN_STATUSES = ['REJECTED', 'CANCELLED', 'REFUNDED'];
+const TERMINAL_RETURN_STATUSES = ['REJECTED', 'CANCELLED', 'REFUNDED', 'EXCHANGED'];
 const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'failed'];
 
 const count = (Model, filter) => Model.countDocuments(filter);

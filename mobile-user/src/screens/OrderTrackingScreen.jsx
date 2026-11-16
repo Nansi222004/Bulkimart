@@ -41,8 +41,14 @@ const RETURN_TIMELINE_STEPS = [
 const RETURN_STATUS_LABEL = {
   RETURN_REQUESTED: 'Return requested', UNDER_REVIEW: 'Under review', APPROVED: 'Return approved', AWAITING_RETURN: 'Awaiting return',
   RETURN_RECEIVED: 'Return received', REFUND_PENDING: 'Refund pending', REFUND_FAILED: 'Refund pending — retrying', REFUNDED: 'Refund completed',
-  REJECTED: 'Return rejected', CANCELLED: 'Return cancelled',
+  REJECTED: 'Return rejected', CANCELLED: 'Return cancelled', EXCHANGED: 'Replacement sent',
 };
+// An exchange runs the same steps as a return, but ends with a free replacement instead of money.
+const EXCHANGE_STATUS_LABEL = {
+  RETURN_REQUESTED: 'Exchange requested', UNDER_REVIEW: 'Exchange under review', APPROVED: 'Exchange approved', AWAITING_RETURN: 'Awaiting pickup',
+  RETURN_RECEIVED: 'Item received — preparing replacement', EXCHANGED: 'Replacement order placed', REJECTED: 'Exchange rejected', CANCELLED: 'Exchange cancelled',
+};
+const returnLabel = (ret, status = ret.status) => (ret.resolution === 'EXCHANGE' && EXCHANGE_STATUS_LABEL[status]) || RETURN_STATUS_LABEL[status] || status;
 const RETURN_REASONS = ['DAMAGED', 'DEFECTIVE', 'WRONG_PRODUCT', 'WRONG_SIZE', 'NOT_AS_DESCRIBED', 'MISSING_PARTS', 'QUALITY_ISSUE', 'OTHER'];
 const returnTimelineKeyFor = ret => {
   if (['RETURN_RECEIVED', 'REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED'].includes(ret.status)) return ret.status === 'REFUND_FAILED' ? 'REFUND_PENDING' : ret.status;
@@ -52,6 +58,40 @@ const returnTimelineKeyFor = ret => {
 const formatTime = iso => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : '');
 const formatDate = iso => (iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 const newKey = () => globalThis.crypto?.randomUUID?.() || `rt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+/** Refund or Exchange, and for an exchange which option (same product, same price) to receive. */
+function ResolutionPicker({ eligibility, resolution, setResolution, variantId, setVariantId, qty, primary }) {
+  const options = eligibility?.exchangeOptions || [];
+  const refundAvailable = eligibility?.refundAvailable !== false;
+  if (!options.length && refundAvailable) return null;
+  const choices = [...(refundAvailable ? [['REFUND', 'Refund', 'Get your money back']] : []), ...(options.length ? [['EXCHANGE', 'Exchange', 'Get the same product, free']] : [])];
+  return <View style={{ marginBottom: 14 }}>
+    <Text style={styles.label}>WHAT WOULD YOU LIKE?</Text>
+    <View style={{ flexDirection: 'row', gap: 8, marginBottom: resolution === 'EXCHANGE' ? 10 : 0 }}>
+      {choices.map(([key, title, hint]) => <Pressable key={key} onPress={() => setResolution(key)} accessibilityRole="radio" accessibilityState={{ selected: resolution === key }}
+        style={{ flex: 1, padding: 10, borderRadius: 10, borderWidth: 1.5, borderColor: resolution === key ? primary : '#e2e8f0', backgroundColor: resolution === key ? '#f8fafc' : '#fff' }}>
+        <Text style={{ fontWeight: '800', fontSize: 13, color: resolution === key ? primary : '#172b4d' }}>{title}</Text>
+        <Text style={{ fontSize: 11, color: '#64748b' }}>{hint}</Text>
+      </Pressable>)}
+    </View>
+    {!refundAvailable ? <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>This item was a free replacement, so it can be exchanged again. For a refund, please chat with support.</Text> : null}
+    {resolution === 'EXCHANGE' && <>
+      <Text style={styles.label}>EXCHANGE FOR</Text>
+      {options.map(o => {
+        const value = o.variantId ? String(o.variantId) : '';
+        const enough = (o.stock || 0) >= qty;
+        const selected = variantId === value;
+        return <Pressable key={value || 'same'} onPress={() => enough && setVariantId(value)} disabled={!enough} accessibilityRole="radio" accessibilityState={{ selected, disabled: !enough }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, borderWidth: 1.5, marginBottom: 6, borderColor: selected ? primary : '#e2e8f0', opacity: enough ? 1 : 0.5 }}>
+          <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: selected ? primary : '#cbd5e1', alignItems: 'center', justifyContent: 'center' }}>{selected ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: primary }} /> : null}</View>
+          <Text style={{ flex: 1, fontSize: 13, fontWeight: '700' }}>{o.name}{o.sameAsBought ? ' (same as before)' : ''}</Text>
+          <Text style={{ fontSize: 11, color: enough ? '#16a34a' : '#b91c1c', fontWeight: '700' }}>{enough ? 'In stock' : 'Out of stock'}</Text>
+        </Pressable>;
+      })}
+      <Text style={{ fontSize: 11, color: '#64748b' }}>We pick up your item first. After it is checked, the replacement is sent at no charge. If it can't be sent, you get a refund instead.</Text>
+    </>}
+  </View>;
+}
 
 function Card({ children, style }) { return <View style={[styles.card, style]}>{children}</View>; }
 function Eyebrow({ children, style }) { return <Text style={[styles.eyebrow, style]}>{children}</Text>; }
@@ -161,6 +201,9 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
   const [submittingReturn, setSubmittingReturn] = useState(false);
   const [returnFormError, setReturnFormError] = useState('');
   const [returnRequestKey, setReturnRequestKey] = useState('');
+  // REFUND (money back) or EXCHANGE (same product, same price); exchangeVariantId '' = the same option again.
+  const [returnResolution, setReturnResolution] = useState('REFUND');
+  const [exchangeVariantId, setExchangeVariantId] = useState('');
   const [viewingReturn, setViewingReturn] = useState(null);
 
   const refreshReturnData = useCallback(async () => {
@@ -208,6 +251,10 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
     setReturnRequestKey(newKey());
     const eligibility = returnEligibilityByItem[item._id];
     setReturnModalItem(item); setReturnQty(1); setReturnReason(eligibility?.allowedReasons?.[0] || 'DAMAGED'); setReturnDescription(''); setReturnFiles([]); setReturnFormError('');
+    // A replacement can only be exchanged again; otherwise refund is the default.
+    setReturnResolution(eligibility?.refundAvailable === false ? 'EXCHANGE' : 'REFUND');
+    const firstOption = (eligibility?.exchangeOptions || []).find(o => o.inStock);
+    setExchangeVariantId(firstOption?.variantId ? String(firstOption.variantId) : '');
     if (!eligibility?.eligible) setReturnFormError(eligibility?.reason || 'This item is no longer eligible for return.');
   };
   const submitReturn = async () => {
@@ -216,14 +263,17 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
     setSubmittingReturn(true); setReturnFormError('');
     try {
       const fd = new FormData();
+      if (returnResolution === 'EXCHANGE' && !(returnEligibilityByItem[returnModalItem._id]?.exchangeOptions || []).some(o => (o.stock || 0) >= returnQty && String(o.variantId || '') === exchangeVariantId)) throw new Error('Choose an option that is in stock to exchange for.');
       fd.append('orderId', selectedOrder._id); fd.append('orderItemId', returnModalItem._id); fd.append('quantity', String(returnQty)); fd.append('reason', returnReason);
+      fd.append('resolution', returnResolution);
+      if (returnResolution === 'EXCHANGE' && exchangeVariantId) fd.append('exchangeVariantId', exchangeVariantId);
       if (returnDescription.trim()) fd.append('customerDescription', returnDescription.trim());
       for (const f of returnFiles) await appendFormFile(fd, 'attachments', f);
       const { ok, body } = await request('/api/returns', { method: 'POST', form: fd, headers: { 'Idempotency-Key': returnRequestKey } });
       if (!ok) throw new Error(body.message || 'Could not submit your return request');
       setReturnModalItem(null);
       await refreshReturnData();
-      ui.notify(`Return ${body.data.returnNumber} requested.`);
+      ui.notify(`${returnResolution === 'EXCHANGE' ? 'Exchange' : 'Return'} ${body.data.returnNumber} requested.`);
     } catch (err) { setReturnFormError(err.message || 'Error submitting return request'); } finally { setSubmittingReturn(false); }
   };
   useEffect(() => {
@@ -353,7 +403,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {item.image ? <Image source={{ uri: mediaUrl(item.image) }} style={{ width: 36, height: 36, borderRadius: 8 }} contentFit="cover" /> : null}
               <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • ₹{item.price} each</Text>{item.returnOption ? <Text style={{ fontSize: 10.5, fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+₹${item.returnExtraCharge || 0} paid)` : 'No Easy Returns · wrong/damaged/defective only'}</Text> : null}</View>
-              <Text style={{ fontWeight: '700', fontSize: 13 }}>₹{item.qty * item.price}</Text>
+              <Text style={{ fontWeight: '700', fontSize: 13 }}>₹{(Math.round(Number(item.qty) * Number(item.price) * 100) / 100).toFixed(2)}</Text>
             </View>
             {currentStatus === 'delivered' && <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
               <Pressable onPress={() => handleReorderSingleItem(item)} style={[styles.smallBtn, { borderColor: '#16a34a' }]}><Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '800' }}>🔄 Reorder</Text></Pressable>
@@ -362,12 +412,12 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             </View>}
             {currentStatus === 'delivered' && <View style={{ marginTop: 8, gap: 6, alignItems: 'flex-end' }}>
               {existing.map(ret => <Pressable key={ret._id} onPress={async () => { setViewingReturn(ret); const grouped = await refreshReturnData(); const fresh = (grouped?.[item._id] || []).find(r => r._id === ret._id); if (fresh) setViewingReturn(fresh); }}
-                style={[styles.retPill, { backgroundColor: ret.status === 'REJECTED' ? '#fef2f2' : ret.status === 'REFUNDED' ? '#f0fdf4' : '#fffbeb' }]}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: ret.status === 'REJECTED' ? '#b91c1c' : ret.status === 'REFUNDED' ? '#16a34a' : '#92400e' }}>{RETURN_STATUS_LABEL[ret.status] || ret.status} ({ret.quantity}) ›</Text>
+                style={[styles.retPill, { backgroundColor: ret.status === 'REJECTED' ? '#fef2f2' : ['REFUNDED', 'EXCHANGED'].includes(ret.status) ? '#f0fdf4' : '#fffbeb' }]}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: ret.status === 'REJECTED' ? '#b91c1c' : ['REFUNDED', 'EXCHANGED'].includes(ret.status) ? '#16a34a' : '#92400e' }}>{returnLabel(ret)} ({ret.quantity}) ›</Text>
               </Pressable>)}
               {eligibility?.eligible && eligibility.maxReturnableQuantity > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 10.5, color: '#94a3b8', flexShrink: 1 }}>Return available until {formatDate(eligibility.returnEligibleUntil)}</Text>
-                <Pressable onPress={() => openReturnModal(item)} style={[styles.smallBtn, { borderColor: '#b45309' }]}><Text style={{ color: '#b45309', fontSize: 11, fontWeight: '800' }}>↩ Return Item</Text></Pressable>
+                <Pressable onPress={() => openReturnModal(item)} style={[styles.smallBtn, { borderColor: '#b45309' }]}><Text style={{ color: '#b45309', fontSize: 11, fontWeight: '800' }}>{eligibility.exchangeOptions?.length ? '↩ Return / Exchange' : '↩ Return Item'}</Text></Pressable>
               </View>}
               {eligibility && !eligibility.eligible && existing.length === 0 && <Text style={{ fontSize: 10.5, color: '#94a3b8' }}>{eligibility.code === 'RETURN_WINDOW_EXPIRED' ? 'Return window expired' : 'Non-returnable'}</Text>}
             </View>}
@@ -377,6 +427,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
 
       <Card style={{ gap: 10 }}>
         <Eyebrow style={{ marginBottom: 4 }}>Bill Details</Eyebrow>
+        {selectedOrder.exchange ? <Text style={{ fontSize: 12.5, color: '#166534', backgroundColor: '#f0fdf4', padding: 10, borderRadius: 10, overflow: 'hidden' }}>Free replacement for exchange {selectedOrder.exchange.returnNumber || ''}. Nothing to pay.</Text> : null}
         <View style={styles.billRow}><Text style={styles.billLabel}>Subtotal (including product GST)</Text><Text style={styles.billValue}>₹{selectedOrder.pricing?.subtotal || 0}</Text></View>
         <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
         <Pressable onPress={() => appRouter.push(`/support/chat?order=${selectedOrder._id}`)} accessibilityRole="button" style={styles.chatSupport}>
@@ -392,7 +443,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
         {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => <View key={title} style={styles.billRow}><Text style={{ color: '#10b981', fontSize: 13 }}>{title}</Text><Text style={{ color: '#10b981', fontSize: 13 }}>-₹{amount.toFixed(2)}</Text></View>)}
         <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
         <View style={styles.billRow}><Text style={{ fontWeight: '800', fontSize: 14 }}>Total Amount</Text><Text style={{ fontWeight: '800', fontSize: 14 }}>₹{selectedOrder.pricing?.totalAmount || 0}</Text></View>
-        <View style={styles.billRow}><Text style={{ fontSize: 11, color: '#94a3b8' }}>Payment Method</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>{String(selectedOrder.paymentMethod || '').toUpperCase()}</Text></View>
+        <View style={styles.billRow}><Text style={{ fontSize: 11, color: '#94a3b8' }}>Payment Method</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>{selectedOrder.exchange ? 'EXCHANGE — NO CHARGE' : String(selectedOrder.paymentMethod || '').toUpperCase()}</Text></View>
       </Card>
     </ScrollView>
 
@@ -403,11 +454,12 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', flexShrink: 1 }}>
               {returnModalItem.image ? <Image source={{ uri: mediaUrl(returnModalItem.image) }} style={{ width: 44, height: 44, borderRadius: 10 }} contentFit="cover" /> : null}
-              <View style={{ flexShrink: 1 }}><Text style={styles.label}>RETURN ITEM</Text><Text style={{ fontSize: 14, fontWeight: '800' }}>{returnModalItem.name}</Text></View>
+              <View style={{ flexShrink: 1 }}><Text style={styles.label}>{returnResolution === 'EXCHANGE' ? 'EXCHANGE ITEM' : 'RETURN ITEM'}</Text><Text style={{ fontSize: 14, fontWeight: '800' }}>{returnModalItem.name}</Text></View>
             </View>
             <Pressable onPress={() => setReturnModalItem(null)} disabled={submittingReturn} accessibilityLabel="Close" hitSlop={10}><Text style={{ fontSize: 18, color: '#94a3b8' }}>✕</Text></Pressable>
           </View>
           {returnEligibilityByItem[returnModalItem._id]?.eligible ? <>
+            <ResolutionPicker eligibility={returnEligibilityByItem[returnModalItem._id]} resolution={returnResolution} setResolution={setReturnResolution} variantId={exchangeVariantId} setVariantId={setExchangeVariantId} qty={returnQty} primary={primary} />
             <Text style={styles.label}>QUANTITY (MAX {eligibilityMax})</Text>
             <TextInput keyboardType="number-pad" value={String(returnQty)} onChangeText={v => setReturnQty(Math.max(1, Math.min(Number(v.replace(/\D/g, '')) || 1, eligibilityMax)))} style={[styles.input, { marginBottom: 14 }]} />
             <SelectField label="REASON" labelStyle={styles.label} value={returnReason} onChange={setReturnReason} options={(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || RETURN_REASONS).map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} style={{ marginBottom: 14 }} />
@@ -419,7 +471,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             {returnFormError ? <Text style={{ marginBottom: 10, fontSize: 12, color: '#b91c1c' }}>{returnFormError}</Text> : null}
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable onPress={() => setReturnModalItem(null)} disabled={submittingReturn} style={[styles.action, { flex: 1, borderWidth: 1.5, borderColor: '#cbd5e1' }]}><Text style={{ color: '#475569', fontWeight: '800', fontSize: 13 }}>Cancel</Text></Pressable>
-              <Pressable onPress={submitReturn} disabled={submittingReturn} style={[styles.action, { flex: 2, backgroundColor: submittingReturn ? '#94a3b8' : '#b45309' }]}><Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>{submittingReturn ? 'Submitting…' : 'Submit Return Request'}</Text></Pressable>
+              <Pressable onPress={submitReturn} disabled={submittingReturn} style={[styles.action, { flex: 2, backgroundColor: submittingReturn ? '#94a3b8' : '#b45309' }]}><Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>{submittingReturn ? 'Submitting…' : returnResolution === 'EXCHANGE' ? 'Submit Exchange Request' : 'Submit Return Request'}</Text></Pressable>
             </View>
           </> : <Text style={{ fontSize: 13, color: '#b91c1c' }}>{returnFormError || 'This item is no longer eligible for return.'}</Text>}
         </ScrollView>}
@@ -434,7 +486,10 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             <View style={{ flexShrink: 1 }}><Text style={styles.label}>{viewingReturn.returnNumber}</Text><Text style={{ fontSize: 14, fontWeight: '800' }}>{viewingReturn.productName} × {viewingReturn.quantity}</Text></View>
             <Pressable onPress={() => setViewingReturn(null)} accessibilityLabel="Close" hitSlop={10}><Text style={{ fontSize: 18, color: '#94a3b8' }}>✕</Text></Pressable>
           </View>
-          <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Status:</Text> {RETURN_STATUS_LABEL[viewingReturn.status] || viewingReturn.status}</Text>
+          <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Status:</Text> {returnLabel(viewingReturn)}</Text>
+          {viewingReturn.resolution === 'EXCHANGE' ? <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Exchange for:</Text> {viewingReturn.exchange?.variantName || viewingReturn.productName} · sent free after we receive your item</Text> : null}
+          {viewingReturn.exchange?.replacementOrderId ? <Pressable onPress={() => { const target = viewingReturn.exchange.replacementOrderId; setViewingReturn(null); appRouter.push(`/order/${target}`); }} accessibilityRole="link" style={{ marginBottom: 8 }}><Text style={{ color: primary, fontWeight: '800', fontSize: 13 }}>Track replacement order {viewingReturn.exchange.replacementOrderNo || ''} ›</Text></Pressable> : null}
+          {viewingReturn.exchange?.status === 'CONVERTED_TO_REFUND' ? <Text style={[styles.retLine, { color: '#92400e' }]}>Your exchange changed to a refund because {viewingReturn.exchange.convertedReason || 'the replacement could not be sent'}.</Text> : null}
           {viewingReturn.pickup && viewingReturn.pickup.status !== 'NOT_ASSIGNED' ? <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Pickup:</Text> {{ ASSIGNED: 'Rider assigned — on the way to you', PICKED_UP: 'Picked up — returning to seller', DELIVERED_TO_SELLER: 'Delivered back to the seller', CANCELLED: 'Pickup cancelled' }[viewingReturn.pickup.status] || viewingReturn.pickup.status}{viewingReturn.pickup.riderName ? ` (${viewingReturn.pickup.riderName})` : ''}</Text> : null}
           {viewingReturn.pickup?.status === 'ASSIGNED' && (pickupOtpFor(viewingReturn)
             ? <View style={[styles.otpInline, { borderColor: primary, marginBottom: 6 }]}><Text style={{ fontSize: 11, fontWeight: '700', color: '#94a3b8', flexShrink: 1 }}>PICKUP CODE — SHARE WITH RIDER</Text><Text style={{ fontSize: 20, fontWeight: '900', color: primary, letterSpacing: 3 }}>{pickupOtpFor(viewingReturn)}</Text></View>
@@ -442,7 +497,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Reason:</Text> {viewingReturn.reason?.replace(/_/g, ' ')}</Text>
           {viewingReturn.customerDescription ? <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Description:</Text> {viewingReturn.customerDescription}</Text> : null}
           {viewingReturn.rejectionReason ? <Text style={[styles.retLine, { color: '#b91c1c' }]}><Text style={{ fontWeight: '700', color: '#b91c1c' }}>Rejection reason:</Text> {viewingReturn.rejectionReason}</Text> : null}
-          {viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Refund:</Text> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}{viewingReturn.status === 'REFUNDED' ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}` : ` — ${viewingReturn.refundStatus || 'pending'}`}</Text>}
+          {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Refund:</Text> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}{viewingReturn.status === 'REFUNDED' ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}` : ` — ${viewingReturn.refundStatus || 'pending'}`}</Text>}
           {viewingReturn.pickupMethod === 'SHIPROCKET' ? <Text style={styles.retLine}>Shiprocket pickup: {viewingReturn.reverseBooking?.trackingState || viewingReturn.reverseBooking?.state}{viewingReturn.awbNumber ? ` · AWB ${viewingReturn.awbNumber}` : ''}</Text> : null}
           {viewingReturn.attachments?.length > 0 && <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginVertical: 10 }}>
             {viewingReturn.attachments.map((att, i) => <Pressable key={i} onPress={() => Linking.openURL(mediaUrl(att.url)).catch(() => {})}><Image source={{ uri: mediaUrl(att.url) }} style={{ width: 56, height: 56, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }} contentFit="cover" /></Pressable>)}
@@ -450,7 +505,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 10 }}>
             <Text style={[styles.label, { marginBottom: 8 }]}>TIMELINE</Text>
             {(viewingReturn.history || []).map((h, i) => <View key={i} style={{ marginBottom: 8, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: '#e2e8f0' }}>
-              <Text style={{ fontWeight: '700', fontSize: 12 }}>{RETURN_STATUS_LABEL[h.toStatus] || h.toStatus}</Text>
+              <Text style={{ fontWeight: '700', fontSize: 12 }}>{returnLabel(viewingReturn, h.toStatus)}</Text>
               <Text style={{ color: '#94a3b8', fontSize: 11 }}>{formatDate(h.timestamp)} · {formatTime(h.timestamp)}</Text>
               {h.comment ? <Text style={{ color: '#475569', fontSize: 11.5 }}>{h.comment}</Text> : null}
             </View>)}

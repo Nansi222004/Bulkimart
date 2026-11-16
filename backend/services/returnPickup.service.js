@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { scheduleRetry } from './retryScheduler.service.js';
 import crypto from 'node:crypto';
 import Return from '../models/Return.js';
 import Order from '../models/Order.js';
@@ -132,7 +133,8 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
 
   if (riders.length === 0) {
     if (attempt < PICKUP_MAX_ATTEMPTS) {
-      setTimeout(() => { broadcastReturnPickupToRiders(returnId, attempt + 1).catch(() => {}); }, 30_000);
+      // Tracked by the retry scheduler so shutdown can cancel it (same 30 s delay; errors still ignored as before).
+      scheduleRetry(`return-pickup-broadcast:${returnId}:${attempt + 1}`, 30_000, () => broadcastReturnPickupToRiders(returnId, attempt + 1), () => {});
       return;
     }
     if (ret.sellerId) {

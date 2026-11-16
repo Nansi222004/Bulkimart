@@ -423,13 +423,15 @@ export function UserProvider({ children }) {
   const logoutUser = async () => {
     const token = local.getItem('userToken');
     const pushCleanup = deregisterPushToken(token).catch(() => {});
+    // Revoke this session on the server before the token is cleared locally; never blocks the local sign-out.
+    const revoke = token ? boundedFetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }, 5000).catch(() => {}) : Promise.resolve();
     clearUserSession();
     setCurrentUser(null);
     setActiveNav('home');
     disconnectSocket();
     setWishlist(new Set());
     setWishlistItems([]);
-    await pushCleanup;
+    await Promise.all([pushCleanup, revoke]);
   };
 
   // ---------------- Cart (server-backed, one basket per storefront) ----------------

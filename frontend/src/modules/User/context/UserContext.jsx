@@ -11,6 +11,7 @@ import { saveUserSession, clearUserSession, openSessionDashboard, captureUserSes
 import { CustomerSessionContext } from '../../../utils/customerSession';
 import { normalizeProduct } from '../hooks/useProducts';
 import CouponSuccessCelebration from '../components/CouponSuccessCelebration';
+import { revokeServerSession } from '../../../utils/serverLogout';
 
 const UserContext = createContext();
 
@@ -816,6 +817,8 @@ export const UserProvider = ({ children }) => {
 
   const logoutUser = async () => {
     const pushCleanup = deregisterPushToken('customer').catch(() => {});
+    // Revoke this session on the server before the token is cleared locally.
+    void revokeServerSession(localStorage.getItem('userToken'));
     clearUserSession();
     setCurrentUser(null);
     setActiveNav('home');

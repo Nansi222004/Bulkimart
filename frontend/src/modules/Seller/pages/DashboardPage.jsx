@@ -23,6 +23,7 @@ import EarningsTab from '../components/EarningsTab';
 import SupportTab from '../components/SupportTab';
 import PrivacyPolicyView from '../../../components/PrivacyPolicyView';
 import FaqsTab from '../components/FaqsTab';
+import CampaignOffersTab from '../components/CampaignOffersTab';
 import SellerReturnsTab from '../components/SellerReturnsTab';
 import ProfileTab from '../components/ProfileTab';
 import AccountTab from '../components/AccountTab';
@@ -125,6 +126,7 @@ export const DashboardPage = () => {
       case 'earnings':      return <EarningsTab />;
       case 'item-returns':  return <SellerReturnsTab onDetailChange={setReturnDetailId} />;
       case 'faqs':          return <FaqsTab />;
+      case 'campaigns':     return <PageErrorBoundary name="seller-campaigns"><CampaignOffersTab /></PageErrorBoundary>;
       case 'support':       return <SupportTab />;
       case 'privacy-policy': return <section className="seller-tab-panel"><PrivacyPolicyView slug="seller-policy" /></section>;
       case 'profile':       return <ProfileTab />;

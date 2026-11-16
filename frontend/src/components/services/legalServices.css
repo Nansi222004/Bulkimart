@@ -21,3 +21,58 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+
+/* Service page (opened from View / Buy now on the Services tab): stacked cards on a soft background —
+   summary with price, how it works, price details with collapsible terms, then the order form and Pay button.
+   Colours follow the storefront theme; the Pay button uses the header colour (same as the title bar). */
+.legal-services.legal-detail-page {
+  --ld-action: var(--sf-header, #79000B);
+  --ld-on-action: var(--sf-header-text, #fff);
+  --ld-soft: color-mix(in srgb, var(--sf-action, #D91430) 7%, #fff);
+  --ld-soft-edge: color-mix(in srgb, var(--sf-action, #D91430) 20%, #fff);
+  --ld-muted: #64748b;
+  padding: 14px 14px 24px;
+}
+.legal-detail { display: flex; flex-direction: column; gap: 12px; max-width: 720px; margin: 0 auto; }
+.legal-services .legal-detail-card {
+  margin: 0; padding: 16px; border: 1px solid #e8edf3; border-radius: 16px; background: #fff;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .05);
+}
+.legal-services .legal-detail-card h3 { margin: 0 0 8px; font-size: 15px; font-weight: 800; }
+.legal-services .legal-detail-card p { margin: 0; font-size: 13.5px; line-height: 1.55; color: #334155; }
+.legal-detail-head { display: flex; align-items: flex-start; gap: 12px; }
+.legal-detail-icon {
+  flex: none; width: 46px; height: 46px; border-radius: 13px; display: flex; align-items: center; justify-content: center;
+  background: var(--sf-highlight, #fff4cc); color: var(--sf-highlight-text, var(--sf-action, #D91430));
+}
+.legal-services .legal-detail-head h2 { margin: 2px 0 4px; font-size: 18px; line-height: 1.3; font-weight: 800; }
+.legal-services .legal-detail-hero .legal-detail-head p { color: var(--ld-muted); }
+.legal-services .legal-detail-price {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 14px 0 0; padding: 12px 14px;
+  border-radius: 12px; background: var(--ld-soft); border: 1px solid var(--ld-soft-edge);
+}
+.legal-detail-price-label { width: 100%; font-size: 12px; font-weight: 700; color: var(--ld-muted); text-transform: uppercase; letter-spacing: .4px; }
+.legal-detail-price strong { font-size: 22px; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; }
+.legal-detail-price small { font-size: 12.5px; color: var(--ld-muted); }
+.legal-services .legal-detail-info { background: #fffdf5; border-color: #f3e7bd; }
+.legal-detail-card .service-fee-breakdown { margin: 0; gap: 8px 16px; font-size: 13.5px; }
+.legal-detail-card .service-fee-breakdown dt { font-weight: 500; color: #475569; }
+.legal-detail-card .service-fee-breakdown dt:nth-last-of-type(1), .legal-detail-card .service-fee-breakdown dd:last-of-type {
+  padding-top: 8px; border-top: 1px dashed #e2e8f0; color: #0f172a; font-size: 14.5px;
+}
+.legal-detail-terms { margin-top: 12px; border-top: 1px solid #eef2f6; padding-top: 10px; }
+.legal-detail-terms summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--ld-action); }
+.legal-services .legal-detail-terms p { margin-top: 8px; font-size: 12.5px; color: var(--ld-muted); white-space: pre-line; }
+.legal-services .legal-detail-muted { color: var(--ld-muted); font-size: 13px; }
+.legal-services .legal-detail-agree {
+  flex-direction: row; align-items: flex-start; gap: 10px; margin: 14px 0 0; padding: 12px;
+  border-radius: 12px; background: var(--ld-soft); font-size: 13px; line-height: 1.5; cursor: pointer;
+}
+.legal-services .legal-detail-agree input { margin-top: 2px; flex: none; accent-color: var(--ld-action); }
+.legal-detail-actions { display: flex; gap: 10px; margin-top: 16px; }
+.legal-services.legal-detail-page .legal-detail-actions button {
+  min-height: 48px; margin: 0; padding: 0 16px; border-radius: 12px; font-size: 15px; font-weight: 800;
+}
+.legal-services.legal-detail-page .legal-detail-actions .legal-detail-primary { flex: 1; border: 0; background: var(--ld-action); color: var(--ld-on-action); }
+.legal-services.legal-detail-page .legal-detail-actions .legal-detail-secondary { flex: none; border: 1px solid #d5dde7; background: #fff; color: #172b4d; }
+.legal-services.legal-detail-page .legal-detail-actions .legal-detail-primary:disabled { opacity: .45; }

@@ -23,11 +23,24 @@ export default function ServiceAppBar({ section, onHome }) {
     return () => { window.removeEventListener('popstate', update); window.removeEventListener('app:locationchange', update); };
   }, []);
 
-  const root = `/${section}`;
+  // Back returns to the Services tab these pages are opened from (on the matching toggle). The one step that stays
+  // inside the service: a single legal request goes back to the My requests list.
   const back = () => {
-    if (path.replace(/\/+$/, '') !== root && path.startsWith(`${root}/`)) {
-      window.history.pushState(null, '', root);
+    const clean = path.replace(/\/+$/, '');
+    if (section === 'legal-services' && /^\/legal-services\/requests\/[^/]+$/.test(clean)) {
+      window.history.pushState(null, '', '/legal-services/requests');
       window.dispatchEvent(new Event('app:locationchange'));
+      return;
+    }
+    // Opened from the Account page (My Legal Service Requests): Back returns there.
+    if (window.history.state?.fromNav === 'account') {
+      window.history.pushState({ nav: 'account' }, '', '/account');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+      return;
+    }
+    if (TITLES[section]) {
+      window.history.pushState({ nav: 'services' }, '', section === 'legal-services' ? '/services?tab=legal' : '/services');
+      window.dispatchEvent(new Event('popstate'));
       return;
     }
     onHome();

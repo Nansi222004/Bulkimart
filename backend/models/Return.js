@@ -3,6 +3,7 @@ import {
   RETURN_STATUS, RETURN_STATUSES, RETURN_REASONS, RESTOCK_DECISIONS,
   RESTOCK_STATUS, RESTOCK_STATUSES, RETURN_REFUND_STATUSES,
   RETURN_PICKUP_STATUS, RETURN_PICKUP_STATUSES, OFFER_ATTEMPT_STATUS, OFFER_ATTEMPT_STATUSES,
+  RETURN_RESOLUTION, RETURN_RESOLUTIONS, RETURN_EXCHANGE_STATUSES,
 } from '../constants/enums.js';
 
 const { Schema, model } = mongoose;
@@ -79,6 +80,28 @@ const returnSchema = new Schema(
 
     reason:              { type: String, enum: RETURN_REASONS, required: true },
     customerDescription: String,
+
+    // Refund (default, every return before exchanges) or Exchange. An exchange runs the same request,
+    // approval, pickup and inspection as a return; only the end differs (replacement order, not money).
+    resolution: { type: String, enum: RETURN_RESOLUTIONS, default: RETURN_RESOLUTION.REFUND },
+    exchange: {
+      type: new Schema({
+        status:      { type: String, enum: RETURN_EXCHANGE_STATUSES, required: true },
+        // The variant to send (the same one for a plain replacement), snapshotted at request time.
+        variantId:   { type: ObjectId },
+        variantName: String,
+        sku:         String,
+        variantAttributes: [{ _id: false, name: String, value: String }],
+        unitSnapshot: String,
+        weightSnapshot: Number,
+        replacementOrderId: { type: ObjectId, ref: 'Order' },
+        replacementOrderNo: String,
+        replacementCreatedAt: Date,
+        convertedAt: Date,
+        convertedReason: String,
+      }, { _id: false }),
+      default: undefined,
+    },
     requestedAt:         { type: Date, default: Date.now },
     attachments: [
       {

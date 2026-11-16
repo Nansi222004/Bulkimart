@@ -23,10 +23,31 @@ import { resolveProductGst, calculateProductGst } from '../services/productGst.s
 import { priceOrder, resolveDeliveryType } from '../services/pricing.service.js';
 import { applyCouponCode, redeemCoupon, releaseCoupon } from '../services/coupon.service.js';
 import { resolveTip } from '../services/tip.service.js';
-import { resolveCampaignPricesForProducts } from '../services/campaign.service.js';
+import { resolveCampaignPricesForProducts, campaignUnitPrice } from '../services/campaign.service.js';
 import { isWithinRadius } from '../services/radius.service.js';
 import { forwardGeocode } from '../services/geocode.service.js';
-import { notifyUser, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { notifyUser, notifySeller, NOTIFICATION_EVENT } from '../services/notification.service.js';
+import { convertExchangeToRefundInSession, notifyConversion } from '../services/returnExchange.service.js';
+
+/**
+ * Tell each shop on the order that it was cancelled (push + live socket), so a confirmed or preparing order is not
+ * packed for nobody. Best-effort and outside the transaction: a failed notification never undoes the cancel.
+ */
+const notifySellersOfCancellation = async (order, reason) => {
+  const sellerIds = [...new Set(order.items.map((i) => i.sellerId?.toString()).filter(Boolean))];
+  try {
+    const { emitToSeller } = await import('../socket/rooms.js');
+    for (const sellerId of sellerIds) emitToSeller(sellerId, 'order_cancelled', { orderId: order._id, orderNo: order.orderNo, reason });
+  } catch (e) { console.error('Socket emit failed on cancel:', e.message); }
+  await Promise.allSettled(sellerIds.map((sellerId) => notifySeller(sellerId, {
+    event: NOTIFICATION_EVENT.ORDER_CANCELLED,
+    title: 'Order cancelled',
+    message: `Order ${order.orderNo} was cancelled. Please stop preparing it.${reason ? ` Reason: ${reason}` : ''}`,
+    metadata: { orderId: order._id },
+    route: `/seller/orders/${order._id}`,
+    dedupeKey: `ORDER_CANCELLED:${order._id}:seller:${sellerId}`,
+  })));
+};
 import { emailOrderConfirmation } from '../services/email.service.js';
 import { debitWallet, refundToWallet } from '../services/wallet.service.js';
 import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/WalletLedger.js';
@@ -163,6 +184,20 @@ export const getCheckoutStatus = asyncHandler(async (req, res) => {
 
 const pushTimeline = (order, status, note) => {
   order.timeline.push({ status, timestamp: new Date(), note });
+};
+
+/**
+ * Claim for an admin cancelling a shipped order whose Shiprocket exception they are resolving. Only the exact
+ * claimed exception (token) on an order still in the courier's hands matches, so it runs once.
+ */
+const claimCourierExceptionCancellation = async (order, reason, token, session) => {
+  const result = await Order.updateOne(
+    { _id: order._id, status: { $in: [ORDER_STATUS.PREPARING, ORDER_STATUS.DISPATCHED, ORDER_STATUS.OUT_FOR_DELIVERY] },
+      'shiprocket.exception.status': 'resolving', 'shiprocket.exception.resolution.token': token },
+    { $set: { status: ORDER_STATUS.CANCELLED, cancelReason: reason }, $push: { timeline: { status: ORDER_STATUS.CANCELLED, timestamp: new Date(), note: reason } } },
+    { session }
+  );
+  if (result.modifiedCount !== 1) throw httpError(409, 'This order has already changed and cannot be cancelled again');
 };
 
 const claimCancellation = async (order, reason, session, extraSet = {}) => {
@@ -399,7 +434,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
     const deal = campaignPrices.get(String(p._id));
     const returnOption = resolveReturnOption(p, line.returnOption);
-    const basePrice = deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price;
+    const basePrice = deal ? campaignUnitPrice(inventory.price, deal.discountValue) : inventory.price;
 
     lines.push({
       productId: p._id,
@@ -1201,8 +1236,10 @@ export const cancelOrder = asyncHandler(async (req, res) => {
     throw httpError(409, 'This order already has a courier shipment. Cancel it with the provider before cancelling the Bulkimart order.');
   }
 
+  let convertedExchange = null;
   const session = await mongoose.startSession();
-  const cancelReason = req.body.reason || 'Cancelled by customer';
+  // Free text from the client: text only, trimmed and bounded before it is stored on the order and shown to sellers.
+  const cancelReason = (typeof req.body?.reason === 'string' && req.body.reason.trim().slice(0, 500)) || 'Cancelled by customer';
   try {
     await session.withTransaction(async () => {
       await claimCancellation(order, cancelReason, session);
@@ -1218,15 +1255,20 @@ export const cancelOrder = asyncHandler(async (req, res) => {
       await releaseCoupon(order.coupon || order.pricing?.couponCode, order._id, session);
 
       // Money already taken is queued for refund rather than silently kept.
-      if (order.paymentId) {
+      // An exchange replacement was never paid for: cancelling it turns the exchange into a refund of the
+      // original item (processed the usual way) instead of refunding this ₹0 order.
+      if (order.exchange?.returnId) {
+        convertedExchange = await convertExchangeToRefundInSession({ returnId: order.exchange.returnId, reason: 'the replacement order was cancelled', session });
+      } else if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
         if (payment) await coordinateOnlineCancellation(payment, order, session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
-          const rawTotal = payment.groupRef ? (order.pricing?.totalAmount || payment.amount) : payment.amount;
+          // `??`, not `||` (audit P3): a ₹0 order inside a grouped payment owes ₹0, not the whole group's payment.
+          const rawTotal = payment.groupRef ? (order.pricing?.totalAmount ?? payment.amount) : payment.amount;
           const refundAmount = rawTotal;
 
           if (payment.method === PAYMENT_METHOD.WALLET) {
-            await refundToWallet({
+            if (Number(refundAmount) > 0) await refundToWallet({
               userId: order.userId,
               amount: refundAmount,
               reason: `Refund for cancelled order #${order.orderNo}`,
@@ -1284,6 +1326,9 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   }
 
   order.status = ORDER_STATUS.CANCELLED;
+  if (convertedExchange) notifyConversion(convertedExchange, 'the replacement order was cancelled');
+  // The shop may already have confirmed or started preparing this order.
+  notifySellersOfCancellation(order, cancelReason).catch((e) => console.error('[NOTIFICATION] seller cancel notice failed:', e.message));
 
   return ok(res, { orderNo: order.orderNo, status: order.status }, 'Order cancelled and stock restored');
 });
@@ -1313,26 +1358,33 @@ export const requestReturn = asyncHandler(async (req, res) => {
  * a rider holding the parcel is past the point where stock can simply be
  * returned to the shelf.
  *
+ * `courierException` ({ token, restock }) is used only by an admin resolving a claimed Shiprocket shipment exception
+ * (courierTracking.service.js::resolveShipmentException): the parcel already left the shop, so the courier guard and
+ * the pre-dispatch claim do not apply, and stock goes back only when the admin says the parcel is back.
+ *
  * @returns {Promise<{ok: boolean, reason?: string}>}
  */
-export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision, suppressNotification = false }) => {
+export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, cancelledBy, vendorDecision, suppressNotification = false, courierException = null }) => {
   const order = await Order.findById(orderId);
   if (!order) return { ok: false, reason: 'Order not found' };
 
   if (allowedFrom && !allowedFrom.includes(order.status)) {
     return { ok: false, reason: `An order that is already ${order.status} cannot be cancelled` };
   }
-  if (order.shiprocket?.orderId || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status)) {
+  if (!courierException && (order.shiprocket?.orderId || ['creating', 'assigning', 'reconciliation_required'].includes(order.shiprocket?.status))) {
     return { ok: false, reason: 'A courier shipment already exists; provider cancellation must be confirmed first' };
   }
 
+  let convertedExchange = null;
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      await claimCancellation(order, reason, session, vendorDecision ? { vendorDecision } : {});
+      if (courierException) await claimCourierExceptionCancellation(order, reason, courierException.token, session);
+      else await claimCancellation(order, reason, session, vendorDecision ? { vendorDecision } : {});
       order.cancelReason = reason;
-      // Put every unit back
+      // Put every unit back (for a courier exception, only when the admin confirmed the parcel is back).
       for (const item of order.items) {
+        if (courierException && !courierException.restock) break;
         if (item.fulfillmentType !== 'digital' || item.stockReserved) await mutateInventory({ productId: item.productId, variantId: item.variantId, quantity: item.qty, session, restore: true });
       }
 
@@ -1340,7 +1392,11 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
         await releaseCoupon(order.coupon || order.pricing?.couponCode, order._id, session);
       }
 
-      if (order.paymentId) {
+      // An exchange replacement was never paid for: cancelling it turns the exchange into a refund of the
+      // original item (processed the usual way) instead of refunding this ₹0 order.
+      if (order.exchange?.returnId) {
+        convertedExchange = await convertExchangeToRefundInSession({ returnId: order.exchange.returnId, reason: 'the replacement order was cancelled', session });
+      } else if (order.paymentId) {
         const payment = await Payment.findById(order.paymentId).session(session);
         if (payment) await coordinateOnlineCancellation(payment, order, session);
         if (payment && payment.status === PAYMENT_STATUS.PAID) {
@@ -1393,6 +1449,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
     await session.endSession();
   }
   order.status = ORDER_STATUS.CANCELLED;
+  if (convertedExchange) notifyConversion(convertedExchange, 'the replacement order was cancelled');
 
   // Outside the transaction: a failed notification must not undo a real cancel.
   try {
@@ -1413,12 +1470,9 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
       }).catch((e) => console.error('[NOTIFICATION] notifyUser (order cancelled) failed:', e.message));
     }
 
-    // The shop stops packing something that is no longer coming.
+    // The shop stops packing something that is no longer coming (push too: the seller apps don't listen to the socket).
     if (cancelledBy !== 'seller') {
-      const sellerIds = [...new Set(order.items.map((i) => i.sellerId?.toString()).filter(Boolean))];
-      for (const sellerId of sellerIds) {
-        emitToSeller(sellerId, 'order_cancelled', { orderId: order._id, orderNo: order.orderNo, reason });
-      }
+      notifySellersOfCancellation(order, reason).catch((e) => console.error('[NOTIFICATION] seller cancel notice failed:', e.message));
     }
   } catch (e) {
     console.error('Socket emit failed on cancel:', e.message);

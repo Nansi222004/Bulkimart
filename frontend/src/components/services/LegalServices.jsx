@@ -2,11 +2,12 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from 'rea
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
 import { DynamicFields } from './ServicesPanel';
-import ServicePaymentPanel, { payServiceFee, feeText, FeeBreakdown } from './ServicePaymentPanel';
+import ServicePaymentPanel, { payServiceFee, FeeBreakdown } from './ServicePaymentPanel';
 import { SERVICE_FILE_BYTES, SERVICE_FILE_COUNT, SERVICE_ANSWER_BYTES, serializedAnswerBytes } from '../../../../shared/serviceLimits.mjs';
 import './legalServices.css';
 import CustomerServiceHeading from './CustomerServiceHeading';
 import ServiceReference from './ServiceReference';
+import { rupees, serviceIcon } from './serviceIcons';
 import { CustomerSessionContext } from '../../utils/customerSession';
 
 export const money = n => `₹${((n || 0) / 100).toFixed(2)}`;
@@ -58,6 +59,13 @@ export default function LegalServices() {
   // for one frame while the next effect starts its fetch.
   const navigate = next => { setDetail(null); setItems([]); setLoading(true); changePath(next); };
   const parts = path.split('/').filter(Boolean), history = parts[1] === 'requests', id = parts[2] || (history ? null : parts[1]);
+  // The service list lives on the Services tab (Legal Services toggle); the old /legal-services list page redirects there.
+  const listPage = !history && !id;
+  useEffect(() => {
+    if (!listPage) return;
+    window.history.replaceState({ nav: 'services' }, '', '/services?tab=legal');
+    window.dispatchEvent(new Event('popstate'));
+  }, [listPage]);
   useEffect(() => {
     const c = new AbortController(); setLoading(true); setError(''); setDetail(null); setAnswers({}); setFiles({}); setAccepted(false); setReview(false);
     const url = history ? `/api/customer-services/applications${id ? `/${id}` : `?page=${page}`}` : id ? `/api/customer-services/catalogue/${id}` : `/api/customer-services?q=${encodeURIComponent(search)}&page=${page}`;
@@ -73,6 +81,14 @@ export default function LegalServices() {
     }).catch(e => { if (!c.signal.aborted) setError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); });
     return () => c.abort();
   }, [request, history, id, search, page, revision]);
+  // "Buy" from the Services tab (?buy=1): jump to the order form. A service that asks for nothing goes straight to the Pay step.
+  const formRef = useRef(null);
+  useEffect(() => {
+    if (history || !detail?._id || new URLSearchParams(window.location.search).get('buy') !== '1') return;
+    if (!detail.fields?.length) setReview(true);
+    const t = setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    return () => clearTimeout(t);
+  }, [detail, history]);
   const run = async fn => { if (lock.current) return; lock.current = true; setBusy(true); setError(''); setErrors({}); try { await fn(); } catch (e) { setError(e.message); setErrors(e.fields || {}); } finally { lock.current = false; setBusy(false); } };
   const submit = () => run(async () => {
     if (!localStorage.getItem('userToken')) throw new Error('Sign in from Account before submitting a private request.');
@@ -99,7 +115,10 @@ export default function LegalServices() {
   const feeQuote = history ? null : detail?.fee || (legacyPaise ? { basePaise: legacyPaise, taxRate: 0, taxPaise: 0, totalPaise: legacyPaise } : null);
   const fee = feeQuote ? feeQuote.totalPaise : 0;
   const base = detail?._id ? `/api/customer-services/applications/${detail._id}` : '';
-  return <section className="legal-services customer-service-page" aria-label="Legal Services"><CustomerServiceHeading title={history ? 'My Legal Service Requests' : 'Legal Services'}><p>Explore legal services and submit a private request. Final pricing is confirmed after review.</p></CustomerServiceHeading><nav className="legal-nav" aria-label="Legal services navigation"><button type="button" className={`legal-nav-btn ${!history ? 'active' : ''}`} onClick={() => navigate('/legal-services')}>Browse services</button><button type="button" className={`legal-nav-btn ${history ? 'active' : ''}`} onClick={() => { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate('/legal-services/requests'); }}>My requests</button>{!isLoggedIn && <a className="legal-nav-auth" href="/account">Sign in</a>}</nav>
+  const ServiceIcon = serviceIcon(detail?.name);
+  // The title bar already names the page, and My requests sits in the Services header, so the old heading and
+  // Browse / My requests buttons only remain on the legacy list page (which forwards to the Services tab).
+  return <section className={`legal-services customer-service-page${id && !history ? ' legal-detail-page' : ''}`} aria-label="Legal Services">{listPage && <><CustomerServiceHeading title="Legal Services"><p>Explore legal services and submit a private request. Final pricing is confirmed after review.</p></CustomerServiceHeading><nav className="legal-nav" aria-label="Legal services navigation"><button type="button" className={`legal-nav-btn ${!history ? 'active' : ''}`} onClick={() => navigate('/legal-services')}>Browse services</button><button type="button" className={`legal-nav-btn ${history ? 'active' : ''}`} onClick={() => { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate('/legal-services/requests'); }}>My requests</button>{!isLoggedIn && <a className="legal-nav-auth" href="/account">Sign in</a>}</nav></>}
     {notice && <p role="status">{notice}</p>}{error && <section className="customer-service-state" role="alert"><h2>Legal Services update</h2><p>{error}</p><button disabled={busy} onClick={() => refresh(n => n + 1)}>Reload latest</button></section>}
     {/* Keep search mounted while results load so typing retains keyboard focus. */}
     {!history && !id && <div className="legal-search"><label htmlFor="legal-service-search">Search legal services</label><input id="legal-service-search" type="search" placeholder="Search by service name or keyword" aria-describedby="legal-service-search-hint" maxLength={100} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} /><p id="legal-service-search-hint">Find the service you need by name or keyword.</p></div>}
@@ -113,10 +132,30 @@ export default function LegalServices() {
       <PrivateFiles files={detail.files} request={request} base={base} run={run} />
       {detail.status === 'information_required' && <FollowUp request={detail} busy={busy} submit={data => run(async () => { validateFollowUp(data); await request(`${base}/respond`, { method: 'POST', body: data }); refresh(n => n + 1); })} />}
       <h3>Request history</h3><RequestTimeline events={detail.events} />
-    </> : <><h3>{detail.name}</h3><p>{detail.description}</p><p>{detail.instructions}</p><p className="legal-price">{fee ? <>Total payable <strong>{feeText(fee)}</strong>{feeQuote.taxRate > 0 ? ` (incl. ${feeQuote.taxRate}% GST)` : ''} · paid when you submit</> : 'Free service'}</p>{fee > 0 && <FeeBreakdown fee={feeQuote} />}{detail.terms && <p className="service-fee-terms">{detail.terms}</p>}<p>Only submit information required for this service. Documents are private.</p>
-      <form onSubmit={e => { e.preventDefault(); if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } if (!review) setReview(true); else submit(); }}><DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy || review} />{review && <p>Review the information above, then submit your request.</p>}
-        {review && fee > 0 && <div className="service-fee is-due"><FeeBreakdown fee={feeQuote} />{detail.terms && <p className="service-fee-terms">{detail.terms}</p>}<label className="sm-agree"><input type="checkbox" checked={accepted} disabled={busy} onChange={e => setAccepted(e.target.checked)} />I have read and agree to the payment, cancellation and disclaimer terms above, and to pay {feeText(fee)} now.</label></div>}
-        {review && <button type="button" onClick={() => setReview(false)}>Edit details</button>}<button disabled={busy || (review && fee > 0 && !accepted)}>{!review ? 'Review request' : busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${feeText(fee)} & submit` : 'Submit request'}</button></form></>
+    </> : <div className="legal-detail">
+      {/* Service summary: what it is and what it costs. */}
+      <article className="legal-detail-card legal-detail-hero">
+        <div className="legal-detail-head">
+          <span className="legal-detail-icon"><ServiceIcon size={24} aria-hidden="true" /></span>
+          <div><h2>{detail.name}</h2>{detail.description && <p>{detail.description}</p>}</div>
+        </div>
+        <p className="legal-detail-price">{fee ? <><span className="legal-detail-price-label">{feeQuote.taxRate > 0 ? 'Total payable' : 'Service fee'}</span> <strong>{rupees(fee)}</strong> <small>{feeQuote.taxRate > 0 ? `incl. ${feeQuote.taxRate}% GST · ` : '· '}paid when you submit</small></> : <strong>Free service</strong>}</p>
+      </article>
+      {detail.instructions && <article className="legal-detail-card legal-detail-info"><h3>How it works</h3><p>{detail.instructions}</p></article>}
+      {fee > 0 && <article className="legal-detail-card"><h3>Price details</h3><FeeBreakdown fee={feeQuote} />
+        {detail.terms && <details className="legal-detail-terms"><summary>Payment, cancellation &amp; disclaimer terms</summary><p>{detail.terms}</p></details>}</article>}
+      <form ref={formRef} className="legal-detail-card legal-detail-form" onSubmit={e => { e.preventDefault(); if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } if (!review) setReview(true); else submit(); }}>
+        <h3>{review ? 'Review & pay' : 'Your details'}</h3>
+        <p className="legal-detail-muted">{detail.fields?.length ? 'Only share what this service needs. Your documents stay private.' : 'No details needed. Continue to pay and submit your request.'}</p>
+        <DynamicFields fields={detail.fields} answers={answers} setAnswers={setAnswers} setFiles={setFiles} errors={errors} disabled={busy || review} />
+        {review && detail.fields?.length > 0 && <p className="legal-detail-muted">Check the details above, then submit your request.</p>}
+        {review && fee > 0 && <label className="legal-detail-agree"><input type="checkbox" checked={accepted} disabled={busy} onChange={e => setAccepted(e.target.checked)} /><span>I agree to the payment, cancellation and disclaimer terms, and to pay {rupees(fee)} now.</span></label>}
+        <div className="legal-detail-actions">
+          {review && detail.fields?.length > 0 && <button type="button" className="legal-detail-secondary" onClick={() => setReview(false)}>Edit details</button>}
+          <button className="legal-detail-primary" disabled={busy || (review && fee > 0 && !accepted)}>{!isLoggedIn ? 'Sign in to continue' : !review ? 'Continue' : busy ? (fee ? 'Opening payment…' : 'Submitting…') : fee ? `Pay ${rupees(fee)} & submit` : 'Submit request'}</button>
+        </div>
+      </form>
+    </div>
       : !error && <><div className="legal-grid">{items.map(a => <article className="legal-card" key={a._id}><h3>{a.name || a.serviceName}</h3>{history ? <><p><ServiceReference value={a._id} /></p><p>{statusLabel(a.status)} · {statusLabel(a.paymentStatus)}</p><p>{new Date(a.createdAt).toLocaleDateString()}</p></> : <p>{a.description}</p>}<button type="button" onClick={() => { if (history) { navigate(legalRequestPath(a._id)); } else { if (!isLoggedIn) { if (typeof window !== 'undefined') window.location.href = '/account'; return; } navigate(`/legal-services/${a._id}`); } }}>{history ? 'View request' : 'View service'}</button></article>)}</div>{!items.length && <section className="customer-service-state" role="status"><h2>{history ? 'No requests yet' : 'No eligible services available'}</h2><p>{history ? 'Your private legal service requests will appear here.' : search ? 'Try another search to find a legal service.' : 'Legal services are currently unavailable. Please check back for available services.'}</p></section>}{meta.total > 20 && <nav className="customer-service-pagination"><button disabled={page === 1} onClick={() => setPage(n => n - 1)}>Previous</button><span>Page {page}</span><button disabled={page * 20 >= meta.total} onClick={() => setPage(n => n + 1)}>Next</button></nav>}</>}
   </section>;
 }

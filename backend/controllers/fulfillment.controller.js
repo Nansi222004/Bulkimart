@@ -4,8 +4,11 @@ import { storePickup, pickupLocationError } from '../services/storePickup.servic
 import { shiprocketEnvironment } from '../config/shiprocketEnvironment.js';
 import { orderPaymentReady as paymentIsReady } from '../services/orderPaymentEligibility.service.js';
 import Seller from '../models/Seller.js';
+import User from '../models/User.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Delivery from '../models/Delivery.js';
+import Return from '../models/Return.js';
+import { applyForwardTracking, logCourierEvent, safePayload, assertShiprocketCodAllowed, shiprocketCodBlocked, SHIPROCKET_COD_MESSAGE } from '../services/courierTracking.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { CHANNEL, ORDER_STATUS } from '../constants/enums.js';
@@ -100,7 +103,9 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
   try { validateServiceFeeConfiguration(quickConfigState?.config); quickFeeRuleConfigured = true; } catch { /* Missing approvals never imply a zero fee. */ }
   let providerQuote = null;
   let providerFailure = null;
-  if (capabilities.configured && pickupLinked && verifiedPickup && addressReady && packageWeightKg && courierChannelAllowed) {
+  // COD cannot go by Shiprocket yet (audit H1), so no courier quote is requested for it.
+  const codBlocked = shiprocketCodBlocked(order);
+  if (!codBlocked && capabilities.configured && pickupLinked && verifiedPickup && addressReady && packageWeightKg && courierChannelAllowed) {
     try {
       const serviceability = await checkServiceability({
         pickupPostcode: pickup.pincode, deliveryPostcode: drop.pincode,
@@ -131,7 +136,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       } else providerFailure = 'No courier services this route';
     } catch { providerFailure = 'Provider serviceability check failed'; }
   }
-  const shiprocketEligible = capabilities.configured && pickupLinked && addressReady
+  const shiprocketEligible = !codBlocked && capabilities.configured && pickupLinked && addressReady
     && packageWeightKg && courierChannelAllowed
     && Boolean(providerQuote)
     && (order.type !== CHANNEL.GROCERY || (
@@ -166,7 +171,8 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       packageWeightKg,
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
-      reason: stateReason || (shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
+      codUnavailable: codBlocked,
+      reason: stateReason || (codBlocked && !shipmentLocked ? SHIPROCKET_COD_MESSAGE : shipmentLocked ? 'Courier setup already exists or needs reconciliation. Refresh the order and contact support before retrying.'
         : order.type === CHANNEL.GROCERY && (!quickConfigState.activationReady || !quickConfigState.config.enabled) ? 'Quick Commerce Shiprocket remains disabled pending approved fees, policies and seller collection reconciliation'
         : order.delivery?.mode === 'same_day' ? 'Same-Day requires Bulkimart delivery'
         : !capabilities.configured ? 'Shiprocket is not configured'
@@ -281,6 +287,8 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
   if (order.vendorDecision?.status !== 'accepted' || order.status !== ORDER_STATUS.PREPARING) throw httpError(409, 'Accept and prepare the order before creating a shipment');
   if (!await paymentIsReady(order)) throw httpError(409, 'Payment is not verified');
   if (order.shiprocket?.awb) return ok(res, { shiprocket: order.shiprocket, fulfillment: order.fulfillment }, 'Shipment already created');
+  // No new Shiprocket booking for COD (audit H1); an existing booking above is still returned unchanged.
+  assertShiprocketCodAllowed(order);
   if (!pickupReadyForShipping(seller, req.user)) throw httpError(409, 'Current store pickup is not synchronized. Check and retry pickup registration in the store profile.');
   if (activeShipmentStates.includes(order.shiprocket?.status)) throw httpError(409, 'Shipment setup is in progress or needs provider reconciliation. Do not create another shipment.');
   if (Boolean(order.shiprocket?.orderId) !== Boolean(order.shiprocket?.shipmentId)) throw httpError(409, 'Partial provider references require reconciliation before any shipment retry.');
@@ -342,13 +350,19 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
       const pricing = order.pricing;
       const tip = Number(pricing.tipAmount || 0);
       const grossItems = Number(pricing.subtotal) + tip;
-      const discount = Number((grossItems + quote.customerDeliveryCharge - Number(pricing.totalAmount)).toFixed(2));
+      // An exchange replacement is prepaid (nothing to collect) and keeps the goods' full declared value for the
+      // courier's invoice and transit cover, instead of a 100% discount that would make it a ₹0 shipment.
+      const discount = order.exchange?.returnId ? 0 : Number((grossItems + quote.customerDeliveryCharge - Number(pricing.totalAmount)).toFixed(2));
       if (![grossItems, discount, Number(pricing.totalAmount)].every(Number.isFinite) || discount < 0) throw httpError(409, 'Order pricing does not reconcile; contact support before creating a shipment.');
+      // The billing contact is the customer, not the seller who is booking (req.user). Customers who signed up
+      // with a phone number only have no email; the platform's order address is used for them.
+      const customer = await User.findById(order.userId).select('email').lean();
+      const billingEmail = customer?.email || process.env.SHIPROCKET_CONTACT_EMAIL || 'orders@bulkimart.in';
       remoteStarted = true;
       const result = await createShiprocketOrder({
         order_id: order.orderNo, order_date: new Date(order.createdAt).toISOString().slice(0,19).replace('T',' '), pickup_location: pickupLocation,
         billing_customer_name: a.name, billing_last_name: '', billing_address: [a.line1,a.line2].filter(Boolean).join(', '), billing_city: a.city,
-        billing_pincode: a.pincode, billing_state: a.state, billing_country: 'India', billing_email: req.user.email || 'orders@bulkimart.in', billing_phone: a.phone, shipping_is_billing: true,
+        billing_pincode: a.pincode, billing_state: a.state, billing_country: 'India', billing_email: billingEmail, billing_phone: a.phone, shipping_is_billing: true,
         order_items: [...order.items.map(item => ({ name: item.name, sku: item.sku || String(item.productId), units: item.qty, selling_price: item.price })),
           ...(tip > 0 ? [{ name: 'Delivery partner tip', sku: 'BULKIMART-TIP', units: 1, selling_price: tip }] : [])],
         payment_method: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid', sub_total: grossItems,
@@ -391,41 +405,35 @@ export const createShiprocketShipment = asyncHandler(async (req, res) => {
 export const shiprocketWebhook = asyncHandler(async (req, res) => {
   const environment = shiprocketEnvironment();
   const expected = environment.webhookSecret;
+  const body = req.body || {};
+  const awb = String(body.awb || body.awb_code || '').trim();
+  const shipmentId = String(body.shipment_id || '').trim();
   if (!expected) throw httpError(503, 'Shiprocket webhook authentication is not configured');
-  // Shiprocket sends the optional webhook security token in x-api-key.
+  // Shiprocket sends the webhook security token (SHIPROCKET_*_WEBHOOK_SECRET) in x-api-key.
   const supplied = String(req.get('x-api-key') || '');
   const valid = Buffer.byteLength(supplied) === Buffer.byteLength(expected)
     && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
-  if (!valid) throw httpError(401, 'Invalid Shiprocket webhook token');
+  if (!valid) {
+    await logCourierEvent({ kind: 'webhook', environment: environment.mode, awb, shipmentId, outcome: 'rejected', detail: 'invalid webhook token' });
+    throw httpError(401, 'Invalid Shiprocket webhook token');
+  }
+  const statusId = body.shipment_status_id ?? body.current_status_id;
+  const status = String(body.current_status || body.shipment_status || body.status || '');
 
-  if (Number(req.body?.is_return) === 1) {
+  // Return pickups and forward shipments are tracked independently. A scan flagged as a return, or whose AWB
+  // belongs to a return pickup, never touches an order.
+  const reverse = Number(body.is_return) === 1 || (!Number(body.is_return) && awb && !await Order.exists({ 'shiprocket.awb': awb }) && await Return.exists({ awbNumber: awb, pickupMethod: 'SHIPROCKET' }));
+  if (reverse) {
     const { applyReverseTracking } = await import('../services/returnCourier.service.js');
-    const result = await applyReverseTracking({ shipmentId: req.body.shipment_id, awb: req.body.awb || req.body.awb_code,
-      statusId: req.body.shipment_status_id, status: req.body.shipment_status, eventId: req.body.event_id, environment: environment.mode });
+    const result = await applyReverseTracking({ shipmentId: body.shipment_id, awb: body.awb || body.awb_code,
+      statusId: body.shipment_status_id, status: body.shipment_status, eventId: body.event_id, environment: environment.mode });
+    await logCourierEvent({ kind: 'webhook', direction: 'return', environment: environment.mode, awb, shipmentId, statusId: Number(statusId) || undefined, status, returnId: result.returnId,
+      outcome: !result.matched ? 'unmatched' : result.changed ? 'applied' : 'duplicate_or_stale', payload: safePayload(body) });
     return ok(res, { processed: result.changed }, 'Return tracking evidence checked');
   }
 
-  const awb = String(req.body?.awb || req.body?.awb_code || '');
-  const shipmentId = String(req.body?.shipment_id || '');
-  if (!awb && !shipmentId) throw httpError(400, 'Webhook is missing shipment identity');
-  const status = String(req.body?.current_status || req.body?.shipment_status || req.body?.status || 'unknown');
-  const eventId = String(req.body?.event_id || crypto.createHash('sha256')
-    .update(JSON.stringify({ awb, shipmentId, status, timestamp: req.body?.timestamp || req.body?.updated_at || '' }))
-    .digest('hex'));
-
-  const result = await Order.updateOne(
-    {
-      ...(awb ? { 'shiprocket.awb': awb } : { 'shiprocket.shipmentId': shipmentId }),
-      ...(environment.mode === 'sandbox' ? { 'shiprocket.environment': 'sandbox' } : {
-        $or: [{ 'shiprocket.environment': environment.mode }, { 'shiprocket.environment': { $exists: false } }],
-      }),
-      ...(environment.mode === 'live' ? { $nor: ['orderId','shipmentId','awb'].map(field => ({ ['shiprocket.' + field]: /MOCK/i })) } : {}),
-      'shiprocket.webhookEvents.eventId': { $ne: eventId },
-    },
-    {
-      $set: { 'shiprocket.status': status },
-      $push: { 'shiprocket.webhookEvents': { eventId, status, receivedAt: new Date() } },
-    },
-  );
-  return ok(res, { processed: result.modifiedCount === 1 }, result.modifiedCount ? 'Tracking update applied' : 'Webhook already processed or shipment not found');
+  const result = await applyForwardTracking({ awb, shipmentId, statusId, status, eventId: body.event_id,
+    environment: environment.mode, source: 'webhook', payload: safePayload(body) });
+  // Always 200 for an authenticated event, so Shiprocket does not keep re-sending scans we deliberately ignored.
+  return ok(res, { processed: result.applied, outcome: result.outcome }, result.applied ? 'Tracking update applied' : `Tracking event ${result.outcome}`);
 });

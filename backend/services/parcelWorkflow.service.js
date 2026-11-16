@@ -10,7 +10,7 @@ import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
-import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing, parcelVehicles, parcelVehicleFits, parcelVehicleSnapshot } from './parcelPolicy.service.js';
+import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing, parcelVehicles, parcelVehicleFits, parcelVehicleSnapshot, PARCEL_ADMIN_QUEUE_DEFAULT_SECONDS } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // Customers may cancel only until the rider has collected the parcel. After pickup,
 // problems go through the rider's help request and the admin review queue instead.
@@ -116,6 +116,8 @@ export function parcelDTO(b, mode = 'customer', partnerId) {
     service:mode === 'customer'?(v.details.vehicle?{ id:v.details.vehicle.id, name:v.details.vehicle.name, ...(v.details.vehicle.icon?{ icon:v.details.vehicle.icon }:{}) }:{ id:'parcel', name:'Doorstep delivery' }):undefined,
     vehicle:mode !== 'customer' && v.details.vehicle?{ id:v.details.vehicle.id, name:v.details.vehicle.name }:undefined,
     canCancel:mode === 'customer'?parcelCustomerCanCancel(v):undefined,
+    // Waiting in the admin queue: since when, and when it is cancelled automatically if nobody is assigned.
+    adminQueue:mode !== 'driver'?(parcelAdminQueueDeadline(v) || undefined):undefined,
     boost:mode === 'customer'?parcelBoostState(v):mode === 'admin'?{ boostedPaise:v.pricing.boostPaise||0, boosts:v.pricing.boosts||[] }:undefined,
     assignment:mode === 'admin'?v.assignment:undefined, partnerId:v.partnerId, history:h, cash:{ status:v.cash.status, amountPaise:v.cash.amountPaise },
     finance:mode === 'admin'?{...v.finance,settlementBlockers:parcelSettlementBlockers(v)}: mode === 'driver'?{ earningPaise:v.pricing.driverPaise, held:v.finance.held, payoutStatus:'not_released' }:undefined,
@@ -204,6 +206,41 @@ export async function boostParcel(id, customerId, input) {
   // Broadcast the higher earning straight away (also notifies customer and riders).
   const { assignParcel } = await import('./parcelAssignment.service.js');
   try { return await assignParcel(b._id); } catch { return Parcel.findById(b._id); }
+}
+
+/**
+ * When a booking waiting in the admin queue is cancelled automatically, or null (not queued, or turned off).
+ * The wait starts at the latest move into the queue and uses the policy frozen with the booking.
+ */
+export function parcelAdminQueueDeadline(b) {
+  if (b?.status !== 'needs_admin_assignment' || b.partnerId || b.cancellation) return null;
+  const seconds = b.pricing?.policy?.adminQueueSeconds ?? PARCEL_ADMIN_QUEUE_DEFAULT_SECONDS;
+  if (!(seconds > 0)) return null;
+  const since = [...(b.history || [])].reverse().find(e => e.status === 'needs_admin_assignment')?.at;
+  return since ? { since: new Date(since), cancelAt: new Date(new Date(since).getTime() + seconds * 1000) } : null;
+}
+
+/**
+ * No delivery partner was found in time and no admin assigned one: cancel and refund to the wallet,
+ * exactly as an instant customer cancellation does. Returns the booking, or null when nothing was done
+ * (assigned, cancelled or boosted meanwhile, or the deadline moved).
+ */
+export async function parcelAutoCancelExpired(id) {
+  return financialTransaction(async session => {
+    const b = await Parcel.findById(id).session(session);
+    const deadline = b && parcelAdminQueueDeadline(b);
+    if (!deadline || deadline.cancelAt > new Date()) return null;
+    const now = new Date();
+    b.cancellation = { status:'approved', priorState:b.status, reason:'No delivery partner was available in time', requestedAt:now, decidedAt:now, instant:true, refundTo:'wallet', automatic:true };
+    for (const attempt of b.assignment.attempts || []) if (attempt.outcome === 'offered') { attempt.outcome = 'cancelled'; attempt.resolvedAt = now; }
+    await releaseParcelRider(b,session); delete b.assignment.offer;
+    b.finance.held = true;
+    parcelEvent(b,{ type:'system' },'expired_no_driver','cancelled','No delivery partner was available in time');
+    const { autoRefundParcelToWallet, refundParcelBoostToWallet } = await import('./parcelPayment.service.js');
+    await autoRefundParcelToWallet(b,{ type:'system' },session);
+    await refundParcelBoostToWallet(b,{ type:'system' },session);
+    touchParcel(b); await b.save({ session }); return b;
+  });
 }
 
 export async function parcelCustomerCancel(id, customerId, input) {

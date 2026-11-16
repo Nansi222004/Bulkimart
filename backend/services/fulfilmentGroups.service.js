@@ -11,7 +11,7 @@ import { checkCartSameDayEligibility } from './sameDay.service.js';
 import { applyCouponCode } from './coupon.service.js';
 import { CHANNEL, CHANNELS, DELIVERY_MODE } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
-import { resolveCampaignPricesForProducts } from './campaign.service.js';
+import { resolveCampaignPricesForProducts, campaignUnitPrice } from './campaign.service.js';
 import { resolveInventoryItem, isUnlimitedDigital } from './inventory.service.js';
 import { isWithinRadius } from './radius.service.js';
 import { httpError } from '../utils/response.js';
@@ -150,7 +150,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
     try { if (product) inventory = resolveInventoryItem(product, line.variantId, { allowLegacyPrimary: !line.variantId }); } catch { /* rendered as unavailable below */ }
     // Easy Returns is a retail option; the charge is added on top of the live (campaign) price.
     const returnOption = purchaseMode === 'wholesale' ? undefined : resolveReturnOption(product, line.returnOption);
-    const basePrice = wholesaleQuote?.unitPrice ?? (inventory ? (deal ? Number((inventory.price * (1 - Number(deal.discountValue || 0) / 100)).toFixed(2)) : inventory.price) : line.price);
+    const basePrice = wholesaleQuote?.unitPrice ?? (inventory ? (deal ? campaignUnitPrice(inventory.price, deal.discountValue) : inventory.price) : line.price);
     const enriched = {
       ...line,
       // Whose pickup this actually is, per the live product — not whatever

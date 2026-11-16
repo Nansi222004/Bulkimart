@@ -15,8 +15,11 @@ import {
 } from '../services/return.service.js';
 import { arrangeReturnPickup, markReturnDeliveredToSeller, returnPickupOptions } from '../services/returnPickup.service.js';
 import { bookReturnCourier, reconcileReturnCourier, cancelReturnCourier } from '../services/returnCourier.service.js';
+import { escapeRegex } from "../utils/regex.js";
+import Product from '../models/Product.js';
+import { exchangeOptionsFor, createExchangeReplacement } from '../services/returnExchange.service.js';
 import {
-  RETURN_REASONS, RETURN_STATUSES, RETURN_MAX_ATTACHMENTS, RETURN_STATUS,
+  RETURN_REASONS, RETURN_STATUSES, RETURN_MAX_ATTACHMENTS, RETURN_STATUS, RETURN_RESOLUTION, RETURN_RESOLUTIONS,
 } from '../constants/enums.js';
 
 /**
@@ -61,6 +64,12 @@ const publicReturnShape = (ret, delivery) => ({
   quantity: ret.quantity,
   reason: ret.reason,
   customerDescription: ret.customerDescription,
+  resolution: ret.resolution || RETURN_RESOLUTION.REFUND,
+  exchange: ret.exchange && {
+    status: ret.exchange.status, variantId: ret.exchange.variantId, variantName: ret.exchange.variantName,
+    replacementOrderId: ret.exchange.replacementOrderId, replacementOrderNo: ret.exchange.replacementOrderNo,
+    convertedReason: ret.exchange.convertedReason,
+  },
   attachments: ret.attachments,
   status: ret.status,
   requestedAt: ret.requestedAt,
@@ -99,9 +108,15 @@ const publicReturnShape = (ret, delivery) => ({
 // @access  Private
 export const getOrderItemReturnEligibility = asyncHandler(async (req, res) => {
   try {
-    const { item, remaining } = await getReturnEligibility({
+    const { order, item, remaining } = await getReturnEligibility({
       orderId: req.params.orderId, orderItemId: req.params.itemId, customerId: req.user._id, quantity: 1,
     });
+    // Exchange: the same item, or another option of this product at the same price (in stock or not, so the
+    // screen can show why an option can't be picked). Empty when this item can't be exchanged.
+    // Not offered once this line has used its one exchange (business rule C); the request path enforces it atomically.
+    const exchangeable = order.salesChannel !== 'wholesale' && item.fulfillmentType !== 'digital' && !item.exchangeReturnId;
+    const product = exchangeable ? await Product.findById(item.productId).select('name price stock variants status isActive isDeleted fulfillmentType').lean() : null;
+    const exchangeOptions = exchangeable ? exchangeOptionsFor(product, item, 1) : [];
     return ok(res, {
       eligible: true,
       returnWindowDays: item.returnPolicy?.returnWindowDays,
@@ -111,6 +126,9 @@ export const getOrderItemReturnEligibility = asyncHandler(async (req, res) => {
       returnOption: item.returnOption || null,
       allowedReasons: allowedReturnReasonsFor(item),
       returnPolicySnapshot: item.returnPolicySnapshot || null,
+      exchangeOptions,
+      // A replacement can be exchanged again but not refunded (it was never paid for).
+      refundAvailable: !order.exchange?.returnId,
     });
   } catch (err) {
     // A genuinely bad/foreign order id stays a real error (404); every
@@ -127,6 +145,10 @@ export const getOrderItemReturnEligibility = asyncHandler(async (req, res) => {
 // @access  Private
 export const createReturn = asyncHandler(async (req, res) => {
   const { orderId, orderItemId, quantity, reason, customerDescription } = req.body;
+  const resolution = req.body.resolution || RETURN_RESOLUTION.REFUND;
+  if (!RETURN_RESOLUTIONS.includes(resolution)) throw httpError(400, 'resolution must be REFUND or EXCHANGE');
+  const exchangeVariantId = req.body.exchangeVariantId || undefined;
+  if (exchangeVariantId !== undefined && !mongoose.isValidObjectId(exchangeVariantId)) throw httpError(400, 'Invalid exchange option');
 
   if (!RETURN_REASONS.includes(reason)) {
     throw httpError(400, `reason must be one of: ${RETURN_REASONS.join(', ')}`);
@@ -143,10 +165,10 @@ export const createReturn = asyncHandler(async (req, res) => {
 
   const ret = await createReturnRequest({
     orderId, orderItemId, customerId: req.user._id, quantity: qty, reason, customerDescription, attachments,
-    requestKey: req.get('Idempotency-Key'),
+    requestKey: req.get('Idempotency-Key'), resolution, exchangeVariantId,
   });
 
-  return created(res, publicReturnShape(ret), `Return ${ret.returnNumber} requested`);
+  return created(res, publicReturnShape(ret), `${resolution === RETURN_RESOLUTION.EXCHANGE ? 'Exchange' : 'Return'} ${ret.returnNumber} requested`);
 });
 
 // @desc    This customer's own return requests
@@ -361,8 +383,8 @@ export const listReturnsAdmin = asyncHandler(async (req, res) => {
   if (status && RETURN_STATUSES.includes(status)) filter.status = status;
   if (search) {
     filter.$or = [
-      { returnNumber: new RegExp(search, 'i') },
-      { productName: new RegExp(search, 'i') },
+      { returnNumber: new RegExp(escapeRegex(search), 'i') },
+      { productName: new RegExp(escapeRegex(search), 'i') },
     ];
   }
 
@@ -426,6 +448,18 @@ export const getReturnAdmin = asyncHandler(async (req, res) => {
 // @desc    Start (or safely retry) this return's real refund
 // @route   POST /api/admin/returns/:id/refund
 // @access  Private/Admin
+// @desc    Send (or retry sending) the replacement for an exchange whose item was received and inspected.
+//          Falls back to a refund automatically when the replacement can't be sent (stock, product withdrawn).
+// @route   POST /api/admin/returns/:id/exchange/replacement
+// @access  Private/Admin
+export const sendExchangeReplacementAdmin = asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) throw httpError(400, 'Invalid return id');
+  const result = await createExchangeReplacement(req.params.id);
+  const message = result.converted ? `Replacement could not be sent (${result.reason}); the exchange is now a refund`
+    : result.alreadyCreated ? 'Replacement order already placed' : 'Replacement order placed';
+  return ok(res, await buildReturnDetail(req.params.id), message);
+});
+
 export const processReturnRefundAdmin = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) throw httpError(400, 'Invalid return id');
   const ret = await processReturnRefund({ returnId: req.params.id, adminId: req.user._id });

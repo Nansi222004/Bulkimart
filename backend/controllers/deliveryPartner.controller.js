@@ -1,6 +1,8 @@
 import { riderIneligibility, riderPickupPosition } from '../services/riderEligibility.service.js';
 import { storePickup, requireOrderPickup, orderStoreId, pickupCoordinates } from '../services/storePickup.service.js';
 import mongoose from 'mongoose';
+import { scheduleRetry } from '../services/retryScheduler.service.js';
+import crypto from 'node:crypto';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
 import Order from '../models/Order.js';
@@ -669,9 +671,9 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     if (attempt < MAX_ATTEMPTS) {
       // Widen and try again shortly — riders come on shift, and one may finish
       // a delivery nearby within the next half minute.
-      setTimeout(() => {
-        broadcastNewOrderToRiders(orderId, attempt + 1).catch(console.error);
-      }, 30 * 1000);
+      // Tracked by the retry scheduler so shutdown can cancel it (same 30 s delay and callback as before).
+      scheduleRetry(`rider-broadcast:${orderId}:${attempt + 1}`, 30 * 1000,
+        () => broadcastNewOrderToRiders(orderId, attempt + 1), console.error);
       return;
     }
 
@@ -1567,10 +1569,30 @@ export const generateDeliveryOtp = asyncHandler(async (req, res) => {
   const delivery = await Delivery.findById(order.deliveryId);
   if (!delivery) throw httpError(404, 'Delivery record not found');
 
-  const otp = Math.floor(1000 + Math.random() * 9000).toString();
+  if (delivery.otpVerified) throw httpError(409, 'This delivery is already confirmed');
+  /**
+   * A fresh code resets the 5-try budget, and the rider is the one who asks for it. Without a cooldown a rider
+   * could loop "new code, 5 guesses" until one landed. One code a minute (as for return pickups) keeps resends
+   * for a lost SMS possible while making guessing impractical.
+   */
+  const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+  const sinceIssued = delivery.otpIssuedAt ? Date.now() - new Date(delivery.otpIssuedAt).getTime() : Infinity;
+  if (sinceIssued < OTP_RESEND_COOLDOWN_MS) {
+    const wait = Math.ceil((OTP_RESEND_COOLDOWN_MS - sinceIssued) / 1000);
+    throw httpError(429, `A code was just sent to the customer. You can send a new one in ${wait} seconds.`, { code: 'OTP_RESEND_COOLDOWN', retryAfterSeconds: wait });
+  }
+
+  const otp = crypto.randomInt(1000, 10000).toString();
+  const issuedAt = new Date();
+  // Atomic: two simultaneous "send code" taps cannot both pass the cooldown and reset the try budget twice.
+  const issued = await Delivery.updateOne(
+    { _id: delivery._id, otpVerified: { $ne: true }, $or: [{ otpIssuedAt: { $exists: false } }, { otpIssuedAt: null }, { otpIssuedAt: { $lte: new Date(issuedAt.getTime() - OTP_RESEND_COOLDOWN_MS) } }] },
+    { $set: { otp, otpAttempts: 0, otpIssuedAt: issuedAt } }
+  );
+  if (!issued.modifiedCount) throw httpError(429, 'A code was just sent to the customer. Please wait a minute before sending another.', { code: 'OTP_RESEND_COOLDOWN' });
   delivery.otp = otp;
   delivery.otpAttempts = 0;          // a fresh code gets a fresh budget of tries
-  delivery.otpIssuedAt = new Date();
+  delivery.otpIssuedAt = issuedAt;
 
   /**
    * How far the rider was from the door when they asked for the code.
@@ -1667,8 +1689,14 @@ export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
   }
 
   if (delivery.otp !== String(otp).trim()) {
-    delivery.otpAttempts = (delivery.otpAttempts || 0) + 1;
-    await delivery.save();
+    // Counted atomically against the cap: parallel wrong guesses can't each read "0 used" and slip past it.
+    const counted = await Delivery.findOneAndUpdate(
+      { _id: delivery._id, $or: [{ otpAttempts: { $lt: MAX_ATTEMPTS } }, { otpAttempts: { $exists: false } }, { otpAttempts: null }] },
+      { $inc: { otpAttempts: 1 } },
+      { returnDocument: 'after' }
+    );
+    if (!counted) throw httpError(429, 'Too many incorrect attempts. Ask the customer to have a new code sent.');
+    delivery.otpAttempts = counted.otpAttempts;
 
     const left = MAX_ATTEMPTS - delivery.otpAttempts;
     throw httpError(400, left > 0

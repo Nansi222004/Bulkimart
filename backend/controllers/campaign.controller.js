@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Campaign from '../models/Campaign.js';
 import CampaignParticipation from '../models/CampaignParticipation.js';
 import Category from '../models/Category.js';
@@ -7,10 +8,11 @@ import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError } from '../utils/response.js';
+import { escapeRegex } from "../utils/regex.js";
 import {
   campaignLifecycle, isCampaignEffectivelyActive, eligibleProductsForCampaign,
   resolveCampaignPricesForProducts,
-  isEligibleProduct,
+  isEligibleProduct, campaignUnitPrice,
 } from '../services/campaign.service.js';
 
 const isEligibleCategory = (c) => !!c && c.isActive;
@@ -92,17 +94,19 @@ const syncParticipationRows = async (campaign) => {
   await CampaignParticipation.insertMany(
     toCreate.map((p) => {
       const price = Number(p.price) || 0;
-      const campaignPrice = discountVal > 0 ? Math.max(0, Math.round(price * (1 - discountVal / 100))) : price;
+      // A preview only: the price is re-snapshotted when the seller accepts.
+      const campaignPrice = campaignUnitPrice(price, discountVal);
       return {
         campaignId: campaign._id,
         sellerId: p.sellerId,
         productId: p._id,
-        status: 'ACCEPTED',
+        // Business rule: a campaign discount applies only after the seller explicitly accepts it
+        // (acceptCampaignParticipation). Admin publication never activates participation.
+        status: 'PENDING',
         discountType: campaign.discountType || 'PERCENTAGE',
         discountValue: discountVal,
         originalPriceSnapshot: price,
         campaignPrice,
-        acceptedAt: new Date(),
       };
     }),
     { ordered: false }
@@ -138,7 +142,7 @@ const cancelStaleParticipation = async (campaign) => {
 export const listCampaignsForAdmin = asyncHandler(async (req, res) => {
   const { search, status } = req.query;
   const filter = {};
-  if (search) filter.name = new RegExp(search, 'i');
+  if (search) filter.name = new RegExp(escapeRegex(search), 'i');
 
   let campaigns = await Campaign.find(filter).sort({ createdAt: -1 })
     .populate('targetCategory', 'name').lean();
@@ -405,28 +409,14 @@ export const getCampaignProductsPublic = asyncHandler(async (req, res) => {
     .lean();
 
   const disc = Number(campaign.discountValue) || 0;
-
-  // Fallback to pending or newly eligible products if none were yet accepted
-  if (!rows.length) {
-    const pendingRows = await CampaignParticipation.find({ campaignId: campaign._id })
-      .populate('productId', 'name images price mrp stock type isActive isDeleted status sellingChannels')
-      .lean();
-    if (pendingRows.length) {
-      rows = pendingRows.map(r => ({
-        ...r,
-        campaignPrice: r.campaignPrice || (disc > 0 ? Math.max(0, Math.round((r.productId?.price || 0) * (1 - disc / 100))) : r.productId?.price),
-        discountValue: r.discountValue || disc,
-      }));
-    }
-  }
+  // Only seller-accepted products are on the deal: checkout discounts ACCEPTED participation only
+  // (campaign.service.js::resolveCampaignPricesForProducts), so pending rows are never shown at a deal price.
 
   const products = rows
     .filter((r) => isEligibleProduct(r.productId))
     .map((r) => {
-      const price = Number(r.productId.price) || 0;
-      const computedDealPrice = r.campaignPrice != null
-        ? r.campaignPrice
-        : (disc > 0 ? Math.max(0, Math.round(price * (1 - disc / 100))) : price);
+      // The same formula and basis checkout charges: the current price with the accepted discount.
+      const computedDealPrice = campaignUnitPrice(r.productId.price, r.discountValue ?? disc);
       return {
         id: r.productId._id,
         _id: r.productId._id,
@@ -462,4 +452,133 @@ export const getCampaignProductsPublic = asyncHandler(async (req, res) => {
       } : undefined,
     },
   }, 'Campaign products');
+});
+
+// ============================================================
+// SELLER — explicit campaign participation (business rule: a campaign discount applies to a seller's product
+// only after the seller accepts it; rejecting or withdrawing stops it applying). Scoped to the seller's own rows.
+// ============================================================
+
+const productIdList = (value) => {
+  if (!Array.isArray(value) || !value.length || value.length > 200) throw httpError(400, 'Select between 1 and 200 products');
+  if (value.some((id) => !mongoose.isValidObjectId(id))) throw httpError(400, 'Invalid product selection');
+  return value.map(String);
+};
+
+/** @route GET /api/sellers/campaigns — campaigns with at least one row for this seller, with their own counts. */
+export const listCampaignsForSeller = asyncHandler(async (req, res) => {
+  const rows = await CampaignParticipation.find({ sellerId: req.seller._id })
+    .select('campaignId status').populate('campaignId', 'name discountValue startAt endAt isDraft isEnabled').lean();
+  const byCampaign = new Map();
+  for (const row of rows) {
+    const c = row.campaignId;
+    if (!c) continue;
+    const key = String(c._id);
+    if (!byCampaign.has(key)) byCampaign.set(key, { campaignId: c._id, name: c.name, discountValue: c.discountValue, startAt: c.startAt, endAt: c.endAt, lifecycle: campaignLifecycle(c), eligible: 0, pending: 0, accepted: 0, rejected: 0 });
+    const entry = byCampaign.get(key);
+    entry.eligible += 1;
+    if (row.status === 'PENDING') entry.pending += 1;
+    else if (row.status === 'ACCEPTED') entry.accepted += 1;
+    else if (row.status === 'REJECTED') entry.rejected += 1;
+  }
+  return ok(res, [...byCampaign.values()].sort((a, b) => new Date(b.startAt) - new Date(a.startAt)), 'Your campaigns');
+});
+
+/** @route GET /api/sellers/campaigns/:id — this seller's products in the campaign with the deal price checkout would charge. */
+export const getCampaignForSeller = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid campaign');
+  const campaign = await Campaign.findById(req.params.id).lean();
+  if (!campaign) throw httpError(404, 'Campaign not found');
+  const rows = await CampaignParticipation.find({ campaignId: campaign._id, sellerId: req.seller._id }).populate('productId', 'name images price stock').lean();
+  return ok(res, {
+    campaignId: campaign._id, name: campaign.name, description: campaign.description, discountValue: campaign.discountValue,
+    startAt: campaign.startAt, endAt: campaign.endAt, lifecycle: campaignLifecycle(campaign),
+    products: rows.map((r) => ({
+      participationId: r._id, productId: r.productId?._id, name: r.productId?.name, image: r.productId?.images?.[0] || '',
+      currentPrice: r.productId?.price,
+      // What the customer pays per unit while the deal runs (same formula as checkout); the seller's earning on a
+      // sale is calculated from this price.
+      dealPrice: campaignUnitPrice(r.productId?.price, r.status === 'ACCEPTED' ? r.discountValue : campaign.discountValue),
+      status: r.status, acceptedAt: r.acceptedAt, rejectedAt: r.rejectedAt, rejectionReason: r.rejectionReason,
+    })),
+  }, 'Campaign detail');
+});
+
+/**
+ * @route PATCH /api/sellers/campaigns/:id/accept  body: { productIds }
+ * Only selected PENDING rows become ACCEPTED, each atomically (a double submit accepts once). A product already in
+ * another active or scheduled campaign is skipped so two discounts never stack.
+ */
+export const acceptCampaignParticipation = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid campaign');
+  const productIds = productIdList(req.body?.productIds);
+  const campaign = await Campaign.findById(req.params.id).lean();
+  if (!campaign) throw httpError(404, 'Campaign not found');
+  if (['EXPIRED', 'DISABLED'].includes(campaignLifecycle(campaign))) throw httpError(400, 'This campaign is no longer accepting participation');
+  const rows = await CampaignParticipation.find({ campaignId: campaign._id, sellerId: req.seller._id, productId: { $in: productIds }, status: 'PENDING' })
+    .populate('productId', 'price isActive isDeleted status fulfillmentType sellingChannels').lean();
+  if (!rows.length) throw httpError(404, 'No pending participation found for the selected products');
+  const accepted = [], skipped = [];
+  for (const row of rows) {
+    const product = row.productId;
+    if (!isEligibleProduct(product)) { skipped.push({ productId: product?._id, reason: 'No longer available' }); continue; }
+    const conflict = await CampaignParticipation.findOne({ productId: product._id, status: 'ACCEPTED', campaignId: { $ne: campaign._id } })
+      .populate('campaignId', 'isDraft isEnabled startAt endAt').lean();
+    if (conflict?.campaignId && ['ACTIVE', 'SCHEDULED'].includes(campaignLifecycle(conflict.campaignId))) {
+      skipped.push({ productId: product._id, reason: 'Already in another active or scheduled campaign' });
+      continue;
+    }
+    const campaignPrice = campaignUnitPrice(product.price, campaign.discountValue);
+    const updated = await CampaignParticipation.findOneAndUpdate(
+      { _id: row._id, sellerId: req.seller._id, status: 'PENDING' },
+      { $set: { status: 'ACCEPTED', originalPriceSnapshot: product.price, discountType: campaign.discountType || 'PERCENTAGE', discountValue: campaign.discountValue, campaignPrice, acceptedAt: new Date() }, $unset: { rejectedAt: 1, rejectionReason: 1 } },
+      { returnDocument: 'after' },
+    );
+    if (updated) accepted.push({ productId: product._id, campaignPrice });
+  }
+  return ok(res, { accepted, skipped }, `${accepted.length} product(s) accepted into the campaign`);
+});
+
+/** @route PATCH /api/sellers/campaigns/:id/reject  body: { reason?, productIds? } — declines PENDING rows (all, or the selected ones). */
+export const rejectCampaignParticipation = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid campaign');
+  const productIds = req.body?.productIds === undefined ? null : productIdList(req.body.productIds);
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) : undefined;
+  const result = await CampaignParticipation.updateMany(
+    { campaignId: req.params.id, sellerId: req.seller._id, status: 'PENDING', ...(productIds ? { productId: { $in: productIds } } : {}) },
+    { $set: { status: 'REJECTED', rejectedAt: new Date(), ...(reason ? { rejectionReason: reason } : {}) } },
+  );
+  return ok(res, { rejected: result.modifiedCount }, 'Campaign participation declined');
+});
+
+/**
+ * @route PATCH /api/sellers/campaigns/:id/withdraw  body: { productIds }
+ * Stops an accepted deal: the discount no longer applies to new carts and checkouts. Orders already placed keep the
+ * price they were charged (their lines and finance snapshots are frozen).
+ */
+export const withdrawCampaignParticipation = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid campaign');
+  const productIds = productIdList(req.body?.productIds);
+  const result = await CampaignParticipation.updateMany(
+    { campaignId: req.params.id, sellerId: req.seller._id, status: 'ACCEPTED', productId: { $in: productIds } },
+    { $set: { status: 'REJECTED', rejectedAt: new Date(), rejectionReason: 'Withdrawn by seller' } },
+  );
+  return ok(res, { withdrawn: result.modifiedCount }, 'Campaign participation withdrawn');
+});
+
+/**
+ * @route GET /api/admin/campaigns/participation-audit — read-only. ACCEPTED rows written by admin publication before
+ * the PENDING rule (accepted in the same instant they were created, so no seller decision is recorded). Nothing is
+ * changed: an operator decides per row, because some may have been agreed with the seller outside the app.
+ */
+export const auditAutoAcceptedParticipation = asyncHandler(async (req, res) => {
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const filter = { status: 'ACCEPTED', $expr: { $lt: [{ $abs: { $subtract: ['$acceptedAt', '$createdAt'] } }, 1000] } };
+  const [rows, total] = await Promise.all([
+    CampaignParticipation.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)
+      .populate('campaignId', 'name startAt endAt').populate('sellerId', 'businessName storeDetails.name').populate('productId', 'name price').lean(),
+    CampaignParticipation.countDocuments(filter),
+  ]);
+  return ok(res, { rows, total, page, limit, note: 'Read-only. Accepted at publication without a recorded seller decision.' });
 });

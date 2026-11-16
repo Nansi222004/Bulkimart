@@ -1,5 +1,6 @@
 import { verifyReturnCashEvidence, verifyRefundedFunding } from './refundFunding.service.js';
-import { cumulativePaise, codCashDuePaise } from '../utils/financeMoney.js';
+import { cumulativePaise, codCashDuePaise, codSettlementTargetPaise } from '../utils/financeMoney.js';
+import CourierCodRemittance from '../models/CourierCodRemittance.js';
 import mongoose from 'mongoose';
 import crypto from 'node:crypto';
 import Order from '../models/Order.js';
@@ -80,7 +81,7 @@ export const codFeeSplit = (order, snapshot) => {
 
 export const codSettledPaise = cash => (cash?.verifiedPaise || 0) + (cash?.writtenOffPaise || 0);
 // Settled means the rounded cash due was received (or its shortage written off).
-const codCashSettled = (cash, expectedPaise) => ['verified', 'allocated'].includes(cash?.status) && codSettledPaise(cash) === codCashDuePaise(expectedPaise);
+const codCashSettled = (cash, expectedPaise) => ['verified', 'allocated'].includes(cash?.status) && codSettledPaise(cash) === codSettlementTargetPaise(cash, expectedPaise);
 const lockOrder = async (id, session, review) => {
   if (!mongoose.isValidObjectId(id)) throw httpError(400, 'Invalid order reference');
   const order = await Order.findOneAndUpdate({ _id: id }, { $inc: { financialRevision: 1 } }, { session, returnDocument: 'after' });
@@ -351,7 +352,8 @@ export const releaseOrderFinance = async (orderId, actorId, review) => {
     let heldLines = 0, releasedLines = 0;
     for (const entry of entries) {
       const item = order.items.find(row => String(row._id) === entry.metadata.itemId);
-      const blocked = returnHoldOpen(item) || returns.some(ret => String(ret.orderItemId) === entry.metadata.itemId && (ret.status !== 'REFUNDED' || !order.financialReturnQuantities?.[`return_${ret._id}`]));
+      // An EXCHANGED return is settled with no money moved (a replacement was sent): the seller keeps this sale.
+      const blocked = returnHoldOpen(item) || returns.some(ret => String(ret.orderItemId) === entry.metadata.itemId && ret.status !== 'EXCHANGED' && (ret.status !== 'REFUNDED' || !order.financialReturnQuantities?.[`return_${ret._id}`]));
       if (blocked) { heldLines++; continue; }
       if (await SellerLedgerEntry.exists({ idempotencyKey: `FINANCE:${entry._id}:RELEASE:eligible` }).session(session)) continue;
       await Seller.updateOne({ _id: entry.sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
@@ -522,4 +524,148 @@ export const reverseRefundedReturn = async (returnId, actorId, review) => {
     await markReconciled();
     return { reversedNetPaise: net, reconciliationRequired: Boolean(net > available && released) };
   });
+};
+
+/* ============================================================================
+ * COURIER COD REMITTANCE (audit H1)
+ *
+ * A courier (Shiprocket) collects COD cash and remits it to Bulkimart. The only settlement evidence is a remittance
+ * recorded by a finance admin from the provider's remittance report: never a Delivered scan, a tracking number or an
+ * order status. Each remittance reference is stored once (unique index); every line is matched to one COD order by
+ * AWB and applied cumulatively, so partial remittances add up and a duplicate line changes nothing.
+ *   remitted == expected  → verified (the order's own payment share is settled; a grouped payment becomes paid only
+ *                           when every sibling is settled, via markCodPaymentIfSettled)
+ *   remitted <  expected  → remittance_reported (partial; waits for the rest or a finance review)
+ *   remitted >  expected  → discrepancy (finance review queue)
+ * Seller earnings are then posted by the normal finance automation, which requires settled cash.
+ * ========================================================================== */
+
+const REMITTANCE_LINE_LIMIT = 500;
+const remittanceLinesHash = lines => crypto.createHash('sha256').update(JSON.stringify(lines.map(line => [line.awb, line.amountPaise]))).digest('hex');
+
+const normaliseRemittance = ({ reference, remittedAt, lines, evidenceNote, currency = 'INR' }) => {
+  const ref = typeof reference === 'string' ? reference.trim() : '';
+  if (ref.length < 3 || ref.length > 100) throw httpError(400, 'Enter the remittance reference (3–100 characters) from the courier remittance report');
+  if (currency !== 'INR') throw httpError(400, 'Only INR remittances are supported');
+  const at = new Date(remittedAt);
+  if (!remittedAt || Number.isNaN(at.getTime()) || at > new Date(Date.now() + 5 * 60 * 1000)) throw httpError(400, 'Enter a valid remittance date');
+  const note = typeof evidenceNote === 'string' ? evidenceNote.trim() : '';
+  if (note.length < 5 || note.length > 500) throw httpError(400, 'Describe the remittance evidence (5–500 characters), e.g. the report or bank credit it came from');
+  if (!Array.isArray(lines) || !lines.length || lines.length > REMITTANCE_LINE_LIMIT) throw httpError(400, `A remittance needs 1–${REMITTANCE_LINE_LIMIT} lines`);
+  const seen = new Set();
+  const rows = lines.map(line => {
+    const awb = typeof line?.awb === 'string' ? line.awb.trim() : '';
+    if (!awb || awb.length > 64) throw httpError(400, 'Every remittance line needs its AWB');
+    if (seen.has(awb)) throw httpError(400, `AWB ${awb} appears twice in this remittance`);
+    seen.add(awb);
+    const amountPaise = moneyPaise(line.amount, 'Remitted amount');
+    if (!(amountPaise > 0)) throw httpError(400, `Remitted amount for ${awb} must be more than zero`);
+    return { awb, amountPaise };
+  });
+  return { reference: ref, remittedAt: at, evidenceNote: note, rows };
+};
+
+/** Apply one remittance line to its order inside the remittance transaction. Returns the line outcome. */
+const applyRemittanceLine = async ({ row, remittance, actorId, session }) => {
+  const order = await Order.findOne({ 'shiprocket.awb': row.awb }).session(session);
+  if (!order) return { ...row, outcome: 'unmatched', detail: 'No order carries this AWB' };
+  const base = { ...row, orderId: order._id };
+  if (order.paymentMethod !== 'cod') return { ...base, outcome: 'not_cod', detail: 'The order was not cash on delivery' };
+  // Rider-delivered COD settles through the rider's verified collection, never a courier remittance.
+  if (order.deliveryType !== 'shiprocket' || order.deliveryId || order.deliveryPartnerId) return { ...base, outcome: 'not_courier', detail: 'The order was not delivered by a courier' };
+  if (order.status !== 'delivered') return { ...base, outcome: 'not_delivered', detail: `Order status is ${order.status}; review before applying cash` };
+  if (order.financialSnapshot?.version !== 2) return { ...base, outcome: 'no_finance_snapshot', detail: 'Order needs historical finance review' };
+  const locked = await lockOrder(order._id, session);
+  const expectedPaise = locked.financialSnapshot.expectedPaise;
+  const cash = locked.codFinance || { expectedPaise, status: 'expected', events: [] };
+  if (cash.source && cash.source !== 'courier_remittance') return { ...base, outcome: 'not_courier', detail: 'COD cash is already being settled through a rider' };
+  if ((cash.events || []).some(event => event.action === 'courier_remittance' && event.remittanceId === String(remittance._id))) return { ...base, outcome: 'duplicate' };
+  const remittedPaise = (cash.remittedPaise || 0) + row.amountPaise;
+  cash.source = 'courier_remittance';
+  cash.expectedPaise = expectedPaise;
+  cash.remittedPaise = remittedPaise;
+  // Cash the platform has received for this order (bounds any wallet refund on a return before settlement).
+  cash.collectedPaise = remittedPaise;
+  cash.verifiedPaise = remittedPaise;
+  cash.shortagePaise = Math.max(0, expectedPaise - remittedPaise);
+  cash.excessPaise = Math.max(0, remittedPaise - expectedPaise);
+  cash.status = remittedPaise === expectedPaise ? (locked.financialPosting ? 'allocated' : 'verified') : remittedPaise < expectedPaise ? 'remittance_reported' : 'discrepancy';
+  cash.events = [...(cash.events || []), { action: 'courier_remittance', reference: remittance.reference, remittanceId: String(remittance._id), awb: row.awb,
+    amountPaise: row.amountPaise, actorId: String(actorId), at: new Date(), reason: remittance.evidenceNote, result: cash.status }];
+  cash.updatedAt = new Date();
+  if (cash.status !== 'remittance_reported') for (const sellerId of new Set(locked.financialSnapshot.lines.map(line => line.sellerId))) await Seller.updateOne({ _id: sellerId }, { $inc: { financialLedgerVersion: 1 } }, { session });
+  await Order.updateOne({ _id: locked._id }, { $set: { codFinance: cash } }, { session });
+  if (['verified', 'allocated'].includes(cash.status)) await markCodPaymentIfSettled({ ...locked.toObject(), codFinance: cash }, expectedPaise, session);
+  return { ...base, outcome: cash.status === 'discrepancy' ? 'excess' : cash.status === 'remittance_reported' ? 'partial' : 'applied',
+    detail: `Remitted ${remittedPaise} of ${expectedPaise} paise` };
+};
+
+/**
+ * Record a courier COD remittance (finance admin, from the provider's remittance report). Idempotent: the same
+ * reference with the same lines returns the stored result; the same reference with different lines is refused.
+ */
+export const recordCourierCodRemittance = async ({ reference, remittedAt, lines, evidenceNote, currency, actorId }) => {
+  requireFinanceOperation();
+  if (!actorId) throw httpError(403, 'A finance admin must record the remittance');
+  const input = normaliseRemittance({ reference, remittedAt, lines, evidenceNote, currency });
+  const linesHash = remittanceLinesHash(input.rows);
+  const existing = await CourierCodRemittance.findOne({ provider: 'shiprocket', reference: input.reference }).lean();
+  if (existing) {
+    if (existing.linesHash !== linesHash) throw httpError(409, 'This remittance reference was already recorded with different lines. Check the report before recording it again.');
+    return { remittance: existing, alreadyRecorded: true };
+  }
+  try {
+    return await financialTransaction(async session => {
+      const [remittance] = await CourierCodRemittance.create([{ provider: 'shiprocket', reference: input.reference, remittedAt: input.remittedAt,
+        totalPaise: input.rows.reduce((sum, row) => sum + row.amountPaise, 0), linesHash, lines: [], evidenceNote: input.evidenceNote, recordedBy: actorId }], { session });
+      const results = [];
+      for (const row of input.rows) results.push(await applyRemittanceLine({ row, remittance, actorId, session }));
+      remittance.lines = results;
+      await remittance.save({ session });
+      return { remittance: remittance.toObject(), alreadyRecorded: false };
+    });
+  } catch (error) {
+    // Two submissions at once: the unique reference index lets one win; the other returns the stored result.
+    if (error?.code === 11000) {
+      const stored = await CourierCodRemittance.findOne({ provider: 'shiprocket', reference: input.reference }).lean();
+      if (stored?.linesHash === linesHash) return { remittance: stored, alreadyRecorded: true };
+      throw httpError(409, 'This remittance reference was already recorded with different lines.');
+    }
+    throw error;
+  }
+};
+
+/**
+ * Read-only reconciliation report of courier COD orders (historical and new): shipment, cash/remittance, payment,
+ * seller-earning and return state, and the action each needs. Changes nothing.
+ */
+export const courierCodReconciliationReport = async ({ page = 1, limit = 50, needsAction = false } = {}) => {
+  const filter = { paymentMethod: 'cod', deliveryType: 'shiprocket', ...(needsAction ? { 'codFinance.status': { $nin: ['verified', 'allocated'] } } : {}) };
+  const [orders, total] = await Promise.all([
+    Order.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)
+      .select('orderNo status paymentId pricing.totalAmount financialSnapshot.version financialSnapshot.expectedPaise financialPosting codFinance.status codFinance.source codFinance.remittedPaise shiprocket.orderId shiprocket.awb shiprocket.trackingStatus shiprocket.status createdAt').lean(),
+    Order.countDocuments(filter),
+  ]);
+  const ids = orders.map(order => order._id);
+  const [payments, returns] = await Promise.all([
+    Payment.find({ _id: { $in: orders.map(order => order.paymentId).filter(Boolean) } }).select('status').lean(),
+    Return.find({ orderId: { $in: ids } }).select('orderId status refundStatus refundAmount').lean(),
+  ]);
+  const paymentOf = new Map(payments.map(row => [String(row._id), row.status]));
+  const rows = orders.map(order => {
+    const expectedPaise = order.financialSnapshot?.expectedPaise ?? Math.round((order.pricing?.totalAmount || 0) * 100);
+    const remittedPaise = order.codFinance?.source === 'courier_remittance' ? order.codFinance.remittedPaise || 0 : 0;
+    const cashStatus = order.codFinance?.status || 'expected';
+    const orderReturns = returns.filter(row => String(row.orderId) === String(order._id));
+    const action = order.financialSnapshot?.version !== 2 ? 'Historical finance review: no finance snapshot'
+      : order.status !== 'delivered' ? 'Wait for delivery (or resolve the shipment exception)'
+        : ['verified', 'allocated'].includes(cashStatus) ? (order.financialPosting ? 'None: settled and posted' : 'None: settled; earnings post on the next finance run')
+          : cashStatus === 'discrepancy' ? 'Finance review: remitted more than expected'
+            : remittedPaise > 0 ? 'Record the remaining remittance or review the shortfall'
+              : 'Record the courier remittance from the provider report';
+    return { orderId: order._id, orderNo: order.orderNo, orderStatus: order.status, shipment: { awb: order.shiprocket?.awb || null, providerBooked: Boolean(order.shiprocket?.orderId), tracking: order.shiprocket?.trackingStatus || order.shiprocket?.status || null },
+      expectedPaise, remittedPaise, cashStatus, paymentStatus: paymentOf.get(String(order.paymentId)) || 'missing', sellerEarning: order.financialPosting || 'not_posted',
+      returns: orderReturns.map(row => ({ status: row.status, refundStatus: row.refundStatus, refundAmount: row.refundAmount })), action };
+  });
+  return { rows, total, page, limit };
 };

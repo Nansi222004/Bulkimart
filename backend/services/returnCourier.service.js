@@ -25,13 +25,17 @@ export const buildReversePayload = ({ ret, order, item, seller, customer, produc
   const from = order.shippingAddress || {}, to = seller.storeDetails || {};
   const originalPackage = order.shiprocket?.package;
   const dimensions = originalPackage?.length != null ? originalPackage : product?.dimensions || {};
-  const weight = order.shiprocket?.package?.weight || Number(item.weightSnapshot || product?.variants?.find(row => String(row._id) === String(ret.variantId))?.weight || product?.weight) * ret.quantity / 1000;
+  // Weight of the units being returned, not the whole original parcel (which may have held other items).
+  // The original package weight is only a fallback when no item or product weight is recorded.
+  const unitGrams = Number(item.weightSnapshot || product?.variants?.find(row => String(row._id) === String(ret.variantId))?.weight || product?.weight);
+  const weight = Number.isFinite(unitGrams) && unitGrams > 0 ? unitGrams * ret.quantity / 1000 : order.shiprocket?.package?.weight;
   const payload = {
     order_id: `RET-${ret._id}-${(ret.reverseBooking?.attemptCount || 0) + 1}`,
     order_date: new Date().toISOString().slice(0, 10),
     pickup_customer_name: text(from.name), pickup_address: text(from.line1), pickup_address_2: text(from.line2),
     pickup_city: text(from.city), pickup_state: text(from.state), pickup_country: 'India', pickup_pincode: text(from.pincode),
-    pickup_email: text(customer.email), pickup_phone: phone(from.phone),
+    // Shiprocket needs a pickup email; phone-only customers use the platform's order address.
+    pickup_email: text(customer.email) || text(process.env.SHIPROCKET_CONTACT_EMAIL) || 'orders@bulkimart.in', pickup_phone: phone(from.phone),
     shipping_customer_name: text(to.name || seller.businessName), shipping_address: text(to.address),
     shipping_city: text(to.city), shipping_state: text(to.state), shipping_country: 'India', shipping_pincode: text(to.pincode),
     shipping_email: text(to.email), shipping_phone: phone(to.phone),

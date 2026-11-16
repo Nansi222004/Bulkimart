@@ -23,6 +23,20 @@ export const campaignLifecycle = (c) => {
 export const isCampaignEffectivelyActive = (c) => campaignLifecycle(c) === 'ACTIVE';
 
 /**
+ * A campaign deal's unit price in rupees, computed once in integer paise (half-up). The single formula used by
+ * the cart, both checkouts, participation snapshots and campaign listings, so the price a seller accepts, the
+ * price shown and the price charged never differ (previously listings rounded to whole rupees while checkout
+ * used floating-point toFixed(2): ₹99 at 5% showed ₹94 but charged ₹94.05).
+ */
+export const campaignUnitPrice = (price, discountValue) => {
+  const pricePaise = Math.round(Number(price) * 100);
+  if (!Number.isFinite(pricePaise) || pricePaise <= 0) return 0;
+  const pct = Number(discountValue) || 0;
+  if (!(pct > 0)) return pricePaise / 100;
+  return Math.max(0, Math.round(pricePaise * (100 - Math.min(pct, 100)) / 100)) / 100;
+};
+
+/**
  * Every product a campaign's targeting rule currently covers, filtered to
  * the same customer-eligibility bar as everywhere else — a draft/rejected/
  * out-of-catalog product was never a candidate for a deal.

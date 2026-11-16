@@ -311,3 +311,9 @@
   .parcel-workspace.customer-service-page{padding-left:14px;padding-right:14px;padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
   .customer-service-page .parcel-live-status{margin:0 0 10px}
 }
+
+/* Live-update line with a small Refresh link (history / tracking), replacing the old button row under the title bar. */
+.customer-service-page .parcel-live-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
+.customer-service-page .parcel-live-bar .parcel-live-status{margin:0}
+.customer-service-page .parcel-live-bar .parcel-live-refresh{min-height:32px;padding:4px 12px;margin:0;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:var(--sf-header,#79000B);font-size:12.5px;font-weight:700}
+.customer-service-page .parcel-live-bar .parcel-live-refresh:disabled{opacity:.5}

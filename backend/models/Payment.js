@@ -47,6 +47,9 @@ const paymentSchema = new Schema(
     packagingOrderId: { type: ObjectId, ref: "PackagingOrder" },
     // A sixth payment purpose: customer adding real money to their NHCONE Wallet.
     isWalletTopup:    { type: Boolean, default: false },
+    // ₹0 "paid" record for an exchange replacement order, so it passes the paid-or-COD fulfilment gate.
+    // No money moved; nothing is ever refunded from it.
+    exchangeReturnId: { type: Schema.Types.ObjectId, ref: 'Return' },
     amount:         { type: Number, required: true },
     method:         { type: String, enum: ["online", "wallet", "cod"], required: true },
 

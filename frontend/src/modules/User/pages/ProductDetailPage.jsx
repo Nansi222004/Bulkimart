@@ -161,6 +161,19 @@ const ProductDetailPage = () => {
 
   useEffect(() => { loadReviews(); }, [loadReviews]);
 
+  // Reviews are for verified purchases: ask the server whether to show the review box (null while unknown).
+  const [reviewEligibility, setReviewEligibility] = useState(null);
+  const loadReviewEligibility = useCallback(async () => {
+    const token = currentUser ? localStorage.getItem('userToken') : null;
+    if (!product?.id || !token || wholesaleDetail) { setReviewEligibility(null); return; }
+    try {
+      const res = await fetch(apiUrl(`/api/products/${product.id}/reviews/eligibility`), { headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.json().catch(() => ({}));
+      setReviewEligibility(res.ok ? body.data : null);
+    } catch { setReviewEligibility(null); }
+  }, [product?.id, currentUser, wholesaleDetail]);
+  useEffect(() => { loadReviewEligibility(); }, [loadReviewEligibility]);
+
   const submitReview = async () => {
     if (!myRating) return;
     setSubmittingReview(true);
@@ -181,6 +194,7 @@ const ProductDetailPage = () => {
       setMyComment('');
       // Refetch reviews immediately so the newly published review appears live!
       loadReviews();
+      loadReviewEligibility();
     } catch (err) {
       setReviewError(err.message);
     } finally {
@@ -818,8 +832,16 @@ const ProductDetailPage = () => {
           </div>
         </div>
 
-        {/* Write a review */}
-        {retailAvailable && !wholesaleDetail && <>
+        {/* Write a review: verified purchases only, so the box is shown only when the server says this customer may review. */}
+        {retailAvailable && !wholesaleDetail && !reviewEligibility?.canReview && (
+          <p className="pd-rate-prompt">
+            {!currentUser ? 'Sign in and buy this product to review it.'
+              : reviewEligibility?.reason === 'REVIEW_ALREADY_SUBMITTED' ? 'Thanks — you have already reviewed this product.'
+                : reviewEligibility?.reason === 'REVIEW_OWN_PRODUCT' ? 'You cannot review a product from your own store.'
+                  : 'Only customers who received this product can review it.'}
+          </p>
+        )}
+        {retailAvailable && !wholesaleDetail && reviewEligibility?.canReview && <>
         <p className="pd-rate-prompt">
           {myRating ? 'Your rating — add a comment below' : 'Tap to rate this product'}
         </p>

@@ -30,6 +30,8 @@ function Shell() {
       <Stack.Screen name="index" options={{ animation: 'none' }} />
       {/* Bottom-bar tabs switch instantly, like the web footer (no slide). */}
       <Stack.Screen name="categories" options={{ animation: 'none' }} />
+      {/* Bottom-nav tabs switch instantly, without the slide used for pages opened from them. */}
+      <Stack.Screen name="services" options={{ animation: 'none' }} />
       <Stack.Screen name="orders" options={{ animation: 'none' }} />
       <Stack.Screen name="account" options={{ animation: 'none' }} />
       <Stack.Screen name="product" options={{ animation: 'slide_from_bottom' }} />
