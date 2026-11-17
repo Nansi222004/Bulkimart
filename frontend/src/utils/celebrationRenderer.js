@@ -266,7 +266,151 @@ export function startCelebration(canvas, effect, env = window, { still = false }
         ctx.restore();
       }
     };
-    return bursting ? fireworks : custom ? moving : config.preset === 'lights' ? lights : config.preset === 'diya' ? diyas : config.preset === 'candles' ? candles : falling;
+    // ---- Christmas ----
+    const color = (i, fallback) => config.colors[i] || fallback;
+    // Six-armed crystals with side branches, drifting and turning slowly.
+    const snowflakes = dt => {
+      ctx.lineWidth = Math.max(0.8, scale); ctx.globalAlpha = config.opacity;
+      for (const p of particles) {
+        p.y = (p.y + dt * config.speed * 30 / height) % 1;
+        p.x = (p.x + dt * config.speed * drift * 18 / width + 1) % 1;
+        p.phase += dt * config.speed * 0.6;
+        const r = p.size * 1.4, b = r * 0.32;
+        ctx.save(); ctx.translate(p.x * width + Math.sin(p.phase) * 12, p.y * height); ctx.rotate(p.phase);
+        ctx.strokeStyle = p.color; ctx.beginPath();
+        for (let a = 0; a < 6; a++) {
+          const angle = a * Math.PI / 3, cx = Math.cos(angle), cy = Math.sin(angle), bx = cx * r * 0.6, by = cy * r * 0.6;
+          ctx.moveTo(0, 0); ctx.lineTo(cx * r, cy * r);
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle + 0.8) * b, by + Math.sin(angle + 0.8) * b);
+          ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(angle - 0.8) * b, by + Math.sin(angle - 0.8) * b);
+        }
+        ctx.stroke(); ctx.restore();
+      }
+    };
+    // Wrapped presents with a ribbon and bow, swaying as they fall. Half the quantity: boxes are large.
+    const gifts = dt => {
+      const shown = particles.slice(0, Math.max(3, Math.ceil(particles.length / 2)));
+      shown.forEach((p, i) => {
+        p.y = (p.y + dt * config.speed * 35 / height) % 1;
+        p.x = (p.x + dt * config.speed * drift * 18 / width + 1) % 1;
+        p.phase += dt * config.speed;
+        const w = p.size * 1.3 + 3 * scale, box = p.color;
+        const ribbon = config.colors.length > 1 ? config.colors[(config.colors.indexOf(box) + 2) % config.colors.length] : '#FFFFFF';
+        ctx.save(); ctx.translate(p.x * width + Math.sin(p.phase) * 10, p.y * (height + 4 * w) - 2 * w); ctx.rotate(Math.sin(p.phase + i) * 0.35);
+        ctx.globalAlpha = config.opacity;
+        ctx.fillStyle = box; ctx.fillRect(-w, -0.6 * w, 2 * w, 1.6 * w); ctx.fillRect(-1.15 * w, -w, 2.3 * w, 0.5 * w);
+        ctx.fillStyle = '#000000'; ctx.globalAlpha = config.opacity * 0.18; ctx.fillRect(-w, -0.5 * w, 2 * w, 0.12 * w);
+        ctx.globalAlpha = config.opacity; ctx.fillStyle = ribbon === box ? '#FFFFFF' : ribbon;
+        ctx.fillRect(-0.18 * w, -w, 0.36 * w, 2 * w);
+        ctx.beginPath(); ctx.ellipse(-0.38 * w, -1.18 * w, 0.42 * w, 0.24 * w, 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0.38 * w, -1.18 * w, 0.42 * w, 0.24 * w, -0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, -1.05 * w, 0.16 * w, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
+    };
+    // A green garland along the top edge with baubles and stars swinging beneath it.
+    const ornaments = () => {
+      const n = Math.min(particles.length, Math.max(4, Math.floor(width / 70))), sag = Math.min(14, height * 0.1) * scale, top = 3;
+      ctx.globalAlpha = config.opacity; ctx.strokeStyle = color(2, '#1F7A3D'); ctx.lineWidth = 3.5 * scale; ctx.beginPath(); ctx.moveTo(0, top);
+      for (let i = 0; i < n; i++) { const a = i / n * width, b = (i + 1) / n * width; ctx.bezierCurveTo(a + (b - a) / 3, top + sag, a + (b - a) * 2 / 3, top + sag, b, top); }
+      ctx.stroke();
+      for (let i = 0; i < n; i++) {
+        const x = (i + 0.5) / n * width, y = top + sag * 0.75, R = (7 + (i % 3) * 2) * scale;
+        const length = Math.min(height * 0.45, (14 + (i * 37 % 5) * 7) * scale), swing = Math.sin(elapsed * config.speed * 1.6 + i * 1.3) * 0.16;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(swing);
+        ctx.globalAlpha = config.opacity * 0.7; ctx.strokeStyle = color(3, '#C0C7D0'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, length); ctx.stroke();
+        ctx.globalAlpha = config.opacity; ctx.fillStyle = color(1, '#F4C430'); ctx.fillRect(-2.5 * scale, length - 1, 5 * scale, 4 * scale);
+        ctx.fillStyle = config.colors[i % config.colors.length];
+        ctx.translate(0, length + 3 * scale + R);
+        if (i % 4 === 3) { ctx.rotate(-swing); drawShape(ctx, { shape: 'star' }, R * 1.2); }
+        else {
+          ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#FFFFFF'; ctx.globalAlpha = config.opacity * 0.35; ctx.fillRect(-R, -R * 0.15, 2 * R, R * 0.3);
+          ctx.globalAlpha = config.opacity * 0.6; ctx.beginPath(); ctx.ellipse(-R * 0.38, -R * 0.4, R * 0.22, R * 0.14, -0.6, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+      }
+    };
+    // A row of trees on a snow bank: twinkling bulbs and a glowing star on each.
+    const trees = () => {
+      const n = Math.min(particles.length, Math.max(3, Math.floor(width / 90))), ground = height - 3 * scale;
+      ctx.globalAlpha = config.opacity; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, ground, width, height - ground);
+      for (let i = 0; i < n; i++) {
+        const x = (i + 0.5) / n * width, h = Math.min(height * 0.62, (34 + (i * 7 % 3) * 8) * scale), trunk = 6 * scale, base = ground - trunk;
+        ctx.save(); ctx.translate(x, 0);
+        ctx.globalAlpha = config.opacity * 0.9; ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, ground, h * 0.45, 4 * scale, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = config.opacity; ctx.fillStyle = '#6B3E1F'; ctx.fillRect(-3 * scale, base, 6 * scale, trunk);
+        ctx.fillStyle = color(0, '#1F7A3D');
+        for (let k = 0; k < 3; k++) {
+          const top = base - h + k * h * 0.27, w = h * (0.24 + k * 0.1);
+          ctx.beginPath(); ctx.moveTo(0, top); ctx.lineTo(w, top + h * 0.46); ctx.lineTo(-w, top + h * 0.46); ctx.closePath(); ctx.fill();
+        }
+        for (let b = 0; b < 7; b++) {
+          const t = (b + 1.2) / 8.4, half = (0.24 + t * 0.3) * h * 0.7, by = base - h + t * h * 0.95, bx = (((b * 0.618 + i * 0.37) % 1) - 0.5) * 2 * half;
+          ctx.fillStyle = config.colors.length > 2 ? config.colors[2 + b % (config.colors.length - 2)] : color(1, '#F4C430');
+          ctx.globalAlpha = config.opacity * (0.35 + Math.abs(Math.sin(elapsed * config.speed * 3 + b * 1.7 + i)) * 0.65);
+          ctx.beginPath(); ctx.arc(bx, by, 1.7 * scale, 0, Math.PI * 2); ctx.fill();
+        }
+        const glow = 0.75 + Math.sin(elapsed * config.speed * 2 + i) * 0.25;
+        ctx.fillStyle = color(1, '#F4C430'); ctx.globalAlpha = config.opacity * 0.3 * glow; ctx.beginPath(); ctx.arc(0, base - h, 8 * scale, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = config.opacity; ctx.translate(0, base - h); drawShape(ctx, { shape: 'star' }, 5 * scale);
+        ctx.restore();
+      }
+    };
+    // Light snow, with Santa's sleigh and two reindeer flying across on a gentle wave every ~10 s.
+    const santa = dt => {
+      ctx.fillStyle = color(0, '#FFFFFF'); ctx.globalAlpha = config.opacity * 0.8;
+      for (const p of particles) {
+        p.y = (p.y + dt * config.speed * 28 / height) % 1; p.phase += dt * config.speed;
+        ctx.beginPath(); ctx.arc(p.x * width + Math.sin(p.phase) * 10, p.y * height, p.size * 0.35, 0, Math.PI * 2); ctx.fill();
+      }
+      const k = Math.min(1.4, Math.max(0.45, height / 110)) * scale, t = (elapsed * config.speed / 10 + (still ? 0.4 : 0.1)) % 1;
+      const gx = -110 * k + t * (width + 150 * k), wave = Math.sin(t * Math.PI * 2);
+      const gy = Math.min(height - 10 * k, Math.max(46 * k, height * 0.45 + wave * height * 0.12 + Math.sin(elapsed * 4) * 1.5));
+      const m = (x, y) => ctx.moveTo(x * k, y * k), l = (x, y) => ctx.lineTo(x * k, y * k), c = (a, b, d, e, f, g) => ctx.bezierCurveTo(a * k, b * k, d * k, e * k, f * k, g * k);
+      const dot = (x, y, r) => { ctx.beginPath(); ctx.arc(x * k, y * k, r * k, 0, Math.PI * 2); ctx.fill(); };
+      const oval = (x, y, rx, ry, rot = 0) => { ctx.beginPath(); ctx.ellipse(x * k, y * k, rx * k, ry * k, rot, 0, Math.PI * 2); ctx.fill(); };
+      const box = (x, y, w, h) => ctx.fillRect(x * k, y * k, w * k, h * k);
+      const red = color(1, '#D62828'), deer = color(2, '#8B5A2B'), gold = color(3, '#F4C430');
+      ctx.save(); ctx.translate(gx, gy); ctx.rotate(Math.cos(t * Math.PI * 2) * 0.1);
+      // Sparkle trail
+      ctx.fillStyle = gold;
+      for (let j = 1; j <= 6; j++) { ctx.globalAlpha = config.opacity * (1 - j / 7); dot(-30 - j * 9, 2 + Math.sin(elapsed * 6 + j) * 2, 1.4); }
+      ctx.globalAlpha = Math.min(1, config.opacity + 0.35);
+      // Reins and harness
+      ctx.strokeStyle = gold; ctx.lineWidth = Math.max(0.6, 0.9 * k); ctx.beginPath(); m(2, -22); c(20, -24, 30, -16, 40, -15); m(14, -7); l(40, -11); l(70, -11); ctx.stroke();
+      // Two reindeer, galloping
+      for (const [ox, lag] of [[44, 0], [76, 1.4]]) {
+        const swing = Math.sin(elapsed * 9 * config.speed + lag) * 0.6;
+        ctx.strokeStyle = deer; ctx.lineWidth = Math.max(0.8, 1.7 * k); ctx.beginPath();
+        m(ox + 6, -9); l(ox + 6 + Math.sin(swing) * 8, -9 + Math.cos(swing) * 8); m(ox + 8, -9); l(ox + 8 + Math.sin(-swing) * 8, -9 + Math.cos(-swing) * 8);
+        m(ox - 7, -9); l(ox - 7 + Math.sin(-swing) * 8, -9 + Math.cos(-swing) * 8); m(ox - 5, -9); l(ox - 5 + Math.sin(swing) * 8, -9 + Math.cos(swing) * 8); ctx.stroke();
+        ctx.fillStyle = deer; oval(ox, -12, 11, 5.5);
+        ctx.beginPath(); m(ox + 6, -15); l(ox + 12, -24); l(ox + 16, -22); l(ox + 11, -12); ctx.closePath(); ctx.fill();
+        oval(ox + 16, -25, 4.8, 3, -0.3);
+        ctx.fillStyle = '#FFFFFF'; dot(ox - 11, -14, 1.6);
+        ctx.fillStyle = '#2B1A0E'; dot(ox + 20.8, -24, 1.2); dot(ox + 16.5, -26.2, 0.6);
+        ctx.strokeStyle = '#5A3A1A'; ctx.lineWidth = Math.max(0.6, k); ctx.beginPath();
+        m(ox + 14, -27); l(ox + 12, -34); m(ox + 12.8, -31); l(ox + 9.5, -33); m(ox + 16, -27.5); l(ox + 17, -34.5); m(ox + 16.6, -31.5); l(ox + 19.6, -33.5); ctx.stroke();
+        ctx.fillStyle = gold; oval(ox + 9, -17, 2, 3.5, 0.6);
+      }
+      // Sleigh: runners, body, trim
+      ctx.strokeStyle = gold; ctx.lineWidth = Math.max(0.8, 1.6 * k); ctx.beginPath(); m(-26, 6); l(16, 6); c(22, 6, 24, 2, 21, -1); m(-16, 0); l(-16, 6); m(4, 0); l(4, 6); ctx.stroke();
+      ctx.fillStyle = red; ctx.beginPath(); m(-26, -14); l(10, -14); c(18, -14, 20, -4, 14, 0); l(-22, 0); c(-28, 0, -30, -10, -26, -14); ctx.closePath(); ctx.fill();
+      dot(-27, -16, 3.5); ctx.fillStyle = gold; box(-24, -7, 34, 2);
+      // Sack of presents
+      ctx.fillStyle = deer; oval(-17, -19, 7, 6.5); ctx.fillStyle = gold; box(-24, -24, 6, 6); ctx.fillStyle = '#1F7A3D'; box(-14, -27, 5, 6);
+      // Santa
+      ctx.fillStyle = red; oval(-2, -20, 7, 8);
+      ctx.fillStyle = '#222222'; box(-8.5, -17.5, 13, 2.2); ctx.fillStyle = gold; box(-3, -17.8, 2.6, 2.8);
+      ctx.fillStyle = '#F5C9A6'; dot(-1, -30.5, 4);
+      ctx.fillStyle = '#FFFFFF'; oval(0, -27.5, 4.2, 3.6);
+      ctx.fillStyle = red; ctx.beginPath(); m(-5, -33); l(4, -33.5); l(-7.5, -41); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#FFFFFF'; box(-5.5, -34.6, 10, 2.2); dot(-7.8, -41.2, 1.7);
+      ctx.restore();
+    };
+    const christmas = { snowflakes, gifts, ornaments, trees, santa }[config.preset];
+    return bursting ? fireworks : custom ? moving : christmas || (config.preset === 'lights' ? lights : config.preset === 'diya' ? diyas : config.preset === 'candles' ? candles : falling);
   };
   const layers = effectLayers(effect).map(layer);
   const resize = () => {

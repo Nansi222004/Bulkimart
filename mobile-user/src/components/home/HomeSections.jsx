@@ -19,6 +19,8 @@ import { GridIcon, TicketIcon, BulkIcon } from '../icons';
 import { Briefcase } from 'lucide-react-native';
 import StorefrontMedia from '../storefront/StorefrontMedia';
 import Celebration from '../Celebration';
+import { SnowCap, Snowflake, isSnowTheme } from '../storefront/HeroBanner';
+import { festivePalette } from '../../shared/storefront';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
 import { GridProductCard, CategoryProductCard, MerchandisingCard, inr } from './ProductCards';
 import WishlistHeartButton from '../WishlistHeartButton';
@@ -269,7 +271,7 @@ export function CouponsSection() {
   }, [activeMode, currentUser?._id, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
   const visible = coupons.filter(c => c.isPublic !== false && (!c.expiresAt || Date.parse(c.expiresAt) > now));
   return <View style={styles.sfSection}>
-    <View style={styles.sfHeading}><View style={{ flex: 1 }}><Text style={[styles.eyebrow, { color: theme.muted }]}>OFFERS FOR YOUR BASKET</Text><Text style={[styles.sfTitle, { color: theme.text }]}>Coupons & savings</Text></View></View>
+    <View style={styles.sfHeading}><View style={{ flex: 1 }}><Text style={[styles.eyebrow, { color: theme.muted }]}>OFFERS FOR YOUR BASKET</Text><Text style={[styles.sfTitle, { color: theme.text }]}><Snowflake theme={theme} />Coupons & savings</Text></View></View>
     {!currentUser ? <View style={{ gap: 10 }}><Text style={{ fontSize: 14 }}>Sign in to see available coupons.</Text><CtaButton title="Sign in" onPress={() => setActiveNav('account')} /></View>
       : error ? <Text accessibilityRole="alert">{error} <Text onPress={() => setAttempt(v => v + 1)} style={{ textDecorationLine: 'underline', fontWeight: '700' }}>Retry</Text></Text>
         : loading && !visible.length ? <Text>Checking available offers…</Text>
@@ -496,7 +498,7 @@ function Rail({ products, renderCard, layout }) {
     contentContainerStyle={{ gap: 10, paddingHorizontal: 2, paddingBottom: 14 }} renderItem={({ item }) => <View style={{ width }}>{renderCard(item)}</View>} />;
 }
 
-export function FestiveDealGridCard({ product, deal = false }) {
+export function FestiveDealGridCard({ product, deal = false, palette = festivePalette() }) {
   const navigate = usePromotionNavigation();
   const { setSelectedProduct } = useUser();
   const [failed, setFailed] = useState(false);
@@ -511,7 +513,7 @@ export function FestiveDealGridCard({ product, deal = false }) {
   const open = () => (deal ? navigate({ type: 'PRODUCT', id }) : setSelectedProduct(product));
 
   return (
-    <Pressable onPress={open} style={styles.festiveCard} accessibilityRole="button" accessibilityLabel={`View ${product.name}`}>
+    <Pressable onPress={open} style={[styles.festiveCard, { borderColor: palette.accent }]} accessibilityRole="button" accessibilityLabel={`View ${product.name}`}>
       <View style={styles.festiveCardImageWrap}>
         {artwork && !failed ? (
           <Image source={{ uri: mediaUrl(artwork) }} style={StyleSheet.absoluteFill} contentFit="contain" onError={() => setFailed(true)} />
@@ -520,16 +522,16 @@ export function FestiveDealGridCard({ product, deal = false }) {
         )}
         <Text style={styles.festiveInclOffers}>*Incl. All Offers</Text>
       </View>
-      <View style={styles.festiveTitleBanner}>
-        <Text numberOfLines={1} style={styles.festiveCardTitle}>{product.name}</Text>
+      <View style={[styles.festiveTitleBanner, { backgroundColor: palette.soft, borderTopColor: palette.line }]}>
+        <Text numberOfLines={1} style={[styles.festiveCardTitle, { color: palette.cardText }]}>{product.name}</Text>
       </View>
       <LinearGradient
-        colors={['#f59e0b', '#d97706', '#b45309']}
+        colors={[palette.accent, palette.accentDark, palette.priceEnd]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.festivePriceBanner}
       >
-        <Text style={styles.festivePriceText}>From {inr(price)}*</Text>
+        <Text style={[styles.festivePriceText, { color: palette.onAccent }]}>From {inr(price)}*</Text>
       </LinearGradient>
     </Pressable>
   );
@@ -566,24 +568,23 @@ export function StorefrontSection({ section }) {
 
   if (isFestiveDeals) {
     const cardWidth = Math.floor((width - 24 - 20 - 16) / 3);
+    const fp = festivePalette(c);
     return (
       <View style={styles.festiveWrapper}>
         {/* Ornate Top Deals Header with Golden Flourishes */}
         <View style={styles.festiveTopHeader}>
-          <Text style={styles.festiveSparkle}>✨ ━━━━ ✦</Text>
-          <Text style={styles.festiveHeadingText}>{c.title || 'TOP DEALS'}</Text>
-          <Text style={styles.festiveSparkle}>✦ ━━━━ ✨</Text>
+          {fp.trim && <Text style={[styles.festiveSparkle, { color: fp.accentDark }]}>✨ ━━━━ ✦</Text>}
+          <Text style={[styles.festiveHeadingText, { color: fp.title }]}>{c.title || 'TOP DEALS'}</Text>
+          {fp.trim && <Text style={[styles.festiveSparkle, { color: fp.accentDark }]}>✦ ━━━━ ✨</Text>}
         </View>
 
         {/* Festive Golden Card Container */}
         <View style={[styles.festiveSectionContainer, { backgroundColor: c.appearance?.background || '#FFF8E7', borderColor: c.appearance?.accent || '#F59E0B' }]}>
-          {/* Top Corner Hanging Lanterns */}
-          <View style={styles.festiveTopCornerL}>
-            <Text style={{ fontSize: 18 }}>🏮</Text>
-          </View>
-          <View style={styles.festiveTopCornerR}>
-            <Text style={{ fontSize: 18 }}>🏮</Text>
-          </View>
+          {/* Top corners: the section's trim emoji */}
+          {fp.trim && <>
+            <View style={styles.festiveTopCornerL}><Text style={{ fontSize: 18 }}>{fp.emoji}</Text></View>
+            <View style={styles.festiveTopCornerR}><Text style={{ fontSize: 18 }}>{fp.emoji}</Text></View>
+          </>}
 
           {result.loading ? (
             <View style={[styles.productSkeleton, { backgroundColor: '#fff', borderRadius: 14 }]}><Text style={{ color: theme.muted }}>Loading festive deals…</Text></View>
@@ -593,27 +594,21 @@ export function StorefrontSection({ section }) {
             <View style={styles.festive3ColGrid}>
               {result.products.map(p => (
                 <View key={p.id || p._id} style={{ width: cardWidth }}>
-                  <FestiveDealGridCard product={p} deal={c.source === 'campaign'} />
+                  <FestiveDealGridCard product={p} deal={c.source === 'campaign'} palette={fp} />
                 </View>
               ))}
             </View>
           )}
 
-          {/* Symmetrical Bottom Diyas and Golden Garland Trim */}
-          <View style={styles.festiveBottomDiyasRow}>
-            <View style={styles.festiveGarlandLine} />
+          {/* Bottom trim: divider line in the accent colour with the section's trim emoji */}
+          {fp.trim && <View style={styles.festiveBottomDiyasRow}>
+            <View style={[styles.festiveGarlandLine, { backgroundColor: fp.accent }]} />
             <View style={styles.festiveDiyasGroup}>
-              <View style={styles.diyaSmall}>
-                <Text style={{ fontSize: 18 }}>🪔</Text>
-              </View>
-              <View style={styles.diyaCenter}>
-                <Text style={{ fontSize: 26 }}>🪔</Text>
-              </View>
-              <View style={styles.diyaSmall}>
-                <Text style={{ fontSize: 18 }}>🪔</Text>
-              </View>
+              <View style={styles.diyaSmall}><Text style={{ fontSize: 18 }}>{fp.emoji}</Text></View>
+              <View style={styles.diyaCenter}><Text style={{ fontSize: 26 }}>{fp.emoji}</Text></View>
+              <View style={styles.diyaSmall}><Text style={{ fontSize: 18 }}>{fp.emoji}</Text></View>
             </View>
-          </View>
+          </View>}
         </View>
       </View>
     );
@@ -627,13 +622,13 @@ export function StorefrontSection({ section }) {
     ['campaign', 'price'].includes(c.source) && { borderTopWidth: 4, borderTopColor: c.appearance?.accent || theme.accent },
     soft && { borderWidth: 1, borderColor: c.appearance?.accent || theme.accent }]}>
     {section.banner && <View style={{ marginBottom: 20 }}>
-      <View style={{ width: '100%', height: 200, borderRadius: theme.radius, overflow: 'hidden' }}><StorefrontMedia banner={section.banner} /><Celebration effect={section.banner.animation} /></View>
+      <View style={{ width: '100%', height: 200, borderRadius: theme.radius, overflow: 'hidden' }}><StorefrontMedia banner={section.banner} /><Celebration effect={section.banner.animation} />{isSnowTheme(theme) && <SnowCap />}</View>
       {section.banner.destination.type !== 'NONE' && <CtaButton title={`${section.banner.cta || 'Explore collection'} →`} onPress={() => navigate(section.banner.destination)} style={{ marginTop: 8 }} />}
     </View>}
     <View style={styles.sfHeading}>
       <View style={{ flex: 1, paddingRight: 6 }}>
         <Text style={[styles.eyebrow, { color: textColor }]}>{c.source === 'campaign' ? 'LIMITED-TIME DEALS' : c.source === 'wholesale' ? 'FOR YOUR BUSINESS' : 'CURATED FOR YOU'}</Text>
-        <Text style={[styles.sfTitle, { color: textColor }]}>{c.title}</Text>
+        <Text style={[styles.sfTitle, { color: textColor }]}><Snowflake theme={theme} />{c.title}</Text>
         {Boolean(section.description || c.description || deal?.campaign?.description || section.deal?.description) && (
           <Text style={{ color: textColor, opacity: 0.85, fontSize: 12.5, marginTop: 2, lineHeight: 17 }}>
             {section.description || c.description || deal?.campaign?.description || section.deal?.description}
@@ -676,7 +671,7 @@ export function TopProducts() {
   const { products, loading, error, retry } = useProducts({ type: activeMode === 'quick' ? 'grocery' : 'ecommerce', limit: 8 });
   return <View style={styles.sfSection}>
     <View style={styles.sfHeading}>
-      <View style={{ flex: 1 }}><Text style={[styles.eyebrow, { color: theme.text }]}>FIND YOUR NEXT FAVOURITE</Text><Text style={[styles.sfTitle, { color: theme.text }]}>Fresh finds for you</Text></View>
+      <View style={{ flex: 1 }}><Text style={[styles.eyebrow, { color: theme.text }]}>FIND YOUR NEXT FAVOURITE</Text><Text style={[styles.sfTitle, { color: theme.text }]}><Snowflake theme={theme} />Fresh finds for you</Text></View>
       <Pressable onPress={() => setActiveNav('categories')} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: theme.text, fontSize: 12, fontWeight: '700', textDecorationLine: 'underline' }}>Browse all →</Text></Pressable>
     </View>
     {loading ? <View style={[styles.productSkeleton, { backgroundColor: theme.surface, borderRadius: theme.radius }]}><Text style={{ color: theme.muted }}>Loading products…</Text></View>
@@ -722,7 +717,7 @@ export function PopularCategories() {
   const minimal = theme.tokens.category === 'minimal';
   return <View style={{ marginTop: 22, marginBottom: 26, paddingHorizontal: 8 }}>
     <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Popular Categories</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}><Snowflake theme={theme} />Popular Categories</Text>
       <Pressable onPress={() => setActiveNav('categories')} style={[styles.viewAllPill, { borderColor: theme.action }]}><Text style={{ color: theme.action, fontSize: 12, fontWeight: '800' }}>View All</Text></Pressable>
     </View>
     {loading ? <Text style={{ color: '#94a3b8', fontSize: 12, paddingVertical: 10, paddingHorizontal: 12 }}>Loading...</Text>
@@ -734,6 +729,7 @@ export function PopularCategories() {
               return <Pressable key={category._id || category.id} onPress={() => setSelectedCategoryFilter(category)} style={styles.popularItem} accessibilityRole="button" accessibilityLabel={category.name}>
                 <View style={[styles.popularCircle, minimal ? { backgroundColor: theme.surface, borderColor: theme.borderColor } : { backgroundColor: theme.categorySurface, borderColor: theme.categoryFrame, shadowColor: theme.categoryFrame, elevation: 3 }]}>
                   {tile ? <StorefrontMedia banner={tile.banner} active={false} /> : <PopularCategoryImage category={category} color={theme.primaryColor} />}
+                  {isSnowTheme(theme) && <SnowCap small />}
                 </View>
                 <Text numberOfLines={2} style={{ fontSize: 11, fontWeight: '600', color: theme.text, textAlign: 'center', maxWidth: 74 }}>{category.name}</Text>
                 {tile?.badge ? <Text style={[styles.tileBadge, { position: 'relative', backgroundColor: theme.badge, color: theme.badgeText }]}>{tile.badge}</Text> : null}
@@ -778,10 +774,11 @@ export function QuickActions() {
   const actions = QUICK_ACTIONS.filter(action => action.id !== 'wholesale' || wholesaleAvailable);
   return <View style={{ paddingHorizontal: 8 }}>
     <View style={{ flexDirection: 'row', gap: 8 }}>
-      {actions.map(({ id, title, subtitle, Icon }) => <Pressable key={id} onPress={() => handle(id)} style={[styles.quickCard, { backgroundColor: theme.surface, borderColor: theme.borderColor }]} accessibilityRole="button" accessibilityLabel={title}>
+      {actions.map(({ id, title, subtitle, Icon }) => <Pressable key={id} onPress={() => handle(id)} style={[styles.quickCard, { backgroundColor: theme.surface, borderColor: theme.borderColor }, isSnowTheme(theme) && { overflow: 'hidden' }]} accessibilityRole="button" accessibilityLabel={title}>
         <View style={[styles.quickIcon, { backgroundColor: theme.highlight }]}><Icon size={26} color={iconColor(id)} width={id === 'wholesale' ? 2 : 2.2} radius={2.2} /></View>
         <Text style={[styles.quickTitle, { color: theme.text }]}>{title}</Text>
         <Text style={[styles.quickSub, { color: theme.muted }]}>{subtitle}</Text>
+        {isSnowTheme(theme) && <SnowCap />}
       </Pressable>)}
       {Array.from({ length: 4 - actions.length }, (_, i) => <View key={i} style={{ flex: 1 }} />)}
     </View>

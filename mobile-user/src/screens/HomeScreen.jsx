@@ -17,7 +17,7 @@ import { useRefreshHandler, runRefresh } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
 import { HeaderTop, HeaderPinned } from '../components/UnifiedHeader';
 import { alpha } from '../theme';
-import HeroBanner, { StorefrontFestiveHeader, hasFestiveHeader, normalizeHeader } from '../components/storefront/HeroBanner';
+import HeroBanner, { StorefrontFestiveHeader, hasFestiveHeader, normalizeHeader, isSnowTheme } from '../components/storefront/HeroBanner';
 import {
   HOME_NEAR_END, QuickActions, PopularCategories, StorefrontSections, StorefrontAnnouncement, TopProducts,
   VegetablesSection, MilkSection, ElectronicsSection, MensWearSection, WomenWearSection, ChildWearSection,
@@ -105,7 +105,7 @@ export default function HomeScreen() {
   const festive = hasFestiveHeader(experience.theme) ? normalizeHeader(experience.theme.header) : null;
   const festiveHeading = label => festive && <View style={[styles.festiveStrip, { backgroundColor: festive.background, borderColor: alpha(festive.text, 0.35) }]}>
     <Text style={[styles.festiveStripFlourish, { color: festive.text }]}>✦ ━━━━ ✨</Text>
-    <Text style={[styles.festiveStripText, { color: festive.text }]}>{label}</Text>
+    <Text style={[styles.festiveStripText, { color: festive.text }]}>{isSnowTheme(theme) ? `❄ ${label} ❄` : label}</Text>
     <Text style={[styles.festiveStripFlourish, { color: festive.text }]}>✨ ━━━━ ✦</Text>
   </View>;
   return <CustomerPage headerColor={theme.header} cartBar>

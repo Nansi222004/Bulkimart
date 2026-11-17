@@ -26,12 +26,41 @@ export const PRESETS = Object.fromEntries([
   ['Wholesale Business Sale', { primary: '#245379', accent: '#ff9c45' }],
   ['Winter Snowfall', { primary: '#1f5f8b', secondary: '#123b5c', accent: '#cfeaff', highlight: '#e8f4ff', highlightText: '#123b5c', categorySurface: '#e8f4ff', decoration: 'none' }],
   ['Spring Blossom', { primary: '#a3195b', secondary: '#6e1040', accent: '#ffc0d9', highlight: '#ffe6f0', highlightText: '#6e1040', categorySurface: '#ffe6f0', decoration: 'none' }],
+  // Christmas red and pine green with gold; snow settles on the hero banner.
+  ['Christmas Celebration', { primary: '#B3121D', secondary: '#7A0C14', accent: '#F4C430', background: '#FFF8F3', border: '#EEDFD6', header: '#14532D', headerText: '#FFFFFF',
+    action: '#B3121D', actionHover: '#7A0C14', badge: '#1F7A3D', highlight: '#E7F4EA', highlightText: '#14532D', promotion: '#E7F4EA', promotionText: '#14532D',
+    categorySurface: '#FDF1F1', categoryFrame: '#1F7A3D', navActive: '#B3121D', decoration: 'snow' }],
   ['Custom Admin Theme', {}],
 ].map(([name, tokens]) => [name, resolveTokens(tokens)]));
 // Suggested header animation per festive preset; Admin may change any of it.
-export const PRESET_EFFECTS = { 'Diwali Celebration': 'lights', 'Festive Celebration': 'lights', 'Winter Snowfall': 'snowfall', 'Spring Blossom': 'petals', 'Holi Colors': 'petals', 'New Year Celebration': 'fireworks', 'Eid Celebration': 'sparkles' };
+export const PRESET_EFFECTS = { 'Diwali Celebration': 'lights', 'Festive Celebration': 'lights', 'Winter Snowfall': 'snowfall', 'Spring Blossom': 'petals', 'Holi Colors': 'petals', 'New Year Celebration': 'fireworks', 'Eid Celebration': 'sparkles', 'Christmas Celebration': 'santa' };
+// Theme decorations: small static ornaments drawn by the storefront itself (no animation).
+export const DECORATIONS = ['none', 'dots', 'confetti', 'lights', 'snow'];
+// "Festive Top Deals" sections: the emoji drawn along the bottom trim. Older sections have none stored and keep diyas.
+export const FESTIVE_TRIMS = {
+  diya: { emoji: '🪔', label: 'Diya lamps (Diwali)' }, tree: { emoji: '🎄', label: 'Christmas trees' }, gift: { emoji: '🎁', label: 'Gift boxes' },
+  star: { emoji: '⭐', label: 'Stars' }, moon: { emoji: '🌙', label: 'Crescent moon (Eid)' }, snow: { emoji: '❄️', label: 'Snowflakes (winter)' },
+};
+const hex6 = value => typeof value === 'string' && /^#[a-f\d]{6}$/i.test(value);
+const mix = (a, b, t) => `#${[1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('')}`;
+const lum = color => { const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16) / 255).map(x => x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+/**
+ * Every colour and ornament of a Festive Top Deals section, derived from its admin settings: the sparkles, divider
+ * and product cards follow the section accent (default gold, the original look). `onAccent` is whichever of white or
+ * near-black reads best on the price strip, so a pale accent still gets legible prices.
+ */
+export function festivePalette(config = {}) {
+  const look = config.appearance || {}, accent = hex6(look.accent) ? look.accent : '#F59E0B', background = hex6(look.background) ? look.background : '#FFF8E7';
+  const accentDark = mix(accent, '#000000', 0.12), priceEnd = mix(accent, '#000000', 0.22);
+  return { accent, accentDark, priceEnd, background, title: hex6(look.text) ? look.text : '#B91C1C', text: hex6(look.text) ? look.text : '#78350F',
+    soft: mix(accent, '#FFFFFF', 0.82), line: mix(accent, background, 0.6), cardText: mix(accent, '#000000', 0.55),
+    onAccent: (1.05 / (lum(priceEnd) + 0.05)) >= 3 ? '#FFFFFF' : '#1F1F1F',
+    trim: config.festiveTrim !== false, emoji: (FESTIVE_TRIMS[config.trimEmoji] || FESTIVE_TRIMS.diya).emoji };
+}
 // Festive header/hero shown below the search and category navigation.
 export const HEADER_TARGETS = ['none', 'categories', 'hot-deals', 'smart-buy', 'campaign'];
+// A theme is either the overall look (colours, styles, page animation) or only the sub-header strip.
+export const THEME_PARTS = ['overall', 'subheader'];
 export const DEFAULT_COUNTDOWN = { enabled: false, title: '', startAt: null, endAt: null, showRemaining: true, expiredText: '' };
 export const DEFAULT_HEADER = { enabled: false, title: '', subtitle: '', cta: '', target: 'none', campaignId: '', height: 180, background: '#79000B', text: '#FFFFFF', image: '', video: '', animationPreset: '', countdown: DEFAULT_COUNTDOWN };
 export const headerDestination = header => header.target === 'campaign' ? { type: 'CAMPAIGN', id: header.campaignId }

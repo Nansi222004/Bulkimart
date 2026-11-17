@@ -1,6 +1,6 @@
 import { httpError } from '../utils/response.js';
 import { DEFAULT_EFFECT, EFFECT_PRESETS, INTENSITY, MAX_COMBINED, DEFAULT_CUSTOM, CUSTOM_MOTIONS, CUSTOM_SHAPES, MAX_CUSTOM, isCustomId } from '../shared/celebration.mjs';
-import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, THEME_PARTS, SPLASH_DURATION } from '../shared/storefront.mjs';
+import { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, SCOPES, FREQUENCIES, SOURCES, DEFAULT_HEADER, DEFAULT_COUNTDOWN, HEADER_TARGETS, THEME_PARTS, SPLASH_DURATION, DECORATIONS, FESTIVE_TRIMS } from '../shared/storefront.mjs';
 const fail = message => { throw httpError(400, message); };
 const one = (value, choices, label) => choices.includes(value) ? value : fail(`Invalid ${label}`);
 const str = (value, max, label) => typeof value === 'string' && value.length <= max ? value.trim() : fail(`Invalid ${label}`);
@@ -70,7 +70,7 @@ export function validateTokens(input) {
   one(t.font, ['system', 'sans', 'serif'], 'font'); one(t.card, ['rounded', 'square'], 'card style');
   one(t.button, ['rounded', 'pill'], 'button style'); one(t.gradient, ['none', 'soft'], 'gradient');
   one(t.category, ['framed', 'minimal'], 'category style'); one(t.product, ['elevated', 'flat'], 'product style');
-  one(t.decoration, ['none', 'dots', 'confetti', 'lights'], 'decoration'); one(t.motion, ['none', 'gentle'], 'motion');
+  one(t.decoration, DECORATIONS, 'decoration'); one(t.motion, ['none', 'gentle'], 'motion');
   for (const bg of ['background', 'surface']) for (const fg of ['text', 'muted']) if (contrast(t[bg], t[fg]) < 4.5) fail(`${fg} needs at least 4.5:1 contrast on ${bg}`);
   if (contrast(t.primary, '#ffffff') < 4.5 || contrast(t.secondary, '#ffffff') < 4.5) fail('Primary and secondary colors need 4.5:1 contrast with white button text');
   for (const [bg, fg] of [['header', 'headerText'], ['search', 'searchText'], ['action', 'actionText'], ['actionHover', 'actionText'], ['badge', 'badgeText'], ['highlight', 'highlightText'], ['promotion', 'promotionText'], ['navSurface', 'navText'], ['navSurface', 'navActive']]) {
@@ -159,6 +159,7 @@ export function validateExperience(input, kind) {
     layout: one(c.layout || 'rail', ['rail', 'grid', 'festive_grid'], 'section layout'),
     appearance: validateSectionAppearance(c.appearance),
     festiveTrim: c.festiveTrim === true,
+    trimEmoji: one(c.trimEmoji || 'diya', Object.keys(FESTIVE_TRIMS), 'festive trim emoji'),
   };
   if (kind === 'theme' || kind === 'campaign') row.config.animation = validateEffect(c.animation, kind === 'theme' ? ['storefront', 'homepage', 'campaign'] : ['storefront', 'homepage', 'campaign', 'banner']);
   if (kind === 'campaign' && row.config.placement === 'announcement' && row.config.animation.enabled && row.config.animation.scope === 'banner') fail('Announcement text has no banner canvas; choose homepage or storefront animation scope');

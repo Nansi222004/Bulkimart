@@ -62,6 +62,18 @@
 .sf-media-fallback{min-height:180px;display:grid;place-items:center;padding:24px;background:var(--sf-gradient);color:white;font-size:24px;font-weight:750;text-align:center}
 .sf-storefront[data-decoration="dots"] .sf-hero-copy{background-image:radial-gradient(var(--sf-border) 1px,transparent 1px);background-size:12px 12px}
 .sf-storefront[data-decoration="confetti"] .sf-hero{border-bottom:5px dashed var(--sf-accent)}
+/* ---- Christmas (theme decoration "snow"). Decorative only: nothing here takes clicks or changes layout. ---- */
+/* Snow-cap: a scalloped drift of snow resting on the top edge of banners, the festive card and the quick cards. */
+.sf-storefront[data-decoration="snow"] :is(.sf-hero-art,.sf-hero-default,.sf-section-banner,.sf-festive,.quick-action-card){position:relative}
+.sf-storefront[data-decoration="snow"] :is(.sf-hero-art,.sf-hero-default,.sf-section-banner,.sf-festive,.quick-action-card)::after{content:"";position:absolute;z-index:1;inset:0 0 auto;height:16px;pointer-events:none;border-top-left-radius:inherit;border-top-right-radius:inherit;background:linear-gradient(#fff,#fff) 0 0/100% 6px no-repeat,radial-gradient(circle at 50% 0,#fff 0 9px,transparent 9.5px) 0 0/24px 16px repeat-x,radial-gradient(circle at 50% 4px,#fff 0 6px,transparent 6.5px) 12px 0/24px 12px repeat-x;filter:drop-shadow(0 2px 1.5px rgba(30,60,90,.18))}
+/* Smaller drift on each category tile. */
+.sf-storefront[data-decoration="snow"] .category-circle-wrapper::after{content:"";position:absolute;z-index:1;inset:0 0 auto;height:10px;pointer-events:none;border-top-left-radius:inherit;border-top-right-radius:inherit;background:linear-gradient(#fff,#fff) 0 0/100% 4px no-repeat,radial-gradient(circle at 50% 0,#fff 0 6px,transparent 6.5px) 0 0/16px 10px repeat-x;filter:drop-shadow(0 1px 1px rgba(30,60,90,.2))}
+/* A faint flurry of icy dots across the page background. */
+.sf-storefront[data-decoration="snow"]{background-image:radial-gradient(circle,rgba(130,175,220,.28) 0 1.6px,transparent 2.2px),radial-gradient(circle,rgba(130,175,220,.2) 0 1.1px,transparent 1.6px);background-size:58px 58px,37px 37px;background-position:0 0,19px 23px}
+/* Snowflakes beside section titles and inside the festive strip headings. */
+.sf-storefront[data-decoration="snow"] :is(.section-title,.sf-section-heading h2)::before{content:"❄";display:inline-block;margin-right:8px;font-size:.8em;color:var(--sf-primary);vertical-align:.08em}
+.sf-storefront[data-decoration="snow"] .sf-banner-strip-heading .sf-strip-text::before{content:"❄ "}
+.sf-storefront[data-decoration="snow"] .sf-banner-strip-heading .sf-strip-text::after{content:" ❄"}
 .sf-storefront[data-motion="gentle"] .sf-hero{animation:sf-reveal .4s ease-out}@keyframes sf-reveal{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media(min-width:1024px){.sf-storefront .home-feed-scrollable{padding-left:max(0px,calc((100% - 1280px)/2));padding-right:max(0px,calc((100% - 1280px)/2))}.sf-product-rail{grid-auto-columns:minmax(180px,1fr)}}
 @media(max-width:600px){.sf-hero{grid-template-columns:1fr;margin:18px 0 24px;border-radius:18px;gap:16px;background:transparent!important;border:none!important;box-shadow:none!important}.sf-hero-art{aspect-ratio:1.8;border-radius:18px;overflow:hidden;border:1.5px solid var(--sf-border);box-shadow:0 4px 16px rgba(0,0,0,0.06);background:var(--sf-surface)}.sf-hero-copy{padding:20px 16px 44px;border-radius:18px;background:var(--sf-gradient)!important;border:1.5px solid var(--sf-accent)!important;box-shadow:0 4px 16px rgba(0,0,0,0.08)}.sf-hero h2{font-size:24px;max-width:95%}.sf-hero p{font-size:13px;margin-bottom:14px}.sf-hero .sf-eyebrow{font-size:10px}.sf-section{margin:24px 12px}.sf-section-heading h2{font-size:20px}.sf-product-rail{grid-auto-columns:calc((100vw - 48px)/2);gap:10px}.sf-product{max-width:none}.sf-product-body{padding:10px 10px 12px;gap:6px}.sf-wholesale{margin:24px 12px;flex-direction:column;align-items:flex-start;padding:20px}.sf-announcement{gap:8px;font-size:11px}.sf-storefront .category-circle{border:2px solid var(--sf-border)}}
@@ -129,17 +141,17 @@
 .sf-countdown{background:var(--sf-highlight);color:var(--sf-highlight-text);border:1px solid var(--sf-accent)}
 .sf-section[data-layout="grid"] .sf-product-rail{grid-auto-flow:row;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));overflow:visible}
 .sf-section[data-layout="grid"] .sf-product{max-width:none}
-.sf-section--festive_deals{background:var(--section-background, #FFF8E7) !important;border:1.5px solid var(--section-accent, #F59E0B) !important;border-radius:20px !important;padding:16px 10px 14px !important;box-shadow:0 4px 14px rgba(217,119,6,0.12) !important;position:relative;margin:18px 8px !important;box-sizing:border-box !important;overflow:hidden !important}
+.sf-section--festive_deals{background:var(--section-background, #FFF8E7) !important;border:1.5px solid var(--section-accent, #F59E0B) !important;border-radius:20px !important;padding:16px 10px 14px !important;box-shadow:0 4px 14px color-mix(in srgb,var(--festive-accent-dark,#D97706) 12%,transparent) !important;position:relative;margin:18px 8px !important;box-sizing:border-box !important;overflow:hidden !important}
 .sf-section--festive_deals .sf-section-heading{justify-content:center;text-align:center;margin-bottom:14px}
 .sf-section--festive_deals .sf-section-heading h2{color:var(--section-text, #B91C1C) !important;font-size:24px;font-weight:900;letter-spacing:-0.03em}
 .sf-festive-grid{display:grid !important;grid-template-columns:repeat(3, minmax(0, 1fr)) !important;gap:8px !important;width:100% !important;box-sizing:border-box !important;padding:4px 0 !important;align-items:start !important}
-.sf-festive-deal-card{background:#ffffff !important;border:1.5px solid #F59E0B !important;border-radius:12px !important;overflow:hidden !important;display:flex !important;flex-direction:column !important;box-shadow:0 2px 8px rgba(245,158,11,0.14) !important;cursor:pointer !important;transition:transform .18s ease,box-shadow .18s ease !important;min-width:0 !important;box-sizing:border-box !important}
-.sf-festive-deal-card:hover{transform:translateY(-2px) !important;box-shadow:0 5px 16px rgba(217,119,6,0.24) !important}
+.sf-festive-deal-card{background:#ffffff !important;border:1.5px solid var(--festive-accent,#F59E0B) !important;border-radius:12px !important;overflow:hidden !important;display:flex !important;flex-direction:column !important;box-shadow:0 2px 8px color-mix(in srgb,var(--festive-accent,#F59E0B) 14%,transparent) !important;cursor:pointer !important;transition:transform .18s ease,box-shadow .18s ease !important;min-width:0 !important;box-sizing:border-box !important}
+.sf-festive-deal-card:hover{transform:translateY(-2px) !important;box-shadow:0 5px 16px color-mix(in srgb,var(--festive-accent-dark,#D97706) 24%,transparent) !important}
 .sf-festive-deal-art{width:100% !important;aspect-ratio:1 / 1 !important;height:0 !important;padding-bottom:100% !important;position:relative !important;overflow:hidden !important;background:#ffffff !important;box-sizing:border-box !important;flex:0 0 auto !important}
 .sf-festive-deal-art img{position:absolute !important;top:6px !important;left:6px !important;width:calc(100% - 12px) !important;height:calc(100% - 12px) !important;object-fit:cover !important;object-position:center !important;border-radius:6px !important;display:block !important}
 .sf-festive-deal-art .sf-no-image{position:absolute !important;inset:6px !important;display:flex !important;align-items:center !important;justify-content:center !important;font-size:10px !important;color:#94a3b8 !important}
-.sf-festive-deal-title{background:#FEF3C7 !important;border-top:1px dotted #F59E0B !important;padding:5px 4px !important;font-size:11px !important;font-weight:750 !important;color:#78350F !important;text-align:center !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;line-height:1.2 !important;flex:0 0 auto !important}
-.sf-festive-deal-price{background:linear-gradient(135deg, #F59E0B, #D97706) !important;color:#ffffff !important;font-size:11.5px !important;font-weight:900 !important;text-align:center !important;padding:6px 2px !important;letter-spacing:-0.2px !important;margin-top:auto !important;flex:0 0 auto !important}
+.sf-festive-deal-title{background:var(--festive-soft,#FEF3C7) !important;border-top:1px dotted var(--festive-accent,#F59E0B) !important;padding:5px 4px !important;font-size:11px !important;font-weight:750 !important;color:var(--festive-card-text,#78350F) !important;text-align:center !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;line-height:1.2 !important;flex:0 0 auto !important}
+.sf-festive-deal-price{background:linear-gradient(135deg, var(--festive-accent,#F59E0B), var(--festive-price-end,#D97706)) !important;color:var(--festive-on-accent,#ffffff) !important;font-size:11.5px !important;font-weight:900 !important;text-align:center !important;padding:6px 2px !important;letter-spacing:-0.2px !important;margin-top:auto !important;flex:0 0 auto !important}
 .sf-banner-strip-heading{display:flex;align-items:center;justify-content:center;gap:8px;margin:2px 14px;padding:3px 12px;background:linear-gradient(135deg, rgba(254,243,199,0.92), rgba(253,230,138,0.78));border:1px solid rgba(245,158,11,0.45);border-radius:999px;box-shadow:0 1px 4px rgba(245,158,11,0.1);text-align:center;box-sizing:border-box}
 .sf-banner-strip-heading .sf-strip-text{font-size:11px;font-weight:900;letter-spacing:0.5px;color:#92400E;text-transform:uppercase;line-height:1.2}
 .sf-banner-strip-heading .sf-strip-flourish{font-size:10px;font-weight:800;color:#D97706}
@@ -214,23 +226,33 @@
 .sf-festive-copy{min-width:0;flex:1}
 .sf-festive h2{margin:0;font-size:clamp(22px,3vw,34px);font-weight:850;line-height:1.15;letter-spacing:-.03em;color:inherit;overflow-wrap:anywhere}
 .sf-festive p{margin:8px 0 0;font-size:14px;line-height:1.5;color:inherit}
-.sf-festive .sf-cta{margin-top:14px;background:var(--sf-highlight);color:var(--sf-highlight-text)}
+.sf-festive-actions{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px 22px;margin-top:18px}
+/* Festive button: a raised pill with the arrow in its own circle. Colours stay the theme's contrast-checked highlight pair. */
+.sf-festive .sf-cta{min-height:48px;padding:6px 7px 6px 24px;gap:14px;border-radius:999px;background:var(--sf-highlight);color:var(--sf-highlight-text);font-size:14px;font-weight:800;letter-spacing:.01em;box-shadow:0 10px 24px rgba(0,0,0,.28),inset 0 -2px 0 rgba(0,0,0,.08);transition:transform .15s ease,box-shadow .15s ease}
+.sf-festive .sf-cta:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(0,0,0,.32),inset 0 -2px 0 rgba(0,0,0,.08)}
+.sf-festive .sf-cta>span{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--sf-highlight-text);color:var(--sf-highlight);font-size:16px}
 .sf-festive .sf-cta:focus-visible{outline-color:var(--sf-festive-text)}
 /* Uploaded image/video fills the whole sub-header; the shade keeps the text readable. */
 .sf-festive-art{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
 .sf-festive-shade{position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(90deg,color-mix(in srgb,var(--sf-festive-bg) 80%,transparent),color-mix(in srgb,var(--sf-festive-bg) 35%,transparent) 55%,transparent)}
-.sf-festive .sf-festive-countdown{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:fit-content;max-width:100%;margin-top:12px;padding:6px 10px;border-radius:10px;background:var(--sf-festive-bg);border:1px solid color-mix(in srgb,var(--sf-festive-text) 40%,transparent);font-size:12px;font-weight:700}
+/* Countdown: a small caps label over frosted-glass tiles, each with its unit underneath. */
+.sf-festive .sf-festive-countdown{display:flex;flex-direction:column;align-items:flex-start;gap:7px;width:fit-content;max-width:100%;margin:0;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.35)}
+.sf-festive .sf-festive-countdown--ended,.sf-festive .sf-festive-countdown:not([data-phase]){padding:8px 14px;border-radius:999px;background:color-mix(in srgb,var(--sf-festive-text) 14%,transparent);border:1px solid color-mix(in srgb,var(--sf-festive-text) 30%,transparent);letter-spacing:.04em;text-transform:none;font-size:13px}
 /* Text keeps the validated header contrast even while particles pass behind it. */
 .sf-festive-copy>:is(h2,p:not(.sf-festive-countdown)){text-shadow:0 0 6px var(--sf-festive-bg),0 0 2px var(--sf-festive-bg)}
-.sf-festive-countdown time{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
-.sf-festive-countdown b{display:inline-block;min-width:1.7em;padding:2px 3px;border-radius:6px;background:var(--sf-festive-text);color:var(--sf-festive-bg);text-align:center}
+.sf-festive-countdown time{display:flex;align-items:flex-start;gap:5px;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:0;text-transform:none;text-shadow:none}
+.sf-festive-countdown time>i{font-style:normal;font-size:18px;font-weight:800;line-height:34px;opacity:.55}
+.sf-festive-countdown b{display:flex;flex-direction:column;align-items:center;min-width:48px;padding:7px 6px 6px;box-sizing:border-box;border-radius:12px;background:color-mix(in srgb,var(--sf-festive-text) 15%,transparent);border:1px solid color-mix(in srgb,var(--sf-festive-text) 32%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:var(--sf-festive-text);font-size:21px;font-weight:850;line-height:1;text-align:center}
+.sf-festive-countdown b::after{content:attr(data-unit);margin-top:5px;font-size:8.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.8}
+.sf-festive-countdown b>i{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* The opt-out control lives inside the decorated box it controls, never over the page. */
 /* The header effect sits under the header content: behind the logo, tabs and search bar, above the header background.
    The rows share the header colour, so they turn transparent while an effect is mounted and the container paints it. */
 .header-celebration{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
 .sf-storefront .unified-header-container:has(>.header-celebration){isolation:isolate}
 .sf-storefront .unified-header-container:has(>.header-celebration)>:is(.header-primary-row,.header-switcher-bar,.header-body-content){background:transparent}
-@media(max-width:600px){.sf-festive{margin:0 12px 2px !important;border-radius:16px}.sf-festive-content{padding:30px 16px 36px}.sf-festive h2{font-size:22px}.sf-festive p{font-size:12.5px}}
+@media(max-width:600px){.sf-festive{margin:0 12px 2px !important;border-radius:16px}.sf-festive-content{padding:30px 16px 36px}.sf-festive h2{font-size:22px}.sf-festive p{font-size:12.5px}
+.sf-festive-actions{gap:12px;margin-top:14px}.sf-festive-countdown b{min-width:42px;font-size:18px}.sf-festive .sf-cta{min-height:44px;font-size:13px;padding-left:18px}.sf-festive .sf-cta>span{width:30px;height:30px}}
 @media(max-width:768px){.sf-storefront .page-home .home-feed-scrollable>.sf-festive{margin-inline:0}}
 .sf-section-banner video{width:100%;max-height:220px;object-fit:contain;border-radius:var(--sf-radius)}
 .studio-preview video{width:100%;max-height:240px;object-fit:contain}
@@ -324,9 +346,13 @@
     box-sizing: border-box !important;
   }
 
+  /* The whole banner is shown at its own shape across the full width: no zoom-crop of the artwork's
+     edges (a fixed 3.8:1 strip cut the top and bottom off) and no empty panel beside it (the old
+     height cap also shrank the strip's width). */
   .sf-hero .sf-hero-art {
-    aspect-ratio: 3.8 / 1 !important;
-    max-height: 230px !important;
+    width: 100% !important;
+    aspect-ratio: auto !important;
+    max-height: none !important;
     min-height: 150px !important;
     background: var(--sf-header, #79000B) !important;
   }
@@ -334,8 +360,8 @@
   .sf-hero .sf-hero-art img,
   .sf-hero .sf-hero-art video {
     width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
+    height: auto !important;
+    object-fit: contain !important;
     object-position: center !important;
   }
 

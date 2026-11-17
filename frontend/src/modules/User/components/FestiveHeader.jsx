@@ -15,9 +15,10 @@ export function FestiveCountdown({ countdown, now }) {
   if (state.phase === 'after') return <p className="sf-festive-countdown sf-festive-countdown--ended">{countdown.expiredText}</p>;
   if (state.phase === 'live') return <p className="sf-festive-countdown"><span>{countdown.title || 'Sale is live'}</span></p>;
   const { days, hours, minutes, seconds } = countdownParts(state.remaining), label = state.phase === 'before' ? 'Starts in' : 'Ends in';
+  // Unit names (Days/Hrs/…) are drawn from data-unit by CSS, so the readable text stays "2d 12:59:09".
   return <p className="sf-festive-countdown" data-phase={state.phase}>
     <span>{countdown.title ? `${countdown.title} · ${label}` : label}</span>
-    <time dateTime={new Date(state.target).toISOString()}>{days > 0 && <><b>{days}</b>d </>}<b>{pad(hours)}</b>:<b>{pad(minutes)}</b>:<b>{pad(seconds)}</b></time>
+    <time dateTime={new Date(state.target).toISOString()}>{days > 0 && <><b data-unit={days === 1 ? 'Day' : 'Days'}>{days}<i>d</i></b> </>}<b data-unit="Hrs">{pad(hours)}</b><i>:</i><b data-unit="Min">{pad(minutes)}</b><i>:</i><b data-unit="Sec">{pad(seconds)}</b></time>
   </p>;
 }
 
@@ -46,8 +47,10 @@ export function FestiveHeader({ header, effect, now, preview = false, onNavigate
       <div className="sf-festive-copy">
         <h2>{header.title}</h2>
         {header.subtitle && <p>{header.subtitle}</p>}
-        <FestiveCountdown countdown={header.countdown} now={now} />
-        {destination.type !== 'NONE' && header.cta && <button type="button" className="sf-cta" onClick={() => onNavigate?.(destination)}>{header.cta} <span aria-hidden="true">→</span></button>}
+        <div className="sf-festive-actions">
+          <FestiveCountdown countdown={header.countdown} now={now} />
+          {destination.type !== 'NONE' && header.cta && <button type="button" className="sf-cta" onClick={() => onNavigate?.(destination)}>{header.cta} <span aria-hidden="true">→</span></button>}
+        </div>
       </div>
 
     </div>

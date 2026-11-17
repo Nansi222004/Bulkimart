@@ -1,10 +1,14 @@
 // Closed animation vocabulary shared by validation, the renderer and Admin.
 // confetti and sparkles remain for previously published configurations.
-export const EFFECT_PRESETS = ['lights', 'snowfall', 'petals', 'fireworks', 'confetti', 'sparkles', 'diya', 'candles'];
-export const EFFECT_LABELS = { lights: 'Festive lights', snowfall: 'Snowfall', petals: 'Flower petals', fireworks: 'Fireworks', confetti: 'Confetti', sparkles: 'Golden sparkles', diya: 'Diya lamps & jot (Diwali)', candles: 'Festive candles' };
-export const EFFECT_COLORS = { lights: ['#FFD45A', '#FF8A00', '#FF4D4D'], snowfall: ['#FFFFFF', '#DDEEFF'], petals: ['#FFB7C5', '#FF69B4'], fireworks: ['#FFD45A', '#FF6B6B', '#7FDBFF'], confetti: ['#FFD45A', '#B50918', '#FFFFFF'], sparkles: ['#FFD700', '#FFF1A8'], diya: ['#FFD700', '#FF7A00', '#D97706', '#8B2500'], candles: ['#FFE066', '#FF922B', '#E64980'] };
+export const EFFECT_PRESETS = ['lights', 'snowfall', 'petals', 'fireworks', 'confetti', 'sparkles', 'diya', 'candles', 'santa', 'snowflakes', 'gifts', 'ornaments', 'trees'];
+export const EFFECT_LABELS = { lights: 'Festive lights', snowfall: 'Snowfall', petals: 'Flower petals', fireworks: 'Fireworks', confetti: 'Confetti', sparkles: 'Golden sparkles', diya: 'Diya lamps & jot (Diwali)', candles: 'Festive candles',
+  santa: "Santa's sleigh & snow (Christmas)", snowflakes: 'Snowflake crystals (Christmas)', gifts: 'Falling gift boxes (Christmas)', ornaments: 'Hanging ornaments (Christmas)', trees: 'Twinkling Christmas trees' };
+export const EFFECT_COLORS = { lights: ['#FFD45A', '#FF8A00', '#FF4D4D'], snowfall: ['#FFFFFF', '#DDEEFF'], petals: ['#FFB7C5', '#FF69B4'], fireworks: ['#FFD45A', '#FF6B6B', '#7FDBFF'], confetti: ['#FFD45A', '#B50918', '#FFFFFF'], sparkles: ['#FFD700', '#FFF1A8'], diya: ['#FFD700', '#FF7A00', '#D97706', '#8B2500'], candles: ['#FFE066', '#FF922B', '#E64980'],
+  // santa: snow, suit & sleigh, reindeer, gold trim. trees: tree, star, then bulb colours.
+  santa: ['#FFFFFF', '#D62828', '#8B5A2B', '#F4C430'], snowflakes: ['#FFFFFF', '#E3F2FF'], gifts: ['#D62828', '#1F7A3D', '#F4C430', '#FFFFFF'],
+  ornaments: ['#D62828', '#F4C430', '#1F7A3D', '#C0C7D0'], trees: ['#1F7A3D', '#F4C430', '#FF4D4D', '#FFFFFF'] };
 // Falling presets drift; lights and fireworks have their own motion.
-export const DRIFTING_PRESETS = ['snowfall', 'petals', 'confetti', 'sparkles'];
+export const DRIFTING_PRESETS = ['snowfall', 'petals', 'confetti', 'sparkles', 'snowflakes', 'gifts'];
 export const INTENSITY = { low: 0.5, medium: 1, high: 1.5 };
 export const MAX_PARTICLES = 100;
 // Up to MAX_COMBINED presets can play together; the first one is `preset` and uses `colors`.

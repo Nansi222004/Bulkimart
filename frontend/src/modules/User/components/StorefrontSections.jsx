@@ -4,7 +4,7 @@ import { useStorefront } from '../context/StorefrontContext';
 import { useProducts } from '../hooks/useProducts';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
-import { countdown } from '../../../utils/storefront';
+import { countdown, festivePalette } from '../../../utils/storefront';
 import WishlistHeartButton from './WishlistHeartButton';
 import StorefrontMedia from './StorefrontMedia';
 import Celebration from './Celebration';
@@ -103,17 +103,20 @@ export function StorefrontSection({ section }) {
   const result = remoteCollection ? deal : regular;
   if (!result.loading && !result.error && !result.products.length) return null;
   const isFestiveDeals = c.variant === 'festive_deals' || c.layout === 'festive_grid';
-  return <section className={`sf-section sf-section--${c.variant}`} data-source={c.source} data-layout={c.layout || 'rail'} style={{ '--section-background': c.appearance?.background, '--section-text': c.appearance?.text, '--section-accent': c.appearance?.accent }}>
+  // Festive Top Deals: sparkles, divider, cards and trim all follow the section's admin colours and trim emoji.
+  const fp = festivePalette(c);
+  const festiveVars = isFestiveDeals ? { '--festive-accent': fp.accent, '--festive-accent-dark': fp.accentDark, '--festive-price-end': fp.priceEnd, '--festive-soft': fp.soft, '--festive-line': fp.line, '--festive-card-text': fp.cardText, '--festive-on-accent': fp.onAccent } : {};
+  return <section className={`sf-section sf-section--${c.variant}`} data-source={c.source} data-layout={c.layout || 'rail'} style={{ '--section-background': c.appearance?.background, '--section-text': c.appearance?.text, '--section-accent': c.appearance?.accent, ...festiveVars }}>
     {section.banner && <div className="sf-section-banner"><StorefrontMedia banner={section.banner} device={device} /><Celebration effect={section.banner.animation} now={now} />{section.banner.destination.type !== 'NONE' && <button className="sf-cta" onClick={() => navigate(section.banner.destination)}>{section.banner.cta || 'Explore collection'} →</button>}</div>}
     {isFestiveDeals ? (
       <div style={{ textAlign: 'center', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-          <span style={{ color: '#d97706', fontSize: '13px', fontWeight: 800 }}>✨ ━━━━ ✦</span>
-          <h2 style={{ margin: '0 8px', fontSize: '24px', fontWeight: 900, color: c.appearance?.text || '#b91c1c', letterSpacing: '-0.3px' }}>{c.title}</h2>
-          <span style={{ color: '#d97706', fontSize: '13px', fontWeight: 800 }}>✦ ━━━━ ✨</span>
+          {fp.trim && <span aria-hidden="true" style={{ color: fp.accentDark, fontSize: '13px', fontWeight: 800 }}>✨ ━━━━ ✦</span>}
+          <h2 style={{ margin: '0 8px', fontSize: '24px', fontWeight: 900, color: fp.title, letterSpacing: '-0.3px' }}>{c.title}</h2>
+          {fp.trim && <span aria-hidden="true" style={{ color: fp.accentDark, fontSize: '13px', fontWeight: 800 }}>✦ ━━━━ ✨</span>}
         </div>
         {Boolean(section.description || c.description || deal?.campaign?.description || section.deal?.description) && (
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#78350f', opacity: 0.9 }}>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: fp.text, opacity: 0.88 }}>
             {section.description || c.description || deal?.campaign?.description || section.deal?.description}
           </p>
         )}
@@ -138,11 +141,11 @@ export function StorefrontSection({ section }) {
         ))}
       </div>
     )}
-    {isFestiveDeals && (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '28px', marginTop: '16px', borderTop: '2px solid rgba(245, 158, 11, 0.35)', paddingTop: '10px' }}>
-        <span style={{ fontSize: '18px' }}>🪔</span>
-        <span style={{ fontSize: '26px' }}>🪔</span>
-        <span style={{ fontSize: '18px' }}>🪔</span>
+    {isFestiveDeals && fp.trim && (
+      <div aria-hidden="true" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '28px', marginTop: '16px', borderTop: `2px solid ${fp.line}`, paddingTop: '10px' }}>
+        <span style={{ fontSize: '18px' }}>{fp.emoji}</span>
+        <span style={{ fontSize: '26px' }}>{fp.emoji}</span>
+        <span style={{ fontSize: '18px' }}>{fp.emoji}</span>
       </div>
     )}
   </section>;

@@ -3,7 +3,7 @@ import { adminGet, adminPost, adminPatch, adminDelete, authGet, authPost } from 
 import { useAdmin } from '../context/AdminContext';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import ModalPortal from '../../../components/ModalPortal';
-import { PRESETS, PRESET_EFFECTS, DEFAULT_TOKENS, DEFAULT_HEADER, COLOR_KEYS, resolveTokens, themeStyle, SPLASH_DURATION, SPLASH_SKIP_AFTER, splashDurationText } from '../../../utils/storefront';
+import { PRESETS, PRESET_EFFECTS, DECORATIONS, FESTIVE_TRIMS, DEFAULT_TOKENS, DEFAULT_HEADER, COLOR_KEYS, resolveTokens, themeStyle, SPLASH_DURATION, SPLASH_SKIP_AFTER, splashDurationText } from '../../../utils/storefront';
 import { DEFAULT_EFFECT, EFFECT_COLORS } from '../../../../../backend/shared/celebration.mjs';
 import StorefrontMedia from '../../User/components/StorefrontMedia';
 import StorefrontMediaFields from './StorefrontMediaFields';
@@ -376,7 +376,7 @@ export default function StorefrontStudio() {
         <Field label="Priority (higher wins)"><input type="number" min="0" max="1000" value={form.priority} onChange={e => change({ priority: Number(e.target.value) })} /></Field>
         {form.kind === 'theme' && isSubheaderTheme && <StorefrontHeaderFields subheaderOnly value={form.config.header} onChange={header => config({ header })} deals={deals} onBusy={setUploadingBanner} />}
         {form.kind === 'theme' && !isSubheaderTheme && <>{select('Apply theme', form.config.application || 'storefront', [{ value: 'storefront', label: 'Storefront default for this scope' }, { value: 'campaign', label: 'Only while a linked campaign is active' }], application => config({ application }))}{select('Theme preset', form.config.preset, Object.keys(PRESETS), applyPreset)}<div className="studio-colors">{COLOR_KEYS.map(key => <Field key={key} label={key.replace(/[A-Z]/g, letter => ' ' + letter.toLowerCase())}><input type="color" value={tokens[key]} onChange={e => config({ tokens: { ...tokens, [key]: e.target.value } })} /></Field>)}</div>
-          {Object.entries({ font: ['system', 'sans', 'serif'], card: ['rounded', 'square'], button: ['rounded', 'pill'], gradient: ['none', 'soft'], category: ['framed', 'minimal'], product: ['elevated', 'flat'], motion: ['none', 'gentle'] }).map(([key, options]) => <React.Fragment key={key}>{select(key, tokens[key], options, value => config({ tokens: { ...tokens, [key]: value } }))}</React.Fragment>)}<p className="studio-help">Text and buttons require 4.5:1 contrast. Invalid combinations cannot be saved.</p><h3>Category artwork</h3><p className="studio-help">Select published artwork from Banner library. Tiles always open the selected category. Add only accurate campaign labels.</p>
+          {Object.entries({ font: ['system', 'sans', 'serif'], card: ['rounded', 'square'], button: ['rounded', 'pill'], gradient: ['none', 'soft'], category: ['framed', 'minimal'], product: ['elevated', 'flat'], decoration: DECORATIONS, motion: ['none', 'gentle'] }).map(([key, options]) => <React.Fragment key={key}>{select(key, tokens[key], options, value => config({ tokens: { ...tokens, [key]: value } }))}</React.Fragment>)}<p className="studio-help">Text and buttons require 4.5:1 contrast. Invalid combinations cannot be saved.</p><h3>Category artwork</h3><p className="studio-help">Select published artwork from Banner library. Tiles always open the selected category. Add only accurate campaign labels.</p>
 {(form.config.categoryTiles || []).map((tile, index) => <div key={index} className="studio-category-tile">
 {select('Tile category', tile.categoryId, refs(categories), categoryId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, categoryId } : t) }))}
 {select('Tile artwork', tile.bannerId, bannerRefs(tile.bannerId), bannerId => config({ categoryTiles: form.config.categoryTiles.map((t, i) => i === index ? { ...t, bannerId } : t) }))}
@@ -611,7 +611,7 @@ export default function StorefrontStudio() {
             { value: 'plain', label: 'Plain (Standard)' },
             { value: 'soft', label: 'Soft rounded' },
             { value: 'accent', label: 'Accent border' },
-            { value: 'festive_deals', label: '✦ Festive Top Deals (Diwali Gold)' },
+            { value: 'festive_deals', label: '✦ Festive Top Deals' },
           ], variant => {
             if (variant === 'festive_deals') {
               config({
@@ -619,6 +619,7 @@ export default function StorefrontStudio() {
                 layout: 'festive_grid',
                 appearance: { background: '#FFF8E7', text: '#991B1B', accent: '#F59E0B' },
                 festiveTrim: true,
+                trimEmoji: form.config.trimEmoji || 'diya',
                 limit: Math.max(form.config.limit || 0, 6),
               });
             } else {
@@ -632,8 +633,11 @@ export default function StorefrontStudio() {
           ], layout => config({ layout }))}
           <label className="studio-check">
             <input type="checkbox" checked={form.config.festiveTrim === true} onChange={e => config({ festiveTrim: e.target.checked })} />
-            Festive flourishes, diya trim & gold embellishments
+            Festive sparkles &amp; bottom trim
           </label>
+          {(form.config.variant === 'festive_deals' || form.config.layout === 'festive_grid') && form.config.festiveTrim === true
+            && select('Trim emoji', form.config.trimEmoji || 'diya', Object.entries(FESTIVE_TRIMS).map(([value, t]) => ({ value, label: `${t.emoji}  ${t.label}` })), trimEmoji => config({ trimEmoji }))}
+          {(form.config.variant === 'festive_deals' || form.config.layout === 'festive_grid') && <p className="studio-help">The sparkles, divider line and product cards follow the <strong>Section accent</strong> colour below (gold by default).</p>}
 <label className="studio-check">
   <input
     type="checkbox"
