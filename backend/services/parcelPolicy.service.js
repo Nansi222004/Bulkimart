@@ -83,6 +83,9 @@ export function validateParcelPolicy(input) {
   c.boostOptionsPaise = [...new Set(rawBoosts.map((v, i) => integer(v, `boost amount ${i + 1}`, 1)))].sort((a, b) => a - b);
   c.boostDriverShareBps = input.boostDriverShareBps === undefined || input.boostDriverShareBps === null || input.boostDriverShareBps === '' ? 10000 : integer(input.boostDriverShareBps, 'driver share of boosts', 0, 10000);
   c.maxBoostPaise = input.maxBoostPaise === undefined || input.maxBoostPaise === null || input.maxBoostPaise === '' ? 0 : integer(input.maxBoostPaise, 'maximum total boost');
+  // How long a booking searches before the customer is offered a boost (0 = straight away). Counted
+  // again from each boost, so the higher fare gets a fair chance before the next one.
+  c.boostAfterSeconds = input.boostAfterSeconds === undefined || input.boostAfterSeconds === null || input.boostAfterSeconds === '' ? 0 : integer(input.boostAfterSeconds, 'wait before offering a boost', 0, 3600);
   if (c.boostEnabled && (!c.boostOptionsPaise.length || c.maxBoostPaise < c.boostOptionsPaise[0])) failParcel('Fare boost needs at least one amount and a maximum total boost of at least the smallest amount');
   // ---- Vehicles (optional). With none, the policy prices one "Doorstep delivery" service as before.
   // Each vehicle has its own capacity, rates and the rider vehicle types allowed to carry it.

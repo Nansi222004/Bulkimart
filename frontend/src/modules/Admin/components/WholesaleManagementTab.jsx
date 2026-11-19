@@ -1,10 +1,39 @@
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useCallback, useEffect, useState } from 'react';
-import { adminGet, adminPatch } from '../../../utils/adminApi';
+import { adminGet, adminPatch, adminPost } from '../../../utils/adminApi';
 import { useAdmin } from '../context/AdminContext';
 
 const money = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
 const statusColor = (status) => status === 'approved' ? '#15803d' : status === 'pending' ? '#b45309' : status === 'suspended' ? '#b91c1c' : '#64748b';
+
+/** Minimum order value for Wholesale checkout (products only, whole Wholesale cart). Retail never has one. */
+function WholesaleMinimumCard({ triggerToast }) {
+  const [value, setValue] = useState('');
+  const [saved, setSaved] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    adminGet('/wholesale/settings').then(({ data }) => { setSaved(data.active.minOrderValue); setValue(String(data.active.minOrderValue)); })
+      .catch((err) => setError(err.message || 'Could not load the Wholesale minimum.'));
+  }, []);
+  const save = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const response = await adminPost('/wholesale/settings', { minOrderValue: value === '' ? 0 : Number(value) });
+      setSaved(response.data.minOrderValue); setValue(String(response.data.minOrderValue));
+      triggerToast?.(response.message || 'Saved', 'success');
+    } catch (err) { setError(err.message || 'Could not save.'); } finally { setBusy(false); }
+  };
+  return <form onSubmit={save} aria-label="Wholesale minimum order value" style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, margin: '0 0 28px', display: 'grid', gap: 10 }}>
+    <h2 style={{ margin: 0 }}>Minimum order value</h2>
+    <p style={{ margin: 0, color: '#64748b' }}>A Wholesale checkout must have products worth at least this much (delivery and COD fee not counted; all Wholesale sellers in the cart together). Retail customers have no minimum. Set 0 for no minimum.</p>
+    <label style={{ display: 'grid', gap: 4, maxWidth: 260, fontWeight: 600 }}>Minimum (₹)
+      <input type="number" min="0" step="0.01" value={value} onChange={(e) => setValue(e.target.value)} style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8 }} /></label>
+    {saved != null && <small style={{ color: '#64748b' }}>Now: {saved > 0 ? money(saved) : 'No minimum'}</small>}
+    {error && <p role="alert" style={{ margin: 0, color: '#b91c1c' }}>{error}</p>}
+    <div><button type="submit" disabled={busy || value === '' || String(saved) === value}>{busy ? 'Saving…' : 'Save'}</button></div>
+  </form>;
+}
 
 export default function WholesaleManagementTab() {
   const ui = useFeedback();
@@ -58,6 +87,7 @@ export default function WholesaleManagementTab() {
           ['Eligible variants', counts.eligibleVariants], ['Available variants', counts.availableVariants],
         ].map(([label, value]) => <div key={label} style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}><small style={{ color: '#64748b' }}>{label}</small><strong style={{ display: 'block', fontSize: 24 }}>{value ?? 0}</strong></div>)}
       </div>
+      <WholesaleMinimumCard triggerToast={triggerToast} />
       <h2>Seller access</h2>
       {!summary?.sellers?.length ? <p>No sellers have requested Wholesale access.</p> : <div style={{ display: 'grid', gap: 10 }}>
         {summary.sellers.map((seller) => {

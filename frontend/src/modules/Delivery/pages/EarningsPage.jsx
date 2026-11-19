@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDelivery } from '../context/DeliveryContext';
 import DepositModal from '../components/DepositModal';
 import DeliveryFinancePanel from '../components/DeliveryFinancePanel';
+import RiderWalletCard from '../components/RiderWalletCard';
 import { socket } from '../../../utils/socket';
 
 export const EarningsPage = () => {
@@ -60,6 +61,7 @@ export const EarningsPage = () => {
 
   return (
     <div className="delivery-earnings-wrapper">
+      <RiderWalletCard />
       <div id="rider-cod-records"><DeliveryFinancePanel onChanged={refreshFinance} /></div>
       {/* Payout balance top card */}
       <div className="delivery-card delivery-payout-balance-card">

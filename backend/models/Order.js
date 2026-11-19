@@ -378,6 +378,9 @@ const orderSchema = new Schema(
     paymentId:     { type: ObjectId, ref: "Payment" },
     financialSnapshot: { type: Schema.Types.Mixed, immutable: true },
     financialOperationLog: { type: [Schema.Types.Mixed], default: undefined },
+    // Audit trail of the checkout COD fee moving between sibling orders when the order carrying it
+    // is cancelled (services/codFeeTransfer.service.js). Present on both the giving and receiving order.
+    codFeeTransfers: { type: [Schema.Types.Mixed], default: undefined },
     financialRevision: { type: Number, default: 0 },
     financialPosting: { type: String, enum: ['held', 'eligible', 'reversed'] },
     financialReturnQuantities: { type: Schema.Types.Mixed, default: {} },
@@ -594,9 +597,26 @@ orderSchema.pre('save', async function () {
     if (itemFinancialEvidence(previous?.items) !== itemFinancialEvidence(this.items)) throw new Error('Order item financial snapshots are immutable');
   }
 });
+/**
+ * The one sanctioned exception to the financial lock: moving the checkout's COD handling fee
+ * off a cancelled order onto a not-yet-dispatched sibling (services/codFeeTransfer.service.js).
+ * Only an updateOne carrying the `codFeeTransfer` option may do it, and only on these paths;
+ * anything else in the same update is refused.
+ */
+const COD_FEE_TRANSFER_PATH = /^(pricing\.(codFee[A-Za-z]+|totalAmount)|financialSnapshot\.(expectedPaise|components\.codFeePaise)|timeline|codFeeTransfers|updatedAt)$/;
+const assertCodFeeTransferUpdate = (update) => {
+  for (const [operator, value] of Object.entries(update || {})) {
+    if (!['$set', '$unset', '$push'].includes(operator)) throw new Error('COD fee transfer may only set, unset or append');
+    for (const path of Object.keys(value || {})) if (!COD_FEE_TRANSFER_PATH.test(path)) throw new Error(`COD fee transfer cannot change ${path}`);
+  }
+};
 for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate']) {
   orderSchema.pre(operation, async function () {
     const update = this.getUpdate();
+    if (this.getOptions().codFeeTransfer) {
+      if (operation !== 'updateOne' || Array.isArray(update)) throw new Error('COD fee transfer must be a single-order update');
+      return assertCodFeeTransferUpdate(update);
+    }
     if (Array.isArray(update)) throw new Error('Order pipeline replacement requires explicit financial history review');
     const snapshotPath = path => ['financialSnapshot', 'productTax'].some(root => path === root || String(path).startsWith(root + '.')) || /^items(?:\.[^.]+)?\.productTax(?:\.|$)/.test(path) || /^items\.[^.]+\.(price|qty|productId|sellerId|variantId)(\.|$)/.test(path);
     for (const [operator, value] of Object.entries(update || {})) {

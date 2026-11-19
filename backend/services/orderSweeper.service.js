@@ -90,6 +90,8 @@ export const startOrderSweeper = () => {
     sweepSellerPickupSync().catch(() => console.warn('[PICKUP SYNC] Worker unavailable; durable jobs retained.'));
     sweepCourierTrackingOnce().catch((err) => console.warn('[COURIER TRACKING] reconciliation will retry:', err.message));
     sweepUnacceptedOrdersOnce().catch((err) => console.error('[SWEEPER] failed:', err.message));
+    // Abandoned-cart reminders, when the admin has turned automatic sending on (self-throttled to every 10 min).
+    import('./cartRecovery.service.js').then((m) => m.sweepAutoCartReminders()).catch((err) => console.error('[CART REMINDER SWEEPER] failed:', err.message));
     // Admin Push Notifications Broadcaster — scheduled sends. Same sibling-
     // job pattern as the two above: its own try/catch, so a broadcast bug
     // can never block order cancellation or Coins.

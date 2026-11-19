@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from '../../utils/googleMaps';
 import { validParcelLocation } from './parcelApi';
 
-export default function ParcelMap({ pickup, dropoff, route, editable, onPinChange, areaMode = false, radiusKm }) {
+// The newer of two rider positions (a live socket push or the last refresh).
+export const latestRiderPoint = (a, b) => [a, b].filter(validParcelLocation).sort((x, y) => new Date(y.updatedAt || 0) - new Date(x.updatedAt || 0))[0] || null;
+
+export default function ParcelMap({ pickup, dropoff, route, editable, onPinChange, areaMode = false, radiusKm, rider }) {
   const holder = useRef(null), instance = useRef(null), latest = useRef(onPinChange);
   latest.current = editable ? onPinChange : null;
   const [ready, setReady] = useState(0), [retry, setRetry] = useState(0), [error, setError] = useState('');
@@ -43,8 +46,29 @@ export default function ParcelMap({ pickup, dropoff, route, editable, onPinChang
     }
     return () => { listeners.forEach(l => l.remove()); items.forEach(m => m.setMap(null)); line?.setMap(null); circle?.setMap(null); };
   }, [ready, pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng, route?.polyline, editable, areaMode, radiusKm]);
+  // The rider's marker moves in place; the view fits once when the rider first appears, so a customer
+  // who has zoomed or panned is not pulled back on every update.
+  const riderMarker = useRef(null), riderFitted = useRef(false);
+  const hasRider = validParcelLocation(rider);
+  useEffect(() => {
+    if (!ready || !instance.current || !hasRider) return;
+    const maps = window.google.maps, map = instance.current, position = { lat: Number(rider.lat), lng: Number(rider.lng) };
+    if (!riderMarker.current) {
+      riderMarker.current = new maps.Marker({ map, position, zIndex: 999, title: 'Your delivery partner',
+        icon: { path: maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#16a34a', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
+    } else riderMarker.current.setPosition(position);
+    if (!riderFitted.current) {
+      riderFitted.current = true;
+      const bounds = new maps.LatLngBounds(); bounds.extend(position);
+      for (const p of [pickup, dropoff]) if (validParcelLocation(p)) bounds.extend({ lat: Number(p.lat), lng: Number(p.lng) });
+      map.fitBounds(bounds, 48);
+    }
+  }, [ready, hasRider, rider?.lat, rider?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!hasRider && riderMarker.current) { riderMarker.current.setMap(null); riderMarker.current = null; riderFitted.current = false; } }, [hasRider]);
+  useEffect(() => () => { riderMarker.current?.setMap(null); riderMarker.current = null; riderFitted.current = false; }, [ready]);
   return <div className="parcel-map-wrap">
     <div className="parcel-map" ref={holder} role="region" aria-label={areaMode ? 'Adjust the service area centre and view its coverage circle' : editable ? 'Adjust the ' + editable + ' pin on the map' : 'Pickup and delivery route map'} />
+    {hasRider && !error && <p className="parcel-map-hint"><span className="parcel-rider-dot" aria-hidden="true" /> Your delivery partner{rider.updatedAt ? ` · updated ${new Date(rider.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}</p>}
     {error ? <div className="parcel-map-message" role="status">{error} <button type="button" onClick={() => setRetry(n => n + 1)}>Retry map</button></div> : !ready ? <p role="status">Loading map…</p> : editable ? <p className="parcel-map-hint">Tap the map or drag the {areaMode ? 'centre' : editable === 'pickup' ? 'pickup' : 'drop'} pin, then confirm the location.</p> : null}
   </div>;
 }

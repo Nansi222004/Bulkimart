@@ -155,11 +155,31 @@ export const getParcels = (page = 1, limit = 20) => api.get('/api/delivery/parce
 // Open parcel offers for this rider (bookings still searching; the server lists only live offers sent to them).
 export const getParcelOffers = () => api.get('/api/delivery/parcels/bookings', { params: { status: 'searching_for_driver', limit: 10 } })
   .then((body) => (body?.data || []).filter((b) => b.offer && new Date(b.offer.expiresAt) > new Date()));
+// The rider's parcel trip in progress (assigned until delivered), or null.
+export const getActiveParcel = () => api.get('/api/delivery/parcels/bookings', { params: { status: 'active', limit: 1 } }).then((body) => body?.data?.[0] || null);
+// POST /location { lat, lng } — live GPS during a parcel trip, shown on the customer's map.
+export const sendParcelLocation = (bookingId, point) => api.post(`/api/delivery/parcels/bookings/${id(bookingId)}/location`, point);
 export const getParcel = (bookingId) => api.get(`/api/delivery/parcels/bookings/${id(bookingId)}`).then(data);
 // POST /offer { action:'accept'|'reject', token, version }
 export const respondParcelOffer = (booking, action) => api.post(`/api/delivery/parcels/bookings/${id(booking._id)}/offer`, { action, token: booking.offer?.token, version: booking.version });
 // POST /actions { action, version, ...extra }
 export const parcelAction = (booking, action, extra = {}) => api.post(`/api/delivery/parcels/bookings/${id(booking._id)}/actions`, { action, version: booking.version, ...extra });
+
+// ---------------------------------------------------------------- Wallet (COD parcels, approved)
+// GET -> { balancePaise, owedPaise, availablePaise, onHoldPaise, debtLimitPaise, cashParcelsBlocked, pendingPayment, payments[], statement[] }
+export const getWallet = () => api.get('/api/delivery/wallet').then(data);
+// POST { amount (₹), method: 'upi'|'cash', reference, note? } — an admin approves it
+export const payWallet = (body) => api.post('/api/delivery/wallet/payments', body).then(data);
+
+// ---------------------------------------------------------------- Go To (destination) mode (approved)
+// GET -> { enabled, dailyLimit, usedToday, remainingToday, corridorKm, maxDurationMinutes, active:{ destination, routeKm, expiresAt } | null }
+export const getGoTo = () => api.get('/api/delivery/go-to').then(data);
+// POST { origin:{lat,lng}, destination:{lat,lng}, address } — counts towards the daily limit
+export const startGoTo = (body) => api.post('/api/delivery/go-to', body).then(data);
+export const stopGoTo = () => api.delete('/api/delivery/go-to').then(data);
+// Place search for the destination (server holds the paid key): suggestions, then the chosen place's point.
+export const suggestPlaces = (q, near) => api.get('/api/geo/suggest', { params: { q, ...(near ? { lat: near.lat, lng: near.lng } : {}) } }).then((body) => body?.data || []);
+export const placeById = (placeId) => api.get('/api/geo/place', { params: { id: placeId } }).then(data);
 
 // ---------------------------------------------------------------- misc
 // GET /api/helpline (public) -> { sosEmergencyNumber?, ... }

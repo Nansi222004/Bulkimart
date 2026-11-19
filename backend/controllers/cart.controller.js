@@ -1,4 +1,5 @@
 import { resolveProductGst, productGstLine } from '../services/productGst.service.js';
+import { logCartActivity } from '../services/cartRecovery.service.js';
 import { buildCustomerBasket } from '../services/customerBasket.service.js';
 import mongoose from 'mongoose';
 import { channelAllowed, retailAllowed } from '../utils/productChannels.js';
@@ -381,6 +382,9 @@ export const getCartSummary = asyncHandler(async (req, res) => {
 // @desc    Add a product (its own channel decides which cart it lands in)
 // @route   POST /api/cart
 // @access  Private
+// Admin abandoned-cart history (fire-and-forget; never affects the cart itself).
+const lineLog = (line, extra) => ({ productId: line.productId, variantId: line.variantId, name: line.name, image: line.image, price: line.price, ...extra });
+
 export const addToCart = asyncHandler(async (req, res) => {
   if (req.body?.channel === 'wholesale' || req.body?.purchaseMode === 'wholesale') throw httpError(400, 'Use the separate Wholesale cart');
   // The cart routes are private; still assert the verified principal here so
@@ -481,7 +485,7 @@ export const addToCart = asyncHandler(async (req, res) => {
   // Apply each increment/push atomically. If another request changes the
   // same line, the quantity predicate fails and we reread/retry rather than
   // overwriting its quantity with a stale document snapshot.
-  let committed = false;
+  let committed = false, alreadyThere = false;
   for (let attempt = 0; attempt < 5 && !committed; attempt += 1) {
     const cart = await Cart.findOne(cartOwner).select('items').lean();
     if (!cart) throw httpError(409, 'Your cart could not be opened. Please try again.');
@@ -491,6 +495,7 @@ export const addToCart = asyncHandler(async (req, res) => {
     if (existing) {
       if (isDigital) {
         committed = true;
+        alreadyThere = true;
         continue;
       }
       const desired = existing.qty + quantity;
@@ -515,6 +520,7 @@ export const addToCart = asyncHandler(async (req, res) => {
     }
   }
   if (!committed) throw httpError(409, 'Your cart changed at the same time. Please try again.');
+  if (!alreadyThere) logCartActivity(req.user._id, channel, lineLog({ ...newLine, productId: product._id, name: newLine.name || product.name }, { action: 'add', qty: quantity }));
 
   const { items, warnings } = await loadReconciledCart(req.user._id, channel);
   return ok(res, await shape(channel, items, warnings, req.user, req.body.coupon), `"${product.name}" added to your ${channel === CHANNEL.GROCERY ? 'Quick' : 'Shop All'} cart`);
@@ -559,6 +565,7 @@ export const updateCartItem = asyncHandler(async (req, res) => {
 
   const cart = await findCartWithItem(req.user._id, req.params.itemId);
   const line = cart.items.id(req.params.itemId);
+  const before = { ...lineLog(line), qty: line.qty };
 
   // Setting the quantity to zero is how a stepper removes a line.
   if (quantity === 0) {
@@ -591,6 +598,8 @@ export const updateCartItem = asyncHandler(async (req, res) => {
   }
 
   await cart.save();
+  if (quantity === 0) logCartActivity(req.user._id, cart.channel, { ...before, action: 'remove' });
+  else if (quantity !== undefined && quantity !== before.qty) logCartActivity(req.user._id, cart.channel, { ...before, action: 'qty', fromQty: before.qty, qty: quantity });
 
   const { items, warnings } = await loadReconciledCart(req.user._id, cart.channel);
   return ok(res, await shape(cart.channel, items, warnings, req.user, req.body.coupon), 'Cart updated');
@@ -601,10 +610,13 @@ export const updateCartItem = asyncHandler(async (req, res) => {
 // @access  Private
 export const removeCartItem = asyncHandler(async (req, res) => {
   const cart = await findCartWithItem(req.user._id, req.params.itemId);
-  const name = cart.items.id(req.params.itemId).name;
+  const removed = cart.items.id(req.params.itemId);
+  const name = removed.name;
+  const logged = lineLog(removed, { action: 'remove', qty: removed.qty });
 
   cart.items.pull(req.params.itemId);
   await cart.save();
+  logCartActivity(req.user._id, cart.channel, logged);
 
   const { items, warnings } = await loadReconciledCart(req.user._id, cart.channel);
   return ok(res, await shape(cart.channel, items, warnings, req.user, req.body?.coupon), `"${name}" removed`);
@@ -615,11 +627,12 @@ export const removeCartItem = asyncHandler(async (req, res) => {
 // @access  Private
 export const clearCart = asyncHandler(async (req, res) => {
   const channel = readChannel(req);
-  await Cart.findOneAndUpdate(
+  const previous = await Cart.findOneAndUpdate(
     { userId: req.user._id, channel },
     { $set: { items: [] } },
     { upsert: true }
-  );
+  ).select('items').lean();
+  if (previous?.items?.length) logCartActivity(req.user._id, channel, { action: 'clear', qty: previous.items.length });
   return ok(res, await shape(channel, [], [], req.user), 'Cart cleared');
 });
 

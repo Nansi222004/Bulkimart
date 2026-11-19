@@ -103,7 +103,10 @@
 .parcel-rider-note-text{margin:6px 0 10px;padding:10px 12px;border-left:4px solid #d78924;background:#fff8ed;border-radius:8px;font-weight:600;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}.parcel-rider-note-empty{margin:6px 0 10px;color:#52647b}
 .parcel-rider-note dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}.parcel-rider-note dt{color:#52647b}.parcel-rider-note dd{margin:0;overflow-wrap:anywhere;text-transform:none}
 
+/* Live rider marker legend on the tracking map. */
+.parcel-rider-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#16a34a;border:2px solid #fff;box-shadow:0 0 0 1px #16a34a;vertical-align:middle;margin-right:4px}
 /* Fare boost: quick add-to-fare buttons while no partner has accepted. */
+.parcel-boost-badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#fff3d6;color:#7a5200;font-size:12px;font-weight:700;vertical-align:middle}
 .parcel-boost{border-color:#f5c56b;background:#fffaf0}.parcel-boost h3{margin:0 0 6px;font-size:17px}.parcel-boost p{margin:0 0 10px}.parcel-boost-options{display:flex;flex-wrap:wrap;gap:8px}.parcel-workspace .parcel-boost-options button{margin:0;background:#fff;color:#7a4a00;border-color:#e0a63a;font-weight:700}
 
 /* Parcel colours follow the admin storefront theme (--sf-action); tints are mixed from it. */

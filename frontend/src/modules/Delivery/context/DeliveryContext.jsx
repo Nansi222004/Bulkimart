@@ -141,6 +141,44 @@ export const DeliveryProvider = ({ children }) => {
   },[isOnline,riderProfile?.status]);
 
   /**
+   * Live GPS during a parcel trip (assigned until delivered), so the customer sees the rider move.
+   * Accepting a parcel takes the rider off duty, which stops the presence heartbeat above, so the
+   * trip needs its own sharing. The active trip is re-checked every 30 s and on parcel pushes.
+   */
+  const [activeParcelId,setActiveParcelId]=useState(null);
+  useEffect(()=>{
+    if(riderProfile?.status!=='approved'){setActiveParcelId(null);return undefined;}
+    let live=true;
+    const check=async()=>{
+      try{
+        const r=await boundedFetch(apiUrl('/api/delivery/parcels/bookings?status=active&limit=1'),{headers:{Authorization:'Bearer '+localStorage.getItem('deliveryToken')}});
+        if(!r.ok)return;
+        const body=await r.json().catch(()=>({}));
+        if(live)setActiveParcelId(body?.data?.[0]?._id?String(body.data[0]._id):null);
+      }catch{/* offline: keep sharing for the trip we know about */}
+    };
+    check();
+    const t=setInterval(check,30000);
+    const onNote=n=>{if(n?.event==='PARCEL_UPDATED'||n?.event==='PARCEL_OFFER')check();};
+    socket.on('notification_new',onNote);
+    return()=>{live=false;clearInterval(t);socket.off('notification_new',onNote);};
+  },[riderProfile?.status]);
+  useEffect(()=>{
+    if(!activeParcelId||!navigator.geolocation||!window.isSecureContext)return undefined;
+    let lastSentAt=0;
+    const watchId=navigator.geolocation.watchPosition(async pos=>{
+      const here={lat:Number(pos.coords.latitude.toFixed(6)),lng:Number(pos.coords.longitude.toFixed(6))};
+      setRiderLocation(here);
+      const now=Date.now();
+      if(now-lastSentAt<5000)return;
+      lastSentAt=now;
+      try{await boundedFetch(apiUrl(`/api/delivery/parcels/bookings/${activeParcelId}/location`),{method:'POST',headers:{Authorization:'Bearer '+localStorage.getItem('deliveryToken'),'Content-Type':'application/json'},body:JSON.stringify({...here,source:'gps'})});}
+      catch{/* a dropped ping is fine; the next movement sends a fresh one */}
+    },()=>{},{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+    return()=>navigator.geolocation.clearWatch(watchId);
+  },[activeParcelId]);
+
+  /**
    * The urgent ring, driven by `riderPingOrder` (forward) or
    * `returnPickupPingOffer` (Quick Commerce reverse pickup) — the same two
    * values that decide whether OrderPingModal / ReturnPickupPingModal are

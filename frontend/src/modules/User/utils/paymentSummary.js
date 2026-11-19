@@ -21,5 +21,8 @@ export const paymentSummary = (pricing = {}, { tipAmount = 0, cod = false } = {}
     codFeeQuote,
     codFeeLabel: pricing.codFeeDescription || pricing.codFee?.codFeeDescription || 'COD Handling Fee',
     totalAmount: money(Number(pricing.totalAmount || 0) + Number(tipAmount || 0) + codFee),
+    // Both choices side by side, so checkout can show online as the cheaper one.
+    onlineTotal: money(Number(pricing.totalAmount || 0) + Number(tipAmount || 0)),
+    codTotal: money(Number(pricing.totalAmount || 0) + Number(tipAmount || 0) + codFeeQuote),
   };
 };

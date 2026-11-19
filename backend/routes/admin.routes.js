@@ -37,6 +37,10 @@ import {
   listRiderPayouts, settleRiderPayout,
   listDeliveryPayoutRequests, completeDeliveryPayoutRequest, rejectDeliveryPayoutRequest,
 } from '../controllers/admin.controller.js';
+import { getGoToSettingForAdmin, setGoToSettingForAdmin } from '../controllers/goTo.controller.js';
+import { getWholesaleSettingForAdmin, setWholesaleSettingForAdmin } from '../controllers/wholesaleSetting.controller.js';
+import { listRidersOwingAdmin, listRiderCashPaymentsAdmin, riderWalletDetailAdmin, approveRiderCashPaymentAdmin, rejectRiderCashPaymentAdmin } from '../controllers/riderWallet.controller.js';
+import { listAbandonedCartsAdmin, abandonedCartStatsAdmin, abandonedCartDetailAdmin, remindAbandonedCartsAdmin, getCartReminderSettingAdmin, setCartReminderSettingAdmin } from '../controllers/cartRecovery.controller.js';
 import { listReturnPolicies, upsertReturnPolicy, updateGlobalReturnPolicy } from '../controllers/returnPolicy.controller.js';
 import {
   adminGetAgents, adminSetMyStatus, adminListChats, adminGetChat, adminGetMessages, adminGetMessage, adminPostMessage,
@@ -90,7 +94,7 @@ router.use(protect, requireAdmin);
 router.use('/campaigns', marketingPermission);
 // All finance surfaces, including legacy aliases and recovery controls.
 router.use((req, res, next) => {
-  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle)|shipment-exceptions(?:\/|$))/.test(req.path)) return requireFinancePermission(req, res, next);
+  if (/^\/(finance(?:\/|$)|reports(?:\/|$)|vendor-(?:sales|earnings|payouts)(?:\/|$)|seller-(?:balances|ledger)(?:\/|$)|orders\/[^/]+\/financial-breakdown|financial-reconciliation|quick-commerce-(?:third-party-config|shiprocket-fees)|payment-(?:refund-obligations|attempt-recovery|recovery)|delivery-payouts|rider-payouts|rider-wallets(?:\/|$)|delivery-rates|delivery-charge|cod-charge|returns\/[^/]+\/(?:refund|cod-settle)|shipment-exceptions(?:\/|$))/.test(req.path)) return requireFinancePermission(req, res, next);
   next();
 });
 router.patch('/vendor-payouts/:id/beneficiary-review', verifySellerPayoutBeneficiaryAdmin);
@@ -160,6 +164,8 @@ router.get('/quick-commerce-shiprocket-fees', listQuickShiprocketFeesAdmin);
 router.patch('/quick-commerce-third-party-config', updateQuickCommerceDeliveryConfigAdmin);
 router.get('/sellers', listSellers);              // ?status=pending | approved | rejected | suspended
 router.get('/wholesale/summary', getWholesaleManagementSummary);
+router.get('/wholesale/settings', getWholesaleSettingForAdmin);
+router.post('/wholesale/settings', setWholesaleSettingForAdmin);
 router.get('/payment-refund-obligations', getCaptureRefundObligations);
 router.get('/payment-attempt-recovery', listUnresolvedPaymentAttempts);
 router.use('/payment-recovery', paymentRecoveryLimiter);
@@ -222,6 +228,22 @@ router.get('/tip-setting', getTipSettingForAdmin);
 router.get('/cod-charge', getCodChargeForAdmin);
 router.post('/cod-charge', setCodChargeForAdmin);
 router.post('/tip-setting', setTipSettingForAdmin);
+// ---- Rider Go To (destination) mode ----------------------------------------
+router.get('/go-to-setting', getGoToSettingForAdmin);
+router.post('/go-to-setting', setGoToSettingForAdmin);
+// ---- Abandoned carts: add-to-cart history and "your cart is waiting" reminders ----
+router.get('/abandoned-carts', listAbandonedCartsAdmin);
+router.get('/abandoned-carts/stats', abandonedCartStatsAdmin);
+router.get('/abandoned-carts/settings', getCartReminderSettingAdmin);
+router.post('/abandoned-carts/settings', setCartReminderSettingAdmin);
+router.post('/abandoned-carts/remind', remindAbandonedCartsAdmin);
+router.get('/abandoned-carts/:userId', abandonedCartDetailAdmin);
+// ---- Rider wallets: COD parcel debts and riders' UPI / cash payments (finance permission) ----
+router.get('/rider-wallets', listRidersOwingAdmin);
+router.get('/rider-wallets/payments', listRiderCashPaymentsAdmin);
+router.post('/rider-wallets/payments/:id/approve', approveRiderCashPaymentAdmin);
+router.post('/rider-wallets/payments/:id/reject', rejectRiderCashPaymentAdmin);
+router.get('/rider-wallets/:partnerId', riderWalletDetailAdmin);
 
 // ---- Dynamic Helpline & SOS Emergency Setting ------------------------------
 router.get('/helpline-setting', getAdminHelpline);

@@ -41,6 +41,8 @@ import { protect } from '../middlewares/auth.middleware.js';
 import { uploadSingle, uploadFields } from '../middlewares/upload.middleware.js';
 import { requireApprovedPartner } from '../middlewares/vendor.middleware.js';
 import { deleteMyDeliveryAccount } from '../controllers/accountManagement.controller.js';
+import { getMyGoTo, startMyGoTo, stopMyGoTo } from '../controllers/goTo.controller.js';
+import { getMyWallet, payMyWallet } from '../controllers/riderWallet.controller.js';
 
 const router = express.Router();
 
@@ -70,6 +72,13 @@ router.post('/submit', submitApplication);
 // RIDER APP — approved partners only. Added as those features are built.
 // ---------------------------------------------------------------------------
 router.put('/availability', requireApprovedPartner, toggleAvailability);
+// Go To (destination) mode: only orders along the rider's route.
+router.get('/go-to', requireApprovedPartner, getMyGoTo);
+router.post('/go-to', requireApprovedPartner, startMyGoTo);
+router.delete('/go-to', requireApprovedPartner, stopMyGoTo);
+// Wallet: COD parcel cash owed to Bulkimart, earnings that clear it, and UPI / cash payments of it.
+router.get('/wallet', requireApprovedPartner, getMyWallet);
+router.post('/wallet/payments', requireApprovedPartner, payMyWallet);
 router.put('/vehicle', requireApprovedPartner, uploadSingle('license'), changeVehicle);
 // Restores a trip already in progress after a refresh.
 router.get('/orders/active', requireApprovedPartner, getActiveDelivery);

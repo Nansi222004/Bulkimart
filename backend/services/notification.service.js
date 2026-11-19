@@ -58,6 +58,8 @@ export const NOTIFICATION_EVENT = {
   COINS_USED: 'COINS_USED',
   COINS_REFUNDED: 'COINS_REFUNDED',
   COINS_REVERSED: 'COINS_REVERSED',
+  // "Your cart is waiting" reminder (admin or automatic). Opens the customer's cart.
+  CART_REMINDER: 'CART_REMINDER',
   RETURN_REQUESTED: 'RETURN_REQUESTED',
   RETURN_UNDER_REVIEW: 'RETURN_UNDER_REVIEW',
   RETURN_APPROVED: 'RETURN_APPROVED',
@@ -124,6 +126,7 @@ const EVENT_CATEGORY = {
   COINS_USED: 'system',
   COINS_REFUNDED: 'system',
   COINS_REVERSED: 'system',
+  CART_REMINDER: 'promotion',
   RETURN_REQUESTED: 'system',
   RETURN_UNDER_REVIEW: 'system',
   RETURN_APPROVED: 'system',

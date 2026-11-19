@@ -4,11 +4,13 @@ import Quote from '../models/ParcelQuote.js';
 import Policy from '../models/ParcelPolicy.js';
 import Partner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
-import { distanceKm } from '../utils/geo.js';
+import { distanceKm, parseLocation } from '../utils/geo.js';
+import { activeGoTo, goToArrivalCheck } from '../services/goTo.service.js';
 import Payment from '../models/Payment.js';
 import Ledger from '../models/SellerLedgerEntry.js';
 import { ok, created, paginated, getPagination } from '../utils/response.js';
 import { financialTransaction } from '../services/financeSafety.service.js';
+import { parcelCashReturnedToWallet } from '../services/riderWallet.service.js';
 import { parcelFlags, productionParcel, requireParcel, parcelPermission, validateParcelPolicy, failParcel, boundedText, parcelOperationalHold, parcelCashCollectionPoints, parcelVehicles } from '../services/parcelPolicy.service.js';
 import { quoteParcel, bookParcel, parcelDTO, parcelCustomerCancel, boostParcel, parcelDriverAction, parcelVersion, parcelEvent, releaseParcelRider, touchParcel, postParcel, ownedParcel } from '../services/parcelWorkflow.service.js';
 import { assignParcel, respondParcelOffer, notifyParcel, parcelRiderIneligibility } from '../services/parcelAssignment.service.js';
@@ -28,12 +30,34 @@ const RIDER_CONTACT_STATES=['driver_assigned','driver_arriving','arrived_at_pick
 async function customerPartnerView(b) {
   const active=RIDER_CONTACT_STATES.includes(b.status);
   if(!b.partnerId || (!active && b.status!=='delivered')) return undefined;
-  const p=await Partner.findById(b.partnerId).select('userId vehicleType vehicleNo rating ratingCount').lean(); if(!p) return undefined;
+  const p=await Partner.findById(b.partnerId).select('userId vehicleType vehicleNo rating ratingCount currentLocation').lean(); if(!p) return undefined;
   const u=await User.findById(p.userId).select('name phone avatar').lean();
-  return { name:u?.name||'Your delivery partner', vehicleType:p.vehicleType, ...(p.ratingCount>0?{rating:p.rating}:{}), ...(u?.avatar?{avatar:u.avatar}:{}), ...(active?{phone:u?.phone,vehicleNo:p.vehicleNo}:{}) };
+  return { name:u?.name||'Your delivery partner', vehicleType:p.vehicleType, ...(p.ratingCount>0?{rating:p.rating}:{}), ...(u?.avatar?{avatar:u.avatar}:{}), ...(active?{phone:u?.phone,vehicleNo:p.vehicleNo,...(riderLiveLocation(p)?{location:riderLiveLocation(p)}:{})}:{}) };
+}
+// Where the rider is, for the customer's map: only a recent GPS fix (a stale point would mislead).
+const RIDER_LOCATION_MAX_AGE_MS=10*60*1000;
+function riderLiveLocation(p) {
+  const l=p?.currentLocation, at=l?.updatedAt&&new Date(l.updatedAt);
+  if(!Number.isFinite(l?.lat)||!Number.isFinite(l?.lng)||!at||Date.now()-at.getTime()>RIDER_LOCATION_MAX_AGE_MS) return undefined;
+  return { lat:l.lat, lng:l.lng, updatedAt:at };
+}
+// The assigned rider shares GPS during the trip. Saved as the rider's current position (one source for
+// dispatch and tracking) and pushed straight to the customer's open tracking screen.
+export async function riderLocation(req,res) {
+  const parsed=parseLocation(req.body,{requireCoords:true}); if(!parsed.ok) failParcel(parsed.message);
+  const b=await Parcel.findOne({_id:req.params.id,partnerId:req.parcelPartner._id,status:{$in:RIDER_CONTACT_STATES}}).select('customerId status').lean();
+  if(!b) failParcel('No active parcel trip found',404);
+  const {lat,lng}=parsed.location, at=new Date();
+  await Partner.updateOne({_id:req.parcelPartner._id},{$set:{currentLocation:{lat,lng,updatedAt:at}}});
+  await goToArrivalCheck(req.parcelPartner,{lat,lng});
+  try { const { emitToUser }=await import('../socket/rooms.js'); emitToUser(b.customerId,'parcel_location_update',{parcelDeliveryId:String(b._id),lat,lng,at}); }
+  catch { /* the customer's 10 s refresh still picks the position up */ }
+  return ok(res,null,'Location updated');
 }
 const dtoFor = (req,b) => {
   const dto=parcelDTO(b,req.parcelMode,req.parcelPartner?._id);
+  // A Go To rider is offered only parcels along their route; the badge says why.
+  if(req.parcelMode==='driver' && dto.offer && activeGoTo(req.parcelPartner)) dto.onTheWay=true;
   if(req.parcelMode==='admin' && !canReadFinance(req)) {
     dto.finance={held:true};
     dto.history=dto.history.map(e=>/^(?:refund_|payment_|cash_|bank_|gateway_|allocate_cancelled_capture)/.test(e.action)?{status:e.status,action:e.action,at:e.at}:e);
@@ -80,6 +104,8 @@ export async function list(req,res) {
   const filter=req.parcelMode==='customer'?{customerId:req.user._id}:req.parcelMode==='driver'?{$or:[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)]}:{};
   // `needs_review` is the admin queue: rider help requests and customer cancellation requests.
   if(req.parcelMode==='admin' && req.query.status==='needs_review') filter.status={$in:PARCEL_REVIEW_STATES};
+  // `active`: the rider's trips in progress (assigned until delivered).
+  else if(req.parcelMode==='driver' && req.query.status==='active') filter.status={$in:RIDER_CONTACT_STATES};
   else if(req.query.status) filter.status=String(req.query.status);
   if(req.parcelMode==='admin' && req.query.reference) filter.reference=String(req.query.reference).slice(0,64);
   const rows=await Parcel.find(filter).sort({createdAt:-1}).skip(skip).limit(limit);
@@ -204,6 +230,8 @@ export async function adminAction(req,res) {
       if(b.paymentMethod!=='pay_driver' || b.status!=='cancelled' || b.finance.earningPosted || !b.cash.collectedAt || b.finance.cashRefund || b.finance.walletRefund || req.body.amountPaise!==b.cash.amountPaise) failParcel('Reviewed unallocated cash refund evidence required',409);
       b.finance.cashRefund={reference:boundedText(req.body.evidence,'Customer cash refund evidence'),by:String(req.user._id),at:new Date(),amountPaise:b.cash.amountPaise};
       await postParcel(b,'cash-refund-evidence',b.cash.status==='reconciled'?'parcel_collections':'parcel_cash_custody','debit',b.cash.amountPaise,session);
+      // The rider gave the cash back, so they no longer owe it.
+      if(b.cash.settlement==='rider_wallet') await parcelCashReturnedToWallet(b,session);
       b.finance.refundedPaise=b.cash.amountPaise; b.finance.refundStatus='confirmed'; b.cash.status='refunded_with_evidence'; parcelEvent(b,actor,action,b.status,reason);
     } else failParcel('Unsupported admin action');
     touchParcel(b); await b.save({session}); return b;

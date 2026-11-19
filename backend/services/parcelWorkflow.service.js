@@ -7,6 +7,7 @@ import Policy from '../models/ParcelPolicy.js';
 import Partner from '../models/DeliveryPartner.js';
 import User from '../models/User.js';
 import { financialTransaction } from './financeSafety.service.js';
+import { parcelCashToWallet, parcelEarningToWallet } from './riderWallet.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
 import { distanceKm } from '../utils/geo.js';
@@ -105,10 +106,12 @@ export async function bookParcel(customerId, input, key) {
     q.bookingId = b._id; await q.save({ session }); await b.save({ session }); return b;
   });
 }
+// The part of the rider's earning that came from customer fare boosts.
+export const parcelDriverBoostPaise = v => (v.pricing?.boosts || []).reduce((n, x) => n + (x.driverPaise || 0), 0);
 export function parcelDTO(b, mode = 'customer', partnerId) {
   const v = b.toObject ? b.toObject() : b;
   const summary = { _id:v._id, reference:v.reference, version:v.__v, status:v.status, paymentMethod:v.paymentMethod, paymentStatus:v.paymentStatus, policyVersion:v.pricing.policyVersion, feePaise:v.pricing.totalPaise, currency:'INR', createdAt:v.createdAt, ...(v.paymentMethod==='pay_driver'?{cashCollectionPoint:v.cash.collectionPoint || 'delivery'}:{}) };
-  if (mode === 'driver' && String(v.partnerId || '') !== String(partnerId)) return { ...summary, offer:v.assignment.offer?{token:v.assignment.offer.token,expiresAt:v.assignment.offer.expiresAt}:undefined, pickupArea:v.details.pickup.pincode, dropoffArea:v.details.dropoff.pincode, weightKg:v.details.weightKg, category:v.details.category, earningPaise:v.pricing.driverPaise, ...(v.details.vehicle?{ vehicle:{ id:v.details.vehicle.id, name:v.details.vehicle.name } }:{}) };
+  if (mode === 'driver' && String(v.partnerId || '') !== String(partnerId)) return { ...summary, offer:v.assignment.offer?{token:v.assignment.offer.token,expiresAt:v.assignment.offer.expiresAt}:undefined, pickupArea:v.details.pickup.pincode, dropoffArea:v.details.dropoff.pincode, weightKg:v.details.weightKg, category:v.details.category, earningPaise:v.pricing.driverPaise, ...(parcelDriverBoostPaise(v)?{ boostPaise:parcelDriverBoostPaise(v) }:{}), ...(v.details.vehicle?{ vehicle:{ id:v.details.vehicle.id, name:v.details.vehicle.name } }:{}) };
   const h = v.history.map(e => ({ status:e.status, action:e.action, at:e.at, ...(mode === 'admin'?{ actorId:e.actorId,actorType:e.actorType,reason:e.reason }:{}) }));
   const terminal = ['delivered','cancelled'].includes(v.status);
   return { ...summary, details:mode === 'driver' && terminal ? { category:v.details.category } : v.details, terms:v.pricing.policy.terms, pricing:mode === 'admin'?v.pricing:undefined,
@@ -143,6 +146,8 @@ export async function releaseParcelRider(b,session) {
  * Boosting is for bookings still waiting for a rider. Online-paid bookings are
  * excluded until a top-up payment flow exists (the captured amount must equal the fare).
  */
+// When the current search began: online payment, the latest fare boost, or else the booking itself.
+export const parcelSearchStart = b => [...(b.history || [])].reverse().find(e => ['payment_verified', 'fare_boosted'].includes(e.action))?.at || b.createdAt || new Date();
 export function parcelBoostState(b) {
   const c = b.pricing?.policy || {};
   const used = b.pricing?.boostPaise || 0;
@@ -157,6 +162,13 @@ export function parcelBoostState(b) {
   if (b.paymentMethod === 'online' && b.paymentStatus !== 'paid') return { ...base, allowed: false, reason: 'payment_pending' };
   if (!['searching_for_driver', 'needs_admin_assignment'].includes(b.status) || b.partnerId || b.cancellation || parcelOperationalHold(b)) return { ...base, allowed: false, reason: 'not_waiting_for_rider' };
   if (!options.length) return { ...base, allowed: false, reason: 'limit_reached' };
+  // Give nearby riders a chance at the current fare first. Bookings already in the admin queue
+  // have waited long enough.
+  const waitMs = (c.boostAfterSeconds || 0) * 1000;
+  if (waitMs > 0 && b.status === 'searching_for_driver') {
+    const availableAt = new Date(new Date(parcelSearchStart(b)).getTime() + waitMs);
+    if (availableAt > new Date()) return { ...base, allowed: false, reason: 'too_early', availableAt };
+  }
   return { ...base, allowed: true };
 }
 
@@ -305,7 +317,15 @@ export async function parcelDriverAction(id,partnerId,input) {
         await postParcel(b,'driver-earned','parcel_driver_payable','credit',b.pricing.driverPaise,session);
         await postParcel(b,'platform-earned','parcel_revenue','credit',b.pricing.platformPaise,session);
         await postParcel(b,'tax-earned','tax_liability','credit',b.pricing.taxPaise,session);
-        b.finance.earningPosted = true; await releaseParcelRider(b,session);
+        b.finance.earningPosted = true;
+        // The earning goes to the rider's wallet for online parcels and wallet-settled cash parcels
+        // (cash collected before the wallet existed keeps the older per-parcel handling).
+        if (b.paymentMethod === 'online' || b.cash?.settlement === 'rider_wallet') {
+          await postParcel(b,'driver-paid-to-wallet','parcel_driver_payable','debit',b.pricing.driverPaise,session);
+          await parcelEarningToWallet(b,session);
+          b.finance.walletEarning = true;
+        }
+        await releaseParcelRider(b,session);
       }
     } else if (action === 'collect_cash') {
       requireParcel('pay_driver');
@@ -315,6 +335,12 @@ export async function parcelDriverAction(id,partnerId,input) {
         b.cash = { collectionPoint, status:'collected_unreconciled',amountPaise:b.pricing.totalPaise,collectedAt:new Date(),collectorId:partnerId };
         b.paymentStatus = 'cash_collected';
         await postParcel(b,'cash-collected','parcel_cash_custody','credit',b.pricing.totalPaise,session);
+        // Rider wallet: the rider now owes this cash (minus their earning once delivered), so it is
+        // settled for the booking at once instead of waiting for a per-parcel deposit confirmation.
+        b.cash.settlement = 'rider_wallet'; b.cash.status = 'reconciled'; b.cash.reconciledAt = new Date(); b.cash.evidence = 'Settled through the rider wallet';
+        await postParcel(b,'cash-deposit','parcel_cash_custody','debit',b.pricing.totalPaise,session);
+        await postParcel(b,'cash-deposit-verified','parcel_collections','credit',b.pricing.totalPaise,session);
+        await parcelCashToWallet(b,session);
         parcelEvent(b,actor,'cash_collected');
       }
     } else if (action === 'exception') {

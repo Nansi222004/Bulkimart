@@ -3,7 +3,7 @@ import { authGet, authPut } from '../../../utils/adminApi';
 import FinanceReview from './FinanceReview';
 import { hint, WEEKDAYS } from './financeText';
 
-const empty = { tcsRatePercent: '', tdsRatePercent: '', sellerMinPayout: '', riderMinPayout: '', payoutSchedule: 'on_request', payoutWeekday: 1, requireIndependentPayoutReviewer: true, bankVerificationMethod: '', note: '' };
+const empty = { tcsRatePercent: '', tdsRatePercent: '', sellerMinPayout: '', riderMinPayout: '', riderParcelDebtLimit: '', payoutSchedule: 'on_request', payoutWeekday: 1, requireIndependentPayoutReviewer: true, bankVerificationMethod: '', note: '' };
 const fromPolicy = policy => Object.fromEntries(Object.keys(empty).map(key => [key, key === 'note' ? '' : policy[key] ?? empty[key]]));
 
 export default function FinancePolicySettings() {
@@ -16,12 +16,14 @@ export default function FinancePolicySettings() {
     event.preventDefault(); setError(''); setMessage('');
     for (const [key, name] of [['tcsRatePercent', 'TCS rate'], ['tdsRatePercent', 'TDS rate']]) if (draft[key] === '' || Number(draft[key]) < 0 || Number(draft[key]) > 5) return setError(`${name} must be between 0 and 5.`);
     for (const [key, name] of [['sellerMinPayout', 'Seller minimum payout'], ['riderMinPayout', 'Rider minimum payout']]) if (draft[key] === '' || Number(draft[key]) < 0) return setError(`${name} must be zero or more.`);
+    if (draft.riderParcelDebtLimit !== '' && Number(draft.riderParcelDebtLimit) < 0) return setError('Rider COD parcel debt limit must be zero or more.');
     const note = draft.note?.trim()?.length >= 5 ? draft.note.trim() : (draft.note?.trim()?.length === 0 ? 'Payout and tax policy update' : draft.note.trim());
     if (note.length < 5) return setError('Write a change reason of at least 5 characters.');
     if (!review) { setReview(true); return; }
     setBusy(true);
     try {
-      const { data } = await authPut('/api/admin/finance/policy', { ...draft, note, tcsRatePercent: Number(draft.tcsRatePercent), tdsRatePercent: Number(draft.tdsRatePercent), sellerMinPayout: Number(draft.sellerMinPayout), riderMinPayout: Number(draft.riderMinPayout), payoutWeekday: Number(draft.payoutWeekday), revision: policy?.revision || 0 });
+      const { data } = await authPut('/api/admin/finance/policy', { ...draft, note, tcsRatePercent: Number(draft.tcsRatePercent), tdsRatePercent: Number(draft.tdsRatePercent), sellerMinPayout: Number(draft.sellerMinPayout), riderMinPayout: Number(draft.riderMinPayout), // Left empty: the saved limit is kept.
+        riderParcelDebtLimit: draft.riderParcelDebtLimit === '' ? undefined : Number(draft.riderParcelDebtLimit), payoutWeekday: Number(draft.payoutWeekday), revision: policy?.revision || 0 });
       setPolicy(data.policy); setDraft(fromPolicy(data.policy)); setReview(false); setMessage('Saved. New orders use these rates; existing orders keep theirs.');
     } catch (e) { setError(e.message); setReview(false); } finally { setBusy(false); }
   };
@@ -30,7 +32,7 @@ export default function FinancePolicySettings() {
     <p>How and when sellers and riders get paid, and the tax Bulkimart withholds from seller sales.</p>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {policy && !policy.configured && <p className="finance-notice">Not saved yet. Until you save, no TCS/TDS is withheld, sellers have no minimum payout and riders need ₹{policy.riderMinPayout}.</p>}
-    {review ? <FinanceReview title="Review payout and tax policy" values={{ 'TCS rate': `${draft.tcsRatePercent}%`, 'TDS rate': `${draft.tdsRatePercent}%`, 'Seller minimum payout': `₹${draft.sellerMinPayout}`, 'Rider minimum payout': `₹${draft.riderMinPayout}`,
+    {review ? <FinanceReview title="Review payout and tax policy" values={{ 'TCS rate': `${draft.tcsRatePercent}%`, 'TDS rate': `${draft.tdsRatePercent}%`, 'Seller minimum payout': `₹${draft.sellerMinPayout}`, 'Rider minimum payout': `₹${draft.riderMinPayout}`, 'Most a rider can owe from COD parcels': `₹${draft.riderParcelDebtLimit}`,
       Schedule: draft.payoutSchedule === 'weekly' ? `Weekly, every ${WEEKDAYS[draft.payoutWeekday]}` : 'When the seller or rider requests', 'Second admin confirms payouts': draft.requireIndependentPayoutReviewer ? 'Yes' : 'No', 'Bank account check': draft.bankVerificationMethod || 'Not set', Reason: draft.note }}
       busy={busy} onConfirm={() => submit({ preventDefault() {} })} onCancel={() => setReview(false)} /> : <form onSubmit={submit} className="finance-panel">
       <h3>Payout schedule</h3>
@@ -39,6 +41,7 @@ export default function FinancePolicySettings() {
         {draft.payoutSchedule === 'weekly' && <label>Payout day<select value={draft.payoutWeekday} onChange={e => edit('payoutWeekday', e.target.value)}>{WEEKDAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select>{hint('Day (India time) on which weekly payout requests are created.')}</label>}
         <label>Seller minimum payout (₹)<input type="number" min="0" step="0.01" value={draft.sellerMinPayout} onChange={e => edit('sellerMinPayout', e.target.value)} />{hint('Smallest amount a seller can withdraw. Smaller balances wait until they reach it.', '500')}</label>
         <label>Rider minimum payout (₹)<input type="number" min="0" step="0.01" value={draft.riderMinPayout} onChange={e => edit('riderMinPayout', e.target.value)} />{hint('Smallest amount a rider can withdraw.', '100')}</label>
+        <label>Most a rider can owe from COD parcels (₹)<input type="number" min="0" step="0.01" value={draft.riderParcelDebtLimit} onChange={e => edit('riderParcelDebtLimit', e.target.value)} />{hint('A rider keeps their earning from COD parcel cash and owes Bulkimart the rest. Once they would owe more than this, they get no new cash parcels (online parcels and shop orders still come) until their earnings or a payment bring it down.', '500')}</label>
       </div>
       <h3>Tax withheld from seller sales</h3>
       <p className="finance-muted">Marketplace tax withholding rates (TCS & TDS) applied to seller sales per regulations.</p>
@@ -54,6 +57,6 @@ export default function FinancePolicySettings() {
       <button disabled={busy} type="submit">Review changes</button>
     </form>}
     {policy?.history?.length > 0 && <section className="finance-panel"><h3>Change history</h3>{[...policy.history].reverse().map(row => <details key={row.revision}><summary>Version {row.revision} · {row.changedAt ? new Date(row.changedAt).toLocaleString() : ''} · {row.note}</summary>
-      <p>TCS {row.values?.tcsRatePercent}% · TDS {row.values?.tdsRatePercent}% · Seller minimum ₹{row.values?.sellerMinPayout} · Rider minimum ₹{row.values?.riderMinPayout} · {row.values?.payoutSchedule === 'weekly' ? `Weekly (${WEEKDAYS[row.values.payoutWeekday]})` : 'On request'}</p></details>)}</section>}
+      <p>TCS {row.values?.tcsRatePercent}% · TDS {row.values?.tdsRatePercent}% · Seller minimum ₹{row.values?.sellerMinPayout} · Rider minimum ₹{row.values?.riderMinPayout}{row.values?.riderParcelDebtLimit != null ? ` · COD parcel debt limit ₹${row.values.riderParcelDebtLimit}` : ''} · {row.values?.payoutSchedule === 'weekly' ? `Weekly (${WEEKDAYS[row.values.payoutWeekday]})` : 'On request'}</p></details>)}</section>}
   </section>;
 }

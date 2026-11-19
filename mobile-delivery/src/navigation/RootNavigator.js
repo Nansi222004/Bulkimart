@@ -23,6 +23,7 @@ import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import { SupportScreen, TicketDetailScreen } from '../screens/support/SupportScreens';
 import SupportChatScreen from '../screens/support/SupportChatScreen';
 import PrivacyPolicyScreen from '../screens/profile/PrivacyPolicyScreen';
+import GoToScreen from '../screens/duty/GoToScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator();
@@ -118,6 +119,7 @@ function ApprovedStack() {
         <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
         <Stack.Screen name="Cash" component={CashScreen} options={{ title: 'COD cash & earnings records' }} />
         <Stack.Screen name="Parcels" component={ParcelsScreen} options={{ title: 'Parcel deliveries' }} />
+        <Stack.Screen name="GoTo" component={GoToScreen} options={{ title: 'Go To' }} />
         <Stack.Screen name="ParcelDetail" component={ParcelDetailScreen} options={{ title: 'Parcel' }} />
         <Stack.Screen name="ReturnDetail" component={ReturnDetailScreen} options={{ title: 'Return pickup' }} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />

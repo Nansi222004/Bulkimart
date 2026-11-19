@@ -23,7 +23,7 @@ export function ParcelOrderCard({ booking: b, onOpen, onBookAgain }) {
     <div className="parcel-order-foot"><span className={'parcel-status-chip ' + tone}>{label}</span>{onBookAgain && b.details?.pickup && b.details?.dropoff && <button type="button" className="parcel-primary parcel-book-again" onClick={onBookAgain}>Book Again</button>}</div>
   </article>;
 }
-import ParcelMap from './ParcelMap';
+import ParcelMap, { latestRiderPoint } from './ParcelMap';
 import ParcelCustomerStatus,{parcelCustomerStatus} from './ParcelCustomerStatus';
 import {socket} from '../../utils/socket';
 export function ParcelCustomerEntry() {
@@ -73,6 +73,15 @@ export default function ParcelDelivery() {
     const timer=setInterval(update,10000);
     return()=>{clearInterval(timer);socket.off('notification_new',notification);socket.off('connect',update);document.removeEventListener?.('visibilitychange',visible);window.removeEventListener('focus',update);window.removeEventListener('online',update);};
   },[track,history]);
+  // The rider's live position, pushed by the server as the rider moves (between the 10 s refreshes).
+  const [riderLive,setRiderLive]=useState(null);
+  useEffect(()=>{
+    setRiderLive(null);
+    if(!track)return undefined;
+    const move=p=>{if(String(p?.parcelDeliveryId)===track&&Number.isFinite(p.lat)&&Number.isFinite(p.lng))setRiderLive({lat:p.lat,lng:p.lng,updatedAt:p.at});};
+    socket.on('parcel_location_update',move);
+    return()=>socket.off('parcel_location_update',move);
+  },[track]);
   useEffect(()=>{const f=()=>setPath(window.location.pathname);window.addEventListener('popstate',f);window.addEventListener('app:locationchange',f);return()=>{window.removeEventListener('popstate',f);window.removeEventListener('app:locationchange',f);};},[]);
   useEffect(()=>{
     // A background refresh of an already-loaded tracking or history page keeps the content on screen.
@@ -172,7 +181,7 @@ export default function ParcelDelivery() {
       {/* Short trip number as the title (same "#XXXXXX" the delivery partner and support see); the full
           booking ID stays on its own line so it can wrap on a phone instead of squeezing the Share button. */}
       <header className="parcel-trip-header"><div className="parcel-trip-title"><h2>Trip #{String(booking.reference||booking._id||'').slice(-6).toUpperCase()}</h2><small className="parcel-trip-id">Booking ID {booking.reference}</small></div><button type="button" className="parcel-outline-button parcel-trip-share" onClick={()=>shareTrip(booking)}><Share2 size={16} aria-hidden="true"/>Share</button></header>
-      <ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route}/><ParcelCustomerStatus booking={booking} justBooked={justBooked===track}/>
+      <ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route} rider={booking.partner?.phone?latestRiderPoint(riderLive,booking.partner.location):null}/><ParcelCustomerStatus booking={booking} justBooked={justBooked===track}/>
       {booking.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(booking.status)&&<section className="parcel-card"><p>{busy?"Opening secure Razorpay checkout…":"Complete your payment securely with Razorpay."}</p><button disabled={busy} onClick={()=>payOnline(booking)}>{busy?"Payment in progress…":"Pay "+money(booking.feePaise)+" online"}</button><button disabled={busy} onClick={()=>action('payment-status',{})}>Check payment status</button></section>}
       {booking.boost?.allowed&&<section className="parcel-card parcel-boost" aria-label="Add to the fare"><h3>No partner yet? Add to the fare</h3><p>A higher fare is sent to nearby delivery partners straight away, so someone accepts sooner.{booking.boost.boostedPaise>0?` You’ve added ${money(booking.boost.boostedPaise)} so far.`:''}</p><div className="parcel-boost-options">{booking.boost.options.map(a=><button type="button" key={a} disabled={busy} onClick={()=>boostFare(booking,a)}>+{money(a)}</button>)}</div>{booking.boost.funding==='wallet'&&<small>Paid from your Bulkimart wallet. If your balance is low, you can add money with Razorpay.</small>}</section>}
       {['picked_up','in_transit','arrived_at_dropoff'].includes(booking.status)&&!booking.canCancel&&<p className="parcel-card parcel-cancel-closed">Your parcel has been picked up, so this booking can no longer be cancelled.</p>}

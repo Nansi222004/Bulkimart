@@ -13,7 +13,7 @@ import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { CustomerPage, useNavPadding } from '../components/Shell';
 import { Spinner, Text } from '../components/ui';
-import { AppliedCoupon, BasketGroups, BasketSummary, CartAlert, CartEmptyState, CouponThresholdProgress, PrimaryButton, SecondaryButton } from '../components/cart/CartUI';
+import { AppliedCoupon, BasketGroups, BasketSummary, CartAlert, CartEmptyState, CouponThresholdProgress, PrimaryButton, SecondaryButton, WholesaleMinimumNotice } from '../components/cart/CartUI';
 
 const logoIcon = require('../../assets/images/logo-icon-transparent.png');
 const channelKey = group => (group.salesChannel === 'wholesale' ? 'wholesale' : group.channel);
@@ -39,6 +39,9 @@ export default function CartScreen() {
   const channelQuoteReady = singleRetail && groups[0].channel === cartChannel && serverCart?.channel === cartChannel && serverCart.items?.length > 0 && Boolean(serverCart.pricing);
   const summaryData = singleRetail ? { ...data, totals: channelQuoteReady && data?.totals ? serverCart.pricing : null } : data;
   const pricingPending = singleRetail && (cartLoading || !channelQuoteReady);
+  // Wholesale (B2B) minimum order value from the basket quote; retail-only baskets have none.
+  const wholesaleMinimum = singleRetail ? null : data?.totals?.wholesaleMinimum || null;
+  const wholesaleShort = Boolean(wholesaleMinimum && !wholesaleMinimum.met);
   const refreshPrices = async () => { await Promise.all([basket.reload(), refreshCart?.()]); };
   useRefreshHandler(refreshPrices);
   useEffect(() => { if (singleRetail && groups[0].channel !== cartChannel) switchCartChannel(groups[0].channel); }, [singleRetail, groups[0]?.channel, cartChannel, switchCartChannel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,6 +95,7 @@ export default function CartScreen() {
           <SecondaryButton title="Refresh prices" disabled={busy || basket.loading || cartLoading} onPress={refreshPrices} />
         </View>
         {mixedDigital && <CartAlert>Digital and physical products require separate checkout. Remove one type before ordering.</CartAlert>}
+        <WholesaleMinimumNotice state={wholesaleMinimum} onAddMore={() => setActiveNav('wholesale')} />
         {groups.map((group, index) => <View key={group.key} onLayout={e => { if (groups.findIndex(other => channelKey(other) === channelKey(group)) === index) groupY.current[channelKey(group)] = e.nativeEvent.layout.y; }}>
           <BasketGroups groups={[group]} showTotals={groups.length > 1} busy={busy || basket.loading}
             onQuantity={(item, section, qty) => mutate(pathFor(item, section), 'PUT', { qty })}
@@ -109,7 +113,7 @@ export default function CartScreen() {
             {couponNotice ? <Text style={{ marginVertical: 8, color: theme.primary, fontSize: 12, fontWeight: '600' }}>{couponNotice}</Text> : null}
             {appliedCoupon && <AppliedCoupon code={appliedCoupon.code} detail={serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`} onRemove={removeCoupon} />}
           </>}
-          <PrimaryButton title="Proceed to Checkout" disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || !summaryData?.totals} onPress={() => setActiveNav('checkout')} />
+          <PrimaryButton title={wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Proceed to Checkout'} disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onPress={() => setActiveNav('checkout')} />
           <Text style={styles.note}>Review your delivery address and payment at checkout.</Text>
         </View>
       </>}

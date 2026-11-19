@@ -15,6 +15,8 @@ const cartItemSchema = new Schema({
   price:      Number,
   mrp:        Number,
   qty:        { type: Number, min: 1, required: true },
+  // When this line was first put in the cart (admin abandoned-cart view). Absent on older lines.
+  addedAt:    { type: Date, default: Date.now },
   unit:       String,
   sellerId:   { type: ObjectId, ref: "Seller" },
   shgStoreId: { type: ObjectId, ref: "SHGStore" },

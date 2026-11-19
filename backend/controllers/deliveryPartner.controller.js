@@ -1,4 +1,5 @@
 import { riderIneligibility, riderPickupPosition } from '../services/riderEligibility.service.js';
+import { activeGoTo, goToRouteFilter, goToArrivalCheck } from '../services/goTo.service.js';
 import { storePickup, requireOrderPickup, orderStoreId, pickupCoordinates } from '../services/storePickup.service.js';
 import mongoose from 'mongoose';
 import { scheduleRetry } from '../services/retryScheduler.service.js';
@@ -426,9 +427,11 @@ export const updatePresence = asyncHandler(async (req, res) => {
     { userId: req.user._id, status: 'approved' },
     { $set: { currentLocation: { lat: parsed.location.lat, lng: parsed.location.lng, updatedAt: new Date() } }, $inc: { __v: 1 } },
     { returnDocument: 'after' },
-  ).select('_id');
+  ).select('_id goTo');
   if (!partner) throw httpError(403, 'Approved rider required');
-  return ok(res, { updated: true }, 'Live location updated');
+  // Go To switches itself off once the rider reaches their destination.
+  const goToArrived = await goToArrivalCheck(partner, parsed.location);
+  return ok(res, { updated: true, ...(goToArrived ? { goToArrived: true } : {}) }, 'Live location updated');
 });
 
 // @desc    Save or update where the rider is based
@@ -575,8 +578,11 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     'currentLocation.lat': { $gte: lat - deltaLat, $lte: lat + deltaLat },
     'currentLocation.lng': { $gte: lng - deltaLng, $lte: lng + deltaLng },
   }).limit(50);
-  riders = [...new Map([...riders, ...liveRiders].map(rider => [String(rider._id), rider])).values()]
+  // Go To riders whose route passes the shop, however far they are now (riderIneligibility applies the route rules).
+  const goToRiders = await DeliveryPartner.find({ status: 'approved', isAvailable: true, ...goToRouteFilter({ lat, lng }) }).limit(50);
+  riders = [...new Map([...riders, ...liveRiders, ...goToRiders].map(rider => [String(rider._id), rider])).values()]
     .filter(rider => {
+      if (activeGoTo(rider)) return true;
       const km = distanceKm(riderPickupPosition(rider), storePosition);
       return km !== undefined && km <= radiusMeters / 1000;
     });
@@ -591,7 +597,7 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
    */
   const shopLoc = { lat, lng };
   riders = riders.filter((r) => {
-    if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
+    if (activeGoTo(r) || r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
     const riderLoc = riderPickupPosition(r);
     const km = distanceKm(riderLoc, shopLoc);
     return km === undefined || km <= r.deliveryRadiusKm;
@@ -814,6 +820,8 @@ export const broadcastNewOrderToRiders = async (orderId, attempt = 1) => {
     const riderLoc = r?.currentLocation?.lat !== undefined ? r.currentLocation : r?.baseLocation;
     emitToRider(String(r._id), 'rider_ping', {
       ...payload,
+      // Only on-the-way orders reach a Go To rider; the badge says why they got it.
+      ...(activeGoTo(r) ? { onTheWay: true } : {}),
       pickupDistance: distanceKm(riderLoc, shop),
     });
     // Persisted + pushed only for a genuinely new offer — `modifiedCount`
@@ -2022,6 +2030,7 @@ export const getPendingDeliveryOrders = asyncHandler(async (req, res) => {
       hasLandmarkImage: Boolean(order.shippingAddress?.landmarkImage),
       distance: legKm,
       pickupDistance: pickupKm,
+      ...(activeGoTo(partner) ? { onTheWay: true } : {}),
       etaMin: etaMinutes(legKm),
       paymentMethod: order.paymentMethod === 'cod' ? 'COD' : 'Prepaid',
       codAmount: order.paymentMethod === 'cod' ? Math.round(order.pricing.totalAmount) : 0,
@@ -2163,6 +2172,7 @@ export const updateDeliveryLocation = asyncHandler(async (req, res) => {
     console.error("[LOCATION] emit failed:", err.message);
   }
 
+  await goToArrivalCheck(req.partner, { lat, lng });
   // Deliberately terse: this is called every few seconds from a phone on
   // mobile data, so the response should not carry a payload nobody reads.
   return ok(res, null, "Location updated");

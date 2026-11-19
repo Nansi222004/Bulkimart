@@ -98,3 +98,19 @@ export const publicCodCharge = (setting) => ({
   minOrderAmount: setting?.minOrderAmount ?? null, maxFee: setting?.maxFee ?? null, gstRatePercent: setting?.gstRatePercent || 0,
   description: setting?.description || 'COD Handling Fee',
 });
+
+/**
+ * The COD fee for a whole checkout: charged ONCE, however many deliveries the basket splits
+ * into (owner's decision, 2026-11-18). It is priced on every physical delivery together and
+ * kept on the first one, the same way the basket tip is: one order carries it, so a refund
+ * or a per-order view never counts it twice. Digital deliveries never carry it.
+ * Returns one entry per group (the fee object or null), in the same order as `groups`.
+ */
+export function checkoutCodFees(groups, setting) {
+  const fees = (groups || []).map(() => null);
+  const physical = (groups || []).map((group, index) => ({ group, index })).filter(({ group }) => group && group.fulfillmentType !== 'digital');
+  if (!physical.length) return fees;
+  const basePaise = physical.reduce((sum, { group }) => sum + toPaise(Number(group.total) || 0), 0);
+  fees[physical[0].index] = calculateCodFee(fromPaise(basePaise), setting);
+  return fees;
+}

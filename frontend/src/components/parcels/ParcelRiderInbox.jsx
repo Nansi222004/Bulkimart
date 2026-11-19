@@ -34,7 +34,7 @@ export default function ParcelRiderInbox({enabled}) {
     {items.map(b=><article className="parcel-inbox-offer" key={b._id}>
       <strong>{b.offer?'New parcel request':riderParcelStatus(b.status)}</strong>
       <p className="parcel-inbox-route">{b.offer?`${b.pickupArea} → ${b.dropoffArea}`:`${b.details?.pickup?.pincode||'Pickup'} → ${b.details?.dropoff?.pincode||'Drop-off'}`}</p>
-      {(b.earningPaise??b.finance?.earningPaise)!=null&&<p className="parcel-inbox-earning">You earn <strong>{money(b.earningPaise??b.finance?.earningPaise)}</strong></p>}
+      {(b.earningPaise??b.finance?.earningPaise)!=null&&<p className="parcel-inbox-earning">You earn <strong>{money(b.earningPaise??b.finance?.earningPaise)}</strong>{b.offer&&b.boostPaise>0&&<span className="parcel-boost-badge">Boosted +{money(b.boostPaise)}</span>}</p>}
       {b.offer?<><small>Accept by {new Date(b.offer.expiresAt).toLocaleTimeString()}</small><div className="parcel-inbox-actions"><button type="button" disabled={!!busy||new Date(b.offer.expiresAt)<=new Date()} onClick={()=>respond(b,'accept')}>{busy===b._id?'Updating…':'Accept parcel'}</button><button type="button" disabled={!!busy} onClick={()=>respond(b,'reject')}>Decline</button></div></>:null}
       <a href={'/delivery/parcels?parcel='+b._id}>{b.offer?'View offer':'Open pickup and delivery task'}</a>
     </article>)}

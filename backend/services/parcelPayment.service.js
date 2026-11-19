@@ -138,6 +138,9 @@ export async function refundParcelToWallet(b,{amountPaise,actor,reason=''},sessi
 }
 // Customer cancellations are refunded in full automatically as soon as the money is held.
 export async function autoRefundParcelToWallet(b,actor,session) {
+  // Cash settled through the rider wallet may have been handed straight back to the sender, so an
+  // admin decides: record that (cash_refund_evidence, which also clears the rider's debt) or refund to the wallet.
+  if (b.cash?.settlement === 'rider_wallet') return;
   if (b.cancellation?.status !== 'approved' || b.cancellation.refundTo === 'original' || !await parcelRefundableCollection(b,session)) return;
   await refundParcelToWallet(b,{actor,reason:'Automatic refund for an approved cancellation'},session);
 }

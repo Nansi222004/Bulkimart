@@ -5,6 +5,8 @@ import { buildFulfilmentGroups } from './fulfilmentGroups.service.js';
 import { wholesaleQuoteHash } from './wholesaleQuote.service.js';
 import { sumMoney } from '../utils/money.js';
 import { httpError } from '../utils/response.js';
+import { checkoutCodFees, resolveCodChargeSetting } from './codCharge.service.js';
+import { resolveWholesaleSetting, wholesaleMinimumState } from './wholesaleMinimum.service.js';
 
 // Aggregate the existing documents. No fourth cart, migration or client prices.
 export const buildCustomerBasket = async ({ userId, user, destination, session, preview = false, couponCode }) => {
@@ -57,6 +59,8 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
   if (preview && items.some(item => item.fulfillmentType === 'digital') && items.some(item => item.fulfillmentType !== 'digital')) warnings.push('Digital and physical products require separate checkout.');
   if (preview && groups.some(group => group.requestedMode === 'same_day' && group.deliveryMode !== 'same_day')) warnings.push('Same-day delivery is no longer available. Choose Scheduled or review your basket.');
   const valid = !warnings.length && groups.every(group => group.items.every(item => item.available !== false));
+  // Retail and Wholesale were priced separately above; the COD fee is once for the whole basket.
+  if (valid) { const codSetting = await resolveCodChargeSetting(); checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; }); }
   const totals = valid ? groups.reduce((total, group) => ({
     subtotal: sumMoney(total.subtotal, group.subtotal), deliveryCharge: sumMoney(total.deliveryCharge, group.deliveryCharge),
     sameDayPremium: sumMoney(total.sameDayPremium, group.sameDayFee || 0, group.sellerIncentive || 0),
@@ -67,6 +71,8 @@ export const buildCustomerBasket = async ({ userId, user, destination, session, 
   }), { subtotal: 0, deliveryCharge: 0, sameDayPremium: 0, couponDiscount: 0, totalAmount: 0, codFeeTotal: 0, itemCount: 0 }) : null;
   if (totals) totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
   if (totals) { totals.codFeeDescription = groups.find(group => group.codFee)?.codFee.codFeeDescription; totals.codFeeOrders = groups.filter(group => group.codFee).length; }
+  // Wholesale minimum order value: only the Wholesale deliveries count; retail never has one.
+  if (totals) totals.wholesaleMinimum = wholesaleMinimumState(groups, await resolveWholesaleSetting(), 'basket');
   const basketHash = valid ? createHash('sha256').update(JSON.stringify(groups.map(group => ({
     key: group.key, quote: wholesaleQuoteHash({ groups: [group] }),
     requestedMode: group.requestedMode,

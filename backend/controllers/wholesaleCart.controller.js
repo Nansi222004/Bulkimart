@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { logCartActivity } from '../services/cartRecovery.service.js';
 import Cart from '../models/Cart.js';
 import Product from '../models/Product.js';
 import Seller from '../models/Seller.js';
@@ -32,7 +33,8 @@ export const changeWholesaleCart = asyncHandler(async (req, res) => {
   if (req.body?.channel !== undefined && req.body.channel !== 'wholesale') throw httpError(400, 'Wholesale and retail carts are separate');
   const owner = { userId: req.user._id, channel: 'wholesale' };
   if (req.method === 'DELETE' && !req.params.itemId) {
-    await Cart.updateOne(owner, { $set: { items: [] }, $inc: { __v: 1 } });
+    const previous = await Cart.findOneAndUpdate(owner, { $set: { items: [] }, $inc: { __v: 1 } }).select('items').lean();
+    if (previous?.items?.length) logCartActivity(req.user._id, 'wholesale', { action: 'clear', qty: previous.items.length });
     return ok(res, await wholesaleCartView(req));
   }
   if (req.params.itemId && !mongoose.isValidObjectId(req.params.itemId)) throw httpError(400, 'Invalid cart line');
@@ -59,11 +61,19 @@ export const changeWholesaleCart = asyncHandler(async (req, res) => {
       const qty = req.method === 'POST' ? Number(existing?.qty || 0) + Number(req.body.qty) : Number(req.body.qty);
       const quote = quoteWholesaleVariant(product, seller, variantId, qty);
       if (!existing && items.length >= 100) throw httpError(400, 'Wholesale cart supports at most 100 different variants');
-      const line = { _id: existing?._id || new mongoose.Types.ObjectId(), productId: product._id, variantId: quote.inventory.variantId, name: product.name, qty, price: quote.unitPrice, type: product.type, sellerId: seller._id, image: product.images?.[0] || '' };
+      const line = { _id: existing?._id || new mongoose.Types.ObjectId(), ...(existing?.addedAt ? { addedAt: existing.addedAt } : {}), productId: product._id, variantId: quote.inventory.variantId, name: product.name, qty, price: quote.unitPrice, type: product.type, sellerId: seller._id, image: product.images?.[0] || '' };
       items = existing ? items.map(item => String(item._id) === String(existing._id) ? line : item) : [...items, line];
     }
     const result = await Cart.updateOne({ ...owner, __v: cart.__v ?? 0 }, { $set: { items }, $inc: { __v: 1 } }, { runValidators: true });
-    if (result.modifiedCount) return ok(res, await wholesaleCartView(req));
+    if (result.modifiedCount) {
+      // Admin abandoned-cart history.
+      const after = req.method === 'DELETE' ? null : items.find((l) => String(l._id) === String(existing?._id) || (!existing && String(l.productId) === String(req.body.productId) && String(l.variantId) === String(req.body.variantId)));
+      const base = (l) => ({ productId: l.productId, variantId: l.variantId, name: l.name, image: l.image, price: l.price });
+      if (req.method === 'DELETE') logCartActivity(req.user._id, 'wholesale', { ...base(existing), action: 'remove', qty: existing.qty });
+      else if (after && !existing) logCartActivity(req.user._id, 'wholesale', { ...base(after), action: 'add', qty: after.qty });
+      else if (after && after.qty !== existing.qty) logCartActivity(req.user._id, 'wholesale', req.method === 'POST' ? { ...base(after), action: 'add', qty: after.qty - existing.qty } : { ...base(after), action: 'qty', fromQty: existing.qty, qty: after.qty });
+      return ok(res, await wholesaleCartView(req));
+    }
   }
   throw httpError(409, 'Wholesale cart changed. Refresh and try again.');
 });

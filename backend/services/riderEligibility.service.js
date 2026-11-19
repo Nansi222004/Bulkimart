@@ -1,5 +1,6 @@
 import { distanceKm } from '../utils/geo.js';
 import { CHANNEL } from '../constants/enums.js';
+import { activeGoTo, goToIneligibility } from './goTo.service.js';
 
 const position = location => location?.point?.coordinates?.length === 2
   ? { lat: location.point.coordinates[1], lng: location.point.coordinates[0] } : location;
@@ -24,6 +25,9 @@ export function riderIneligibility(rider, user, order, pickup, { requireDuty = t
   if (rider.status !== 'approved') return 'not_approved';
   if (!user?.isActive || !user.roles?.includes('delivery')) return 'inactive_account';
   if (requireDuty && !rider.isAvailable) return 'off_duty';
+  // Go To mode: only orders along the rider's route, in their direction, replace the usual
+  // zone and radius rules (the route rules bound the distance instead).
+  if (activeGoTo(rider)) return goToIneligibility(rider, position(pickup), order.shippingAddress);
   const zones = (rider.zones || []).map(String);
   if (zones.length && !zones.includes(String(pickup.pincode)) && !zones.includes(String(order.shippingAddress?.pincode))) return 'outside_coverage';
   const pickupDistance = distanceKm(riderPickupPosition(rider), position(pickup));

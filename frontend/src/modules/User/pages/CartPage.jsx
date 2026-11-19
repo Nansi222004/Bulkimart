@@ -7,6 +7,7 @@ import { apiUrl } from '../../../utils/api';
 import { captureUserSession, isCurrentUserSession } from '../../../utils/userSession';
 import BrandLogo from '../../../components/BrandLogo';
 import CouponThresholdProgress from '../components/CouponThresholdProgress';
+import WholesaleMinimumNotice from '../components/WholesaleMinimumNotice';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import '../components/CartCheckout.css';
 
@@ -31,6 +32,9 @@ export default function CartPage() {
   // changing totals on navigation.
   const summaryData = singleRetail ? { ...data, totals: channelQuoteReady && data?.totals ? serverCart.pricing : null } : data;
   const pricingPending = singleRetail && (cartLoading || !channelQuoteReady);
+  // Wholesale (B2B) minimum order value from the basket quote; retail-only baskets have none.
+  const wholesaleMinimum = singleRetail ? null : data?.totals?.wholesaleMinimum || null;
+  const wholesaleShort = Boolean(wholesaleMinimum && !wholesaleMinimum.met);
   const refreshPrices = async () => { await Promise.all([basket.reload(), refreshCart?.()]); };
   useEffect(() => {
     if (singleRetail && groups[0].channel !== cartChannel) switchCartChannel(groups[0].channel);
@@ -79,6 +83,7 @@ export default function CartPage() {
       {items.length > 0 && <>
         <div className="basket-tools" aria-label="Basket channels">{[...new Set(groups.map(group => group.salesChannel === 'wholesale' ? 'wholesale' : group.channel))].map(channel => <a key={channel} href={`#basket-${channel}`}>{channel === 'wholesale' ? 'Wholesale' : channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</a>)}<button type="button" className="cart-secondary-btn" disabled={busy || basket.loading || cartLoading} onClick={refreshPrices}>Refresh prices</button></div>
         {mixedDigital && <div role="alert" className="wholesale-cart-alert">Digital and physical products require separate checkout. Remove one type before ordering.</div>}
+        <WholesaleMinimumNotice state={wholesaleMinimum} />
         <div className="basket-layout"><div className="basket-items-column">{groups.map((group, index) => <div key={group.key} id={groups.findIndex(other => (other.salesChannel === 'wholesale' ? 'wholesale' : other.channel) === (group.salesChannel === 'wholesale' ? 'wholesale' : group.channel)) === index ? `basket-${group.salesChannel === 'wholesale' ? 'wholesale' : group.channel}` : undefined}><BasketGroups groups={[group]} showTotals={groups.length > 1} busy={busy || basket.loading}
           onQuantity={(item, section, qty) => mutate(pathFor(item, section), 'PUT', { qty })}
           onRemove={remove}
@@ -91,7 +96,7 @@ export default function CartPage() {
           <CouponThresholdProgress offers={availableCoupons} appliedCode={appliedCoupon?.code} onShopMore={shopMore} />
           {couponNotice && <p role="status" className="coupon-cart-notice">{couponNotice}</p>}
           {appliedCoupon && <div className="coupon-cart-applied"><strong>{appliedCoupon.code} applied</strong><span>{serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`}</span><button type="button" onClick={removeCoupon}>Remove</button></div>}
-        </>}<button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || !summaryData?.totals} onClick={() => setActiveNav('checkout')}>Proceed to Checkout</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
+        </>}<button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onClick={() => setActiveNav('checkout')}>{wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Proceed to Checkout'}</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
       </>}
     </div>
   </section>;

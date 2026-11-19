@@ -46,6 +46,7 @@ export function OrderOfferModal({ offer, onAccept, onDecline, onExpire }) {
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.headerRow}>
               <Text style={styles.badge}>NEW DELIVERY REQUEST</Text>
+              {offer.onTheWay ? <Text style={styles.onTheWay}>🧭 On your way</Text> : null}
               <Text style={[styles.timer, left <= 10 && styles.timerUrgent]} accessibilityLabel={`${left} seconds left`}>{left}s</Text>
             </View>
             <View style={styles.payBox}>
@@ -164,12 +165,14 @@ export function ParcelOfferModal({ booking, onAccept, onDecline, onExpire }) {
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.headerRow}>
               <Text style={styles.badge}>NEW PARCEL REQUEST</Text>
+              {booking.onTheWay ? <Text style={styles.onTheWay}>🧭 On your way</Text> : null}
               <Text style={[styles.timer, left <= 10 && styles.timerUrgent]} accessibilityLabel={`${left} seconds left`}>{left}s</Text>
             </View>
             {earning != null ? (
               <View style={styles.payBox}>
                 <Text style={type.small}>You earn</Text>
                 <Text style={styles.pay}>{formatRupees(earning / 100)}</Text>
+                {booking.boostPaise > 0 ? <Text style={styles.boost}>Boosted +{formatRupees(booking.boostPaise / 100)}</Text> : null}
               </View>
             ) : null}
             <KeyValueRow label="Pickup area" value={booking.pickupArea || '—'} />
@@ -196,8 +199,10 @@ const styles = StyleSheet.create({
   badge: { fontSize: 14, fontWeight: '800', color: colors.orangeDark, letterSpacing: 0.5 },
   timer: { fontSize: 28, fontWeight: '800', color: colors.deepBlue },
   timerUrgent: { color: colors.error },
+  onTheWay: { fontSize: 12, fontWeight: '800', color: '#166534', backgroundColor: colors.successLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, overflow: 'hidden' },
   payBox: { backgroundColor: colors.aquaLight, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', gap: 2 },
   pay: { fontSize: 36, fontWeight: '800', color: colors.deepBlue },
+  boost: { marginTop: 4, paddingHorizontal: 10, paddingVertical: 2, borderRadius: 999, overflow: 'hidden', backgroundColor: '#fff3d6', color: '#7a5200', fontSize: 13, fontWeight: '800' },
   tip: { fontSize: 15, fontWeight: '700', color: '#166534', backgroundColor: colors.successLight, padding: spacing.sm, borderRadius: radius.sm },
   stop: { gap: 2, paddingVertical: spacing.xs },
   actions: { flexDirection: 'row', gap: spacing.sm, padding: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border },

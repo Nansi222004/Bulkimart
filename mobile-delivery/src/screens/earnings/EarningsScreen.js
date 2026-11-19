@@ -8,6 +8,7 @@ import AppButton from '../../components/AppButton';
 import KeyValueRow from '../../components/KeyValueRow';
 import StatusPill from '../../components/StatusPill';
 import { InlineNotice } from '../../components/StateViews';
+import WalletCard from '../../components/WalletCard';
 import { useAuth } from '../../context/AuthContext';
 import { useDuty } from '../../context/DutyContext';
 import { useToast } from '../../components/Toast';
@@ -33,6 +34,7 @@ export default function EarningsScreen({ navigation }) {
   const [payouts, setPayouts] = useState({ rows: [], page: 1, pages: 1, loading: true, error: '' });
   const [refreshing, setRefreshing] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [walletKey, setWalletKey] = useState(0);
   const attempt = useRef(null);
 
   const finance = profile?.finance;
@@ -52,6 +54,7 @@ export default function EarningsScreen({ navigation }) {
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.allSettled([refreshProfile(), loadSummary(), loadPayouts(1)]);
+    setWalletKey((k) => k + 1);
     setRefreshing(false);
   };
 
@@ -83,6 +86,7 @@ export default function EarningsScreen({ navigation }) {
 
   return (
     <Screen edges={[]} refreshing={refreshing} onRefresh={onRefresh}>
+      <WalletCard navigation={navigation} reloadKey={walletKey} />
       <Card title="Withdrawable balance">
         <Text style={styles.big}>{finance ? formatRupees(available) : '—'}</Text>
         <AppButton title={requesting ? 'Requesting…' : hasPending ? 'Request pending' : 'Cash out to bank'} loading={requesting}

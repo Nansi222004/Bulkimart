@@ -30,6 +30,9 @@ const TERMINAL_DELIVERY_STATUSES = ['delivered', 'rejected', 'failed'];
 const count = (Model, filter) => Model.countDocuments(filter);
 const positive = (value) => Math.abs(Number(value || 0)) > 0.000001;
 const reason = (code, countValue = 1) => ({ code, count: Number(countValue || 0) });
+// A loaded record, not a bare id. An ObjectId has an `_id` that points to itself, so `?._id` alone
+// mistook ids for records and every balance check then read nothing.
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !(value instanceof mongoose.Types.ObjectId) && Boolean(value._id);
 
 const baseAssessment = (category, targetId, dependencies, blocks, history) => {
   const blocked = blocks.filter((r) => r.count > 0);
@@ -52,7 +55,7 @@ const protectedAdminIdentity = async (user) => {
 };
 
 export const assessCustomerAccount = async (userOrId) => {
-  const user = typeof userOrId === 'object' && userOrId?._id
+  const user = isRecord(userOrId)
     ? userOrId
     : await User.findById(userOrId).select('+email');
   if (!user) return null;
@@ -114,7 +117,7 @@ export const assessCustomerAccount = async (userOrId) => {
 };
 
 export const assessSellerAccount = async (sellerOrId) => {
-  const seller = typeof sellerOrId === 'object' && sellerOrId?._id ? sellerOrId : await Seller.findById(sellerOrId);
+  const seller = isRecord(sellerOrId) ? sellerOrId : await Seller.findById(sellerOrId);
   if (!seller) return null;
   const sellerId = seller._id;
   const [activeOrders, orders, unresolvedReturns, returns, pendingPayouts, payouts, products,
@@ -138,7 +141,7 @@ export const assessSellerAccount = async (sellerOrId) => {
 };
 
 export const assessDeliveryAccount = async (partnerOrId) => {
-  const partner = typeof partnerOrId === 'object' && partnerOrId?._id ? partnerOrId : await DeliveryPartner.findById(partnerOrId);
+  const partner = isRecord(partnerOrId) ? partnerOrId : await DeliveryPartner.findById(partnerOrId);
   if (!partner) return null;
   const partnerId = partner._id;
   const [activeOrders, activeDeliveries, deliveries, activeReturns, returns, pendingPayouts, payouts] = await Promise.all([
@@ -151,8 +154,9 @@ export const assessDeliveryAccount = async (partnerOrId) => {
     count(DeliveryPayout, { partnerId }),
   ]);
   const pendingEarnings = Number(partner.earnings?.pending || 0);
-  const dependencies = { activeOrders, activeDeliveries, deliveries, activeReturns, returns, pendingPayouts, payouts, pendingEarningsNonZero: positive(pendingEarnings) ? 1 : 0 };
-  const blocks = [reason('ACTIVE_ORDERS', activeOrders), reason('ACTIVE_DELIVERIES', activeDeliveries), reason('ACTIVE_RETURN_PICKUPS', activeReturns), reason('PENDING_PAYOUTS', pendingPayouts), reason('PENDING_EARNINGS', dependencies.pendingEarningsNonZero)];
+  // A negative balance is COD parcel cash the rider still owes Bulkimart.
+  const dependencies = { activeOrders, activeDeliveries, deliveries, activeReturns, returns, pendingPayouts, payouts, pendingEarningsNonZero: positive(pendingEarnings) ? 1 : 0, walletDebt: pendingEarnings < 0 ? 1 : 0 };
+  const blocks = [reason('ACTIVE_ORDERS', activeOrders), reason('ACTIVE_DELIVERIES', activeDeliveries), reason('ACTIVE_RETURN_PICKUPS', activeReturns), reason('PENDING_PAYOUTS', pendingPayouts), reason('WALLET_DEBT', dependencies.walletDebt), reason('PENDING_EARNINGS', dependencies.pendingEarningsNonZero)];
   const history = [reason('DELIVERY_HISTORY', deliveries), reason('RETURN_PICKUP_HISTORY', returns), reason('PAYOUT_HISTORY', payouts)];
   return baseAssessment('delivery', partnerId, dependencies, blocks, history);
 };

@@ -1,4 +1,5 @@
-import { calculateCodFee, resolveCodChargeSetting } from './codCharge.service.js';
+import { checkoutCodFees, resolveCodChargeSetting } from './codCharge.service.js';
+import { resolveWholesaleSetting, wholesaleMinimumState } from './wholesaleMinimum.service.js';
 import { easyReturnOrderFields, priceWithReturnOption, resolveReturnOption } from './easyReturns.service.js';
 import { summarizeProductGst } from './productGst.service.js';
 import { channelAllowed } from '../utils/productChannels.js';
@@ -187,7 +188,7 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
 
   // ---- price and check each group ----------------------------------------
   const groups = [];
-  // COD handling fee preview per delivery; orders recompute it from the live setting at checkout.
+  // COD handling fee preview (once per checkout, see checkoutCodFees); orders recompute it from the live setting.
   const codSetting = await resolveCodChargeSetting();
   for (const [key, groupLines] of buckets) {
     const first = groupLines[0];
@@ -333,7 +334,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       deliveryCharge: pricing.deliveryCharge,
       total: pricing.totalAmount,
       // What Cash on Delivery would add to this delivery (null = no fee). Not part of `total`.
-      codFee: first.fulfillmentType === 'digital' ? null : calculateCodFee(pricing.totalAmount, codSetting),
+      // Set below by checkoutCodFees: the fee is charged once for the whole checkout.
+      codFee: null,
 
       /**
        * Both options for this group, with the reason behind the refused one.
@@ -345,6 +347,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
       scheduledAvailable: first.channel === CHANNEL.ECOM,
     });
   }
+
+  checkoutCodFees(groups, codSetting).forEach((fee, index) => { groups[index].codFee = fee; });
 
   /**
    * Charged per group, not per basket.
@@ -370,6 +374,8 @@ export const buildFulfilmentGroups = async ({ userId, destination, user, couponC
   totals.productTax = summarizeProductGst(groups.flatMap(group => group.productTax.lines));
   totals.codFeeDescription = groups.find(group => group.codFee)?.codFee.codFeeDescription;
   totals.codFeeOrders = groups.filter(group => group.codFee).length;
+  // Wholesale minimum order value (products only); checkout keeps Place Order disabled until met.
+  if (purchaseMode === 'wholesale') totals.wholesaleMinimum = wholesaleMinimumState(groups, await resolveWholesaleSetting(), purchaseMode);
   return {
     groups,
     items: groups.flatMap((g) => g.items),

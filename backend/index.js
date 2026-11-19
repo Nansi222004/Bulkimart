@@ -27,6 +27,7 @@ import { loadDeliveryChargeSetting } from "./services/deliveryCharge.service.js"
 import { loadCodChargeSetting } from "./services/codCharge.service.js";
 import { loadCoinConfig } from "./services/coinConfig.service.js";
 import { loadRadiusSetting } from "./services/radiusSetting.service.js";
+import { loadGoToSetting } from "./services/goTo.service.js";
 import { seedPrivacyPolicies } from "./seed/privacyPolicySeedData.js";
 import { startImageSearchIndexer } from './services/imageSearchIndexer.service.js';
 import { validateStorageStartupConfig } from './config/storage.js';
@@ -136,6 +137,7 @@ const start = async () => {
   await loadCoinConfig().catch((e) => console.warn('[COIN CONFIG] using defaults:', e.message));
   // Same reasoning, for the Same-Day/seller/rider radius ceilings.
   await loadRadiusSetting().catch((e) => console.warn('[RADIUS SETTING] using env defaults:', e.message));
+  await loadGoToSetting().catch((e) => console.warn('[GO TO SETTING] using defaults:', e.message));
   // Auto-seed default role privacy policies if missing
   await seedPrivacyPolicies().catch((e) => console.warn('[PRIVACY POLICY SEED] error:', e.message));
 

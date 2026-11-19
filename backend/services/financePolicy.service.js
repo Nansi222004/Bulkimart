@@ -10,7 +10,7 @@ import { httpError } from '../utils/response.js';
 export const BANK_VERIFICATION_PROCESS_ID = 'BULKIMART-BANK-VERIFICATION';
 
 const defaults = () => ({
-  tcsRatePercent: 0, tdsRatePercent: 0, sellerMinPayout: 0, riderMinPayout: DELIVERY_MIN_PAYOUT_AMOUNT,
+  tcsRatePercent: 0, tdsRatePercent: 0, sellerMinPayout: 0, riderMinPayout: DELIVERY_MIN_PAYOUT_AMOUNT, riderParcelDebtLimit: 500,
   payoutSchedule: 'on_request', payoutWeekday: 1, requireIndependentPayoutReviewer: true, bankVerificationMethod: '',
 });
 
@@ -50,6 +50,8 @@ export const validateFinancePolicy = (input = {}) => {
     values: {
       tcsRatePercent: rate(input.tcsRatePercent, 'TCS rate'), tdsRatePercent: rate(input.tdsRatePercent, 'TDS rate'),
       sellerMinPayout: amount(input.sellerMinPayout, 'Seller minimum payout'), riderMinPayout: amount(input.riderMinPayout, 'Rider minimum payout'),
+      // A screen that does not send it keeps the saved limit (see saveFinancePolicy).
+      riderParcelDebtLimit: input.riderParcelDebtLimit === undefined || input.riderParcelDebtLimit === null || input.riderParcelDebtLimit === '' ? undefined : amount(input.riderParcelDebtLimit, 'Rider COD parcel debt limit'),
       payoutSchedule: input.payoutSchedule, payoutWeekday: weekday,
       requireIndependentPayoutReviewer: input.requireIndependentPayoutReviewer, bankVerificationMethod: method,
     },
@@ -65,6 +67,7 @@ export const saveFinancePolicy = async (input, adminId) => {
     const revision = current?.revision || 0;
     if (Number(input.revision ?? 0) !== revision) throw httpError(409, 'Finance policy changed; reload before saving');
     const previous = current ? Object.fromEntries(FINANCE_POLICY_FIELDS.map(key => [key, current[key]])) : null;
+    if (values.riderParcelDebtLimit === undefined) values.riderParcelDebtLimit = current?.riderParcelDebtLimit ?? defaults().riderParcelDebtLimit;
     const update = { $set: { ...values, revision: revision + 1, note, updatedBy: adminId } };
     if (previous) update.$push = { history: { $each: [{ revision, changedAt: current.updatedAt, changedBy: current.updatedBy, note: current.note, values: previous }], $slice: -50 } };
     const result = await FinancePolicy.updateOne({ _id: 'current', revision }, update, { upsert: !current, session });

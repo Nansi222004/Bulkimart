@@ -36,7 +36,7 @@ driverParcelRouter.use(protect,feature('fulfilment'),wrap(async(req,_res,next)=>
   req.parcelPartner=p; next();
 }),mode('driver'));
 driverParcelRouter.get('/bookings',wrap(c.list)); driverParcelRouter.get('/bookings/:id',wrap(c.detail));
-driverParcelRouter.post('/bookings/:id/offer',wrap(c.respond)); driverParcelRouter.post('/bookings/:id/actions',wrap(c.driverAction));
+driverParcelRouter.post('/bookings/:id/offer',wrap(c.respond)); driverParcelRouter.post('/bookings/:id/location',wrap(c.riderLocation)); driverParcelRouter.post('/bookings/:id/actions',wrap(c.driverAction));
 driverParcelRouter.use(errors);
 export const adminParcelRouter=express.Router(); setup(adminParcelRouter);
 adminParcelRouter.use(protect,requireAdmin,permission('manage_orders'),mode('admin'));

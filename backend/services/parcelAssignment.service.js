@@ -11,9 +11,11 @@ import { distanceKm } from '../utils/geo.js';
 import { financialTransaction } from './financeSafety.service.js';
 import { requireParcel, parcelFlags, productionParcel, failParcel, parcelOperationalHold } from './parcelPolicy.service.js';
 import { RETURN_PICKUP_STATUS } from '../constants/enums.js';
-import { parcelEvent, parcelVersion, touchParcel, releaseParcelRider, parcelAdminQueueDeadline, parcelAutoCancelExpired } from './parcelWorkflow.service.js';
+import { parcelEvent, parcelVersion, touchParcel, releaseParcelRider, parcelAdminQueueDeadline, parcelAutoCancelExpired, parcelSearchStart, parcelDriverBoostPaise } from './parcelWorkflow.service.js';
 import { notifyUser, notifyRider, notifyAllAdmins } from './notification.service.js';
 import { parcelOfferRecipients } from './parcelOffers.js';
+import { activeGoTo, goToIneligibility, goToRouteFilter } from './goTo.service.js';
+import { parcelDebtLimitReason } from './riderWallet.service.js';
 export async function parcelRiderIneligibility(p,b,session,reserved = false) {
   const c = b.pricing.policy;
   if (!p || p.status !== 'approved') return 'approval_required';
@@ -31,16 +33,21 @@ export async function parcelRiderIneligibility(p,b,session,reserved = false) {
   if (!origin || km === undefined || !p.currentLocation?.updatedAt) return 'missing_location';
   if (!Number.isFinite(age) || age > c.locationMaxAgeSeconds*1000) return 'location_outdated';
   if (age < -60000) return 'location_clock_invalid';
-  if (km > c.assignmentRadiusKm) return 'outside_pickup_radius';
-  if (p.deliveryRadiusKm != null && km > p.deliveryRadiusKm) return 'outside_rider_radius';
+  // Go To mode: the route rules (corridor, direction, detour, pickup distance) replace radius and zones.
+  const goToReason = activeGoTo(p) ? goToIneligibility(p,b.details.pickup,b.details.dropoff) : undefined;
+  if (goToReason) return goToReason;
+  if (goToReason === undefined && km > c.assignmentRadiusKm) return 'outside_pickup_radius';
+  if (goToReason === undefined && p.deliveryRadiusKm != null && km > p.deliveryRadiusKm) return 'outside_rider_radius';
   // Service area: as for shop orders, the rider covers the parcel when its pickup OR drop pincode
   // is one of theirs. A drop in a neighbouring pincode still counts when it lies within the
   // rider's own service radius (e.g. 10 km), so a short trip across a pincode line is not lost.
   const zones = (p.zones || []).map(String);
-  if (zones.length && !zones.includes(String(b.details.pickup.pincode)) && !zones.includes(String(b.details.dropoff.pincode))) {
+  if (goToReason === undefined && zones.length && !zones.includes(String(b.details.pickup.pincode)) && !zones.includes(String(b.details.dropoff.pincode))) {
     const dropKm = distanceKm(origin, b.details.dropoff);
     if (p.deliveryRadiusKm == null || dropKm === undefined || dropKm > p.deliveryRadiusKm) return 'zones_mismatch';
   }
+  // Cash parcels stop once the rider would owe more than the admin's limit (online parcels still come).
+  if (await parcelDebtLimitReason(p._id,b,session)) return 'cash_debt_limit';
   const orders = await Order.countDocuments({deliveryPartnerId:p._id,status:{$nin:['delivered','cancelled','returned','refunded']}}).session(session);
   const returns = await Delivery.countDocuments({partnerId:p._id,direction:'return_pickup',status:{$nin:['rejected','delivered','failed']}}).session(session);
   const pendingReturn = await Return.exists({'pickup.partnerId':p._id,'pickup.status':{$in:[RETURN_PICKUP_STATUS.ASSIGNED,RETURN_PICKUP_STATUS.PICKED_UP]}}).session(session);
@@ -58,7 +65,7 @@ export function parcelOfferNotice(b, rider) {
   return {
     event: 'PARCEL_OFFER',
     dedupeKey: `PARCEL_OFFER:${b._id}:${offer.token}:${rider}`,
-    title: `New parcel request — earn ${rupees(b.pricing?.driverPaise)}`,
+    title: parcelDriverBoostPaise(b) ? `Boosted parcel request — earn ${rupees(b.pricing?.driverPaise)} (incl. +${rupees(parcelDriverBoostPaise(b))} boost)` : `New parcel request — earn ${rupees(b.pricing?.driverPaise)}`,
     message: `Accept within ${seconds} seconds. Open the app to accept or decline.`,
     metadata: { parcelDeliveryId: String(b._id), expiresAt: new Date(offer.expiresAt).toISOString() },
     route: '/delivery/parcels',
@@ -127,7 +134,8 @@ export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
       const lat = b.details.pickup.lat, lng = b.details.pickup.lng, delta = b.pricing.policy.assignmentRadiusKm/111;
       candidates = await Partner.find({status:'approved',isAvailable:true,'parcelReservation.bookingId':{$exists:false},'parcelReturnClaim.token':{$exists:false},
         ...(b.details.vehicle?.riderVehicleTypes?.length?{vehicleType:{$in:b.details.vehicle.riderVehicleTypes}}:{}),
-        'currentLocation.lat':{$gte:lat-delta,$lte:lat+delta},'currentLocation.lng':{$gte:lng-delta/Math.max(.1,Math.cos(lat*Math.PI/180)),$lte:lng+delta/Math.max(.1,Math.cos(lat*Math.PI/180))}}).session(session);
+        // Riders near the pickup, plus Go To riders whose route passes it (eligibility decides).
+        $or:[{'currentLocation.lat':{$gte:lat-delta,$lte:lat+delta},'currentLocation.lng':{$gte:lng-delta/Math.max(.1,Math.cos(lat*Math.PI/180)),$lte:lng+delta/Math.max(.1,Math.cos(lat*Math.PI/180))}},goToRouteFilter({lat,lng})]}).session(session);
       candidates = candidates.filter(p=>!b.assignment.attempts.some(a=>String(a.partnerId) === String(p._id) && a.outcome === 'rejected')).sort((a,c)=>distanceKm(riderPickupPosition(a),b.details.pickup)-distanceKm(riderPickupPosition(c),b.details.pickup));
     }
     const selected = [];
@@ -144,7 +152,7 @@ export async function assignParcel(id,{partnerId,actor,version,reason} = {}) {
       const rounds = new Set(b.assignment.attempts.map(a=>a.token)).size, policy = b.pricing.policy;
       const firstMiss = !b.assignment.searchStartedAt;
       // The search began at booking, at online payment, or at the latest fare boost (which restarts it).
-      if (firstMiss) b.assignment.searchStartedAt = [...(b.history || [])].reverse().find(e => ['payment_verified','fare_boosted'].includes(e.action))?.at || b.createdAt || new Date();
+      if (firstMiss) b.assignment.searchStartedAt = parcelSearchStart(b);
       const searchedMs = Date.now() - new Date(b.assignment.searchStartedAt).getTime();
       if (rounds < policy.maxAttempts && searchedMs < policy.acceptanceSeconds * 1000 * policy.maxAttempts) {
         waiting = true;

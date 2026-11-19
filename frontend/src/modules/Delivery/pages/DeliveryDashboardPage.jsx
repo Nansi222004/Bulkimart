@@ -1,3 +1,4 @@
+import RiderWalletCard from '../components/RiderWalletCard';
 import React, { useState, useEffect } from 'react';
 import { RIDER_COD_CASH_LIMIT } from '../../../../../backend/shared/deliveryCash.mjs';
 import { useDelivery } from '../context/DeliveryContext';
@@ -134,6 +135,8 @@ export const DeliveryDashboardPage = () => {
           </div>
         </div>
       )}
+
+      <div style={{ margin: '12px 16px 0' }}><RiderWalletCard compact /></div>
 
       <section className="delivery-rating-card" aria-label="Customer rating">
         <span>Customer rating</span><strong>{customerRating.value}</strong><small>{customerRating.count}</small>

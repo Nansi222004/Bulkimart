@@ -93,6 +93,8 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
         { id: 'banners', label: 'Banners', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/></svg> },
         { id: 'campaigns', label: 'Campaigns / Deals', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12a2 2 0 0 1 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2z"/><path d="M9 9h.01M15 15h.01M15 9l-6 6"/></svg> },
         { id: 'tip-settings', label: 'Rider Tip Settings', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+        { id: 'abandoned-carts', label: 'Abandoned Carts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg> },
+        { id: 'go-to-settings', label: 'Rider Go To Mode', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg> },
         { id: 'notifications', label: 'Notifications', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
         { id: 'privacy-policy', label: 'Privacy Policy CMS', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> }
       ]
@@ -130,7 +132,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
   const isDeliverySection = [
     'delivery-partners', 'delivery-tracking', 'rider-payouts', 'delivery-zones',
     'delivery-dashboard', 'delivery-all', 'delivery-pending', 'delivery-active', 'delivery-suspended',
-    'delivery-active-ops', 'delivery-assignment', 'delivery-history', 'delivery-performance', 'delivery-earnings'
+    'delivery-active-ops', 'delivery-assignment', 'delivery-history', 'delivery-performance', 'delivery-earnings', 'rider-wallets'
   ].includes(activeTab);
 
   let filteredNavGroups = navGroups;
@@ -244,6 +246,7 @@ export const LeftSidebar = ({ collapsed, setCollapsed }) => {
         title: 'EARNINGS',
         links: [
           { id: 'delivery-earnings', label: 'Earnings & Payouts', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+          { id: 'rider-wallets', label: 'Rider Wallets (COD parcels)', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><circle cx="17" cy="14" r="1.5"/></svg> },
           { id: 'delivery-rates', label: 'Rider Pay Rates', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> }
         ]
       }

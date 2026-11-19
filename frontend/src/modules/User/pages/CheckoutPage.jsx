@@ -14,6 +14,7 @@ import CouponThresholdProgress from '../components/CouponThresholdProgress';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { paymentSummary } from '../utils/paymentSummary';
+import WholesaleMinimumNotice from '../components/WholesaleMinimumNotice';
 import '../components/CartCheckout.css';
 
 const CheckoutPage = () => {
@@ -87,12 +88,16 @@ const CheckoutPage = () => {
   const basketCheckout = isUnified && unified.data?.purchaseMode === 'basket';
   const checkoutOperation = basketCheckout ? 'basket' : isUnified ? 'unified' : isDigitalCart ? 'digital' : 'single';
   const canTip = !isDigitalCart && (!hasWholesale || groups.some(group => group.salesChannel === 'retail'));
-  const checkoutBlocked = unified.loading || Boolean(unified.error) || !unified.data || unified.data.valid === false
+  // Wholesale (B2B) minimum order value; retail baskets never carry one. The server checks it again.
+  const wholesaleMinimum = isUnified ? unified.data?.totals?.wholesaleMinimum || null : null;
+  const wholesaleShort = Boolean(wholesaleMinimum && !wholesaleMinimum.met);
+  const checkoutBlocked = wholesaleShort || unified.loading || Boolean(unified.error) || !unified.data || unified.data.valid === false
     || !basketItems.length || hasMixedFulfillment || (isUnified && Boolean(appliedCoupon || couponCode));
   useEffect(() => {
     if (groups.length === 1 && groups[0].salesChannel !== 'wholesale' && groups[0].channel !== cartChannel) switchCartChannel?.(groups[0].channel);
   }, [groups[0]?.channel, groups.length, cartChannel, hasWholesale, switchCartChannel]);
 
+  // Starts on COD as before; the Online option shows its lower price and "Save ₹X" next to it.
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => {
     if (isDigitalCart) setPaymentMethod('Online Payment');
@@ -858,6 +863,7 @@ const CheckoutPage = () => {
       {unified.error && <div role="alert" className="wholesale-cart-alert">{unified.error} <button type="button" className="cart-secondary-btn" onClick={unified.reload}>Retry basket check</button></div>}
       {!unified.loading && !unified.error && unified.data && !basketItems.length && <CartEmptyState onBrowse={() => setActiveNav('home')} />}
       {unified.data?.warnings?.map(message => <p role="alert" key={message}>{message}</p>)}
+      <WholesaleMinimumNotice state={wholesaleMinimum} />
 
         
         {/* Address Selection Section */}
@@ -1163,6 +1169,43 @@ const CheckoutPage = () => {
               </div>
             </label>
 
+            {/* Online Payment — listed first and shown as the cheaper choice when COD carries a fee. */}
+            <label className={`checkout-selection checkout-payment${paymentMethod === 'Online Payment' ? ' is-selected' : ''}`}
+              style={{
+                display: 'flex',
+                gap: 12,
+                padding: 12,
+                borderRadius: 10,
+                border: `1.5px solid ${paymentMethod === 'Online Payment' ? 'var(--primary)' : 'var(--border-color)'}`,
+                background: paymentMethod === 'Online Payment' ? 'var(--primary-light)' : '#fff',
+                cursor: 'pointer',
+                alignItems: 'center'
+              }}
+            >
+              <input
+                type="radio"
+                name="payment_method"
+                checked={paymentMethod === 'Online Payment'}
+                onChange={() => setPaymentMethod('Online Payment')}
+                style={{ cursor: 'pointer' }}
+              />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <span style={{ fontSize: 20 }}>💳</span>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Razorpay Online Payment</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, cards and supported payment methods via Razorpay</span>
+                    {!isDigitalCart && summary.codFeeQuote > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Pay ₹{summary.onlineTotal}</span>}
+                  </div>
+                </div>
+                {!isDigitalCart && summary.codFeeQuote > 0 && (
+                  <span className="checkout-online-saving" style={{ fontSize: 11, fontWeight: 800, color: '#15803d', backgroundColor: '#dcfce7', padding: '3px 8px', borderRadius: 12 }}>
+                    Save ₹{summary.codFeeQuote}
+                  </span>
+                )}
+              </div>
+            </label>
+
             {/* Cash on Delivery */}
             <label className={`checkout-selection checkout-payment${paymentMethod === 'Cash on Delivery' ? ' is-selected' : ''}`}
               style={{ 
@@ -1190,41 +1233,13 @@ const CheckoutPage = () => {
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay at your doorstep on delivery</span>
                   {summary.codFeeQuote > 0 && (
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#c2410c', display: 'block' }}>
-                      + ₹{summary.codFeeQuote} {summary.codFeeLabel}{unified.data?.totals?.codFeeOrders > 1 ? ` (${unified.data.totals.codFeeOrders} deliveries)` : ''}
+                      Pay ₹{summary.codTotal} (+ ₹{summary.codFeeQuote} {summary.codFeeLabel})
                     </span>
                   )}
                 </div>
               </div>
             </label>
 
-            {/* Online Payment */}
-            <label className={`checkout-selection checkout-payment${paymentMethod === 'Online Payment' ? ' is-selected' : ''}`}
-              style={{ 
-                display: 'flex', 
-                gap: 12, 
-                padding: 12, 
-                borderRadius: 10, 
-                border: `1.5px solid ${paymentMethod === 'Online Payment' ? 'var(--primary)' : 'var(--border-color)'}`,
-                background: paymentMethod === 'Online Payment' ? 'var(--primary-light)' : '#fff',
-                cursor: 'pointer',
-                alignItems: 'center'
-              }}
-            >
-              <input 
-                type="radio" 
-                name="payment_method"
-                checked={paymentMethod === 'Online Payment'}
-                onChange={() => setPaymentMethod('Online Payment')}
-                style={{ cursor: 'pointer' }}
-              />
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ fontSize: 20 }}>💳</span>
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Razorpay Online Payment</span>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, cards and supported payment methods via Razorpay</span>
-                </div>
-              </div>
-            </label>
           </div>
         </div>
 
@@ -1751,6 +1766,7 @@ const CheckoutPage = () => {
           >
             {isOrdering ? 'Placing order…'
               : cartLoading ? 'Updating…'
+              : wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)`
               : 'Confirm & Place Order'}
           </button>
         </div>

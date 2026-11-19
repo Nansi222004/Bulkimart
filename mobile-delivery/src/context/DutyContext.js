@@ -49,6 +49,7 @@ export function DutyProvider({ children }) {
   const [returnPickups, setReturnPickups] = useState({ pending: [], active: [], history: [] });
   const [returnOffer, setReturnOffer] = useState(null);
   const [parcelOffer, setParcelOffer] = useState(null); // a parcel booking carrying a live `offer`
+  const [activeParcelId, setActiveParcelId] = useState(null); // parcel trip in progress, for live location
   const closedParcelOffers = useRef(new Set());          // offer tokens answered or expired on this phone
   const [summary, setSummary] = useState(null);       // GET /earnings/summary data
   const [summaryError, setSummaryError] = useState('');
@@ -84,6 +85,12 @@ export function DutyProvider({ children }) {
       setActiveLoaded(true);
       return undefined; // offline: keep what is on screen
     }
+  }, [approved]);
+
+  const loadActiveParcel = useCallback(async () => {
+    if (!approved) { setActiveParcelId(null); return; }
+    try { const b = await deliveryApi.getActiveParcel(); setActiveParcelId(b?._id ? String(b._id) : null); }
+    catch { /* offline: keep sharing for the trip we know about */ }
   }, [approved]);
 
   const loadSummary = useCallback(async () => {
@@ -158,13 +165,21 @@ export function DutyProvider({ children }) {
       onRiderEvent('return_pickup_ping', (incoming) => setReturnOffer((curr) => (curr && String(curr.returnId) === String(incoming?.returnId) ? curr : incoming))),
       onRiderEvent('notification_new', (n) => {
         if (['COD_CASH_SETTLED', 'PAYOUT_COMPLETED', 'PAYOUT_REJECTED'].includes(n?.event)) { refreshProfile(); loadSummary(); }
-        if (n?.event === 'PARCEL_OFFER' || n?.event === 'PARCEL_UPDATED') checkParcelOffers();
+        if (n?.event === 'PARCEL_OFFER' || n?.event === 'PARCEL_UPDATED') { checkParcelOffers(); loadActiveParcel(); }
       }),
       onRiderEvent('rider_rating_updated', () => refreshProfile()),
-      onRiderEvent('connect', () => { checkOffers(); checkParcelOffers(); restoreActive(); }),
+      onRiderEvent('connect', () => { checkOffers(); checkParcelOffers(); restoreActive(); loadActiveParcel(); }),
     ];
     return () => offs.forEach((off) => off());
-  }, [approved, token, appActive, restoreActive, refreshProfile, loadSummary, checkOffers, checkParcelOffers]);
+  }, [approved, token, appActive, restoreActive, refreshProfile, loadSummary, checkOffers, checkParcelOffers, loadActiveParcel]);
+
+  // A parcel trip starts or ends from screens and pushes; this poll is the safety net.
+  useEffect(() => {
+    if (!approved || !appActive) return undefined;
+    loadActiveParcel();
+    const t = setInterval(loadActiveParcel, 30000);
+    return () => clearInterval(t);
+  }, [approved, appActive, loadActiveParcel]);
 
   // No live connection in the background; push notifications reach the rider instead.
   useEffect(() => { if (!appActive || !approved) disconnectRiderSocket(); }, [appActive, approved]);
@@ -241,7 +256,8 @@ export function DutyProvider({ children }) {
   // ------------------------------------------------------------ live trip location (forward first, else a return pickup)
   const activeReturn = returnPickups.active.find((r) => ['ASSIGNED', 'PICKED_UP'].includes(r.pickup?.status));
   const tripTarget = activeOrder?.orderId ? { kind: 'order', id: String(activeOrder.orderId) }
-    : activeReturn ? { kind: 'return', id: String(activeReturn._id) } : null;
+    : activeReturn ? { kind: 'return', id: String(activeReturn._id) }
+    : activeParcelId ? { kind: 'parcel', id: activeParcelId } : null;
   const tripKey = tripTarget ? `${tripTarget.kind}:${tripTarget.id}` : null;
 
   useEffect(() => {
@@ -260,6 +276,7 @@ export function DutyProvider({ children }) {
         lastSent = now;
         try {
           if (kind === 'order') await deliveryApi.sendTripLocation(targetId, { lat: point.lat, lng: point.lng, accuracy: point.accuracy, source: 'gps' });
+          else if (kind === 'parcel') await deliveryApi.sendParcelLocation(targetId, { lat: point.lat, lng: point.lng, accuracy: point.accuracy, source: 'gps' });
           else await deliveryApi.sendReturnLocation(targetId, { lat: point.lat, lng: point.lng });
         } catch { /* a dropped ping is not worth interrupting a delivery; the next movement sends a fresh one */ }
       }, (message) => setTripSharing({ on: false, error: message }));

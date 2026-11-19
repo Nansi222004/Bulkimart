@@ -21,7 +21,7 @@ import { Text, TextInput } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
-import { BasketGroups, CartAlert, CartEmptyState, CouponThresholdProgress, PrimaryButton, ProductGstBreakdown, SecondaryButton } from '../components/cart/CartUI';
+import { BasketGroups, CartAlert, CartEmptyState, CouponThresholdProgress, PrimaryButton, ProductGstBreakdown, SecondaryButton, WholesaleMinimumNotice } from '../components/cart/CartUI';
 
 const RECOVERY_CODES = ['CHECKOUT_DATA_CONFLICT', 'CHECKOUT_OUTCOME_UNCERTAIN', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_SAVE_FAILED', 'CHECKOUT_RESULT_UNAVAILABLE'];
 
@@ -64,11 +64,15 @@ export default function CheckoutScreen() {
   const basketCheckout = isUnified && unified.data?.purchaseMode === 'basket';
   const checkoutOperation = basketCheckout ? 'basket' : isUnified ? 'unified' : isDigitalCart ? 'digital' : 'single';
   const canTip = !isDigitalCart && (!hasWholesale || groups.some(group => group.salesChannel === 'retail'));
-  const checkoutBlocked = unified.loading || Boolean(unified.error) || !unified.data || unified.data.valid === false || !basketItems.length || hasMixedFulfillment || (isUnified && Boolean(appliedCoupon || couponCode));
+  // Wholesale (B2B) minimum order value; retail baskets never carry one. The server checks it again.
+  const wholesaleMinimum = isUnified ? unified.data?.totals?.wholesaleMinimum || null : null;
+  const wholesaleShort = Boolean(wholesaleMinimum && !wholesaleMinimum.met);
+  const checkoutBlocked = wholesaleShort || unified.loading || Boolean(unified.error) || !unified.data || unified.data.valid === false || !basketItems.length || hasMixedFulfillment || (isUnified && Boolean(appliedCoupon || couponCode));
   useEffect(() => {
     if (groups.length === 1 && groups[0].salesChannel !== 'wholesale' && groups[0].channel !== cartChannel) switchCartChannel?.(groups[0].channel);
   }, [groups[0]?.channel, groups.length, cartChannel, hasWholesale, switchCartChannel]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Starts on COD as before; the Online option shows its lower price and "Save ₹X" next to it.
   const [paymentMethod, setPaymentMethod] = useState('Cash on Delivery');
   useEffect(() => { if (isDigitalCart) setPaymentMethod('Online Payment'); }, [isDigitalCart]);
   const [isOrdering, setIsOrdering] = useState(false);
@@ -402,6 +406,7 @@ export default function CheckoutScreen() {
         {unified.loading && <View style={[styles.loading, { borderColor: theme.border }]} accessibilityLiveRegion="polite"><ActivityIndicator color={theme.action} /><Text style={{ color: theme.muted }}>Checking your basket and delivery charges…</Text></View>}
         {unified.error ? <CartAlert action={<SecondaryButton title="Retry basket check" onPress={unified.reload} style={{ alignSelf: 'flex-start' }} />}>{unified.error}</CartAlert> : null}
         {unified.data?.warnings?.map(message => <Text key={message} accessibilityRole="alert">{message}</Text>)}
+        <WholesaleMinimumNotice state={wholesaleMinimum} onAddMore={() => setActiveNav('wholesale')} />
 
         {!isDigitalCart ? <Card>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -480,8 +485,11 @@ export default function CheckoutScreen() {
               hidden: isDigitalCart, disabled: walletBalance < grandTotalVal,
               right: walletBalance >= grandTotalVal ? <Text style={[styles.walletPill, { color: '#16a34a', backgroundColor: '#f0fdf4' }]}>✓ Sufficient Balance</Text> : <Text style={[styles.walletPill, { color: '#dc2626', backgroundColor: '#fef2f2' }]}>⚠ Need ₹{(grandTotalVal - walletBalance).toFixed(2)} more</Text>,
             })}
-            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay at your doorstep · + ₹${summary.codFeeQuote} ${summary.codFeeLabel}${unified.data?.totals?.codFeeOrders > 1 ? ` (${unified.data.totals.codFeeOrders} deliveries)` : ''}` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
-            {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', 'UPI, cards and supported payment methods via Razorpay')}
+            {/* Online first, shown as the cheaper choice whenever COD carries a fee. */}
+            {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', !isDigitalCart && summary.codFeeQuote > 0 ? `Pay ₹${summary.onlineTotal} · UPI, cards and more via Razorpay` : 'UPI, cards and supported payment methods via Razorpay', {
+              right: !isDigitalCart && summary.codFeeQuote > 0 ? <Text style={{ fontSize: 11, fontWeight: '800', color: '#15803d', backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' }}>Save ₹{summary.codFeeQuote}</Text> : null,
+            })}
+            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay ₹${summary.codTotal} at your doorstep (+ ₹${summary.codFeeQuote} ${summary.codFeeLabel})` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
           </View>
         </Card>
 
@@ -590,7 +598,7 @@ export default function CheckoutScreen() {
         <Text style={{ fontSize: 11, color: '#94a3b8' }}>Payable Amount ▲</Text>
         <Text style={{ fontSize: 20, fontWeight: '900' }}>₹{grandTotalVal}</Text>
       </Pressable>
-      <PrimaryButton title={isOrdering ? 'Placing order…' : cartLoading ? 'Updating…' : 'Confirm & Place Order'} onPress={handlePlaceOrder} disabled={ctaDisabled} style={{ flex: 1, maxWidth: 340, opacity: ctaDisabled ? 0.5 : 1 }} />
+      <PrimaryButton title={isOrdering ? 'Placing order…' : cartLoading ? 'Updating…' : wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Confirm & Place Order'} onPress={handlePlaceOrder} disabled={ctaDisabled} style={{ flex: 1, maxWidth: 340, opacity: ctaDisabled ? 0.5 : 1 }} />
     </View>
 
     <Modal visible={isOrdering} transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>

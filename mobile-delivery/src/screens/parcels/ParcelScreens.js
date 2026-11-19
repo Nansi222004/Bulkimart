@@ -49,7 +49,7 @@ export function ParcelsScreen({ navigation }) {
           <Card key={b._id} title={shortParcelNumber(b)} right={<StatusPill tone={b.offer ? 'warning' : 'info'} label={b.offer ? 'New request' : parcelStatus(b.status)} />}
             onPress={() => navigation.navigate('ParcelDetail', { id: b._id })}>
             <Text style={type.body}>{b.offer ? `${b.pickupArea} → ${b.dropoffArea}` : `${b.details?.pickup?.pincode || 'Pickup'} → ${b.details?.dropoff?.pincode || 'Delivery'}`}</Text>
-            <Text style={type.label}>{earning != null ? `You earn ${formatPaise(earning)}` : `Delivery fee ${formatPaise(b.feePaise)}`}</Text>
+            <Text style={type.label}>{earning != null ? `You earn ${formatPaise(earning)}` : `Delivery fee ${formatPaise(b.feePaise)}`}{b.offer && b.boostPaise > 0 ? ` · Boosted +${formatPaise(b.boostPaise)}` : ''}</Text>
             {b.offer?.expiresAt ? <Text style={type.small}>Reply by {formatTime(b.offer.expiresAt)}</Text> : null}
           </Card>
         );

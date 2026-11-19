@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import Screen from '../../components/Screen';
@@ -7,6 +7,8 @@ import { InlineNotice } from '../../components/StateViews';
 import { useAuth } from '../../context/AuthContext';
 import { useDuty } from '../../context/DutyContext';
 import ActiveDeliveryView from '../active/ActiveDeliveryView';
+import * as deliveryApi from '../../services/delivery.api';
+import WalletCard from '../../components/WalletCard';
 import { formatRupees } from '../../utils/money';
 import { formatTime, ratingSummary } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
@@ -21,12 +23,17 @@ export default function DutyScreen({ navigation }) {
   const { profile, refreshProfile } = useAuth();
   const duty = useDuty();
   const [refreshing, setRefreshing] = useState(false);
+  // Go To (destination) mode status for the home card; reloaded whenever Home comes back into view.
+  const [goTo, setGoTo] = useState(null);
+  const loadGoTo = useCallback(() => { deliveryApi.getGoTo().then(setGoTo).catch(() => {}); }, []);
+  useEffect(() => { loadGoTo(); const t = setInterval(loadGoTo, 60000); const off = navigation.addListener('focus', loadGoTo); return () => { clearInterval(t); off(); }; }, [navigation, loadGoTo]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.allSettled([refreshProfile(), duty.restoreActive(), duty.loadSummary(), duty.loadReturnPickups()]);
+    loadGoTo();
     setRefreshing(false);
-  }, [refreshProfile, duty]);
+  }, [refreshProfile, duty, loadGoTo]);
 
   if (duty.activeOrder) return <ActiveDeliveryView navigation={navigation} />;
 
@@ -75,6 +82,15 @@ export default function DutyScreen({ navigation }) {
         </View>
       ) : null}
 
+      {goTo?.enabled || goTo?.active ? (
+        <Card title={goTo.active ? '🧭 Go To is on' : '🧭 Go To'} onPress={() => navigation.navigate('GoTo')}
+          style={goTo.active ? styles.goToActive : undefined}
+          right={goTo.active ? <Text style={styles.badge}>ON</Text> : <Text style={type.small}>{goTo.remainingToday}/{goTo.dailyLimit} left</Text>}>
+          <Text style={type.body}>{goTo.active ? `Going to ${goTo.active.destination.address || 'your destination'}. Only orders on your way will come.` : 'Heading home? Set a destination and get only orders on your way.'}</Text>
+          <Text style={styles.link}>{goTo.active ? 'Manage Go To ›' : 'Set destination ›'}</Text>
+        </Card>
+      ) : null}
+
       <View style={styles.kpis}>
         <Card style={styles.kpi}>
           <Text style={type.small}>Today’s earnings</Text>
@@ -87,6 +103,8 @@ export default function DutyScreen({ navigation }) {
           <Text style={type.small}>{lifetimeTrips} delivered all time</Text>
         </Card>
       </View>
+
+      <WalletCard navigation={navigation} compact />
 
       <Card title="Cash to hand over" onPress={() => navigation.navigate('Cash')} right={<Text style={[styles.badge, duty.codBlocked && styles.badgeBlocked]}>{duty.codBlocked ? 'BLOCKED' : 'ACTIVE'}</Text>}>
         <Text style={styles.cash}>{formatRupees(duty.codOutstanding)}</Text>
@@ -134,6 +152,7 @@ const styles = StyleSheet.create({
   dutyTitle: { fontSize: 20, fontWeight: '800', color: colors.text },
   onlineText: { color: '#166534' },
   kpis: { flexDirection: 'row', gap: spacing.md },
+  goToActive: { borderWidth: 2, borderColor: colors.success, backgroundColor: colors.successLight },
   kpi: { flex: 1 },
   kpiValue: { fontSize: 24, fontWeight: '800', color: colors.deepBlue },
   cash: { fontSize: 30, fontWeight: '800', color: colors.orangeDark },

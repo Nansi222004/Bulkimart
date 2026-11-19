@@ -54,6 +54,7 @@ import { WALLET_TRANSACTION_TYPE, WALLET_REFERENCE_TYPE } from '../models/Wallet
 import { buildReturnPolicySnapshotsFor } from '../services/returnPolicy.service.js';
 import { easyReturnOrderFields, priceWithReturnOption, resolveReturnOption } from '../services/easyReturns.service.js';
 import { calculateCodFee, loadCodChargeSetting } from '../services/codCharge.service.js';
+import { assertWholesaleMinimum, loadWholesaleSetting } from '../services/wholesaleMinimum.service.js';
 import { applyProductReturnSettings } from '../services/productReturns.service.js';
 import {
   ORDER_STATUS,
@@ -70,6 +71,7 @@ import { buildFulfilmentGroups } from '../services/fulfilmentGroups.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { mutateInventory, resolveInventoryItem } from '../services/inventory.service.js';
 import { orderHistoryPaymentStages } from '../services/orderPaymentEligibility.service.js';
+import { moveCodFeeFromCancelledOrder } from '../services/codFeeTransfer.service.js';
 import {
   createOrdersFromGroups,
   validateGroupsStock,
@@ -209,6 +211,17 @@ const claimCancellation = async (order, reason, session, extraSet = {}) => {
     { session }
   );
   if (result.modifiedCount !== 1) throw httpError(409, 'This order has already changed and cannot be cancelled again');
+};
+
+/** Tells the customer the checkout's COD fee now sits on another of their orders (codFeeTransfer.service.js). */
+const notifyCodFeeMoved = (cancelled, movedTo) => {
+  notifyUser(cancelled.userId, {
+    event: NOTIFICATION_EVENT.ORDER_CANCELLED,
+    title: 'COD handling fee moved',
+    message: `Order ${cancelled.orderNo} was cancelled. The ₹${movedTo.amount} COD handling fee for your checkout (charged once) is now on order ${movedTo.orderNo}.`,
+    metadata: { orderId: movedTo.orderId },
+    route: '/orders',
+  }).catch((e) => console.error('[NOTIFICATION] notifyUser (COD fee moved) failed:', e.message));
 };
 
 /**
@@ -869,6 +882,8 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
   if (purchaseMode === 'wholesale' && req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale prices or delivery charges changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
   if (purchaseMode === 'basket' && (req.body.basketHash !== composed.basketHash || req.body.quoteHash !== composed.quoteHash)) throw httpError(409, 'Basket prices, quantities or delivery changed. Refresh and review your cart.', { code: 'BASKET_QUOTE_CHANGED' });
   if (!groups.length) throw httpError(400, 'Your cart is empty');
+  // Wholesale (B2B) minimum order value, products only; retail checkout never has one.
+  if (purchaseMode !== 'retail') assertWholesaleMinimum(groups, await loadWholesaleSetting(), purchaseMode);
 
   // Regular e-commerce carriers are selected after seller acceptance. Explicit
   // Same-Day promises are still checked below and must never be downgraded.
@@ -914,6 +929,7 @@ export const createUnifiedOrder = asyncHandler(async (req, res) => {
         if (purchaseMode === 'basket' && (req.body.basketHash !== composed.basketHash || req.body.quoteHash !== composed.quoteHash)) throw httpError(409, 'Basket changed. Refresh and review your cart.', { code: 'BASKET_QUOTE_CHANGED' });
         if (purchaseMode === 'wholesale' && req.body.quoteHash !== wholesaleQuoteHash(composed)) throw httpError(409, 'Wholesale terms changed. Refresh and review your cart.', { code: 'WHOLESALE_QUOTE_CHANGED' });
         validateGroupsStock(groups);
+        assertWholesaleMinimum(groups, await loadWholesaleSetting(session), purchaseMode);
         const customer = await User.updateOne({ _id: req.user._id, isActive: true, roles: 'buyer' }, { $inc: { __v: 1 } }, { session });
         if (!customer.matchedCount) throw httpError(403, 'Customer account is unavailable');
       }
@@ -1237,6 +1253,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   }
 
   let convertedExchange = null;
+  let codFeeMovedTo = null;
   const session = await mongoose.startSession();
   // Free text from the client: text only, trimmed and bounded before it is stored on the order and shown to sellers.
   const cancelReason = (typeof req.body?.reason === 'string' && req.body.reason.trim().slice(0, 500)) || 'Cancelled by customer';
@@ -1320,12 +1337,15 @@ export const cancelOrder = asyncHandler(async (req, res) => {
           }
         }
       }
+      // The checkout's one COD fee rode on this order: hand it to a sibling still on its way.
+      codFeeMovedTo = await moveCodFeeFromCancelledOrder(order._id, session);
     });
   } finally {
     await session.endSession();
   }
 
   order.status = ORDER_STATUS.CANCELLED;
+  if (codFeeMovedTo) notifyCodFeeMoved(order, codFeeMovedTo);
   if (convertedExchange) notifyConversion(convertedExchange, 'the replacement order was cancelled');
   // The shop may already have confirmed or started preparing this order.
   notifySellersOfCancellation(order, cancelReason).catch((e) => console.error('[NOTIFICATION] seller cancel notice failed:', e.message));
@@ -1376,6 +1396,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
   }
 
   let convertedExchange = null;
+  let codFeeMovedTo = null;
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
@@ -1441,6 +1462,8 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
           }
         }
       }
+      // The checkout's one COD fee rode on this order: hand it to a sibling still on its way.
+      codFeeMovedTo = await moveCodFeeFromCancelledOrder(order._id, session);
     });
   } catch (err) {
     console.error('Failed to cancel order:', err);
@@ -1449,6 +1472,7 @@ export const cancelOrderAndRestore = async (orderId, { reason, allowedFrom, canc
     await session.endSession();
   }
   order.status = ORDER_STATUS.CANCELLED;
+  if (codFeeMovedTo) notifyCodFeeMoved(order, codFeeMovedTo);
   if (convertedExchange) notifyConversion(convertedExchange, 'the replacement order was cancelled');
 
   // Outside the transaction: a failed notification must not undo a real cancel.

@@ -12,6 +12,8 @@ export const SELLER_LEDGER_TYPES = [
   'commission_tax', 'delivery_earning', 'cod_cash', 'customer_delivery', 'customer_cod_fee', 'cod_fee_tax', 'merchandise_gross',
   'tcs_deduction', 'tds_deduction', 'platform_discount', 'cod_shortage_writeoff',
   'same_day_incentive', 'courier_cost',
+  // Rider wallet (COD parcels): earning kept from cash, cash owed to Bulkimart, and the rider's payments of it.
+  'parcel_earning', 'parcel_cash_due', 'rider_cash_payment',
 ];
 // Quick Shiprocket charges a seller prepays. They are a seller obligation with
 // its own payment, never part of the seller's earnings buckets.

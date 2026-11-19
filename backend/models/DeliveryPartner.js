@@ -93,6 +93,22 @@ const deliveryPartnerSchema = new Schema(
       lng:       Number,
       updatedAt: Date,
     },
+    /**
+     * "Go To" (destination) mode: while `expiresAt` is in the future the rider
+     * receives only orders along `path` (the route to `destination`, as
+     * [lat, lng] points). `bbox` lets dispatch find riders whose route passes a
+     * pickup. See services/goTo.service.js.
+     */
+    goTo: {
+      destination: { lat: Number, lng: Number, address: String },
+      path:        { type: [[Number]], default: undefined },
+      routeKm:     Number,
+      bbox:        { minLat: Number, maxLat: Number, minLng: Number, maxLng: Number },
+      startedAt:   Date,
+      expiresAt:   Date,
+    },
+    // Go To starts on `day` (YYYY-MM-DD, India time), for the admin's daily limit.
+    goToUsage: { day: String, count: { type: Number, default: 0 } },
 
     /**
      * Approval status.

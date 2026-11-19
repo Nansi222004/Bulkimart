@@ -100,6 +100,7 @@ export default function ParcelOfferPopup({ enabled, onAccepted }) {
           <div className="ping-payout-box">
             <span className="payout-label">YOU EARN</span>
             <span className="payout-val">{money(earning)}</span>
+            {booking.boostPaise > 0 && <span className="parcel-boost-badge">Boosted +{money(booking.boostPaise)}</span>}
           </div>
         )}
         <div className="ping-details-grid">

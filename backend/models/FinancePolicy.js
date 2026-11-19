@@ -15,6 +15,8 @@ const values = {
   tdsRatePercent: { type: Number, min: 0, max: 5, default: 0 },
   sellerMinPayout: { type: Number, min: 0, default: 0 },
   riderMinPayout: { type: Number, min: 0 },
+  // Most a rider may owe Bulkimart from COD parcels (₹). At this debt they get no new cash parcels.
+  riderParcelDebtLimit: { type: Number, min: 0 },
   payoutSchedule: { type: String, enum: ['on_request', 'weekly'], default: 'on_request' },
   payoutWeekday: { type: Number, min: 0, max: 6, default: 1 },
   requireIndependentPayoutReviewer: { type: Boolean, default: true },

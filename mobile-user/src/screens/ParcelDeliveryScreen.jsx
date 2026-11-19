@@ -17,7 +17,7 @@ import { CustomerPage } from '../components/Shell';
 import { Spinner, Text, TextInput } from '../components/ui';
 import { newIdempotencyKey } from '../components/services/ServicePayment';
 import { parcelBookingEnabled, parcelBookingReady } from '../components/services/ServiceEntries';
-import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard } from '../components/parcels/ParcelUI';
+import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard, latestRiderPoint } from '../components/parcels/ParcelUI';
 import { bookAgainDraft, parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from '../components/parcels/parcelLogic';
 import { session } from '../lib/storage';
 import { runRefresh, useRefreshHandler } from '../lib/refresh';
@@ -105,6 +105,16 @@ function ParcelDelivery() {
     const timer = setInterval(update, 10000);
     return () => { clearInterval(timer); socket.off('notification_new', notification); socket.off('connect', update); appState.remove(); offOnline(); };
   }, [track, history]);
+
+  // The rider's live position, pushed by the server as the rider moves (between the 10 s refreshes).
+  const [riderLive, setRiderLive] = useState(null);
+  useEffect(() => {
+    setRiderLive(null);
+    if (!track) return undefined;
+    const move = p => { if (String(p?.parcelDeliveryId) === String(track) && Number.isFinite(p.lat) && Number.isFinite(p.lng)) setRiderLive({ lat: p.lat, lng: p.lng, updatedAt: p.at }); };
+    socket.on('parcel_location_update', move);
+    return () => socket.off('parcel_location_update', move);
+  }, [track]);
 
   useEffect(() => {
     const c = new AbortController();
@@ -246,7 +256,7 @@ function ParcelDelivery() {
           <Text style={{ fontSize: 16, fontWeight: '800', flex: 1 }} numberOfLines={1}>Trip {booking.reference}</Text>
           <PBtn variant="outline" accessibilityLabel="Share trip" onPress={() => shareTrip(booking)} style={{ minHeight: 36, paddingVertical: 6, borderColor: theme.action }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Share2 size={16} color={theme.action} /><Text style={{ color: theme.action, fontWeight: '700' }}>Share</Text></View></PBtn>
         </View>
-        <ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route} />
+        <ParcelMap pickup={booking.details.pickup} dropoff={booking.details.dropoff} route={booking.route} rider={booking.partner?.phone ? latestRiderPoint(riderLive, booking.partner.location) : null} />
         <ParcelCustomerStatus booking={booking} justBooked={justBooked === track} onWallet={() => router.push('/account?section=wallet')} />
         {booking.paymentMethod === 'online' && ['payment_pending', 'payment_failed'].includes(booking.status) && <PCard>
           <Text style={{ marginBottom: 8 }}>{busy ? 'Opening secure Razorpay checkout…' : 'Complete your payment securely with Razorpay.'}</Text>

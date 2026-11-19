@@ -222,11 +222,37 @@ export function AppliedCoupon({ code, detail, onRemove }) {
   </View>;
 }
 
+const rupeesIN = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+/**
+ * Wholesale minimum order value (server: services/wholesaleMinimum.service.js). Shown on the
+ * cart and at checkout while a basket has Wholesale items; retail baskets never get one.
+ * `state` is totals.wholesaleMinimum from the basket quote (null = nothing to show).
+ */
+export function WholesaleMinimumNotice({ state, onAddMore }) {
+  if (!state) return null;
+  const short = !state.met;
+  return <View accessibilityRole={short ? 'alert' : 'text'} style={[styles.minimum, short ? styles.minimumShort : styles.minimumMet]}>
+    <Text style={{ fontSize: 13.5, fontWeight: '800', color: short ? '#92400e' : '#166534' }}>
+      {short ? `Wholesale minimum order is ${rupeesIN(state.minimumOrderValue)}. Add ${rupeesIN(state.remainingAmount)} more to place your order.` : `Wholesale minimum of ${rupeesIN(state.minimumOrderValue)} reached.`}
+    </Text>
+    <View style={[styles.minimumTrack, { backgroundColor: short ? '#fde68a' : '#bbf7d0' }]}>
+      <View style={{ width: `${state.progressPercentage}%`, height: '100%', backgroundColor: short ? '#d97706' : '#16a34a' }} />
+    </View>
+    <Text style={{ fontSize: 12, color: short ? '#92400e' : '#166534' }}>Wholesale products in your cart: {rupeesIN(state.wholesaleProductsTotal)}. Delivery and COD fee are not counted. Retail items have no minimum.</Text>
+    {short && onAddMore ? <Pressable onPress={onAddMore} accessibilityRole="button" style={{ minHeight: 40, justifyContent: 'center' }}><Text style={{ fontSize: 13, fontWeight: '800', color: '#92400e', textDecorationLine: 'underline' }}>Add more Wholesale items</Text></Pressable> : null}
+  </View>;
+}
+
 export function CartAlert({ children, action }) {
   return <View style={styles.alert} accessibilityRole="alert"><Text style={{ color: '#92400e', fontSize: 13 }}>{children}</Text>{action}</View>;
 }
 
 const styles = StyleSheet.create({
+  minimum: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 8, marginBottom: 12 },
+  minimumShort: { borderColor: '#fcd34d', backgroundColor: '#fffbeb' },
+  minimumMet: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
+  minimumTrack: { height: 6, borderRadius: 6, overflow: 'hidden' },
   gstNote: { fontSize: 12, color: '#64748b', marginVertical: 4 },
   section: { padding: 18, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff', elevation: 1, shadowColor: '#0b2d6b', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   compactSection: { borderWidth: 0, borderRadius: 0, elevation: 0, padding: 16 },

@@ -1,4 +1,4 @@
-import { calculateCodFee, loadCodChargeSetting } from './codCharge.service.js';
+import { checkoutCodFees, loadCodChargeSetting } from './codCharge.service.js';
 import crypto from 'crypto';
 import { sumMoney } from '../utils/money.js';
 import Cart from '../models/Cart.js';
@@ -168,13 +168,13 @@ export const createOrdersFromGroups = async ({
 }) => {
   if (!groups?.length) throw httpError(400, 'There is nothing in your basket to order');
   /**
-   * COD handling fee, per order, from the live admin setting — never a client figure or a
-   * cached preview. Online payment never carries it. Computed once here and reused for
-   * both the payment amount and each order, so it is included exactly once.
+   * COD handling fee, once per checkout, from the live admin setting — never a client figure
+   * or a cached preview. Online payment never carries it. It is priced on all physical
+   * deliveries together and kept on the first one (like the tip), and reused for both the
+   * payment amount and that order, so it is included exactly once.
    */
   const codSetting = paymentMethod === PAYMENT_METHOD.COD ? await loadCodChargeSetting(session) : null;
-  const codFeeOf = (group) => (codSetting && group.fulfillmentType !== 'digital' ? calculateCodFee(group.total, codSetting) : null);
-  const codFees = groups.map(codFeeOf);
+  const codFees = codSetting ? checkoutCodFees(groups, codSetting) : groups.map(() => null);
   // Reject before any inventory mutation, including basket-level tips.
   const payable = sumMoney(...groups.map(group => group.total), ...codFees.map(fee => fee?.codFeeTotal || 0), Math.max(0, Math.round(Number(tip) || 0)));
 

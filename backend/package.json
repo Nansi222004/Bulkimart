@@ -12,7 +12,7 @@
     "test:image-search": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/image-search.test.js",
     "image-search:index": "node scripts/imageSearchIndex.mjs",
     "test:rider-service-area": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/rider-service-area.test.js",
-    "test:parcel": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/parcel-delivery.test.js verification/parcel-routing.test.js verification/parcel-shopping-capacity.test.js",
+    "test:parcel": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/parcel-delivery.test.js verification/parcel-boost.test.js verification/go-to.test.js verification/parcel-routing.test.js verification/parcel-shopping-capacity.test.js",
     "test:reports": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/admin-reports.test.js",
     "test:storefront": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/storefront.test.js",
     "test:financial-workflow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/financial-workflow.test.js",
@@ -44,7 +44,8 @@
     "accounts:verify-cleanup": "node scripts/verifyAccountCleanup.mjs",
     "accounts:repair-references": "node scripts/repairCleanupReferences.mjs",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config __tests__/jest.config.js",
-    "test:shiprocket-fees": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/quick-shiprocket-fee.test.js"
+    "test:shiprocket-fees": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/quick-shiprocket-fee.test.js",
+    "test:cart-recovery": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config verification/jest.config.js --runInBand --runTestsByPath verification/cart-recovery.test.js"
   },
   "keywords": [],
   "author": "",

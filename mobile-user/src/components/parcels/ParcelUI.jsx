@@ -93,18 +93,25 @@ function CodeBox({ label, code, hint }) {
   </View>;
 }
 
-export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
+// The newer of two rider positions (a live socket push or the last refresh).
+export const latestRiderPoint = (a, b) => [a, b].filter(validParcelLocation).sort((x, y) => new Date(y.updatedAt || 0) - new Date(x.updatedAt || 0))[0] || null;
+
+export function ParcelMap({ pickup, dropoff, route, editable, onPinChange, rider }) {
   const { BLUE } = useParcelColors();
   const map = useRef(null);
   const [ready, setReady] = useState(false);
   const points = [['pickup', pickup, 'P'], ['dropoff', dropoff, 'D']].filter(([, p]) => validParcelLocation(p)).map(([kind, p, label]) => ({ kind, label, coordinate: { latitude: Number(p.lat), longitude: Number(p.lng) } }));
   const line = decodePolyline(route?.polyline);
-  const signature = points.map(p => `${p.coordinate.latitude},${p.coordinate.longitude}`).join('|');
+  const hasRider = validParcelLocation(rider);
+  const riderCoordinate = hasRider ? { latitude: Number(rider.lat), longitude: Number(rider.lng) } : null;
+  // The view refits when the rider first appears, not on every move, so the customer can pan and zoom.
+  const signature = points.map(p => `${p.coordinate.latitude},${p.coordinate.longitude}`).join('|') + (hasRider ? '|rider' : '');
+  const framed = hasRider ? [...points, { coordinate: riderCoordinate }] : points;
   // The view is computed from the pins themselves (centre + span with a margin). fitToCoordinates depended on the
   // map's measured size, and inside a ScrollView it could run before layout and zoom in so far that both pins
   // were off-screen on the tracking page.
-  const region = points.length ? (() => {
-    const lats = points.map(p => p.coordinate.latitude), lngs = points.map(p => p.coordinate.longitude);
+  const region = framed.length ? (() => {
+    const lats = framed.map(p => p.coordinate.latitude), lngs = framed.map(p => p.coordinate.longitude);
     const span = (a, b) => Math.max(0.008, (b - a) * 1.8);
     return { latitude: (Math.min(...lats) + Math.max(...lats)) / 2, longitude: (Math.min(...lngs) + Math.max(...lngs)) / 2,
       latitudeDelta: span(Math.min(...lats), Math.max(...lats)), longitudeDelta: span(Math.min(...lngs), Math.max(...lngs)) };
@@ -132,7 +139,11 @@ export function ParcelMap({ pickup, dropoff, route, editable, onPinChange }) {
       {points.map(p => <Marker key={p.kind} coordinate={p.coordinate} title={p.kind === 'pickup' ? 'Pickup location' : 'Drop location'} description={p.label}
         draggable={editable === p.kind} onDragEnd={editable === p.kind ? pin : undefined} pinColor={p.kind === 'pickup' ? '#087c9f' : '#dc2626'} />)}
       {line.length > 1 && <Polyline coordinates={line} strokeColor={BLUE} strokeWidth={5} />}
+      {riderCoordinate && <Marker coordinate={riderCoordinate} title="Your delivery partner" anchor={{ x: 0.5, y: 0.5 }} zIndex={999} tracksViewChanges={false}>
+        <View style={styles.riderPin}><Text style={{ fontSize: 16 }}>🛵</Text></View>
+      </Marker>}
     </MapView>
+    {hasRider && <Text style={styles.mapMessage}>🟢 Your delivery partner{rider.updatedAt ? ` · updated ${new Date(rider.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}</Text>}
     {!ready ? <Text style={styles.mapMessage}>Loading map…</Text> : editable ? <Text style={styles.mapMessage}>Tap the map or drag the {editable === 'pickup' ? 'pickup' : 'drop'} pin, then confirm the location.</Text> : null}
   </View>;
 }
@@ -814,6 +825,7 @@ const styles = StyleSheet.create({
   locCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#d5e5eb', borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18 },
   fieldset: { borderWidth: 1, borderColor: '#dae4ed', borderRadius: 12, padding: 16, marginVertical: 8, backgroundColor: '#fff' },
   mapWrap: { overflow: 'hidden', borderWidth: 1, borderColor: '#d5e5eb', borderRadius: 18, backgroundColor: '#eef6f8', marginVertical: 16 },
+  riderPin: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#ffffff', borderWidth: 3, borderColor: '#16a34a', alignItems: 'center', justifyContent: 'center' },
   mapMessage: { paddingVertical: 12, paddingHorizontal: 16, backgroundColor: '#f3fafc', fontSize: 13, lineHeight: 19.5 },
   suggestList: { marginTop: 6, borderWidth: 1, borderColor: LINE, borderRadius: 10, backgroundColor: '#fff', overflow: 'hidden' },
   suggestRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12 },
