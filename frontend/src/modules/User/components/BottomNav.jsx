@@ -1,6 +1,7 @@
 import React from 'react';
 import { useUser } from '../context/UserContext';
 import useTypingFocus from '../../../hooks/useTypingFocus';
+import { SERVICES_TAB_EVENT } from '../../../components/services/ServicesHub';
 
 const ICONS = {
   home: (color, active) => (
@@ -18,7 +19,7 @@ const ICONS = {
     </svg>
   ),
   // Same truck icon as the customer app's Parcel tab (mobile-user/src/components/icons.jsx TruckIcon).
-  'parcel-delivery': (color) => (
+  services: (color) => (
     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="1" y="3" width="15" height="13" />
       <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
@@ -47,9 +48,9 @@ const BottomNav = () => {
   const items = [
     { id: 'home', label: 'Home' },
     { id: 'categories', label: 'Categories' },
-    // Send a Parcel (New booking / Delivery history), as in the customer app's tab bar.
-    // Legal & business services stay on the Home "Services" quick action.
-    { id: 'parcel-delivery', label: 'Parcel' },
+    // The Services page with its Parcel toggle selected, as in the customer app's tab bar.
+    // The Home "Services" quick action opens the same page on Legal Services (/services?tab=legal).
+    { id: 'services', label: 'Parcel' },
     { id: 'orders', label: 'Orders' },
     { id: 'account', label: 'Profile' },
   ];
@@ -59,10 +60,16 @@ const BottomNav = () => {
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
-        const active = activeNav === item.id;
+        // Stays highlighted inside the Services page and the parcel / legal screens it opens.
+        const active = activeNav === item.id || (item.id === 'services' && ['legal-services', 'parcel-delivery'].includes(activeNav));
+        const open = () => {
+          // Already on Services (perhaps on Legal Services): switch the toggle back to Parcel.
+          if (item.id === 'services' && window.location.pathname === '/services') window.dispatchEvent(new CustomEvent(SERVICES_TAB_EVENT, { detail: 'parcel' }));
+          setActiveNav(item.id);
+        };
         const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
-          <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>
+          <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={open} aria-current={active ? 'page' : undefined}>
             <span className="nav-icon-container">
               {ICONS[item.id](color, active)}
             </span>

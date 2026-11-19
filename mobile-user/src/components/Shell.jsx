@@ -5,7 +5,7 @@
 // - CustomerPage: status bar + safe areas + bottom nav, and the sign-in gate for account-only pages
 //   (web LandingPage `protectedNavItems` → AuthPage; CustomerSessionGate "Verifying your session…").
 import React, { useEffect, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import { DeviceEventEmitter, Keyboard, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useUser } from '../context/UserContext';
@@ -19,6 +19,8 @@ import AuthPage from '../screens/AuthPage';
 import ErrorBoundary from './ErrorBoundary';
 
 export const BOTTOM_NAV_HEIGHT = 64;
+// Sent by the bottom bar's Parcel tab; the Services page (services/ServicesHub.jsx) selects that toggle.
+export const SERVICES_TAB_EVENT = 'bulkimart:services-tab';
 
 export function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);
@@ -43,9 +45,9 @@ export function isDark(hex) {
 const NAV = [
   { id: 'home', label: 'Home', Icon: HomeIcon },
   { id: 'categories', label: 'Categories', Icon: GridIcon },
-  // Opens Send a Parcel, with its New booking / Delivery history toggle (app/parcel-delivery.jsx).
-  // Legal & business services stay on the Home "Services" tile (app/services.jsx).
-  { id: 'parcel-delivery', label: 'Parcel', Icon: TruckIcon },
+  // The Services page with its Parcel toggle selected (app/services.jsx).
+  // The Home "Services" tile opens the same page on Legal Services (services?tab=legal).
+  { id: 'services', label: 'Parcel', Icon: TruckIcon },
   { id: 'orders', label: 'Orders', Icon: OrdersIcon },
   { id: 'account', label: 'Profile', Icon: UserIcon },
 ];
@@ -58,9 +60,12 @@ export function BottomNav() {
   if (typing) return null;
   return <View style={[styles.bottomNav, { backgroundColor: theme.navSurface, borderTopColor: theme.border, paddingBottom: 10 + insets.bottom }]} accessibilityRole="tablist" accessibilityLabel="Customer navigation">
     {NAV.map(({ id, label, Icon }) => {
-      const active = activeNav === id;
+      // Stays highlighted inside the Services page and the parcel / legal screens it opens.
+      const active = activeNav === id || (id === 'services' && ['legal-services', 'parcel-delivery'].includes(activeNav));
+      // An open Services page (perhaps on Legal Services) switches its toggle back to Parcel.
+      const open = () => { if (id === 'services') DeviceEventEmitter.emit(SERVICES_TAB_EVENT, 'parcel'); setActiveNav(id); };
       const color = active ? theme.navActive : theme.navText;
-      return <Pressable key={id} onPress={() => setActiveNav(id)} style={styles.navItem} accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label}>
+      return <Pressable key={id} onPress={open} style={styles.navItem} accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label}>
         <View style={[styles.navIcon, active && { backgroundColor: alpha(theme.navActive, 0.09) }]}><Icon size={23} color={color} filled={active} /></View>
         <Text style={[styles.navLabel, { color, fontWeight: active ? '800' : '600' }]}>{label}</Text>
       </Pressable>;

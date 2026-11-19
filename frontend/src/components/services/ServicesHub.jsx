@@ -26,6 +26,9 @@ export const SERVICE_TABS = [
   ['legal', 'Legal Services', Scale, 'Expert paperwork | Prices include GST'],
 ];
 
+// The bottom bar's Parcel tab sends this (detail: 'parcel') when the Services page is already open.
+export const SERVICES_TAB_EVENT = 'bulkimart:services-tab';
+
 export default function ServicesHub() {
   // /services?tab=legal (the home page's Services tile) opens with Legal Services selected.
   const [tab, setTabState] = useState(() => new URLSearchParams(window.location.search).get('tab') === 'legal' ? 'legal' : 'parcel');
@@ -36,6 +39,12 @@ export default function ServicesHub() {
     const query = params.toString();
     window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : ''));
   };
+  useEffect(() => {
+    const onTab = (event) => { if (event.detail === 'parcel' || event.detail === 'legal') setTab(event.detail); };
+    window.addEventListener(SERVICES_TAB_EVENT, onTab);
+    return () => window.removeEventListener(SERVICES_TAB_EVENT, onTab);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return <section className="services-hub" aria-label="Services">
     <header className="services-hub-head">
       {/* Quick links to the customer's own history: legal requests and parcel deliveries. */}

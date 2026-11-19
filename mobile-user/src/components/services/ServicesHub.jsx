@@ -1,7 +1,7 @@
 // The Services tab: a Parcel | Legal Services toggle at the top and the selected service below.
 // Every colour comes from the admin's storefront theme (useAppTheme), never a fixed palette.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { DeviceEventEmitter, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ChevronRight, ClipboardList, History, MapPin, Package, Scale, Search } from 'lucide-react-native';
 import { blend, rupees, serviceIcon } from './serviceUi';
@@ -14,6 +14,7 @@ import { ParcelVehicleIcon } from '../parcels/ParcelUI';
 import { parcelCustomerStatus, parcelMoney, parcelRequest } from '../parcels/parcelLogic';
 import { parcelBookingEnabled } from './ServiceEntries';
 import { useLegalApi } from './LegalServices';
+import { SERVICES_TAB_EVENT } from '../Shell';
 
 const ID = /^[a-f\d]{24}$/i;
 const ACTIVE = ['payment_pending', 'searching_for_driver', 'needs_admin_assignment', 'driver_assigned', 'driver_arriving', 'arrived_at_pickup', 'picked_up', 'in_transit', 'arrived_at_dropoff'];
@@ -38,6 +39,11 @@ export default function ServicesHub({ initialTab }) {
   // /services?tab=legal (the home Services tile) opens with Legal Services selected.
   const [tab, setTab] = useState(initialTab === 'legal' ? 'legal' : 'parcel');
   useEffect(() => { if (initialTab === 'legal' || initialTab === 'parcel') setTab(initialTab); }, [initialTab]);
+  // The bottom bar's Parcel tab, pressed while this page is already open.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(SERVICES_TAB_EVENT, next => { if (next === 'legal' || next === 'parcel') setTab(next); });
+    return () => sub.remove();
+  }, []);
   // Shortcuts to the customer's own history; guests are sent to sign in first.
   const openMine = path => router.push(currentUser && getToken() ? path : '/account');
   const [revision, reload] = useState(0);
