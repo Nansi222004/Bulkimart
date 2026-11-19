@@ -17,12 +17,13 @@ const ICONS = {
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
-  // Same briefcase icon as the customer app's Services tab (mobile-user/src/components/icons.jsx).
-  services: (color) => (
+  // Same truck icon as the customer app's Parcel tab (mobile-user/src/components/icons.jsx TruckIcon).
+  'parcel-delivery': (color) => (
     <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="7" width="20" height="14" rx="2" />
-      <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-      <path d="M2 13h20" />
+      <rect x="1" y="3" width="15" height="13" />
+      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+      <circle cx="5.5" cy="18.5" r="2.5" />
+      <circle cx="18.5" cy="18.5" r="2.5" />
     </svg>
   ),
   orders: (color) => (
@@ -46,8 +47,9 @@ const BottomNav = () => {
   const items = [
     { id: 'home', label: 'Home' },
     { id: 'categories', label: 'Categories' },
-    // Services hub (Send a Parcel, then legal services), in the same place as the customer app's tab bar.
-    { id: 'services', label: 'Services' },
+    // Send a Parcel (New booking / Delivery history), as in the customer app's tab bar.
+    // Legal & business services stay on the Home "Services" quick action.
+    { id: 'parcel-delivery', label: 'Parcel' },
     { id: 'orders', label: 'Orders' },
     { id: 'account', label: 'Profile' },
   ];
@@ -57,8 +59,7 @@ const BottomNav = () => {
   return (
     <nav className="bottom-nav-bar" aria-label="Customer navigation">
       {items.map((item) => {
-        // Like the app, the Services tab stays highlighted inside Send a Parcel and Legal Services.
-        const active = activeNav === item.id || (item.id === 'services' && ['legal-services', 'parcel-delivery'].includes(activeNav));
+        const active = activeNav === item.id;
         const color = active ? 'var(--nav-active-color, var(--primary))' : 'var(--nav-inactive-color, var(--text-secondary))';
         return (
           <button key={item.id} type="button" className={`nav-item ${active ? 'active' : ''}`} onClick={() => setActiveNav(item.id)} aria-current={active ? 'page' : undefined}>

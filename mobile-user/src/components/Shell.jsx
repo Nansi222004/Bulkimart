@@ -14,7 +14,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { alpha } from '../theme';
 import { socket } from '../lib/socket';
 import { Text, Button } from './ui';
-import { ChevronRight, GridIcon, HomeIcon, OrdersIcon, ServicesIcon, UserIcon } from './icons';
+import { ChevronRight, GridIcon, HomeIcon, OrdersIcon, TruckIcon, UserIcon } from './icons';
 import AuthPage from '../screens/AuthPage';
 import ErrorBoundary from './ErrorBoundary';
 
@@ -43,8 +43,9 @@ export function isDark(hex) {
 const NAV = [
   { id: 'home', label: 'Home', Icon: HomeIcon },
   { id: 'categories', label: 'Categories', Icon: GridIcon },
-  // Services hub: Send a Parcel on top, then the legal services list (app/services.jsx).
-  { id: 'services', label: 'Services', Icon: ServicesIcon },
+  // Opens Send a Parcel, with its New booking / Delivery history toggle (app/parcel-delivery.jsx).
+  // Legal & business services stay on the Home "Services" tile (app/services.jsx).
+  { id: 'parcel-delivery', label: 'Parcel', Icon: TruckIcon },
   { id: 'orders', label: 'Orders', Icon: OrdersIcon },
   { id: 'account', label: 'Profile', Icon: UserIcon },
 ];
@@ -57,7 +58,7 @@ export function BottomNav() {
   if (typing) return null;
   return <View style={[styles.bottomNav, { backgroundColor: theme.navSurface, borderTopColor: theme.border, paddingBottom: 10 + insets.bottom }]} accessibilityRole="tablist" accessibilityLabel="Customer navigation">
     {NAV.map(({ id, label, Icon }) => {
-      const active = activeNav === id || (id === 'services' && ['legal-services', 'parcel-delivery'].includes(activeNav));
+      const active = activeNav === id;
       const color = active ? theme.navActive : theme.navText;
       return <Pressable key={id} onPress={() => setActiveNav(id)} style={styles.navItem} accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label}>
         <View style={[styles.navIcon, active && { backgroundColor: alpha(theme.navActive, 0.09) }]}><Icon size={23} color={color} filled={active} /></View>

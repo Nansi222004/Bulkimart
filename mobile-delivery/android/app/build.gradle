@@ -29,8 +29,8 @@ android {
         applicationId "com.Bulkimart.delivery"  // exact casing of the Firebase Android client
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.0.2"
+        versionCode 4
+        versionName "1.0.3"
     }
     signingConfigs {
         debug {
