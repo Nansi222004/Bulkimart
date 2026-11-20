@@ -47,12 +47,15 @@ export function parseCodChargeInput(body = {}) {
   const num = (value, label, { min = 0, max = Infinity, optional = false } = {}) => {
     if (optional && (value === '' || value == null)) return null;
     const n = Number(value);
-    if (value === '' || value == null || !Number.isFinite(n) || n < min || n > max) throw httpError(400, `${label} must be between ${min} and ${max}`);
+    if (value === '' || value == null) throw httpError(400, `Enter the ${label} (${min} to ${max}).`);
+    if (!Number.isFinite(n) || n < min || n > max) throw httpError(400, `${label} must be between ${min} and ${max}`);
     if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) throw httpError(400, `${label} can have at most 2 decimal places`);
     return Math.round(n * 100) / 100;
   };
-  const fixedAmount = feeType === 'FIXED' ? num(body.fixedAmount, 'COD handling fee', { max: COD_FEE_LIMITS.maxFixed }) : num(body.fixedAmount ?? 0, 'COD handling fee', { max: COD_FEE_LIMITS.maxFixed });
-  const percentage = feeType === 'PERCENTAGE' ? num(body.percentage, 'COD fee percentage', { max: COD_FEE_LIMITS.maxPercentage }) : num(body.percentage ?? 0, 'COD fee percentage', { max: COD_FEE_LIMITS.maxPercentage });
+  // The admin form sends both boxes. The one for the type not chosen is often left empty: that is 0, not an error.
+  const unused = value => (value === '' || value == null ? 0 : value);
+  const fixedAmount = feeType === 'FIXED' ? num(body.fixedAmount, 'COD handling fee', { max: COD_FEE_LIMITS.maxFixed }) : num(unused(body.fixedAmount), 'COD handling fee', { max: COD_FEE_LIMITS.maxFixed });
+  const percentage = feeType === 'PERCENTAGE' ? num(body.percentage, 'COD fee percentage', { max: COD_FEE_LIMITS.maxPercentage }) : num(unused(body.percentage), 'COD fee percentage', { max: COD_FEE_LIMITS.maxPercentage });
   if (isEnabled && feeType === 'FIXED' && !(fixedAmount > 0)) throw httpError(400, 'Enter a COD handling fee above ₹0, or switch COD charges off');
   if (isEnabled && feeType === 'PERCENTAGE' && !(percentage > 0)) throw httpError(400, 'Enter a COD fee percentage above 0, or switch COD charges off');
   const minOrderAmount = num(body.minOrderAmount, 'Minimum order amount', { optional: true, max: 10000000 });

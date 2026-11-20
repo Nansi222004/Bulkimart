@@ -411,7 +411,8 @@ export function UserProvider({ children }) {
     try {
       const token = local.getItem('userToken');
       let form;
-      if (photo?.uri) { form = new FormData(); form.append('avatar', { uri: photo.uri, name: 'avatar.jpg', type: 'image/jpeg' }); }
+      // appendFormFile turns the picked image into a file Expo's fetch can upload (as the landmark photo does).
+      if (photo?.uri) { form = new FormData(); await appendFormFile(form, 'avatar', { uri: photo.uri, name: 'avatar.jpg', mimeType: 'image/jpeg' }); }
       const body = form ? undefined : Object.fromEntries(Object.entries({ name, email, avatarPreset }).filter(([, v]) => v !== undefined));
       const { ok, body: data } = await apiRequest('/api/users/profile', { method: 'PUT', ...(form ? { form } : { body }) });
       if (!ok) throw new Error(data.message || 'Profile update failed');

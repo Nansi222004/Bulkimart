@@ -72,6 +72,8 @@ export const updateProfile = asyncHandler(async (req, res) => {
     user.email = value || undefined;
   }
   if (req.file) {
+    // A profile picture is a photo: never a PDF or an SVG (which can carry script).
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(req.file.mimetype)) throw httpError(400, 'Choose a JPEG, PNG or WebP picture.');
     user.avatar = await uploadToCloudinary(req.file.buffer, 'avatars', mediaContext(req, req.file));
   } else if (avatarPreset !== undefined) {
     // The apps draw these designs themselves; only the design's name is stored.
