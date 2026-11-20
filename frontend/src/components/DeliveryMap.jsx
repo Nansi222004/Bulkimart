@@ -93,14 +93,16 @@ export const DeliveryMap = ({
   // ---- create the map once -------------------------------------------------
   useEffect(() => {
     let cancelled = false;
+    // Frame what is known (store, home, rider); with none yet, the whole country rather than a guessed city.
+    const knownCenter = [pickup, drop, rider?.location].find((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)) && p.lat !== null && p.lng !== null);
 
     loadGoogleMaps(apiKey)
       .then((maps) => {
         if (cancelled || !holder.current) return;
 
         map.current = new maps.Map(holder.current, {
-          center: pickup || drop || { lat: 22.7196, lng: 75.8577 },
-          zoom: 14,
+          center: knownCenter ? { lat: Number(knownCenter.lat), lng: Number(knownCenter.lng) } : { lat: 22.5937, lng: 78.9629 },
+          zoom: knownCenter ? 14 : 5,
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: 'cooperative',

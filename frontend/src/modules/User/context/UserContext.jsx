@@ -624,8 +624,7 @@ export const UserProvider = ({ children }) => {
         vehicleType,
         otp,
         deliveryId,
-        lat: 22.71744, // Default Indore center
-        lng: 75.871511,
+        // No position until the rider's own location arrives: never a made-up starting point.
         step: 'pickup'
       });
       // Assignment alone does not establish that the parcel is out for delivery.
@@ -760,16 +759,24 @@ export const UserProvider = ({ children }) => {
     }
   };
 
-  const updateUserProfile = async (name, email) => {
+  const updateUserProfile = async (name, email) => saveProfile({ name, email });
+  /**
+   * Saves profile changes on the server (PUT /api/users/profile) and keeps the stored profile in step.
+   * `photo` (a File/Blob) uploads a picture; `avatarPreset` picks one of the built-in designs.
+   */
+  const saveProfile = async ({ name, email, avatarPreset, photo } = {}) => {
     try {
       const token = localStorage.getItem('userToken');
+      let body;
+      if (photo) { body = new FormData(); body.append('avatar', photo, 'avatar.jpg'); }
+      else body = JSON.stringify(Object.fromEntries(Object.entries({ name, email, avatarPreset }).filter(([, v]) => v !== undefined)));
       const response = await fetch(apiUrl('/api/users/profile'), {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
+          ...(photo ? {} : { 'Content-Type': 'application/json' }),
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, email }),
+        body,
       });
       const data = await response.json();
       if (!response.ok) {
@@ -1962,7 +1969,7 @@ export const UserProvider = ({ children }) => {
       value={{
         // Authentication
         currentUser, logoutUser,
-        sendOtp, verifyOtp, updateUserProfile, fetchProfile,
+        sendOtp, verifyOtp, updateUserProfile, saveProfile, fetchProfile,
 
         // Navigation
         activeMode, setActiveMode,

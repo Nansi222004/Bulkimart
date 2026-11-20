@@ -14,7 +14,9 @@ export function clearUserSession(notify = true) {
   void disablePushSession('customer');
   clearSessionBackend('customer');
   sessionRevision++; resetCustomerSessions(); clearPortalRequests('customer');
-  for (const key of ['userToken', 'userProfile', 'userLocation', 'guestLocationCoords']) localStorage.removeItem(key);
+  // Everything personal kept in the browser: the next person to sign in must not see it. 'userAvatar' is
+  // the picture older versions kept here; 'nhcone_recent_searches' is the search history.
+  for (const key of ['userToken', 'userProfile', 'userLocation', 'guestLocationCoords', 'userAvatar', 'nhcone_recent_searches']) localStorage.removeItem(key);
   try {
     for (const key of Object.keys(sessionStorage)) if (key.startsWith('bulkimart:checkout:')) sessionStorage.removeItem(key);
   } catch { /* Storage may be disabled; the server remains authoritative. */ }

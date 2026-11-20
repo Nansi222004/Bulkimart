@@ -21,12 +21,31 @@ const PRESET_AVATARS = [
   { id: 'purple', name: 'Royal Purple', url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%237c3aed"/><circle cx="50" cy="38" r="20" fill="%23f3e8ff"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%23f3e8ff"/></svg>` }
 ];
 
+// The saved picture is an uploaded image URL or "preset:<id>" for one of the designs above.
+const avatarSource = (value) => (typeof value === 'string' && value.startsWith('preset:') ? PRESET_AVATARS.find((p) => p.id === value.slice(7))?.url : value) || '';
+/** A square-ish JPEG at most 256 px wide, so uploads stay small (the server accepts up to 5 MB). */
+const shrinkImage = (file) => new Promise((resolve) => {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const scale = Math.min(1, 256 / (img.width || 256));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale)); canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.85);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+  img.src = url;
+});
+
 const ProfilePage = () => {
   const ui = useFeedback();
   const { 
     setActiveNav, 
     currentUser,
     logoutUser,
+    saveProfile,
     savedAddresses,
     addAddress,
     deleteAddress,
@@ -189,38 +208,31 @@ const ProfilePage = () => {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
 
-  // User Avatar state & file upload ref
-  const [userAvatar, setUserAvatar] = useState(() => {
-    return currentUser?.avatar || localStorage.getItem('userAvatar') || '';
-  });
+  // The picture, name and email are saved on the server (saveProfile), so they follow the account to
+  // every device and are gone from this browser at sign-out. Shown from the signed-in profile.
+  const userAvatar = currentUser?.avatar || '';
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const avatarInputRef = React.useRef(null);
+  const saveAvatar = async (changes, done) => {
+    if (isSavingAvatar) return;
+    setIsSavingAvatar(true); setProfileMsg('');
+    const result = await saveProfile(changes);
+    setIsSavingAvatar(false);
+    setProfileMsg(result.success ? done : (result.message || 'Could not update your picture. Please try again.'));
+  };
 
-  const handleAvatarFileChange = (e) => {
+  const handleAvatarFileChange = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setProfileMsg('Please select a valid image file');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result;
-      if (dataUrl) {
-        setUserAvatar(dataUrl);
-        localStorage.setItem('userAvatar', dataUrl);
-        if (currentUser) currentUser.avatar = dataUrl;
-        setProfileMsg('Profile picture updated successfully!');
-      }
-    };
-    reader.readAsDataURL(file);
+    await saveAvatar({ photo: await shrinkImage(file) }, 'Profile picture updated successfully!');
   };
 
-  const selectPresetAvatar = (url) => {
-    setUserAvatar(url);
-    localStorage.setItem('userAvatar', url);
-    if (currentUser) currentUser.avatar = url;
-    setProfileMsg('Avatar updated successfully!');
-  };
+  const selectPresetAvatar = (id) => saveAvatar({ avatarPreset: id }, 'Avatar updated successfully!');
 
 
   // Address creation states
@@ -334,20 +346,12 @@ const ProfilePage = () => {
   // Handle Profile Save
   const handleSaveProfile = async (e) => {
     e.preventDefault();
+    if (!profileName.trim() || isSavingProfile) return;
     setIsSavingProfile(true);
     setProfileMsg('');
-    
-    // Simulate updating user profile call
-    setTimeout(() => {
-      setIsSavingProfile(false);
-      setProfileMsg('Profile updated successfully!');
-      if (currentUser) {
-        currentUser.name = profileName;
-        currentUser.email = profileEmail;
-        currentUser.avatar = userAvatar;
-      }
-      localStorage.setItem('userAvatar', userAvatar);
-    }, 800);
+    const result = await saveProfile({ name: profileName.trim(), email: profileEmail.trim() });
+    setIsSavingProfile(false);
+    setProfileMsg(result.success ? 'Profile updated successfully!' : (result.message || 'Could not save your profile. Please try again.'));
   };
 
 
@@ -596,7 +600,7 @@ const ProfilePage = () => {
                 title="Click to upload custom profile photo"
               >
                 <img
-                  src={userAvatar || DEFAULT_NEUTRAL_AVATAR}
+                  src={avatarSource(userAvatar) || DEFAULT_NEUTRAL_AVATAR}
                   alt={currentUser?.name || 'User Profile'}
                   style={{ width: '88px', height: '88px', borderRadius: '50%', border: '3px solid var(--primary, var(--sf-action, #D91430))', objectFit: 'cover' }}
                 />
@@ -637,10 +641,10 @@ const ProfilePage = () => {
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => selectPresetAvatar(p.url)}
+                    onClick={() => selectPresetAvatar(p.id)} disabled={isSavingAvatar}
                     title={p.name}
                     style={{
-                      width: '28px', height: '28px', borderRadius: '50%', border: userAvatar === p.url ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
+                      width: '28px', height: '28px', borderRadius: '50%', border: userAvatar === `preset:${p.id}` ? '2px solid var(--sf-action, #D91430)' : '1px solid #cbd5e1',
                       padding: 0, overflow: 'hidden', cursor: 'pointer', background: 'none', transition: 'transform 0.15s'
                     }}
                   >
@@ -1274,7 +1278,7 @@ const ProfilePage = () => {
             title="Click to change profile picture"
           >
             <img
-              src={userAvatar || DEFAULT_NEUTRAL_AVATAR}
+              src={avatarSource(userAvatar) || DEFAULT_NEUTRAL_AVATAR}
               alt={currentUser?.name || 'User Profile'}
               className="user-profile-avatar"
               style={{ width: 68, height: 68, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--text-white)' }}
