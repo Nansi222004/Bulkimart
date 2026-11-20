@@ -108,10 +108,12 @@ export function FormScroll({ children, contentContainerStyle, ...props }) {
   </KeyboardAvoidingView>;
 }
 
+/** Rupees for display: whole amounts without decimals (₹1,000), anything with paise to two places (₹119.40). */
 export const money = value => {
   const number = Number(value);
   if (!Number.isFinite(number)) return '₹0';
-  return '₹' + number.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  const whole = Math.abs(number - Math.round(number)) < 0.005;
+  return '₹' + (whole ? Math.round(number) : number).toLocaleString('en-IN', whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const styles = StyleSheet.create({

@@ -32,6 +32,24 @@ const resolved = new Map();   // channel -> tree, once it has arrived
 const expires = new Map();
 const CACHE_MS = 30000;
 
+/**
+ * The last tree this browser received, kept across visits. Categories change rarely, so the next
+ * visit shows it at once (no "Loading…", and still something on a bad network) while the server
+ * copy is fetched; the fresh tree replaces it as soon as it arrives.
+ */
+const savedKey = type => `bulkimart:category-tree:${type}`;
+const savedTree = (type) => {
+  try { const tree = JSON.parse(localStorage.getItem(savedKey(type))); return Array.isArray(tree) ? tree : null; } catch { return null; }
+};
+const saveTree = (type, tree) => { try { localStorage.setItem(savedKey(type), JSON.stringify(tree)); } catch { /* storage is optional */ } };
+/** The tree in memory, or the one saved from the last visit (seeded into memory, still due a refresh). */
+const knownTree = (type) => {
+  if (resolved.has(type)) return resolved.get(type);
+  const saved = savedTree(type);
+  if (saved) resolved.set(type, saved);
+  return saved || undefined;
+};
+
 const fetchTree = (type) => {
   const existing = inflight.get(type);
   if (existing) return existing;
@@ -48,6 +66,7 @@ const fetchTree = (type) => {
       const tree = previous && JSON.stringify(previous) === JSON.stringify(data) ? previous : data;
       resolved.set(type, tree);
       expires.set(type, Date.now() + CACHE_MS);
+      if (tree !== previous) saveTree(type, tree);
       return tree;
     })
     .finally(() => {
@@ -85,8 +104,8 @@ export const findBySlug = (tree, slug) => {
  */
 export const useCategoryTree = (type) => {
   // A tree already in hand paints on the first frame instead of flashing empty.
-  const [tree, setTree] = useState(() => resolved.get(type) || []);
-  const [loading, setLoading] = useState(() => !resolved.has(type));
+  const [tree, setTree] = useState(() => knownTree(type) || []);
+  const [loading, setLoading] = useState(() => !knownTree(type));
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [loadedType, setLoadedType] = useState(type);
@@ -94,7 +113,7 @@ export const useCategoryTree = (type) => {
   useEffect(() => {
     let cancelled = false;
 
-    const known = resolved.get(type);
+    const known = knownTree(type);
     setTree(known || []);
     setLoadedType(type);
     setLoading(!known);
@@ -108,7 +127,8 @@ export const useCategoryTree = (type) => {
       }
       fetchTree(type)
         .then((data) => { if (!cancelled) { setTree(data); setError(''); } })
-        .catch((err) => { if (!cancelled) setError(err.message || 'Could not load categories'); })
+        // A tree already shown (this session's, or the one saved from the last visit) stays on a failed refresh.
+        .catch((err) => { if (!cancelled && !resolved.get(type)) setError(err.message || 'Could not load categories'); })
         .finally(() => { if (!cancelled) setLoading(false); });
     };
     const visible = () => { if (document.visibilityState !== 'hidden') refresh(); };

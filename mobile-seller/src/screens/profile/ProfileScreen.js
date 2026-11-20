@@ -57,6 +57,8 @@ export default function ProfileScreen({ navigation }) {
   const account = typeof seller.userId === 'object' && seller.userId ? seller.userId : {};
   const id = seller._id || seller.id;
   const typedAddress = [store.address, store.city, store.state, store.pincode].filter(Boolean).join(', ');
+  // The pincode Google gives for the pin (last 6-digit group of the pinned address), to compare with the typed one.
+  const pinPincode = hasPin && !pinned.loading ? (String(pinned.text || '').match(/\b\d{6}\b/g) || []).pop() || '' : '';
 
   const confirmSignOut = () => Alert.alert('Sign out', 'Sign out of Bulkimart Seller on this phone?', [
     { text: 'Cancel', style: 'cancel' },
@@ -125,6 +127,11 @@ export default function ProfileScreen({ navigation }) {
             </Pressable>
           ) : null}
         </View>
+        {pinPincode && /^\d{6}$/.test(String(store.pincode || '')) && pinPincode !== String(store.pincode) ? (
+          <View style={styles.pinWarning} accessibilityRole="alert">
+            <Text style={styles.pinWarningText}>Your map pin is in pincode {pinPincode}, but your store address says {store.pincode}. Riders and delivery distances use the pin, so update the store location if the pin is wrong.</Text>
+          </View>
+        ) : null}
         <ActionRow icon="mapPin" label={hasPin ? 'Update store location' : 'Pin store location'} onPress={() => navigation.navigate('StoreLocation')} />
       </Card>
 
@@ -177,6 +184,8 @@ const styles = StyleSheet.create({
   pinHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   mapLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
   mapLinkText: { color: colors.primaryDark, fontWeight: '700', fontSize: 13 },
+  pinWarning: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fdba74' },
+  pinWarningText: { color: '#9a3412', fontSize: 13, lineHeight: 18 },
   action: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10 },
   actionIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: colors.aquaLight, alignItems: 'center', justifyContent: 'center' },
   actionIconDanger: { backgroundColor: colors.errorLight },

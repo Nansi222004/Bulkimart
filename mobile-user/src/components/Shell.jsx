@@ -5,7 +5,7 @@
 // - CustomerPage: status bar + safe areas + bottom nav, and the sign-in gate for account-only pages
 //   (web LandingPage `protectedNavItems` → AuthPage; CustomerSessionGate "Verifying your session…").
 import React, { useEffect, useState } from 'react';
-import { DeviceEventEmitter, Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, DeviceEventEmitter, Keyboard, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useUser } from '../context/UserContext';
@@ -13,7 +13,7 @@ import { useSession } from '../context/SessionContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { alpha } from '../theme';
 import { socket } from '../lib/socket';
-import { Text, Button } from './ui';
+import { Text, Button, money } from './ui';
 import { ChevronRight, GridIcon, HomeIcon, OrdersIcon, TruckIcon, UserIcon } from './icons';
 import AuthPage from '../screens/AuthPage';
 import ErrorBoundary from './ErrorBoundary';
@@ -76,9 +76,10 @@ export function BottomNav() {
 export function FloatingCartBar() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { getCartCount, getCartSubtotal, activeNav, setActiveNav } = useUser();
+  const { getCurrentCartCount, getCartSubtotal, activeNav, setActiveNav } = useUser();
   const typing = useKeyboardVisible();
-  const count = getCartCount();
+  // The cart for the current mode (Quick or ShopAll): its count and total always match "View Cart".
+  const count = getCurrentCartCount();
   if (count <= 0 || !['home', 'categories'].includes(activeNav) || typing) return null;
   return <Pressable onPress={() => setActiveNav('cart')} accessibilityRole="button" accessibilityLabel={`View cart, ${count} items`}
     style={[styles.cartBar, { bottom: BOTTOM_NAV_HEIGHT + insets.bottom + 10, backgroundColor: theme.primaryColor, shadowColor: theme.primary }]}>
@@ -90,7 +91,7 @@ export function FloatingCartBar() {
       </View>
     </View>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>View Cart • ₹{getCartSubtotal()}</Text>
+      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>View Cart • {money(getCartSubtotal())}</Text>
       <ChevronRight size={14} color="#fff" width={3} />
     </View>
   </Pressable>;
@@ -101,14 +102,26 @@ export function RealtimeNotice({ graceMs = 8000 }) {
   const [state, setState] = useState(null);
   useEffect(() => {
     let timer = null;
-    const offline = reason => {
-      if (SIGN_IN_ERRORS.includes(reason?.message)) { clearTimeout(timer); timer = null; setState('signin'); return; }
-      if (reason === 'io client disconnect' || timer || socket.connected) return;
+    // The grace period counts only time the app is on screen. Android drops the connection while the app
+    // is in the background and pauses timers there, so a countdown started then would run out the moment
+    // the app returns, before the immediate reconnect (lib/socket.js resume) has had a chance.
+    const startGrace = () => {
+      clearTimeout(timer);
       timer = setTimeout(() => { timer = null; if (!socket.connected) setState('offline'); }, graceMs);
     };
+    const offline = reason => {
+      if (SIGN_IN_ERRORS.includes(reason?.message)) { clearTimeout(timer); timer = null; setState('signin'); return; }
+      if (reason === 'io client disconnect' || timer || socket.connected || AppState.currentState !== 'active') return;
+      startGrace();
+    };
     const online = () => { clearTimeout(timer); timer = null; setState(null); };
+    const appState = AppState.addEventListener('change', next => {
+      if (next !== 'active') { clearTimeout(timer); timer = null; return; }
+      // Back on screen and still disconnected: a fresh grace period while it reconnects.
+      if (!socket.connected) { setState(s => (s === 'signin' ? s : null)); startGrace(); }
+    });
     socket.on('connect_error', offline); socket.on('disconnect', offline); socket.on('connect', online);
-    return () => { clearTimeout(timer); socket.off('connect_error', offline); socket.off('disconnect', offline); socket.off('connect', online); };
+    return () => { clearTimeout(timer); appState.remove(); socket.off('connect_error', offline); socket.off('disconnect', offline); socket.off('connect', online); };
   }, [graceMs]);
   if (!state) return null;
   return <View accessibilityLiveRegion="polite" style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#fff7ed' }}>
@@ -157,8 +170,8 @@ export function useNavPadding(extra = 26) {
   // safe area, so content only needs a small gap. Adding the nav height here left an empty band at the
   // end of every page (web needs it because its nav is position:fixed). Only the floating cart bar
   // overlaps content, so its height is added while it is showing.
-  const { getCartCount, activeNav } = useUser();
-  const cartBarShown = getCartCount() > 0 && ['home', 'categories'].includes(activeNav);
+  const { getCurrentCartCount, activeNav } = useUser();
+  const cartBarShown = getCurrentCartCount() > 0 && ['home', 'categories'].includes(activeNav);
   return extra + (cartBarShown ? CART_BAR_SPACE : 0);
 }
 const CART_BAR_SPACE = 64;

@@ -11,6 +11,7 @@ import { apiUrl } from '../../../utils/api';
 import { socket } from '../../../utils/socket';
 import { AttachmentUploader } from '../../../components/common/AttachmentPreview';
 import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../utils/deliveryLabel';
+import { formatCurrency } from '../utils/helpers';
 
 /** Refund or Exchange, and for an exchange which option (same product, same price) to receive. */
 function ResolutionPicker({ eligibility, resolution, setResolution, variantId, setVariantId, qty }) {
@@ -1019,10 +1020,10 @@ export const OrderTrackingPage = () => {
                     )}
                     <div style={{ flex: 1 }}>
                       <span style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'block' }}>{item.name}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Qty: {item.qty} • ₹{item.price} each</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Qty: {item.qty} • {formatCurrency(item.price)} each</span>
                       {item.returnOption && (
                         <span style={{ fontSize: 10.5, fontWeight: 700, display: 'block', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>
-                          {item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+₹${item.returnExtraCharge || 0} paid)` : 'No Easy Returns · wrong/damaged/defective only'}
+                          {item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+${formatCurrency(item.returnExtraCharge || 0)} paid)` : 'No Easy Returns · wrong/damaged/defective only'}
                         </span>
                       )}
                     </div>
@@ -1143,7 +1144,7 @@ export const OrderTrackingPage = () => {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--text-secondary)' }}>Subtotal (including product GST)</span>
-            <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.subtotal || 0}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedOrder.pricing?.subtotal || 0)}</span>
           </div>
           <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
           <button type="button" className="order-action-btn-sm" style={{ alignSelf: 'flex-start' }}
@@ -1165,18 +1166,18 @@ export const OrderTrackingPage = () => {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--text-secondary)' }}>Delivery Charge (no GST)</span>
-            <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.deliveryCharge || 0}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedOrder.pricing?.deliveryCharge || 0)}</span>
           </div>
           {selectedOrder.pricing?.tipAmount > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-secondary)' }}>Delivery Partner Tip</span>
-              <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing.tipAmount}</span>
+              <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedOrder.pricing.tipAmount)}</span>
             </div>
           )}
           {selectedOrder.pricing?.codFeeTotal > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ₹${selectedOrder.pricing.codFeeTaxAmount} GST)` : ''}</span>
-              <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing.codFeeTotal}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ${formatCurrency(selectedOrder.pricing.codFeeTaxAmount)} GST)` : ''}</span>
+              <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedOrder.pricing.codFeeTotal)}</span>
             </div>
           )}
           {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => (
@@ -1187,7 +1188,7 @@ export const OrderTrackingPage = () => {
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14 }}>
             <span style={{ color: 'var(--text-primary)' }}>Total Amount</span>
-            <span style={{ color: 'var(--text-primary)' }}>₹{selectedOrder.pricing?.totalAmount || 0}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedOrder.pricing?.totalAmount || 0)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
             <span>Payment Method</span>
@@ -1462,7 +1463,7 @@ export const OrderTrackingPage = () => {
             {viewingReturn.rejectionReason && <p style={{ fontSize: 12.5, margin: '0 0 6px', color: '#b91c1c' }}><b>Rejection reason:</b> {viewingReturn.rejectionReason}</p>}
             {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && (
               <p style={{ fontSize: 12.5, margin: '0 0 6px' }}>
-                <b>Refund:</b> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}
+                <b>Refund:</b> {formatCurrency(viewingReturn.refundAmount)} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}
                 {viewingReturn.status === 'REFUNDED'
                   ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}`
                   : ` — ${viewingReturn.refundStatus || 'pending'}`}

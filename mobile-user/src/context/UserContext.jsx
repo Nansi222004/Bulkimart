@@ -327,7 +327,8 @@ export function UserProvider({ children }) {
       },
       order_status_updated: ({ orderId, status, timeline }) => updateOrder(orderId, { ...(status ? { status } : {}), ...(Array.isArray(timeline) ? { timeline } : {}) }),
       rider_assigned: ({ orderId, riderName, riderPhone, vehicleType, otp, deliveryId }) => {
-        setActiveRider({ orderId, name: riderName, phone: riderPhone, vehicleType, otp, deliveryId, lat: 22.71744, lng: 75.871511, step: 'pickup' });
+        // No position until the rider's own location arrives: never a made-up starting point.
+        setActiveRider({ orderId, name: riderName, phone: riderPhone, vehicleType, otp, deliveryId, step: 'pickup' });
         updateOrder(orderId, {});
       },
       delivery_status_updated: ({ orderId, stage, status }) => {
@@ -401,10 +402,18 @@ export function UserProvider({ children }) {
     }
   };
 
-  const updateUserProfile = async (name, email) => {
+  const updateUserProfile = async (name, email) => saveProfile({ name, email });
+  /**
+   * Saves profile changes on the server (PUT /api/users/profile) and keeps the stored profile in step.
+   * `photo` ({ uri }) uploads a picture; `avatarPreset` picks one of the built-in designs.
+   */
+  const saveProfile = async ({ name, email, avatarPreset, photo } = {}) => {
     try {
       const token = local.getItem('userToken');
-      const { ok, body: data } = await apiRequest('/api/users/profile', { method: 'PUT', body: { name, email } });
+      let form;
+      if (photo?.uri) { form = new FormData(); form.append('avatar', { uri: photo.uri, name: 'avatar.jpg', type: 'image/jpeg' }); }
+      const body = form ? undefined : Object.fromEntries(Object.entries({ name, email, avatarPreset }).filter(([, v]) => v !== undefined));
+      const { ok, body: data } = await apiRequest('/api/users/profile', { method: 'PUT', ...(form ? { form } : { body }) });
       if (!ok) throw new Error(data.message || 'Profile update failed');
       if (token !== local.getItem('userToken')) return { success: false, message: 'Your session changed. Please sign in again.' };
       if (data.user) {
@@ -607,6 +616,9 @@ export function UserProvider({ children }) {
   const getCartItems = () => serverCart.items || [];
   const getCartCount = () => (Object.keys(cartSummary || {}).length ? Object.values(cartSummary).reduce((acc, ch) => acc + (ch.count || 0), 0) : (serverCart.count || 0));
   const getCartSubtotal = () => serverCart.pricing?.subtotal || 0;
+  // Units in the cart for the current mode (Quick or ShopAll): the cart "View Cart" opens and the one
+  // getCartSubtotal() totals. getCartCount() above counts every cart, for the header badge.
+  const getCurrentCartCount = () => (serverCart.items || []).reduce((n, i) => n + (Number(i.qty) || 0), 0);
   const getDeliveryCharge = () => serverCart.pricing?.deliveryCharge || 0;
   const getCartTotal = () => serverCart.pricing?.totalAmount || 0;
   const getCartWarnings = () => serverCart.warnings || [];
@@ -1083,7 +1095,7 @@ export function UserProvider({ children }) {
   }, [sessionKey]);
 
   const value = {
-    currentUser, logoutUser, sendOtp, verifyOtp, updateUserProfile, fetchProfile, session: restoredSession,
+    currentUser, logoutUser, sendOtp, verifyOtp, updateUserProfile, saveProfile, fetchProfile, session: restoredSession,
     activeMode, setActiveMode, productTab, setProductTab, activeNav, setActiveNav, replaceNav, activeSubNav, setActiveSubNav, popSubNav,
     isVoiceModalOpen, setIsVoiceModalOpen, openVoiceSearch, closeVoiceSearch,
     imageSearchRequest, setImageSearchRequest, openImageSearch, pendingVoiceQuery, setPendingVoiceQuery,
@@ -1093,7 +1105,7 @@ export function UserProvider({ children }) {
     reviewProductId, setReviewProductId,
     cart: serverCart, serverCart, cartChannel, switchCartChannel, cartSummary, cartLoading, refreshCart,
     deliveryMode, setDeliveryMode, addToCart, removeFromCart, clearCart, setCartItemQty, deleteCartItem, setCartItemReturnOption,
-    getCartCount, getCartItems, getCartWarnings, getItemQty, getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
+    getCartCount, getCartItems, getCartWarnings, getItemQty, getCartSubtotal, getCurrentCartCount, getDeliveryCharge, getCouponDiscount, getCartTotal,
     appliedCoupon, applyCoupon, removeCoupon, couponNotice, couponCode,
     availableCoupons: availableCoupons.filter(offer => offer.isPublic !== false), fetchAvailableCoupons, getTotalSavings,
     couponCelebration, couponView,

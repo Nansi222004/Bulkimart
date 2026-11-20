@@ -97,11 +97,13 @@ export default function DeliveryMap({ pickup, drop, rider, status, stage, etaMin
       <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>The map is unavailable. Search or enter the address instead.</Text>
     </View>;
   }
-  const center = shop || home || { lat: 22.7196, lng: 75.8577 };
+  // Frame what is known (store, home, rider); with none yet, the whole country rather than a guessed city.
+  const center = shop || home || here || { lat: 22.5937, lng: 78.9629 };
+  const span = shop || home || here ? 0.03 : 22;
   const assigning = !rider && ['confirmed', 'preparing', 'dispatched'].includes(status);
   return <View style={styles.wrap}>
     <MapView ref={map} provider={PROVIDER_GOOGLE} style={{ height, width: '100%' }} onMapReady={() => setReady(true)}
-      initialRegion={{ latitude: center.lat, longitude: center.lng, latitudeDelta: 0.03, longitudeDelta: 0.03 }}
+      initialRegion={{ latitude: center.lat, longitude: center.lng, latitudeDelta: span, longitudeDelta: span }}
       showsPointsOfInterest={false} toolbarEnabled={false} zoomControlEnabled rotateEnabled={false}>
       {shop && <Marker coordinate={toLatLng(shop)} title={shop.name || 'Store'} tracksViewChanges={false}><Pin glyph="🏪" color="#1b7a37" /></Marker>}
       {home && <Marker coordinate={toLatLng(home)} title={home.name || 'Your address'} tracksViewChanges={false}><Pin glyph="🏠" color="#dc2626" /></Marker>}

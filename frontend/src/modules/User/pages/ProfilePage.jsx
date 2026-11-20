@@ -9,6 +9,7 @@ import { SELLER_SESSION_CHANGED } from '../../../utils/portalSession';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { useRefreshHandler } from '../../../utils/refreshRegistry';
+import { formatCurrency } from '../utils/helpers';
 
 const DEFAULT_NEUTRAL_AVATAR = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%231e293b"/><circle cx="50" cy="38" r="20" fill="%2394a3b8"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%2394a3b8"/></svg>`;
 
@@ -108,7 +109,7 @@ const ProfilePage = () => {
       const result = await openRazorpayCheckout(body.data, headers);
       setShowAddMoneyModal(false);
       if (result.ok && result.verified) {
-        setTopupAlert({ type: 'success', message: `₹${amt} added to your wallet.` });
+        setTopupAlert({ type: 'success', message: `${formatCurrency(amt)} added to your wallet.` });
       } else {
         setTopupAlert({ type: 'error', message: result.message || 'Payment has not been confirmed. Check your wallet before trying again.' });
       }
@@ -852,7 +853,7 @@ const ProfilePage = () => {
                           cursor: 'pointer'
                         }}
                       >
-                        +₹{amt}
+                        +{formatCurrency(amt)}
                       </button>
                     ))}
                   </div>

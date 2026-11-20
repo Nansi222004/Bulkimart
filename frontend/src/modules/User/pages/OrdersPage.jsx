@@ -11,6 +11,7 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
  * different ways depending on which screen you were looking at.
  */
 import { deliveryLabelFor } from '../utils/deliveryLabel';
+import { formatCurrency } from '../utils/helpers';
 
 /**
  * What each storefront is called on a customer's receipt.
@@ -283,7 +284,7 @@ const OrdersPage = () => {
                   </span>
                   <span className="order-date-text">{order.dateText}</span>
                   <span className="order-specs-lbl">
-                    {order.orderNo} &nbsp;•&nbsp; Qty: {order.qty} &nbsp;•&nbsp; ₹{order.total}
+                    {order.orderNo} &nbsp;•&nbsp; Qty: {order.qty} &nbsp;•&nbsp; {formatCurrency(order.total)}
                   </span>
                   <span className="order-mall-badge">{order.channel}</span>
                   {/* Alongside the storefront, not instead of it: which shop it

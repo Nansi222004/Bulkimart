@@ -120,8 +120,10 @@ export default function SearchScreen() {
   };
   const removeRecent = label => { const next = recent.filter(r => r.label !== label); setRecent(next); writeRecent(next); };
   const showingResults = imageMode || term.trim().length >= 2;
-  const grid = (rows, showShop) => <FlatList data={rows} keyExtractor={p => String(p._id)} numColumns={2} scrollEnabled={false} columnWrapperStyle={{ gap: 12 }} contentContainerStyle={{ gap: 12 }}
-    renderItem={({ item }) => <View style={{ flex: 1 }}><ResultCard product={item} showShop={showShop} onPress={() => openProduct(item)} /></View>} />;
+  // An odd last card would stretch across both columns (its square image then fills the screen), so an
+  // invisible spacer takes the empty half.
+  const grid = (rows, showShop) => <FlatList data={rows.length % 2 ? [...rows, { _id: '__spacer', spacer: true }] : rows} keyExtractor={p => String(p._id)} numColumns={2} scrollEnabled={false} columnWrapperStyle={{ gap: 12 }} contentContainerStyle={{ gap: 12 }}
+    renderItem={({ item }) => <View style={{ flex: 1 }}>{item.spacer ? null : <ResultCard product={item} showShop={showShop} onPress={() => openProduct(item)} />}</View>} />;
 
   return <CustomerPage>
     <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.pageBackground }]}>

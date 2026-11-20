@@ -16,6 +16,7 @@ import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { paymentSummary } from '../utils/paymentSummary';
 import WholesaleMinimumNotice from '../components/WholesaleMinimumNotice';
 import '../components/CartCheckout.css';
+import { formatCurrency } from '../utils/helpers';
 
 const CheckoutPage = () => {
   const {
@@ -145,9 +146,9 @@ const CheckoutPage = () => {
     if (!Number.isFinite(rawCustomTipVal) || rawCustomTipVal <= 0) {
       customTipError = 'Please enter a valid amount.';
     } else if (rawCustomTipVal < minCustomTip) {
-      customTipError = `Minimum tip is ₹${minCustomTip}`;
+      customTipError = `Minimum tip is ${formatCurrency(minCustomTip)}`;
     } else if (rawCustomTipVal > maxCustomTip) {
-      customTipError = `Maximum tip is ₹${maxCustomTip}`;
+      customTipError = `Maximum tip is ${formatCurrency(maxCustomTip)}`;
     } else {
       validCustomTip = Math.floor(rawCustomTipVal);
     }
@@ -699,7 +700,7 @@ const CheckoutPage = () => {
                     </span>
                   </span>
                   <span style={{ fontWeight: 800, fontSize: 12.5, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                    ₹{o.pricing?.totalAmount} ›
+                    {formatCurrency(o.pricing?.totalAmount)} ›
                   </span>
                 </button>
               );
@@ -1195,12 +1196,12 @@ const CheckoutPage = () => {
                   <div>
                     <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Razorpay Online Payment</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI, cards and supported payment methods via Razorpay</span>
-                    {!isDigitalCart && summary.codFeeQuote > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Pay ₹{summary.onlineTotal}</span>}
+                    {!isDigitalCart && summary.codFeeQuote > 0 && <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)', display: 'block' }}>Pay {formatCurrency(summary.onlineTotal)}</span>}
                   </div>
                 </div>
                 {!isDigitalCart && summary.codFeeQuote > 0 && (
                   <span className="checkout-online-saving" style={{ fontSize: 11, fontWeight: 800, color: '#15803d', backgroundColor: '#dcfce7', padding: '3px 8px', borderRadius: 12 }}>
-                    Save ₹{summary.codFeeQuote}
+                    Save {formatCurrency(summary.codFeeQuote)}
                   </span>
                 )}
               </div>
@@ -1233,7 +1234,7 @@ const CheckoutPage = () => {
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay at your doorstep on delivery</span>
                   {summary.codFeeQuote > 0 && (
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#c2410c', display: 'block' }}>
-                      Pay ₹{summary.codTotal} (+ ₹{summary.codFeeQuote} {summary.codFeeLabel})
+                      Pay {formatCurrency(summary.codTotal)} (+ {formatCurrency(summary.codFeeQuote)} {summary.codFeeLabel})
                     </span>
                   )}
                 </div>
@@ -1336,7 +1337,7 @@ const CheckoutPage = () => {
                               borderRadius: 6, fontWeight: 700, fontSize: 11.5, cursor: 'pointer'
                             }}
                           >
-                            {c.freeShipping ? 'Free delivery' : `Save ₹${c.savingNow}`}
+                            {c.freeShipping ? 'Free delivery' : `Save ${formatCurrency(c.savingNow)}`}
                           </button>
                         ) : (
                           <span style={{ fontSize: 10.5, color: 'var(--text-muted)', maxWidth: 160, textAlign: 'right' }}>
@@ -1396,7 +1397,7 @@ const CheckoutPage = () => {
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {coupon.code} ({coupon.discountType === 'free_shipping' ? 'Free delivery' : coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `₹${coupon.value} Off`})
+                  {coupon.code} ({coupon.discountType === 'free_shipping' ? 'Free delivery' : coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `${formatCurrency(coupon.value)} Off`})
                 </button>
               ))}
             </div>
@@ -1446,7 +1447,7 @@ const CheckoutPage = () => {
                       transition: 'all 0.15s ease',
                     }}
                   >
-                    ₹{amt}
+                    {formatCurrency(amt)}
                   </button>
                 );
               })}
@@ -1483,7 +1484,7 @@ const CheckoutPage = () => {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <span>{isCustomTip && validCustomTip > 0 ? `₹${validCustomTip}` : 'Other'}</span>
+                  <span>{isCustomTip && validCustomTip > 0 ? `${formatCurrency(validCustomTip)}` : 'Other'}</span>
                   {!isCustomTip && <span style={{ fontSize: 13, opacity: 0.7 }}>+</span>}
                 </button>
               )}
@@ -1507,7 +1508,7 @@ const CheckoutPage = () => {
                     Enter Custom Tip:
                   </span>
                   <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
-                    ₹{minCustomTip} – ₹{maxCustomTip}
+                    {formatCurrency(minCustomTip)} – {formatCurrency(maxCustomTip)}
                   </span>
                 </div>
 
@@ -1580,7 +1581,7 @@ const CheckoutPage = () => {
             {tipAmount > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>
-                  ✓ ₹{tipAmount} tip added — 100% goes to your delivery partner.
+                  ✓ {formatCurrency(tipAmount)} tip added — 100% goes to your delivery partner.
                 </p>
                 <button
                   type="button"
@@ -1704,41 +1705,41 @@ const CheckoutPage = () => {
               <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                 {deliveryChargeVal === 0 ? (
                   <span style={{ color: 'var(--primary)' }}>FREE</span>
-                ) : `₹${deliveryChargeVal}`}
+                ) : `${formatCurrency(deliveryChargeVal)}`}
               </span>
             </div>
 
             {sameDayPremiumVal > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                 <span>Same-Day Delivery Premium</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{sameDayPremiumVal}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(sameDayPremiumVal)}</span>
               </div>
             )}
 
             {couponDiscountVal > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 600 }}>
                 <span>Coupon Discount</span>
-                <span>-₹{couponDiscountVal}</span>
+                <span>-{formatCurrency(couponDiscountVal)}</span>
               </div>
             )}
 
             {tipAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                 <span>Delivery Partner Tip</span>
-                <span>+₹{tipAmount}</span>
+                <span>+{formatCurrency(tipAmount)}</span>
               </div>
             )}
 
             {summary.codFee > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c2410c', fontWeight: 700 }}>
                 <span>{summary.codFeeLabel}</span>
-                <span>+₹{summary.codFee}</span>
+                <span>+{formatCurrency(summary.codFee)}</span>
               </div>
             )}
 
             <div style={{ borderTop: '1.5px dashed var(--border-color)', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 800 }}>
               <span style={{ color: 'var(--text-primary)' }}>Total Amount to Pay</span>
-              <span style={{ color: 'var(--primary)' }}>₹{grandTotalVal}</span>
+              <span style={{ color: 'var(--primary)' }}>{formatCurrency(grandTotalVal)}</span>
             </div>
           </div>
         </div>
@@ -1754,7 +1755,7 @@ const CheckoutPage = () => {
               <span>Payable Amount</span>
               <span style={{ fontSize: 9 }}>▲</span>
             </div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--primary)' }}>₹{grandTotalVal}</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--primary)' }}>{formatCurrency(grandTotalVal)}</div>
           </button>
 
           {/* Wait for authoritative basket pricing, without requiring a carrier. */}
@@ -1766,7 +1767,7 @@ const CheckoutPage = () => {
           >
             {isOrdering ? 'Placing order…'
               : cartLoading ? 'Updating…'
-              : wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)`
+              : wholesaleShort ? `Add ${formatCurrency(wholesaleMinimum.remainingAmount)} more (Wholesale minimum)`
               : 'Confirm & Place Order'}
           </button>
         </div>
@@ -1824,11 +1825,11 @@ const CheckoutPage = () => {
                   <div key={item._id || item.productId || idx} style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12.5, color: 'var(--text-primary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ fontWeight: 600 }}>{item.qty}x {item.name}</span>
-                      <span style={{ fontWeight: 700 }}>₹{item.lineTotal}</span>
+                      <span style={{ fontWeight: 700 }}>{formatCurrency(item.lineTotal)}</span>
                     </div>
                     {item.returnOption && (
                       <div style={{ fontSize: 11, fontWeight: 600, paddingLeft: 8, color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>
-                        {item.returnOption === 'EASY_RETURN' ? `Easy Returns (+₹${item.returnExtraCharge || 0} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}
+                        {item.returnOption === 'EASY_RETURN' ? `Easy Returns (+${formatCurrency(item.returnExtraCharge || 0)} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}
                       </div>
                     )}
                     {item.additionalMessage && (
@@ -1857,19 +1858,19 @@ const CheckoutPage = () => {
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                     {deliveryChargeVal === 0 ? (
                       <span style={{ color: 'var(--primary)' }}>FREE</span>
-                    ) : `₹${deliveryChargeVal}`}
+                    ) : `${formatCurrency(deliveryChargeVal)}`}
                   </span>
                 </div>
                 {sameDayPremiumVal > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                     <span>Same-Day Delivery Premium</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{sameDayPremiumVal}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(sameDayPremiumVal)}</span>
                   </div>
                 )}
                 {couponDiscountVal > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 600 }}>
                     <span>Coupon Discount</span>
-                    <span>-₹{couponDiscountVal}</span>
+                    <span>-{formatCurrency(couponDiscountVal)}</span>
                   </div>
                 )}
 
@@ -1878,18 +1879,18 @@ const CheckoutPage = () => {
                 {tipAmount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--primary)', fontWeight: 700 }}>
                     <span>Delivery Partner Tip</span>
-                    <span>+₹{tipAmount}</span>
+                    <span>+{formatCurrency(tipAmount)}</span>
                   </div>
                 )}
                 {summary.codFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c2410c', fontWeight: 700 }}>
                     <span>{summary.codFeeLabel}</span>
-                    <span>+₹{summary.codFee}</span>
+                    <span>+{formatCurrency(summary.codFee)}</span>
                   </div>
                 )}
                 <div style={{ borderTop: '1.5px solid var(--border-color)', paddingTop: 12, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 900 }}>
                   <span style={{ color: 'var(--text-primary)' }}>Payable Amount</span>
-                  <span style={{ color: 'var(--primary)' }}>₹{grandTotalVal}</span>
+                  <span style={{ color: 'var(--primary)' }}>{formatCurrency(grandTotalVal)}</span>
                 </div>
               </div>
             </div>

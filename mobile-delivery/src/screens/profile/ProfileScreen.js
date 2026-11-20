@@ -20,6 +20,16 @@ import VehicleChangeCard from './VehicleChangeCard';
 import HelpCard from './HelpCard';
 import { colors, spacing, type } from '../../theme';
 
+/** Whole days until the driving licence expires, when that is within the next 30 days; otherwise null. */
+const licenceDaysLeft = (p) => {
+  if (p?.vehicleType === 'bicycle' || !p?.drivingLicense?.expiryDate) return null;
+  const end = new Date(p.drivingLicense.expiryDate);
+  if (Number.isNaN(end.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0); end.setHours(0, 0, 0, 0);
+  const days = Math.round((end - today) / 86400000);
+  return days >= 0 && days <= 30 ? days : null;
+};
+
 /**
  * Profile (web DeliveryProfilePage). Read from GET /api/delivery/me.
  * Editable after approval, as on the server: delivery pincodes (PUT /service-area, versioned)
@@ -104,7 +114,8 @@ export default function ProfileScreen({ navigation }) {
         <KeyValueRow label="Total deliveries" value={String(p.totalDeliveries ?? 0)} />
       </Card>
 
-      {duty.licenseExpired ? <InlineNotice tone="error">Your driving licence expired on {formatDate(p.drivingLicense?.expiryDate)}. Renew it and contact support to update it before going online.</InlineNotice> : null}
+      {duty.licenseExpired ? <InlineNotice tone="error">Your driving licence expired on {formatDate(p.drivingLicense?.expiryDate)}. Renew it and contact support to update it before going online.</InlineNotice>
+        : licenceDaysLeft(p) !== null ? <InlineNotice tone="warning">Your driving licence expires on {formatDate(p.drivingLicense.expiryDate)} ({licenceDaysLeft(p) === 0 ? 'today' : `in ${licenceDaysLeft(p)} day${licenceDaysLeft(p) === 1 ? '' : 's'}`}). Renew it and update it under Change vehicle so you can keep going online.</InlineNotice> : null}
 
       <Card title="Vehicle and documents">
         <KeyValueRow label="Vehicle" value={capitalize(p.vehicleType) || '—'} />
@@ -119,6 +130,9 @@ export default function ProfileScreen({ navigation }) {
 
       <Card title="Delivery pincodes">
         <Text style={type.body}>{p.zones?.length ? p.zones.join(', ') : 'None set'}</Text>
+        {/^\d{6}$/.test(String(base.pincode || '')) && p.zones?.length && !p.zones.includes(String(base.pincode)) ? (
+          <InlineNotice tone="warning">Your base location is in pincode {base.pincode}, which is not in your delivery pincodes. Add it if you deliver around your base, or you may miss nearby orders.</InlineNotice>
+        ) : null}
         {!editingZones ? <AppButton small variant="outline" title="Edit service area" onPress={openZones} /> : (
           <>
             <AppInput label="Pincodes" value={zones} onChangeText={setZones} multiline keyboardType="numbers-and-punctuation"

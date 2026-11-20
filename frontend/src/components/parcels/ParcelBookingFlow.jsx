@@ -25,7 +25,12 @@ export function ParcelPriceSummary({ pricing }) {
     {pricing.minimumAdjustmentPaise > 0 && <><dt>Minimum fare adjustment</dt><dd>{parcelMoney(pricing.minimumAdjustmentPaise)}</dd></>}
     <dt>Tax (included)</dt><dd>{parcelMoney(pricing.taxPaise)}</dd><dt><strong>Total payable</strong></dt><dd><strong>{parcelMoney(pricing.totalPaise)}</strong></dd></dl>;
 }
+// The quote's pin check (backend pinCheck.service.js): a pin in a different pincode from its written address.
+export const parcelPinWarningText = w => `The ${w.point === 'pickup' ? 'pickup' : 'drop'} pin is in pincode ${w.pinPincode}, but the address says ${w.enteredPincode}. Check the pin on the map, or the distance and fare may be wrong.`;
 export function ParcelRouteSummary({ quote }) {
+  return <>{(quote.pinWarnings || []).map(w => <p key={w.point} className="parcel-pin-warning" role="alert">{parcelPinWarningText(w)}</p>)}<ParcelRouteLine quote={quote} /></>;
+}
+function ParcelRouteLine({ quote }) {
   return <p className="parcel-route-summary">{quote.route?.provider === 'mock' && <strong>Simulated test route · </strong>}{(quote.pricing.distanceMetres / 1000).toFixed(2)} km{quote.route?.durationSeconds > 0 ? ' · about ' + Math.ceil(quote.route.durationSeconds / 60) + ' min travel' : ' · travel time unavailable'}{quote.route?.provider === 'google_routes' && <small className="parcel-google-attribution" translate="no">Google Maps</small>}</p>;
 }
 /** Bottom sheet used for vehicle details, goods, payment and lists. */
@@ -62,7 +67,7 @@ const sameParcelPlace = (a, b) => validParcelLocation(a) && validParcelLocation(
   && (Math.abs(Number(a.lat) - Number(b.lat)) < 0.0003 && Math.abs(Number(a.lng) - Number(b.lng)) < 0.0003
     || (String(a.address || '').trim().toLowerCase() === String(b.address || '').trim().toLowerCase() && String(a.building || '') === String(b.building || '')));
 
-export default function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved }) {
+export default function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved, initialVehicle = '', onInitialVehicleUsed }) {
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [now, setNow] = useState(Date.now());
@@ -79,6 +84,13 @@ export default function ParcelBookingFlow({ policy, flags, addresses = [], profi
   }, [state.quote?._id]);
   // Each screen starts at the top, as on a phone.
   useEffect(() => { globalThis.scrollTo?.(0, 0); setMapOpen(false); setShowAddresses(false); }, [state.step]);
+  // Opened from a vehicle card on the Services page: choose that vehicle and go to the next missing step,
+  // exactly as clicking it under "Choose a vehicle" does. Applied once; an unknown vehicle is ignored.
+  useEffect(() => {
+    if (!initialVehicle || !policy?.vehicles?.some(v => v.id === initialVehicle && v.enabled !== false)) return;
+    setState(s => ({ ...s, vehicleId: initialVehicle, quote: null, step: validParcelLocation(s.pickup) ? (validParcelLocation(s.dropoff) ? 'vehicle' : 'dropoff') : 'pickup' }));
+    onInitialVehicleUsed?.();
+  }, [initialVehicle]); // eslint-disable-line react-hooks/exhaustive-deps
   // Home shows the customer's last few trips (with Book Again), like the parcel app's home.
   const [recent, setRecent] = useState([]);
   useEffect(() => {

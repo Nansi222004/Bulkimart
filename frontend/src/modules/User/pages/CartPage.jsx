@@ -10,6 +10,7 @@ import CouponThresholdProgress from '../components/CouponThresholdProgress';
 import WholesaleMinimumNotice from '../components/WholesaleMinimumNotice';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import '../components/CartCheckout.css';
+import { formatCurrency } from '../utils/helpers';
 
 export default function CartPage() {
   const { getDeliveryPoint, getPricingPoint, setActiveNav, refreshCart, addToWishlist,
@@ -96,7 +97,7 @@ export default function CartPage() {
           <CouponThresholdProgress offers={availableCoupons} appliedCode={appliedCoupon?.code} onShopMore={shopMore} />
           {couponNotice && <p role="status" className="coupon-cart-notice">{couponNotice}</p>}
           {appliedCoupon && <div className="coupon-cart-applied"><strong>{appliedCoupon.code} applied</strong><span>{serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`}</span><button type="button" onClick={removeCoupon}>Remove</button></div>}
-        </>}<button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onClick={() => setActiveNav('checkout')}>{wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Proceed to Checkout'}</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
+        </>}<button type="button" className="pd-add-to-cart-btn" disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onClick={() => setActiveNav('checkout')}>{wholesaleShort ? `Add ${formatCurrency(wholesaleMinimum.remainingAmount)} more (Wholesale minimum)` : 'Proceed to Checkout'}</button><p className="basket-summary-note">Review your delivery address and payment at checkout.</p></aside></div>
       </>}
     </div>
   </section>;

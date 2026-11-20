@@ -18,7 +18,7 @@ import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../lib/deliveryLa
 import { useRefreshHandler } from '../lib/refresh';
 import { useSession } from '../context/SessionContext';
 import AuthPage from './AuthPage';
-import { Text, TextInput } from '../components/ui';
+import { Text, TextInput, money } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import DeliveryMap from '../components/DeliveryMap';
 import DeliveryPartnerRating from '../components/DeliveryPartnerRating';
@@ -402,7 +402,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           return <View key={item._id || idx} style={{ paddingVertical: 10, borderBottomWidth: idx < selectedOrder.items.length - 1 ? 1 : 0, borderBottomColor: '#f1f5f9' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {item.image ? <Image source={{ uri: mediaUrl(item.image) }} style={{ width: 36, height: 36, borderRadius: 8 }} contentFit="cover" /> : null}
-              <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • ₹{item.price} each</Text>{item.returnOption ? <Text style={{ fontSize: 10.5, fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+₹${item.returnExtraCharge || 0} paid)` : 'No Easy Returns · wrong/damaged/defective only'}</Text> : null}</View>
+              <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • {money(item.price)} each</Text>{item.returnOption ? <Text style={{ fontSize: 10.5, fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+${money(item.returnExtraCharge || 0)} paid)` : 'No Easy Returns · wrong/damaged/defective only'}</Text> : null}</View>
               <Text style={{ fontWeight: '700', fontSize: 13 }}>₹{(Math.round(Number(item.qty) * Number(item.price) * 100) / 100).toFixed(2)}</Text>
             </View>
             {currentStatus === 'delivered' && <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -428,7 +428,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
       <Card style={{ gap: 10 }}>
         <Eyebrow style={{ marginBottom: 4 }}>Bill Details</Eyebrow>
         {selectedOrder.exchange ? <Text style={{ fontSize: 12.5, color: '#166534', backgroundColor: '#f0fdf4', padding: 10, borderRadius: 10, overflow: 'hidden' }}>Free replacement for exchange {selectedOrder.exchange.returnNumber || ''}. Nothing to pay.</Text> : null}
-        <View style={styles.billRow}><Text style={styles.billLabel}>Subtotal (including product GST)</Text><Text style={styles.billValue}>₹{selectedOrder.pricing?.subtotal || 0}</Text></View>
+        <View style={styles.billRow}><Text style={styles.billLabel}>Subtotal (including product GST)</Text><Text style={styles.billValue}>{money(selectedOrder.pricing?.subtotal || 0)}</Text></View>
         <ProductGstBreakdown tax={selectedOrder.productTax} whenMissing="GST details were not recorded for this older order." />
         <Pressable onPress={() => appRouter.push(`/support/chat?order=${selectedOrder._id}`)} accessibilityRole="button" style={styles.chatSupport}>
           <Text style={styles.chatSupportText}>Chat with support about this order</Text>
@@ -438,11 +438,11 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           if (!ok || body.success === false || !Array.isArray(body.data)) throw new Error(body.message || 'Could not load the invoice');
           return body.data;
         }} />}
-        <View style={styles.billRow}><Text style={styles.billLabel}>Delivery Charge (no GST)</Text><Text style={styles.billValue}>₹{selectedOrder.pricing?.deliveryCharge || 0}</Text></View>
-        {selectedOrder.pricing?.codFeeTotal > 0 ? <View style={styles.billRow}><Text style={styles.billLabel}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ₹${selectedOrder.pricing.codFeeTaxAmount} GST)` : ''}</Text><Text style={styles.billValue}>₹{selectedOrder.pricing.codFeeTotal}</Text></View> : null}
+        <View style={styles.billRow}><Text style={styles.billLabel}>Delivery Charge (no GST)</Text><Text style={styles.billValue}>{money(selectedOrder.pricing?.deliveryCharge || 0)}</Text></View>
+        {selectedOrder.pricing?.codFeeTotal > 0 ? <View style={styles.billRow}><Text style={styles.billLabel}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ${money(selectedOrder.pricing.codFeeTaxAmount)} GST)` : ''}</Text><Text style={styles.billValue}>{money(selectedOrder.pricing.codFeeTotal)}</Text></View> : null}
         {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => <View key={title} style={styles.billRow}><Text style={{ color: '#10b981', fontSize: 13 }}>{title}</Text><Text style={{ color: '#10b981', fontSize: 13 }}>-₹{amount.toFixed(2)}</Text></View>)}
         <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
-        <View style={styles.billRow}><Text style={{ fontWeight: '800', fontSize: 14 }}>Total Amount</Text><Text style={{ fontWeight: '800', fontSize: 14 }}>₹{selectedOrder.pricing?.totalAmount || 0}</Text></View>
+        <View style={styles.billRow}><Text style={{ fontWeight: '800', fontSize: 14 }}>Total Amount</Text><Text style={{ fontWeight: '800', fontSize: 14 }}>{money(selectedOrder.pricing?.totalAmount || 0)}</Text></View>
         <View style={styles.billRow}><Text style={{ fontSize: 11, color: '#94a3b8' }}>Payment Method</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>{selectedOrder.exchange ? 'EXCHANGE — NO CHARGE' : String(selectedOrder.paymentMethod || '').toUpperCase()}</Text></View>
       </Card>
     </ScrollView>
@@ -497,7 +497,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Reason:</Text> {viewingReturn.reason?.replace(/_/g, ' ')}</Text>
           {viewingReturn.customerDescription ? <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Description:</Text> {viewingReturn.customerDescription}</Text> : null}
           {viewingReturn.rejectionReason ? <Text style={[styles.retLine, { color: '#b91c1c' }]}><Text style={{ fontWeight: '700', color: '#b91c1c' }}>Rejection reason:</Text> {viewingReturn.rejectionReason}</Text> : null}
-          {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Refund:</Text> ₹{viewingReturn.refundAmount} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}{viewingReturn.status === 'REFUNDED' ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}` : ` — ${viewingReturn.refundStatus || 'pending'}`}</Text>}
+          {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Refund:</Text> {money(viewingReturn.refundAmount)} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}{viewingReturn.status === 'REFUNDED' ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}` : ` — ${viewingReturn.refundStatus || 'pending'}`}</Text>}
           {viewingReturn.pickupMethod === 'SHIPROCKET' ? <Text style={styles.retLine}>Shiprocket pickup: {viewingReturn.reverseBooking?.trackingState || viewingReturn.reverseBooking?.state}{viewingReturn.awbNumber ? ` · AWB ${viewingReturn.awbNumber}` : ''}</Text> : null}
           {viewingReturn.attachments?.length > 0 && <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginVertical: 10 }}>
             {viewingReturn.attachments.map((att, i) => <Pressable key={i} onPress={() => Linking.openURL(mediaUrl(att.url)).catch(() => {})}><Image source={{ uri: mediaUrl(att.url) }} style={{ width: 56, height: 56, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' }} contentFit="cover" /></Pressable>)}

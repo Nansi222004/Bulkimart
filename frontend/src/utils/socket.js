@@ -26,7 +26,13 @@ export const socket = io(socketUrl, {
 let identity = null;
 // A device back online, or a tab brought back to the front, reconnects now
 // rather than waiting out the retry delay.
-const resume = () => { if (identity && !socket.connected && !socket.active) socket.connect(); };
+// A tab left in the background is usually mid-way through a scheduled retry (socket.active) that can
+// be up to reconnectionDelayMax away, so that retry is cancelled and a fresh attempt made.
+const resume = () => {
+  if (!identity || socket.connected) return;
+  if (socket.active) socket.disconnect();
+  socket.connect();
+};
 if (typeof window !== 'undefined') {
   window.addEventListener('online', resume);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resume(); });

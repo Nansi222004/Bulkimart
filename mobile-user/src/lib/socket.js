@@ -18,7 +18,13 @@ let identity = null;
 let transportIdentity = null;
 let disposal;
 // Back in the foreground or back online: reconnect now rather than waiting out the retry delay.
-const resume = () => { if (identity && !socket.connected && !socket.active) socket.connect(); };
+// After time in the background the client is usually mid-way through a scheduled retry (socket.active)
+// that can be up to reconnectionDelayMax away, so that retry is cancelled and a fresh attempt made.
+const resume = () => {
+  if (!identity || socket.connected) return;
+  if (socket.active) socket.disconnect();
+  socket.connect();
+};
 AppState.addEventListener('change', state => { if (state === 'active') resume(); });
 on(EVENTS.ONLINE, resume);
 

@@ -91,7 +91,7 @@ export async function quote(req,res) {
     const etas=await vehicleEtas(policy,q.details.pickup,vehicles).catch(()=>({}));
     vehicleOptions=options.map(o=>{const v=vehicles.find(x=>x.id===o.vehicleId);return {vehicle:publicVehicle(v),available:Boolean(o.pricing),...(o.unavailable?{reason:o.unavailable}:{}),etaMinutes:etas[v.id]??null,...(o.pricing?{pricing:quotePricing({...o.pricing,policyVersion:q.pricing.policyVersion})}:{})};});
   }
-  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:policy.maxWeightKg,maxDimensionCm:policy.maxDimensionCm},...(vehicleOptions?{vehicleOptions}:{}),pricing:quotePricing(q.pricing),terms:policy.terms});
+  return created(res,{_id:q._id,expiresAt:q.expiresAt,details:q.details,cashCollectionPoints:parcelCashCollectionPoints(policy),route:{distanceMetres:q.pricing.distanceMetres,...q.$locals.route},pinWarnings:q.$locals.pinWarnings || [],service:{id:'parcel',name:'Doorstep delivery',maxWeightKg:policy.maxWeightKg,maxDimensionCm:policy.maxDimensionCm},...(vehicleOptions?{vehicleOptions}:{}),pricing:quotePricing(q.pricing),terms:policy.terms});
 }
 export async function book(req,res) {
   const b=await bookParcel(req.user._id,req.body,req.get('Idempotency-Key'));

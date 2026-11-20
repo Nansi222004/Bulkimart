@@ -122,7 +122,7 @@ export default function GoToScreen({ navigation }) {
             <>
               <AppInput label="Destination" placeholder="Search an area, landmark or address" value={query}
                 onChangeText={(t) => { setQuery(t); if (chosen && t !== chosen.address) setChosen(null); }} autoCorrect={false}
-                hint={searching ? 'Searching…' : searchError || 'Type at least 3 letters.'} />
+                hint={searching ? 'Searching…' : searchError || (query.trim().length < 3 ? 'Type at least 3 letters.' : suggestions.length ? 'Choose your destination below.' : undefined)} />
               {suggestions.map((s) => (
                 <Pressable key={s.placeId} onPress={() => pick(s)} style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]} accessibilityRole="button">
                   <Text style={styles.suggestionMain}>{s.main}</Text>

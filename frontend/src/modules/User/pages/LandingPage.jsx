@@ -56,6 +56,7 @@ import FashionSection from '../components/FashionSection';
 import GroceriesSection from '../components/GroceriesSection';
 import LocationPromptModal from '../components/LocationPromptModal';
 import NotificationPopup from '../../../components/NotificationPopup';
+import { formatCurrency } from '../utils/helpers';
 
 /**
  * Desktop website (>768px): the bottom nav is hidden there (User.css), so pages that
@@ -115,7 +116,7 @@ export const LandingPageContent = () => {
     productDetailLoading, productDetailError, retryProductDetail, setSelectedProduct,
     currentUser, logoutUser,
     activeSubNav,
-    getCartCount,
+    getCurrentCartCount,
     getCartSubtotal,
     setActiveNav,
     selectedOrder,
@@ -143,7 +144,8 @@ export const LandingPageContent = () => {
     setContentKey(key => key + 1);
   });
 
-  const cartCount = getCartCount();
+  // The bar describes the cart for the current mode, so its count and total always match "View Cart".
+  const cartCount = getCurrentCartCount();
   // Delivery is only decided (and added) on the Fulfillment Checkout page —
   // this bar shows the items subtotal so nothing is charged upfront.
   const cartTotal = getCartSubtotal();
@@ -393,7 +395,7 @@ export const LandingPageContent = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13 }}>
-            <span>View Cart • ₹{cartTotal}</span>
+            <span>View Cart • {formatCurrency(cartTotal)}</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
           </div>
         </div>

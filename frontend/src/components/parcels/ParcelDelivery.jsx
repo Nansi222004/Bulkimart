@@ -9,6 +9,7 @@ import { parcelBookingEnabled, parcelBookingReady } from './parcelAvailability';
 import ParcelLocationPicker from './ParcelLocationPicker';
 import ParcelBookingFlow, { ParcelSheet, ParcelVehicleIcon, parcelRupees } from './ParcelBookingFlow';
 import { bookAgainDraft } from './parcelJourney';
+import { loadParcelCatalogue, savedParcelCatalogue } from './parcelCatalogue';
 import { Share2, Headset } from 'lucide-react';
 export const PARCEL_CANCEL_REASONS = ['Driver was not allocated', 'Changed my mind', 'My reason is not listed'];
 const statusChip = s => s === 'delivered' ? ['done', 'Completed'] : s === 'cancelled' ? ['cancelled', 'Cancelled'] : s === 'cancellation_review' ? ['review', 'Cancellation requested'] : ['active', parcelCustomerStatus(s)];
@@ -85,7 +86,10 @@ export default function ParcelDelivery() {
   useEffect(()=>{const f=()=>setPath(window.location.pathname);window.addEventListener('popstate',f);window.addEventListener('app:locationchange',f);return()=>{window.removeEventListener('popstate',f);window.removeEventListener('app:locationchange',f);};},[]);
   useEffect(()=>{
     // A background refresh of an already-loaded tracking or history page keeps the content on screen.
-    const c=new AbortController();setLoading(track||history?loadedKey!==readKey:true);setReadError('');setError('');
+    const c=new AbortController();
+    // Booking: the vehicles and rules saved from the last visit show at once; a fresh copy follows.
+    const saved=!track&&!history?savedParcelCatalogue():null;
+    setLoading(track||history?loadedKey!==readKey:!saved);setReadError('');setError('');
     if(invalid){setLoading(false);return()=>c.abort();}
     async function load(){
       if(track||history){
@@ -100,14 +104,13 @@ export default function ParcelDelivery() {
           setRows(b.data);setMeta(b.meta);
         }
       } else {
-        const f=await request('customer','/capabilities',{signal:c.signal});
-        if(c.signal.aborted)return;
-        if(typeof f.data?.catalogue!=='boolean')throw new Error('Unable to check parcel availability. Please try again.');
-        setFlags(f.data);setPolicy(null);
-        // A disabled service is an availability state, not a failed catalogue request.
-        const p=parcelBookingEnabled(f.data)?await request('customer','/catalogue',{signal:c.signal}):null;
-        if(c.signal.aborted)return;
-        setPolicy(p?.data&&Array.isArray(p.data.areas)&&Array.isArray(p.data.categories)&&Array.isArray(p.data.prohibitedItems)?p.data:null);
+        if(saved){setFlags(saved.flags);setPolicy(saved.policy);}
+        // Both requests at once, shared with the Services page's load; prices and checks stay server-side.
+        try{
+          const fresh=await loadParcelCatalogue();
+          if(c.signal.aborted)return;
+          setFlags(fresh.flags);setPolicy(fresh.policy);
+        }catch(e){if(!saved)throw e;/* offline: keep the saved copy; quotes still ask the server */}
       }
       setLoadedKey(readKey);
     }
@@ -196,7 +199,7 @@ export default function ParcelDelivery() {
       </ParcelSheet>}
       {cancelResult&&<div className="parcel-sheet-overlay parcel-result-overlay"><section className="parcel-result-dialog" role="alertdialog" aria-modal="true" aria-labelledby="parcel-cancel-result"><span className="parcel-result-icon" aria-hidden="true">✕</span><h2 id="parcel-cancel-result">{cancelResult==='cancelled'?'Booking cancelled':'Cancellation requested'}</h2><p>{cancelResult==='cancelled'?`Your booking with ${booking.reference} has been cancelled.${booking.refund?.toWallet?' The amount you paid is back in your Bulkimart wallet.':''}`:'Our team will review your request. We’ll update you here.'}</p><button type="button" className="parcel-primary" onClick={()=>{setCancelResult('');if(cancelResult==='cancelled')nav('/parcel-delivery/history');}}>Okay</button></section></div>}
     </>:history?<section className="parcel-card"><h2>Your parcel deliveries</h2>{!rows.length?<div className="parcel-empty-state"><div className="parcel-empty-icon" aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div><p className="parcel-empty-title">No parcel bookings yet.</p><p className="parcel-empty-subtitle">When you book a parcel pickup or delivery, its status and tracking will appear here.</p><button type="button" className="parcel-btn-book-now" onClick={()=>nav('/parcel-delivery/book')}>Book a parcel →</button></div>:<>{rows.map(b=><ParcelOrderCard key={b._id} booking={b} onOpen={()=>nav(`/parcel-delivery/track/${b._id}`)} onBookAgain={['delivered','cancelled'].includes(b.status)?()=>bookAgain(b):undefined}/>)}{meta.pages>1&&<nav className="customer-service-pagination" aria-label="Pagination"><button type="button" disabled={page<=1} onClick={()=>setPage(x=>x-1)}>Previous</button><span> Page {page} </span><button type="button" disabled={page>=meta.pages} onClick={()=>setPage(x=>x+1)}>Next</button></nav>}</>}</section>:<>
-      <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} onAddressSaved={()=>setAddressRev(n=>n+1)}onOpenHistory={()=>nav('/parcel-delivery/history')} onOpenTrip={id=>nav('/parcel-delivery/track/'+id)} profile={session?.profile} onBooked={b=>{setBooking(b);setJustBooked(b.paymentMethod==='online'?false:b._id);nav('/parcel-delivery/track/'+b._id);if(b.paymentMethod==='online')void payOnline(b);}}/>
+      <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} initialVehicle={new URLSearchParams(window.location.search).get('vehicle')||''} onInitialVehicleUsed={()=>{const u=new URL(window.location.href);u.searchParams.delete('vehicle');window.history.replaceState(window.history.state,'',u.pathname+u.search);}} onAddressSaved={()=>setAddressRev(n=>n+1)}onOpenHistory={()=>nav('/parcel-delivery/history')} onOpenTrip={id=>nav('/parcel-delivery/track/'+id)} profile={session?.profile} onBooked={b=>{setBooking(b);setJustBooked(b.paymentMethod==='online'?false:b._id);nav('/parcel-delivery/track/'+b._id);if(b.paymentMethod==='online')void payOnline(b);}}/>
     </>}
   </section>;
 }

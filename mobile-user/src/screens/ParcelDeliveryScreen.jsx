@@ -19,6 +19,7 @@ import { newIdempotencyKey } from '../components/services/ServicePayment';
 import { parcelBookingEnabled, parcelBookingReady } from '../components/services/ServiceEntries';
 import { PBtn, PCard, PSheet, parcelTint, ParcelBookingFlow, ParcelCustomerStatus, ParcelMap, ParcelOrderCard, latestRiderPoint } from '../components/parcels/ParcelUI';
 import { bookAgainDraft, parcelCustomerStatus, parcelHeaders, parcelMoney, parcelRequest } from '../components/parcels/parcelLogic';
+import { loadParcelCatalogue, savedParcelCatalogue } from '../components/parcels/parcelCatalogue';
 import { session } from '../lib/storage';
 import { runRefresh, useRefreshHandler } from '../lib/refresh';
 
@@ -118,7 +119,9 @@ function ParcelDelivery() {
 
   useEffect(() => {
     const c = new AbortController();
-    setLoading(track || history ? loadedKey !== readKey : true); setReadError(''); setError('');
+    // Booking: the vehicles and rules saved from the last visit show at once; a fresh copy follows.
+    const saved = !track && !history ? savedParcelCatalogue() : null;
+    setLoading(track || history ? loadedKey !== readKey : !saved); setReadError(''); setError('');
     if (invalid) { setLoading(false); return () => c.abort(); }
     (async () => {
       if (track || history) {
@@ -133,13 +136,13 @@ function ParcelDelivery() {
           setRows(b.data); setMeta(b.meta);
         }
       } else {
-        const f = await parcelRequest('/capabilities', { signal: c.signal });
-        if (c.signal.aborted) return;
-        if (typeof f.data?.catalogue !== 'boolean') throw new Error('Unable to check parcel availability. Please try again.');
-        setFlags(f.data); setPolicy(null);
-        const p = parcelBookingEnabled(f.data) ? await parcelRequest('/catalogue', { signal: c.signal }) : null;
-        if (c.signal.aborted) return;
-        setPolicy(p?.data && Array.isArray(p.data.areas) && Array.isArray(p.data.categories) && Array.isArray(p.data.prohibitedItems) ? p.data : null);
+        if (saved) { setFlags(saved.flags); setPolicy(saved.policy); }
+        // Shared with the Parcel page's load (both requests at once); prices and checks stay server-side.
+        try {
+          const fresh = await loadParcelCatalogue();
+          if (c.signal.aborted) return;
+          setFlags(fresh.flags); setPolicy(fresh.policy);
+        } catch (e) { if (!saved) throw e; /* offline: keep the saved copy; quotes still ask the server */ }
       }
       setLoadedKey(readKey);
     })().catch(e => { if (!c.signal.aborted && e.name !== 'AbortError') setReadError(e.message); }).finally(() => { if (!c.signal.aborted) setLoading(false); });
@@ -319,7 +322,8 @@ function ParcelDelivery() {
             </View>}
           </>}
         </PCard>
-          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses} onAddressSaved={() => setAddressRev(n => n + 1)} profile={sessionState?.profile} onOpenHistory={() => nav('history')} onOpenTrip={id => nav('track', id)}
+          : <ParcelBookingFlow policy={policy} flags={flags} addresses={addresses}
+            initialVehicle={String(params.vehicle || '')} onInitialVehicleUsed={() => router.setParams({ vehicle: undefined })} onAddressSaved={() => setAddressRev(n => n + 1)} profile={sessionState?.profile} onOpenHistory={() => nav('history')} onOpenTrip={id => nav('track', id)}
             onBooked={b => { setBooking(b); setJustBooked(b.paymentMethod === 'online' ? false : b._id); router.setParams({ view: 'track', id: b._id }); if (b.paymentMethod === 'online') void payOnline(b); }} />}
   </Shell>;
 }

@@ -164,8 +164,30 @@ export const reverseGeocode = async (lat, lng) => {
     }
   }
 
+  // Still none (an unnamed road, an open plot): the street/area results above can all lack a postal
+  // code even though Google knows the pin's pincode. Ask once more for just the postal-code area, so
+  // the customer is not made to type it. Best effort: a failure leaves the pincode empty as before.
+  if (!address.pincode) {
+    address.pincode = await postalCodeAt(lat, lng);
+  }
+
   cacheSet(key, address);
   return { ok: true, address, cached: false };
+};
+
+/** The 6-digit pincode of the postal-code area containing the point, or undefined. */
+const postalCodeAt = async (lat, lng) => {
+  try {
+    const url = `${GOOGLE_ENDPOINT}?latlng=${lat},${lng}`
+      + `&key=${encodeURIComponent(process.env.GOOGLE_MAPS_API_KEY)}`
+      + '&result_type=postal_code&language=en';
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const payload = await res.json();
+    if (payload.status !== 'OK') return undefined;
+    return payload.results?.map(toAddressFields).find((a) => a.pincode)?.pincode;
+  } catch {
+    return undefined;
+  }
 };
 
 // ---------------------------------------------------------------------------

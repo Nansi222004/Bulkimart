@@ -34,6 +34,8 @@ export default function CategoriesScreen() {
   const { width: windowWidth } = useWindowDimensions();
   // 12px padding on each side (24px) + 12px gap between columns = 36px total offset
   const columnWidth = Math.max(140, Math.floor((windowWidth - 36) / 2));
+  // Category cards: three across, so the catalogue reads as a compact menu rather than big tiles.
+  const categoryWidth = Math.max(96, Math.floor((windowWidth - 24 - 2 * 10) / 3));
   const { activeMode, setActiveMode, addToCart, setSelectedProduct, selectedCategoryFilter, setSelectedCategoryFilter } = useUser();
   const channel = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const { tree, loading, error, retry } = useCategoryTree(channel);
@@ -169,8 +171,8 @@ export default function CategoriesScreen() {
     <FlatList
       data={loading || error ? [] : roots}
       keyExtractor={c => String(c._id)}
-      numColumns={2}
-      columnWrapperStyle={styles.columnWrapper}
+      numColumns={3}
+      columnWrapperStyle={styles.categoryRow}
       contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottom, gap: 12 }}
       stickyHeaderIndices={[0]}
       keyboardShouldPersistTaps="handled"
@@ -194,17 +196,17 @@ export default function CategoriesScreen() {
           })}
         </View>
       </View>}
-      ListEmptyComponent={loading ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} style={{ width: columnWidth, height: 170 }} />)}</View>
+      ListEmptyComponent={loading ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} style={{ width: categoryWidth, height: 128 }} />)}</View>
         : error ? <View style={[styles.state, { borderColor: theme.border }]} accessibilityRole="alert"><Text style={{ fontWeight: '700' }}>Categories could not be loaded</Text><Text style={{ color: theme.textSecondary }}>{error}</Text><Pressable onPress={retry} style={[styles.stateBtn, { backgroundColor: theme.primary }]}><Text style={styles.stateBtnText}>Try again</Text></Pressable></View>
           : <View style={[styles.state, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>{query ? 'No matching categories' : 'No categories are published yet'}</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>{query ? 'Try a different search.' : 'Active admin-managed categories will appear here.'}</Text></View>}
       renderItem={({ item: category }) => (
-        <Pressable onPress={() => openCategory(category)} style={[styles.card, { width: columnWidth, maxWidth: columnWidth, borderColor: theme.border }]} accessibilityRole="button" accessibilityLabel={category.name}>
+        <Pressable onPress={() => openCategory(category)} style={[styles.card, { width: categoryWidth, maxWidth: categoryWidth, borderColor: theme.border }]} accessibilityRole="button" accessibilityLabel={category.name}>
           <View style={[styles.art, { backgroundColor: '#f8fafc' }]}>
             <CategoryArtwork category={category} fit="contain" radius={12} />
           </View>
           <Text numberOfLines={2} style={[styles.cardName, { color: theme.textPrimary }]}>{category.name}</Text>
-          <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>
-            {category.children?.length ? `${category.children.length} subcategories` : 'Browse products'}
+          <Text numberOfLines={1} style={{ color: theme.textSecondary, fontSize: 10.5, fontWeight: '600' }}>
+            {category.children?.length ? `${category.children.length} subcategor${category.children.length === 1 ? 'y' : 'ies'}` : 'Browse'}
           </Text>
         </Pressable>
       )}
@@ -220,9 +222,10 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', padding: 4, borderWidth: 1, borderRadius: 12, backgroundColor: '#fff' },
   tab: { flex: 1, minHeight: 38, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   columnWrapper: { gap: 12, justifyContent: 'flex-start' },
-  card: { alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 10, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-  art: { width: '100%', height: 110, borderRadius: 12, padding: 8, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
-  cardName: { fontSize: 13.5, fontWeight: '700', lineHeight: 17, textAlign: 'center' },
+  categoryRow: { gap: 10, justifyContent: 'flex-start' },
+  card: { alignItems: 'center', gap: 5, paddingVertical: 8, paddingHorizontal: 6, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+  art: { width: '100%', height: 64, borderRadius: 10, padding: 6, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  cardName: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, textAlign: 'center' },
   state: { marginVertical: 48, padding: 28, alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 16, backgroundColor: '#fff' },
   compact: { marginVertical: 12, padding: 20 },
   stateBtn: { marginTop: 5, paddingVertical: 9, paddingHorizontal: 15, borderRadius: 9 },

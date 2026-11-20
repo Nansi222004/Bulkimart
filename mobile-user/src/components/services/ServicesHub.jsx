@@ -13,6 +13,8 @@ import { Text, TextInput } from '../ui';
 import { ParcelVehicleIcon } from '../parcels/ParcelUI';
 import { parcelCustomerStatus, parcelMoney, parcelRequest } from '../parcels/parcelLogic';
 import { parcelBookingEnabled } from './ServiceEntries';
+import { loadParcelCatalogue, savedParcelCatalogue } from '../parcels/parcelCatalogue';
+import { on, EVENTS } from '../../lib/events';
 import { useLegalApi } from './LegalServices';
 import { SERVICES_TAB_EVENT } from '../Shell';
 
@@ -90,30 +92,44 @@ function Section({ title, action, onAction, c, children }) {
   </View>;
 }
 
+// 'enabled' | 'disabled' for a { flags, policy } answer; 'loading' before any answer.
+const parcelPanelState = c => (!c ? 'loading' : parcelBookingEnabled(c.flags) && c.policy?.ready === true ? 'enabled' : 'disabled');
+const RETRY_MS = 10000;
+
 function ParcelPanel({ c }) {
   const router = useRouter();
   const { currentUser } = useUser();
-  const [state, setState] = useState('loading'), [vehicles, setVehicles] = useState([]), [recent, setRecent] = useState([]);
+  // The answer saved from the last visit paints at once (vehicles and the Book button); a fresh one follows.
+  const [state, setState] = useState(() => parcelPanelState(savedParcelCatalogue()));
+  const [vehicles, setVehicles] = useState(() => savedParcelCatalogue()?.policy?.vehicles || []), [recent, setRecent] = useState([]);
+  useEffect(() => {
+    let stopped = false, timer;
+    const load = () => {
+      clearTimeout(timer);
+      loadParcelCatalogue().then(answer => {
+        if (stopped) return;
+        setVehicles(Array.isArray(answer.policy?.vehicles) ? answer.policy.vehicles : []);
+        setState(parcelPanelState(answer));
+      }).catch(() => {
+        if (stopped) return;
+        // Keep what is shown (the saved answer) and try again shortly; only an empty page shows the error.
+        setState(s => (s === 'loading' || s === 'error' ? 'error' : s));
+        timer = setTimeout(load, RETRY_MS);
+      });
+    };
+    load();
+    const offOnline = on(EVENTS.ONLINE, load);
+    return () => { stopped = true; clearTimeout(timer); offOnline(); };
+  }, []);
   useEffect(() => {
     const ctl = new AbortController();
-    const get = async path => {
-      const r = await boundedFetch(`/api/parcel-delivery/${path}`, { signal: ctl.signal });
-      if (!r.ok) throw new Error('unavailable');
-      return (await r.json()).data;
-    };
-    (async () => {
-      const flags = await get('capabilities');
-      if (!parcelBookingEnabled(flags)) { if (!ctl.signal.aborted) setState('disabled'); return; }
-      const policy = await get('catalogue');
-      if (ctl.signal.aborted) return;
-      setVehicles(Array.isArray(policy?.vehicles) ? policy.vehicles : []);
-      setState(policy?.ready === true ? 'enabled' : 'disabled');
-    })().catch(() => { if (!ctl.signal.aborted) setState('error'); });
     if (currentUser && getToken()) parcelRequest('/bookings?page=1', { signal: ctl.signal })
       .then(b => { if (!ctl.signal.aborted && Array.isArray(b.data)) setRecent(b.data.slice(0, 3)); }).catch(() => {});
     return () => ctl.abort();
   }, [currentUser]);
   const book = () => router.push('/parcel-delivery?view=book');
+  // A vehicle card starts the booking with that vehicle already chosen.
+  const bookWith = vehicleId => router.push({ pathname: '/parcel-delivery', params: { view: 'book', vehicle: vehicleId } });
   const track = id => router.push({ pathname: '/parcel-delivery', params: { view: 'track', id } });
   const active = recent.find(b => ACTIVE.includes(b.status));
   const past = recent.filter(b => b !== active).slice(0, 2);
@@ -145,7 +161,7 @@ function ParcelPanel({ c }) {
         <View style={[styles.routeField, { borderColor: c.border }]}><Text style={{ color: c.muted, fontSize: 15 }}>Drop location</Text></View>
       </View>
       {state === 'loading' ? <Text style={[styles.note, { color: c.muted }]}>Checking availability…</Text>
-        : state === 'error' ? <Text style={[styles.note, { color: c.muted }]} accessibilityRole="alert">Could not check availability. Pull down to try again.</Text>
+        : state === 'error' ? <Text style={[styles.note, { color: c.muted }]} accessibilityRole="alert">Could not check availability. Trying again…</Text>
           : !open ? <Text style={[styles.note, { color: c.muted }]}>New bookings are paused right now. Your existing parcels are still tracked.</Text>
             : <View style={[styles.primary, { backgroundColor: c.action }]}><Text style={[styles.primaryText, { color: c.onAction }]}>Book a parcel</Text></View>}
     </Pressable>
@@ -153,11 +169,13 @@ function ParcelPanel({ c }) {
     {vehicles.length > 0 && <Section title="Vehicles" c={c}>
       <Text style={{ color: c.muted, fontSize: 13, marginTop: -6, marginBottom: 10 }}>Pick the one that fits your parcel while booking.</Text>
       <View style={styles.vehicleRow}>
-        {vehicles.map(v => <View key={v.id} style={[styles.vehicle, { backgroundColor: c.surface, borderColor: c.border }]}>
+        {vehicles.map(v => <Pressable key={v.id} onPress={open ? () => bookWith(v.id) : undefined} disabled={!open}
+          accessibilityRole="button" accessibilityLabel={`Book a ${v.name}${v.maxWeightKg ? `, up to ${v.maxWeightKg} kg` : ''}`}
+          style={({ pressed }) => [styles.vehicle, { backgroundColor: c.surface, borderColor: c.border }, pressed && { borderColor: c.action, opacity: 0.85 }]}>
           <ParcelVehicleIcon icon={v.icon} size={34} />
           <Text numberOfLines={1} style={[styles.vehicleName, { color: c.text }]}>{v.name}</Text>
           {v.maxWeightKg ? <Text style={{ color: c.muted, fontSize: 12 }}>Up to {v.maxWeightKg} kg</Text> : null}
-        </View>)}
+        </Pressable>)}
       </View>
     </Section>}
 

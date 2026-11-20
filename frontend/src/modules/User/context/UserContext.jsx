@@ -1123,6 +1123,9 @@ export const UserProvider = ({ children }) => {
   const getCartCount = () => Object.keys(cartSummary || {}).length
     ? Object.values(cartSummary).reduce((acc, ch) => acc + (ch.count || 0), 0) : (serverCart.count || 0);
   const getCartSubtotal = () => serverCart.pricing?.subtotal || 0;
+  // Units in the cart for the current mode (Quick or ShopAll): the cart "View Cart" opens and the one
+  // getCartSubtotal() totals. getCartCount() above counts every cart, for the header badge.
+  const getCurrentCartCount = () => (serverCart.items || []).reduce((n, i) => n + (Number(i.qty) || 0), 0);
   const getDeliveryCharge = () => serverCart.pricing?.deliveryCharge || 0;
   const getCartTotal = () => serverCart.pricing?.totalAmount || 0;
   const getCartWarnings = () => serverCart.warnings || [];
@@ -1984,7 +1987,7 @@ export const UserProvider = ({ children }) => {
         addToCart, removeFromCart, clearCart,
         setCartItemQty, deleteCartItem, setCartItemReturnOption,
         getCartCount, getCartItems, getCartWarnings, getItemQty,
-        getCartSubtotal, getDeliveryCharge, getCouponDiscount, getCartTotal,
+        getCartSubtotal, getCurrentCartCount, getDeliveryCharge, getCouponDiscount, getCartTotal,
 
         // Coupon
         appliedCoupon, applyCoupon, removeCoupon, couponNotice,

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useUser } from './UserContext';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
-import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle, rememberBootLook, readExperience, rememberExperience } from '../../../utils/storefront';
+import { DEFAULT_TOKENS, freshExperience, showableExperience, normalizeExperience, themeStyle, rememberBootLook, readExperience, rememberExperience, rememberLastTheme, lastTheme } from '../../../utils/storefront';
 import { CustomerThemeContext } from '../../../components/CustomerThemeContext';
 import { effectActive, effectApplies } from '../../../../../backend/shared/celebration.mjs';
 const fallback = { theme: { tokens: DEFAULT_TOKENS }, banners: [], headerCategories: [], sections: [], splash: null, announcement: null };
@@ -58,6 +58,7 @@ export function StorefrontProvider({ children }) {
         const ttl = Date.parse(body.data.validUntil) - Date.parse(body.data.serverTime);
         delay = Math.max(1000, Math.min(30000, ttl > 10000 ? ttl - 5000 : ttl));
         rememberExperience(key, body.data);
+        rememberLastTheme(normalizeExperience(body.data).theme);
       } catch { delay = 5000; /* Retry soon; the current theme stays during the grace period below. */ }
       finally {
         initial = false;
@@ -74,7 +75,17 @@ export function StorefrontProvider({ children }) {
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); window.removeEventListener('app:soft-refresh', refresh); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', visible); };
   }, [key]);
   const now = clock + offset.current;
-  const current = data?.key === key && showableExperience(data, now) ? normalizeExperience(data) : fallback;
+  // Until this storefront's copy arrives (slow or no network, a new header category), keep the theme
+  // already being shown, or at launch the one saved from the last visit, instead of the built-in red.
+  const lastGood = useRef(undefined);
+  if (lastGood.current === undefined) { const saved = lastTheme(); lastGood.current = saved ? { theme: saved } : null; }
+  const showable = data?.key === key && showableExperience(data, now);
+  if (showable) lastGood.current = normalizeExperience(data);
+  // Never kept past a scheduled change the server announced (a campaign ending) or the theme's own end.
+  const previous = lastGood.current;
+  const previousValid = previous && !(previous.scheduleUntil && !(Date.parse(previous.scheduleUntil) > now))
+    && !(previous.theme?.endAt && !(Date.parse(previous.theme.endAt) > now));
+  const current = showable ? previous : previousValid ? { ...fallback, theme: previous.theme } : fallback;
   useEffect(() => {
     // The desktop gutters sit outside the customer shell. Restore the host
     // background on exit so other portals keep their existing appearance.

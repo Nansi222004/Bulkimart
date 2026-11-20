@@ -1,5 +1,7 @@
 import User from '../models/User.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
+import { httpError } from '../utils/response.js';
+import { publicUser } from './auth.controller.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { mediaContext } from '../services/media.service.js';
 import { registerPushToken } from '../services/notification.service.js';
@@ -57,20 +59,33 @@ export const updateProfile = asyncHandler(async (req, res) => {
     throw new Error('User not found');
   }
 
-  const { name, email } = req.body;
-  if (name) user.name = name;
-  if (email) user.email = email;
+  // Only what the customer can edit: name, email and the picture (an upload or one of the built-in designs).
+  const { name, email, avatarPreset } = req.body;
+  if (name !== undefined) {
+    const value = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+    if (!value || value.length > 80) throw httpError(400, 'Enter your name (up to 80 characters).');
+    user.name = value;
+  }
+  if (email !== undefined) {
+    const value = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (value && (value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value))) throw httpError(400, 'Enter a valid email address.');
+    user.email = value || undefined;
+  }
   if (req.file) {
-    const avatarUrl = await uploadToCloudinary(req.file.buffer, 'avatars', mediaContext(req, req.file));
-    user.avatar = avatarUrl;
+    user.avatar = await uploadToCloudinary(req.file.buffer, 'avatars', mediaContext(req, req.file));
+  } else if (avatarPreset !== undefined) {
+    // The apps draw these designs themselves; only the design's name is stored.
+    if (!AVATAR_PRESETS.includes(avatarPreset)) throw httpError(400, 'Choose one of the available pictures.');
+    user.avatar = `preset:${avatarPreset}`;
   }
 
   const updatedUser = await user.save();
   res.status(200).json({
     success: true,
-    user: updatedUser
+    user: publicUser(updatedUser),
   });
 });
+export const AVATAR_PRESETS = ['neutral', 'aqua', 'blue', 'orange', 'purple'];
 
 // @desc    List my saved delivery addresses
 // @route   GET /api/users/addresses

@@ -22,7 +22,7 @@ import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
 import EasyReturnsSheet from '../components/EasyReturnsSheet';
 import BackButton from '../components/BackButton';
 import { BoltIcon, HeartIcon, ShareIcon } from '../components/icons';
-import { Sheet, Text, TextInput } from '../components/ui';
+import { Sheet, Text, TextInput, money } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
 
 const STAR = '12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26';
@@ -403,7 +403,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
             <Text style={{ fontSize: 14 }}>⚡</Text>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 12, fontWeight: '800', color: '#166534' }}>Same-day delivery</Text>
-              <Text style={{ fontSize: 10.5, color: '#166534', marginTop: 1 }}>Arrives by {new Date(sameDay.promisedBy).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · +₹{sameDay.customerDeliveryCharge} for same-day</Text>
+              <Text style={{ fontSize: 10.5, color: '#166534', marginTop: 1 }}>Arrives by {new Date(sameDay.promisedBy).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · +{money(sameDay.customerDeliveryCharge)} for same-day</Text>
             </View>
           </View>}
           <View style={[styles.deliveryBox, { backgroundColor: '#f1f5f9' }]}>

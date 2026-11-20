@@ -12,7 +12,7 @@ import { useRefreshHandler, runRefresh } from '../lib/refresh';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { CustomerPage, useNavPadding } from '../components/Shell';
-import { Spinner, Text } from '../components/ui';
+import { Spinner, Text, money } from '../components/ui';
 import { AppliedCoupon, BasketGroups, BasketSummary, CartAlert, CartEmptyState, CouponThresholdProgress, PrimaryButton, SecondaryButton, WholesaleMinimumNotice } from '../components/cart/CartUI';
 
 const logoIcon = require('../../assets/images/logo-icon-transparent.png');
@@ -113,7 +113,7 @@ export default function CartScreen() {
             {couponNotice ? <Text style={{ marginVertical: 8, color: theme.primary, fontSize: 12, fontWeight: '600' }}>{couponNotice}</Text> : null}
             {appliedCoupon && <AppliedCoupon code={appliedCoupon.code} detail={serverCart.pricing?.couponFreeShipping ? 'Free delivery' : `Saved ₹${Number(serverCart.pricing?.couponDiscount || 0).toLocaleString('en-IN')}`} onRemove={removeCoupon} />}
           </>}
-          <PrimaryButton title={wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Proceed to Checkout'} disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onPress={() => setActiveNav('checkout')} />
+          <PrimaryButton title={wholesaleShort ? `Add ${money(wholesaleMinimum.remainingAmount)} more (Wholesale minimum)` : 'Proceed to Checkout'} disabled={busy || basket.loading || pricingPending || data.valid === false || mixedDigital || wholesaleShort || !summaryData?.totals} onPress={() => setActiveNav('checkout')} />
           <Text style={styles.note}>Review your delivery address and payment at checkout.</Text>
         </View>
       </>}

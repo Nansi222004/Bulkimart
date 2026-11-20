@@ -16,7 +16,9 @@ export function clearUserSession(notify = true) {
   for (const fn of cleanups) { try { fn(); } catch { /* cleanup is best effort */ } }
   sessionRevision++;
   clearPortalRequests();
-  for (const key of ['userToken', 'userProfile', 'userLocation', 'guestLocationCoords']) local.removeItem(key);
+  // Everything personal kept on the phone: the next person to sign in must not see it. 'userAvatar' is
+  // the picture older app versions kept here; 'nhcone_recent_searches' is the search history.
+  for (const key of ['userToken', 'userProfile', 'userLocation', 'guestLocationCoords', 'userAvatar', 'nhcone_recent_searches']) local.removeItem(key);
   for (const key of session.keys()) if (key.startsWith('bulkimart:checkout:')) session.removeItem(key);
   if (notify) emit(EVENTS.SESSION_CHANGED);
 }

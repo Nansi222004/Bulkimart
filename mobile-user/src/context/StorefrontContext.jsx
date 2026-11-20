@@ -9,7 +9,7 @@ import { AppState } from 'react-native';
 import { boundedFetch } from '../api/client';
 import { local, session, readJSON } from '../lib/storage';
 import { on, EVENTS } from '../lib/events';
-import { DEFAULT_TOKENS } from '../shared/storefront';
+import { DEFAULT_TOKENS, resolveTokens } from '../shared/storefront';
 import { effectActive, effectApplies } from '../shared/celebration';
 import { themeFrom } from '../theme';
 import { ThemeContext } from '../theme/ThemeContext';
@@ -72,6 +72,19 @@ const hex = value => (typeof value === 'string' && /^#[0-9a-f]{3,8}$/i.test(valu
 export function rememberBootLook(tokens = {}, until = null) {
   try { local.setItem(BOOT_LOOK_KEY, JSON.stringify({ header: hex(tokens.header), headerText: hex(tokens.headerText), background: hex(tokens.background), search: hex(tokens.search), until: until || null })); } catch { /* optional */ }
 }
+// The whole theme (colours, festive header, category tiles) this device last received. Unlike the
+// experience copy (banners, sections, prices: fresh for 30 s only), the theme is reused at the next
+// launch however old it is, so an offline or slow start shows the admin's theme instead of the
+// built-in red. A theme past its end date is never reused. Replaced as soon as the server answers.
+export const LAST_THEME_KEY = 'bulkimart:last-theme';
+export function rememberLastTheme(theme) {
+  try { if (theme?.tokens) local.setItem(LAST_THEME_KEY, JSON.stringify(theme)); } catch { /* optional */ }
+}
+export function lastTheme(now = Date.now()) {
+  const theme = readJSON(local, LAST_THEME_KEY);
+  if (!theme?.tokens || typeof theme.tokens !== 'object' || (theme.endAt && !(Date.parse(theme.endAt) > now))) return null;
+  return { ...theme, tokens: resolveTokens(theme.tokens) };
+}
 export function bootLook(now = Date.now()) {
   const look = readJSON(local, BOOT_LOOK_KEY);
   if (!look || (look.until && !(Date.parse(look.until) > now))) return null;
@@ -117,6 +130,7 @@ export function StorefrontProvider({ children }) {
         const ttl = Date.parse(body.data.validUntil) - Date.parse(body.data.serverTime);
         delay = Math.max(1000, Math.min(30000, ttl > 10000 ? ttl - 5000 : ttl));
         rememberExperience(key, body.data);
+        rememberLastTheme(normalizeExperience(body.data).theme);
       } catch { delay = 5000; /* retry soon; the current theme stays during the grace period */ }
       finally {
         initial = false;
@@ -138,12 +152,19 @@ export function StorefrontProvider({ children }) {
   const showable = Boolean(data?.key === key && showableExperience(data, now));
   // Each header category has its own experience request. While a new one loads, keep the theme and effect the
   // customer is already seeing (the admin's live theme) instead of flashing the built-in default colours.
-  const lastGood = useRef(null);
+  // At launch that is the theme saved from the last visit, until the server answers.
+  const lastGood = useRef(undefined);
+  if (lastGood.current === undefined) { const saved = lastTheme(); lastGood.current = saved ? { theme: saved } : null; }
+  // Never kept past a scheduled change the server announced (a campaign ending) or the theme's own end.
+  // Worked out here, not in the memo, so the memo changes only when this answer does (not every second).
+  const stale = lastGood.current;
+  const previousExpired = Boolean(stale && ((stale.scheduleUntil && !(Date.parse(stale.scheduleUntil) > now))
+    || (stale.theme?.endAt && !(Date.parse(stale.theme.endAt) > now))));
   const current = useMemo(() => {
     if (showable) { const next = normalizeExperience(data); lastGood.current = next; return next; }
     const previous = lastGood.current;
-    return previous ? { ...fallback, theme: previous.theme, animations: previous.animations, headerCategories: previous.headerCategories } : fallback;
-  }, [showable, data]);
+    return previous && !previousExpired ? { ...fallback, theme: previous.theme, animations: previous.animations, headerCategories: previous.headerCategories } : fallback;
+  }, [showable, data, previousExpired]);
   const effectCandidates = current.animations || [];
   const activeEffects = effectCandidates.filter(e => effectActive(e, now)).map(e => `${e.id}:${e.revision}`).join('|');
   const productOpen = activeNav === 'product', orderOpen = activeNav === 'order', reviewOpen = activeNav === 'review';

@@ -65,14 +65,50 @@ export const resolveAppHash = (clientHash, app) => {
  *   Do not share this OTP.
  *   {#var#}
  */
-export const buildOtpSms = (otp, appHash = '') =>
-  `<#> Your Bulkimart verification code is ${otp}.\nDo not share this OTP.\n${appHash}`.trimEnd();
+export const buildOtpSms = (otp, appHash = '') => {
+  const dlt = smsDltSettings();
+  // The registered DLT template (SMS_INDIA_HUB_TEMPLATE_TEXT). The OTP always fills the last ##var##;
+  // the slots before it take the app name, then the "powered by" name. Works for templates with two
+  // slots ("…##var##…##var##") or three. Must match the registered text exactly or operators reject it.
+  if (dlt.templateText) {
+    const slots = (dlt.templateText.match(/##var##/g) || []).length;
+    const values = [...[dlt.appName, dlt.poweredBy].slice(0, Math.max(0, slots - 1)), otp];
+    let slot = 0;
+    return dlt.templateText.replace(/##var##/g, () => String(values[slot++] ?? ''));
+  }
+  return `<#> Your Bulkimart verification code is ${otp}.\nDo not share this OTP.\n${appHash}`.trimEnd();
+};
 
 /**
- * SMS transport. No gateway is integrated yet: the default transport sends
- * nothing and warns once (without the code) so a live deployment is not
- * silently broken. Wire a provider with `setSmsTransport(async ({ phone,
- * message, otp, appHash }) => …)` at boot; it must never log `message`/`otp`.
+ * DLT (India) registration details of the OTP SMS, from the environment:
+ *   SMS_INDIA_HUB_SENDER_ID (header, e.g. BGADPL), SMS_DLT_PE_ID (principal entity),
+ *   SMS_INDIA_HUB_DLT_TEMPLATE_ID, SMS_DLT_TEMPLATE_NAME, SMS_INDIA_HUB_TEMPLATE_TEXT (with ##var##),
+ *   SMS_OTP_APP_NAME and SMS_OTP_POWERED_BY (the first two ##var## values).
+ * The gateway transport sends these alongside the message. None of them is a secret.
+ */
+export const smsDltSettings = () => ({
+  senderId: (process.env.SMS_INDIA_HUB_SENDER_ID || '').trim(),
+  peId: (process.env.SMS_DLT_PE_ID || '').trim(),
+  templateId: (process.env.SMS_INDIA_HUB_DLT_TEMPLATE_ID || '').trim(),
+  templateName: (process.env.SMS_DLT_TEMPLATE_NAME || '').trim(),
+  templateText: process.env.SMS_INDIA_HUB_TEMPLATE_TEXT || '',
+  appName: (process.env.SMS_OTP_APP_NAME || 'Bulkimart').trim(),
+  poweredBy: (process.env.SMS_OTP_POWERED_BY || '').trim(),
+});
+
+/**
+ * Real SMS sending (each message costs credit) happens only when SMS_USE_LIVE=true. Anything else,
+ * including unset, sends nothing: the OTP is still created and checked, so the flow can be tested
+ * end to end without spending credit, but nobody receives a code.
+ */
+export const smsLiveEnabled = () => String(process.env.SMS_USE_LIVE || '').trim().toLowerCase() === 'true';
+let warnedNotLive = false;
+
+/**
+ * SMS transport. The default is SMS India Hub when it is configured (smsIndiaHubTransport below);
+ * otherwise nothing is sent and a warning is logged once (without the code) so a live deployment
+ * is not silently broken. Tests replace it with `setSmsTransport(async ({ phone, message, otp,
+ * appHash, dlt }) => …)`. A transport must never log `message`/`otp`.
  */
 let warnedNoTransport = false;
 const noTransport = async () => {
@@ -82,8 +118,48 @@ const noTransport = async () => {
   }
   return { delivered: false };
 };
-let smsTransport = noTransport;
-export const setSmsTransport = (transport) => { smsTransport = typeof transport === 'function' ? transport : noTransport; };
+
+// SMS India Hub reports success as ErrorCode "000" / "Done"; these are the failures worth naming in logs.
+const SMS_INDIA_HUB_ERRORS = { '001': 'account details blank', '003': 'sender blank', '004': 'message blank', '006': 'template mismatch', '007': 'invalid API key', '015': 'invalid sender ID', '021': 'insufficient credit', '024': 'template mismatch' };
+/** "91XXXXXXXXXX" for the gateway, from a 10-digit or 91-prefixed Indian mobile number. */
+export const smsIndiaHubMsisdn = (phone) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length === 10 && /^[6-9]/.test(digits)) return `91${digits}`;
+  if (digits.length === 12 && digits.startsWith('91') && /^[6-9]/.test(digits[2])) return digits;
+  return null;
+};
+/**
+ * SMS India Hub (vendorsms/pushsms.aspx, GET): APIKey, msisdn, sid (DLT header), msg, fl=0, gwid,
+ * DLT_TE_ID (+ templateid) and EntityId (the DLT principal entity / PE ID). Same request as the
+ * Olovely Total Suvidha backend uses with this account.
+ */
+export const smsIndiaHubTransport = async ({ phone, message, dlt = smsDltSettings() }) => {
+  const url = (process.env.SMS_INDIA_HUB_URL || '').trim();
+  const apiKey = (process.env.SMS_INDIA_HUB_API_KEY || '').trim();
+  if (!url || !apiKey || !dlt.senderId || !dlt.templateId) throw httpError(503, 'OTP SMS is not configured. Please try again later.', { code: 'SMS_NOT_CONFIGURED' });
+  const msisdn = smsIndiaHubMsisdn(phone);
+  if (!msisdn) throw httpError(400, 'Enter a valid 10-digit Indian mobile number.', { code: 'SMS_INVALID_NUMBER' });
+  const params = new URLSearchParams({ APIKey: apiKey, msisdn, sid: dlt.senderId, msg: message, fl: '0', gwid: (process.env.SMS_INDIA_HUB_GWID || '2').trim(), DLT_TE_ID: dlt.templateId, templateid: dlt.templateId, ...(dlt.peId ? { EntityId: dlt.peId } : {}) });
+  const timeout = Math.min(30000, Math.max(2000, Number.parseInt(process.env.SMS_INDIA_HUB_TIMEOUT_MS || '', 10) || 10000));
+  let body;
+  try {
+    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}${params}`, { signal: AbortSignal.timeout(timeout) });
+    const text = await res.text();
+    try { body = JSON.parse(text); } catch { body = { raw: text }; }
+  } catch {
+    console.error('[otp] SMS India Hub unreachable or timed out');
+    throw httpError(502, 'Could not send the OTP right now. Please try again.', { code: 'SMS_SEND_FAILED' });
+  }
+  const code = String(body?.ErrorCode ?? '');
+  if (code === '000' || body?.ErrorMessage === 'Done') return { delivered: true, jobId: body.JobId };
+  // Only the gateway's code and description: never the number, message, OTP or key.
+  console.error(`[otp] SMS India Hub rejected the OTP SMS: ${code || 'no code'} ${SMS_INDIA_HUB_ERRORS[code] || String(body?.ErrorMessage || '').slice(0, 80)}`);
+  throw httpError(502, 'Could not send the OTP right now. Please try again.', { code: 'SMS_SEND_FAILED' });
+};
+
+const defaultTransport = (payload) => ((process.env.SMS_INDIA_HUB_URL || '').trim() ? smsIndiaHubTransport(payload) : noTransport(payload));
+let smsTransport = defaultTransport;
+export const setSmsTransport = (transport) => { smsTransport = typeof transport === 'function' ? transport : defaultTransport; };
 
 /**
  * Issues an OTP. Throws 429 (OTP_COOLDOWN / OTP_SEND_LIMIT) when the number is
@@ -124,7 +200,20 @@ export const sendOTP = async (phone, { appHash, app } = {}) => {
 
   if (!isMock) {
     const resolvedHash = resolveAppHash(appHash, app);
-    await smsTransport({ phone, otp, appHash: resolvedHash, message: buildOtpSms(otp, resolvedHash) });
+    if (smsLiveEnabled()) {
+      try {
+        await smsTransport({ phone, otp, appHash: resolvedHash, message: buildOtpSms(otp, resolvedHash), dlt: smsDltSettings() });
+      } catch (error) {
+        // The code never reached the customer: undo it, so "Resend" works at once instead of
+        // waiting out the cooldown for an SMS that was not sent.
+        if (previous) otpStore.set(phone, previous); else otpStore.delete(phone);
+        throw error;
+      }
+    } else if (!warnedNotLive) {
+      warnedNotLive = true;
+      // Never logs the OTP or the message.
+      console.warn('[otp] SMS_USE_LIVE is not true: OTP SMS not sent (no SMS credit used). Set SMS_USE_LIVE=true to send.');
+    }
   }
 
   return {

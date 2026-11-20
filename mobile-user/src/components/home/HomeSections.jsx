@@ -14,7 +14,7 @@ import { useDeliveryOptions } from '../../hooks/useDeliveryOptions';
 import { boundedFetch, mediaUrl, request } from '../../api/client';
 import { captureUserSession, isCurrentUserSession } from '../../lib/session';
 import { on } from '../../lib/events';
-import { Text } from '../ui';
+import { Text, money } from '../ui';
 import { GridIcon, TicketIcon, BulkIcon } from '../icons';
 import { Briefcase } from 'lucide-react-native';
 import StorefrontMedia from '../storefront/StorefrontMedia';
@@ -280,7 +280,7 @@ export function CouponsSection() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700' }}>{c.title || c.code}</Text>
                 {c.description ? <Text style={[styles.couponText, { color: theme.muted }]}>{c.description}</Text> : null}
-                <Text style={[styles.couponText, { color: theme.muted }]}>{c.applicable ? (c.freeShipping ? 'Delivery offer is eligible for your current basket.' : `Current basket saving: ₹${c.savingNow}`) : c.reason}</Text>
+                <Text style={[styles.couponText, { color: theme.muted }]}>{c.applicable ? (c.freeShipping ? 'Delivery offer is eligible for your current basket.' : `Current basket saving: ${money(c.savingNow)}`) : c.reason}</Text>
                 {c.expiresAt ? <Text style={[styles.couponText, { color: theme.muted }]}>Valid until {new Date(c.expiresAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</Text> : null}
               </View>
               <View style={{ minWidth: 90 }}>

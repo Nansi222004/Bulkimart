@@ -10,7 +10,7 @@ import { session } from '../lib/storage';
 import { deliveryLabelFor } from '../lib/deliveryLabel';
 import { useRefreshHandler } from '../lib/refresh';
 import { CustomerPage, useNavPadding } from '../components/Shell';
-import { Text, TextInput } from '../components/ui';
+import { Text, TextInput, money } from '../components/ui';
 import { ChevronLeft, ChevronRight, SearchIcon } from '../components/icons';
 import SelectField from '../components/SelectField';
 import Svg, { Line } from 'react-native-svg';
@@ -120,7 +120,7 @@ export default function OrdersScreen() {
         <View style={{ flex: 1, gap: 2.5, overflow: 'hidden' }}>
           <Text style={{ fontSize: 12.5, fontWeight: '800', color: STATUS_COLOR[order.statusType] || '#172b4d' }}>{order.status}</Text>
           <Text style={{ fontSize: 11, color: theme.textSecondary, fontWeight: '700' }}>{order.dateText}</Text>
-          <Text style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: '600' }}>{order.orderNo}  •  Qty: {order.qty}  •  ₹{order.total}</Text>
+          <Text style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: '600' }}>{order.orderNo}  •  Qty: {order.qty}  •  {money(order.total)}</Text>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <Text style={[styles.badge, { backgroundColor: '#a855f7' }]}>{order.channel}</Text>
             {order.delivery && <Text style={[styles.badge, { backgroundColor: order.delivery.tone === 'sameday' ? '#dcfce7' : '#e2e8f0', color: order.delivery.tone === 'sameday' ? '#166534' : '#475569' }]}>{order.delivery.icon} {order.delivery.text}</Text>}

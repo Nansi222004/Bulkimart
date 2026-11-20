@@ -10,6 +10,7 @@ import { financialTransaction } from './financeSafety.service.js';
 import { parcelCashToWallet, parcelEarningToWallet } from './riderWallet.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { getRoute } from './maps.service.js';
+import { pinWarnings } from './pinCheck.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { currentParcelPolicy, validateParcelDetails, parcelFare, requireParcel, failParcel, boundedText, integer, parcelSettlementBlockers, parcelOperationalHold, parcelCashCollectionPoints, boostedParcelPricing, parcelVehicles, parcelVehicleFits, parcelVehicleSnapshot, PARCEL_ADMIN_QUEUE_DEFAULT_SECONDS } from './parcelPolicy.service.js';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -42,6 +43,8 @@ export async function quoteParcel(customerId, input) {
   const p = await currentParcelPolicy();
   const details = validateParcelDetails(input,p.config,distanceKm);
   let route;
+  // Checked alongside the route: a pin away from its written address makes the distance wrong.
+  const pinCheck = pinWarnings({ pickup: details.pickup, dropoff: details.dropoff });
   try { route = await getRoute(details.pickup,details.dropoff); } catch { failParcel('Verified route provider unavailable; booking quotation is disabled',503); }
   const vehicles = parcelVehicles(p.config);
   let pricing;
@@ -62,6 +65,7 @@ export async function quoteParcel(customerId, input) {
   const quote = await Quote.create({ customerId, details, pricing, expiresAt:new Date(Date.now()+p.config.quoteSeconds*1000) });
   // Geometry is for the current Google Map only, never a persistent route cache.
   quote.$locals.route = { durationSeconds: Number.isFinite(route?.durationMin) && route.durationMin > 0 ? Math.ceil(route.durationMin * 60) : null, polyline: typeof route?.polyline === 'string' ? route.polyline : null, ...(route?.provider ? { provider: route.provider } : {}) };
+  quote.$locals.pinWarnings = await pinCheck;
   return quote;
 }
 export async function bookParcel(customerId, input, key) {

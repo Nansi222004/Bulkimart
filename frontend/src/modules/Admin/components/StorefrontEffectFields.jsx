@@ -11,6 +11,15 @@ const colorPicker = (colors, set, label) => <div className="studio-swatches">
   <button type="button" className="studio-swatch-action" aria-label="Add color" title="Add color" disabled={colors.length >= 6} onClick={() => set([...colors, '#FFD700'])}>+</button>
   <button type="button" className="studio-swatch-action" aria-label="Remove color" title="Remove color" disabled={colors.length <= 1} onClick={() => set(colors.slice(0, -1))}>−</button>
 </div>;
+// Plain words for where an animation plays (backend/shared/celebration.mjs effectApplies); stored values unchanged.
+const SCOPE_LABELS = { storefront: 'Every page', homepage: 'Home page only', campaign: 'Campaign page only', banner: 'Inside the banner only' };
+const SCOPE_HELP = {
+  storefront: 'Plays in the header on every customer page (Home, Categories, products…) on the website and app.',
+  homepage: 'Plays only on the Home page; it stops when the customer opens Categories or any other page.',
+  campaign: 'Plays only on the linked campaign page.',
+  banner: 'Plays inside this banner only.',
+};
+
 // `library` lists custom animations saved on other themes and campaigns so they can be reused.
 export default function StorefrontEffectFields({ value, onChange, bannerOnly = false, allowBanner = false, deals = [], library = [] }) {
   const e = { ...DEFAULT_EFFECT, ...(bannerOnly ? { scope: 'banner' } : {}), ...value };
@@ -66,7 +75,7 @@ export default function StorefrontEffectFields({ value, onChange, bannerOnly = f
     </div>
     {e.enabled && <div className="studio-effect-section">
       <div className="studio-section-title"><strong>Settings</strong></div>
-      {!bannerOnly && <label className="studio-field">Animation scope<select value={e.scope} onChange={event => change({ scope: event.target.value })}>{['storefront', 'homepage', 'campaign', ...(allowBanner ? ['banner'] : [])].map(s => <option key={s} value={s}>{s === 'campaign' ? 'Campaign page' : s}</option>)}</select></label>}
+      {!bannerOnly && <label className="studio-field">Animation scope<select value={e.scope} onChange={event => change({ scope: event.target.value })}>{['storefront', 'homepage', 'campaign', ...(allowBanner ? ['banner'] : [])].map(s => <option key={s} value={s}>{SCOPE_LABELS[s] || s}</option>)}</select><span className="studio-help">{SCOPE_HELP[e.scope] || ''}</span></label>}
       {e.scope === 'campaign' && <label className="studio-field">Target campaign page<select value={e.campaignId} onChange={event => change({ campaignId: event.target.value })}><option value="">Select a deal campaign</option>{deals.map(d => <option key={d._id} value={d._id}>{d.name}</option>)}</select></label>}
       {primary && <div className="studio-field">Colours{presets.length > 1 && <span className="studio-field-hint">Apply to {effectLabel(e, primary)}. Other built-in animations keep their own palette; custom animations use their own colours.</span>}
         {colorPicker(e.colors, colors => change({ colors }), i => `Particle color ${i + 1}`)}</div>}

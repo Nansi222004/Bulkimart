@@ -19,13 +19,12 @@ import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { alpha } from '../theme';
 import { authHeaders, boundedFetch, request } from '../api/client';
-import { local } from '../lib/storage';
 import { useFeedback } from '../lib/feedback';
 import { openRazorpayCheckout } from '../lib/razorpay';
 import { getCurrentPosition } from '../lib/gps';
 import useCustomerWallet from '../hooks/useCustomerWallet';
 import { CustomerPage } from '../components/Shell';
-import { Text, TextInput } from '../components/ui';
+import { Text, TextInput, money } from '../components/ui';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 
 const avatarSvg = (bg, fg) => `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23${bg}"/><circle cx="50" cy="38" r="20" fill="%23${fg}"/><path d="M50 64c-20 0-34 12-34 26h68c0-14-14-26-34-26z" fill="%23${fg}"/></svg>`;
@@ -39,8 +38,10 @@ const PRESET_AVATARS = [
 ];
 const SVG_PREFIX = 'data:image/svg+xml;utf8,';
 
+// The saved picture is an uploaded image URL or "preset:<id>" for one of the designs above.
+const avatarSource = value => (typeof value === 'string' && value.startsWith('preset:') ? PRESET_AVATARS.find(p => p.id === value.slice(7))?.url : value) || '';
 function Avatar({ uri, size, style }) {
-  const source = uri || DEFAULT_NEUTRAL_AVATAR;
+  const source = avatarSource(uri) || DEFAULT_NEUTRAL_AVATAR;
   if (source.startsWith(SVG_PREFIX)) return <View style={[{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden' }, style]}><SvgXml xml={decodeURIComponent(source.slice(SVG_PREFIX.length))} width="100%" height="100%" /></View>;
   return <Image source={{ uri: source }} style={[{ width: size, height: size, borderRadius: size / 2 }, style]} contentFit="cover" />;
 }
@@ -60,7 +61,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const ui = useFeedback();
-  const { setActiveNav, currentUser, logoutUser, savedAddresses, addAddress, deleteAddress, setSelectedAddressId, selectedAddressId, uploadLandmarkImage, fetchWalletBalance, setWalletBalance } = useUser();
+  const { setActiveNav, currentUser, logoutUser, saveProfile, savedAddresses, addAddress, deleteAddress, setSelectedAddressId, selectedAddressId, uploadLandmarkImage, fetchWalletBalance, setWalletBalance } = useUser();
   const primary = theme.primaryColor;
   const submitBtn = { backgroundColor: theme.action, shadowColor: theme.primary };
 
@@ -103,7 +104,7 @@ export default function ProfileScreen() {
       if (!res.ok || !body.success) throw new Error(body.message || 'Could not start wallet payment.');
       const result = await openRazorpayCheckout(body.data, headers);
       setShowAddMoneyModal(false);
-      if (result.ok && result.verified) setTopupAlert({ type: 'success', message: `₹${amt} added to your wallet.` });
+      if (result.ok && result.verified) setTopupAlert({ type: 'success', message: `${money(amt)} added to your wallet.` });
       else setTopupAlert({ type: 'error', message: result.message || 'Payment has not been confirmed. Check your wallet before trying again.' });
       fetchWalletBalance?.();
       await loadRealWalletDetails();
@@ -116,7 +117,17 @@ export default function ProfileScreen() {
   const [profileEmail, setProfileEmail] = useState(currentUser?.email || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
-  const [userAvatar, setUserAvatar] = useState(() => currentUser?.avatar || local.getItem('userAvatar') || '');
+  // The picture, name and email are saved on the server (saveProfile), so they follow the account to
+  // every device and are gone from this phone at sign-out. Shown from the signed-in profile.
+  const userAvatar = currentUser?.avatar || '';
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const saveAvatar = async (changes, done) => {
+    if (isSavingAvatar) return;
+    setIsSavingAvatar(true); setProfileMsg('');
+    const result = await saveProfile(changes);
+    setIsSavingAvatar(false);
+    setProfileMsg(result.success ? done : (result.message || 'Could not update your picture. Please try again.'));
+  };
   const pickAvatar = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
@@ -125,28 +136,17 @@ export default function ProfileScreen() {
       if (asset.mimeType && !asset.mimeType.startsWith('image/')) { setProfileMsg('Please select a valid image file'); return; }
       const context = ImageManipulator.manipulate(asset.uri);
       context.resize({ width: Math.min(256, asset.width || 256) });
-      const saved = await (await context.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true });
-      const dataUrl = `data:image/jpeg;base64,${saved.base64}`;
-      setUserAvatar(dataUrl); local.setItem('userAvatar', dataUrl);
-      if (currentUser) currentUser.avatar = dataUrl;
-      setProfileMsg('Profile picture updated successfully!');
-    } catch { setProfileMsg('Please select a valid image file'); }
+      const saved = await (await context.renderAsync()).saveAsync({ format: SaveFormat.JPEG, compress: 0.8 });
+      await saveAvatar({ photo: { uri: saved.uri } }, 'Profile picture updated successfully!');
+    } catch { setIsSavingAvatar(false); setProfileMsg('Please select a valid image file'); }
   };
-  const selectPresetAvatar = url => {
-    setUserAvatar(url); local.setItem('userAvatar', url);
-    if (currentUser) currentUser.avatar = url;
-    setProfileMsg('Avatar updated successfully!');
-  };
-  // Same as the web: the profile form is saved on this device only.
-  const handleSaveProfile = () => {
-    if (!profileName.trim() || !profileEmail.trim()) return;
+  const selectPresetAvatar = id => saveAvatar({ avatarPreset: id }, 'Avatar updated successfully!');
+  const handleSaveProfile = async () => {
+    if (!profileName.trim() || isSavingProfile) return;
     setIsSavingProfile(true); setProfileMsg('');
-    setTimeout(() => {
-      setIsSavingProfile(false);
-      setProfileMsg('Profile updated successfully!');
-      if (currentUser) { currentUser.name = profileName; currentUser.email = profileEmail; currentUser.avatar = userAvatar; }
-      local.setItem('userAvatar', userAvatar);
-    }, 800);
+    const result = await saveProfile({ name: profileName.trim(), email: profileEmail.trim() });
+    setIsSavingProfile(false);
+    setProfileMsg(result.success ? 'Profile updated successfully!' : (result.message || 'Could not save your profile. Please try again.'));
   };
 
   // Addresses
@@ -212,15 +212,15 @@ export default function ProfileScreen() {
     switch (activeSection) {
       case 'profile': return <ScrollView contentContainerStyle={sectionPad} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', marginBottom: 12 }}>
-          <Pressable onPress={pickAvatar} accessibilityLabel="Upload custom profile photo">
+          <Pressable onPress={pickAvatar} disabled={isSavingAvatar} accessibilityLabel="Upload custom profile photo">
             <Avatar uri={userAvatar} size={88} style={{ borderWidth: 3, borderColor: primary }} />
             <View style={[styles.camBadge, { backgroundColor: primary }]}><Text style={{ fontSize: 12 }}>📷</Text></View>
           </Pressable>
           <View style={{ marginTop: 20, flexDirection: 'row', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
             <Text style={{ fontSize: 11, color: '#64748b' }}>Presets:</Text>
-            {PRESET_AVATARS.map(p => <Pressable key={p.id} onPress={() => selectPresetAvatar(p.url)} accessibilityLabel={p.name}
-              style={{ width: 28, height: 28, borderRadius: 14, borderWidth: userAvatar === p.url ? 2 : 1, borderColor: userAvatar === p.url ? theme.action : '#cbd5e1', overflow: 'hidden' }}>
-              <Avatar uri={p.url} size={userAvatar === p.url ? 24 : 26} />
+            {PRESET_AVATARS.map(p => <Pressable key={p.id} onPress={() => selectPresetAvatar(p.id)} disabled={isSavingAvatar} accessibilityLabel={p.name}
+              style={{ width: 28, height: 28, borderRadius: 14, borderWidth: userAvatar === `preset:${p.id}` ? 2 : 1, borderColor: userAvatar === `preset:${p.id}` ? theme.action : '#cbd5e1', overflow: 'hidden' }}>
+              <Avatar uri={p.url} size={userAvatar === `preset:${p.id}` ? 24 : 26} />
             </Pressable>)}
           </View>
           <View style={{ marginTop: 10, gap: 4, alignItems: 'center' }}>
@@ -345,7 +345,7 @@ export default function ProfileScreen() {
       </View>
       <LinearGradient colors={[theme.secondary, theme.secondary]} style={{ paddingTop: 16, paddingHorizontal: 20, paddingBottom: 32 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-          <Pressable onPress={pickAvatar} accessibilityLabel="Change profile picture">
+          <Pressable onPress={pickAvatar} disabled={isSavingAvatar} accessibilityLabel="Change profile picture">
             <Avatar uri={userAvatar} size={68} style={{ borderWidth: 2, borderColor: '#fff' }} />
             <View style={[styles.editBadge, { backgroundColor: primary }]}><Text style={{ fontSize: 11 }}>✏️</Text></View>
           </Pressable>
@@ -403,7 +403,7 @@ export default function ProfileScreen() {
                 const on = Number(addMoneyAmount) === amt;
                 return <Pressable key={amt} onPress={() => { setAddMoneyAmount(String(amt)); setTopupError(''); }}
                   style={[styles.chip, { borderWidth: on ? 2 : 1, borderColor: on ? theme.action : '#cbd5e1', backgroundColor: on ? '#f0fdf4' : '#fff' }]}>
-                  <Text style={{ fontWeight: '800', fontSize: 13, color: on ? theme.actionHover : '#0f172a' }}>+₹{amt}</Text>
+                  <Text style={{ fontWeight: '800', fontSize: 13, color: on ? theme.actionHover : '#0f172a' }}>+{money(amt)}</Text>
                 </Pressable>;
               })}
             </View>

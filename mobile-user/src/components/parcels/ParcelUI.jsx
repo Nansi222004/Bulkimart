@@ -313,7 +313,17 @@ function PriceSummary({ pricing }) {
     <View style={styles.row}><Text style={{ fontWeight: '700' }}>Total payable</Text><Text style={{ fontWeight: '700' }}>{parcelMoney(pricing.totalPaise)}</Text></View>
   </View>;
 }
+// The quote's pin check (backend pinCheck.service.js): a pin in a different pincode from its written address.
+const pinWarningText = w => `The ${w.point === 'pickup' ? 'pickup' : 'drop'} pin is in pincode ${w.pinPincode}, but the address says ${w.enteredPincode}. Check the pin on the map, or the distance and fare may be wrong.`;
 function RouteSummary({ quote }) {
+  return <>
+    {(quote.pinWarnings || []).map(w => <View key={w.point} accessibilityRole="alert" style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fdba74' }}>
+      <Text style={{ color: '#9a3412', fontSize: 13 }}>{pinWarningText(w)}</Text>
+    </View>)}
+    <RouteLine quote={quote} />
+  </>;
+}
+function RouteLine({ quote }) {
   return <Text style={{ marginVertical: 8, color: MUTED, fontSize: 13 }}>{quote.route?.provider === 'mock' ? 'Simulated test route · ' : ''}{(quote.pricing.distanceMetres / 1000).toFixed(2)} km{quote.route?.durationSeconds > 0 ? ' · about ' + Math.ceil(quote.route.durationSeconds / 60) + ' min travel' : ' · travel time unavailable'}{quote.route?.provider === 'google_routes' ? ' · Google Maps' : ''}</Text>;
 }
 /** Bottom sheet for vehicle details, goods, payment, fare breakup, lists and cancellation. */
@@ -373,7 +383,7 @@ export function ParcelStop({ kind, address: a, right }) {
   </View>;
 }
 
-export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved }) {
+export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBooked, onOpenHistory, onOpenTrip, onAddressSaved, initialVehicle = '', onInitialVehicleUsed }) {
   const { BLUE, TINT, SOFT } = useParcelColors();
   const storageKey = parcelDraftKey(profile?._id);
   const [state, setState] = useState(() => readParcelDraft(storageKey, initialParcelJourney(profile, policy)));
@@ -386,6 +396,13 @@ export function ParcelBookingFlow({ policy, flags, addresses = [], profile, onBo
   useEffect(() => { if (storageKey) writeParcelDraft(session, storageKey, state); }, [state, storageKey]);
   useEffect(() => { if (!state.quote) return undefined; const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval); }, [state.quote?._id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setMapOpen(false); setShowAddresses(false); }, [state.step]);
+  // Opened from a vehicle card on the Parcel page: choose that vehicle and go to the next missing step,
+  // exactly as tapping it under "Choose a vehicle" does. Applied once; an unknown vehicle is ignored.
+  useEffect(() => {
+    if (!initialVehicle || !policy?.vehicles?.some(v => v.id === initialVehicle && v.enabled !== false)) return;
+    setState(s => ({ ...s, vehicleId: initialVehicle, quote: null, step: validParcelLocation(s.pickup) ? (validParcelLocation(s.dropoff) ? 'vehicle' : 'dropoff') : 'pickup' }));
+    onInitialVehicleUsed?.();
+  }, [initialVehicle]); // eslint-disable-line react-hooks/exhaustive-deps
   // Home shows the customer's last few trips (with Book Again), like the parcel app's home.
   const [recent, setRecent] = useState([]);
   useEffect(() => {

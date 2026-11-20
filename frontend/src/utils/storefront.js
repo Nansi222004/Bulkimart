@@ -4,7 +4,7 @@ export { DEFAULT_TOKENS, COLOR_KEYS, resolveTokens, PRESETS, PRESET_EFFECTS, DEC
 export function normalizeExperience(data) {
   return data?.theme?.id ? data : { ...data, theme: { tokens: DEFAULT_TOKENS } };
 }
-import { DEFAULT_TOKENS } from '../../../backend/shared/storefront.mjs';
+import { DEFAULT_TOKENS, resolveTokens } from '../../../backend/shared/storefront.mjs';
 export function freshExperience(data, now = Date.now()) {
   return !!data?.version && Array.isArray(data.banners) && Array.isArray(data.sections) && Number.isFinite(Date.parse(data.validUntil)) && Date.parse(data.validUntil) > now;
 }
@@ -58,6 +58,21 @@ export const BOOT_LOOK_KEY = 'bulkimart:boot-look';
 const hex = value => typeof value === 'string' && /^#[0-9a-f]{3,8}$/i.test(value) ? value : undefined;
 export function rememberBootLook(tokens = {}, until = null) {
   try { localStorage.setItem(BOOT_LOOK_KEY, JSON.stringify({ header: hex(tokens.header), headerText: hex(tokens.headerText), background: hex(tokens.background), search: hex(tokens.search), until: until || null })); } catch { /* storage is optional */ }
+}
+// The whole theme (colours, festive header, category tiles) this browser last received. Unlike the
+// experience copy (banners, sections, prices: fresh for 30 s only), the theme is reused at the next
+// visit however old it is, so an offline or slow start shows the admin's theme instead of the
+// built-in red. A theme past its end date is never reused. Replaced as soon as the server answers.
+export const LAST_THEME_KEY = 'bulkimart:last-theme';
+export function rememberLastTheme(theme) {
+  try { if (theme?.tokens) localStorage.setItem(LAST_THEME_KEY, JSON.stringify(theme)); } catch { /* storage is optional */ }
+}
+export function lastTheme(now = Date.now()) {
+  try {
+    const theme = JSON.parse(localStorage.getItem(LAST_THEME_KEY));
+    if (!theme?.tokens || typeof theme.tokens !== 'object' || (theme.endAt && !(Date.parse(theme.endAt) > now))) return null;
+    return { ...theme, tokens: resolveTokens(theme.tokens) };
+  } catch { return null; }
 }
 export function bootLook(now = Date.now()) {
   try {

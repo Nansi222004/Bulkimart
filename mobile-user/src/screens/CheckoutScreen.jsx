@@ -17,7 +17,7 @@ import { getCurrentPosition } from '../lib/gps';
 import { useUnifiedCart } from '../hooks/useUnifiedCart';
 import usePromotionNavigation from '../hooks/usePromotionNavigation';
 import { CustomerPage } from '../components/Shell';
-import { Text, TextInput } from '../components/ui';
+import { Text, TextInput, money } from '../components/ui';
 import { ChevronLeft } from '../components/icons';
 import LandmarkImagePicker from '../components/LandmarkImagePicker';
 import CommittedCheckoutReview from '../components/CommittedCheckoutReview';
@@ -98,8 +98,8 @@ export default function CheckoutScreen() {
   let customTipError = '', validCustomTip = 0;
   if (isCustomTip && rawCustomTipVal !== null) {
     if (!Number.isFinite(rawCustomTipVal) || rawCustomTipVal <= 0) customTipError = 'Please enter a valid amount.';
-    else if (rawCustomTipVal < minCustomTip) customTipError = `Minimum tip is ₹${minCustomTip}`;
-    else if (rawCustomTipVal > maxCustomTip) customTipError = `Maximum tip is ₹${maxCustomTip}`;
+    else if (rawCustomTipVal < minCustomTip) customTipError = `Minimum tip is ${money(minCustomTip)}`;
+    else if (rawCustomTipVal > maxCustomTip) customTipError = `Maximum tip is ${money(maxCustomTip)}`;
     else validCustomTip = Math.floor(rawCustomTipVal);
   }
   const tipAmount = canTip ? (tipChip ?? (isCustomTip ? validCustomTip : 0)) : 0;
@@ -340,7 +340,7 @@ export default function CheckoutScreen() {
                 <Text style={{ fontWeight: '800', fontSize: 12.5 }}>{o.orderNo || o._id}</Text>
                 <Text style={{ fontSize: 11, color: '#94a3b8' }}>{label ? label.icon : '⚡'} {text} · {o.items?.length || 0} item{(o.items?.length || 0) === 1 ? '' : 's'}</Text>
               </View>
-              <Text style={{ fontWeight: '800', fontSize: 12.5 }}>₹{o.pricing?.totalAmount} ›</Text>
+              <Text style={{ fontWeight: '800', fontSize: 12.5 }}>{money(o.pricing?.totalAmount)} ›</Text>
             </Pressable>;
           })}
         </Card>}
@@ -392,11 +392,11 @@ export default function CheckoutScreen() {
   const billRows = <View style={{ gap: 10 }}>
     <Row label="Items Subtotal" value={`₹${summary.subtotal.toFixed(2)}`} />
     <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
-    <Row label="Delivery Charges" value={summary.deliveryCharge === 0 ? <Text style={{ color: primary, fontWeight: '600', fontSize: 13 }}>FREE</Text> : `₹${summary.deliveryCharge}`} />
-    {summary.sameDayPremium > 0 && <Row label="Same-Day Delivery Premium" value={`₹${summary.sameDayPremium}`} />}
-    {summary.couponDiscount > 0 && <Row label="Coupon Discount" value={`-₹${summary.couponDiscount}`} color={primary} />}
-    {tipAmount > 0 && <Row label="Delivery Partner Tip" value={`+₹${tipAmount}`} color={primary} weight="700" />}
-    {summary.codFee > 0 && <Row label={summary.codFeeLabel} value={`+₹${summary.codFee}`} color="#c2410c" weight="700" />}
+    <Row label="Delivery Charges" value={summary.deliveryCharge === 0 ? <Text style={{ color: primary, fontWeight: '600', fontSize: 13 }}>FREE</Text> : `${money(summary.deliveryCharge)}`} />
+    {summary.sameDayPremium > 0 && <Row label="Same-Day Delivery Premium" value={`${money(summary.sameDayPremium)}`} />}
+    {summary.couponDiscount > 0 && <Row label="Coupon Discount" value={`-${money(summary.couponDiscount)}`} color={primary} />}
+    {tipAmount > 0 && <Row label="Delivery Partner Tip" value={`+${money(tipAmount)}`} color={primary} weight="700" />}
+    {summary.codFee > 0 && <Row label={summary.codFeeLabel} value={`+${money(summary.codFee)}`} color="#c2410c" weight="700" />}
   </View>;
 
   return <CustomerPage protectedPage nav={false} headerColor="#fff">
@@ -486,10 +486,10 @@ export default function CheckoutScreen() {
               right: walletBalance >= grandTotalVal ? <Text style={[styles.walletPill, { color: '#16a34a', backgroundColor: '#f0fdf4' }]}>✓ Sufficient Balance</Text> : <Text style={[styles.walletPill, { color: '#dc2626', backgroundColor: '#fef2f2' }]}>⚠ Need ₹{(grandTotalVal - walletBalance).toFixed(2)} more</Text>,
             })}
             {/* Online first, shown as the cheaper choice whenever COD carries a fee. */}
-            {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', !isDigitalCart && summary.codFeeQuote > 0 ? `Pay ₹${summary.onlineTotal} · UPI, cards and more via Razorpay` : 'UPI, cards and supported payment methods via Razorpay', {
-              right: !isDigitalCart && summary.codFeeQuote > 0 ? <Text style={{ fontSize: 11, fontWeight: '800', color: '#15803d', backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' }}>Save ₹{summary.codFeeQuote}</Text> : null,
+            {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', !isDigitalCart && summary.codFeeQuote > 0 ? `Pay ${money(summary.onlineTotal)} · UPI, cards and more via Razorpay` : 'UPI, cards and supported payment methods via Razorpay', {
+              right: !isDigitalCart && summary.codFeeQuote > 0 ? <Text style={{ fontSize: 11, fontWeight: '800', color: '#15803d', backgroundColor: '#dcfce7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' }}>Save {money(summary.codFeeQuote)}</Text> : null,
             })}
-            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay ₹${summary.codTotal} at your doorstep (+ ₹${summary.codFeeQuote} ${summary.codFeeLabel})` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
+            {paymentOption('Cash on Delivery', '💵', 'Cash on Delivery (COD)', summary.codFeeQuote > 0 ? `Pay ${money(summary.codTotal)} at your doorstep (+ ${money(summary.codFeeQuote)} ${summary.codFeeLabel})` : 'Pay at your doorstep on delivery', { hidden: isDigitalCart })}
           </View>
         </Card>
 
@@ -514,7 +514,7 @@ export default function CheckoutScreen() {
                   </View>
                   <Text style={{ fontSize: 11, color: '#94a3b8' }}>{c.title}</Text>
                 </View>
-                {c.applicable ? <Pressable disabled={applying} onPress={() => applyCouponCode(c.code)} style={[styles.saveBtn, { backgroundColor: primary }]}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>{c.freeShipping ? 'Free delivery' : `Save ₹${c.savingNow}`}</Text></Pressable>
+                {c.applicable ? <Pressable disabled={applying} onPress={() => applyCouponCode(c.code)} style={[styles.saveBtn, { backgroundColor: primary }]}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 11.5 }}>{c.freeShipping ? 'Free delivery' : `Save ${money(c.savingNow)}`}</Text></Pressable>
                   : <Text style={{ fontSize: 10.5, color: '#94a3b8', maxWidth: 160, textAlign: 'right' }}>{c.reason}</Text>}
               </View>)}
             </View>}
@@ -526,7 +526,7 @@ export default function CheckoutScreen() {
           {couponMessage ? <Text style={{ fontSize: 12, fontWeight: '600', marginTop: 8, color: couponMessageType === 'success' ? primary : '#dc2626' }}>{couponMessageType === 'success' ? '✓' : '⚠'} {couponMessage}</Text> : null}
           {!appliedCoupon && availableCoupons.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 12, paddingBottom: 4 }}>
             {availableCoupons.map(coupon => <Pressable key={coupon.code} disabled={applying} onPress={() => { setCouponInput(coupon.code); applyCouponCode(coupon.code); }} accessibilityLabel={`Apply coupon ${coupon.code}`}
-              style={[styles.chip, { borderColor: theme.primaryLight, backgroundColor: theme.pageBackground }]}><Text style={{ fontSize: 11, fontWeight: '600', color: primary }}>{coupon.code} ({coupon.discountType === 'free_shipping' ? 'Free delivery' : coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `₹${coupon.value} Off`})</Text></Pressable>)}
+              style={[styles.chip, { borderColor: theme.primaryLight, backgroundColor: theme.pageBackground }]}><Text style={{ fontSize: 11, fontWeight: '600', color: primary }}>{coupon.code} ({coupon.discountType === 'free_shipping' ? 'Free delivery' : coupon.discountType === 'percentage' ? `${coupon.value}% Off` : `${money(coupon.value)} Off`})</Text></Pressable>)}
           </ScrollView>}
         </Card> : <Card>
           <Text style={{ fontSize: 14 }}>Coupons are available only in eligible single retail checkout.</Text>
@@ -543,15 +543,15 @@ export default function CheckoutScreen() {
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {tipOptions.map(amt => { const selected = tipChip === amt; return <Pressable key={amt} onPress={() => { setTipChip(prev => (prev === amt ? null : amt)); setTipCustomInput(''); setIsCustomTip(false); }}
-              style={[styles.tipChip, { borderColor: selected ? primary : theme.border, backgroundColor: selected ? primary : '#fff' }]}><Text style={{ fontSize: 12.5, fontWeight: '800', color: selected ? '#fff' : theme.textPrimary }}>₹{amt}</Text></Pressable>; })}
+              style={[styles.tipChip, { borderColor: selected ? primary : theme.border, backgroundColor: selected ? primary : '#fff' }]}><Text style={{ fontSize: 12.5, fontWeight: '800', color: selected ? '#fff' : theme.textPrimary }}>{money(amt)}</Text></Pressable>; })}
             {Boolean(tipSetting?.allowCustom ?? true) && <Pressable onPress={() => { if (isCustomTip) { setIsCustomTip(false); setTipCustomInput(''); setTipChip(null); } else { setIsCustomTip(true); setTipChip(null); } }}
               style={[styles.tipChip, { flexDirection: 'row', gap: 6, borderColor: isCustomTip ? primary : theme.border, backgroundColor: isCustomTip ? primary : '#fff' }]}>
-              <Text style={{ fontSize: 12.5, fontWeight: '800', color: isCustomTip ? '#fff' : theme.textPrimary }}>{isCustomTip && validCustomTip > 0 ? `₹${validCustomTip}` : 'Other'}</Text>
+              <Text style={{ fontSize: 12.5, fontWeight: '800', color: isCustomTip ? '#fff' : theme.textPrimary }}>{isCustomTip && validCustomTip > 0 ? `${money(validCustomTip)}` : 'Other'}</Text>
               {!isCustomTip && <Text style={{ fontSize: 13, opacity: 0.7 }}>+</Text>}
             </Pressable>}
           </View>
           {isCustomTip && <View style={[styles.customTip, { borderColor: theme.border }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>Enter Custom Tip:</Text><Text style={{ fontSize: 11, fontWeight: '600', color: '#94a3b8' }}>₹{minCustomTip} – ₹{maxCustomTip}</Text></View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>Enter Custom Tip:</Text><Text style={{ fontSize: 11, fontWeight: '600', color: '#94a3b8' }}>{money(minCustomTip)} – {money(maxCustomTip)}</Text></View>
             <View style={[styles.tipInputWrap, { borderColor: customTipError ? '#ef4444' : primary }]}>
               <Text style={{ fontSize: 14, fontWeight: '800', color: theme.textSecondary, marginRight: 4 }}>₹</Text>
               <TextInput autoFocus keyboardType="number-pad" value={tipCustomInput} onChangeText={v => setTipCustomInput(v.replace(/\D/g, ''))} placeholder="e.g. 35" placeholderTextColor="#94a3b8" style={{ flex: 1, fontSize: 13.5, fontWeight: '700', paddingVertical: 4, color: theme.textPrimary }} />
@@ -560,7 +560,7 @@ export default function CheckoutScreen() {
             {customTipError ? <Text style={{ fontSize: 11.5, fontWeight: '600', color: '#ef4444' }}>⚠ {customTipError}</Text> : null}
           </View>}
           {tipAmount > 0 && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: primary, flexShrink: 1 }}>✓ ₹{tipAmount} tip added — 100% goes to your delivery partner.</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: primary, flexShrink: 1 }}>✓ {money(tipAmount)} tip added — 100% goes to your delivery partner.</Text>
             <Pressable onPress={() => { setTipChip(null); setTipCustomInput(''); setIsCustomTip(false); }}><Text style={{ fontSize: 11.5, fontWeight: '700', color: '#94a3b8', textDecorationLine: 'underline' }}>Remove tip</Text></Pressable>
           </View>}
         </Card>}
@@ -588,7 +588,7 @@ export default function CheckoutScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Payment summary</Text>
           {billRows}
-          <View style={[styles.totalLine, { borderTopColor: theme.border }]}><Text style={{ fontSize: 15, fontWeight: '800' }}>Total Amount to Pay</Text><Text style={{ fontSize: 15, fontWeight: '800', color: primary }}>₹{grandTotalVal}</Text></View>
+          <View style={[styles.totalLine, { borderTopColor: theme.border }]}><Text style={{ fontSize: 15, fontWeight: '800' }}>Total Amount to Pay</Text><Text style={{ fontSize: 15, fontWeight: '800', color: primary }}>{money(grandTotalVal)}</Text></View>
         </Card>
         {errorBanner}
       </ScrollView>
@@ -596,9 +596,9 @@ export default function CheckoutScreen() {
     <View style={[styles.cta, { paddingBottom: 12 + insets.bottom, borderTopColor: theme.border }]}>
       <Pressable onPress={() => setShowBillBreakdown(prev => !prev)} accessibilityLabel="View payable amount breakdown" accessibilityState={{ expanded: showBillBreakdown }} style={{ minHeight: 48, justifyContent: 'center' }}>
         <Text style={{ fontSize: 11, color: '#94a3b8' }}>Payable Amount ▲</Text>
-        <Text style={{ fontSize: 20, fontWeight: '900' }}>₹{grandTotalVal}</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900' }}>{money(grandTotalVal)}</Text>
       </Pressable>
-      <PrimaryButton title={isOrdering ? 'Placing order…' : cartLoading ? 'Updating…' : wholesaleShort ? `Add ₹${wholesaleMinimum.remainingAmount} more (Wholesale minimum)` : 'Confirm & Place Order'} onPress={handlePlaceOrder} disabled={ctaDisabled} style={{ flex: 1, maxWidth: 340, opacity: ctaDisabled ? 0.5 : 1 }} />
+      <PrimaryButton title={isOrdering ? 'Placing order…' : cartLoading ? 'Updating…' : wholesaleShort ? `Add ${money(wholesaleMinimum.remainingAmount)} more (Wholesale minimum)` : 'Confirm & Place Order'} onPress={handlePlaceOrder} disabled={ctaDisabled} style={{ flex: 1, maxWidth: 340, opacity: ctaDisabled ? 0.5 : 1 }} />
     </View>
 
     <Modal visible={isOrdering} transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
@@ -614,14 +614,14 @@ export default function CheckoutScreen() {
           </View>
           <Text style={styles.sheetEyebrow}>Ordered Items ({items.length})</Text>
           <View style={{ gap: 10, marginBottom: 20 }}>{items.map((item, idx) => <View key={item._id || item.productId || idx} style={{ gap: 2 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text style={{ fontWeight: '600', fontSize: 12.5, flexShrink: 1 }}>{item.qty}x {item.name}</Text><Text style={{ fontWeight: '700', fontSize: 12.5 }}>₹{item.lineTotal}</Text></View>
-            {item.returnOption ? <Text style={{ fontSize: 11, fontWeight: '600', paddingLeft: 8, color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns (+₹${item.returnExtraCharge || 0} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}</Text> : null}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}><Text style={{ fontWeight: '600', fontSize: 12.5, flexShrink: 1 }}>{item.qty}x {item.name}</Text><Text style={{ fontWeight: '700', fontSize: 12.5 }}>{money(item.lineTotal)}</Text></View>
+            {item.returnOption ? <Text style={{ fontSize: 11, fontWeight: '600', paddingLeft: 8, color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns (+${money(item.returnExtraCharge || 0)} per unit)` : 'No Easy Returns · wrong/damaged/defective returns only'}</Text> : null}
             {item.additionalMessage ? <Text style={{ fontSize: 11, color: primary, fontStyle: 'italic', paddingLeft: 8 }}>📝 Seller message: "{item.additionalMessage}"</Text> : null}
           </View>)}</View>
           <View style={{ borderTopWidth: 1, borderStyle: 'dashed', borderTopColor: theme.border, paddingTop: 16 }}>
             <Text style={styles.sheetEyebrow}>Payment Breakdown</Text>
             {billRows}
-            <View style={[styles.totalLine, { borderTopColor: theme.border, borderStyle: 'solid' }]}><Text style={{ fontSize: 15, fontWeight: '900' }}>Payable Amount</Text><Text style={{ fontSize: 15, fontWeight: '900', color: primary }}>₹{grandTotalVal}</Text></View>
+            <View style={[styles.totalLine, { borderTopColor: theme.border, borderStyle: 'solid' }]}><Text style={{ fontSize: 15, fontWeight: '900' }}>Payable Amount</Text><Text style={{ fontSize: 15, fontWeight: '900', color: primary }}>{money(grandTotalVal)}</Text></View>
           </View>
         </ScrollView>
       </View>
