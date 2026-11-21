@@ -486,6 +486,48 @@ export const removePushToken = async (userId, token, sessionRole, Model = User) 
   await Model.updateOne({ _id: userId, fcmToken: token }, { $unset: { fcmToken: '', fcmPlatform: '' } });
 };
 
+/**
+ * Push health for the signed-in app (rider / seller / customer), so an app can show whether this
+ * phone will get notifications and why not. Token values are never returned, only whether the
+ * caller's own token is registered and how many devices this sign-in role has.
+ */
+const appTokensFor = (user, sessionRole) => (user?.pushTokens || []).filter((t) => t.platform !== 'web'
+  && (!sessionRole || !Array.isArray(t.sessionRoles) || t.sessionRoles.includes(sessionRole)));
+
+export const pushStatusFor = async (userId, sessionRole, ownToken, Model = User) => {
+  const user = await Model.findById(userId).select('+pushTokens').lean();
+  const tokens = appTokensFor(user, sessionRole);
+  const own = ownToken ? tokens.find((t) => t.token === ownToken) : null;
+  const active = tokens.filter((t) => t.active);
+  const last = active.map((t) => new Date(t.lastUsedAt || 0).getTime()).sort((a, b) => b - a)[0];
+  return {
+    thisDeviceRegistered: Boolean(own?.active),
+    thisDeviceDisabled: Boolean(own && !own.active),
+    activeDevices: active.length,
+    lastRegisteredAt: last ? new Date(last) : null,
+  };
+};
+
+/** Sends one test notification to this sign-in role's devices and reports Firebase's answer per device. */
+export const sendTestPush = async (userId, sessionRole, Model = User) => {
+  const user = await Model.findById(userId).select('+pushTokens').lean();
+  const active = appTokensFor(user, sessionRole).filter((t) => t.active);
+  if (!active.length) return { sent: 0, failed: 0, errors: ['no_registered_device'] };
+  let sent = 0;
+  const errors = [];
+  for (const t of active) {
+    const result = await sendPushNotification(t.token, {
+      title: 'Test notification',
+      body: 'Notifications are working on this phone.',
+      data: { event: 'SYSTEM', route: '/', audience: sessionRole || 'user', test: 'true' },
+    });
+    if (result.success) { sent += 1; continue; }
+    errors.push(result.errorCode || 'delivery_failed');
+    if (INVALID_TOKEN_CODES.has(result.errorCode)) await deactivateToken(userId, t.token, Model).catch(() => {});
+  }
+  return { sent, failed: errors.length, errors: [...new Set(errors)] };
+};
+
 export const notifyUser = (userId, opts) => notifyCore(userId, 'user', userId, opts);
 
 export const notifySeller = async (sellerId, opts) => {

@@ -8,13 +8,14 @@ import { Image } from 'expo-image';
 import { useUser } from '../../context/UserContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { mediaUrl } from '../../api/client';
-import { Text } from '../ui';
+import { Text, money } from '../ui';
 import WishlistHeartButton from '../WishlistHeartButton';
 import { SameDayBadge } from '../SameDayBadge';
 import usePromotionNavigation from '../../hooks/usePromotionNavigation';
 
 export const inr = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
-export const formatCurrency = value => `₹${value}`;
+// Same rupee style as checkout and orders: ₹1,000 (whole amounts) or ₹1,079.60, with Indian digit grouping.
+export const formatCurrency = value => money(value);
 
 /** The web grid "Add" calls addToCart directly (a multi-variant product opens its details). */
 function useQuickAdd() {

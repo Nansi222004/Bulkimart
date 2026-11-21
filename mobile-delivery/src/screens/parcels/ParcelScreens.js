@@ -10,7 +10,9 @@ import NavigateButtons from '../../components/NavigateButtons';
 import { InlineNotice, LoadingView, EmptyView } from '../../components/StateViews';
 import { useToast } from '../../components/Toast';
 import * as deliveryApi from '../../services/delivery.api';
-import { formatPaise } from '../../utils/money';
+import { formatRupees } from '../../utils/money';
+// Parcel amounts come in paise; shown like every other amount in the app (₹40, ₹79.50).
+const formatPaise = (paise) => (paise === null || paise === undefined || paise === '' ? '—' : formatRupees(Number(paise) / 100));
 import { formatTime } from '../../utils/format';
 import { PARCEL_ACTION_NOTICE, PARCEL_NEXT_STEP, PARCEL_PROBLEMS, parcelFriendlyError, parcelStatus, shortParcelNumber } from '../../utils/status';
 import { colors, radius, spacing, type } from '../../theme';

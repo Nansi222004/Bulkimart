@@ -133,6 +133,8 @@ export function DutyProvider({ children }) {
           pickupAddress: first.orderId?.shippingAddress, dropAddress: first.sellerId?.storeDetails,
           sellerName: first.sellerId?.businessName || first.sellerId?.storeDetails?.name,
           pickupDistanceKm: first.pickupDistanceKm, routeDistanceKm: first.routeDistanceKm,
+          // The pay, so a pop-up opened from the list shows it like one opened from the live socket ping.
+          payout: first.payout,
         };
       });
     } catch { /* keep the last list */ }

@@ -85,7 +85,9 @@ export const suggestPlace = asyncHandler(async (req, res) => {
   if (!isGeocodingConfigured()) throw httpError(503, 'Address lookup is unavailable right now.');
   const lat = Number(req.query.lat), lng = Number(req.query.lng);
   const bias = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
-  const result = await suggestPlaces(req.query.q, bias);
+  // `within` (km) turns the preference into a hard limit, e.g. Go To only offers places in the rider's area.
+  const within = Number(req.query.within);
+  const result = await suggestPlaces(req.query.q, bias && Number.isFinite(within) && within >= 1 && within <= 100 ? { ...bias, withinKm: within } : bias);
   if (!result.ok) throw httpError(503, result.message);
   return ok(res, result.suggestions, 'Suggestions');
 });

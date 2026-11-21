@@ -1,4 +1,5 @@
-import React from 'react';
+import React, {useState} from 'react';
+import DeliveryPartnerRating from '../../modules/User/components/DeliveryPartnerRating';
 import {parcelMoney} from './parcelApi';
 
 // "We're arranging your pickup": how long it has waited and when it is cancelled automatically if still unassigned.
@@ -33,6 +34,7 @@ export function ParcelPartnerCard({partner:p,active}) {
   </section>;
 }
 export default function ParcelCustomerStatus({booking:b,justBooked}) {
+  const [ratedStars,setRatedStars]=useState(null);
   const unpaid=b.paymentMethod==='online'&&['payment_pending','payment_failed'].includes(b.status);
   const searching=!unpaid&&['searching_for_driver','needs_admin_assignment'].includes(b.status);
   return <>
@@ -53,6 +55,9 @@ export default function ParcelCustomerStatus({booking:b,justBooked}) {
       <details className="parcel-booking-reference"><summary>Booking details</summary><p>{b.reference}</p><p>{b.service?.name||'Doorstep delivery'}{b.route?.distanceMetres>0?` · ${(b.route.distanceMetres/1000).toFixed(2)} km`:''}</p></details>
     </section>
     {b.partner&&<ParcelPartnerCard partner={b.partner} active={!!b.partner.phone}/>}
+    {/* Rate the rider once the parcel is delivered (one rating per parcel; the server enforces it). */}
+    {b.partner&&b.status==='delivered'&&<DeliveryPartnerRating ratePath={`/api/parcel-delivery/bookings/${b._id}/rating`} riderName={b.partner.name}
+      deliveryRating={{eligible:true,rating:ratedStars||b.customerRating?.rating}} onRated={setRatedStars}/>}
     <section className="parcel-card parcel-trip-addresses"><div className="parcel-trip-stops">{[['pickup',b.details.pickup],['dropoff',b.details.dropoff]].map(([kind,a])=><div key={kind} className={'parcel-stop '+kind}><span className="parcel-stop-dot" aria-hidden="true"/><div><strong>{[a.name,a.phone].filter(Boolean).join(' · ')||(kind==='pickup'?'Pickup':'Deliver to')}</strong><small>{a.address}</small></div></div>)}</div>
       {b.service?.name&&<p className="parcel-trip-goods">{[b.service.name,b.details.category,b.details.weightKg?`${b.details.weightKg} kg`:'',b.details.packages>1?`${b.details.packages} packages`:''].filter(Boolean).join(' · ')}</p>}</section>
     <section className="parcel-card parcel-pay-card"><span className="parcel-pay-icon" aria-hidden="true">₹</span><div><strong>{b.paymentMethod==='pay_driver'?'Cash':'Online'}</strong><small>Payment method</small></div><strong>{parcelMoney(b.feePaise)}</strong></section>

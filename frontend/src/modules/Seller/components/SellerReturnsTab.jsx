@@ -11,6 +11,11 @@ import './SellerOrderDetails.css';
 import './SellerReturnDetails.css';
 import { useRefreshHandler } from '../../../utils/refreshRegistry';
 
+// Return reasons as customers and sellers read them ("Damaged item", not the stored code "DAMAGED").
+const RETURN_REASON_LABEL = { DAMAGED: 'Damaged item', DEFECTIVE: 'Defective / not working', WRONG_PRODUCT: 'Wrong product received', WRONG_SIZE: 'Wrong size', NOT_AS_DESCRIBED: 'Not as described', MISSING_PARTS: 'Missing parts', QUALITY_ISSUE: 'Quality issue', OTHER: 'Other' };
+const reasonLabel = (code) => RETURN_REASON_LABEL[code] || String(code || '').replace(/_/g, ' ');
+
+
 /**
  * Seller returns and explicit pickup selection for the seller's own products.
  */
@@ -38,6 +43,12 @@ const STATUS_LABEL = {
   CANCELLED: 'Cancelled',
   EXCHANGED: 'Exchanged',
 };
+// The status a seller should read: the stored status stays Approved until Bulkimart inspects the item
+// (that inspection sets "Received"), so show where the item actually is after pickup and receipt.
+const returnStatusLabel = r => (['APPROVED', 'AWAITING_RETURN'].includes(r?.status) && r?.pickup?.status === 'DELIVERED_TO_SELLER'
+  ? 'Received · awaiting inspection'
+  : ['APPROVED', 'AWAITING_RETURN'].includes(r?.status) && r?.pickup?.status === 'PICKED_UP' ? 'Picked up · on the way to you'
+    : STATUS_LABEL[r?.status] || r?.status);
 
 // Each KPI card counts, and filters to, the same group of statuses.
 const KPI_GROUPS = {
@@ -296,7 +307,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
     </div>
     <header className="seller-order-hero">
       <div><span className="seller-order-eyebrow">Item return</span><h1>{detail?.returnNumber || 'Return details'}</h1><p>{detail?.productName} {detail ? '× ' + detail.quantity : ''}</p></div>
-      {detail && <div className="seller-order-hero-meta"><span className="seller-order-status" style={{ background: (STATUS_COLOR[detail.status] || STATUS_COLOR.RETURN_REQUESTED).bg }}>{STATUS_LABEL[detail.status] || detail.status}</span><span>Requested {formatDate(detail.requestedAt)}</span></div>}
+      {detail && <div className="seller-order-hero-meta"><span className="seller-order-status" style={{ background: (STATUS_COLOR[detail.status] || STATUS_COLOR.RETURN_REQUESTED).bg }}>{returnStatusLabel(detail)}</span><span>Requested {formatDate(detail.requestedAt)}</span></div>}
     </header>
     {toast && <p role="status">{toast}</p>}
     {detailError ? <p role="alert">{detailError} <button type="button" onClick={() => loadDetail(detailId)}>Retry</button></p>
@@ -588,7 +599,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
                       {r.productName} × {r.quantity}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
-                      {r.reason?.replace(/_/g, ' ')} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}
+                      {reasonLabel(r.reason)} · Requested {new Date(r.requestedAt || r.createdAt).toLocaleDateString('en-IN')}
                       {r.returnOptionSnapshot && <> · <EasyReturnBadge option={r.returnOptionSnapshot} /></>}
                       {r.resolution === 'EXCHANGE' && <> · <ExchangeBadge ret={r} /></>}
                     </div>
@@ -600,7 +611,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
                     )}
                   </div>
                   <span style={{ fontSize: 10.5, fontWeight: 800, padding: '4px 12px', borderRadius: 20, background: badge.bg, color: badge.fg }}>
-                    {STATUS_LABEL[r.status] || r.status}
+                    {returnStatusLabel(r)}
                   </span>
                 </div>
 
@@ -670,7 +681,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{r.productName} × {r.quantity}</div>
           <span style={{ display: 'inline-block', marginTop: 4, fontSize: 10.5, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: badge.bg, color: badge.fg }}>
-            {STATUS_LABEL[r.status] || r.status}
+            {returnStatusLabel(r)}
           </span>
         </div>
       </div>
@@ -697,7 +708,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
         </Section>
       )}
       <Section title="Customer's return reason">
-        <Row label="Reason">{r.reason?.replace(/_/g, ' ')}</Row>
+        <Row label="Reason">{reasonLabel(r.reason)}</Row>
         <Row label="Description">{r.customerDescription || 'No description provided'}</Row>
         {r.customerDescription && (
           <div style={{ marginTop: 8, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#334155', lineHeight: 1.5 }}>
@@ -753,7 +764,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155' }}>
             {r.history.map((h, i) => (
               <li key={i} style={{ marginBottom: 4 }}>
-                <b>{STATUS_LABEL[h.toStatus] || h.toStatus}</b>{h.comment ? ` — ${h.comment}` : ''}
+                <b>{h.comment || STATUS_LABEL[h.toStatus] || h.toStatus}</b>
                 <span style={{ color: '#94a3b8' }}> · {formatDate(h.timestamp)}</span>
               </li>
             ))}

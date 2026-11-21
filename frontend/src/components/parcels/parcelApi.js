@@ -1,6 +1,7 @@
 import { apiUrl } from '../../utils/api';
 import { boundedFetch } from '../../utils/portalRequests';
-export const parcelMoney = n => `₹${((n || 0)/100).toFixed(2)}`;
+// Whole rupees without decimals (₹40), anything with paise to two places (₹79.50), with Indian digit grouping.
+export const parcelMoney = n => { const r = (Number(n) || 0) / 100; const w = Math.abs(r - Math.round(r)) < 0.005; return `₹${(w ? Math.round(r) : r).toLocaleString('en-IN', w ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
 export const parcelLabel = s => String(s || '').replaceAll('_',' ');
 export const parcelHeaders = mode => ({Authorization:`Bearer ${localStorage.getItem(mode==='admin'?'adminToken':mode==='driver'?'deliveryToken':'userToken') || ''}`,'Content-Type':'application/json'});
 const coordinatePresent = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));

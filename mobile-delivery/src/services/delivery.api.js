@@ -178,7 +178,8 @@ export const getGoTo = () => api.get('/api/delivery/go-to').then(data);
 export const startGoTo = (body) => api.post('/api/delivery/go-to', body).then(data);
 export const stopGoTo = () => api.delete('/api/delivery/go-to').then(data);
 // Place search for the destination (server holds the paid key): suggestions, then the chosen place's point.
-export const suggestPlaces = (q, near) => api.get('/api/geo/suggest', { params: { q, ...(near ? { lat: near.lat, lng: near.lng } : {}) } }).then((body) => body?.data || []);
+// `withinKm`: only places inside that distance of `near` (Go To: the rider's own area, never another city).
+export const suggestPlaces = (q, near, withinKm) => api.get('/api/geo/suggest', { params: { q, ...(near ? { lat: near.lat, lng: near.lng, ...(withinKm ? { within: withinKm } : {}) } : {}) } }).then((body) => body?.data || []);
 export const placeById = (placeId) => api.get('/api/geo/place', { params: { id: placeId } }).then(data);
 
 // ---------------------------------------------------------------- misc

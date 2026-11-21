@@ -18,6 +18,16 @@ export const RETURN_COLORS = {
   EXCHANGED: ['#dcfce7', '#166534'],
 };
 
+/**
+ * The status a seller should read. The stored status stays "Approved / Awaiting Return" until Bulkimart
+ * inspects the item (that inspection is what sets "Received"), so after the seller confirms receipt it would
+ * still say "Approved"; show where the item actually is instead.
+ */
+export const returnStatusLabel = (r) => (['APPROVED', 'AWAITING_RETURN'].includes(r?.status) && r?.pickup?.status === 'DELIVERED_TO_SELLER'
+  ? 'Received · awaiting inspection'
+  : ['APPROVED', 'AWAITING_RETURN'].includes(r?.status) && r?.pickup?.status === 'PICKED_UP' ? 'Picked up · on the way to you'
+    : RETURN_STATUS_LABEL[r?.status] || r?.status);
+
 /** "Exchange → Medium" for exchange requests, '' for refunds. */
 export const exchangeLabel = (r) => (r?.resolution === 'EXCHANGE' ? `Exchange → ${r.exchange?.variantName || 'same item'}` : '');
 
@@ -64,4 +74,7 @@ export function nextStep(r) {
 }
 
 export const humanize = (value) => String(value || '').replace(/_/g, ' ');
+// Return reasons as sellers read them ("Damaged item", not the stored code "DAMAGED").
+const RETURN_REASON_LABEL = { DAMAGED: 'Damaged item', DEFECTIVE: 'Defective / not working', WRONG_PRODUCT: 'Wrong product received', WRONG_SIZE: 'Wrong size', NOT_AS_DESCRIBED: 'Not as described', MISSING_PARTS: 'Missing parts', QUALITY_ISSUE: 'Quality issue', OTHER: 'Other' };
+export const reasonLabel = (code) => RETURN_REASON_LABEL[code] || humanize(code);
 export const formatDate = (value) => (value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');

@@ -118,7 +118,7 @@ export async function detail(req,res) {
   if(req.parcelMode==='driver') filter.$or=[{partnerId:req.parcelPartner._id},parcelOfferFilter(req.parcelPartner._id)];
   const b=await Parcel.findOne(filter); if(!b) failParcel('Booking not found',404);
   const dto=dtoFor(req,b);
-  if(req.parcelMode==='customer') dto.partner=await customerPartnerView(b);
+  if(req.parcelMode==='customer') { dto.partner=await customerPartnerView(b); dto.customerRating=b.customerRating?.rating ? { rating:b.customerRating.rating, ratedAt:b.customerRating.ratedAt } : null; }
   if(req.parcelMode==='admin') dto.drivers=await driverSummaries([b.partnerId,...(b.assignment.attempts||[]).map(a=>a.partnerId)]);
   if(req.parcelMode==='admin' && canReadFinance(req)) {
     dto.ledger=await Ledger.find({parcelDeliveryId:b._id}).sort({createdAt:1}).lean();
@@ -126,6 +126,30 @@ export async function detail(req,res) {
     dto.payment=p?.toObject();
   }
   return ok(res,dto);
+}
+// The sender rates the rider once, after delivery. The rating and the rider's average change together,
+// so a retried or double-tapped submission cannot count twice (same as shop-order delivery ratings).
+export async function rate(req,res) {
+  const rating=req.body?.rating;
+  if(!Number.isInteger(rating) || rating<1 || rating>5) failParcel('Choose a rating from 1 to 5 stars');
+  const session=await mongoose.startSession();
+  let partnerId;
+  try {
+    await session.withTransaction(async()=>{
+      const b=await Parcel.findOneAndUpdate(
+        {_id:req.params.id,customerId:req.user._id,status:'delivered',partnerId:{$exists:true},'customerRating.rating':{$exists:false}},
+        {$set:{customerRating:{rating,ratedAt:new Date()}}},{returnDocument:'after',session});
+      if(!b) failParcel('This parcel cannot be rated, or it has already been rated',409);
+      const p=await Partner.findOneAndUpdate({_id:b.partnerId},[
+        {$set:{ratingCount:{$add:[{$ifNull:['$ratingCount',0]},1]},ratingTotal:{$add:[{$ifNull:['$ratingTotal',0]},rating]}}},
+        {$set:{rating:{$divide:['$ratingTotal','$ratingCount']}}},
+      ],{session,returnDocument:'after',updatePipeline:true});
+      if(!p) failParcel('This delivery partner is unavailable for rating',409);
+      partnerId=p._id;
+    });
+  } finally { await session.endSession(); }
+  try { const { emitToRider }=await import('../socket/rooms.js'); emitToRider(String(partnerId),'rider_rating_updated',{partnerId:String(partnerId)}); } catch { /* saved; a refresh shows it */ }
+  return ok(res,{rating},'Delivery partner rated');
 }
 export async function boost(req,res) { const b=await boostParcel(req.params.id,req.user._id,req.body); return ok(res,parcelDTO(b)); }
 export async function cancel(req,res) { const b=await parcelCustomerCancel(req.params.id,req.user._id,req.body); await notifyParcel(b); return ok(res,parcelDTO(b)); }

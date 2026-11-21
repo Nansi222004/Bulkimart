@@ -49,7 +49,8 @@ export default function GoToScreen({ navigation }) {
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const list = await deliveryApi.suggestPlaces(text, near.current);
+        // Places within 50 km of the rider only: Go To is a trip home or across town, not to another city.
+        const list = await deliveryApi.suggestPlaces(text, near.current, 50);
         if (seq === searchSeq.current) { setSuggestions(list); setSearchError(list.length ? '' : 'No places found. Try a nearby landmark or area name.'); }
       } catch (e) {
         if (seq === searchSeq.current) setSearchError(e.message || 'Place search is unavailable right now.');

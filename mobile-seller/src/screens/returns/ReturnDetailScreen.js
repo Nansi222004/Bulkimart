@@ -12,7 +12,7 @@ import ReturnPickupSection from './ReturnPickupSection';
 import { cancelReturnPickup, decideReturn, getSellerReturn, markReturnReceived, refreshReturnCourier } from '../../services/returns.api';
 import {
   PICKUP_LABEL, RETURN_COLORS, RETURN_STATUS_LABEL, canArrangePickup, canCancelCourier, canCancelManualRequest,
-  canDecide, canMarkReceived, formatDate, humanize, nextStep,
+  canDecide, canMarkReceived, formatDate, humanize, nextStep, reasonLabel, returnStatusLabel,
 } from '../../utils/returns';
 import { money } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
@@ -79,7 +79,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
           <View style={styles.flex}>
             <Text style={type.heading}>{ret.productName}</Text>
             <Text style={type.small}>{ret.returnNumber ? `${ret.returnNumber} · ` : ''}Qty {ret.quantity}</Text>
-            <Text style={[styles.badge, { backgroundColor: bg, color: fg }]}>{RETURN_STATUS_LABEL[ret.status] || ret.status}</Text>
+            <Text style={[styles.badge, { backgroundColor: bg, color: fg }]}>{returnStatusLabel(ret)}</Text>
           </View>
         </View>
         {nextStep(ret) ? <InlineNotice tone="info">{nextStep(ret)}</InlineNotice> : null}
@@ -102,7 +102,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
         {ret.exchange?.status === 'CONVERTED_TO_REFUND' ? <KeyValueRow label="Changed to refund" value={ret.exchange.convertedReason || 'The replacement could not be sent'} /> : null}
       </Card> : null}
       <Card title="Customer's return reason">
-        <KeyValueRow label="Reason" value={humanize(ret.reason) || '—'} />
+        <KeyValueRow label="Reason" value={reasonLabel(ret.reason) || '—'} />
         {ret.returnOptionSnapshot ? <KeyValueRow label="Bought with" value={ret.returnOptionSnapshot === 'EASY_RETURN' ? 'Easy Returns' : 'No Easy Returns (wrong/damaged/defective only)'} /> : null}
         <Text style={type.body}>{ret.customerDescription || 'No description provided'}</Text>
         {ret.attachments?.length ? (
@@ -173,7 +173,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
         <Card title="Timeline">
           {ret.history.map((h, i) => (
             <View key={i} style={styles.step}>
-              <Text style={type.label}>{RETURN_STATUS_LABEL[h.toStatus] || h.toStatus}{h.comment ? ` — ${h.comment}` : ''}</Text>
+              <Text style={type.label}>{h.comment || RETURN_STATUS_LABEL[h.toStatus] || h.toStatus}</Text>
               <Text style={type.small}>{formatDate(h.timestamp)}</Text>
             </View>
           ))}

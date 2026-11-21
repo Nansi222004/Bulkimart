@@ -14,7 +14,9 @@ export default function KeyValueRow({ label, value, strong, valueColor }) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 4 },
-  label: { flex: 1, fontSize: 13, color: colors.textSecondary },
-  value: { flexShrink: 1, fontSize: 13, color: colors.text, textAlign: 'right' },
+  // The label keeps its own width (up to 45%) so a long value, e.g. a full address, wraps instead of
+  // squeezing the label off the row; the value takes the rest, right-aligned.
+  label: { flexShrink: 0, maxWidth: '45%', fontSize: 13, color: colors.textSecondary },
+  value: { flex: 1, fontSize: 13, color: colors.text, textAlign: 'right' },
   strong: { fontWeight: '800', color: colors.text, fontSize: 14 },
 });

@@ -592,7 +592,8 @@ export const suggestPlaces = async (input, bias) => {
   const text = String(input || '').trim().slice(0, 200);
   if (text.length < 3) return { ok: true, suggestions: [] };
   const hasBias = bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lng);
-  const key = `sug:${text.toLowerCase()}:${hasBias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : ''}`;
+  const restrictKm = hasBias && Number.isFinite(bias.withinKm) ? bias.withinKm : null;
+  const key = `sug:${text.toLowerCase()}:${hasBias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : ''}:${restrictKm || ''}`;
   const cached = cacheGet(key);
   if (cached) return { ok: true, suggestions: cached, cached: true };
 
@@ -605,7 +606,9 @@ export const suggestPlaces = async (input, bias) => {
         input: text,
         includedRegionCodes: ['in'],
         languageCode: 'en',
-        ...(hasBias ? { locationBias: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: 50000 } } } : {}),
+        ...(restrictKm
+          ? { locationRestriction: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: restrictKm * 1000 } } }
+          : hasBias ? { locationBias: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: 50000 } } } : {}),
       }),
       signal: AbortSignal.timeout(6000),
     });

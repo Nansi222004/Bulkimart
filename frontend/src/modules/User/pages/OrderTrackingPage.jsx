@@ -13,6 +13,11 @@ import { AttachmentUploader } from '../../../components/common/AttachmentPreview
 import { deliveryLabelFor, hasLiveRider, goesByCourier } from '../utils/deliveryLabel';
 import { formatCurrency } from '../utils/helpers';
 
+// Return reasons as customers and sellers read them ("Damaged item", not the stored code "DAMAGED").
+const RETURN_REASON_LABEL = { DAMAGED: 'Damaged item', DEFECTIVE: 'Defective / not working', WRONG_PRODUCT: 'Wrong product received', WRONG_SIZE: 'Wrong size', NOT_AS_DESCRIBED: 'Not as described', MISSING_PARTS: 'Missing parts', QUALITY_ISSUE: 'Quality issue', OTHER: 'Other' };
+const reasonLabel = (code) => RETURN_REASON_LABEL[code] || String(code || '').replace(/_/g, ' ');
+
+
 /** Refund or Exchange, and for an exchange which option (same product, same price) to receive. */
 function ResolutionPicker({ eligibility, resolution, setResolution, variantId, setVariantId, qty }) {
   const options = eligibility?.exchangeOptions || [];
@@ -1362,7 +1367,7 @@ export const OrderTrackingPage = () => {
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 13, marginBottom: 14, fontFamily: 'inherit' }}
                 >
                   {(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || ['DAMAGED', 'DEFECTIVE', 'WRONG_PRODUCT', 'WRONG_SIZE', 'NOT_AS_DESCRIBED', 'MISSING_PARTS', 'QUALITY_ISSUE', 'OTHER']).map((r) => (
-                    <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
+                    <option key={r} value={r}>{reasonLabel(r)}</option>
                   ))}
                 </select>
                 {returnEligibilityByItem[returnModalItem._id]?.allowedReasons && (
@@ -1458,7 +1463,7 @@ export const OrderTrackingPage = () => {
                 <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 6px' }}>Waiting for the rider to request your pickup code…</p>
               );
             })()}
-            <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Reason:</b> {viewingReturn.reason?.replace(/_/g, ' ')}</p>
+            <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Reason:</b> {reasonLabel(viewingReturn.reason)}</p>
             {viewingReturn.customerDescription && <p style={{ fontSize: 12.5, margin: '0 0 6px' }}><b>Description:</b> {viewingReturn.customerDescription}</p>}
             {viewingReturn.rejectionReason && <p style={{ fontSize: 12.5, margin: '0 0 6px', color: '#b91c1c' }}><b>Rejection reason:</b> {viewingReturn.rejectionReason}</p>}
             {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && (

@@ -13,7 +13,16 @@ import { api } from './apiClient';
  * which is copied into android/app on the build machine and never committed.
  * The web portal registers push for every approved rider, independent of the duty toggle; so does this app.
  */
-const KEYS = { deviceId: 'bulkimart-delivery:device-id', token: 'bulkimart-delivery:push-token', declined: 'bulkimart-delivery:push-declined' };
+const KEYS = { deviceId: 'bulkimart-delivery:device-id', token: 'bulkimart-delivery:push-token', declined: 'bulkimart-delivery:push-declined', last: 'bulkimart-delivery:push-last' };
+
+// The outcome of the latest registration attempt, so Profile can show why notifications are not set up.
+async function remember(result) {
+  try { await AsyncStorage.setItem(KEYS.last, JSON.stringify({ ...result, at: new Date().toISOString() })); } catch { /* best effort */ }
+  return result;
+}
+export async function lastPushResult() {
+  try { return JSON.parse((await AsyncStorage.getItem(KEYS.last)) || 'null'); } catch { return null; }
+}
 
 export async function getDeviceId() {
   let deviceId = await AsyncStorage.getItem(KEYS.deviceId);
@@ -44,15 +53,16 @@ async function sendToken(token) {
 export async function registerPush({ askPermission = true } = {}) {
   try {
     const granted = askPermission ? await requestPushPermission() : await hasPushPermission();
-    if (!granted) { await AsyncStorage.setItem(KEYS.declined, 'true'); return { ok: false, reason: 'permission' }; }
+    if (!granted) { await AsyncStorage.setItem(KEYS.declined, 'true'); return remember({ ok: false, reason: 'permission' }); }
     await AsyncStorage.removeItem(KEYS.declined);
     await messaging().registerDeviceForRemoteMessages();
     const token = await messaging().getToken();
-    if (!token) return { ok: false, reason: 'token' };
+    if (!token) return remember({ ok: false, reason: 'token', message: 'Firebase gave this phone no push token.' });
     await sendToken(token);
-    return { ok: true };
-  } catch {
-    return { ok: false, reason: 'error' };
+    return remember({ ok: true });
+  } catch (e) {
+    // Kept (without any token) so the Notifications card can say what went wrong.
+    return remember({ ok: false, reason: 'error', message: String(e?.message || e?.code || 'Registration failed').slice(0, 200) });
   }
 }
 
@@ -73,6 +83,20 @@ export async function deregisterPush(sessionToken) {
   // token straight away, which can fail; the rider then had no push registration at all. Removing it from
   // this account on the server is enough: the next sign-in registers the same token to the new account,
   // and the server takes it away from every other account (services/notification.service.js).
+}
+
+/** Asks the server whether THIS phone's current token is registered for the rider app. */
+export async function pushServerStatus() {
+  let token = null;
+  try { token = await messaging().getToken(); } catch { /* reported as not registered */ }
+  const data = await api.post('/api/notifications/tokens/status', { token });
+  return { ...(data?.data || data || {}), hasLocalToken: Boolean(token) };
+}
+
+/** Sends a test notification to this rider's registered phones; returns { sent, failed, errors }. */
+export async function sendTestPush() {
+  const data = await api.post('/api/notifications/tokens/test', {});
+  return data?.data || data || {};
 }
 
 export function onTokenRefresh() {

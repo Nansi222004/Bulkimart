@@ -6,7 +6,7 @@ import Order from '../models/Order.js';
 import Seller from '../models/Seller.js';
 import { asyncHandler } from "../middlewares/error.middleware.js";
 import { ok, paginated, getPagination, httpError } from "../utils/response.js";
-import { registerPushToken, removePushToken } from "../services/notification.service.js";
+import { registerPushToken, removePushToken, pushStatusFor, sendTestPush } from "../services/notification.service.js";
 
 // Historical rows remain untouched, but retired-program messages no longer
 // appear in customer notification lists or unread badges.
@@ -73,6 +73,28 @@ export const saveFcmToken = asyncHandler(async (req, res) => {
     ? (deviceId ? registerPushToken(req.user._id, token, platform, 'admin', Admin, deviceId) : registerPushToken(req.user._id, token, platform, 'admin', Admin))
     : (deviceId ? registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer', User, deviceId) : registerPushToken(req.user._id, token, platform, req.tokenRole || 'buyer')));
   ok(res, { platform: tokenPlatform }, "Push token saved");
+});
+
+// @desc    Is this phone registered for push for the signed-in app? The app sends its own
+//          token in the body (never in the URL); only yes/no and counts come back.
+// @route   POST /api/notifications/tokens/status
+// @access  Private
+export const getPushStatus = asyncHandler(async (req, res) => {
+  const own = typeof req.body?.token === 'string' ? req.body.token.slice(0, 4096) : null;
+  const status = req.userType === 'admin'
+    ? await pushStatusFor(req.user._id, 'admin', own, Admin)
+    : await pushStatusFor(req.user._id, req.tokenRole || 'buyer', own);
+  ok(res, status, 'Push status');
+});
+
+// @desc    Send one test notification to the signed-in app's registered devices
+// @route   POST /api/notifications/tokens/test
+// @access  Private
+export const sendMyTestPush = asyncHandler(async (req, res) => {
+  const result = req.userType === 'admin'
+    ? await sendTestPush(req.user._id, 'admin', Admin)
+    : await sendTestPush(req.user._id, req.tokenRole || 'buyer');
+  ok(res, result, result.sent ? 'Test notification sent' : 'No notification could be sent');
 });
 
 // @desc    Remove/deactivate one of the caller's device tokens (e.g. on

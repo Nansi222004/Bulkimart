@@ -16,6 +16,7 @@ import { deviceAddressLabel, getCurrentPosition } from '../../lib/gps';
 import { session } from '../../lib/storage';
 import { mediaUrl } from '../../api/client';
 import { decodePolyline } from '../DeliveryMap';
+import DeliveryPartnerRating from '../DeliveryPartnerRating';
 import { Text, TextInput } from '../ui';
 import { useAppTheme } from '../../theme/ThemeContext';
 import SelectField from '../SelectField';
@@ -773,6 +774,7 @@ function SearchingBar() {
 export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
   const { DARK } = useParcelColors();
   const [details, setDetails] = useState(false);
+  const [ratedStars, setRatedStars] = useState(null);
   const unpaid = b.paymentMethod === 'online' && ['payment_pending', 'payment_failed'].includes(b.status);
   const searching = !unpaid && ['searching_for_driver', 'needs_admin_assignment'].includes(b.status);
   return <>
@@ -797,6 +799,9 @@ export function ParcelCustomerStatus({ booking: b, justBooked, onWallet }) {
       {details && <View style={{ marginTop: 6 }}><Text selectable>{b.reference}</Text><Text>{b.service?.name || 'Doorstep delivery'}{b.route?.distanceMetres > 0 ? ` · ${(b.route.distanceMetres / 1000).toFixed(2)} km` : ''}</Text></View>}
     </PCard>
     {b.partner && <PartnerCard partner={b.partner} active={!!b.partner.phone} />}
+    {/* Rate the rider once the parcel is delivered (one rating per parcel; the server enforces it). */}
+    {b.partner && b.status === 'delivered' ? <DeliveryPartnerRating ratePath={`/api/parcel-delivery/bookings/${b._id}/rating`} riderName={b.partner.name}
+      deliveryRating={{ eligible: true, rating: ratedStars || b.customerRating?.rating }} onRated={setRatedStars} /> : null}
     <PCard>
       <ParcelStop kind="pickup" address={b.details.pickup} /><ParcelStop kind="dropoff" address={b.details.dropoff} />
       {b.service?.name ? <Text style={{ fontSize: 12.5, color: MUTED, marginTop: 6 }}>{[b.service.name, b.details.category, b.details.weightKg ? `${b.details.weightKg} kg` : '', b.details.packages > 1 ? `${b.details.packages} packages` : ''].filter(Boolean).join(' · ')}</Text> : null}

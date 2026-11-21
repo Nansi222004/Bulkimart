@@ -377,6 +377,8 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
         if (fresh.pickup?.partnerId) throw httpError(409, 'This pickup has already been taken by another rider', { code: 'ALREADY_ASSIGNED' });
         throw httpError(409, 'This offer is no longer available', { code: 'OFFER_NOT_AVAILABLE' });
       }
+      // Shown on the seller's and customer's return timeline.
+      await Return.updateOne({ _id: claimed._id }, { $push: { history: { toStatus: claimed.status, changedByRole: 'delivery', comment: 'Delivery partner accepted the pickup' } } }, { session });
 
       const order = await Order.findById(claimed.orderId).select('shippingAddress userId').session(session).lean();
       const seller = await Seller.findById(claimed.sellerId).select('storeDetails businessName').session(session).lean();
@@ -488,7 +490,9 @@ export const verifyReturnPickupOtp = async ({ returnId, partnerId, otp }) => {
       return { incorrect: true };
     }
     delivery.otpVerified = true; delivery.status = 'picked_up'; await delivery.save({ session });
-    ret.pickup.status = 'PICKED_UP'; ret.pickedUpAt = new Date(); await ret.save({ session });
+    ret.pickup.status = 'PICKED_UP'; ret.pickedUpAt = new Date();
+    ret.history.push({ toStatus: ret.status, changedByRole: 'delivery', comment: 'Delivery partner collected the item from the customer' });
+    await ret.save({ session });
     return { ret, delivery };
   });
   if (result.incorrect) throw httpError(400, 'Incorrect pickup code', { code: 'WRONG_OTP' });

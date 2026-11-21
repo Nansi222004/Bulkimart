@@ -50,7 +50,7 @@ export const riderFinancialSummary = async (partner) => {
     ...(!partner.bankDetails?.upiId && !partner.bankDetails?.accountNo ? [{ code: 'destination_missing', message: 'Add your bank account or UPI ID in Profile before cashing out.' }] : []),
     ...(disputed ? [{ code: 'cod_disputed', message: 'A COD cash record is disputed or has an amount mismatch. Admin must reconcile it before cashout.' }] : []),
     ...(legacyCash ? [{ code: 'legacy_cod_review', message: 'An older COD collection needs finance reconciliation before cashout.' }] : []),
-    ...(outstanding > 0 ? [{ code: 'cod_outstanding', message: `₹${outstanding.toFixed(2)} COD cash still needs admin receipt confirmation. Report the handover in COD records, then wait for confirmation.` }] : []),
+    ...(outstanding > 0 ? [{ code: 'cod_outstanding', message: `₹${outstanding.toLocaleString('en-IN', Number.isInteger(outstanding) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })} COD cash still needs admin receipt confirmation. Report the handover in COD records, then wait for confirmation.` }] : []),
     ...(verifiedPayable <= 0 ? [{ code: 'no_available_earnings', message: 'No verified earnings are available for withdrawal yet.' }] : verifiedPayable < riderMinPayout ? [{ code: 'below_minimum', message: `Minimum cashout is ₹${riderMinPayout.toFixed(2)}. Available earnings are ₹${verifiedPayable.toFixed(2)}.` }] : []),
   ];
   return { verifiedPayable, reportedCodOutstanding: outstanding, historicalCashIncluded: false, minimumPayout: riderMinPayout, payoutSchedule, payoutWeekday,

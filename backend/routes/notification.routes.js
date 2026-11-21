@@ -2,6 +2,8 @@ import express from "express";
 import {
   saveFcmToken,
   deleteFcmToken,
+  getPushStatus,
+  sendMyTestPush,
   getMyNotifications,
   getUnreadCount,
   markNotificationRead,
@@ -21,6 +23,8 @@ router.patch("/:id/read", markNotificationRead);
 router.delete("/:id", deleteNotification);
 
 router.post("/tokens", saveFcmToken);
+router.post("/tokens/status", getPushStatus);
+router.post("/tokens/test", sendMyTestPush);
 router.delete("/tokens/:token", deleteFcmToken);
 
 export default router;

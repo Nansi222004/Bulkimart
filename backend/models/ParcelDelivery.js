@@ -14,6 +14,8 @@ const schema = new mongoose.Schema({
   paymentStatus: { type: String, default: 'pending' },
   paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
   partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryPartner' },
+  // The sender's 1–5 star rating of the rider, once, after delivery (same rule as shop orders).
+  customerRating: { type: new mongoose.Schema({ rating: { type: Number, min: 1, max: 5 }, ratedAt: Date }, { _id: false }), default: undefined },
   assignment: { type: mongoose.Schema.Types.Mixed, default: () => ({ attempts: [], reason: '' }) },
   proof: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
   cash: { type: mongoose.Schema.Types.Mixed, default: () => ({ status: 'outstanding', amountPaise: 0 }) },

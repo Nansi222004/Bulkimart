@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import ModalPortal from '../../../components/ModalPortal';
 import { apiUrl } from '../../../utils/api';
 
-export default function DeliveryPartnerRating({ orderId, riderName, deliveryRating, onRated }) {
+// `ratePath` lets a parcel use the same card (POST /api/parcel-delivery/bookings/:id/rating).
+export default function DeliveryPartnerRating({ orderId, ratePath, riderName, deliveryRating, onRated }) {
   const [open, setOpen] = useState(false);
   const [rating, setRating] = useState(5);
   const [saving, setSaving] = useState(false);
@@ -14,13 +15,13 @@ export default function DeliveryPartnerRating({ orderId, riderName, deliveryRati
     if (lock.current) return;
     lock.current = true; setSaving(true); setError('');
     try {
-      const res = await fetch(apiUrl(`/api/orders/${orderId}/delivery-rating`), {
+      const res = await fetch(apiUrl(ratePath || `/api/orders/${orderId}/delivery-rating`), {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('userToken')}` },
         body: JSON.stringify({ rating }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.message || 'Could not submit your rating. Please try again.');
-      onRated(body.data.rating); setOpen(false);
+      onRated(body.data?.rating ?? rating); setOpen(false);
     } catch (err) { setError(err.message || 'Could not submit your rating. Please try again.'); }
     finally { lock.current = false; setSaving(false); }
   };

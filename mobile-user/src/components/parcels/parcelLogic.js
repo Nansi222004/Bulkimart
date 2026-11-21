@@ -3,7 +3,8 @@
 import { authHeaders, boundedFetch } from '../../api/client';
 import { session } from '../../lib/storage';
 
-export const parcelMoney = n => `₹${((n || 0) / 100).toFixed(2)}`;
+// Whole rupees without decimals (₹40), anything with paise to two places (₹79.50), with Indian digit grouping.
+export const parcelMoney = n => { const r = (Number(n) || 0) / 100; const w = Math.abs(r - Math.round(r)) < 0.005; return `₹${(w ? Math.round(r) : r).toLocaleString('en-IN', w ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
 export const parcelHeaders = () => authHeaders(true);
 const coordinatePresent = value => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value));
 export const validParcelLocation = value => coordinatePresent(value?.lat) && coordinatePresent(value?.lng) && Math.abs(Number(value.lat)) <= 90 && Math.abs(Number(value.lng)) <= 180;

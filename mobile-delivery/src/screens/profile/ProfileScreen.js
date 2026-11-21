@@ -19,6 +19,7 @@ import { partnerStatusLabel } from '../../utils/status';
 import { deliveryCounts } from '../../utils/deliveryCounts';
 import VehicleChangeCard from './VehicleChangeCard';
 import HelpCard from './HelpCard';
+import NotificationsCard from './NotificationsCard';
 import { colors, spacing, type } from '../../theme';
 
 /** Whole days until the driving licence expires, when that is within the next 30 days; otherwise null. */
@@ -169,6 +170,7 @@ export default function ProfileScreen({ navigation }) {
         <AppButton small variant="outline" title="Request a bank change" onPress={() => navigation.navigate('Support', { subject: 'Bank account change request' })} />
       </Card>
 
+      {p.status === 'approved' ? <NotificationsCard toast={toast} /> : null}
       <HelpCard sos={sos} navigation={navigation} />
 
       <AppButton title="Sign out" variant="outline" disabled={Boolean(duty.activeOrder)} onPress={() => Alert.alert('Sign out?', duty.online ? 'You will be set offline first, so no new orders are sent to you.' : 'You can sign in again with your phone number.', [

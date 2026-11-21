@@ -50,6 +50,10 @@ const EXCHANGE_STATUS_LABEL = {
 };
 const returnLabel = (ret, status = ret.status) => (ret.resolution === 'EXCHANGE' && EXCHANGE_STATUS_LABEL[status]) || RETURN_STATUS_LABEL[status] || status;
 const RETURN_REASONS = ['DAMAGED', 'DEFECTIVE', 'WRONG_PRODUCT', 'WRONG_SIZE', 'NOT_AS_DESCRIBED', 'MISSING_PARTS', 'QUALITY_ISSUE', 'OTHER'];
+// Return reasons as customers and sellers read them ("Damaged item", not the stored code "DAMAGED").
+const RETURN_REASON_LABEL = { DAMAGED: 'Damaged item', DEFECTIVE: 'Defective / not working', WRONG_PRODUCT: 'Wrong product received', WRONG_SIZE: 'Wrong size', NOT_AS_DESCRIBED: 'Not as described', MISSING_PARTS: 'Missing parts', QUALITY_ISSUE: 'Quality issue', OTHER: 'Other' };
+const reasonLabel = (code) => RETURN_REASON_LABEL[code] || String(code || '').replace(/_/g, ' ');
+
 const returnTimelineKeyFor = ret => {
   if (['RETURN_RECEIVED', 'REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED'].includes(ret.status)) return ret.status === 'REFUND_FAILED' ? 'REFUND_PENDING' : ret.status;
   if (['APPROVED', 'AWAITING_RETURN'].includes(ret.status) && ret.pickup?.status && ret.pickup.status !== 'NOT_ASSIGNED' && ret.pickup.status !== 'CANCELLED') return ret.pickup.status;
@@ -462,7 +466,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             <ResolutionPicker eligibility={returnEligibilityByItem[returnModalItem._id]} resolution={returnResolution} setResolution={setReturnResolution} variantId={exchangeVariantId} setVariantId={setExchangeVariantId} qty={returnQty} primary={primary} />
             <Text style={styles.label}>QUANTITY (MAX {eligibilityMax})</Text>
             <TextInput keyboardType="number-pad" value={String(returnQty)} onChangeText={v => setReturnQty(Math.max(1, Math.min(Number(v.replace(/\D/g, '')) || 1, eligibilityMax)))} style={[styles.input, { marginBottom: 14 }]} />
-            <SelectField label="REASON" labelStyle={styles.label} value={returnReason} onChange={setReturnReason} options={(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || RETURN_REASONS).map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} style={{ marginBottom: 14 }} />
+            <SelectField label="REASON" labelStyle={styles.label} value={returnReason} onChange={setReturnReason} options={(returnEligibilityByItem[returnModalItem._id]?.allowedReasons || RETURN_REASONS).map(r => ({ value: r, label: reasonLabel(r) }))} style={{ marginBottom: 14 }} />
             {returnEligibilityByItem[returnModalItem._id]?.allowedReasons ? <Text style={{ fontSize: 11, color: '#c2410c', marginTop: -8, marginBottom: 14 }}>This item was bought without Easy Returns, so it can only be returned if it is wrong, damaged or defective.</Text> : null}
             <Text style={styles.label}>DESCRIPTION{returnReason === 'OTHER' ? ' (REQUIRED)' : ' (OPTIONAL)'}</Text>
             <TextInput value={returnDescription} onChangeText={setReturnDescription} placeholder="Tell us what went wrong..." placeholderTextColor="#94a3b8" multiline numberOfLines={3} style={[styles.input, { minHeight: 80, textAlignVertical: 'top', marginBottom: 14 }]} />
@@ -494,7 +498,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
           {viewingReturn.pickup?.status === 'ASSIGNED' && (pickupOtpFor(viewingReturn)
             ? <View style={[styles.otpInline, { borderColor: primary, marginBottom: 6 }]}><Text style={{ fontSize: 11, fontWeight: '700', color: '#94a3b8', flexShrink: 1 }}>PICKUP CODE — SHARE WITH RIDER</Text><Text style={{ fontSize: 20, fontWeight: '900', color: primary, letterSpacing: 3 }}>{pickupOtpFor(viewingReturn)}</Text></View>
             : <Text style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 6 }}>Waiting for the rider to request your pickup code…</Text>)}
-          <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Reason:</Text> {viewingReturn.reason?.replace(/_/g, ' ')}</Text>
+          <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Reason:</Text> {reasonLabel(viewingReturn.reason)}</Text>
           {viewingReturn.customerDescription ? <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Description:</Text> {viewingReturn.customerDescription}</Text> : null}
           {viewingReturn.rejectionReason ? <Text style={[styles.retLine, { color: '#b91c1c' }]}><Text style={{ fontWeight: '700', color: '#b91c1c' }}>Rejection reason:</Text> {viewingReturn.rejectionReason}</Text> : null}
           {viewingReturn.resolution !== 'EXCHANGE' && viewingReturn.refundAmount !== undefined && viewingReturn.refundAmount !== null && <Text style={styles.retLine}><Text style={{ fontWeight: '700' }}>Refund:</Text> {money(viewingReturn.refundAmount)} · {viewingReturn.refundDestination === 'wallet' ? 'Bulkimart Wallet' : viewingReturn.refundDestination === 'original_source' ? 'Original payment source' : 'Destination pending'}{viewingReturn.status === 'REFUNDED' ? ` — completed${viewingReturn.refundedAt ? ` on ${new Date(viewingReturn.refundedAt).toLocaleDateString('en-IN')}` : ''}${viewingReturn.refundReference ? ` (Ref: ${viewingReturn.refundReference})` : ''}` : ` — ${viewingReturn.refundStatus || 'pending'}`}</Text>}
