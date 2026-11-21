@@ -30,6 +30,8 @@ export default function ReturnPickupSection({ ret, onChanged }) {
     finally { if (alive.current) setLoading(false); }
   }, [ret._id]);
   useEffect(() => { load(); }, [load, ret.status, ret.pickupMethod, ret.pickup?.status]);
+  // A reply from an earlier step ("awaiting acceptance") must not outlive the pickup state it described.
+  useEffect(() => { setMessage(''); }, [ret.status, ret.pickupMethod, ret.pickup?.status]);
 
   const confirm = () => {
     if (!method || !options?.stateReady || (method === 'MANUAL' && (!riderId || !options.manual?.available)) || (method === 'SHIPROCKET' && !options.shiprocket?.available)) return;

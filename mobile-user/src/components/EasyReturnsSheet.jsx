@@ -56,7 +56,7 @@ export default function EasyReturnsSheet({
 
   return (
     <Sheet visible={visible} onClose={() => { if (!pending) onClose?.(); }} dismissable={!pending}>
-      <ScrollView style={{ maxHeight: 620 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ maxHeight: 620 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16 }} keyboardShouldPersistTaps="handled">
         <View style={styles.head}>
           {image ? <Image source={{ uri: image }} style={styles.thumb} contentFit="cover" /> : null}
           <View style={{ flex: 1 }}>

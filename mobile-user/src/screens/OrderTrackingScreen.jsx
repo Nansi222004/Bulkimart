@@ -403,7 +403,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {item.image ? <Image source={{ uri: mediaUrl(item.image) }} style={{ width: 36, height: 36, borderRadius: 8 }} contentFit="cover" /> : null}
               <View style={{ flex: 1 }}><Text style={{ fontWeight: '600', fontSize: 13 }}>{item.name}</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>Qty: {item.qty} • {money(item.price)} each</Text>{item.returnOption ? <Text style={{ fontSize: 10.5, fontWeight: '700', color: item.returnOption === 'EASY_RETURN' ? '#0369a1' : '#c2410c' }}>{item.returnOption === 'EASY_RETURN' ? `Easy Returns · ${item.returnEligibilityDays} days (+${money(item.returnExtraCharge || 0)} paid)` : 'No Easy Returns · wrong/damaged/defective only'}</Text> : null}</View>
-              <Text style={{ fontWeight: '700', fontSize: 13 }}>₹{(Math.round(Number(item.qty) * Number(item.price) * 100) / 100).toFixed(2)}</Text>
+              <Text style={{ fontWeight: '700', fontSize: 13 }}>{money(Math.round(Number(item.qty) * Number(item.price) * 100) / 100)}</Text>
             </View>
             {currentStatus === 'delivered' && <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
               <Pressable onPress={() => handleReorderSingleItem(item)} style={[styles.smallBtn, { borderColor: '#16a34a' }]}><Text style={{ color: '#16a34a', fontSize: 11, fontWeight: '800' }}>🔄 Reorder</Text></Pressable>
@@ -440,7 +440,7 @@ function TrackingBody({ selectedOrder, close, theme, insets }) {
         }} />}
         <View style={styles.billRow}><Text style={styles.billLabel}>Delivery Charge (no GST)</Text><Text style={styles.billValue}>{money(selectedOrder.pricing?.deliveryCharge || 0)}</Text></View>
         {selectedOrder.pricing?.codFeeTotal > 0 ? <View style={styles.billRow}><Text style={styles.billLabel}>{selectedOrder.pricing.codFeeDescription || 'COD Handling Fee'}{selectedOrder.pricing.codFeeTaxAmount > 0 ? ` (incl. ${money(selectedOrder.pricing.codFeeTaxAmount)} GST)` : ''}</Text><Text style={styles.billValue}>{money(selectedOrder.pricing.codFeeTotal)}</Text></View> : null}
-        {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => <View key={title} style={styles.billRow}><Text style={{ color: '#10b981', fontSize: 13 }}>{title}</Text><Text style={{ color: '#10b981', fontSize: 13 }}>-₹{amount.toFixed(2)}</Text></View>)}
+        {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => <View key={title} style={styles.billRow}><Text style={{ color: '#10b981', fontSize: 13 }}>{title}</Text><Text style={{ color: '#10b981', fontSize: 13 }}>-{money(amount)}</Text></View>)}
         <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
         <View style={styles.billRow}><Text style={{ fontWeight: '800', fontSize: 14 }}>Total Amount</Text><Text style={{ fontWeight: '800', fontSize: 14 }}>{money(selectedOrder.pricing?.totalAmount || 0)}</Text></View>
         <View style={styles.billRow}><Text style={{ fontSize: 11, color: '#94a3b8' }}>Payment Method</Text><Text style={{ fontSize: 11, color: '#94a3b8' }}>{selectedOrder.exchange ? 'EXCHANGE — NO CHARGE' : String(selectedOrder.paymentMethod || '').toUpperCase()}</Text></View>

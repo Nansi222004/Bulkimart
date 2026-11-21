@@ -7,6 +7,7 @@ import { getPortalToken } from '../../../utils/portalSession';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import { orderDetailSections, addressText } from './orderDetailSections';
 import React, { useEffect, useRef, useState } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
 import { Bike, Package } from 'lucide-react';
@@ -56,6 +57,7 @@ const STATUS_TABS = [
   { label: 'Dispatched', value: 'dispatched' },
   { label: 'Delivered', value: 'delivered' },
   { label: 'Cancelled', value: 'cancelled' },
+  { label: 'Returns', value: 'returns' },
 ];
 
 const PILL = {
@@ -84,7 +86,7 @@ const LABEL = {
   refunded: 'Refunded',
 };
 
-const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+const money = (n) => (Number.isFinite(Number(n)) && n !== null && n !== '' ? rupees(Number(n)) : '—');
 const fmt = (d) =>
   d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
@@ -195,7 +197,7 @@ export const OrdersTab = ({ detailPage = false }) => {
   const deliveredOrdersCount = channelOrders.filter(o => o.status === 'delivered').length;
 
   const shown = channelOrders.filter((o) => {
-    const matchesTab = tab === 'all' ? true : tab === 'pending' ? ['placed', 'confirmed', 'preparing'].includes(o.status) : (o.status === tab || (tab === 'confirmed' && o.status === 'preparing'));
+    const matchesTab = tab === 'all' ? true : tab === 'pending' ? ['placed', 'confirmed', 'preparing'].includes(o.status) : tab === 'returns' ? ['return_requested', 'returned', 'refunded'].includes(o.status) : (o.status === tab || (tab === 'confirmed' && o.status === 'preparing') || (tab === 'dispatched' && o.status === 'out_for_delivery'));
     const orderNo = (o.orderNo || '').toLowerCase();
     const custName = (o.customer?.name || '').toLowerCase();
     const query = searchQuery.toLowerCase().trim();
@@ -747,7 +749,7 @@ export const OrdersTab = ({ detailPage = false }) => {
 
       {detailPage && selected && (
         <section aria-label="Order details">
-          <OrderFinancialBreakdown orderId={selected._id} />
+          <OrderFinancialBreakdown orderId={selected._id} paymentMethod={selected.paymentMethod} />
           {(selected.deliveredAt || selected.status === 'delivered') && <OrderInvoices label="View / print invoice" buttonClassName="order-action-btn-sm" load={async () => {
             const res = await fetch(apiUrl(`/api/sellers/orders/${selected._id}/invoice`), { headers: { Authorization: `Bearer ${getPortalToken('seller')}` } });
             const body = await res.json().catch(() => ({}));

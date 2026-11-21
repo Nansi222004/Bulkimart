@@ -8,6 +8,8 @@ export default function ReturnPickupPanel({ r, onChange }) {
   const [method, setMethod] = useState(''), [riderId, setRiderId] = useState('');
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const generation = useRef(0), mounted = useRef(true), submitting = useRef(false);
+  // A reply from an earlier step ("awaiting acceptance") must not outlive the pickup state it described.
+  useEffect(() => { setMessage(''); }, [r.status, r.pickupMethod, r.pickup?.status]);
   const load = useCallback(async () => {
     const epoch = ++generation.current, token = localStorage.getItem('sellerToken');
     const current = () => mounted.current && epoch === generation.current && token === localStorage.getItem('sellerToken');

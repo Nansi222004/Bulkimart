@@ -11,6 +11,7 @@ import { deleteProduct } from '../../services/product.api';
 import { isDigital, isWholesaleOnly, productStatus, stockHealth } from '../../utils/productForm';
 import { hasWholesaleAccess } from '../../utils/wholesale';
 import { useAuth } from '../../context/AuthContext';
+import { money } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
 
 // Read view of one listing, from the row the seller list returned (no separate seller detail endpoint exists).
@@ -63,8 +64,8 @@ export default function ProductDetailScreen({ route, navigation }) {
         {(p.variants || []).map((v, i) => (
           <View key={v._id || i} style={styles.variant}>
             <Text style={type.label}>{v.name || `Variant ${i + 1}`}{i === 0 ? ' · main' : ''}</Text>
-            <KeyValueRow label="Selling price" value={`₹${v.price}`} />
-            <KeyValueRow label="MRP" value={v.mrp != null ? `₹${v.mrp}` : '—'} />
+            <KeyValueRow label="Selling price" value={money(Number(v.price))} />
+            <KeyValueRow label="MRP" value={v.mrp != null ? money(Number(v.mrp)) : '—'} />
             <KeyValueRow label="Stock" value={`${v.stock ?? '—'} ${v.unit || ''}`} />
             {v.weight != null && v.weight !== '' ? <KeyValueRow label="Weight" value={String(v.weight)} /> : null}
             {v.sku ? <KeyValueRow label="SKU" value={v.sku} /> : null}

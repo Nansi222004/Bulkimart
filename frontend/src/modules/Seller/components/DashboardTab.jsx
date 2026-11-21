@@ -1,6 +1,8 @@
 import React from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import SellerSalesChart from './SellerSalesChart';
-const money = value => value === null ? 'Pending calculation' : `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// null = not calculated yet; a missing value shows '—', never a misleading ₹0.
+const money = value => value === null ? 'Pending calculation' : Number.isFinite(value) ? rupees(value) : '—';
 const KpiCard = ({ title, value, hint, icon, onClick, children }) => <button type="button" className="seller-home-kpi" onClick={onClick}><span className="seller-home-kpi-heading"><span>{title}</span><span aria-hidden="true">{icon}</span></span><span className="seller-home-kpi-value">{value}</span><span className="seller-home-kpi-hint">{hint}</span>{children}</button>;
 import { useSeller } from '../context/SellerContext';
 

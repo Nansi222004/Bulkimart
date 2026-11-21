@@ -149,10 +149,31 @@ export function DutyProvider({ children }) {
   // Push: an approved rider is reachable even off duty (same as the web portal).
   // Location is asked on first open too (right after the notification prompt), not only when going on duty,
   // so a fresh install shows both prompts. Both go through the permission queue, one dialog at a time.
+  // A failed registration (network, Firebase not ready yet) is retried with growing gaps instead of being
+  // dropped; before, one failure after signing out and back in left the rider with no push at all.
+  const lastPushCheck = useRef(0);
   useEffect(() => {
-    if (!approved) return;
-    (async () => { await registerPush({ askPermission: true }); await requestLocationPermission(); })();
+    if (!approved) return undefined;
+    let cancelled = false;
+    let timer = null;
+    const attempt = async (tries, ask) => {
+      lastPushCheck.current = Date.now();
+      const result = await registerPush({ askPermission: ask });
+      if (cancelled || result.ok || result.reason === 'permission' || tries >= 6) return;
+      timer = setTimeout(() => attempt(tries + 1, false), Math.min(60000, 5000 * 2 ** tries));
+    };
+    (async () => { await attempt(0, true); if (!cancelled) await requestLocationPermission(); })();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [approved, profile?._id]);
+
+  // Coming back to the app re-confirms this phone's registration (at most every 10 minutes), so a
+  // registration lost on the server is repaired without the rider having to sign out and in again.
+  useEffect(() => {
+    if (!approved || !appActive) return;
+    if (Date.now() - lastPushCheck.current < 10 * 60 * 1000) return;
+    lastPushCheck.current = Date.now();
+    registerPush({ askPermission: false });
+  }, [approved, appActive]);
 
   // ------------------------------------------------------------ live: socket + polling (foreground only)
   useEffect(() => {

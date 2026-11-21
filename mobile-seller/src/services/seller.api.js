@@ -24,8 +24,8 @@ export const getDashboard = (type) => api.get('/api/sellers/dashboard', { params
 
 // ---- Orders ----
 // type: 'ecommerce' | 'grocery' | undefined (all storefronts)
-export const listSellerOrders = ({ type, status = 'all', limit = 100 } = {}) =>
-  api.get('/api/sellers/orders', { params: { ...(type ? { type } : {}), status, limit } });
+export const listSellerOrders = ({ type, status = 'all', limit = 100, page = 1 } = {}) =>
+  api.get('/api/sellers/orders', { params: { ...(type ? { type } : {}), status, limit, page } });
 
 export const getSellerOrder = (id) => api.get(`/api/sellers/orders/${requireId(id)}`);
 

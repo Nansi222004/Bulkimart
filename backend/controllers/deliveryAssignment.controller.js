@@ -9,6 +9,7 @@ import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
 import { distanceKm } from '../utils/geo.js';
 import { canTakeAnother } from '../services/riderCapacity.service.js';
+import { licenceExpired } from '../services/riderEligibility.service.js';
 import { riderCashAllowsOrder } from '../services/riderCashEligibility.service.js';
 import { payoutModeOf, rateSnapshotFor } from '../services/riderPay.service.js';
 import { requireOrderPickup, pickupCoordinates } from '../services/storePickup.service.js';
@@ -31,6 +32,7 @@ const pickupFor = async (order) => {
 const isRiderEligible = async (partner, pickup, order, { session = null, checkCapacity = true } = {}) => {
   if (partner.parcelReservation?.bookingId) return false;
   if (partner.status !== 'approved' || !partner.isAvailable) return false;
+  if (licenceExpired(partner)) return false;
   if (!await riderCashAllowsOrder(partner._id, order, { session })) return false;
   const user = await User.findById(partner.userId).select('isActive roles').session(session);
   if (!user?.isActive || !user.roles?.includes('delivery')) return false;
@@ -98,6 +100,7 @@ export const assignDeliveryPartner = asyncHandler(async (req, res) => {
   if (!order) throw httpError(404, 'Order not found');
   if (!await orderPaymentReady(order)) throw httpError(409, 'Payment must be verified before delivery assignment');
   if (!partner) throw httpError(404, 'Delivery partner not found');
+  if (licenceExpired(partner)) throw httpError(409, 'This delivery partner\'s driving licence has expired. Ask them to upload a renewed licence first.');
   if (order.deliveryType !== 'internal' || order.status !== 'dispatched') {
     throw httpError(409, 'Only accepted, prepared, ready-for-pickup manual orders can be assigned');
   }

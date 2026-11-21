@@ -20,13 +20,17 @@ import { colors, radius, spacing, type } from '../../theme';
  * the rider app has no "delivered to seller" button because the backend has none for riders.
  */
 export function stopsOf(r) {
-  const customer = r.pickup?.deliveryId?.pickupLocation || r.orderId?.shippingAddress;
+  const ship = r.orderId?.shippingAddress;
+  const customer = r.pickup?.deliveryId?.pickupLocation || ship;
   const seller = r.pickup?.deliveryId?.dropLocation || r.sellerId?.storeDetails;
-  const customerAddress = customer?.address || [customer?.line1, customer?.line2, customer?.city, customer?.state, customer?.pincode].filter(Boolean).join(', ');
+  // The order's full address first: pickups accepted before the server fix stored only "house, city"
+  // (e.g. "8, Indore"), which is not enough to find the customer.
+  const fullShip = [ship?.line1, ship?.line2, ship?.city, ship?.state, ship?.pincode].filter(Boolean).join(', ');
+  const customerAddress = fullShip || customer?.address || [customer?.line1, customer?.line2, customer?.city, customer?.state, customer?.pincode].filter(Boolean).join(', ');
   const sellerName = seller?.name || r.sellerId?.businessName || r.sellerId?.storeDetails?.name || 'Seller';
   const sellerAddress = [seller?.address, seller?.city, seller?.state, seller?.pincode].filter(Boolean).join(', ');
   return {
-    customerName: customer?.name || 'Customer', customerPhone: r.orderId?.shippingAddress?.phone || null, customerAddress, customerPoint: customer,
+    customerName: ship?.name || customer?.name || 'Customer', customerPhone: r.orderId?.shippingAddress?.phone || null, customerAddress, customerPoint: customer,
     sellerName, sellerAddress, sellerPoint: seller,
   };
 }
@@ -137,7 +141,10 @@ export function ReturnPickupsScreen({ navigation }) {
             const busy = busyId === String(r._id);
             return (
               <ReturnCard key={r._id} r={r} highlight>
-                <StatusPill tone="warning" label="New request" />
+                <View style={styles.doneRow}>
+                  <StatusPill tone="warning" label="New request" />
+                  {Number.isFinite(r.payout?.total) ? <Text style={styles.earned}>You earn {formatRupees(r.payout.total)}</Text> : null}
+                </View>
                 <Route from={stops.customerAddress || stops.customerName} to={stops.sellerName} />
                 {(km(r.pickupDistanceKm) || km(r.routeDistanceKm)) ? (
                   <View style={styles.chips}>
@@ -163,7 +170,10 @@ export function ReturnPickupsScreen({ navigation }) {
           const pickedUp = r.pickup?.status === 'PICKED_UP';
           return (
             <ReturnCard key={r._id} r={r} onPress={() => navigation.navigate('ReturnDetail', { id: String(r._id) })}>
-              <StatusPill tone={s.tone} label={s.label} />
+              <View style={styles.doneRow}>
+                <StatusPill tone={s.tone} label={s.label} />
+                {Number.isFinite(r.payout?.total) ? <Text style={styles.earned}>You earn {formatRupees(r.payout.total)}</Text> : null}
+              </View>
               <Route from={stops.customerAddress || stops.customerName} to={`${stops.sellerName}${stops.sellerAddress ? `, ${stops.sellerAddress}` : ''}`} />
               <View style={styles.openRow}>
                 <Text style={styles.nextStep}>{pickedUp ? 'Next: hand the item to the seller' : 'Next: collect the item from the customer'}</Text>

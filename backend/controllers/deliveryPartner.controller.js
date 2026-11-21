@@ -9,6 +9,7 @@ import User from '../models/User.js';
 import Order from '../models/Order.js';
 import Delivery from '../models/Delivery.js';
 import Parcel from '../models/ParcelDelivery.js';
+import SellerLedgerEntry from '../models/SellerLedgerEntry.js';
 import Seller from '../models/Seller.js';
 import Product from '../models/Product.js';
 import Payment from '../models/Payment.js';
@@ -1056,7 +1057,9 @@ export const acceptOrder = asyncHandler(async (req, res) => {
   if (candidate.deliveryType === 'shiprocket') throw httpError(409, 'Courier orders cannot be accepted by Bulkimart riders');
   const { seller: pickupSeller, shop } = await requireOrderPickup(candidate);
   if (!pickupCoordinates(candidate.shippingAddress)) throw httpError(409, 'The customer delivery address needs a valid map pin before acceptance');
-  if (riderIneligibility(partner, req.user, candidate, shop || {}, { requireDuty: false })) {
+  const ineligible = riderIneligibility(partner, req.user, candidate, shop || {}, { requireDuty: false });
+  if (ineligible === 'licence_expired') throw httpError(403, 'Your driving licence has expired. Upload your renewed licence in Profile to take orders again.');
+  if (ineligible) {
     throw httpError(409, 'Your account, service coverage or pickup radius is not eligible for this order');
   }
 
@@ -2459,9 +2462,30 @@ export const getEarningsSummary = asyncHandler(async (req, res) => {
   }
   daily.breakdown.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
 
+  // Lifetime earnings, counted once. Since parcel pay started going through the rider wallet, a parcel's
+  // earning is also added to earnings.total at delivery (riderWallet.service.js); older parcels are not in
+  // it. Adding every parcel on top of earnings.total (as the app did) counted the newer ones twice, so
+  // only parcels whose earning was never posted to the wallet are added here.
+  const deliveredParcels = await Parcel.find({ partnerId: req.partner._id, status: 'delivered' }).select('_id pricing.driverPaise').lean();
+  const walletKey = (parcel) => `RIDER_WALLET:PARCEL:${parcel._id}:EARNING`;
+  const postedParcelKeys = deliveredParcels.length
+    ? new Set((await SellerLedgerEntry.find({ idempotencyKey: { $in: deliveredParcels.map(walletKey) } }).select('idempotencyKey').lean()).map((entry) => entry.idempotencyKey))
+    : new Set();
+  const unpostedParcelPaise = deliveredParcels.filter((parcel) => !postedParcelKeys.has(walletKey(parcel)))
+    .reduce((sum, parcel) => sum + (parcel.pricing?.driverPaise || 0), 0);
+  const lifetimeEarnings = Math.round(((Number(req.partner.earnings?.total) || 0) * 100) + unpostedParcelPaise) / 100;
+
   return ok(res, {
+    lifetimeEarnings,
     timezone: 'Asia/Kolkata',
     parcels: { weekTotal: weekParcelPaise / 100, lifetimeTrips: lifetimeParcels.trips, lifetimeTotal: lifetimeParcels.paise / 100 },
+    // Lifetime trip counts read together, so Profile, Duty and Earnings show one and the same number:
+    // orders and return pickups (DeliveryPartner.totalDeliveries) plus parcel deliveries.
+    deliveries: {
+      ordersAndReturns: Number(req.partner.totalDeliveries) || 0,
+      parcels: lifetimeParcels.trips,
+      total: (Number(req.partner.totalDeliveries) || 0) + lifetimeParcels.trips,
+    },
     daily: { date: todayStart, trips: daily.trips, total: daily.totalPaise / 100, tips: daily.tipsPaise / 100, breakdown: daily.breakdown },
     weekly: { weekStart, trips: weekly.trips, total: weekly.totalPaise / 100, tips: weekly.tipsPaise / 100,
       days: WEEKDAY_LABELS.map((day, index) => ({ day, amount: weekly.dayPaise[index] / 100 })) },

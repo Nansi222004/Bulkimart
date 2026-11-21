@@ -20,7 +20,7 @@ import { colors, spacing, type } from '../../theme';
  * A report is a claim; Bulkimart verifies it. Cash stays "with you" until an admin confirms receipt.
  */
 export default function CashScreen() {
-  const { refreshProfile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [page, setPage] = useState(1);
   const [state, setState] = useState({ loading: true, error: '', cod: [], ledger: [], balances: [], trips: [], pages: 1, enabled: false });
   const [selected, setSelected] = useState(null);
@@ -72,16 +72,19 @@ export default function CashScreen() {
     } finally { setBusy(false); }
   };
 
-  const outstanding = state.cod.reduce((sum, row) => sum + (Number(row.cash?.outstandingPaise) || 0), 0);
+  // The server's total across every order (the list is 25 orders a page, so adding up one page undercounts).
+  const serverOutstanding = Number(profile?.finance?.reportedCodOutstanding);
+  const pageOutstanding = state.cod.reduce((sum, row) => sum + (Number(row.cash?.outstandingPaise) || 0), 0);
+  const outstanding = Number.isFinite(serverOutstanding) ? Math.round(serverOutstanding * 100) : pageOutstanding;
 
   return (
-    <Screen refreshing={state.loading && !state.cod.length} onRefresh={() => load(page)}>
+    <Screen refreshing={state.loading && !state.cod.length} onRefresh={() => { load(page); refreshProfile(); }}>
       <InlineNotice>COD cash belongs to Bulkimart until you hand it over; it is not your earning. After an OTP delivery, report what the customer paid, then hand the cash over and report the deposit or receipt reference. You can withdraw earnings only when you hold no COD cash.</InlineNotice>
       {!state.enabled && !state.loading && !state.error ? <InlineNotice tone="warning">Cash reporting is awaiting policy approval. Contact operations for existing cash obligations.</InlineNotice> : null}
       {state.error ? <InlineNotice tone="error">{state.error}</InlineNotice> : null}
       {notice ? <InlineNotice tone={notice.tone}>{notice.text}</InlineNotice> : null}
 
-      <Card title="Cash with you (this page)">
+      <Card title={Number.isFinite(serverOutstanding) ? 'Cash with you (all orders)' : 'Cash with you (this page)'}>
         <Text style={styles.big}>{formatPaise(outstanding)}</Text>
         {state.balances.map((b) => (
           <Text key={b._id?.bucket} style={type.body}>{LEDGER_BUCKET[b._id?.bucket] || b._id?.bucket}: {formatPaise(Math.round(Number(b.amount) * 100))}</Text>

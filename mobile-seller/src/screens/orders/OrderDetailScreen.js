@@ -134,7 +134,7 @@ export default function OrderDetailScreen({ route, navigation }) {
         {!order.pricing ? <Text style={type.small}>Full basket pricing is withheld for multi-store orders.</Text> : null}
       </Card>
 
-      <OrderFinanceSection orderId={order._id} />
+      <OrderFinanceSection orderId={order._id} paymentMethod={order.paymentMethod} />
 
       <Card title={`Order items (${order.items?.length || 0})`}>
         {(order.items || []).map((item, index) => (

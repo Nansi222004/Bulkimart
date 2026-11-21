@@ -1,9 +1,9 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
-import useApiResource from '../../hooks/useApiResource';
-import { listSellerOrders } from '../../services/seller.api';
+import LoadOlderOrders from '../../components/LoadOlderOrders';
+import usePagedSellerOrders from '../../hooks/usePagedSellerOrders';
 import { dateTime } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
 
@@ -12,12 +12,9 @@ import { colors, radius, spacing, type } from '../../theme';
 const isInvoiceable = (o) => Boolean(o.deliveredAt) || o.status === 'delivered';
 
 export default function InvoicesScreen({ navigation }) {
-  const loader = useCallback(async () => {
-    const body = await listSellerOrders({ status: 'all', limit: 100 });
-    return Array.isArray(body?.data) ? body.data : [];
-  }, []);
-  const { data, error, loading, refreshing, refresh, reload } = useApiResource(loader, [loader]);
-  const rows = useMemo(() => (data || []).filter(isInvoiceable), [data]);
+  const paged = usePagedSellerOrders();
+  const { data, error, loading, refreshing, refresh, reload, list } = paged;
+  const rows = useMemo(() => list.filter(isInvoiceable), [list]);
 
   if (loading && !data) return <LoadingView message="Loading delivered orders…" />;
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
@@ -28,8 +25,9 @@ export default function InvoicesScreen({ navigation }) {
       keyExtractor={(item) => String(item._id)}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primaryDark]} />}
-      ListHeaderComponent={<Text style={type.small}>Tax invoices are issued for delivered orders. Showing delivered orders from your latest 100 orders.</Text>}
-      ListEmptyComponent={<EmptyView title="No invoices yet" message="Invoices appear here once an order is delivered." />}
+      ListHeaderComponent={<Text style={type.small}>Tax invoices are issued for delivered orders. Load older orders at the bottom to find earlier invoices.</Text>}
+      ListFooterComponent={<LoadOlderOrders paged={paged} note="(invoices come from the delivered ones)" />}
+      ListEmptyComponent={<EmptyView title="No invoices yet" message={paged.hasMore ? 'No delivered orders among the loaded orders. Load older orders below.' : 'Invoices appear here once an order is delivered.'} />}
       renderItem={({ item }) => (
         <Pressable accessibilityRole="button" accessibilityLabel={`Invoice for ${item.orderNo}`} android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
           onPress={() => navigation.navigate('InvoiceDetail', { orderId: item._id, orderNo: item.orderNo })} style={styles.row}>

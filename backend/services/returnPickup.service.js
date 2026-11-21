@@ -12,6 +12,7 @@ import { financialTransaction } from './financeSafety.service.js';
 import { postLedgerEntry } from './sellerLedger.service.js';
 import { riderPayout, rateSnapshotFor, payoutModeOf } from './riderPay.service.js';
 import { canTakeAnother } from './riderCapacity.service.js';
+import { licenceExpired } from './riderEligibility.service.js';
 import { notifyUser, notifySeller, notifyRider, notifyAllAdmins, NOTIFICATION_EVENT } from './notification.service.js';
 import {
   OFFER_ATTEMPT_STATUS, RETURN_STATUS, RETURN_PICKUP_STATUS, PAYOUT_MODE,
@@ -72,6 +73,7 @@ const ridersForPickup = async (ret, pickupPoint, { maxMeters, limit = 30, riderI
   const resolved = new Set((ret.pickup?.offerAttempts || []).filter((o) => o.status !== OFFER_ATTEMPT_STATUS.OFFERED).map((o) => String(o.riderId)));
   riders = riders.filter((r) => {
     if (!r.userId || r.userId.isActive === false || !r.userId.roles?.includes('delivery')) return false;
+    if (licenceExpired(r)) return false;
     if (resolved.has(String(r._id))) return false;
     if (r.deliveryRadiusKm === undefined || r.deliveryRadiusKm === null) return true;
     const riderLoc = (r.currentLocation?.lat !== undefined) ? r.currentLocation : r.baseLocation;
@@ -151,8 +153,22 @@ export const broadcastReturnPickupToRiders = async (returnId, attempt = 1) => {
   return offerPickup(ret, order, seller, riders, pickupPoint);
 };
 
+/**
+ * What a return pickup pays the rider, worked out exactly as completion does
+ * (customer → seller distance, Quick rate card): shown on the offer so the rider
+ * can judge it before accepting, the same as a normal order offer.
+ */
+export const returnPickupPayout = (order, seller, delivery = null) => (delivery?.ratesUsed
+  // Accepted: the distance and rate card frozen on the trip, which is exactly what completion pays.
+  ? riderPayout(delivery.route?.distanceKm, { mode: PAYOUT_MODE.QUICK, rates: delivery.ratesUsed })
+  : riderPayout(distanceKm(order?.shippingAddress, seller?.storeDetails), { mode: PAYOUT_MODE.QUICK, rates: rateSnapshotFor(PAYOUT_MODE.QUICK) }));
+
+/** The customer's full address on one line (house, street, city, state, PIN). */
+export const fullAddressLine = (address) => [address?.line1, address?.line2, address?.city, address?.state, address?.pincode].filter(Boolean).join(', ');
+
 async function offerPickup(ret, order, seller, riders, pickupPoint) {
   const payload = {
+    payout: returnPickupPayout(order, seller),
     returnId: String(ret._id),
     returnNumber: ret.returnNumber,
     productName: ret.productName,
@@ -307,6 +323,8 @@ export const acceptReturnPickup = async ({ returnId, partnerId }) => {
   // stays unchanged; reservation protection survives rollout flag changes.
   // No expired claim is automatically taken over.
   if (!mongoose.Types.ObjectId.isValid(returnId)) throw httpError(400, 'Invalid return id');
+  const licence = await DeliveryPartner.findById(partnerId).select('vehicleType drivingLicense').lean();
+  if (licenceExpired(licence)) throw httpError(403, 'Your driving licence has expired. Upload your renewed licence in Profile to take pickups again.');
   const token = crypto.randomUUID();
   const claimedPartner = await DeliveryPartner.findOneAndUpdate({ _id: partnerId, 'parcelReservation.bookingId': { $exists: false }, 'parcelReturnClaim.token': { $exists: false } }, { $set: { parcelReturnClaim: { token, startedAt: new Date() } } }, { returnDocument: 'after' });
   if (!claimedPartner) throw httpError(409, 'Driver is reserved for another task');
@@ -368,7 +386,7 @@ const acceptReturnPickupCore = async ({ returnId, partnerId, token }) => {
         returnId: claimed._id,
         partnerId,
         direction: 'return_pickup',
-        pickupLocation: { address: [order?.shippingAddress?.line1, order?.shippingAddress?.city].filter(Boolean).join(', '), lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng },
+        pickupLocation: { address: fullAddressLine(order?.shippingAddress), lat: order?.shippingAddress?.lat, lng: order?.shippingAddress?.lng },
         dropLocation: { address: seller?.storeDetails?.address || seller?.storeDetails?.name, lat: seller?.storeDetails?.lat, lng: seller?.storeDetails?.lng },
         route: { distanceKm: km },
         status: 'accepted',

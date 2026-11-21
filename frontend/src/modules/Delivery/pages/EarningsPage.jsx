@@ -45,9 +45,11 @@ export const EarningsPage = () => {
   // figure comes from the partner record, which counts shopping trips only, so parcels are added here.
   const parcels = earningsData.parcels;
   const base = earningsData[period];
-  const data = period === 'lifetime' && parcels
-    ? { ...base, total: Math.round((base.total + parcels.lifetimeTotal) * 100) / 100, trips: base.trips + parcels.lifetimeTrips }
-    : base;
+  const server = earningsData.lifetimeServer;
+  const data = period === 'lifetime' && server ? { ...base, total: server.total, trips: server.trips }
+    : period === 'lifetime' && parcels
+      ? { ...base, total: Math.round((base.total + parcels.lifetimeTotal) * 100) / 100, trips: base.trips + parcels.lifetimeTrips }
+      : base;
   const parcelPeriodTotal = !parcels ? 0 : period === 'lifetime' ? parcels.lifetimeTotal : period === 'weekly' ? parcels.weekTotal
     : (data.breakdown || []).filter((trip) => trip.type === 'Parcel delivery').reduce((n, trip) => n + trip.amount, 0);
 

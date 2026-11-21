@@ -4,7 +4,7 @@ import { ok, httpError } from '../utils/response.js';
 import {
   acceptReturnPickup, declineReturnPickup, expireReturnPickupOffer,
   generateReturnPickupOtp, verifyReturnPickupOtp,
-  updateReturnPickupLocation, updateReturnPickupStage,
+  updateReturnPickupLocation, updateReturnPickupStage, returnPickupPayout,
 } from '../services/returnPickup.service.js';
 import { RETURN_PICKUP_STATUS, OFFER_ATTEMPT_STATUS } from '../constants/enums.js';
 import { distanceKm } from '../utils/geo.js';
@@ -28,13 +28,13 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
       .select('returnNumber productName productImage quantity sellerId orderId pickup')
       .populate('orderId', 'shippingAddress')
       .populate('sellerId', 'storeDetails businessName')
-      .populate('pickup.deliveryId', 'pickupLocation dropLocation status')
+      .populate('pickup.deliveryId', 'pickupLocation dropLocation status route ratesUsed')
       .lean(),
     Return.find({ 'pickup.partnerId': partnerId, 'pickup.status': { $in: [RETURN_PICKUP_STATUS.ASSIGNED, RETURN_PICKUP_STATUS.PICKED_UP] } })
       .select('returnNumber productName productImage quantity sellerId orderId pickup')
       .populate('orderId', 'shippingAddress')
       .populate('sellerId', 'storeDetails businessName')
-      .populate('pickup.deliveryId', 'pickupLocation dropLocation status')
+      .populate('pickup.deliveryId', 'pickupLocation dropLocation status route ratesUsed')
       .lean(),
   ]);
 
@@ -54,7 +54,9 @@ export const listReturnPickups = asyncHandler(async (req, res) => {
   const withDistances = (row) => {
     const pickupAt = row.orderId?.shippingAddress, dropAt = row.sellerId?.storeDetails;
     const toCustomer = distanceKm(riderAt, pickupAt), toSeller = distanceKm(pickupAt, dropAt);
-    return { ...row, pickupDistanceKm: Number.isFinite(toCustomer) ? toCustomer : undefined, routeDistanceKm: Number.isFinite(toSeller) ? toSeller : undefined };
+    return { ...row, pickupDistanceKm: Number.isFinite(toCustomer) ? toCustomer : undefined, routeDistanceKm: Number.isFinite(toSeller) ? toSeller : undefined,
+      // What the pickup pays, worked out as completion does, so a request shows its pay like an order offer.
+      payout: returnPickupPayout(row.orderId, row.sellerId, row.pickup?.deliveryId) };
   };
 
   return ok(res, { pending: pending.map(withDistances), active: mine.map(withDistances), history }, 'Return pickups');

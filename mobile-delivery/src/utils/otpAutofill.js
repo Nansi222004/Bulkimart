@@ -50,6 +50,18 @@ export function toIndianMobile(value) {
   return null;
 }
 
+/**
+ * Typed or pasted text -> a 10-digit Indian mobile number. Pasted numbers often carry the country code
+ * or a trunk 0 ("+91 98765 43210", "+919876543210", "09876543210"); those are removed, not kept as digits.
+ */
+export function normalizeIndianMobile(text) {
+  // A complete number in any of those forms (same rule as the "Select number" picker) ...
+  const whole = toIndianMobile(text);
+  if (whole) return whole;
+  // ... otherwise the digits typed so far.
+  return String(text || '').replace(/\D/g, '').slice(0, 10);
+}
+
 const PICKER_ERRORS = {
   E_NO_HINT: 'No phone number was found on this device. Please type your number.',
   E_UNAVAILABLE: 'Number suggestions need Google Play services. Please type your number.',

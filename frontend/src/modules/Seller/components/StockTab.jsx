@@ -27,6 +27,10 @@ export const StockTab = () => {
     return `${prefix}-01-RW${idNum.padStart(2, '0')}`;
   };
 
+  // The server applies a stock change to the first variant (and the product total). With several
+  // variants, start the editor from that variant's own stock, not the total of all variants.
+  const adjustableStock = (p) => (p.raw?.variants?.length ? Number(p.raw.variants[0].stock ?? 0) : p.stock);
+
   // Digital listings are not physical inventory and have no adjustable stock.
   const inventoryProducts = products.filter((product) => product.raw?.fulfillmentType !== 'digital');
 
@@ -580,7 +584,7 @@ export const StockTab = () => {
                           />
                           <button className="stepper-btn" onClick={() => setNewStockVal(prev => prev + 1)}>+</button>
                           <button
-                            onClick={() => { handleUpdateStock(p.id, newStockVal - p.stock); setAdjustingId(null); }}
+                            onClick={() => { handleUpdateStock(p.id, newStockVal - adjustableStock(p)); setAdjustingId(null); }}
                             style={{ border: 'none', backgroundColor: 'var(--primary)', color: '#fff', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, fontWeight: '800', cursor: 'pointer' }}
                           >
                             Save
@@ -593,7 +597,7 @@ export const StockTab = () => {
                           </button>
                         </div>
                       ) : (
-                        <button className="action-adjust-btn" onClick={() => { setAdjustingId(p.id); setNewStockVal(p.stock); }}>
+                        <button className="action-adjust-btn" onClick={() => { setAdjustingId(p.id); setNewStockVal(adjustableStock(p)); }}>
                           Adjust Stock
                         </button>
                       )}
@@ -752,7 +756,7 @@ export const StockTab = () => {
                             
                             <button
                               onClick={() => {
-                                handleUpdateStock(p.id, newStockVal - p.stock);
+                                handleUpdateStock(p.id, newStockVal - adjustableStock(p));
                                 setAdjustingId(null);
                               }}
                               style={{
@@ -797,7 +801,7 @@ export const StockTab = () => {
                             className="action-adjust-btn"
                             onClick={() => {
                               setAdjustingId(p.id);
-                              setNewStockVal(p.stock);
+                              setNewStockVal(adjustableStock(p));
                             }}
                           >
                             Adjust Stock

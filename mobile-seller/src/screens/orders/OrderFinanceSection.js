@@ -8,7 +8,7 @@ import { InlineNotice } from '../../components/StateViews';
 import useApiResource from '../../hooks/useApiResource';
 import { getOrderFinancialBreakdown } from '../../services/seller.api';
 import { readOrderFinance, validProductTax } from '../../utils/financeRead';
-import { paiseMoney } from '../../utils/format';
+import { money, paiseMoney } from '../../utils/format';
 import { colors, spacing, type } from '../../theme';
 
 // Port of frontend/src/modules/Seller/components/OrderFinancialBreakdown.jsx + ProductGstBreakdown.jsx.
@@ -34,7 +34,7 @@ function ProductGst({ tax }) {
   );
 }
 
-export default function OrderFinanceSection({ orderId }) {
+export default function OrderFinanceSection({ orderId, paymentMethod }) {
   const loader = useCallback(async () => readOrderFinance(await getOrderFinancialBreakdown(orderId)), [orderId]);
   const { data: record, error, loading, reload } = useApiResource(loader, [loader]);
 
@@ -49,7 +49,7 @@ export default function OrderFinanceSection({ orderId }) {
           <ProductGst tax={record.productTax} />
           {record.merchandise ? (
             <>
-              <Text style={type.body}>Status: {POSTING[record.financialPosting] || 'Not added yet — added once the order is delivered and payment is confirmed'}</Text>
+              <Text style={type.body}>Status: {POSTING[record.financialPosting] || (paymentMethod === 'cod' ? 'Not added yet — added once the rider hands the COD cash to Bulkimart and it is checked' : 'Not added yet — added once the order is delivered and payment is confirmed')}</Text>
               {record.merchandise.lines.map((line) => {
                 const discount = Object.values(line.allocatedDiscounts).reduce((sum, value) => sum + (Number.isSafeInteger(value) ? value : 0), 0);
                 const funded = record.merchandise.discountFunding === 'platform';
@@ -85,7 +85,7 @@ export default function OrderFinanceSection({ orderId }) {
               <Text style={type.label}>Transaction history</Text>
               {record.entries.map((entry) => (
                 <Text key={entry._id} style={type.small}>
-                  {entry.description} · {entry.direction === 'credit' ? '+' : '−'}₹{entry.amount.toFixed(2)} · {BUCKET[entry.bucket] || entry.bucket} · Ref {entry.reference || entry.entryNo}
+                  {entry.description} · {entry.direction === 'credit' ? '+' : '−'}{money(entry.amount)} · {BUCKET[entry.bucket] || entry.bucket} · Ref {entry.reference || entry.entryNo}
                 </Text>
               ))}
             </View>
@@ -102,11 +102,12 @@ function OrderPaid({ record }) {
   const merchandisePaise = c.merchandisePaise ?? record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0);
   const customerDeliveryPaise = (c.deliveryPaise ?? 0) + (c.sellerIncentivePaise ?? 0);
   const tipPaise = c.tipPaise ?? 0;
-  const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise;
+  const codFeePaise = c.codFeePaise ?? 0; // COD handling fee (Bulkimart's, not part of your item earnings)
+  const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise + codFeePaise;
   return (
     <Text style={type.body}>
       <Text style={styles.bold}>Customer paid for the whole order: {paiseMoney(totalPaise)}</Text>
-      {` = items ${paiseMoney(merchandisePaise)} + delivery ${paiseMoney(customerDeliveryPaise)}${tipPaise ? ` + rider tip ${paiseMoney(tipPaise)}` : ''}. Your item earnings above are worked out on the items only.`}
+      {` = items ${paiseMoney(merchandisePaise)} + delivery ${paiseMoney(customerDeliveryPaise)}${tipPaise ? ` + rider tip ${paiseMoney(tipPaise)}` : ''}${codFeePaise ? ` + COD handling fee ${paiseMoney(codFeePaise)}` : ''}. Your item earnings above are worked out on the items only.`}
     </Text>
   );
 }

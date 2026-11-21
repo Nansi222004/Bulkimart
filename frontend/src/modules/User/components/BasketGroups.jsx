@@ -1,11 +1,12 @@
 import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import React from 'react';
 import { paymentSummary } from '../utils/paymentSummary';
+import { formatCurrency } from '../utils/helpers';
 import { CartIcon, CartSection, CartTotalRow } from './CartUI';
 import './BasketGroups.css';
 
 export const channelLabel = group => group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce';
-export const basketMoney = value => value == null ? 'Unavailable' : `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+export const basketMoney = value => value == null ? 'Unavailable' : formatCurrency(value);
 
 /** Easy Returns choice on a basket line; switching asks the server to re-price the line. */
 export function ReturnOptionControl({ item, busy, onChange }) {
@@ -34,7 +35,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <h3>{item.name}</h3>
       <p>{item.variantName}{item.variantAttributes?.map(attr => ` · ${attr.name}: ${attr.value}`).join('')}</p>
       <p>{group.seller?.name || 'Vendor unavailable'} · {channelLabel(group)}</p>
-      <p>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</p>
+      <p>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} {Number(item.qty) === 1 ? 'unit' : 'units'}</p>
       {item.fulfillmentType === 'digital' ? <p>Digital delivery · one licence</p> : item.available === false ? <p>Unavailable — review or remove this item</p> : showStock && <p>Stock: {item.stock}</p>}
       {item.priceChanged && <p role="status">Price changed. Review the current price before checkout.</p>}
       {!wholesale && <ReturnOptionControl item={item} busy={busy} onChange={onReturnOption ? (line, option) => onReturnOption(line, group, option) : undefined} />}

@@ -29,7 +29,9 @@ export const KPI_GROUPS = {
 
 // Same status conditions the web uses to show the panels; the server enforces every transition.
 export const canDecide = (r) => ['RETURN_REQUESTED', 'UNDER_REVIEW'].includes(r?.status);
-export const canArrangePickup = (r) => ['APPROVED', 'AWAITING_RETURN'].includes(r?.status);
+// Only while no rider has the item yet: once it is assigned, picked up or delivered, the choice is over.
+export const canArrangePickup = (r) => ['APPROVED', 'AWAITING_RETURN'].includes(r?.status)
+  && (!r?.pickup?.status || ['NOT_ASSIGNED', 'CANCELLED'].includes(r.pickup.status));
 export const canMarkReceived = (r) => r?.pickup?.status === 'PICKED_UP'
   || (r?.reverseBooking?.trackingState === 'DELIVERED' && r?.pickup?.status !== 'DELIVERED_TO_SELLER');
 export const canCancelManualRequest = (r) => r?.pickupMethod === 'MANUAL' && r?.pickup?.status === 'NOT_ASSIGNED';

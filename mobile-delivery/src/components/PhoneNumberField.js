@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { Text, TextInput } from './AppText';
 import { colors, radius, spacing, type } from '../theme';
+import { normalizeIndianMobile } from '../utils/otpAutofill';
 
 /**
  * Indian mobile number field: fixed +91 prefix (the API accepts Indian numbers
@@ -30,14 +31,15 @@ export default function PhoneNumberField({
         </View>
         <TextInput
           value={value}
-          onChangeText={(text) => onChangeText(text.replace(/\D/g, '').slice(0, 10))}
+          onChangeText={(text) => onChangeText(normalizeIndianMobile(text))}
           onFocus={onFocus}
           onSubmitEditing={onSubmitEditing}
           editable={editable}
           placeholder="10-digit mobile number"
           placeholderTextColor={colors.textMuted}
           keyboardType="phone-pad"
-          maxLength={10}
+          // Room for a pasted "+91 98765 43210"; a 10-character limit cut the paste before it was cleaned.
+          maxLength={20}
           autoComplete="tel-national"
           textContentType="telephoneNumber"
           importantForAutofill="yes"

@@ -17,12 +17,22 @@ export const riderPickupPosition = rider => {
   return validPosition(base) ? base : undefined;
 };
 
+// A motor-vehicle rider may not take work once their driving licence has expired. The licence is
+// valid through its expiry date, so it counts as expired from the next day. Bicycles need no licence.
+export const licenceExpired = (rider, now = new Date()) => {
+  if (!rider || rider.vehicleType === 'bicycle') return false;
+  const expiry = rider.drivingLicense?.expiryDate ? new Date(rider.drivingLicense.expiryDate) : null;
+  if (!expiry || Number.isNaN(expiry.getTime())) return false;
+  return expiry.getTime() + 24 * 60 * 60 * 1000 <= now.getTime();
+};
+
 // Order-specific operational checks shared by availability and actual offers.
 // Approval grants membership; it does not turn on the rider's duty switch.
 export function riderIneligibility(rider, user, order, pickup, { requireDuty = true } = {}) {
   if (order.fulfillment?.requestedRiderId && String(order.fulfillment.requestedRiderId) !== String(rider._id)) return 'another_rider_requested';
   if (rider.parcelReservation?.bookingId) return 'parcel_reserved';
   if (rider.status !== 'approved') return 'not_approved';
+  if (licenceExpired(rider)) return 'licence_expired';
   if (!user?.isActive || !user.roles?.includes('delivery')) return 'inactive_account';
   if (requireDuty && !rider.isAvailable) return 'off_duty';
   // Go To mode: only orders along the rider's route, in their direction, replace the usual

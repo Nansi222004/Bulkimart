@@ -21,6 +21,7 @@ const timeAgo = (iso) => {
 const resolveNav = (route) => {
   if (!route) return null;
   if (route.startsWith('/orders')) return 'orders';
+  if (route.startsWith('/ebooks')) return 'ebooks'; // "Your e-book is ready"
   // "Your cart is waiting" reminders.
   if (route === '/cart' || route.startsWith('/cart?')) return 'cart';
   return null;

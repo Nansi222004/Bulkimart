@@ -77,7 +77,8 @@ export default function ActiveDeliveryView({ navigation }) {
       <View style={styles.titleRow}>
         <View style={styles.flex}>
           <Text style={type.small}>Current delivery</Text>
-          <Text style={type.title}>{order.orderNo || 'Order'}</Text>
+          {/* One line: a long order number shrinks to fit beside the status instead of breaking in two. */}
+          <Text style={type.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55} selectable>{order.orderNo || 'Order'}</Text>
         </View>
         <StatusPill status={order.stage} label={stageLabel(order.stage)} />
       </View>

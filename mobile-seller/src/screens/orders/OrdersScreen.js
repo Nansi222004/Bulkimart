@@ -5,8 +5,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import AppInput from '../../components/AppInput';
 import StatusPill from '../../components/StatusPill';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
-import useApiResource from '../../hooks/useApiResource';
-import { listSellerOrders } from '../../services/seller.api';
+import LoadOlderOrders from '../../components/LoadOlderOrders';
+import usePagedSellerOrders from '../../hooks/usePagedSellerOrders';
 import { useAuth } from '../../context/AuthContext';
 import { ORDER_LABEL, ORDER_TABS, matchesOrderTab, sellerOrderTotal } from '../../utils/orderAmounts';
 import { dateTime, orderMoney } from '../../utils/format';
@@ -72,11 +72,9 @@ export default function OrdersScreen({ navigation, route }) {
   // The dashboard deep-links here with a tab.
   useEffect(() => { if (route.params?.tab) setTab(route.params.tab); }, [route.params?.tab]);
 
-  const loader = useCallback(async () => {
-    const body = await listSellerOrders({ type: scope === 'all' ? undefined : scope, status: 'all', limit: 100 });
-    return Array.isArray(body?.data) ? body.data : [];
-  }, [scope]);
-  const { data: orders, error, loading, refreshing, refresh, reload } = useApiResource(loader, [loader]);
+  // The first 100 orders load here; older ones load page by page with "Load older orders".
+  const paged = usePagedSellerOrders(scope === 'all' ? undefined : scope);
+  const { data: orders, error, loading, refreshing, refresh, reload, list, total: totalOrders } = paged;
 
   // Re-read when coming back from an order detail, where the status may have changed.
   const firstFocus = useRef(true);
@@ -85,7 +83,6 @@ export default function OrdersScreen({ navigation, route }) {
     refresh();
   }, [refresh]));
 
-  const list = useMemo(() => orders || [], [orders]);
   const counts = useMemo(() => ({
     pending: list.filter((o) => ['placed', 'confirmed', 'preparing'].includes(o.status)).length,
     delivered: list.filter((o) => o.status === 'delivered').length,
@@ -99,7 +96,7 @@ export default function OrdersScreen({ navigation, route }) {
   const header = (
     <View style={styles.header}>
       <View style={styles.summary}>
-        <View style={styles.summaryItem}><Text style={styles.summaryValue}>{list.length}</Text><Text style={type.small}>Total</Text></View>
+        <View style={styles.summaryItem}><Text style={styles.summaryValue}>{totalOrders}</Text><Text style={type.small}>Total</Text></View>
         <View style={styles.summaryItem}><Text style={[styles.summaryValue, { color: colors.orange }]}>{counts.pending}</Text><Text style={type.small}>Pending</Text></View>
         <View style={styles.summaryItem}><Text style={[styles.summaryValue, { color: colors.success }]}>{counts.delivered}</Text><Text style={type.small}>Delivered</Text></View>
       </View>
@@ -124,6 +121,7 @@ export default function OrdersScreen({ navigation, route }) {
       keyExtractor={(item) => String(item._id)}
       renderItem={({ item }) => <OrderCard order={item} onPress={() => navigation.navigate('OrderDetail', { id: item._id, orderNo: item.orderNo })} />}
       ListHeaderComponent={header}
+      ListFooterComponent={<LoadOlderOrders paged={paged} note={search || tab !== 'all' ? '(search and tabs cover loaded orders)' : ''} />}
       ListEmptyComponent={<EmptyView title="No orders" message={list.length ? 'No orders match this filter.' : 'New orders will appear here.'} />}
       contentContainerStyle={styles.listContent}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primaryDark]} />}

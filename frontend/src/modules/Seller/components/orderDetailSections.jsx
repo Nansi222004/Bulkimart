@@ -1,9 +1,10 @@
 import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import { feedback as ui } from '../../../utils/feedback';
 import React from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { sellerPricingRows } from '../utils/sellerOrderAmounts';
 import { sellerTimeline } from '../utils/sellerTimeline';
-const money = value => value == null ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
+const money = value => (value == null || !Number.isFinite(Number(value)) ? 'Not recorded' : rupees(Number(value)));
 const date = value => value ? new Date(value).toLocaleString('en-IN') : 'Not recorded';
 const statusText = value => String(value || 'Not recorded').replaceAll('_', ' ').replace(/^./, first => first.toUpperCase());
 export const addressText = address => address ? [...new Set([address.name, address.house, address.building, address.line1, address.address, address.line2, address.locality, address.city, address.state, address.pincode || address.pin_code].filter(Boolean))].join(', ') : 'Not recorded';

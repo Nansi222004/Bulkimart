@@ -30,6 +30,14 @@ export function readSellerFinances(summaryBody, ledgerBody) {
   return { summary, entries };
 }
 
-export const sellerMoney = value => finiteAmount(value)
-  ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  : '—';
+// One rupee style everywhere (same as the customer pages and the seller app): whole amounts without
+// decimals (₹1,100), anything with paise to two places (₹1,079.60). Display only.
+export const rupees = value => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const whole = Math.abs(value - Math.round(value)) < 0.005;
+  const size = Math.abs(whole ? Math.round(value) : value);
+  const text = size.toLocaleString('en-IN', whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value < 0 && size > 0 ? '−' : ''}₹${text}`;
+};
+
+export const sellerMoney = value => finiteAmount(value) ? rupees(value) : '—';

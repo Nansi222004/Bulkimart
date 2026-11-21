@@ -8,9 +8,11 @@ import { InlineNotice } from './StateViews';
 import { useToast } from './Toast';
 import * as deliveryApi from '../services/delivery.api';
 import { formatDateTime } from '../utils/format';
+import { formatRupees } from '../utils/money';
 import { colors, radius, spacing, type } from '../theme';
 
-const rupees = (paise) => `₹${((Number(paise) || 0) / 100).toFixed(2)}`;
+// Same rupee style as the rest of the app (₹1,100 / ₹1,079.60).
+const rupees = (paise) => formatRupees((Number(paise) || 0) / 100);
 const LABEL = { parcel_earning: 'Parcel earning', parcel_cash_due: 'COD parcel cash', rider_cash_payment: 'Paid to Bulkimart', delivery_earning: 'Order earning', payout_reservation: 'Payout to bank', payout_settlement: 'Payout returned' };
 
 /**

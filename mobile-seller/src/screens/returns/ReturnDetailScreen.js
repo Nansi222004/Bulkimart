@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, ToastAndroid, View } from 'react-native';
+import { Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, ToastAndroid, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../../components/Screen';
@@ -14,6 +14,7 @@ import {
   PICKUP_LABEL, RETURN_COLORS, RETURN_STATUS_LABEL, canArrangePickup, canCancelCourier, canCancelManualRequest,
   canDecide, canMarkReceived, formatDate, humanize, nextStep,
 } from '../../utils/returns';
+import { money } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
 
 // Port of ReturnDetail + decision panel + pickup actions from SellerReturnsTab.jsx / ReturnPickupPanel.jsx.
@@ -28,6 +29,8 @@ export default function ReturnDetailScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  // Return photos are private files the browser cannot display on their own (blank page), so view them here.
+  const [photo, setPhoto] = useState(null);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
   useEffect(() => { navigation.setOptions({ title: title || 'Return' }); }, [navigation, title]);
@@ -109,7 +112,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
               if (!url) return null;
               return f.mimeType === 'application/pdf'
                 ? <Pressable key={f.url} accessibilityRole="link" onPress={() => Linking.openURL(url)} style={styles.pdf}><Text style={styles.pdfText}>📄 {f.fileName || 'Attachment (PDF)'}</Text></Pressable>
-                : <Pressable key={f.url} accessibilityRole="imagebutton" accessibilityLabel={f.fileName || 'Return photo'} onPress={() => Linking.openURL(url)}><Image source={{ uri: url }} style={styles.photo} /></Pressable>;
+                : <Pressable key={f.url} accessibilityRole="imagebutton" accessibilityLabel={f.fileName || 'Return photo'} onPress={() => setPhoto(url)}><Image source={{ uri: url }} style={styles.photo} /></Pressable>;
             })}
           </ScrollView>
         ) : null}
@@ -119,7 +122,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
         <KeyValueRow label="Order" value={ret.order?.orderNo || '—'} />
         <KeyValueRow label="Customer" value={ret.customerName || '—'} />
         <KeyValueRow label="Delivered" value={formatDate(ret.order?.deliveredAt)} />
-        <KeyValueRow label="Unit price" value={ret.unitPriceSnapshot != null ? `₹${ret.unitPriceSnapshot}` : '—'} />
+        <KeyValueRow label="Unit price" value={money(ret.unitPriceSnapshot)} />
         <KeyValueRow label="Return window ends" value={formatDate(ret.returnEligibleUntilSnapshot)} />
         {address ? <KeyValueRow label="Pickup from" value={[address.line1, address.line2, address.city, address.state, address.pincode].filter(Boolean).join(', ')} /> : null}
         {ret.order?._id ? <AppButton small variant="ghost" title="Open order" onPress={() => navigation.navigate('OrderDetail', { id: ret.order._id, orderNo: ret.order.orderNo })} /> : null}
@@ -160,7 +163,7 @@ export default function ReturnDetailScreen({ route, navigation }) {
       {(ret.refundStatus || ret.refundAmount != null || ret.restockDecision) ? (
         <Card title="Inspection & refund">
           <KeyValueRow label="Restock decision" value={ret.restockDecision ? humanize(ret.restockDecision).toLowerCase() : '—'} />
-          <KeyValueRow label="Customer refund" value={ret.refundAmount != null ? `₹${ret.refundAmount}` : '—'} />
+          <KeyValueRow label="Customer refund" value={money(ret.refundAmount)} />
           <KeyValueRow label="Refund status" value={ret.refundStatus || '—'} />
           <KeyValueRow label="Refunded on" value={formatDate(ret.refundedAt)} />
         </Card>
@@ -176,6 +179,13 @@ export default function ReturnDetailScreen({ route, navigation }) {
           ))}
         </Card>
       ) : null}
+
+      <Modal visible={!!photo} transparent animationType="fade" onRequestClose={() => setPhoto(null)}>
+        <Pressable style={styles.viewer} onPress={() => setPhoto(null)} accessibilityRole="button" accessibilityLabel="Close photo">
+          {photo ? <Image source={{ uri: photo }} style={styles.viewerImage} resizeMode="contain" /> : null}
+          <Text style={styles.viewerHint}>Tap anywhere to close</Text>
+        </Pressable>
+      </Modal>
 
       <ReasonPrompt visible={rejecting} busy={busy} title="Reject return"
         message="Why are you rejecting this return? The customer will see this."
@@ -194,5 +204,8 @@ const styles = StyleSheet.create({
   photo: { width: 84, height: 84, borderRadius: radius.sm, backgroundColor: colors.surface },
   pdf: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.sm, backgroundColor: colors.errorLight, justifyContent: 'center' },
   pdfText: { color: colors.error, fontWeight: '700', fontSize: 12 },
+  viewer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center', padding: spacing.md },
+  viewerImage: { width: '100%', height: '85%' },
+  viewerHint: { color: colors.white, fontSize: 12, marginTop: spacing.md },
   step: { borderLeftWidth: 2, borderLeftColor: '#cde9ed', paddingLeft: spacing.md, paddingVertical: 4 },
 });

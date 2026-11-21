@@ -2,13 +2,14 @@
 // the screen only collects choices. Double submission is blocked (ref lock + disabled button), checkout requests
 // carry the web's Idempotency-Key, and an uncertain outcome leads to the status check instead of a second order.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '../context/UserContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { mediaUrl, request } from '../api/client';
 import { session } from '../lib/storage';
+import { socket } from '../lib/socket';
 import { useFeedback } from '../lib/feedback';
 import { committedCheckouts, forgetCommittedCheckout, deferCommittedCheckout } from '../lib/committedCheckout';
 import { DELIVERY_LABEL } from '../lib/deliveryLabel';
@@ -229,6 +230,25 @@ export default function CheckoutScreen() {
   };
 
   const showSuccess = (firstOrder, orders) => { fetchWalletBalance(); setPlacedOrderDetails(firstOrder); setPlacedOrders(orders); setOrderSuccess(true); };
+
+  // Keep the "Fulfillment Live Timeline" live: the success screen can stay open while the seller
+  // accepts and the rider delivers, so reload the order on status events, on a timer and on resume.
+  const placedOrderId = orderSuccess ? placedOrderDetails?._id : null;
+  const placedOrderStatus = placedOrderDetails?.status;
+  useEffect(() => {
+    if (!placedOrderId || !/^[a-f\d]{24}$/i.test(String(placedOrderId))) return undefined;
+    if (['delivered', 'cancelled', 'returned', 'refunded'].includes(placedOrderStatus)) return undefined;
+    let cancelled = false;
+    const reload = () => request(`/api/orders/${placedOrderId}`).then(({ ok, body }) => {
+      if (!cancelled && ok && body.data?._id) setPlacedOrderDetails(current => (current && String(current._id) === String(body.data._id) ? { ...current, ...body.data } : current));
+    }).catch(() => { /* the timeline keeps its last known state */ });
+    const onStatus = payload => { if (String(payload?.orderId) === String(placedOrderId)) reload(); };
+    const events = ['order_status_updated', 'rider_assigned', 'order_delivered', 'delivery_status_updated'];
+    events.forEach(event => socket.on(event, onStatus));
+    const timer = setInterval(() => { if (AppState.currentState === 'active') reload(); }, 15000);
+    const appState = AppState.addEventListener('change', state => { if (state === 'active') reload(); });
+    return () => { cancelled = true; clearInterval(timer); appState.remove(); events.forEach(event => socket.off(event, onStatus)); };
+  }, [placedOrderId, placedOrderStatus]);
   const handlePlaceOrder = async () => {
     if (committedReference || orderingRef.current || isOrdering || cartLoading || checkoutBlocked || recoveryRequired || !basketItems.length) return;
     if (hasMixedFulfillment) { setOrderError('Digital and physical products require separate checkout. Remove one type and check out each group separately.'); return; }
@@ -304,6 +324,33 @@ export default function CheckoutScreen() {
     onOrders={() => setActiveNav('orders')}
     onResolved={key => { forgetCommittedCheckout(recoveryCustomerId, key); setOrderSuccess(false); setOrderError(''); setPlacedOrderDetails(null); setPlacedOrders([]); refreshCommittedReference(v => v + 1); setActiveNav('home'); }} /></CustomerPage>;
 
+  // An e-book is delivered the moment it is paid: no address, no rider timeline, straight to the library.
+  if (orderSuccess && placedOrderDetails && (placedOrderDetails.items || []).length > 0 && placedOrderDetails.items.every(item => item.fulfillmentType === 'digital')) {
+    const books = placedOrderDetails.items;
+    return <CustomerPage protectedPage nav={false}>
+      <ScrollView contentContainerStyle={{ paddingVertical: 24, paddingHorizontal: 16, gap: 16, paddingBottom: 24 + insets.bottom }}>
+        {errorBanner}
+        <View style={{ alignItems: 'center', gap: 10, marginTop: 20, marginBottom: 10 }}>
+          <View style={[styles.successIcon, { backgroundColor: theme.primaryLight, borderColor: primary }]}><Text style={{ fontSize: 30 }}>📖</Text></View>
+          <Text style={styles.successTitle}>{orderError ? 'Payment received · Review status' : `Your e-book${books.length === 1 ? ' is' : 's are'} ready!`}</Text>
+          <Text style={[styles.orderBadge, { backgroundColor: theme.primaryLight, color: primary }]}>Order ID: {placedOrderDetails.orderNo || placedOrderDetails._id || placedOrderDetails.id}</Text>
+        </View>
+        <Card>
+          <Text style={styles.cardEyebrow}>Purchase summary</Text>
+          <View style={{ gap: 10 }}>
+            {books.map(book => <Row key={String(book._id || book.productId)} label={book.name} value={money(book.price)} weight="700" />)}
+            <Row label="Paid online" value={placedPaymentAmount != null ? money(placedPaymentAmount) : money(placedOrderDetails.pricing?.totalAmount)} weight="800" />
+            <Text style={{ fontSize: 12.5, color: theme.textSecondary, lineHeight: 18, marginTop: 4 }}>{books.length === 1 ? 'It is' : 'They are'} in My E-books. Read in the app or download the PDF any time.</Text>
+          </View>
+        </Card>
+        <View style={{ gap: 10, marginTop: 12 }}>
+          <PrimaryButton title="Read in My E-books" onPress={() => setActiveNav('ebooks')} />
+          <Pressable onPress={() => setActiveNav('home')} style={[styles.homeBtn, { borderColor: theme.border }]}><Text style={{ fontWeight: '700', fontSize: 14 }}>Go back to Home Feed</Text></Pressable>
+        </View>
+      </ScrollView>
+    </CustomerPage>;
+  }
+
   if (orderSuccess && placedOrderDetails) {
     const statusSequence = ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery', 'delivered'];
     const currentIndex = statusSequence.indexOf(placedOrderDetails.status || 'placed');
@@ -349,7 +396,7 @@ export default function CheckoutScreen() {
           <View style={{ gap: 10 }}>
             <Row label="Payment Mode" value={String(placedOrderDetails.paymentMethod || '').toUpperCase()} weight="700" />
             <Row label="Estimated Delivery" value={placedOrderDetails.estimatedDelivery || 'See each order for delivery updates'} weight="700" valueColor={primary} />
-            <Row label="Order Amount" value={placedPaymentAmount != null ? '₹' + placedPaymentAmount : 'See individual orders'} weight="800" />
+            <Row label="Order Amount" value={placedPaymentAmount != null ? money(placedPaymentAmount) : 'See individual orders'} weight="800" />
             <View style={{ borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10, marginTop: 4 }}>
               <Text style={{ color: theme.textSecondary, marginBottom: 4, fontSize: 13 }}>Delivery Address:</Text>
               <Text style={{ fontWeight: '600', lineHeight: 18, fontSize: 13 }}>{addrText}</Text>
@@ -390,7 +437,7 @@ export default function CheckoutScreen() {
   </Pressable>;
   const ctaDisabled = isOrdering || cartLoading || checkoutBlocked || recoveryRequired;
   const billRows = <View style={{ gap: 10 }}>
-    <Row label="Items Subtotal" value={`₹${summary.subtotal.toFixed(2)}`} />
+    <Row label="Items Subtotal" value={money(summary.subtotal)} />
     <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
     <Row label="Delivery Charges" value={summary.deliveryCharge === 0 ? <Text style={{ color: primary, fontWeight: '600', fontSize: 13 }}>FREE</Text> : `${money(summary.deliveryCharge)}`} />
     {summary.sameDayPremium > 0 && <Row label="Same-Day Delivery Premium" value={`${money(summary.sameDayPremium)}`} />}
@@ -481,9 +528,10 @@ export default function CheckoutScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Payment method</Text>
           <View style={{ gap: 10 }}>
-            {paymentOption('wallet', '💰', 'Bulkimart Wallet', `Available Balance: ₹${Number(walletBalance || 0).toFixed(2)}`, {
-              hidden: isDigitalCart, disabled: walletBalance < grandTotalVal,
-              right: walletBalance >= grandTotalVal ? <Text style={[styles.walletPill, { color: '#16a34a', backgroundColor: '#f0fdf4' }]}>✓ Sufficient Balance</Text> : <Text style={[styles.walletPill, { color: '#dc2626', backgroundColor: '#fef2f2' }]}>⚠ Need ₹{(grandTotalVal - walletBalance).toFixed(2)} more</Text>,
+            {/* Wallet orders never carry the COD fee, so compare against the online total even while COD is selected. */}
+            {paymentOption('wallet', '💰', 'Bulkimart Wallet', `Available Balance: ${money(walletBalance || 0)}`, {
+              hidden: isDigitalCart, disabled: walletBalance < summary.onlineTotal,
+              right: walletBalance >= summary.onlineTotal ? <Text style={[styles.walletPill, { color: '#16a34a', backgroundColor: '#f0fdf4' }]}>✓ Sufficient Balance</Text> : <Text style={[styles.walletPill, { color: '#dc2626', backgroundColor: '#fef2f2' }]}>⚠ Need {money(summary.onlineTotal - walletBalance)} more</Text>,
             })}
             {/* Online first, shown as the cheaper choice whenever COD carries a fee. */}
             {paymentOption('Online Payment', '💳', 'Razorpay Online Payment', !isDigitalCart && summary.codFeeQuote > 0 ? `Pay ${money(summary.onlineTotal)} · UPI, cards and more via Razorpay` : 'UPI, cards and supported payment methods via Razorpay', {

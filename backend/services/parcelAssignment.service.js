@@ -5,7 +5,7 @@ import User from '../models/User.js';
 import Order from '../models/Order.js';
 import Delivery from '../models/Delivery.js';
 import Return from '../models/Return.js';
-import { riderPickupPosition } from './riderEligibility.service.js';
+import { licenceExpired, riderPickupPosition } from './riderEligibility.service.js';
 import { maxConcurrentDeliveries } from './riderCapacity.service.js';
 import { distanceKm } from '../utils/geo.js';
 import { financialTransaction } from './financeSafety.service.js';
@@ -19,6 +19,7 @@ import { parcelDebtLimitReason } from './riderWallet.service.js';
 export async function parcelRiderIneligibility(p,b,session,reserved = false) {
   const c = b.pricing.policy;
   if (!p || p.status !== 'approved') return 'approval_required';
+  if (licenceExpired(p)) return 'licence_expired';
   if (p.parcelReturnClaim?.token) return 'return_pickup_in_progress';
   if (p.parcelReservation?.bookingId && String(p.parcelReservation.bookingId) !== String(b._id)) return 'reserved_for_another_parcel';
   if (!p.isAvailable && !reserved) return 'off_duty';

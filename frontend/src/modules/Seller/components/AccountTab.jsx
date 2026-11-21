@@ -1,6 +1,7 @@
 import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useEffect, useState } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { useSeller } from '../context/SellerContext';
 import { sellerTypeLabelFromModes } from '../utils/onboardingDraft';
 import { apiUrl } from '../../../utils/api';
@@ -133,23 +134,23 @@ export const AccountTab = () => {
             <h4 className="section-card-title">EARNINGS BREAKDOWN</h4>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Ledger Earnings</span>
-              <span className="finance-row-val">₹{Number(ledgerBalances.earnedEarnings || 0).toLocaleString('en-IN')}</span>
+              <span className="finance-row-val">{rupees(Number(ledgerBalances.earnedEarnings || 0))}</span>
             </div>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Same-day Incentives</span>
-              <span className="finance-row-val">₹{Number(ledgerBalances.sameDayIncentives || 0).toLocaleString('en-IN')}</span>
+              <span className="finance-row-val">{rupees(Number(ledgerBalances.sameDayIncentives || 0))}</span>
             </div>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Shiprocket Charges Still to Pay (prepaid separately)</span>
-              <span className="finance-row-val">₹{Number(ledgerBalances.courierObligations?.outstanding || 0).toLocaleString('en-IN')}</span>
+              <span className="finance-row-val">{rupees(Number(ledgerBalances.courierObligations?.outstanding || 0))}</span>
             </div>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Held / Pending</span>
-              <span className="finance-row-val">₹{Number((ledgerBalances.held || 0) + (ledgerBalances.pending || 0)).toLocaleString('en-IN')}</span>
+              <span className="finance-row-val">{rupees(Number((ledgerBalances.held || 0) + (ledgerBalances.pending || 0)))}</span>
             </div>
             <div className="finance-breakdown-row">
               <span className="finance-row-key">Settlement-Eligible Balance</span>
-              <span className="finance-row-val">₹{Number(ledgerBalances.eligible || 0).toLocaleString('en-IN')}</span>
+              <span className="finance-row-val">{rupees(Number(ledgerBalances.eligible || 0))}</span>
             </div>
           </div>
 
@@ -169,7 +170,7 @@ export const AccountTab = () => {
         <div style={{ padding: 16 }}>
           <div className="earnings-breakdown-box" style={{ margin: 0, marginBottom: 16 }}>
             <span className="finance-row-key" style={{ fontSize: 11 }}>Total Withdrawable Sales</span>
-            <h2 className="onboarding-title" style={{ fontSize: 26, margin: '8px 0' }}>₹{Number(ledgerBalances.eligible || 0).toLocaleString('en-IN')}</h2>
+            <h2 className="onboarding-title" style={{ fontSize: 26, margin: '8px 0' }}>{rupees(Number(ledgerBalances.eligible || 0))}</h2>
           </div>
 
           <form onSubmit={handleRequestPayout}>
@@ -213,7 +214,7 @@ export const AccountTab = () => {
               </div>
               <div className="review-item-row" style={{ marginTop: 4 }}>
                 <span className="review-item-key">{pay.createdAt ? new Date(pay.createdAt).toLocaleDateString('en-IN') : '—'}</span>
-                <span className="review-item-val">₹{pay.amount}</span>
+                <span className="review-item-val">{rupees(Number(pay.amount))}</span>
               </div>
             </div>
           ))}

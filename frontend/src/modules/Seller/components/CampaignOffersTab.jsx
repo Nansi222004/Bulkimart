@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { apiUrl } from '../../../utils/api';
 
 // Platform campaigns the admin invited this seller's products into. Nothing is discounted until the seller
 // accepts (business rule A): pending offers are listed here to accept or decline, accepted ones can be withdrawn.
-const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
+const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? rupees(n) : '—');
 const date = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const STATUS_STYLE = {
   PENDING: { background: '#fef3c7', color: '#b45309', label: 'Awaiting your decision' },

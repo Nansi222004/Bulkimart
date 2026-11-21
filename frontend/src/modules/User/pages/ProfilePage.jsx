@@ -459,7 +459,7 @@ const ProfilePage = () => {
           padding: '2px 8px',
           borderRadius: '20px'
         }}>
-          💰 ₹{realWalletData?.balance?.toFixed(2) ?? '—'}
+          💰 {realWalletData?.balance != null ? formatCurrency(realWalletData.balance) : '—'}
         </span>
       ),
       action: () => setActiveSection('real-wallet')
@@ -957,11 +957,11 @@ const ProfilePage = () => {
                           fontWeight: '800',
                           color: isCredit ? '#16a34a' : '#ef4444'
                         }}>
-                          {isCredit ? '+' : '-'} ₹{Number(tx.amount || 0).toFixed(2)}
+                          {isCredit ? '+' : '-'} {formatCurrency(tx.amount || 0)}
                         </span>
                         {tx.balanceAfter !== undefined && (
                           <span style={{ display: 'block', fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
-                            Bal: ₹{Number(tx.balanceAfter).toFixed(2)}
+                            Bal: {formatCurrency(tx.balanceAfter)}
                           </span>
                         )}
                       </div>

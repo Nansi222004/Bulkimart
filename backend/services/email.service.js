@@ -88,8 +88,17 @@ export function emailOrderConfirmation(userId, orders) {
     const address = list[0].shippingAddress || {};
     const where = [address.name, address.addressLine1 || address.address || address.line1, address.city, address.state, address.pincode].filter(Boolean).join(', ');
     const rows = [['Order number', numbers], ['Payment', PAYMENT_LABEL[list[0].paymentMethod] || list[0].paymentMethod || '—'], ['Total', rupees(total)]];
-    if (where) rows.push(['Deliver to', where]);
     const table = lines ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:8px;font-size:14px"><tr><td style="padding:6px 0;font-weight:700">Items</td><td></td></tr>${lines}</table>` : '';
+    // E-books are delivered on payment: no address, no tracking, a link to the library instead.
+    const ebookOnly = list.every(o => (o.items || []).length > 0 && o.items.every(i => i.fulfillmentType === 'digital'));
+    if (ebookOnly) {
+      return {
+        subject: `Your e-book is ready ${numbers} – Bulkimart`,
+        html: layout({ name: user.name, heading: 'Your e-book is ready', intro: `Thank you for your purchase. Payment for order ${numbers} is received and your e-book is in your library.`, rows, table, button: { label: 'Read in My E-books', url: siteUrl('/ebooks') }, footer: 'You can read or download it any time from My E-books in the Bulkimart app or website.' }),
+        text: `Hi ${user.name || 'there'},\n\nPayment for your Bulkimart order ${numbers} is received.\nTotal: ${rupees(total)}\n\nYour e-book is ready. Read or download it at ${siteUrl('/ebooks')}\n\nThank you for choosing Bulkimart.`,
+      };
+    }
+    if (where) rows.push(['Deliver to', where]);
     const subject = `Order confirmed ${numbers} – Bulkimart`;
     return {
       subject,

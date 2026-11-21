@@ -73,7 +73,7 @@ export default function ProductWholesaleOffer({ wholesale: w }) {
         {(quote || w.quoteLoading || w.error) ? <View style={styles.total} accessibilityLiveRegion="polite">
           {quote && !changingQuantity ? <View>
             <Text style={{ fontSize: 12 }}>Item subtotal</Text>
-            <Text style={styles.b}>{quote.quantity} units × {formatCurrency(quote.unitPrice)} = {formatCurrency(quote.subtotal)}</Text>
+            <Text style={styles.b}>{quote.quantity} {Number(quote.quantity) === 1 ? 'unit' : 'units'} × {formatCurrency(quote.unitPrice)} = {formatCurrency(quote.subtotal)}</Text>
             <Text style={styles.small}>Estimated item subtotal. Delivery and final totals are confirmed in the Wholesale cart.</Text>
             {quote.savings > 0 && <Text style={[styles.small, { color: '#166534', fontWeight: '700' }]}>Save {formatCurrency(quote.savings)} compared with {formatCurrency(quote.retailUnitPrice)} per unit in Retail for this variant.</Text>}
             {nextTier && <Text style={styles.small}>Next price tier starts at {nextTier.minimumQuantity} units.</Text>}

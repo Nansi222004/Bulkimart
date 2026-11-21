@@ -3,37 +3,39 @@
 
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 
-// Rupee amounts with 2 decimals (web: sellerFinanceRead.sellerMoney). Missing values show as '—', never ₹0.
-export const money = (value) =>
-  finite(value)
-    ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : '—';
+// One rupee style everywhere (same as the customer app): whole amounts without decimals (₹1,100),
+// anything with paise to two places (₹1,079.60). Display only; the value itself is never changed.
+export const rupees = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const whole = Math.abs(value - Math.round(value)) < 0.005;
+  const size = Math.abs(whole ? Math.round(value) : value);
+  const text = size.toLocaleString('en-IN', whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value < 0 && size > 0 ? '−' : ''}₹${text}`;
+};
+
+// Rupee amounts (web: sellerFinanceRead.sellerMoney). Missing values show as '—', never ₹0.
+export const money = (value) => (finite(value) ? rupees(value) : '—');
 
 // Dashboard KPI (web: DashboardTab). null = the server hasn't calculated it yet.
 // A missing (undefined) or non-numeric value shows '—'. The web shows ₹0 here; the app deliberately doesn't.
 export const kpiMoney = (value) =>
   value === null
     ? 'Pending calculation'
-    : finite(value)
-      ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : '—';
+    : finite(value) ? rupees(value) : '—';
 
 // Order list amounts (web: OrdersTab money()). Missing → '—', never ₹0.
-export const orderMoney = (value) => (finite(value) ? `₹${value.toLocaleString('en-IN')}` : '—');
+export const orderMoney = (value) => (finite(value) ? rupees(value) : '—');
 
 // Counts from the server (orders, products). Missing → '—'.
 export const countText = (value) => (Number.isSafeInteger(value) ? String(value) : '—');
 
 // Order detail rows (web: orderDetailSections money()).
 export const detailMoney = (value) =>
-  value == null ? 'Not recorded' : `₹${Number(value).toLocaleString('en-IN')}`;
+  (value == null || !Number.isFinite(Number(value)) ? 'Not recorded' : rupees(Number(value)));
 
 // Amounts the server returns in paise (financial breakdown, tax statement). Pure unit display.
-export const paiseMoney = (paise) => (finite(paise) ? `₹${(paise / 100).toFixed(2)}` : '—');
-export const paiseMoneyLocale = (paise) =>
-  finite(paise)
-    ? `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : '—';
+export const paiseMoney = (paise) => (finite(paise) ? rupees(paise / 100) : '—');
+export const paiseMoneyLocale = paiseMoney;
 
 export const dateTime = (value) =>
   value

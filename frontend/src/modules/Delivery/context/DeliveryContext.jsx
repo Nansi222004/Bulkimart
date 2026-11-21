@@ -810,7 +810,7 @@ export const DeliveryProvider = ({ children }) => {
         const res = await boundedFetch(apiUrl('/api/delivery/earnings/summary'), { headers: { Authorization: `Bearer ${token}` } });
         const body = await res.json().catch(() => ({}));
         if (cancelled || !res.ok || token !== localStorage.getItem('deliveryToken')) return;
-        const { daily, weekly, parcels } = body.data || {};
+        const { daily, weekly, parcels, lifetimeEarnings, deliveries } = body.data || {};
         setEarningsData((prev) => ({
           ...prev,
           daily: daily ? {
@@ -823,6 +823,9 @@ export const DeliveryProvider = ({ children }) => {
           weekly: weekly ? { ...prev.weekly, trips: weekly.trips, total: weekly.total, tips: weekly.tips, days: weekly.days, available: true } : prev.weekly,
           // Parcel pay is not part of the partner's lifetime counters; the Earnings screen adds it.
           parcels: parcels ? { weekTotal: Number(parcels.weekTotal) || 0, lifetimeTrips: Number(parcels.lifetimeTrips) || 0, lifetimeTotal: Number(parcels.lifetimeTotal) || 0 } : prev.parcels,
+          // Lifetime earnings and trips counted once by the server. Newer parcel pay is already in the
+          // partner's lifetime total, so adding every parcel on top counted those parcels twice.
+          lifetimeServer: Number.isFinite(lifetimeEarnings) && Number.isFinite(deliveries?.total) ? { total: lifetimeEarnings, trips: deliveries.total } : prev.lifetimeServer,
         }));
       } catch { /* Keep the dash; the next profile refresh retries. */ }
     })();

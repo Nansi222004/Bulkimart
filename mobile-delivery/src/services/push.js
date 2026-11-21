@@ -69,7 +69,10 @@ export async function deregisterPush(sessionToken) {
     } catch { /* Sign-out never depends on the network. */ }
   }
   await AsyncStorage.removeItem(KEYS.token);
-  try { await messaging().deleteToken(); } catch { /* a fresh token is issued on the next sign-in */ }
+  // The Firebase token itself is kept. Deleting it here made the next sign-in ask Firebase for a brand-new
+  // token straight away, which can fail; the rider then had no push registration at all. Removing it from
+  // this account on the server is enough: the next sign-in registers the same token to the new account,
+  // and the server takes it away from every other account (services/notification.service.js).
 }
 
 export function onTokenRefresh() {

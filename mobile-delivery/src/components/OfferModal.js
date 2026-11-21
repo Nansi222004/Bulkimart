@@ -100,7 +100,8 @@ export function ReturnOfferModal({ offer, onAccept, onDecline, onExpire }) {
 
   if (!offer) return null;
   const pickup = offer.pickupAddress || {};
-  const pickupText = [pickup.line1, pickup.line2, pickup.city].filter(Boolean).join(', ');
+  const pickupText = [pickup.line1, pickup.line2, pickup.city, pickup.state, pickup.pincode].filter(Boolean).join(', ');
+  const payout = offer.payout || {};
   const run = async (fn) => { setActing(true); try { await fn(key); } finally { setActing(false); } };
 
   return (
@@ -114,6 +115,13 @@ export function ReturnOfferModal({ offer, onAccept, onDecline, onExpire }) {
             </View>
             <Text style={type.heading}>{offer.returnNumber}</Text>
             <Text style={type.body}>{offer.productName}{offer.quantity ? ` × ${offer.quantity}` : ''}</Text>
+            {Number.isFinite(payout.total) ? (
+              <View style={styles.payBox}>
+                <Text style={type.small}>Your payout</Text>
+                <Text style={styles.pay}>{formatRupees(payout.total)}</Text>
+                <Text style={type.small}>Base {formatRupees(payout.base ?? null)} + Distance {formatRupees(payout.distancePay ?? null)}</Text>
+              </View>
+            ) : null}
             <KeyValueRow label="You to customer" value={km(offer.pickupDistanceKm)} />
             <KeyValueRow label="Customer to seller" value={km(offer.routeDistanceKm)} />
             <View style={styles.stop}><Text style={type.label}>1 · Collect from customer</Text><Text style={type.small}>{pickupText || 'Address shared after you accept'}</Text></View>

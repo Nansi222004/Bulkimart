@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { getPortalToken } from '../../../utils/portalSession';
 
-const money = paise => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = paise => (Number.isFinite(paise) ? rupees(paise / 100) : '—');
 const monthName = month => new Date(`${month}-01T00:00:00Z`).toLocaleString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 // Monthly TCS/TDS Bulkimart withheld, for the seller's own GST and income-tax filing.

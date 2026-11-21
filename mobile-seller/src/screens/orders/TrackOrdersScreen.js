@@ -1,12 +1,12 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Text } from '../../components/AppText';
 import AppInput from '../../components/AppInput';
 import ChipRow from '../../components/ChipRow';
 import { EmptyView, ErrorView, LoadingView } from '../../components/StateViews';
-import useApiResource from '../../hooks/useApiResource';
+import LoadOlderOrders from '../../components/LoadOlderOrders';
+import usePagedSellerOrders from '../../hooks/usePagedSellerOrders';
 import useSellerChannel, { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
-import { listSellerOrders } from '../../services/seller.api';
 import { sellerTimeline } from '../../utils/orderAmounts';
 import { orderMoney } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
@@ -82,13 +82,10 @@ export default function TrackOrdersScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState(null);
 
-  const loader = useCallback(async () => {
-    const body = await listSellerOrders({ status: 'all', limit: 100 });
-    return Array.isArray(body?.data) ? body.data : [];
-  }, []);
-  const { data, error, loading, refreshing, refresh, reload } = useApiResource(loader, [loader]);
+  const paged = usePagedSellerOrders();
+  const { data, error, loading, refreshing, refresh, reload, list } = paged;
 
-  const channelOrders = useMemo(() => (data || []).filter((o) => (!isHybrid || !o.channel ? true : o.channel === channel)), [data, channel, isHybrid]);
+  const channelOrders = useMemo(() => list.filter((o) => (!isHybrid || !o.channel ? true : o.channel === channel)), [list, channel, isHybrid]);
   const counts = useMemo(() => ({
     onTheWay: channelOrders.filter((o) => ['dispatched', 'out_for_delivery'].includes(o.status)).length,
     atStore: channelOrders.filter((o) => ['placed', 'confirmed', 'preparing'].includes(o.status)).length,
@@ -129,6 +126,7 @@ export default function TrackOrdersScreen({ navigation }) {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[colors.primaryDark]} />}
       keyboardShouldPersistTaps="handled"
+      ListFooterComponent={<LoadOlderOrders paged={paged} note={search || filter !== 'ALL' ? '(filters and search cover loaded orders)' : ''} />}
       ListEmptyComponent={<EmptyView title={filter === 'ACTIVE' ? 'Nothing in transit' : 'No tracking records found'}
         message={filter === 'ACTIVE' ? 'Orders you have not yet handed over, and those on their way to the customer, show up here.' : 'No order tracking records found for the selected filter.'} />}
       renderItem={({ item }) => (

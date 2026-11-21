@@ -86,9 +86,12 @@ export default function CartScreen() {
     <ScrollView ref={scroll} contentContainerStyle={{ padding: 12, paddingTop: 16, gap: 16, paddingBottom: bottom }} keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.action]} />}>
       {(error || basket.error) ? <CartAlert action={<SecondaryButton title="Refresh prices" onPress={refreshPrices} disabled={busy || basket.loading || cartLoading} style={{ alignSelf: 'flex-start' }} />}>{error || basket.error}</CartAlert> : null}
-      {basket.loading && !data && <View style={[styles.loading, { borderColor: theme.border }]} accessibilityLiveRegion="polite"><Spinner /><Text style={{ color: theme.muted, fontSize: 14 }}>Refreshing your basket…</Text></View>}
       {data?.warnings?.map(message => <CartAlert key={message}>{message}</CartAlert>)}
-      {!basket.loading && data && !items.length && <CartEmptyState onBrowse={() => setActiveNav('home')} />}
+      {/* With no lines, always show something: the spinner while the basket loads, otherwise the empty state
+          (never a blank page between a reload, a sign-in change or a location change). */}
+      {!items.length && (basket.loading
+        ? <View style={[styles.loading, { borderColor: theme.border }]} accessibilityLiveRegion="polite"><Spinner /><Text style={{ color: theme.muted, fontSize: 14 }}>Refreshing your basket…</Text></View>
+        : !(error || basket.error) && <CartEmptyState onBrowse={() => setActiveNav('home')} />)}
       {items.length > 0 && <>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }} accessibilityLabel="Basket channels">
           {channels.map(channel => <Pressable key={channel} onPress={() => scrollToChannel(channel)} style={[styles.anchor, { borderColor: theme.border }]}><Text style={{ color: theme.primaryColor, fontSize: 13, fontWeight: '600' }}>{channel === 'wholesale' ? 'Wholesale' : channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce'}</Text></Pressable>)}

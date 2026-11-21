@@ -1182,7 +1182,7 @@ export const OrderTrackingPage = () => {
           )}
           {orderDiscountRows(selectedOrder.pricing).map(([title, amount]) => (
             <div key={title} style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
-              <span>{title}</span><span>-₹{amount.toFixed(2)}</span>
+              <span>{title}</span><span>-{formatCurrency(amount)}</span>
             </div>
           ))}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />

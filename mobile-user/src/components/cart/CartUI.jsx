@@ -6,11 +6,11 @@ import { Image } from 'expo-image';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { mediaUrl } from '../../api/client';
 import { paymentSummary } from '../../lib/paymentSummary';
-import { Text, TextInput } from '../ui';
+import { Text, TextInput, money as formatRupees } from '../ui';
 import { CartIcon } from '../icons';
 
 export const channelLabel = group => (group.salesChannel === 'wholesale' ? 'Wholesale (B2B)' : group.channel === 'grocery' ? 'Quick Commerce' : 'E-Commerce');
-export const basketMoney = value => (value == null ? 'Unavailable' : `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`);
+export const basketMoney = value => (value == null ? 'Unavailable' : formatRupees(value));
 
 export function validProductTax(tax) {
   return tax?.version === 'product-gst-v1' && ['sellingPricePaise', 'grossPaise', 'taxableValuePaise', 'gstPaise', 'addedGstPaise', 'includedGstPaise'].every(key => Number.isSafeInteger(tax[key]) && tax[key] >= 0)
@@ -23,7 +23,7 @@ export function validProductTax(tax) {
 export function ProductGstBreakdown({ tax, subtotalIncludesAddedGst = true, pending = false, whenMissing }) {
   if (tax == null && whenMissing && !pending) return <Text style={styles.gstNote}>{whenMissing}</Text>;
   if (!validProductTax(tax)) return <Text style={styles.gstNote}>{pending ? 'Loading product GST breakdown…' : 'Product GST breakdown unavailable.'}</Text>;
-  const money = value => `₹${(value / 100).toFixed(2)}`;
+  const money = value => formatRupees(value / 100);
   const row = (label, amount, key) => <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 16, marginVertical: 6 }}><Text style={{ fontSize: 13, flex: 1 }}>{label}</Text><Text style={{ fontSize: 13 }}>{money(amount)}</Text></View>;
   return <View accessibilityLabel="Product GST breakdown">
     {row('Taxable product value (before platform discounts)', tax.taxableValuePaise, 'base')}
@@ -134,7 +134,7 @@ export function BasketItem({ item, group, busy, onQuantity, onRemove, onMessage,
       <Text style={[styles.itemName, compact && { fontSize: 14 }]}>{item.name}</Text>
       {item.variantName || item.variantAttributes?.length ? <Text style={styles.itemP}>{item.variantName}{item.variantAttributes?.map(attr => ` · ${attr.name}: ${attr.value}`).join('')}</Text> : null}
       {!compact && <Text style={styles.itemP}>{group.seller?.name || 'Vendor unavailable'} · {channelLabel(group)}</Text>}
-      <Text style={styles.itemP}>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} units</Text>
+      <Text style={styles.itemP}>{basketMoney(item.price)} per {item.unitSnapshot || 'unit'} · {item.qty} {Number(item.qty) === 1 ? 'unit' : 'units'}</Text>
       {item.fulfillmentType === 'digital' ? <Text style={styles.itemP}>Digital delivery · one licence</Text> : item.available === false ? <Text style={styles.itemP}>Unavailable — review or remove this item</Text> : showStock ? <Text style={styles.itemP}>Stock: {item.stock}</Text> : null}
       {item.priceChanged && <Text style={styles.itemP} accessibilityLiveRegion="polite">Price changed. Review the current price before checkout.</Text>}
       {!wholesale && <ReturnOptionControl item={item} busy={busy} onChange={onReturnOption ? (line, option) => onReturnOption(line, group, option) : undefined} />}

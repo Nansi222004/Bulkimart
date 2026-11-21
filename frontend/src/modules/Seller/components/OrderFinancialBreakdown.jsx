@@ -1,11 +1,12 @@
 import ProductGstBreakdown from '../../../components/finance/ProductGstBreakdown';
 import React, { useEffect, useState } from 'react';
+import { rupees, sellerMoney } from '../utils/sellerFinanceRead';
 import { apiUrl } from '../../../utils/api';
 import { boundedFetch } from '../../../utils/portalRequests';
 import { getPortalToken } from '../../../utils/portalSession';
 
-const money = value => typeof value === 'number' && Number.isFinite(value) ? `₹${(value / 100).toFixed(2)}` : '—';
-export default function OrderFinancialBreakdown({ orderId }) {
+const money = value => typeof value === 'number' && Number.isFinite(value) ? rupees(value / 100) : '—';
+export default function OrderFinancialBreakdown({ orderId, paymentMethod }) {
   const [record, setRecord] = useState(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController(); setRecord(null); setError('');
@@ -29,7 +30,7 @@ export default function OrderFinancialBreakdown({ orderId }) {
   return <section className="seller-order-section" aria-label="Order financial breakdown"><h3>Your earnings from this order</h3>
     {error ? <p role="alert">{error} <button type="button" onClick={() => setRetry(retry + 1)}>Retry</button></p> : !record ? <p role="status">Loading financial records…</p> : <>
       <ProductGstBreakdown tax={record.productTax} whenMissing="Product GST was not recorded for this older order." />
-      {record.merchandise ? <><p>Status: {{ held: 'Earned — on hold until the return window ends', eligible: 'Available to withdraw', reversed: 'Refunded to customer' }[record.financialPosting] || 'Not added yet — added once the order is delivered and payment is confirmed'}</p>
+      {record.merchandise ? <><p>Status: {{ held: 'Earned — on hold until the return window ends', eligible: 'Available to withdraw', reversed: 'Refunded to customer' }[record.financialPosting] || (paymentMethod === 'cod' ? 'Not added yet — added once the rider hands the COD cash to Bulkimart and it is checked' : 'Not added yet — added once the order is delivered and payment is confirmed')}</p>
         {record.merchandise.lines.map(line => {
           const discount = Object.values(line.allocatedDiscounts).reduce((sum, value) => sum + (Number.isSafeInteger(value) ? value : 0), 0);
           const funded = record.merchandise.discountFunding === 'platform';
@@ -48,14 +49,14 @@ export default function OrderFinancialBreakdown({ orderId }) {
         {(() => {
           // The customer's full payment, so the item amounts above are not
           // mistaken for the order total shown elsewhere.
-          const { merchandisePaise = record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0), deliveryPaise = 0, sellerIncentivePaise = 0, tipPaise = 0 } = record.merchandise.components;
+          const { merchandisePaise = record.merchandise.lines.reduce((sum, line) => sum + line.eligiblePaise, 0), deliveryPaise = 0, sellerIncentivePaise = 0, tipPaise = 0, codFeePaise = 0 } = record.merchandise.components;
           const customerDeliveryPaise = deliveryPaise + sellerIncentivePaise;
-          const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise;
-          return <p><strong>Customer paid for the whole order: {money(totalPaise)}</strong> = items {money(merchandisePaise)} + delivery {money(customerDeliveryPaise)}{tipPaise ? ` + rider tip ${money(tipPaise)}` : ''}. Your item earnings above are worked out on the items only.{record.snapshot ? ' Courier charges are shown below.' : ''}</p>;
+          const totalPaise = Number.isSafeInteger(record.merchandise.expectedPaise) ? record.merchandise.expectedPaise : merchandisePaise + customerDeliveryPaise + tipPaise + codFeePaise;
+          return <p><strong>Customer paid for the whole order: {money(totalPaise)}</strong> = items {money(merchandisePaise)} + delivery {money(customerDeliveryPaise)}{tipPaise ? ` + rider tip ${money(tipPaise)}` : ''}{codFeePaise ? ` + COD handling fee ${money(codFeePaise)}` : ''}. Your item earnings above are worked out on the items only.{record.snapshot ? ' Courier charges are shown below.' : ''}</p>;
         })()}
       </> : <p>This is an older order, so a per-item earnings breakdown is not available. Nothing has been recalculated or deducted.</p>}
       {record.snapshot && <p>Courier charge {money(record.snapshot.quotedCourierFreight * 100)} · Your share of courier charge {money(record.snapshot.vendorFreightShare * 100)} · Shipping service fee {money(record.snapshot.serviceFee?.amount * 100)} · Tax on fee {money(record.snapshot.serviceFee?.taxAmount * 100)}</p>}
-      {record.entries?.length > 0 && <details><summary>Transaction history</summary>{record.entries.map(entry => <p key={entry._id}>{entry.description} · {entry.direction === 'credit' ? '+' : '−'}₹{entry.amount.toFixed(2)} · {{ held: 'on hold', eligible: 'available', reserved: 'requested for payout', settled: 'paid out' }[entry.bucket] || entry.bucket} · Ref {entry.reference || entry.entryNo}</p>)}</details>}
+      {record.entries?.length > 0 && <details><summary>Transaction history</summary>{record.entries.map(entry => <p key={entry._id}>{entry.description} · {entry.direction === 'credit' ? '+' : '−'}{sellerMoney(entry.amount)} · {{ held: 'on hold', eligible: 'available', reserved: 'requested for payout', settled: 'paid out' }[entry.bucket] || entry.bucket} · Ref {entry.reference || entry.entryNo}</p>)}</details>}
     </>}
   </section>;
 }

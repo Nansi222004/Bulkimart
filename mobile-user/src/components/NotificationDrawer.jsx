@@ -31,6 +31,8 @@ export default function NotificationDrawer({ isOpen, onClose }) {
     if (!n.isRead) markRead(n._id);
     const route = n.route || '';
     if (route.startsWith('/orders')) { setActiveNav('orders'); onClose(); return; }
+    // "Your e-book is ready" (paid e-book purchases).
+    if (route.startsWith('/ebooks')) { setActiveNav('ebooks'); onClose(); return; }
     // "Your cart is waiting" reminders.
     if (route === '/cart' || route.startsWith('/cart?')) { setActiveNav('cart'); onClose(); return; }
     // Legal requests, live chat replies (web: Help & Support → Chat), parcels, support: same mapping as push taps.

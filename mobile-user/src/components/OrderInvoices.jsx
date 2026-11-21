@@ -4,9 +4,9 @@
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import * as Print from 'expo-print';
-import { Text } from './ui';
+import { Text, money as formatRupees } from './ui';
 
-const money = paise => (Number.isSafeInteger(paise) ? `₹${(paise / 100).toFixed(2)}` : '—');
+const money = paise => (Number.isSafeInteger(paise) ? formatRupees(paise / 100) : '—');
 const date = value => (value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const STYLES = `.bm-invoice{font:13px/1.45 system-ui,sans-serif;color:#111;background:#fff;padding:16px;border:1px solid #d6dde3;border-radius:8px;margin-bottom:16px;overflow-wrap:anywhere}
 .bm-invoice h2{margin:0 0 4px;font-size:18px}.bm-invoice .bm-meta{display:flex;flex-wrap:wrap;gap:4px 16px;color:#444;font-size:12px}

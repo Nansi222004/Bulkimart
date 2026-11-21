@@ -605,6 +605,37 @@ const CheckoutPage = () => {
     }}
   />;
 
+  // An e-book is delivered the moment it is paid: no address, no rider timeline, straight to the library.
+  if (orderSuccess && placedOrderDetails && (placedOrderDetails.items || []).length > 0 && placedOrderDetails.items.every((item) => item.fulfillmentType === 'digital')) {
+    const books = placedOrderDetails.items;
+    const card = { background: 'var(--card-bg, #fff)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 16 };
+    const row = { display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14 };
+    return (
+      <div className="checkout-success-container" style={{ fontFamily: "'Outfit', sans-serif", padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {errorBanner}
+        <div style={{ textAlign: 'center', margin: '20px 0 10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'var(--primary-light)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }} aria-hidden="true">📖</div>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>{orderError ? 'Payment received · Review status' : `Your e-book${books.length === 1 ? ' is' : 's are'} ready!`}</h3>
+          <span className="order-id-badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', padding: '4px 14px', borderRadius: 20, fontWeight: 700 }}>
+            Order ID: {placedOrderDetails.orderNo || placedOrderDetails._id || placedOrderDetails.id}
+          </span>
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 10 }}>Purchase summary</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {books.map((book) => <div key={String(book._id || book.productId)} style={row}><span>{book.name}</span><strong>{formatCurrency(book.price)}</strong></div>)}
+            <div style={{ ...row, fontWeight: 800 }}><span>Paid online</span><span>{formatCurrency(placedPaymentAmount != null ? placedPaymentAmount : placedOrderDetails.pricing?.totalAmount)}</span></div>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{books.length === 1 ? 'It is' : 'They are'} in My E-books. Read online or download the PDF any time.</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+          <button className="pd-add-to-cart-btn" onClick={() => setActiveNav('ebooks')} style={{ margin: 0 }}>Read in My E-books</button>
+          <button onClick={() => setActiveNav('home')} style={{ padding: 14, background: 'none', border: '1.5px solid var(--border-color)', borderRadius: 14, color: 'var(--text-primary)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Go back to Home Feed</button>
+        </div>
+      </div>
+    );
+  }
+
   if (orderSuccess && placedOrderDetails) {
     // Generate beautiful timeline sequence based on real order status
     const statusSequence = ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery', 'delivered'];
@@ -725,7 +756,7 @@ const CheckoutPage = () => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-secondary)' }}>Order Amount</span>
-              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{placedPaymentAmount != null ? '₹' + placedPaymentAmount : 'See individual orders'}</span>
+              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{placedPaymentAmount != null ? formatCurrency(placedPaymentAmount) : 'See individual orders'}</span>
             </div>
             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
               <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Delivery Address:</span>
@@ -1131,9 +1162,9 @@ const CheckoutPage = () => {
                 borderRadius: 10, 
                 border: `1.5px solid ${paymentMethod === 'wallet' ? 'var(--primary)' : 'var(--border-color)'}`,
                 background: paymentMethod === 'wallet' ? 'var(--primary-light)' : '#fff',
-                cursor: walletBalance >= grandTotalVal ? 'pointer' : 'not-allowed',
+                cursor: walletBalance >= summary.onlineTotal ? 'pointer' : 'not-allowed',
                 alignItems: 'center',
-                opacity: walletBalance >= grandTotalVal ? 1 : 0.85
+                opacity: walletBalance >= summary.onlineTotal ? 1 : 0.85
               }}
             >
               <input 
@@ -1141,10 +1172,10 @@ const CheckoutPage = () => {
                 name="payment_method"
                 checked={paymentMethod === 'wallet'}
                 onChange={() => {
-                  if (walletBalance >= grandTotalVal) setPaymentMethod('wallet');
+                  if (walletBalance >= summary.onlineTotal) setPaymentMethod('wallet');
                 }}
-                disabled={walletBalance < grandTotalVal}
-                style={{ cursor: walletBalance >= grandTotalVal ? 'pointer' : 'not-allowed' }}
+                disabled={walletBalance < summary.onlineTotal}
+                style={{ cursor: walletBalance >= summary.onlineTotal ? 'pointer' : 'not-allowed' }}
               />
               <div className="checkout-wallet-content" style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1154,17 +1185,17 @@ const CheckoutPage = () => {
                       Bulkimart Wallet
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      Available Balance: ₹{Number(walletBalance || 0).toFixed(2)}
+                      Available Balance: {formatCurrency(walletBalance || 0)}
                     </span>
                   </div>
                 </div>
-                {walletBalance >= grandTotalVal ? (
+                {walletBalance >= summary.onlineTotal ? (
                   <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', backgroundColor: '#f0fdf4', padding: '2px 8px', borderRadius: 12 }}>
                     ✓ Sufficient Balance
                   </span>
                 ) : (
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: '#dc2626', backgroundColor: '#fef2f2', padding: '2px 8px', borderRadius: 12 }}>
-                    ⚠ Need ₹{(grandTotalVal - walletBalance).toFixed(2)} more
+                    ⚠ Need {formatCurrency(summary.onlineTotal - walletBalance)} more
                   </span>
                 )}
               </div>
@@ -1696,7 +1727,7 @@ const CheckoutPage = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
               <span>Items Subtotal</span>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{summary.subtotal.toFixed(2)}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(summary.subtotal)}</span>
             </div>
             <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
 
@@ -1850,7 +1881,7 @@ const CheckoutPage = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                   <span>Items Subtotal</span>
-                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{summary.subtotal.toFixed(2)}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{formatCurrency(summary.subtotal)}</span>
                 </div>
                 <ProductGstBreakdown tax={summary.productTax} subtotalIncludesAddedGst={false} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>

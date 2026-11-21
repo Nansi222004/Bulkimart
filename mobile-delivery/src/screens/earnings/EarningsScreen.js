@@ -14,6 +14,7 @@ import { useDuty } from '../../context/DutyContext';
 import { useToast } from '../../components/Toast';
 import * as deliveryApi from '../../services/delivery.api';
 import { formatRupees } from '../../utils/money';
+import { deliveryCounts } from '../../utils/deliveryCounts';
 import { formatDateTime, formatTime, maskAccount } from '../../utils/format';
 import { PAYOUT_TONE } from '../../utils/status';
 import { colors, spacing, type } from '../../theme';
@@ -82,7 +83,9 @@ export default function EarningsScreen({ navigation }) {
 
   const daily = summary?.daily;
   const weekly = summary?.weekly;
-  const lifetimeTotal = (Number(profile?.earnings?.total) || 0) + (Number(summary?.parcels?.lifetimeTotal) || 0);
+  // From the server, counted once (profile earnings already include newer parcel pay; older servers lack it).
+  const lifetimeTotal = Number.isFinite(summary?.lifetimeEarnings) ? summary.lifetimeEarnings
+    : (Number(profile?.earnings?.total) || 0) + (Number(summary?.parcels?.lifetimeTotal) || 0);
 
   return (
     <Screen edges={[]} refreshing={refreshing} onRefresh={onRefresh}>
@@ -147,7 +150,7 @@ export default function EarningsScreen({ navigation }) {
 
       <Card title="All time">
         <Text style={styles.big}>{profile?.earnings ? formatRupees(Math.round(lifetimeTotal * 100) / 100) : '—'}</Text>
-        <Text style={type.small}>{(Number(profile?.totalDeliveries) || 0) + (Number(summary?.parcels?.lifetimeTrips) || 0)} deliveries{Number(profile?.earnings?.tips) > 0 ? ` · ${formatRupees(profile.earnings.tips)} in tips` : ''}</Text>
+        <Text style={type.small}>{deliveryCounts(profile, summary).total} deliveries{Number(profile?.earnings?.tips) > 0 ? ` · ${formatRupees(profile.earnings.tips)} in tips` : ''}</Text>
       </Card>
 
       <Card title="Payout history">

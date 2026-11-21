@@ -1,5 +1,6 @@
 import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { apiUrl } from '../../../utils/api';
 import { useSeller } from '../context/SellerContext';
 import { boundedFetch } from '../../../utils/portalRequests';
@@ -287,7 +288,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
     </div>
   );
 
-  const pickupPanel = r => ['APPROVED', 'AWAITING_RETURN'].includes(r.status) && <ReturnPickupPanel key={r._id} r={r} onChange={reloadAll} />;
+  const pickupPanel = r => ['APPROVED', 'AWAITING_RETURN'].includes(r.status) && (!r.pickup?.status || ['NOT_ASSIGNED', 'CANCELLED'].includes(r.pickup.status)) && <ReturnPickupPanel key={r._id} r={r} onChange={reloadAll} />;
 
   if (detailId) return <main className="seller-order-page seller-return-page" aria-label="Return details">
     <div className="seller-order-topbar">
@@ -611,7 +612,7 @@ export const SellerReturnsTab = ({ onDetailChange } = {}) => {
 
                 {r.refundStatus && (
                   <div style={{ margin: '8px 0 0', fontSize: 11.5, color: '#059669', fontWeight: 700 }}>
-                    Refund Status: {r.refundStatus}{r.refundAmount != null ? ` · ₹${r.refundAmount}` : ''}
+                    Refund Status: {r.refundStatus}{r.refundAmount != null ? ` · ${rupees(Number(r.refundAmount))}` : ''}
                   </div>
                 )}
 
@@ -652,8 +653,15 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
   const badge = STATUS_COLOR[r.status] || STATUS_COLOR.RETURN_REQUESTED;
   const address = r.order?.pickupAddress;
   const rider = r.pickup?.partnerId;
+  // Return photos are private files a browser tab shows as a blank page, so view them in place.
+  const [photo, setPhoto] = useState(null);
   return (
     <div className="seller-return-content">
+      {photo && <div role="dialog" aria-modal="true" aria-label="Return photo" onClick={() => setPhoto(null)} onKeyDown={e => { if (e.key === 'Escape') setPhoto(null); }} tabIndex={-1}
+        style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16, cursor: 'zoom-out' }}>
+        <img src={photo} alt="Return photo" style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />
+        <span style={{ color: '#fff', fontSize: 12, marginTop: 12 }}>Click anywhere to close</span>
+      </div>}
       <section className="seller-return-summary">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {r.productImage
@@ -701,7 +709,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
             {r.attachments.map(file => file.mimeType === 'application/pdf'
               ? <a key={file.url} href={file.url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>{file.fileName || 'Attachment (PDF)'}</a>
-              : <a key={file.url} href={file.url} target="_blank" rel="noreferrer"><img src={file.url} alt={file.fileName || 'Return photo'} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0' }} /></a>)}
+              : <button key={file.url} type="button" onClick={() => setPhoto(file.url)} aria-label={`View ${file.fileName || 'return photo'}`} style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}><img src={file.url} alt={file.fileName || 'Return photo'} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0' }} /></button>)}
           </div>
         )}
       </Section>
@@ -710,7 +718,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
         <Row label="Order">{r.order?.orderNo}</Row>
         <Row label="Customer">{r.customerName}</Row>
         <Row label="Delivered">{formatDate(r.order?.deliveredAt)}</Row>
-        <Row label="Unit price">{r.unitPriceSnapshot != null ? `₹${r.unitPriceSnapshot}` : null}</Row>
+        <Row label="Unit price">{r.unitPriceSnapshot != null ? rupees(Number(r.unitPriceSnapshot)) : null}</Row>
         <Row label="Return window ends">{formatDate(r.returnEligibleUntilSnapshot)}</Row>
         {address && <Row label="Pickup from">{[address.line1, address.line2, address.city, address.state, address.pincode].filter(Boolean).join(', ')}</Row>}
       </Section>
@@ -734,7 +742,7 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
       {(r.refundStatus || r.refundAmount != null || r.restockDecision) && (
         <Section title="Inspection & refund">
           <Row label="Restock decision">{r.restockDecision?.replace(/_/g, ' ').toLowerCase()}</Row>
-          <Row label="Customer refund">{r.refundAmount != null ? `₹${r.refundAmount}` : null}</Row>
+          <Row label="Customer refund">{r.refundAmount != null ? rupees(Number(r.refundAmount)) : null}</Row>
           <Row label="Refund status">{r.refundStatus}</Row>
           <Row label="Refunded on">{formatDate(r.refundedAt)}</Row>
         </Section>

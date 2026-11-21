@@ -541,6 +541,21 @@ export const requestWholesaleChannel = asyncHandler(async (req, res) => {
 // @desc    Orders containing this seller's items
 // @route   GET /api/sellers/orders?status=&type=&page=&limit=
 // @access  Private (approved sellers)
+// A COD order's Payment record stays "pending" until finance settles it, which read as unpaid after
+// delivery. Until the Payment record is settled as paid, show where the cash actually is instead
+// (orders.codFinance, see orderFinance.service.js).
+const codPaymentStatus = (order) => {
+  const status = order.codFinance?.status;
+  if (order.status === 'cancelled' && (!status || status === 'expected')) return 'not collected (order cancelled)';
+  if (status === 'collected') return 'cash collected by rider';
+  if (status === 'remittance_reported') return 'cash handed to Bulkimart, being checked';
+  if (status === 'verified' || status === 'allocated') return 'cash received by Bulkimart';
+  if (status === 'discrepancy' || status === 'disputed') return 'cash under review by Bulkimart';
+  // No cash record yet: before delivery the customer still pays at the door; after it (delivered,
+  // return requested, returned, refunded) the rider collected the cash.
+  return ['placed', 'confirmed', 'preparing', 'dispatched', 'out_for_delivery'].includes(order.status) ? 'pay on delivery' : 'cash collected by rider';
+};
+
 export const getSellerOrders = asyncHandler(async (req, res) => {
   const seller = req.seller || await Seller.findOne({ userId: req.user._id });
   if (!seller) {
@@ -654,7 +669,7 @@ export const getSellerOrders = asyncHandler(async (req, res) => {
       salesChannel: o.salesChannel || 'retail',
       status: o.status,
       paymentMethod: o.paymentMethod,
-      paymentStatus: payments.get(String(o.paymentId))?.status || (o.paymentMethod === 'cod' ? 'pay_on_delivery' : 'pending'),
+      paymentStatus: o.paymentMethod === 'cod' && payments.get(String(o.paymentId))?.status !== 'paid' ? codPaymentStatus(o) : payments.get(String(o.paymentId))?.status || 'pending',
       vendorDecision: o.vendorDecision || { status: 'pending' },
       placedAt: o.createdAt,
       items: mine.map((i) => ({

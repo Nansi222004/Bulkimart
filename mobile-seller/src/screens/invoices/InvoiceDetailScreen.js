@@ -9,11 +9,12 @@ import { ErrorView, InlineNotice, LoadingView } from '../../components/StateView
 import useApiResource from '../../hooks/useApiResource';
 import { getOrderInvoice, getInvoicePrintLink } from '../../services/fulfillment.api';
 import { API_BASE_URL } from '../../config/env';
+import { rupees } from '../../utils/format';
 import { colors, spacing, type } from '../../theme';
 
 // Native port of InvoiceSheet (frontend/src/components/finance/OrderInvoices.jsx).
 // It formats the server-built invoice only and never calculates tax. Amounts are in paise.
-const money = (paise) => (Number.isSafeInteger(paise) ? `₹${(paise / 100).toFixed(2)}` : '—');
+const money = (paise) => (Number.isSafeInteger(paise) ? rupees(paise / 100) : '—');
 const date = (value) => (value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
 // Plain-text copy for the share sheet (WhatsApp, email, …). Same figures as the screen.

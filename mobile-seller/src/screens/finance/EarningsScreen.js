@@ -66,7 +66,14 @@ export default function EarningsScreen({ navigation }) {
         <Text style={styles.heroValue}>{money(balances.eligible)}</Text>
         <AppButton title="Request payout" variant="accent" disabled={!summary.payoutActionsEnabled}
           onPress={() => navigation.navigate('PayoutRequest')} />
-        {!summary.payoutActionsEnabled ? <Text style={styles.heroHint}>Nothing available to withdraw yet</Text> : null}
+        {!summary.payoutActionsEnabled ? (
+          <Text style={styles.heroHint}>
+            {!(balances.eligible > 0) ? 'Nothing available to withdraw yet'
+              : policy?.schedule === 'weekly' ? `Paid to you automatically every ${WEEKDAYS[policy.weekday] || 'week'}; no request needed`
+                : policy?.minimum > 0 && balances.eligible < policy.minimum ? `You can request a payout once this reaches ${money(policy.minimum)}`
+                  : 'Payout requests are not available right now'}
+          </Text>
+        ) : null}
       </View>
 
       <Card title="Completed product sales">

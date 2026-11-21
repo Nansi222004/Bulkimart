@@ -16,6 +16,7 @@ import { getCurrentPoint } from '../../services/geo';
 import { capitalize, formatDate, maskAccount, partnerCode, ratingSummary } from '../../utils/format';
 import { isValidPincodeList, parsePincodes } from '../../utils/riderDocuments';
 import { partnerStatusLabel } from '../../utils/status';
+import { deliveryCounts } from '../../utils/deliveryCounts';
 import VehicleChangeCard from './VehicleChangeCard';
 import HelpCard from './HelpCard';
 import { colors, spacing, type } from '../../theme';
@@ -56,7 +57,7 @@ export default function ProfileScreen({ navigation }) {
     deliveryApi.getHelpline().then((h) => { if (h?.sosEmergencyNumber) setSos(String(h.sosEmergencyNumber)); }).catch(() => {});
   }, []);
 
-  const onRefresh = async () => { setRefreshing(true); await refreshProfile(); setRefreshing(false); };
+  const onRefresh = async () => { setRefreshing(true); await Promise.allSettled([refreshProfile(), duty.loadSummary()]); setRefreshing(false); };
 
   const openZones = () => { setZones((p.zones || []).join(', ')); setZoneVersion(p.__v); setZoneError(''); setZoneConflict(false); setEditingZones(true); };
   const saveZones = async () => {
@@ -111,7 +112,10 @@ export default function ProfileScreen({ navigation }) {
           <StatusPill tone={duty.online ? 'success' : 'neutral'} label={duty.online ? 'Online' : 'Offline'} />
         </View>
         <KeyValueRow label="Customer rating" value={`${rating.value} (${rating.count})`} />
-        <KeyValueRow label="Total deliveries" value={String(p.totalDeliveries ?? 0)} />
+        <KeyValueRow label="Total deliveries" value={(() => {
+          const c = deliveryCounts(p, duty.summary);
+          return c.parcels > 0 ? `${c.total} (${c.ordersAndReturns} orders & returns · ${c.parcels} parcels)` : String(c.total);
+        })()} />
       </Card>
 
       {duty.licenseExpired ? <InlineNotice tone="error">Your driving licence expired on {formatDate(p.drivingLicense?.expiryDate)}. Renew it and contact support to update it before going online.</InlineNotice>

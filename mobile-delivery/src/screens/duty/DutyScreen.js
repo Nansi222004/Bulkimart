@@ -10,6 +10,7 @@ import ActiveDeliveryView from '../active/ActiveDeliveryView';
 import * as deliveryApi from '../../services/delivery.api';
 import WalletCard from '../../components/WalletCard';
 import { formatRupees } from '../../utils/money';
+import { deliveryCounts } from '../../utils/deliveryCounts';
 import { formatTime, ratingSummary } from '../../utils/format';
 import { colors, radius, spacing, type } from '../../theme';
 
@@ -39,8 +40,10 @@ export default function DutyScreen({ navigation }) {
 
   const rating = ratingSummary(profile);
   const daily = duty.summary?.daily;
-  const lifetimeTotal = (Number(profile?.earnings?.total) || 0) + (Number(duty.summary?.parcels?.lifetimeTotal) || 0);
-  const lifetimeTrips = (Number(profile?.totalDeliveries) || 0) + (Number(duty.summary?.parcels?.lifetimeTrips) || 0);
+  // From the server, counted once (profile earnings already include newer parcel pay; older servers lack it).
+  const lifetimeTotal = Number.isFinite(duty.summary?.lifetimeEarnings) ? duty.summary.lifetimeEarnings
+    : (Number(profile?.earnings?.total) || 0) + (Number(duty.summary?.parcels?.lifetimeTotal) || 0);
+  const lifetimeTrips = deliveryCounts(profile, duty.summary).total;
   const cashPct = Math.min(100, (duty.codOutstanding / duty.codLimit) * 100);
   const activeReturns = duty.returnPickups.active.length;
 

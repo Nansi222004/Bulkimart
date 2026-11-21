@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { useSeller } from '../context/SellerContext';
 import { EmptyState } from './EmptyState';
 
 const money = (n) =>
-  `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  (Number.isFinite(Number(n)) ? rupees(Number(n || 0)) : '—');
 
 export const SalesReportTab = () => {
   const { orders, ordersLoading, sellerKpis, channelKpis, activeChannel, selectedTypes, activeMode, setActiveMode, orderListState } = useSeller();

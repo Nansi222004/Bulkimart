@@ -1,6 +1,7 @@
 import ModalPortal from '../../../components/ModalPortal';
 import { useFeedback } from '../../../components/feedback/FeedbackProvider';
 import React, { useState, useEffect } from 'react';
+import { rupees } from '../utils/sellerFinanceRead';
 import { apiUrl } from '../../../utils/api';
 import { sellerOrderTotal } from '../utils/sellerOrderAmounts';
 
@@ -122,7 +123,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
             </div>
             <div style={{ textAlign: 'right' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block' }}>{total.label}</span>
-              <strong style={{ fontSize: 20, color: '#10b981', fontWeight: 900 }}>₹{total.value}</strong>
+              <strong style={{ fontSize: 20, color: '#10b981', fontWeight: 900 }}>{rupees(Number(total.value))}</strong>
             </div>
           </div>
 
@@ -166,7 +167,7 @@ export const SellerOrderRingModal = ({ order, onAccept, onDecline }) => {
                 <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 13, color: 'var(--text-secondary)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>{item.qty}x {item.name}</span>
-                    <strong>₹{item.price}</strong>
+                    <strong>{rupees(Number(item.price))}</strong>
                   </div>
                   <div style={{ fontSize: 11, color: item.additionalMessage ? '#1d4ed8' : '#94a3b8', fontStyle: item.additionalMessage ? 'italic' : 'normal', paddingLeft: 6, fontWeight: item.additionalMessage ? 600 : 400 }}>
                     📝 Customer Message: {item.additionalMessage ? `"${item.additionalMessage}"` : 'No additional message provided.'}

@@ -203,13 +203,17 @@ export const settle = async ({ payment, state, gatewayOrderId, paymentDetails, e
           ? await Order.findOne({ groupRef: payment.groupRef }).sort({ createdAt: 1 })
           : (payment.orderId ? await Order.findById(payment.orderId) : null);
         if (targetOrder && targetOrder.status !== ORDER_STATUS.CANCELLED) {
+          // An e-book purchase is fulfilled the moment it is paid: point the buyer at their library, not at delivery.
+          const ebookOnly = (targetOrder.items || []).length > 0 && targetOrder.items.every((item) => item.fulfillmentType === 'digital');
           notifyUser(payment.userId, {
             event: NOTIFICATION_EVENT.ORDER_CREATED,
             dedupeKey: `buyer-order-${targetOrder._id}`,
-            title: 'Order Placed Successfully!',
-            message: `Order #${targetOrder.orderNo} has been placed.`,
+            title: ebookOnly ? 'Your e-book is ready' : 'Order Placed Successfully!',
+            message: ebookOnly
+              ? `Payment received for order #${targetOrder.orderNo}. Read or download it in My E-books.`
+              : `Order #${targetOrder.orderNo} has been placed.`,
             metadata: { orderId: targetOrder._id },
-            route: '/orders',
+            route: ebookOnly ? '/ebooks' : '/orders',
           }).catch((e) => console.error('[NOTIFICATION] notifyUser (paid order) failed:', e.message));
           // Confirmation email listing every order paid in this checkout (sent once; see email.service).
           const paidOrders = payment.groupRef

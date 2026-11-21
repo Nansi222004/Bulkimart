@@ -196,7 +196,7 @@ export default function ProfileScreen() {
   const menuItems = [
     { id: 'profile', label: 'My Profile', icon: c => <Icon color={c}><Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><Circle cx="12" cy="7" r="4" /></Icon>, action: () => setActiveSection('profile') },
     { id: 'real-wallet', label: 'Bulkimart Wallet', icon: c => <Icon color={c}><Rect x="2" y="5" width="20" height="14" rx="2" /><Line x1="2" y1="10" x2="22" y2="10" /></Icon>,
-      badge: <Text style={[styles.badge, { backgroundColor: alpha(theme.primary, 0.15), color: theme.actionHover }]}>💰 ₹{realWalletData?.balance?.toFixed(2) ?? '—'}</Text>, action: () => setActiveSection('real-wallet') },
+      badge: <Text style={[styles.badge, { backgroundColor: alpha(theme.primary, 0.15), color: theme.actionHover }]}>💰 {realWalletData?.balance != null ? money(realWalletData.balance) : '—'}</Text>, action: () => setActiveSection('real-wallet') },
     { id: 'orders', label: 'My Orders', icon: c => <Icon color={c}><Path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><Polyline points="3.27 6.96 12 12.01 20.73 6.96" /><Line x1="12" y1="22.08" x2="12" y2="12" /></Icon>, action: () => setActiveNav('orders') },
     { id: 'ebooks', label: 'My E-books', icon: () => <Text style={{ fontSize: 20 }}>📚</Text>, action: () => setActiveNav('ebooks') },
     { id: 'legal-services', label: 'My Legal Service Requests', icon: c => <Text style={{ fontSize: 18, color: c }}>▤</Text>, action: () => setActiveNav('legal-services?view=requests') },
@@ -267,8 +267,8 @@ export default function ProfileScreen() {
                   <Text style={{ fontSize: 11, color: '#64748b' }}>{tx.createdAt ? new Date(tx.createdAt).toLocaleString('en-IN') : '—'}{tx.referenceId ? ` • Ref: ${tx.referenceId}` : ''}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 14.5, fontWeight: '800', color: isCredit ? '#16a34a' : '#ef4444' }}>{isCredit ? '+' : '-'} ₹{Number(tx.amount || 0).toFixed(2)}</Text>
-                  {tx.balanceAfter !== undefined && <Text style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>Bal: ₹{Number(tx.balanceAfter).toFixed(2)}</Text>}
+                  <Text style={{ fontSize: 14.5, fontWeight: '800', color: isCredit ? '#16a34a' : '#ef4444' }}>{isCredit ? '+' : '-'} {money(tx.amount || 0)}</Text>
+                  {tx.balanceAfter !== undefined && <Text style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>Bal: {money(tx.balanceAfter)}</Text>}
                 </View>
               </View>;
             })}</View>}

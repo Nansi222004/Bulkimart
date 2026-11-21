@@ -19,7 +19,9 @@ const FILTERS = [{ value: 'all', label: 'All' }, { value: 'in', label: 'In stock
 const HEALTH = { out: ['OUT OF STOCK', '#fee2e2', '#dc2626'], low: ['LOW STOCK', '#fff7ed', '#ea580c'], ok: ['IN STOCK', colors.aquaLight, colors.primaryDark] };
 
 function StockAdjustSheet({ product, onClose, onSaved }) {
-  const current = Number(product?.stock ?? 0);
+  // The server applies the change to the first variant (and the product total), so start from that
+  // variant's own stock; using the total of all variants made the change wrong for multi-variant products.
+  const current = Number((product?.variants?.length ? product.variants[0].stock : product?.stock) ?? 0);
   const [value, setValue] = useState(String(current));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -53,7 +55,7 @@ function StockAdjustSheet({ product, onClose, onSaved }) {
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={type.heading} numberOfLines={2}>{product.name}</Text>
-          <Text style={type.small}>Current stock: {current}{multi && firstVariant ? ` · this changes the “${firstVariant.name}” variant` : ''}</Text>
+          <Text style={type.small}>{multi && firstVariant ? `“${firstVariant.name}” stock: ${current} · total of all variants: ${Number(product.stock ?? 0)}` : `Current stock: ${current}`}</Text>
           {multi ? <InlineNotice tone="info">Stock adjustment applies to the first variant. Use Edit product to change other variants.</InlineNotice> : null}
           <View style={styles.stepper}>
             <AppButton small variant="outline" title="−10" disabled={busy} onPress={() => step(-10)} />
