@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import Product from '../models/Product.js';
+import StockMovement from '../models/StockMovement.js';
 import { httpError } from '../utils/response.js';
 
 const hasVariants = (product) => Array.isArray(product?.variants) && product.variants.length > 0;
@@ -84,7 +85,7 @@ export const resolveInventoryItem = (product, variantId, { allowLegacyPrimary = 
 /** Atomic stock mutation. Must be called within the caller's transaction.
  * Root stock is a sum projection for variant products and is never decremented
  * independently. For legacy no-variant documents root stock is canonical. */
-export const mutateInventory = async ({ productId, variantId = null, quantity, session, restore = false }) => {
+export const mutateInventory = async ({ productId, variantId = null, quantity, session, restore = false, note, actorType = 'system', actorId }) => {
   const delta = restore ? Number(quantity) : -Number(quantity);
   if (!Number.isInteger(Math.abs(delta)) || delta === 0) throw httpError(400, 'Invalid inventory quantity');
   // A legacy variant-less order can only be resolved by reading the current
@@ -100,6 +101,7 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
     if (!restore) filter.stock = { $gte: quantity };
     const result = await Product.updateOne(filter, { $inc: { stock: delta, __v: 1 } }, { session });
     if (result.modifiedCount !== 1) throw httpError(409, 'There is not enough stock available');
+    await recordStockMovements([{ productId, delta, reason: restore ? 'restock' : 'sale', note, actorType, actorId }], session);
     return;
   }
 
@@ -115,6 +117,33 @@ export const mutateInventory = async ({ productId, variantId = null, quantity, s
     [{ $set: { stock: { $sum: { $map: { input: '$variants', as: 'variant', in: '$$variant.stock' } } }, __v: { $add: ['$__v', 1] } } }],
     { session, updatePipeline: true }
   );
+  await recordStockMovements([{ productId, variantId, delta, reason: restore ? 'restock' : 'sale', note, actorType, actorId }], session);
+};
+
+/**
+ * Adds rows to the stock history (models/StockMovement.js). Fills in seller, variant name and the stock after the
+ * change from the product. Inside a transaction it is part of it; otherwise a failed log never undoes the stock change.
+ */
+export const recordStockMovements = async (rows, session = null) => {
+  const list = (rows || []).filter((r) => r && r.productId && Number(r.delta));
+  if (!list.length) return;
+  try {
+    const ids = [...new Set(list.map((r) => String(r.productId)))];
+    const products = await Product.find({ _id: { $in: ids } }).select('sellerId stock variants._id variants.name variants.stock').session(session || null).lean();
+    const byId = new Map(products.map((p) => [String(p._id), p]));
+    await StockMovement.insertMany(list.map((r) => {
+      const p = byId.get(String(r.productId));
+      const v = r.variantId ? p?.variants?.find((x) => String(x._id) === String(r.variantId)) : null;
+      return {
+        productId: r.productId, variantId: r.variantId || undefined, variantName: r.variantName || v?.name,
+        sellerId: p?.sellerId, delta: Number(r.delta), stockAfter: v ? v.stock : p?.stock,
+        reason: r.reason, note: r.note ? String(r.note).slice(0, 200) : undefined, actorType: r.actorType || 'system', actorId: r.actorId,
+      };
+    }), { session: session || undefined });
+  } catch (err) {
+    if (session) throw err; // inside a transaction the stock change and its log stand or fall together
+    console.error('[STOCK] history write failed:', err.message);
+  }
 };
 
 /** An e-book without a seller copy limit never runs out; one with a limit uses variant stock. */

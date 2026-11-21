@@ -16,6 +16,8 @@ export const MEDIA_CATEGORIES = Object.freeze({
   'customer.return':   { visibility: 'private',     dir: 'returns',            accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
   'shared.ticket':     { visibility: 'private',     dir: 'support',            accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
   'seller.product':    { visibility: 'public',      dir: 'products',           accept: [...IMAGES, 'svg'],        maxBytes: 5 * MB, maxSide: 2048, output: 'webp' },
+  // Category-attribute documents a seller attaches (hallmark certificate, manual …): signed links only.
+  'seller.productdoc': { visibility: 'private',     dir: 'product-documents',  accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
   'seller.branding':   { visibility: 'public',      dir: 'stores',             accept: IMAGES,                    maxBytes: 5 * MB, maxSide: 2560, output: 'webp' },
   'seller.kyc':        { visibility: 'private-kyc', dir: 'seller-documents',   accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 3000, output: 'jpeg' },
   'seller.bank':       { visibility: 'private-kyc', dir: 'seller-bank',        accept: [...IMAGES, 'pdf'],        maxBytes: 5 * MB, maxSide: 3000, output: 'jpeg' },
@@ -39,6 +41,7 @@ const FOLDER_PREFIXES = [
   ['reviews', 'customer.review'],
   ['returns', 'customer.return'],
   ['support-tickets', 'shared.ticket'],
+  ['product-documents', 'seller.productdoc'],
   ['products', 'seller.product'],
   ['seller-branding', 'seller.branding'],
   ['seller-kyc', 'seller.kyc'],

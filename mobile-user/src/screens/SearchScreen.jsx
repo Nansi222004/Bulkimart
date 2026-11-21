@@ -13,6 +13,7 @@ import ImageSearchSheet, { ImageSearchButton, searchProductsByImage, validateSea
 import { CloseIcon, MicIcon, SearchIcon } from '../components/icons';
 import { Text, TextInput } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
+import CategoryFilterBar from '../components/CategoryFilterBar';
 
 const RECENT_KEY = 'nhcone_recent_searches';
 const MAX_RECENT = 10;
@@ -44,6 +45,19 @@ export default function SearchScreen() {
   const searchType = activeMode === 'shop-all' ? 'ecommerce' : 'grocery';
   const [term, setTerm] = useState('');
   const [results, setResults] = useState([]);
+  // Filters for search results: the category most of the results belong to offers its filter chips.
+  const [attrs, setAttrs] = useState({});
+  const [filterCategory, setFilterCategory] = useState(null);
+  const attrsKey = JSON.stringify(attrs);
+  const attrQuery = Object.entries(attrs).filter(([, v]) => v?.length).map(([code, v]) => `&attr.${code}=${encodeURIComponent(v.join(','))}`).join('');
+  useEffect(() => { setAttrs({}); setFilterCategory(null); }, [term, searchType]);
+  const learnCategory = (rows) => {
+    if (Object.values(attrs).some((v) => v?.length) || !rows.length) return;
+    const counts = new Map();
+    for (const p of rows) { const id = String(p.category?._id || p.category || ''); if (id) counts.set(id, (counts.get(id) || 0) + 1); }
+    const [top] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    setFilterCategory(top && top[1] / rows.length >= 0.4 ? top[0] : null);
+  };
   const [loading, setLoading] = useState(false);
   const [recent, setRecent] = useState(readRecent);
   const [editingRecent, setEditingRecent] = useState(false);
@@ -103,14 +117,14 @@ export default function SearchScreen() {
     setLoading(true);
     const controller = new AbortController();
     const handle = setTimeout(() => {
-      boundedFetch(`/api/products/search?q=${encodeURIComponent(q)}&type=${searchType}`, { signal: controller.signal })
+      boundedFetch(`/api/products/search?q=${encodeURIComponent(q)}&type=${searchType}${attrQuery}`, { signal: controller.signal })
         .then(r => (r.ok ? r.json() : []))
-        .then(rows => { if (!controller.signal.aborted) setResults(Array.isArray(rows) ? rows : []); })
+        .then(rows => { if (!controller.signal.aborted) { const list = Array.isArray(rows) ? rows : []; setResults(list); learnCategory(list); } })
         .catch(err => { if (!controller.signal.aborted && err.name !== 'AbortError') setResults([]); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 300);
     return () => { clearTimeout(handle); controller.abort(); };
-  }, [term, searchType, imageMode]);
+  }, [term, searchType, imageMode, attrsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openProduct = p => {
     rememberSearch(p.name, p.matchedImageUrl || p.images?.[0]);
@@ -144,6 +158,7 @@ export default function SearchScreen() {
         <Pressable onPress={() => applyTextSearch('')} style={[styles.smallBtn, { backgroundColor: theme.highlight }]}><Text style={{ color: theme.actionHover }}>Remove image</Text></Pressable>
       </View>}
       {searchError ? <Text accessibilityRole="alert" style={styles.error}>{searchError}{imageAsset ? ' ' : ''}{imageAsset ? <Text onPress={() => { if (!loading) runImageSearch(imageAsset, imageMeta.page).catch(() => {}); }} style={{ fontWeight: '700', textDecorationLine: 'underline' }}>Retry image search</Text> : null}</Text> : null}
+      {!imageMode && filterCategory && term.trim().length >= 2 ? <CategoryFilterBar categoryId={filterCategory} value={attrs} onChange={setAttrs} /> : null}
       {showingResults ? (loading ? <Text style={styles.empty}>Searching…</Text>
         : results.length === 0 ? <Text style={styles.empty}>{searchError ? 'Image search could not finish. Please try again.' : imageMode ? 'No similar product photos found. Try a clearer photo or search by name.' : `No results for "${term}"`}</Text>
           : <>{grid(results, true)}

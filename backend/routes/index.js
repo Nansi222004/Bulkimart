@@ -36,10 +36,13 @@ import walletRoutes from "./wallet.routes.js";
 import shiprocketRoutes from "./shiprocket.routes.js";
 import digitalCommerceRoutes from './digitalCommerce.routes.js';
 import helplineRoutes from './helpline.routes.js';
+import { catalogPublicRouter, catalogAdminRouter } from './catalog.routes.js';
 
 const router = express.Router();
 // Printable seller invoice for the seller app; reachable only through a signed, 10-minute link.
 router.get('/invoice-print/:token', renderInvoicePrintPage);
+router.use('/catalog', catalogPublicRouter);
+router.use('/admin/catalog', catalogAdminRouter);
 router.use('/media', mediaApiRouter);
 router.use('/admin/media', mediaAdminRouter);
 router.use('/storefront', storefrontRouter);

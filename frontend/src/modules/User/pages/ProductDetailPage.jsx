@@ -118,6 +118,7 @@ const ProductDetailPage = () => {
   // "View details" opens the Product Info tab and brings it into view.
   const showProductInfo = () => { setActiveTab('details'); productInfoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  useEffect(() => setActiveImageIndex(0), [selectedVariantId]);
 
   /**
    * Reviews, and the score built from them.
@@ -269,9 +270,12 @@ const ProductDetailPage = () => {
     }
   };
 
-  const allImages = Array.isArray(product?.images) && product.images.length > 0
+  // The chosen variant's own photos (e.g. this colour) come first, then the product photos.
+  const productImages = Array.isArray(product?.images) && product.images.length > 0
     ? product.images
     : [product?.image].filter(Boolean);
+  const variantImages = selectedVariant?.images || [];
+  const allImages = variantImages.length ? [...variantImages, ...productImages.filter((img) => !variantImages.includes(img))] : productImages;
   const activeImage = allImages[activeImageIndex] || product?.image;
 
   // A live Campaign deal, if this product has one right now — never
@@ -747,9 +751,12 @@ const ProductDetailPage = () => {
                 ['Sold per', selectedVariant?.unit || product.unit],
                 ['SKU', selectedVariant?.sku || product.sku],
                 ...(selectedVariant?.attributes || []).map(a => [a.name, a.value]),
+                // Category details set by the seller (Fabric, RAM, Purity …), labelled and ordered by the server.
+                ...(product.specifications || []).map(s => [s.label, s.value]),
+                ['Country of origin', product.countryOfOrigin],
                 ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : isDigital ? 'Digital download after payment' : 'See Delivery Details above for your address'],
-              ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '').map(([k, v]) => (
-                <div key={k} className="pd-info-row">
+              ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '').map(([k, v], i) => (
+                <div key={`${k}-${i}`} className="pd-info-row">
                   <span className="pd-info-key">{k}</span>
                   <span className="pd-info-val">{v}</span>
                 </div>

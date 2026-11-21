@@ -84,6 +84,16 @@ const digitalProductSchema = new Schema({
  * longer required: it's an internal code the frontend doesn't even show
  * any more, not something a seller is blocked on typing.
  */
+// One category-attribute value on a product (specs) or a variant (options). The code and label are copied
+// so the listing still reads correctly if the attribute is later renamed or archived.
+const attributeValueSchema = new Schema({
+  attribute: { type: ObjectId, ref: "CatalogAttribute" },
+  code: { type: String, required: true },
+  label: { type: String, required: true },
+  value: { type: Schema.Types.Mixed, required: true },
+  unit: String,
+}, { _id: false });
+
 const productVariantSchema = new Schema({
   name: { type: String, required: true, default: "Default" },
   price: { type: Number, required: true },
@@ -93,6 +103,11 @@ const productVariantSchema = new Schema({
   weight: { type: Number }, // in grams
   sku: { type: String },
   attributes: [{ name: { type: String, trim: true }, value: { type: String, trim: true } }],
+  // Variant-defining category attributes (Size, Colour, Storage …), checked against the category's
+  // configuration (services/catalogAttribute.service.js). `attributes` above is the older free-text form.
+  options: { type: [attributeValueSchema], default: undefined },
+  // Variant-specific photos (e.g. each colour); the product's own images are used when empty.
+  images: { type: [String], default: undefined },
   // Separate wholesale price book per variant. Hidden from ordinary product
   // queries until the wholesale storefront has its own buyer access rules.
   // Wholesale uses the same per-variant stock source as retail.
@@ -178,6 +193,14 @@ const productSchema = new Schema(
     // when a seller doesn't type one.
     sku: { type: String },
     brandName: { type: String },
+    // Category-specific details (RAM, Fabric, Purity, Expiry …) as configured by Admin for the category.
+    specs: { type: [attributeValueSchema], default: undefined },
+    // Common listing details (PDF §4). Optional; where the law requires them, Admin marks them required
+    // through the category's attributes.
+    hsnCode: { type: String, trim: true, match: /^d{4,8}$/ },
+    barcode: { type: String, trim: true, maxlength: 20 }, // GTIN / EAN / UPC
+    countryOfOrigin: { type: String, trim: true, maxlength: 60 },
+    dispatchDays: { type: Number, min: 0, max: 30 },
     // 0 is a legal rate (unrated / exempt goods), so this is never left
     // undefined the way an optional field would be.
     gstRate: { type: Number, default: 0, enum: [0, 5, 12, 18, 28] },
@@ -248,6 +271,8 @@ const productSchema = new Schema(
     // Admin Approval (Default approved — direct storefront listing)
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
     rejectionReason: String,
+    /** Seller's unfinished listing: never shown to customers; goes live only through "Publish" (PUT with publish=true). */
+    isDraft: { type: Boolean, default: false },
 
     // Ratings + Reviews
     ratings: {
@@ -268,6 +293,9 @@ productSchema.index({ "channels.type": 1, "channels.category": 1 });
 productSchema.index({ sellerId: 1, createdAt: -1 });
 productSchema.index({ shgStoreId: 1, createdAt: -1 });
 productSchema.index({ status: 1 });
+// Category filters (attr.<code>=value) match product details and variant options.
+productSchema.index({ category: 1, 'specs.code': 1, 'specs.value': 1 });
+productSchema.index({ category: 1, 'variants.options.code': 1, 'variants.options.value': 1 });
 // A collection can carry only ONE text index — this REPLACES the previous
 // { name, description, tags } text index (which must be dropped once in the
 // database; see config/db.js's one-time index-migration step) rather than

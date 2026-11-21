@@ -5,7 +5,8 @@ import { descendantIds, useCategoryTree } from '../hooks/useCategoryTree';
 import { useProducts } from '../hooks/useProducts';
 import { formatCurrency } from '../utils/helpers';
 import WishlistHeartButton from '../components/WishlistHeartButton';
-import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
+import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
+import CategoryFilterBar from '../components/CategoryFilterBar';
 
 const customerRoots = (tree) => (tree || []).flatMap((category) => {
   if (!category.isSystem) return [category];
@@ -37,8 +38,11 @@ const CategoriesPage = () => {
   // Products shown in the Sponsored row above; the list below leaves them out so none appears twice.
   const [sponsoredIds, setSponsoredIds] = useState([]);
   const categoryIds = selected ? descendantIds(selected).join(',') : null;
+  // Category filters (Size, Colour, RAM …) configured by Admin for this category; reset when it changes.
+  const [attrs, setAttrs] = useState({});
+  useEffect(() => { setAttrs({}); }, [selected?._id]);
   const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({
-    type: channel, category: categoryIds, limit: 60, enabled: selected?.type === channel && !loading,
+    type: channel, category: categoryIds, limit: 60, attrs, enabled: selected?.type === channel && !loading,
   });
 
   const roots = useMemo(() => {
@@ -100,6 +104,7 @@ const CategoriesPage = () => {
         </nav>
       )}
       <section className="category-results-section" aria-label={`Products in ${selected.name}`}>
+        <CategoryFilterBar categoryId={selected?._id} value={attrs} onChange={setAttrs} />
         {!productsLoading && !productsError && products.length > 0 && <p className="category-detail-count">{products.length} {products.length === 1 ? 'product' : 'products'}</p>}
         <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} />
         {productsLoading ? (

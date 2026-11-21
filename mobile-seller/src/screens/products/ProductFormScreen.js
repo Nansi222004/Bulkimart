@@ -8,14 +8,16 @@ import AppButton from '../../components/AppButton';
 import OptionPicker from '../../components/OptionPicker';
 import SwitchRow from '../../components/SwitchRow';
 import ImageManager from '../../components/ImageManager';
+import CategoryField from '../../components/CategoryField';
+import CategoryUploadField from '../../components/CategoryUploadField';
 import UploadProgress from '../../components/UploadProgress';
 import { InlineNotice } from '../../components/StateViews';
 import { useAuth } from '../../context/AuthContext';
 import { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
-import { createProduct, getCategoryReturnPolicy, getCategoryTree, updateProduct } from '../../services/product.api';
+import { createProduct, getCategoryFields, getCategoryReturnPolicy, getCategoryTree, updateProduct } from '../../services/product.api';
 import {
   GST_RATES, defaultEasyReturnsPolicy, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
-  effectiveCategory, emptyForm, formFromProduct, picksForCategory, validateProductForm,
+  effectiveCategory, emptyForm, formFromProduct, picksForCategory, validateCategoryFields, validateProductForm,
 } from '../../utils/productForm';
 import { colors, radius, spacing, type } from '../../theme';
 
@@ -69,6 +71,28 @@ export default function ProductFormScreen({ route, navigation }) {
     return () => { cancelled = true; };
   }, [category.id, policyAttempt]);
 
+  // The details this category asks for (Admin-configured; subcategories inherit their parents' fields).
+  const [fields, setFields] = useState([]);
+  const [fieldsState, setFieldsState] = useState('idle');
+  const [fieldsAttempt, setFieldsAttempt] = useState(0);
+  useEffect(() => {
+    setFields([]);
+    if (!category.id) { setFieldsState('idle'); return undefined; }
+    let cancelled = false;
+    setFieldsState('loading');
+    getCategoryFields(category.id)
+      .then((list) => { if (!cancelled) { setFields(list); setFieldsState('ready'); } })
+      .catch(() => { if (!cancelled) setFieldsState('error'); });
+    return () => { cancelled = true; };
+  }, [category.id, fieldsAttempt]);
+  const productFields = fields.filter((f) => !f.isVariant);
+  const variantFields = fields.filter((f) => f.isVariant);
+  const groups = productFields.reduce((acc, f) => { (acc[f.group] = acc[f.group] || []).push(f); return acc; }, {});
+  const setSpec = (code, value) => setForm((f) => ({ ...f, specs: { ...(f.specs || {}), [code]: value } }));
+  const setVariantOption = (index, code, value) => setForm((f) => ({
+    ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, options: { ...(v.options || {}), [code]: value } } : v)),
+  }));
+
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const setVariant = (index, key, value) => setForm((f) => ({ ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, [key]: value } : v)) }));
   const addVariant = () => setForm((f) => ({ ...f, variants: [...f.variants, blankVariant()] }));
@@ -80,23 +104,39 @@ export default function ProductFormScreen({ route, navigation }) {
     photoCount: replacePhotos ? images.length : 0, existingPhotoCount: product?.images?.length || 0,
     returnPolicy: policy, returnPolicyState: policyState, sameDayMax,
   });
-  const allErrors = Object.values(errors).flat();
+  // Checked here once the fields have loaded; if they could not load, saving still works and the server
+  // answers with the exact list of missing details.
+  const detailErrors = fieldsState === 'ready' ? validateCategoryFields(form, fields) : [];
+  const allErrors = [...Object.values(errors).flat(), ...detailErrors];
 
-  const submit = async () => {
+  // A draft may leave photos and category details for later; the basics (name, category, price, stock) still apply.
+  const isDraft = Boolean(product?.isDraft);
+  const draftErrors = [...errors.general, ...errors.category, ...errors.variants];
+
+  // mode: 'publish' (create live / publish a draft), 'save' (edit a live product), 'draft' (save or keep as draft)
+  const submit = async (mode = isEditing ? (isDraft ? 'draft' : 'save') : 'publish') => {
     setShowErrors(true); setSaveError('');
-    if (allErrors.length || savingRef.current) {
-      if (allErrors.length) Alert.alert('Check the form', allErrors.slice(0, 6).join('\n'));
+    const blocking = mode === 'draft' ? draftErrors : allErrors;
+    if (blocking.length || savingRef.current) {
+      if (blocking.length) Alert.alert('Check the form', blocking.slice(0, 6).join('\n'));
       return;
     }
     savingRef.current = true; setSaving(true); setProgress(0);
     const files = replacePhotos ? images : [];
     try {
       if (isEditing) {
-        await updateProduct(product._id, buildUpdateFormData(form, channel, files), setProgress);
-        ToastAndroid.show('Product updated.', ToastAndroid.SHORT);
+        const fd = buildUpdateFormData(form, channel, files);
+        if (isDraft && mode === 'publish') fd.append('publish', 'true');
+        const res = await updateProduct(product._id, fd, setProgress);
+        ToastAndroid.show(res?.product?.isDraft ? 'Draft saved. Customers cannot see it yet.'
+          : res?.product?.status === 'pending' ? (isDraft ? 'Sent for admin review. It goes live once approved.' : 'Product updated. Waiting for admin review before customers see it.')
+            : isDraft ? 'Product published.' : 'Product updated.', ToastAndroid.LONG);
       } else {
-        await createProduct(buildCreateFormData(form, channel, files), setProgress);
-        ToastAndroid.show('Product published.', ToastAndroid.SHORT);
+        const fd = buildCreateFormData(form, channel, files);
+        if (mode === 'draft') fd.append('saveAsDraft', 'true');
+        const res = await createProduct(fd, setProgress);
+        ToastAndroid.show(res?.product?.isDraft ? 'Draft saved. Customers cannot see it until you publish it.'
+          : res?.product?.status === 'pending' ? 'Sent for admin review. It goes live once approved.' : 'Product published.', ToastAndroid.LONG);
       }
       // Back to the list (which re-reads from the server), not to a detail screen holding the pre-edit row.
       navigation.navigate('Tabs', { screen: 'Products' });
@@ -115,9 +155,51 @@ export default function ProductFormScreen({ route, navigation }) {
 
   return (
     <Screen>
+      {/* Step 1: category first, as on Amazon / Flipkart, so the form below matches the product. */}
+      <Card title={`Category · ${CHANNEL_LABEL[channel]} catalogue`}>
+        {treeState === 'error' ? (
+          <><InlineNotice tone="error">Categories could not be loaded.</InlineNotice><AppButton small variant="outline" title="Retry" onPress={loadTree} /></>
+        ) : (
+          <>
+            <OptionPicker label="Header category" required disabled={saving || treeState !== 'ready'} value={picks.l1} options={l1Options}
+              placeholder={treeState === 'loading' ? 'Loading categories…' : 'Select header category'}
+              onChange={(v) => setPicks({ l1: v, l2: '', l3: '' })} />
+            {category.l2List.length ? (
+              <OptionPicker label="Main category" required disabled={saving} value={picks.l2}
+                options={category.l2List.map((c) => ({ value: String(c._id), label: c.name }))}
+                onChange={(v) => setPicks((p) => ({ ...p, l2: v, l3: '' }))} />
+            ) : null}
+            {category.l3List.length ? (
+              <OptionPicker label="Sub-category" required disabled={saving} value={picks.l3}
+                options={category.l3List.map((c) => ({ value: String(c._id), label: c.name }))}
+                onChange={(v) => setPicks((p) => ({ ...p, l3: v }))} />
+            ) : null}
+            {category.id ? <Text style={type.small}>Listing category: {category.breadcrumb}</Text> : null}
+          </>
+        )}
+        {showErrors && errors.category.length ? <InlineNotice tone="error">{errorText(errors.category)}</InlineNotice> : null}
+      </Card>
+      {/* Step 2: the details this category needs (e.g. Fabric and Sleeve for T-shirts, RAM and Storage for phones). */}
+      {category.id ? (
+        <Card title="Product details" right={fieldsState === 'error' ? <AppButton small variant="ghost" title="Retry" onPress={() => setFieldsAttempt((n) => n + 1)} /> : null}>
+          <Text style={type.small}>For {category.breadcrumb}. Fields marked * are required for this category.</Text>
+          {fieldsState === 'loading' ? <Text style={type.small}>Loading the fields for this category…</Text> : null}
+          {fieldsState === 'error' ? <InlineNotice tone="error">The fields for this category could not be loaded.</InlineNotice> : null}
+          {fieldsState === 'ready' && !fields.length ? <Text style={type.small}>No extra details are needed for this category.</Text> : null}
+          {Object.entries(groups).map(([group, list]) => (
+            <View key={group} style={styles.group}>
+              {Object.keys(groups).length > 1 ? <Text style={styles.groupTitle}>{group}</Text> : null}
+              {list.map((f) => <CategoryField key={f.code} field={f} value={form.specs?.[f.code]} disabled={saving} onChange={(v) => setSpec(f.code, v)} />)}
+            </View>
+          ))}
+          {variantFields.length ? <Text style={type.small}>{variantFields.map((f) => f.label).join(', ')} {variantFields.length === 1 ? 'is' : 'are'} set on each variant below.</Text> : null}
+          {showErrors && detailErrors.length ? <InlineNotice tone="error">{detailErrors.join(' · ')}</InlineNotice> : null}
+        </Card>
+      ) : null}
+
       <Card title="General info">
         <AppInput label="Product title" required value={form.name} maxLength={200} editable={!saving} onChangeText={(t) => set('name', t)} />
-        <AppInput label="Brand" value={form.brandName} maxLength={100} editable={!saving} onChangeText={(t) => set('brandName', t)} />
+        {productFields.some((f) => f.code === 'brand') ? null : <AppInput label="Brand" value={form.brandName} maxLength={100} editable={!saving} onChangeText={(t) => set('brandName', t)} />}
         <AppInput label="Description" value={form.desc} multiline editable={!saving} onChangeText={(t) => set('desc', t)} />
         <Text style={type.label}>GST rate (prices include GST) *</Text>
         <View style={styles.gstRow} accessibilityRole="radiogroup">
@@ -205,39 +287,26 @@ export default function ProductFormScreen({ route, navigation }) {
         {showErrors && errors.general.length ? <InlineNotice tone="error">{errorText(errors.general)}</InlineNotice> : null}
       </Card>
 
-      <Card title={`Category · ${CHANNEL_LABEL[channel]} catalogue`}>
-        {treeState === 'error' ? (
-          <><InlineNotice tone="error">Categories could not be loaded.</InlineNotice><AppButton small variant="outline" title="Retry" onPress={loadTree} /></>
-        ) : (
-          <>
-            <OptionPicker label="Header category" required disabled={saving || treeState !== 'ready'} value={picks.l1} options={l1Options}
-              placeholder={treeState === 'loading' ? 'Loading categories…' : 'Select header category'}
-              onChange={(v) => setPicks({ l1: v, l2: '', l3: '' })} />
-            {category.l2List.length ? (
-              <OptionPicker label="Main category" required disabled={saving} value={picks.l2}
-                options={category.l2List.map((c) => ({ value: String(c._id), label: c.name }))}
-                onChange={(v) => setPicks((p) => ({ ...p, l2: v, l3: '' }))} />
-            ) : null}
-            {category.l3List.length ? (
-              <OptionPicker label="Sub-category" required disabled={saving} value={picks.l3}
-                options={category.l3List.map((c) => ({ value: String(c._id), label: c.name }))}
-                onChange={(v) => setPicks((p) => ({ ...p, l3: v }))} />
-            ) : null}
-            {category.id ? <Text style={type.small}>Listing category: {category.breadcrumb}</Text> : null}
-          </>
-        )}
-        {showErrors && errors.category.length ? <InlineNotice tone="error">{errorText(errors.category)}</InlineNotice> : null}
-      </Card>
 
       <Card title="Item variants" right={<AppButton small variant="ghost" title="＋ Add" disabled={saving} onPress={addVariant} />}>
-        <Text style={type.small}>Selling price, MRP, stock, unit and weight are set per variant.</Text>
+        <Text style={type.small}>{variantFields.length
+          ? `Each variant is one ${variantFields.map((f) => f.label).join(' + ')} combination with its own price and stock.`
+          : 'Selling price, MRP, stock, unit and weight are set per variant.'}</Text>
         {form.variants.map((v, i) => (
           <View key={v._id || `new-${i}`} style={styles.variant}>
             <View style={styles.variantHead}>
               <Text style={type.label}>Variant {i + 1}{v.sku ? ` · ${v.sku}` : ''}</Text>
               {form.variants.length > 1 && !v._id ? <AppButton small variant="ghost" title="Remove" disabled={saving} onPress={() => removeVariant(i)} /> : null}
             </View>
-            <AppInput label="Name" required value={String(v.name ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'name', t)} />
+            <AppInput label="Name" required value={String(v.name ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'name', t)}
+              hint={variantFields.length ? `e.g. ${variantFields.map((f) => f.options?.[0]?.label || f.label).join(' / ')}` : undefined} />
+            {variantFields.map((f) => (
+              <CategoryField key={f.code} field={f} value={v.options?.[f.code]} disabled={saving} onChange={(val) => setVariantOption(i, f.code, val)} />
+            ))}
+            {variantFields.length ? (
+              <CategoryUploadField label="Variant photo (optional)" hint="e.g. this colour. The product photos are used when empty." kind="image"
+                value={v.images?.[0] || ''} disabled={saving} onChange={(url) => setVariant(i, 'images', url ? [url] : [])} />
+            ) : null}
             <View style={styles.pair}>
               <AppInput style={styles.half} label="Selling price (₹)" required keyboardType="decimal-pad" value={String(v.price ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'price', t.replace(/[^0-9.]/g, ''))} />
               <AppInput style={styles.half} label="MRP (₹)" keyboardType="decimal-pad" value={String(v.mrp ?? '')} editable={!saving} onChangeText={(t) => setVariant(i, 'mrp', t.replace(/[^0-9.]/g, ''))} />
@@ -250,6 +319,21 @@ export default function ProductFormScreen({ route, navigation }) {
           </View>
         ))}
         {showErrors && errors.variants.length ? <InlineNotice tone="error">{errorText(errors.variants)}</InlineNotice> : null}
+      </Card>
+
+      <Card title="Tax & shipping">
+        <View style={styles.pair}>
+          <AppInput style={styles.half} label="HSN code" keyboardType="number-pad" maxLength={8} placeholder="e.g. 6109" value={String(form.hsnCode ?? '')}
+            editable={!saving} onChangeText={(t) => set('hsnCode', t.replace(/\D/g, ''))} />
+          <AppInput style={styles.half} label="Barcode / GTIN" keyboardType="number-pad" maxLength={14} value={String(form.barcode ?? '')}
+            editable={!saving} onChangeText={(t) => set('barcode', t.replace(/\D/g, ''))} />
+        </View>
+        <View style={styles.pair}>
+          <AppInput style={styles.half} label="Country of origin" maxLength={60} placeholder="India" value={form.countryOfOrigin ?? ''}
+            editable={!saving} onChangeText={(t) => set('countryOfOrigin', t)} />
+          <AppInput style={styles.half} label="Dispatch in (days)" keyboardType="number-pad" maxLength={2} placeholder="e.g. 1" value={String(form.dispatchDays ?? '')}
+            editable={!saving} onChangeText={(t) => set('dispatchDays', t.replace(/\D/g, ''))} />
+        </View>
       </Card>
 
       <Card title="Photos">
@@ -269,7 +353,11 @@ export default function ProductFormScreen({ route, navigation }) {
 
       {saving ? <UploadProgress progress={progress} label={replacePhotos && images.length ? 'Uploading photos' : 'Saving'} /> : null}
       {saveError ? <InlineNotice tone="error">{saveError}</InlineNotice> : null}
-      <AppButton title={isEditing ? 'Save changes' : 'Publish product'} variant="accent" loading={saving} onPress={submit} />
+      {isDraft ? <InlineNotice tone="info">This is a draft. Customers cannot see it until you publish it.</InlineNotice> : null}
+      <AppButton title={!isEditing || isDraft ? 'Publish product' : 'Save changes'} variant="accent" loading={saving} onPress={() => submit(!isEditing || isDraft ? 'publish' : 'save')} />
+      {!isEditing || isDraft ? (
+        <AppButton title={isDraft ? 'Save draft' : 'Save as draft'} variant="outline" disabled={saving} onPress={() => submit('draft')} />
+      ) : null}
       {!isEditing ? <Text style={type.small}>Same-day delivery can be switched on from Edit once the product is saved.</Text> : null}
     </Screen>
   );
@@ -294,6 +382,8 @@ const styles = StyleSheet.create({
   pair: { flexDirection: 'row', gap: spacing.sm },
   half: { flex: 1 },
   existing: { gap: spacing.sm },
+  group: { gap: spacing.sm },
+  groupTitle: { fontSize: 13, fontWeight: '800', color: colors.text, marginTop: spacing.sm },
   existingImage: { width: 88, height: 88, borderRadius: radius.sm, backgroundColor: colors.surface },
   faded: { opacity: 0.35 },
 });

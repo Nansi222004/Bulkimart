@@ -62,6 +62,7 @@ import HelplineSettingsTab from '../components/HelplineSettingsTab';
 import { revokeServerSession } from '../../../utils/serverLogout';
 
 import '../SuperAdmin.css';
+import CategoryAttributesTab from '../components/CategoryAttributesTab';
 import '../Admin.css'; // Toast alert styles
 
 const AdminRoutesContent = ({ onLogout }) => {
@@ -72,6 +73,8 @@ const AdminRoutesContent = ({ onLogout }) => {
     if (activeTab === 'overview' || activeTab === 'dashboard') {
       return <SuperAdminDashboard />;
     }
+    // Category Fields: the attribute library and per-category field configuration.
+    if (activeTab === 'categories-fields') return <CategoryAttributesTab />;
     if (activeTab.startsWith('categories-') || activeTab === 'categories') {
       return <CategoriesTab subTab={activeTab.startsWith('categories-') ? activeTab : 'categories-all'} />;
     }

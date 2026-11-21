@@ -1,4 +1,5 @@
-import { validateProductGstInput } from '../services/productGst.service.js';
+import { validateProductGstInput } from '../services/productGst.service.js';
+import { checkProductAttributes, specBrandName, categoryRequiresApproval, applyVariantAttributes, parseCommonListingDetails, attributeFilterConditions, displaySpecifications } from '../services/catalogAttribute.service.js';
 import { saveSellerWholesaleOffers } from '../services/sellerWholesaleOffers.service.js';
 import { channelVisibility, retailVisibility, retailAllowed, wholesaleOnly } from '../utils/productChannels.js';
 import User from '../models/User.js';
@@ -23,10 +24,11 @@ import { resolveReturnPolicyForCategory } from '../services/returnPolicy.service
 import { applyProductReturnSettings, easyReturnsContextFor, parseProductReturnSettings } from '../services/productReturns.service.js';
 import { defaultEasyReturnsPolicy, easyReturnsEnabled, parseEasyReturnsConfig } from '../services/easyReturns.service.js';
 import { normalizeWholesalePricing } from '../services/wholesalePricing.service.js';
-import { persistLegacyVariantIds, resolveInventoryItem } from '../services/inventory.service.js';
+import { persistLegacyVariantIds, recordStockMovements, resolveInventoryItem } from '../services/inventory.service.js';
 import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesaleCatalog.service.js';
 import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
-import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
+import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
+import StockMovement from '../models/StockMovement.js';
 
 const parseDigitalDetails = (input) => {
   let details = input;
@@ -136,6 +138,10 @@ export const getProducts = asyncHandler(async (req, res) => {
   if (isFeatured === 'true') {
     filter.isFeatured = true;
   }
+
+  // Category filters: ?attr.ram=8,12&attr.colour=black (any of the listed values per attribute).
+  const attrFilters = attributeFilterConditions(req.query);
+  if (attrFilters.length) filter.$and = [...(filter.$and || []), ...attrFilters];
 
   let products = await Product.find(filter).select('-digital.file')
     .populate('category', 'name')
@@ -276,6 +282,9 @@ export const searchProducts = asyncHandler(async (req, res) => {
     ...(await withCustomerLegacyExclusions([buildChannelMatch(resolvedType)])),
     $or: [{ name: containsRegex }, { sellerName: containsRegex }, { tags: containsRegex }],
   };
+  // The same category filters on search results.
+  const searchAttrFilters = attributeFilterConditions(req.query);
+  if (searchAttrFilters.length) match.$and = [...(match.$and || []), ...searchAttrFilters];
 
   // Organic name relevance only; historical paid boosts no longer affect search.
   const products = await Product.aggregate([
@@ -378,6 +387,8 @@ export const getProductById = asyncHandler(async (req, res) => {
     }
   }
 
+  // Specification table for the product page (option labels, Admin order and groups, hidden fields left out).
+  data.specifications = await displaySpecifications(data).catch(() => []);
   res.status(200).json(publicProduct(data));
 });
 
@@ -722,8 +733,18 @@ export const createProduct = asyncHandler(async (req, res) => {
     if (v.mrp !== undefined && v.mrp !== '' && Number(v.price) > Number(v.mrp)) throw httpError(400, `"${label}" price cannot be higher than its MRP`);
   });
 
+  // Category-specific details and variant options, checked against the category's Admin configuration
+  // (required fields, field types, allowed options, unique variant combinations).
+  // "Save as draft": required category details and photos may be filled in later; the draft stays hidden.
+  const saveAsDraft = fulfillmentType === 'physical' && !b2bOnly && String(req.body.saveAsDraft) === 'true';
+  const attributeCheck = await checkProductAttributes({ category, subCategory, specs: req.body.specs, variants: parsedVariants, enforceRequired: !saveAsDraft });
+  parsedVariants = applyVariantAttributes(parsedVariants, attributeCheck.variantOptions);
+  const commonDetails = parseCommonListingDetails(req.body);
+  // Categories where Admin switched on "Require admin approval" (e.g. Jewellery) start in Pending review.
+  const needsApproval = fulfillmentType === 'digital' || await categoryRequiresApproval(category, subCategory);
+
   // At least one image — a listing with no photo is not sellable.
-  if (!req.files || req.files.length === 0) {
+  if (!saveAsDraft && (!req.files || req.files.length === 0)) {
     throw httpError(400, 'Please upload at least one product image');
   }
 
@@ -762,7 +783,7 @@ export const createProduct = asyncHandler(async (req, res) => {
      * of delivering this item, and variant `price` stays the only one.
      */
     sameDay: fulfillmentType === 'physical' ? parseProductSameDay(sameDay) : undefined,
-    brandName,
+    brandName: specBrandName(attributeCheck.fields, attributeCheck.specs) || brandName,
     ...validateProductGstInput({ gstRate: gstRate ?? 0, gstPriceType: req.body.gstPriceType ?? 'inclusive', fulfillmentType }),
     isHandmade: isHandmade === true || isHandmade === 'true',
     /**
@@ -776,11 +797,13 @@ export const createProduct = asyncHandler(async (req, res) => {
     // Root price/mrp/stock/unit/weight are synced from variants[0] by the
     // model's pre-validate hook — not set here.
     variants: parsedVariants,
-    // Listings go live immediately — there is no pre-moderation queue. The admin
-    // keeps takedown powers (PATCH /api/admin/products/:id/reject) for anything
-    // that breaks policy after the fact.
-    status: fulfillmentType === 'digital' ? APPROVAL.PENDING : APPROVAL.APPROVED,
-    isActive: fulfillmentType !== 'digital'
+    ...(attributeCheck.specs.length ? { specs: attributeCheck.specs } : {}),
+    ...Object.fromEntries(Object.entries(commonDetails).filter(([, v]) => v !== undefined)),
+    // Listings go live immediately unless the category requires admin approval (or it is an e-book).
+    // The admin keeps takedown powers (PATCH /api/admin/products/:id/reject) either way.
+    status: needsApproval && !saveAsDraft ? APPROVAL.PENDING : APPROVAL.APPROVED,
+    isActive: !needsApproval && !saveAsDraft,
+    ...(saveAsDraft ? { isDraft: true } : {}),
   };
 
   if (![CHANNEL.GROCERY, CHANNEL.ECOM].includes(type)) {
@@ -821,7 +844,7 @@ export const createProduct = asyncHandler(async (req, res) => {
   const imageUrls = [];
   let product;
   try {
-  for (const file of req.files) {
+  for (const file of req.files || []) {
     imageUrls.push(await uploadToCloudinary(file.buffer, folder, mediaContext(req, file)));
   }
   productData.images = imageUrls;
@@ -838,6 +861,9 @@ export const createProduct = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  // Opening stock in the stock history.
+  await recordStockMovements((product.variants || []).map((v) => ({ productId: product._id, variantId: v._id, variantName: v.name, delta: Number(v.stock) || 0, reason: 'product_created', actorType: 'seller', actorId: req.user._id })));
+
   // Populate so the seller's list can render immediately without a refetch
   await product.populate('category', 'name slug type');
 
@@ -845,7 +871,8 @@ export const createProduct = asyncHandler(async (req, res) => {
     success: true,
     message: fulfillmentType === 'digital'
       ? 'E-book draft created. Upload its PDF file before submitting it for moderation.'
-      : 'Product published successfully and is now live.',
+      : saveAsDraft ? 'Draft saved. Customers cannot see it until you publish it.'
+      : needsApproval ? 'Product saved and sent for admin review. It goes live once approved.' : 'Product published successfully and is now live.',
     product
   });
 });
@@ -992,6 +1019,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
 
   if (name) { product.name = name; detailsChanged = true; }
   if (description) product.description = description;
+  const categoryKeyBefore = `${product.category || ''}/${product.subCategory || ''}`;
   if (category) {
     // Same rules as creation: active, same channel (or the SHG tree, for an
     // SHG-owned product), and a leaf.
@@ -1042,6 +1070,40 @@ export const updateProduct = asyncHandler(async (req, res) => {
       }
     }
   }
+  // Stock per variant before this edit, so stock typed on the product form is recorded in the stock history.
+  const stockBefore = new Map((product.variants || []).map((v) => [String(v._id), Number(v.stock) || 0]));
+  const rootStockBefore = Number(product.stock) || 0;
+
+  // Category details and variant options, re-checked when the details, the variants or the category change.
+  // Required fields are enforced when the seller sends the details or moves the product to another category;
+  // a variant-only edit of an older listing (created before its category had fields) is not blocked by them.
+  const categoryChanged = Boolean(category || subCategory);
+  // Publishing a draft runs every check a new listing gets; editing a draft keeps required details optional.
+  const publishDraft = product.isDraft === true && String(req.body.publish) === 'true';
+  if (req.body.specs !== undefined || parsedVariants !== undefined || categoryChanged || publishDraft) {
+    const storedOptions = (v) => Object.fromEntries((v.options || []).map((o) => [o.code, o.value]));
+    const variantsForCheck = parsedVariants !== undefined ? parsedVariants : (product.variants || []).map((v) => ({ name: v.name, options: storedOptions(v) }));
+    const specsInput = req.body.specs !== undefined ? req.body.specs : Object.fromEntries((product.specs || []).map((s) => [s.code, s.value]));
+    const check = await checkProductAttributes({
+      category: product.category, subCategory: product.subCategory, specs: specsInput, variants: variantsForCheck,
+      enforceRequired: publishDraft || (!product.isDraft && (req.body.specs !== undefined || categoryChanged)),
+    });
+    product.specs = check.specs.length ? check.specs : undefined;
+    const pickedBrand = specBrandName(check.fields, check.specs);
+    if (pickedBrand) product.brandName = pickedBrand;
+    if (parsedVariants !== undefined) parsedVariants = applyVariantAttributes(parsedVariants, check.variantOptions);
+    else (product.variants || []).forEach((v, i) => { v.options = check.variantOptions[i]?.length ? check.variantOptions[i] : undefined; });
+    detailsChanged = true;
+  }
+  // A live listing moved into a category that needs admin approval goes back to Pending review.
+  if (product.fulfillmentType !== 'digital' && product.status === APPROVAL.APPROVED && !product.isDraft
+    && `${product.category || ''}/${product.subCategory || ''}` !== categoryKeyBefore
+    && await categoryRequiresApproval(product.category, product.subCategory)) {
+    product.status = APPROVAL.PENDING;
+    product.isActive = false;
+  }
+  const commonDetails = parseCommonListingDetails(req.body);
+  if (Object.keys(commonDetails).length) { Object.assign(product, commonDetails); detailsChanged = true; }
   if (parsedVariants !== undefined) {
     product.variants = parsedVariants;
     detailsChanged = true;
@@ -1090,6 +1152,14 @@ export const updateProduct = asyncHandler(async (req, res) => {
     product.images = imageUrls;
   }
 
+  if (publishDraft) {
+    if (!product.images?.length) throw httpError(400, 'Please upload at least one product image before publishing');
+    const needsApproval = await categoryRequiresApproval(product.category, product.subCategory);
+    product.isDraft = false;
+    product.status = needsApproval ? APPROVAL.PENDING : APPROVAL.APPROVED;
+    product.isActive = !needsApproval;
+  }
+
   const updatedProduct = b2bOnly ? await mongoose.connection.transaction(async session => {
     const sellerFilter = { _id: product.sellerId, status: 'approved', ...(explicitlyEnablingWholesale ? { 'wholesaleChannel.status': 'approved', salesChannels: 'wholesale' } : {}) };
     if (!(await Seller.updateOne(sellerFilter, { $inc: { __v: 1 } }, { session })).matchedCount) throw httpError(403, 'Seller is not eligible');
@@ -1098,6 +1168,12 @@ export const updateProduct = asyncHandler(async (req, res) => {
     if (!(await Category.updateOne({ _id: product.category, isActive: true }, { $inc: { __v: 1 } }, { session })).matchedCount) throw httpError(409, 'Category is unavailable');
     return product.save({ session });
   }) : await product.save();
+  if (parsedVariants !== undefined) {
+    const moves = (updatedProduct.variants || []).length
+      ? updatedProduct.variants.map((v) => ({ productId: updatedProduct._id, variantId: v._id, variantName: v.name, delta: (Number(v.stock) || 0) - (stockBefore.get(String(v._id)) ?? 0) }))
+      : [{ productId: updatedProduct._id, delta: (Number(updatedProduct.stock) || 0) - rootStockBefore }];
+    await recordStockMovements(moves.map((m) => ({ ...m, reason: 'product_edit', actorType: req.userType === 'admin' ? 'admin' : 'seller', actorId: req.user._id })));
+  }
   res.status(200).json({
     success: true,
     message: 'Product updated successfully.',
@@ -1232,6 +1308,10 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     // a 400 — the request itself was valid, the data just moved.
     throw httpError(409, 'Stock changed before this update could be applied — please refresh and try again');
   }
+  await recordStockMovements([{
+    productId: updated._id, variantId: updated.variants?.[0]?._id, delta: parsedDelta, reason: 'seller_adjustment',
+    actorType: req.userType === 'admin' ? 'admin' : 'seller', actorId: req.user._id,
+  }]);
 
   res.status(200).json({
     success: true,
@@ -1518,4 +1598,17 @@ export const getProductFaqs = asyncHandler(async (req, res) => {
     .sort((a, b) => new Date(b.answeredAt) - new Date(a.answeredAt));
 
   return ok(res, { faqs }, 'Product FAQs');
+});
+
+// @desc    Stock history of one product (sales, restocks, adjustments, edits), newest first
+// @route   GET /api/products/:id/stock-history
+// @access  Private (the product's seller, or admin)
+export const getProductStockHistory = asyncHandler(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, 'Invalid product');
+  const product = await Product.findById(req.params.id).select('sellerId shgStoreId');
+  if (!product) throw httpError(404, 'Product not found');
+  await assertOwnsProduct(product, req);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  const rows = await StockMovement.find({ productId: product._id }).sort({ createdAt: -1 }).limit(limit).select('-actorId').lean();
+  return res.status(200).json({ success: true, data: rows });
 });

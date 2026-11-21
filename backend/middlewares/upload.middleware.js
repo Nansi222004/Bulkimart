@@ -109,3 +109,15 @@ export const uploadBulkFiles = (req, res, next) => bulkFiles(req, res, error => 
   if (!error && req.files?.excelFile?.[0]?.size > 10 * 1024 * 1024) return next(Object.assign(new Error('Product sheet must be 10 MB or smaller.'), { status: 413 }));
   next(error);
 });
+
+// One file for a category-attribute field (image or document) or a variant photo. Content is re-checked by the media service.
+const catalogFileUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 3, fieldSize: 1024 },
+  fileFilter: (_req, file, cb) => cb(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)
+    ? null : Object.assign(new Error('Upload a JPG, PNG, WEBP image or a PDF.'), { status: 400 }), true),
+}).single('file');
+export const uploadCatalogFile = (req, res, next) => catalogFileUpload(req, res, (error) => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('The file must be 5 MB or smaller.'), { status: 413 }));
+  next(error);
+});

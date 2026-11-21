@@ -11,7 +11,8 @@ import {
   deleteCategory
 } from '../controllers/category.controller.js';
 import { protect, requireAdmin } from '../middlewares/auth.middleware.js';
-import { uploadFields } from '../middlewares/upload.middleware.js';
+import { uploadFields } from '../middlewares/upload.middleware.js';
+import { requireCatalogPermission } from '../middlewares/catalogPermission.middleware.js';
 
 const router = express.Router();
 
@@ -26,16 +27,16 @@ router.get('/stats', getCategoryStats);
 router.get('/:id', getCategoryById);
 
 // Admin-only category modifications
-router.post('/', protect, requireAdmin, uploadFields([
+router.post('/', protect, requireAdmin, requireCatalogPermission, uploadFields([
   { name: 'image', maxCount: 1 },
   { name: 'icon', maxCount: 1 }
 ]), createCategory);
 
-router.put('/:id', protect, requireAdmin, uploadFields([
+router.put('/:id', protect, requireAdmin, requireCatalogPermission, uploadFields([
   { name: 'image', maxCount: 1 },
   { name: 'icon', maxCount: 1 }
 ]), updateCategory);
 
-router.delete('/:id', protect, requireAdmin, deleteCategory);
+router.delete('/:id', protect, requireAdmin, requireCatalogPermission, deleteCategory);
 
 export default router;

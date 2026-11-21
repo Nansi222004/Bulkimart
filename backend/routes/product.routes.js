@@ -10,7 +10,7 @@ import {
   createProduct,
   updateProduct,
   updateProductChannelStatus,
-  adjustProductStock,
+  adjustProductStock, getProductStockHistory,
   deleteProduct,
   getMyProducts,
   addProductReview,
@@ -103,6 +103,7 @@ router.post('/', protect, requireRole('seller'), requireSellerSession, requireAp
 router.put('/:id', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, uploadProductImages('images', 5), updateProduct);
 router.patch('/:id/channels', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, updateProductChannelStatus);
 router.patch('/:id/stock', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, adjustProductStock);
+router.get('/:id/stock-history', protect, requireRole('seller', 'admin'), requireSellerSession, getProductStockHistory);
 router.delete('/:id', protect, requireRole('seller', 'admin'), deleteProduct);
 
 router.post('/:id/reviews', protect, uploadReviewImages, addProductReview);

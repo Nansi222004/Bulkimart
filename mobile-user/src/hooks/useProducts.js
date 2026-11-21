@@ -72,6 +72,8 @@ export const normalizeProduct = (p) => {
       unit: variant.unit,
       weight: variant.weight,
       attributes: variant.attributes || [],
+      options: Array.isArray(variant.options) ? variant.options : [],
+      images: Array.isArray(variant.images) ? variant.images.filter(Boolean) : [],
     })),
     // The store name shown under the product name on cards.
     sellerName: p.sellerName || p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
@@ -98,8 +100,10 @@ export const normalizeProduct = (p) => {
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products
  */
-const catalogUrl = ({ type, category, limit, featured, maxPrice, lat, lng }) => {
+const catalogUrl = ({ type, category, limit, featured, maxPrice, lat, lng, attrs }) => {
   const qs = new URLSearchParams();
+  // Category filters chosen by the customer: { size: ['m', 'l'], ram: ['8'] } → attr.size=m,l&attr.ram=8
+  for (const [code, values] of Object.entries(attrs || {})) if (values?.length) qs.set(`attr.${code}`, values.join(','));
   if (type) qs.set('type', type);
   if (category) qs.set('category', category);
   if (featured) qs.set('isFeatured', 'true');
@@ -110,8 +114,8 @@ const catalogUrl = ({ type, category, limit, featured, maxPrice, lat, lng }) => 
   return apiUrl(`/api/products?${qs.toString()}`);
 };
 
-export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, enabled = true } = {}) => {
-  const url = catalogUrl({ type, category, limit, featured, maxPrice, lat, lng });
+export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, attrs, enabled = true } = {}) => {
+  const url = catalogUrl({ type, category, limit, featured, maxPrice, lat, lng, attrs });
   const warm = enabled ? peekCatalog(url) : null;
   const [products, setProducts] = useState(() => warm || []);
   const [loading, setLoading] = useState(() => !warm);

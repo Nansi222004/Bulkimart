@@ -6,6 +6,7 @@ import Card from '../../components/Card';
 import AppButton from '../../components/AppButton';
 import KeyValueRow from '../../components/KeyValueRow';
 import { InlineNotice } from '../../components/StateViews';
+import StockHistoryCard from './StockHistoryCard';
 import { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
 import { deleteProduct } from '../../services/product.api';
 import { isDigital, isWholesaleOnly, productStatus, stockHealth } from '../../utils/productForm';
@@ -78,6 +79,8 @@ export default function ProductDetailScreen({ route, navigation }) {
           {health === 'out' ? 'OUT OF STOCK' : health === 'low' ? 'LOW STOCK' : 'IN STOCK'} · total {p.stock ?? '—'}
         </Text>
       </Card>
+
+      {!isDigital(p) ? <StockHistoryCard productId={p._id} /> : null}
 
       {editable ? (
         <>

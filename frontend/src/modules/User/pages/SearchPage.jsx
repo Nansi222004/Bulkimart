@@ -6,6 +6,7 @@ import { normalizeProduct } from '../hooks/useProducts';
 import ImageSearchSheet, { ImageSearchButton } from '../components/ImageSearchSheet';
 import { searchProductsByImage, validateSearchImage } from '../utils/imageSearch';
 import { createLatestRequest } from '../../../components/services/serviceRequests';
+import CategoryFilterBar from '../components/CategoryFilterBar';
 
 const RECENT_KEY = 'nhcone_recent_searches';
 const MAX_RECENT = 10;
@@ -37,6 +38,19 @@ const SearchPage = () => {
 
   const [term, setTerm] = useState('');
   const [results, setResults] = useState([]);
+  // Filters for search results: the category most of the results belong to offers its filter chips.
+  const [attrs, setAttrs] = useState({});
+  const [filterCategory, setFilterCategory] = useState(null);
+  const attrsKey = JSON.stringify(attrs);
+  const attrQuery = Object.entries(attrs).filter(([, v]) => v?.length).map(([code, v]) => `&attr.${code}=${encodeURIComponent(v.join(','))}`).join('');
+  useEffect(() => { setAttrs({}); setFilterCategory(null); }, [term, searchType]);
+  const learnCategory = (rows) => {
+    if (Object.values(attrs).some((v) => v?.length) || !rows.length) return;
+    const counts = new Map();
+    for (const p of rows) { const id = String(p.category?._id || p.category || ''); if (id) counts.set(id, (counts.get(id) || 0) + 1); }
+    const [top] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    setFilterCategory(top && top[1] / rows.length >= 0.4 ? top[0] : null);
+  };
   const [loading, setLoading] = useState(false);
   const [recent, setRecent] = useState(readRecent);
   const [editingRecent, setEditingRecent] = useState(false);
@@ -120,14 +134,14 @@ const SearchPage = () => {
     setLoading(true);
     const controller = new AbortController();
     const handle = setTimeout(() => {
-      fetch(apiUrl(`/api/products/search?q=${encodeURIComponent(q)}&type=${searchType}`), { signal: controller.signal })
+      fetch(apiUrl(`/api/products/search?q=${encodeURIComponent(q)}&type=${searchType}${attrQuery}`), { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : []))
-        .then((rows) => { if (!controller.signal.aborted) setResults(Array.isArray(rows) ? rows : []); })
+        .then((rows) => { if (!controller.signal.aborted) { const list = Array.isArray(rows) ? rows : []; setResults(list); learnCategory(list); } })
         .catch((err) => { if (!controller.signal.aborted && err.name !== 'AbortError') setResults([]); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 300);
     return () => { clearTimeout(handle); controller.abort(); };
-  }, [term, searchType, imageMode]);
+  }, [term, searchType, imageMode, attrsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rememberSearch = (label, image) => {
     const next = [{ label, image }, ...recent.filter((r) => r.label.toLowerCase() !== label.toLowerCase())].slice(0, MAX_RECENT);
@@ -198,6 +212,7 @@ const SearchPage = () => {
       <div className="search-page-body">
         {imageMode && <div className="image-search-summary">{imagePreview && <img src={imagePreview} alt="Image used for product search" />}<span>Similar product photos</span><button type="button" onClick={() => useTextSearch('')}>Remove image</button></div>}
         {searchError && <p className="image-search-error" role="alert">{searchError} {imageFile && <button disabled={loading} type="button" onClick={() => { void runImageSearch(imageFile, imageMeta.page).catch(() => {}); }}>Retry image search</button>}</p>}
+        {!imageMode && filterCategory && term.trim().length >= 2 ? <CategoryFilterBar categoryId={filterCategory} value={attrs} onChange={setAttrs} /> : null}
         {showingResults ? (
           loading ? (
             <p className="search-page-empty">Searching…</p>

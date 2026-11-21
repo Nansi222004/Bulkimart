@@ -15,7 +15,7 @@ export const isDigital = (raw) => raw?.fulfillmentType === 'digital';
 export const isWholesaleOnly = (raw) => Array.isArray(raw?.sellingChannels) && raw.sellingChannels.length === 1 && raw.sellingChannels[0] === 'wholesale';
 
 // Same labels as fetchMyProducts in SellerContext.
-export const productStatus = (p) => (p.status === 'approved' ? (p.isActive ? 'Active' : 'Inactive')
+export const productStatus = (p) => (p.isDraft ? 'Draft' : p.status === 'approved' ? (p.isActive ? 'Active' : 'Inactive')
   : p.status === 'rejected' ? 'Rejected' : 'Pending Approval');
 
 // Easy Returns (backend services/easyReturns.service.js): No Easy Returns = normal price; Easy Returns = normal price + extra charge.
@@ -48,11 +48,17 @@ export function validateEasyReturns(form) {
   return errors;
 }
 
-export const blankVariant = () => ({ name: '', price: '', mrp: '', stock: '', unit: 'piece', weight: '' });
+export const blankVariant = () => ({ name: '', price: '', mrp: '', stock: '', unit: 'piece', weight: '', options: {} });
+
+// Category details (Admin-configured per category): { code: value } on the product, and per variant for
+// variant-defining fields such as Size / Colour. Stored values come back as arrays of { code, value }.
+const valuesFrom = (list) => Object.fromEntries((list || []).map((x) => [x.code, x.value]));
+const commonDefaults = { hsnCode: '', barcode: '', countryOfOrigin: '', dispatchDays: '' };
 
 export const emptyForm = () => ({
   name: '', categoryId: '', desc: '', brandName: '', gstRate: 0,
   variants: [{ ...blankVariant(), name: 'Default' }],
+  specs: {}, ...commonDefaults,
   sameDayEnabled: false, processingMinutes: '', returnable: false, returnWindowDays: '',
   ...easyDefaults,
 });
@@ -65,8 +71,11 @@ export const formFromProduct = (raw) => ({
   brandName: raw.brandName || '',
   gstRate: raw.gstRate ?? 0,
   variants: raw.variants?.length
-    ? raw.variants.map((v) => ({ _id: v._id, name: v.name ?? '', price: v.price ?? '', mrp: v.mrp ?? '', stock: v.stock ?? '', unit: v.unit || 'piece', weight: v.weight ?? '', sku: v.sku }))
-    : [{ name: 'Default', price: raw.price ?? '', mrp: raw.mrp ?? '', stock: raw.stock ?? '', unit: raw.unit || 'piece', weight: raw.weight ?? '' }],
+    ? raw.variants.map((v) => ({ _id: v._id, name: v.name ?? '', price: v.price ?? '', mrp: v.mrp ?? '', stock: v.stock ?? '', unit: v.unit || 'piece', weight: v.weight ?? '', sku: v.sku, options: valuesFrom(v.options), images: v.images || [] }))
+    : [{ name: 'Default', price: raw.price ?? '', mrp: raw.mrp ?? '', stock: raw.stock ?? '', unit: raw.unit || 'piece', weight: raw.weight ?? '', options: {} }],
+  specs: valuesFrom(raw.specs),
+  hsnCode: raw.hsnCode || '', barcode: raw.barcode || '', countryOfOrigin: raw.countryOfOrigin || '',
+  dispatchDays: raw.dispatchDays ?? '',
   sameDayEnabled: Boolean(raw.sameDay?.enabled),
   processingMinutes: raw.sameDay?.processingMinutes ?? '',
   returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
@@ -132,7 +141,47 @@ const variantPayload = (v, withId) => ({
   stock: Number(v.stock),
   unit: v.unit || 'piece',
   ...(!blank(v.weight) ? { weight: Number(v.weight) } : {}),
+  ...(v.options && Object.keys(v.options).length ? { options: v.options } : {}),
+  ...(Array.isArray(v.images) ? { images: v.images.filter(Boolean) } : {}),
 });
+
+// Details and common fields are sent on create and update; the server checks them against the category.
+const appendDetails = (fd, form) => {
+  fd.append('specs', JSON.stringify(form.specs || {}));
+  for (const key of ['hsnCode', 'barcode', 'countryOfOrigin', 'dispatchDays']) fd.append(key, String(form[key] ?? '').trim());
+};
+
+const emptyValue = (v) => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
+
+/**
+ * The same required / format checks the server makes, so the seller sees them before uploading photos.
+ * `fields` come from GET /api/catalog/fields. Returns a list of messages.
+ */
+export function validateCategoryFields(form, fields) {
+  const errs = [];
+  for (const f of fields.filter((x) => !x.isVariant)) {
+    const v = form.specs?.[f.code];
+    if (emptyValue(v)) { if (f.required) errs.push(`${f.label} is required`); continue; }
+    if (['number', 'decimal'].includes(f.fieldType) && !Number.isFinite(Number(v))) errs.push(`${f.label} must be a number`);
+    if (f.fieldType === 'number' && Number.isFinite(Number(v)) && !Number.isInteger(Number(v))) errs.push(`${f.label} must be a whole number`);
+    if (f.fieldType === 'date' && !/^d{4}-d{2}-d{2}$/.test(String(v))) errs.push(`${f.label} must be a date (YYYY-MM-DD)`);
+  }
+  const variantFields = fields.filter((x) => x.isVariant);
+  const seen = new Set();
+  (form.variants || []).forEach((variant, i) => {
+    const name = variant.name ? `“${variant.name}”` : `Variant ${i + 1}`;
+    for (const f of variantFields) if (f.required && emptyValue(variant.options?.[f.code])) errs.push(`${name}: ${f.label} is required`);
+    if (variantFields.length) {
+      const key = variantFields.map((f) => String(variant.options?.[f.code] ?? '')).join('|');
+      if (key.replace(/|/g, '') && seen.has(key)) errs.push(`${name} has the same ${variantFields.map((f) => f.label).join(' / ')} as another variant`);
+      seen.add(key);
+    }
+  });
+  if (form.hsnCode && !/^d{4,8}$/.test(String(form.hsnCode).trim())) errs.push('HSN code must be 4 to 8 digits');
+  if (form.barcode && !/^d{8,14}$/.test(String(form.barcode).trim())) errs.push('Barcode must be 8 to 14 digits');
+  if (!emptyValue(form.dispatchDays) && !(Number.isInteger(Number(form.dispatchDays)) && Number(form.dispatchDays) >= 0 && Number(form.dispatchDays) <= 30)) errs.push('Dispatch time must be 0 to 30 days');
+  return errs;
+}
 
 const appendImages = (fd, images) => images.forEach((image) => fd.append('images', { uri: image.uri, name: image.name, type: image.type }));
 
@@ -149,6 +198,7 @@ export function buildCreateFormData(form, channel, images) {
   fd.append('gstRate', String(form.gstRate ?? 0));
   fd.append('gstPriceType', 'inclusive'); // Prices always include GST.
   fd.append('variants', JSON.stringify(form.variants.map((v) => variantPayload(v, false))));
+  appendDetails(fd, form);
   // The web only offers same-day on edit, so a new listing never carries sameDay.
   fd.append('returnable', form.returnable ? 'true' : 'false');
   fd.append('returnWindowDays', form.returnable ? String(form.returnWindowDays ?? '') : '');
@@ -167,6 +217,7 @@ export function buildUpdateFormData(form, channel, images) {
   fd.append('gstRate', String(form.gstRate ?? 0));
   fd.append('gstPriceType', 'inclusive');
   fd.append('variants', JSON.stringify(form.variants.map((v) => variantPayload(v, true))));
+  appendDetails(fd, form);
   // sameDay is always sent on a Shop All edit: leaving it out means "no change", which would make switching it off impossible.
   if (channel === 'ecommerce') {
     fd.append('sameDay', JSON.stringify(form.sameDayEnabled ? { enabled: true, processingMinutes: Number(form.processingMinutes) } : { enabled: false }));

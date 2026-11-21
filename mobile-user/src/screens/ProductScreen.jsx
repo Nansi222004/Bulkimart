@@ -152,6 +152,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
   });
   const [activeTab, setActiveTab] = useState('desc');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  useEffect(() => setActiveImageIndex(0), [selectedVariantId]);
   const showProductInfo = () => { setActiveTab('details'); scrollRef.current?.scrollTo({ y: Math.max(0, infoY.current - 70), animated: true }); };
 
   // Reviews (approved only, with the summary computed from the same list)
@@ -213,7 +214,10 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
     } catch (err) { setQuestionError(err.message); } finally { setSubmittingQuestion(false); }
   };
 
-  const allImages = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image].filter(Boolean);
+  // The chosen variant's own photos (e.g. this colour) come first, then the product photos.
+  const productImages = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image].filter(Boolean);
+  const variantImages = selectedVariant?.images || [];
+  const allImages = variantImages.length ? [...variantImages, ...productImages.filter(img => !variantImages.includes(img))] : productImages;
   const activeImage = allImages[activeImageIndex] || product.image;
   const imageUri = img => mediaUrl(typeof img === 'string' ? img : img?.url || img?.secure_url || '');
 
@@ -433,9 +437,12 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
             : [['Seller', product.sellerName], ['Category', typeof product.category === 'object' ? product.category?.name : product.category], ['Brand', product.brandName],
               ['Variant', selectedVariant?.name && selectedVariant.name !== 'Default' ? selectedVariant.name : ''], ['Weight', formatWeight(selectedVariant?.weight)], ['Sold per', selectedVariant?.unit || product.unit],
               ['SKU', selectedVariant?.sku || product.sku], ...(selectedVariant?.attributes || []).map(a => [a.name, a.value]),
+              // Category details set by the seller (Fabric, RAM, Purity …), already labelled and ordered by the server.
+              ...(product.specifications || []).map(s => [s.label, s.value]),
+              ['Country of origin', product.countryOfOrigin],
               ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : isDigital ? 'Digital download after payment' : 'See Delivery Details above for your address']]
               .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
-              .map(([k, v]) => <View key={k} style={styles.infoRow}><Text style={styles.infoKey}>{k}</Text><Text style={styles.infoVal}>{v}</Text></View>)}
+              .map(([k, v], i) => <View key={`${k}-${i}`} style={styles.infoRow}><Text style={styles.infoKey}>{k}</Text><Text style={styles.infoVal}>{v}</Text></View>)}
         </View>
       </View>
 

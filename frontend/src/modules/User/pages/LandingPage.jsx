@@ -401,7 +401,7 @@ export const LandingPageContent = () => {
         </div>
       )}
 
-      {confirmExit && <div role="dialog" aria-modal="true" aria-label="Exit app" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      {confirmExit && <ModalPortal role="dialog" aria-modal="true" aria-label="Exit app" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <div style={{ background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 320, textAlign: 'center' }}>
           <h3 style={{ margin: '0 0 6px', fontSize: 17 }}>Exit Bulkimart?</h3>
           <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>Do you want to close the app?</p>
@@ -410,7 +410,7 @@ export const LandingPageContent = () => {
             <button type="button" onClick={exitApp} style={{ flex: 1, padding: 12, borderRadius: 12, border: 0, background: 'var(--primary)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Exit</button>
           </div>
         </div>
-      </div>}
+      </ModalPortal>}
 
       {/* Fixed Bottom Nav Bar */}
       <BottomNav />

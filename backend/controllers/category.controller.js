@@ -3,7 +3,8 @@ import { CHANNEL } from '../constants/enums.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
-import { mediaContext } from '../services/media.service.js';
+import { mediaContext } from '../services/media.service.js';
+import { auditCategoryChange } from './catalogAttribute.controller.js';
 
 
 /**
@@ -294,6 +295,7 @@ export const createCategory = asyncHandler(async (req, res) => {
   }
 
   const category = await Category.create(categoryData);
+  auditCategoryChange(req, 'category.create', category, `Created ${category.name}${category.parent ? ' (subcategory)' : ''}`);
   res.status(201).json({
     success: true,
     category
@@ -371,6 +373,7 @@ export const updateCategory = asyncHandler(async (req, res) => {
   }
 
   const updatedCategory = await category.save();
+  auditCategoryChange(req, 'category.update', updatedCategory, `Updated ${updatedCategory.name}${updatedCategory.isActive ? '' : ' (inactive)'}`);
   res.status(200).json({
     success: true,
     category: updatedCategory
@@ -394,6 +397,7 @@ export const deleteCategory = asyncHandler(async (req, res) => {
 
   category.isActive = false;
   await category.save();
+  auditCategoryChange(req, 'category.archive', category, `Deactivated ${category.name}`);
 
   res.status(200).json({
     success: true,

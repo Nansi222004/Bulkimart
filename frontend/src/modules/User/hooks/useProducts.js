@@ -66,6 +66,8 @@ export const normalizeProduct = (p) => {
       unit: variant.unit,
       weight: variant.weight,
       attributes: variant.attributes || [],
+      options: Array.isArray(variant.options) ? variant.options : [],
+      images: Array.isArray(variant.images) ? variant.images.filter(Boolean) : [],
     })),
     // The store name shown under the product name on cards.
     sellerName: p.sellerName || p.sellerId?.storeDetails?.name || p.sellerId?.businessName || '',
@@ -92,7 +94,10 @@ export const normalizeProduct = (p) => {
  *   limit     - how many to fetch (default 12)
  *   featured  - only featured products
  */
-export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, enabled = true } = {}) => {
+export const useProducts = ({ type, category, limit = 12, featured, maxPrice, lat, lng, attrs, enabled = true } = {}) => {
+  // Category filters chosen by the customer: { size: ['m'], ram: ['8'] }. Compared as text so a new
+  // object with the same choices does not refetch.
+  const attrsKey = JSON.stringify(attrs || {});
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -114,6 +119,7 @@ export const useProducts = ({ type, category, limit = 12, featured, maxPrice, la
         if (lat !== undefined && lat !== null) qs.set('lat', String(lat));
         if (lng !== undefined && lng !== null) qs.set('lng', String(lng));
         qs.set('limit', String(limit));
+        for (const [code, values] of Object.entries(JSON.parse(attrsKey))) if (values?.length) qs.set(`attr.${code}`, values.join(','));
 
         const rows = await readCatalog(apiUrl(`/api/products?${qs.toString()}`), retryToken > 0);
         if (cancelled) return;
@@ -126,7 +132,7 @@ export const useProducts = ({ type, category, limit = 12, featured, maxPrice, la
     })();
 
     return () => { cancelled = true; };
-  }, [type, category, limit, featured, maxPrice, lat, lng, retryToken, enabled]);
+  }, [type, category, limit, featured, maxPrice, lat, lng, retryToken, enabled, attrsKey]);
 
   const retry = () => setRetryToken((value) => value + 1);
 

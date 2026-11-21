@@ -19,6 +19,13 @@ export async function getCategoryTree(type) {
   return Array.isArray(body) ? body : (body?.data || []);
 }
 
+// The details a seller fills in for this category (Admin-configured, inherited from parent categories):
+// [{ code, label, fieldType, options, required, isVariant, unit, helpText, group, … }].
+export async function getCategoryFields(categoryId) {
+  const body = await api.get('/api/catalog/fields', { params: { category: categoryId }, skipAuth: true });
+  return Array.isArray(body?.data?.fields) ? body.data.fields : [];
+}
+
 // { success, data: { eligible:boolean, returnWindowDays, source:'category'|'global' } }
 export async function getCategoryReturnPolicy(categoryId) {
   const body = await api.get('/api/products/category-return-policy', { params: { categoryId } });
@@ -40,11 +47,24 @@ const multipart = (onProgress) => ({
 // POST /api/products → { product }
 export const createProduct = (formData, onProgress) => api.post('/api/products', formData, multipart(onProgress));
 
+// POST /api/catalog/uploads (kind=image|file) → { url }: a file for an image/file category field or a variant photo.
+export async function uploadCatalogFile(doc, kind = 'image') {
+  const fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', { uri: doc.uri, name: doc.name || (kind === 'image' ? 'photo.jpg' : 'document.pdf'), type: doc.type || (kind === 'image' ? 'image/jpeg' : 'application/pdf') });
+  const body = await api.post('/api/catalog/uploads', fd, multipart());
+  if (!body?.data?.url) throw new Error(body?.message || 'Upload failed');
+  return body.data.url;
+}
+
 // PUT /api/products/:id. Attaching any image replaces the whole photo set; no images keeps the existing ones.
 export const updateProduct = (id, formData, onProgress) => api.put(`/api/products/${requireId(id)}`, formData, multipart(onProgress));
 
 // DELETE /api/products/:id (server soft-delete, ownership-checked)
 export const deleteProduct = (id) => api.delete(`/api/products/${requireId(id)}`);
+
+// GET /api/products/:id/stock-history → { data: [{ reason, delta, stockAfter, variantName, createdAt }] }
+export const getStockHistory = (id) => api.get(`/api/products/${requireId(id)}/stock-history`).then((body) => (Array.isArray(body?.data) ? body.data : []));
 
 // PATCH /api/products/:id/stock { delta } → { stock, product }. Atomic $inc on the server,
 // which applies to the first variant. 409 means stock changed in between.

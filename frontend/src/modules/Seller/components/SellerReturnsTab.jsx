@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import EasyReturnBadge from '../../../components/EasyReturnBadge';
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { rupees } from '../utils/sellerFinanceRead';
@@ -668,11 +669,11 @@ export const ReturnDetail = ({ r, pickupPanel, decisionPanel }) => {
   const [photo, setPhoto] = useState(null);
   return (
     <div className="seller-return-content">
-      {photo && <div role="dialog" aria-modal="true" aria-label="Return photo" onClick={() => setPhoto(null)} onKeyDown={e => { if (e.key === 'Escape') setPhoto(null); }} tabIndex={-1}
+      {photo && <ModalPortal role="dialog" aria-modal="true" aria-label="Return photo" onClick={() => setPhoto(null)} onKeyDown={e => { if (e.key === 'Escape') setPhoto(null); }} tabIndex={-1}
         style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16, cursor: 'zoom-out' }}>
         <img src={photo} alt="Return photo" style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />
         <span style={{ color: '#fff', fontSize: 12, marginTop: 12 }}>Click anywhere to close</span>
-      </div>}
+      </ModalPortal>}
       <section className="seller-return-summary">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {r.productImage

@@ -105,7 +105,7 @@ export const ShipmentExceptionsTab = () => {
 
       {active && (
         <ModalPortal>
-          <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label={`Shipment exception ${active.orderNo}`}>
+          <ModalPortal className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label={`Shipment exception ${active.orderNo}`}>
             <div className="admin-modal" style={{ maxWidth: 560 }}>
               <div className="admin-modal-header">
                 <h3 className="admin-modal-title">{active.orderNo} · {TYPE_LABEL[ex?.type] || ex?.type}</h3>
@@ -160,7 +160,7 @@ export const ShipmentExceptionsTab = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </ModalPortal>
         </ModalPortal>
       )}
     </div>

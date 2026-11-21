@@ -12,10 +12,10 @@ import { isDigital, isWholesaleOnly, productStatus } from '../../utils/productFo
 import { colors, radius, spacing, type } from '../../theme';
 
 // Port of ProductsTab.jsx (retail list). Rows come from GET /api/products/seller/mine for one storefront.
-const STATUS_FILTERS = ['All', 'Active', 'Pending Approval', 'Rejected', 'Inactive'];
+const STATUS_FILTERS = ['All', 'Active', 'Draft', 'Pending Approval', 'Rejected', 'Inactive'];
 const STATUS_COLOR = {
   Active: [colors.successLight, '#166534'], 'Pending Approval': [colors.warningLight, '#92400e'],
-  Rejected: ['#fee2e2', '#b91c1c'], Inactive: ['#f1f5f9', '#475569'],
+  Rejected: ['#fee2e2', '#b91c1c'], Inactive: ['#f1f5f9', '#475569'], Draft: ['#ede9fe', '#5b21b6'],
 };
 
 function ProductRow({ product, onPress }) {

@@ -10,6 +10,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
+import { CategoryFieldInput, CategoryUploadInput, useCategoryFields, validateCategoryDetails } from './CategoryDetailsFields';
 import './ProductModal.css';
 
 /**
@@ -273,7 +274,7 @@ export const ProductModal = () => {
     });
     resetCategoryPicks();
     setEbookFile(null);
-    setActiveTab('general');
+    setActiveTab('groups');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAddProductModal]);
 
@@ -291,6 +292,15 @@ export const ProductModal = () => {
   const removeVariant = (index) => {
     setNewProductForm((f) => ({ ...f, variants: (f.variants || []).filter((_, i) => i !== index) }));
   };
+  // Admin-configured details for the chosen category (inherited from parent categories).
+  const categoryFields = useCategoryFields(effectiveCategoryId);
+  const productFields = categoryFields.fields.filter((f) => !f.isVariant);
+  const variantFields = categoryFields.fields.filter((f) => f.isVariant);
+  const setSpec = (code, value) => setNewProductForm((f) => ({ ...f, specs: { ...(f.specs || {}), [code]: value } }));
+  const setVariantOption = (index, code, value) => setNewProductForm((f) => ({
+    ...f, variants: (f.variants || []).map((v, i) => (i === index ? { ...v, options: { ...(v.options || {}), [code]: value } } : v)),
+  }));
+
   const updateVariant = (index, field, value) => {
     setNewProductForm((f) => ({
       ...f,
@@ -352,8 +362,8 @@ export const ProductModal = () => {
   });
 
   const tabs = useMemo(() => [
-    { id: 'general', label: 'General Info' },
     { id: 'groups', label: isDigital ? 'Category' : 'Category & Groups' },
+    { id: 'general', label: 'General Info' },
     ...(!isDigital ? [{ id: 'variants', label: 'Item Variants' }] : []),
     { id: 'photos', label: isDigital ? 'Cover & PDF' : 'Photos' },
   ], [isDigital]);
@@ -412,6 +422,11 @@ export const ProductModal = () => {
       errs.groups.push('Please select a valid category leaf');
     }
 
+    // Category details (required fields, formats, unique Size / Colour combinations) and tax & shipping fields.
+    // While the fields are loading (or if they could not load) saving is still allowed: the server checks
+    // the same required fields and answers with the exact list of what is missing.
+    if (effectiveCategoryId && categoryFields.state === 'ready') errs.groups.push(...validateCategoryDetails(newProductForm, categoryFields.fields));
+
     // Variants validation (physical only)
     if (!isDigital) {
       if (!Array.isArray(variants) || variants.length === 0) {
@@ -446,12 +461,30 @@ export const ProductModal = () => {
     }
 
     return errs;
-  }, [newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile, showReturnableBlock, catReturnPolicy, returnPolicyState, ebookMrpError, ebookStockError]);
+  }, [categoryFields.fields, categoryFields.state, newProductForm, isDigital, pickL1, pickL2, pickL3, l2List.length, l3List.length, effectiveCategoryId, variants, wholesaleProductEditor, coverImage, isEditing, editingProduct, ebookFile, showReturnableBlock, catReturnPolicy, returnPolicyState, ebookMrpError, ebookStockError]);
 
   const allErrors = useMemo(() => Object.values(tabErrors).flat(), [tabErrors]);
   const creationTermsValid = !wholesaleProductEditor || (wholesaleAuthorized && (isEditing || variants.some(v=>v.wholesalePricing?.enabled)) && !variants.some(v=>Object.keys(validateWholesaleOffer(v.wholesalePricing,v.stock)).length));
   const canSubmit = !savingProduct && allErrors.length === 0 && creationTermsValid;
   const footerCanSubmit = wholesaleOnly ? wholesaleAuthorized && !wholesaleInvalid && wholesaleDirty : canSubmit;
+
+  // Drafts (physical retail listings only): photos and category details may be finished later.
+  const draftAllowed = !isDigital && !wholesaleProductEditor && !wholesaleOnly && (!isEditing || Boolean(editingProduct?.isDraft));
+  const isDraftProduct = isEditing && Boolean(editingProduct?.isDraft);
+  const draftErrors = useMemo(() => {
+    const detail = new Set(effectiveCategoryId && categoryFields.state === 'ready' ? validateCategoryDetails(newProductForm, categoryFields.fields) : []);
+    return Object.entries(tabErrors).filter(([tab]) => tab !== 'photos').flatMap(([, list]) => list).filter((msg) => !detail.has(msg));
+  }, [tabErrors, effectiveCategoryId, categoryFields.state, categoryFields.fields, newProductForm]);
+  const saveDraft = () => {
+    if (savingProduct) return;
+    if (draftErrors.length) {
+      const tab = tabs.find((t) => tabErrors[t.id]?.some((msg) => draftErrors.includes(msg)));
+      if (tab) setActiveTab(tab.id);
+      return;
+    }
+    const form = { ...newProductForm, saveMode: 'draft' };
+    return isEditing ? submitProductEdit(form, collectedFiles, ebookFile) : submitNewProduct(form, collectedFiles, ebookFile);
+  };
 
   const navigateToFirstError = () => {
     for (const tab of tabs) {
@@ -469,7 +502,8 @@ export const ProductModal = () => {
       navigateToFirstError();
       return;
     }
-    const save = () => isEditing ? submitProductEdit(newProductForm, collectedFiles, ebookFile) : submitNewProduct(newProductForm, collectedFiles, ebookFile);
+    const form = isDraftProduct ? { ...newProductForm, saveMode: 'publish' } : newProductForm;
+    const save = () => isEditing ? submitProductEdit(form, collectedFiles, ebookFile) : submitNewProduct(form, collectedFiles, ebookFile);
     // Confirming saves the product, so the dialog must read as a save, not a discard.
     if (!wholesaleProductEditor && wholesaleDirty) return ui.perform({
       title: 'Save product without the Wholesale changes?',
@@ -678,7 +712,8 @@ export const ProductModal = () => {
                     onChange={(e) => setNewProductForm({ ...newProductForm, desc: e.target.value })} />
                 </div>
 
-                {!isDigital && <div className="onboarding-form-group">
+                {/* Categories with an Admin-managed Brand list pick it in Product details instead. */}
+                {!isDigital && !productFields.some((f) => f.code === 'brand') && <div className="onboarding-form-group">
                   <label className="onboarding-label">Brand Name</label>
                   {/* Plain input with in-page chips: a <datalist> opens a native popup
                       that mobile browsers draw over the on-screen keyboard. */}
@@ -872,6 +907,19 @@ export const ProductModal = () => {
                             <label style={S.microLabel}>VARIANT NAME</label>
                             <input readOnly={wholesaleOnly||savingWholesale||savingProduct} type="text" className="onboarding-input" placeholder="Default, Pack of 2…" value={v.name} aria-label={`Variant ${i+1} name`}
                               onChange={(e) => updateVariant(i, 'name', e.target.value)} />
+                            {variantFields.length ? (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginTop: 8 }}>
+                                {variantFields.map((f) => (
+                                  <CategoryFieldInput key={f.code} idPrefix={`v${i}`} field={f} value={v.options?.[f.code]} disabled={wholesaleOnly || savingWholesale || savingProduct}
+                                    onChange={(val) => setVariantOption(i, f.code, val)} />
+                                ))}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <label htmlFor={`v${i}-photo`} className="onboarding-label">Variant photo (optional)</label>
+                                  <CategoryUploadInput id={`v${i}-photo`} kind="image" value={v.images?.[0] || ''} disabled={wholesaleOnly || savingWholesale || savingProduct}
+                                    onChange={(url) => updateVariant(i, 'images', url ? [url] : [])} />
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                           {variants.length > 1 && (
                             <button type="button" disabled={wholesaleOnly||savingWholesale||savingProduct} onClick={() => removeVariant(i)} style={S.trashBtn} aria-label="Remove variant">
@@ -1017,6 +1065,35 @@ export const ProductModal = () => {
                     ⚠️ Please complete the selection above until a specific category leaf is determined.
                   </div>
                 )}
+
+                {effectiveCategoryId ? (
+                  <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <h4 style={S.sectionTitle}>Product details for this category</h4>
+                      <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>Fields marked * are required for {categoryBreadcrumb || 'this category'}.</p>
+                    </div>
+                    {categoryFields.state === 'loading' ? <p style={{ fontSize: 12.5 }}>Loading the fields for this category…</p> : null}
+                    {categoryFields.state === 'error' ? <p style={{ fontSize: 12.5, color: '#b91c1c' }}>The fields could not be loaded. <button type="button" onClick={categoryFields.retry}>Retry</button></p> : null}
+                    {categoryFields.state === 'ready' && !productFields.length && !variantFields.length ? <p style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>No extra details are needed for this category.</p> : null}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                      {productFields.map((f) => (
+                        <CategoryFieldInput key={f.code} field={f} value={newProductForm.specs?.[f.code]} disabled={savingProduct || wholesaleOnly} onChange={(v) => setSpec(f.code, v)} />
+                      ))}
+                    </div>
+                    {variantFields.length ? <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>{variantFields.map((f) => f.label).join(', ')} {variantFields.length === 1 ? 'is' : 'are'} set on each variant in Item Variants.</p> : null}
+                    {!isDigital ? (
+                      <>
+                        <h4 style={{ ...S.sectionTitle, marginTop: 6 }}>Tax & shipping</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                          <label className="onboarding-label">HSN code<input className="onboarding-input" inputMode="numeric" maxLength={8} placeholder="e.g. 6109" disabled={savingProduct} value={newProductForm.hsnCode ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, hsnCode: e.target.value.replace(/\D/g, '') }))} /></label>
+                          <label className="onboarding-label">Barcode / GTIN<input className="onboarding-input" inputMode="numeric" maxLength={14} disabled={savingProduct} value={newProductForm.barcode ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, barcode: e.target.value.replace(/\D/g, '') }))} /></label>
+                          <label className="onboarding-label">Country of origin<input className="onboarding-input" maxLength={60} placeholder="India" disabled={savingProduct} value={newProductForm.countryOfOrigin ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, countryOfOrigin: e.target.value }))} /></label>
+                          <label className="onboarding-label">Dispatch in (days)<input className="onboarding-input" inputMode="numeric" maxLength={2} placeholder="e.g. 1" disabled={savingProduct} value={newProductForm.dispatchDays ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, dispatchDays: e.target.value.replace(/\D/g, '') }))} /></label>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -1204,6 +1281,12 @@ export const ProductModal = () => {
               </div>
             )}
             <button type="button" onClick={close} style={S.footerCloseBtn}>Close</button>
+            {draftAllowed && !ebookDraftAwaitingPdf ? (
+              <button type="button" onClick={saveDraft} disabled={savingProduct} style={S.footerCloseBtn}
+                title={draftErrors.length ? `Fix first: ${draftErrors[0]}` : 'Save now and finish photos / category details later. Customers cannot see a draft.'}>
+                {isDraftProduct ? 'Save Draft' : 'Save as Draft'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={wholesaleOnly || canSubmit ? handleSubmit : navigateToFirstError}
@@ -1215,7 +1298,7 @@ export const ProductModal = () => {
               }}
               title={wholesaleOnly ? 'Save only the changed variant Wholesale terms' : canSubmit ? 'Submit listing' : 'Resolve required fields to submit'}
             >
-              {savingProduct || savingWholesale ? 'Saving…' : wholesaleOnly ? 'Save Wholesale Terms' : (wholesaleProductEditor ? 'Save Wholesale Product' : ebookDraftAwaitingPdf ? 'Retry PDF Upload' : isEditing ? 'Save Changes' : 'Save & Submit Listing')}
+              {savingProduct || savingWholesale ? 'Saving…' : wholesaleOnly ? 'Save Wholesale Terms' : (wholesaleProductEditor ? 'Save Wholesale Product' : ebookDraftAwaitingPdf ? 'Retry PDF Upload' : isDraftProduct ? 'Publish Listing' : isEditing ? 'Save Changes' : 'Save & Submit Listing')}
             </button>
           </div>
         </div>

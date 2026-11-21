@@ -15,6 +15,8 @@ const categorySchema = new Schema(
     isActive:    { type: Boolean, default: true },
     sortOrder:   { type: Number, default: 0 },
     description: String,
+    /** New listings here (and in its subcategories) wait in Admin → Products → Pending review before going live. */
+    requireProductApproval: { type: Boolean, default: false },
 
     /**
      * How a HEADER category paints itself in the customer's app.

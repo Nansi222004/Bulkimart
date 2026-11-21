@@ -29,6 +29,7 @@
     "check:cloudinary": "node seed/checkCloudinary.js",
     "fix:roles": "node seed/fixVendorRoles.js",
     "seed:categories": "node seed/seedCategories.js",
+    "seed:catalog-attributes": "node seed/seedCatalogAttributes.js",
     "migrate:shopall": "node seed/migrateCategoriesToShopAll.js",
     "remove:mock-products": "node seed/removeMockProducts.js",
     "seed:real-products": "node seed/seedRealProducts.js",

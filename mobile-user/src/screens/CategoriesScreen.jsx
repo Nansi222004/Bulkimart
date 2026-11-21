@@ -15,6 +15,7 @@ import WishlistHeartButton from '../components/WishlistHeartButton';
 import { ChevronLeft, SearchIcon } from '../components/icons';
 import { Text, TextInput } from '../components/ui';
 import { formatCurrency } from '../components/home/ProductCards';
+import CategoryFilterBar from '../components/CategoryFilterBar';
 
 const customerRoots = tree => (tree || []).flatMap(category => (category.isSystem ? category.children || [] : [category]));
 const branchMatches = (category, query) => !query || String(category.name || '').toLowerCase().includes(query) || (category.children || []).some(child => branchMatches(child, query));
@@ -46,7 +47,10 @@ export default function CategoriesScreen() {
   const openedFromGrid = useRef([]);
   const bottom = useNavPadding(18);
   const categoryIds = selected ? descendantIds(selected).join(',') : null;
-  const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({ type: channel, category: categoryIds, limit: 60, enabled: selected?.type === channel && !loading });
+  // Category filters (Size, Colour, RAM …) as configured by Admin for this category; cleared when it changes.
+  const [attrs, setAttrs] = useState({});
+  useEffect(() => { setAttrs({}); }, [selected?._id]);
+  const { products, loading: productsLoading, error: productsError, retry: retryProducts } = useProducts({ type: channel, category: categoryIds, limit: 60, attrs, enabled: selected?.type === channel && !loading });
   const roots = useMemo(() => customerRoots(tree).filter(category => branchMatches(category, query.trim().toLowerCase())), [tree, query]);
 
   useEffect(() => { openedFromGrid.current = []; }, [channel]);
@@ -108,6 +112,7 @@ export default function CategoriesScreen() {
             </Pressable>)}
           </ScrollView>}
           <View style={[styles.results, { borderTopColor: theme.border }]}>
+            <CategoryFilterBar categoryId={selected._id} value={attrs} onChange={setAttrs} />
             {!productsLoading && !productsError && products.length > 0 && (
               <View style={styles.countRow}>
                 <Text style={[styles.countText, { color: theme.textSecondary }]}>

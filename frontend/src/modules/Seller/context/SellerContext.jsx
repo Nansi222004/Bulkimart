@@ -48,6 +48,16 @@ const getBrowserStorage = () => {
   try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; }
 };
 
+// Category details (checked by the server against the category's Admin configuration) and the common listing
+// fields: HSN, barcode / GTIN, country of origin and dispatch time.
+const appendListingDetails = (fd, form) => {
+  fd.append('specs', JSON.stringify(form.specs || {}));
+  for (const key of ['hsnCode', 'barcode', 'countryOfOrigin', 'dispatchDays']) fd.append(key, String(form[key] ?? '').trim());
+  // Drafts: "Save as draft" on a new listing, "Publish" on a saved draft (the server ignores either elsewhere).
+  if (form.saveMode === 'draft') fd.append('saveAsDraft', 'true');
+  if (form.saveMode === 'publish') fd.append('publish', 'true');
+};
+
 export const SellerProvider = ({ children }) => {
   const ui = useFeedback();
   const [userProfile, setUserProfile] = useState(() => {
@@ -371,8 +381,11 @@ export const SellerProvider = ({ children }) => {
       // empty for a real listing — but fall back to a blank one just in
       // case the form ever opens before a fetch has landed.
       variants: raw.variants?.length
-        ? raw.variants.map((v) => ({ ...v }))
+        ? raw.variants.map((v) => ({ ...v, options: Object.fromEntries((v.options || []).map((o) => [o.code, o.value])) }))
         : [{ name: 'Default', price: raw.price ?? '', mrp: raw.mrp ?? '', stock: raw.stock ?? '', unit: raw.unit || 'piece', weight: raw.weight ?? '' }],
+      // Category details and the common listing fields (Developer Guide §3–4).
+      specs: Object.fromEntries((raw.specs || []).map((x) => [x.code, x.value])),
+      hsnCode: raw.hsnCode || '', barcode: raw.barcode || '', countryOfOrigin: raw.countryOfOrigin || '', dispatchDays: raw.dispatchDays ?? '',
       sameDayEnabled: Boolean(raw.sameDay?.enabled),
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
       returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
@@ -458,8 +471,11 @@ export const SellerProvider = ({ children }) => {
             stock: Number(variant.stock),
             unit: variant.unit || 'piece',
             ...(variant.weight !== '' && variant.weight !== undefined ? { weight: Number(variant.weight) } : {}),
+            ...(variant.options && Object.keys(variant.options).length ? { options: variant.options } : {}),
+            ...(Array.isArray(variant.images) ? { images: variant.images.filter(Boolean) } : {}),
           }));
       fd.append('variants', JSON.stringify(editVariants));
+      appendListingDetails(fd, form);
       if (form.fulfillmentType === 'digital') {
         fd.append('digital', JSON.stringify({
           author: String(form.author || '').trim(),
@@ -511,7 +527,7 @@ export const SellerProvider = ({ children }) => {
       }
 
       if (!current()) return { ok: false, stale: true };
-      triggerToast(form.fulfillmentType === 'digital' ? 'E-book changes submitted for admin review.' : 'Product updated.');
+      triggerToast(form.fulfillmentType === 'digital' ? 'E-book changes submitted for admin review.' : body.product?.isDraft ? 'Draft saved. Customers cannot see it yet.' : form.saveMode === 'publish' && body.product?.status === 'approved' ? 'Product published — it is live for customers now.' : body.product?.status === 'pending' ? 'Product updated. It is waiting for admin review before customers can see it.' : 'Product updated.');
       setShowAddProductModal(false);
       setEditingProduct(null);
       await fetchMyProducts();
@@ -550,7 +566,7 @@ export const SellerProvider = ({ children }) => {
         price: p.price,
         stock: p.stock,
         // backend: status pending|approved|rejected + isActive
-        status: p.status === 'approved' ? (p.isActive ? 'Active' : 'Inactive')
+        status: p.isDraft ? 'Draft' : p.status === 'approved' ? (p.isActive ? 'Active' : 'Inactive')
           : p.status === 'rejected' ? 'Rejected' : 'Pending Approval',
         img: p.images?.[0] || null,
         raw: p,
@@ -1384,7 +1400,7 @@ export const SellerProvider = ({ children }) => {
       if (!token) throw new Error('Your session expired. Please sign in again.');
       if (form.fulfillmentType === 'digital' && activeChannel !== 'ecommerce') throw new Error('E-books can only be added from Shop All.');
       if (!form.categoryId) throw new Error('Please select a category.');
-      if (!files || files.length === 0) throw new Error('Please add at least one product image.');
+      if (form.saveMode !== 'draft' && (!files || files.length === 0)) throw new Error('Please add at least one product image.');
       if (form.fulfillmentType !== 'digital' && (!Array.isArray(form.variants) || form.variants.length === 0)) {
         throw new Error('Please add at least one variant with pricing and stock.');
       }
@@ -1414,8 +1430,11 @@ export const SellerProvider = ({ children }) => {
             stock: Number(v.stock),
             unit: v.unit || 'piece',
             ...(v.weight !== '' && v.weight !== undefined ? { weight: Number(v.weight) } : {}),
+            ...(v.options && Object.keys(v.options).length ? { options: v.options } : {}),
+            ...(Array.isArray(v.images) ? { images: v.images.filter(Boolean) } : {}),
           }));
       fd.append('variants', JSON.stringify(createVariants));
+      appendListingDetails(fd, form);
       if (form.fulfillmentType === 'digital') {
         fd.append('digital', JSON.stringify({
           author: String(form.author || '').trim(),
@@ -1482,7 +1501,9 @@ export const SellerProvider = ({ children }) => {
       }
 
       if (!current()) return { ok: false, stale: true };
-      triggerToast(form.fulfillmentType === 'digital'
+      if (body.product?.isDraft) triggerToast('Draft saved. Customers cannot see it until you publish it.');
+      else if (form.fulfillmentType !== 'digital' && body.product?.status === 'pending') triggerToast('Product saved and sent for admin review. It goes live once approved.');
+      else triggerToast(form.fulfillmentType === 'digital'
         ? 'E-book listing created and submitted for admin review.'
         : form.sellingChannels?.includes('wholesale') ? 'Wholesale product published.' : 'Product published — it is live for customers now.');
       setShowAddProductModal(false);

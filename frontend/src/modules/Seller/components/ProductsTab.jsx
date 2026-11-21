@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { ProductModal } from './ProductModal';
 import { BulkUploadModal } from './BulkUploadModal';
+import { StockHistoryModal } from './StockHistoryModal';
 
 export const ProductsTab = () => {
   const {
@@ -26,6 +27,7 @@ export const ProductsTab = () => {
   } = useSeller();
 
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [historyProduct, setHistoryProduct] = useState(null);
   const [selectingOffer, setSelectingOffer] = useState(false);
   const wholesale = productListingMode === 'wholesale';
   const wholesaleAuthorized = sellerProfile?.status === 'approved'
@@ -670,12 +672,14 @@ export const ProductsTab = () => {
                 const { categoryName, subcategory } = getProductDetails(p);
                 const isEbook = p.raw?.fulfillmentType === 'digital';
                 const ebookFileStatus = p.raw?.digital?.file?.status === 'uploaded' ? 'PDF uploaded' : 'PDF missing';
-                const statusStyle = p.status === 'Active'
+                const statusStyle = p.status === 'Draft'
+                  ? { backgroundColor: '#ede9fe', color: '#5b21b6' }
+                  : p.status === 'Active'
                   ? { backgroundColor: '#ebfdf2', color: '#166534' }
                   : p.status === 'Rejected'
                     ? { backgroundColor: '#fee2e2', color: '#dc2626' }
                     : { backgroundColor: '#fff7ed', color: '#ea580c' };
-                const statusLabel = p.status === 'Active' ? 'Approved' : p.status === 'Rejected' ? 'Rejected' : 'Pending';
+                const statusLabel = p.status === 'Draft' ? 'Draft' : p.status === 'Active' ? 'Approved' : p.status === 'Rejected' ? 'Rejected' : 'Pending';
 
                 return (
                   <div key={p.id} className="prod-card-mobile">
@@ -699,6 +703,7 @@ export const ProductsTab = () => {
                       <span className="prod-card-mobile-status" style={statusStyle}>{statusLabel}</span>
                     </div>
                     <div className="prod-card-mobile-actions">
+                      {!isEbook ? <button className="action-icon-btn" title="Stock history" onClick={() => setHistoryProduct(p)}>Stock history</button> : null}
                       <button className="action-icon-btn" title="Edit Product" onClick={() => startEditProduct(p.raw)}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M12 20h9" />
@@ -835,7 +840,11 @@ export const ProductsTab = () => {
 
                       {/* Approval */}
                       <td className="prod-td">
-                        {p.status === 'Active' ? (
+                        {p.status === 'Draft' ? (
+                          <span style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: '800', backgroundColor: '#ede9fe', color: '#5b21b6', letterSpacing: '0.3px' }}>
+                            Draft
+                          </span>
+                        ) : p.status === 'Active' ? (
                           <span style={{
                             display: 'inline-block',
                             padding: '3px 8px',
@@ -880,6 +889,13 @@ export const ProductsTab = () => {
                       {/* Actions */}
                       <td className="prod-td" style={{ textAlign: 'right', paddingRight: '24px' }}>
                         <div style={{ display: 'inline-flex', gap: 6 }}>
+                          {!isEbook ? (
+                            <button className="action-icon-btn" title="Stock history" aria-label={`Stock history for ${p.name}`} onClick={() => setHistoryProduct(p)}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
+                              </svg>
+                            </button>
+                          ) : null}
                           <button
                             className="action-icon-btn"
                             title="Edit Product"
@@ -917,6 +933,7 @@ export const ProductsTab = () => {
 
       </>}
       <ProductModal />
+      {historyProduct ? <StockHistoryModal product={historyProduct} onClose={() => setHistoryProduct(null)} /> : null}
       {selectingOffer && wholesale && <WholesaleOfferSelector onClose={() => setSelectingOffer(false)} />}
 
       {showBulkModal && (

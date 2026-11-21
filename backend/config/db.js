@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 import Admin from "../models/Admin.js";
-import Category from "../models/Category.js";
+import Category from "../models/Category.js";
+import StockMovement from '../models/StockMovement.js';
+import CatalogAttribute from '../models/CatalogAttribute.js';
+import CategoryAttribute from '../models/CategoryAttribute.js';
+import CatalogConfigAudit from '../models/CatalogConfigAudit.js';
 
 /**
  * A MongoDB collection can carry only ONE text index. `Product.js` now
@@ -37,6 +41,10 @@ const connectDB = async () => {
     console.log(`MongoDB Connected: ${conn.connection.host}`);
 
     await dropStaleProductTextIndex();
+
+    // New collections are created up front: stock history is written inside checkout transactions, and
+    // creating a collection inside a transaction is not allowed on every MongoDB version.
+    await Promise.allSettled([StockMovement, CatalogAttribute, CategoryAttribute, CatalogConfigAudit].map((m) => m.createCollection()));
 
     // Seed the Super Admin ONCE. Never overwrite an existing admin's password —
     // doing so silently reverts any password changed through the admin panel on every restart.

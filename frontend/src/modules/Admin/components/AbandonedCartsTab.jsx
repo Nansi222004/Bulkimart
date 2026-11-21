@@ -1,3 +1,4 @@
+import ModalPortal from '../../../components/ModalPortal';
 import React, { useCallback, useEffect, useState } from 'react';
 import { adminGet, adminPost, qs } from '../../../utils/adminApi';
 import { useAdmin } from '../context/AdminContext';
@@ -50,7 +51,7 @@ function RemindDialog({ target, defaults, onClose, onSent }) {
     } catch (err) { triggerToast(err.message || 'Could not send reminders', { type: 'error' }); }
     finally { setBusy(false); }
   };
-  return <div role="dialog" aria-modal="true" aria-label="Send cart reminder" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+  return <ModalPortal role="dialog" aria-modal="true" aria-label="Send cart reminder" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
     <div style={{ ...card, width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h3 style={{ margin: 0, fontSize: 17 }}>Send “your cart is waiting” reminder</h3>
       <p style={{ margin: 0, fontSize: 12.5, color: '#475569' }}>To: <strong>{target.label}</strong>. Sent as an app notification and in their notification list. Tapping it opens their cart. Customers reminded in the last {defaults?.minGapHours || 24} hours are skipped.</p>
@@ -64,7 +65,7 @@ function RemindDialog({ target, defaults, onClose, onSent }) {
         <button type="button" style={btn(true)} onClick={send} disabled={busy || !title.trim() || !message.trim()}>{busy ? 'Sending…' : 'Send reminder'}</button>
       </div>
     </div>
-  </div>;
+  </ModalPortal>;
 }
 
 /** One customer's carts and full history (cart changes, reminders, orders). */

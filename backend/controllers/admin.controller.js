@@ -532,6 +532,7 @@ export const approveProduct = asyncHandler(async (req, res) => {
   const query = Product.findById(req.params.id);
   const product = typeof query.select === 'function' ? await query.select('+digital.file.fileId') : await query;
   if (!product) throw httpError(404, 'Product not found');
+  if (product.isDraft) throw httpError(409, "This is the seller's unfinished draft. It can be approved after the seller publishes it.");
 
   if (product.fulfillmentType === 'digital') {
     assertEbookReadyForApproval(product);

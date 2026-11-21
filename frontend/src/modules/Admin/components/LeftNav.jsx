@@ -95,7 +95,8 @@ export const LeftNav = () => {
                 { id: 'categories-all', label: 'All Categories' },
                 { id: 'categories-header', label: 'Header Categories' },
                 { id: 'categories-main', label: 'Main Categories' },
-                { id: 'categories-sub', label: 'Sub-Categories' }
+                { id: 'categories-sub', label: 'Sub-Categories' },
+                { id: 'categories-fields', label: 'Category Fields' }
               ].map(sub => (
                 <button
                   key={sub.id}
