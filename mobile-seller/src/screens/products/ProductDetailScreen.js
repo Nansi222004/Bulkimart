@@ -49,7 +49,8 @@ export default function ProductDetailScreen({ route, navigation }) {
 
       <Card title={p.name}>
         <KeyValueRow label="Status" value={status} />
-        {p.status === 'rejected' && p.rejectionReason ? <InlineNotice tone="error">Rejection reason: {p.rejectionReason}</InlineNotice> : null}
+        {p.status === 'rejected' ? <InlineNotice tone="error">{p.rejectionReason ? `Rejection reason: ${p.rejectionReason}\n` : ''}Fix it with "Edit product" and save to send it to Admin for review again.</InlineNotice> : null}
+        {p.status === 'pending' && p.resubmittedAt ? <InlineNotice tone="info">Sent back for review after your changes. It goes live once Admin approves it.</InlineNotice> : null}
         <KeyValueRow label="Storefront" value={CHANNEL_LABEL[p.type] || p.type || '—'} />
         <KeyValueRow label="Category" value={p.category?.name || '—'} />
         <KeyValueRow label="Brand" value={p.brandName || '—'} />
@@ -58,6 +59,10 @@ export default function ProductDetailScreen({ route, navigation }) {
         <KeyValueRow label="Returns" value={p.type === 'grocery' ? (p.returnable ? 'Returnable' : 'Non-returnable')
           : p.returnSettings?.enabled === false ? 'Non-returnable' : p.returnSettings?.windowDays ? `${p.returnSettings.windowDays} days` : 'Category default'} />
         {p.sameDay?.enabled ? <KeyValueRow label="Same-day" value={`On · packing ${p.sameDay.processingMinutes} min`} /> : null}
+        {p.hsnCode ? <KeyValueRow label="HSN code" value={p.hsnCode} /> : null}
+        {p.countryOfOrigin ? <KeyValueRow label="Country of origin" value={p.countryOfOrigin} /> : null}
+        {Number.isInteger(p.dispatchDays) ? <KeyValueRow label="Dispatch" value={`${p.dispatchDays} day${p.dispatchDays === 1 ? '' : 's'}`} /> : null}
+        {p.dimensions?.length ? <KeyValueRow label="Package size" value={`${p.dimensions.length} × ${p.dimensions.breadth} × ${p.dimensions.height} cm`} /> : null}
         {p.description ? <Text style={type.body}>{p.description}</Text> : null}
       </Card>
 

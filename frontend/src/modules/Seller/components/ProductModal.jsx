@@ -10,7 +10,7 @@ import { boundedFetch } from '../../../utils/portalRequests';
 import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
-import { CategoryFieldInput, CategoryUploadInput, useCategoryFields, validateCategoryDetails } from './CategoryDetailsFields';
+import { applyFieldDefaults, CategoryFieldInput, CategoryUploadInput, useCategoryFields, validateCategoryDetails } from './CategoryDetailsFields';
 import './ProductModal.css';
 
 /**
@@ -284,10 +284,10 @@ export const ProductModal = () => {
   // only place left to enter what the item costs.
   const variants = newProductForm.variants || [];
   const addVariant = () => {
-    setNewProductForm((f) => ({
-      ...f,
-      variants: [...(f.variants || []), { name: '', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }],
-    }));
+    // A new variant starts from the category's variant defaults (only that variant is filled).
+    const [fresh] = applyFieldDefaults({ specs: {}, variants: [{ name: '', price: '', mrp: '', stock: '', unit: 'piece', weight: '' }] },
+      categoryFields.fields.filter((x) => x.isVariant)).variants;
+    setNewProductForm((f) => ({ ...f, variants: [...(f.variants || []), fresh] }));
   };
   const removeVariant = (index) => {
     setNewProductForm((f) => ({ ...f, variants: (f.variants || []).filter((_, i) => i !== index) }));
@@ -296,6 +296,15 @@ export const ProductModal = () => {
   const categoryFields = useCategoryFields(effectiveCategoryId);
   const productFields = categoryFields.fields.filter((f) => !f.isVariant);
   const variantFields = categoryFields.fields.filter((f) => f.isVariant);
+  // New listings start from the category's default values; an edit keeps exactly what was saved.
+  useEffect(() => {
+    if (!isEditing && categoryFields.state === 'ready') setNewProductForm((f) => {
+      const next = applyFieldDefaults(f, categoryFields.fields);
+      // Pre-filled defaults are not the seller's edits: an untouched form stays "no unsaved changes" on close.
+      if (next !== f && formSnapshot.current === JSON.stringify(f)) formSnapshot.current = JSON.stringify(next);
+      return next;
+    });
+  }, [categoryFields.state, categoryFields.fields, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
   const setSpec = (code, value) => setNewProductForm((f) => ({ ...f, specs: { ...(f.specs || {}), [code]: value } }));
   const setVariantOption = (index, code, value) => setNewProductForm((f) => ({
     ...f, variants: (f.variants || []).map((v, i) => (i === index ? { ...v, options: { ...(v.options || {}), [code]: value } } : v)),
@@ -1089,7 +1098,11 @@ export const ProductModal = () => {
                           <label className="onboarding-label">Barcode / GTIN<input className="onboarding-input" inputMode="numeric" maxLength={14} disabled={savingProduct} value={newProductForm.barcode ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, barcode: e.target.value.replace(/\D/g, '') }))} /></label>
                           <label className="onboarding-label">Country of origin<input className="onboarding-input" maxLength={60} placeholder="India" disabled={savingProduct} value={newProductForm.countryOfOrigin ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, countryOfOrigin: e.target.value }))} /></label>
                           <label className="onboarding-label">Dispatch in (days)<input className="onboarding-input" inputMode="numeric" maxLength={2} placeholder="e.g. 1" disabled={savingProduct} value={newProductForm.dispatchDays ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, dispatchDays: e.target.value.replace(/\D/g, '') }))} /></label>
+                          {[['pkgLength', 'Package length (cm)'], ['pkgBreadth', 'Package breadth (cm)'], ['pkgHeight', 'Package height (cm)']].map(([key, label]) => (
+                            <label key={key} className="onboarding-label">{label}<input className="onboarding-input" inputMode="decimal" maxLength={6} disabled={savingProduct} value={newProductForm[key] ?? ''} onChange={(e) => setNewProductForm((f) => ({ ...f, [key]: e.target.value.replace(/[^0-9.]/g, '') }))} /></label>
+                          ))}
                         </div>
+                        <p style={{ fontSize: 12, color: '#64748b', margin: '6px 0 0' }}>Package size when packed. Optional; filled in for you when you book a courier.</p>
                       </>
                     ) : null}
                   </div>

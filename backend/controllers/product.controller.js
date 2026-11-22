@@ -1,4 +1,4 @@
-import { validateProductGstInput } from '../services/productGst.service.js';
+import { validateProductGstInput } from '../services/productGst.service.js';
 import { checkProductAttributes, specBrandName, categoryRequiresApproval, applyVariantAttributes, parseCommonListingDetails, attributeFilterConditions, displaySpecifications } from '../services/catalogAttribute.service.js';
 import { saveSellerWholesaleOffers } from '../services/sellerWholesaleOffers.service.js';
 import { channelVisibility, retailVisibility, retailAllowed, wholesaleOnly } from '../utils/productChannels.js';
@@ -27,7 +27,7 @@ import { normalizeWholesalePricing } from '../services/wholesalePricing.service.
 import { persistLegacyVariantIds, recordStockMovements, resolveInventoryItem } from '../services/inventory.service.js';
 import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesaleCatalog.service.js';
 import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
-import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
+import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
 import StockMovement from '../models/StockMovement.js';
 
 const parseDigitalDetails = (input) => {
@@ -675,7 +675,7 @@ export const previewWholesaleProduct = asyncHandler(async (req, res) => {
 // @access  Private
 export const createProduct = asyncHandler(async (req, res) => {
   const {
-    type, name, description, category, subCategory, dimensions, tags, sameDay,
+    type, name, description, category, subCategory, tags, sameDay,
     brandName, gstRate, variants, isHandmade, returnable, fulfillmentType = 'physical', digital,
   } = req.body;
 
@@ -772,7 +772,7 @@ export const createProduct = asyncHandler(async (req, res) => {
     description,
     category,
     subCategory,
-    dimensions: dimensions ? (typeof dimensions === 'string' ? JSON.parse(dimensions) : dimensions) : undefined,
+    // dimensions: validated with the other listing details (commonDetails, below).
     tags: tags ? (typeof tags === 'string' ? JSON.parse(tags) : tags) : [],
     /**
      * Same-Day, if the seller asked for it.
@@ -942,7 +942,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
   if (b2bOnly && req.body.version !== undefined && Number(req.body.version) !== product.__v) throw httpError(409, 'Product changed. Refresh before saving');
 
   const {
-    name, description, category, subCategory, dimensions, tags, sameDay,
+    name, description, category, subCategory, tags, sameDay,
     sku, brandName, gstRate, variants, isHandmade, returnable, digital,
   } = req.body;
 
@@ -1029,7 +1029,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     detailsChanged = true;
   }
   if (subCategory) product.subCategory = subCategory;
-  if (dimensions) product.dimensions = typeof dimensions === 'string' ? JSON.parse(dimensions) : dimensions;
+  // dimensions: validated and applied with the other listing details (parseCommonListingDetails, below).
   if (tags) product.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
 
   // The product SKU is auto-assigned once and no longer shown anywhere on
@@ -1136,8 +1136,14 @@ export const updateProduct = asyncHandler(async (req, res) => {
   }
 
   // Edits no longer knock a listing offline — products are not pre-moderated.
-  // A product an admin has explicitly REJECTED stays rejected; only the admin
-  // can bring that one back.
+  // A REJECTED listing the seller fixes and saves goes back to Admin's review queue (Pending review); it never
+  // goes live by itself, so Admin still decides. The last rejection reason stays visible to Admin until approval.
+  const resubmitted = req.userType !== 'admin' && product.status === APPROVAL.REJECTED && !product.isDraft;
+  if (resubmitted) {
+    product.status = APPROVAL.PENDING;
+    product.isActive = false;
+    product.resubmittedAt = new Date();
+  }
   void detailsChanged;
 
   // Upload new images if provided
@@ -1176,7 +1182,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
   }
   res.status(200).json({
     success: true,
-    message: 'Product updated successfully.',
+    message: resubmitted ? 'Changes saved and sent to Admin for review. It goes live once approved.' : 'Product updated successfully.',
     product: updatedProduct
   });
 });

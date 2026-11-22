@@ -23,6 +23,47 @@ const btn = (primary) => ({ padding: '8px 14px', borderRadius: 8, border: primar
 const th = { textAlign: 'left', fontSize: 12, color: '#64748b', padding: '6px 8px', borderBottom: '1px solid #e2e8f0' };
 const td = { padding: '6px 8px', fontSize: 13, borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' };
 
+/**
+ * The value pre-filled for sellers on new listings in this category. The input matches the field type; the
+ * server checks it with the seller rules, so an invalid default is refused when the fields are saved.
+ */
+function DefaultValueInput({ attribute: a, row, disabled, onChange }) {
+  if (!a || ['image', 'file'].includes(a.fieldType)) return <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>;
+  const value = row.defaultValue ?? '';
+  const style = { ...input, width: 140 };
+  const options = (a.options || []).filter((o) => o.isActive !== false && (!row.allowedOptions?.length || row.allowedOptions.includes(o.value)));
+  if (a.fieldType === 'select') {
+    return (
+      <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} style={style} aria-label={`Default ${a.label}`}>
+        <option value="">No default</option>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    );
+  }
+  if (a.fieldType === 'multiselect') {
+    const picked = Array.isArray(value) ? value : [];
+    return (
+      <select multiple size={Math.min(4, Math.max(2, options.length))} value={picked} disabled={disabled} style={style} aria-label={`Default ${a.label}`}
+        onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    );
+  }
+  if (a.fieldType === 'boolean') {
+    return (
+      <select value={value === true ? 'true' : value === false ? 'false' : ''} disabled={disabled} style={style} aria-label={`Default ${a.label}`}
+        onChange={(e) => onChange(e.target.value === '' ? '' : e.target.value === 'true')}>
+        <option value="">No default</option><option value="true">Yes</option><option value="false">No</option>
+      </select>
+    );
+  }
+  const typeAttr = a.fieldType === 'date' ? 'date' : ['number', 'decimal'].includes(a.fieldType) ? 'number' : 'text';
+  return (
+    <input type={typeAttr} step={a.fieldType === 'decimal' ? 'any' : undefined} value={value} disabled={disabled} placeholder="No default" style={style}
+      aria-label={`Default ${a.label}`} onChange={(e) => onChange(typeAttr === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value)} />
+  );
+}
+
 const blankAttribute = { label: '', code: '', fieldType: 'text', unit: '', helpText: '', placeholder: '', optionsText: '', min: '', max: '', maxLength: '', pattern: '', patternMessage: '' };
 
 const flattenTree = (nodes, trail = [], out = []) => {
@@ -81,6 +122,9 @@ export default function CategoryAttributesTab() {
       setRows((data.mappings || []).map((m) => ({
         attribute: String(m.attribute?._id || m.attribute), required: !!m.required, isVariant: !!m.isVariant, isFilter: !!m.isFilter,
         showOnDetail: m.showOnDetail !== false, group: m.group || 'Product details', sortOrder: m.sortOrder ?? 0, isActive: m.isActive !== false,
+        // Kept so a save does not drop them.
+        ...(m.allowedOptions?.length ? { allowedOptions: m.allowedOptions } : {}),
+        defaultValue: m.defaultValue ?? '',
       })));
     } catch (e) { say('error', e.message); }
   }, []);
@@ -215,7 +259,7 @@ export default function CategoryAttributesTab() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr>
                   <th style={th}>Field</th><th style={th}>Required</th><th style={th}>Per variant</th><th style={th}>Customer filter</th>
-                  <th style={th}>On product page</th><th style={th}>Group</th><th style={th}>Order</th><th style={th} />
+                  <th style={th}>On product page</th><th style={th} title="Pre-filled for sellers on new listings; they can change it">Default value</th><th style={th}>Group</th><th style={th}>Order</th><th style={th} />
                 </tr></thead>
                 <tbody>
                   {rows.map((r, i) => {
@@ -230,6 +274,7 @@ export default function CategoryAttributesTab() {
                         <td style={td}><input type="checkbox" checked={r.isVariant} disabled={!r.isActive || !CAN_BE_VARIANT.includes(a?.fieldType)} onChange={(e) => setRow(i, 'isVariant', e.target.checked)} aria-label="Per variant" title={CAN_BE_VARIANT.includes(a?.fieldType) ? 'Each variant (SKU) sets its own value, e.g. Size or Colour' : 'Only dropdown, text or number fields can define variants'} /></td>
                         <td style={td}><input type="checkbox" checked={r.isFilter} disabled={!r.isActive} onChange={(e) => setRow(i, 'isFilter', e.target.checked)} aria-label="Customer filter" /></td>
                         <td style={td}><input type="checkbox" checked={r.showOnDetail} disabled={!r.isActive} onChange={(e) => setRow(i, 'showOnDetail', e.target.checked)} aria-label="On product page" /></td>
+                        <td style={td}><DefaultValueInput attribute={a} row={r} disabled={!r.isActive} onChange={(v) => setRow(i, 'defaultValue', v)} /></td>
                         <td style={td}><input value={r.group} disabled={!r.isActive} onChange={(e) => setRow(i, 'group', e.target.value)} style={{ ...input, width: 150 }} aria-label="Group" /></td>
                         <td style={td}>
                           <button type="button" onClick={() => move(i, -1)} style={{ ...btn(false), padding: '2px 8px' }} aria-label="Move up">↑</button>
@@ -239,7 +284,7 @@ export default function CategoryAttributesTab() {
                       </tr>
                     );
                   })}
-                  {!rows.length ? <tr><td style={td} colSpan={8}>No fields of its own yet{inherited.length ? ' (it uses the inherited ones above)' : ''}. Add one below.</td></tr> : null}
+                  {!rows.length ? <tr><td style={td} colSpan={9}>No fields of its own yet{inherited.length ? ' (it uses the inherited ones above)' : ''}. Add one below.</td></tr> : null}
                 </tbody>
               </table>
             </div>

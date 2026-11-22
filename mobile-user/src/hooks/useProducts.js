@@ -89,6 +89,11 @@ export const normalizeProduct = (p) => {
       stockTracked: Boolean(p.digital.stockTracked),
     } : null,
     rating: p.ratings?.average || 0,
+    // Category details (Fabric, RAM, Purity …) and listing details, labelled and ordered by the server
+    // for the product page. Without these the Product Info tab cannot show what the seller entered.
+    specifications: Array.isArray(p.specifications) ? p.specifications : [],
+    countryOfOrigin: p.countryOfOrigin || '',
+    dispatchDays: p.dispatchDays,
     raw: p.raw || p,
   };
 };

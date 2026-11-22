@@ -123,7 +123,10 @@ export default function CategoriesScreen() {
             <SponsoredCategoryBlock key={`${channel}:${selected._id}`} channel={channel} categoryId={selected._id} ready={!productsLoading && !productsError} onShown={setSponsoredIds} onSettled={setSponsoredSettled} />
             {productsLoading || (!productsError && !sponsoredSettled) ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ width: columnWidth, height: 240 }} />)}</View>
               : productsError ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]} accessibilityRole="alert"><Text style={{ color: theme.textSecondary }}>{productsError}</Text><Pressable onPress={retryProducts} style={[styles.stateBtn, { backgroundColor: theme.primary }]}><Text style={styles.stateBtnText}>Retry</Text></Pressable></View>
-                : products.length === 0 ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>No available products</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>This category is active but currently has no published stock.</Text></View> : null}
+                : products.length === 0 ? (Object.values(attrs).some((v) => (Array.isArray(v) ? v.length : v))
+                  // A filter is hiding the products, not an empty category.
+                  ? <View style={[styles.state, styles.compact, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>No products match these filters</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Try removing a filter.</Text><Pressable onPress={() => setAttrs({})} accessibilityRole="button" style={{ marginTop: 8 }}><Text style={{ color: theme.primary, fontWeight: '700' }}>Clear filters</Text></Pressable></View>
+                  : <View style={[styles.state, styles.compact, { borderColor: theme.border }]}><Text style={{ fontWeight: '700' }}>No available products</Text><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>This category is active but currently has no published stock.</Text></View>) : null}
           </View>
         </View>}
         renderItem={({ item: product }) => {

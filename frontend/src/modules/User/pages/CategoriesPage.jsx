@@ -5,7 +5,7 @@ import { descendantIds, useCategoryTree } from '../hooks/useCategoryTree';
 import { useProducts } from '../hooks/useProducts';
 import { formatCurrency } from '../utils/helpers';
 import WishlistHeartButton from '../components/WishlistHeartButton';
-import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
+import SponsoredCategoryBlock from '../../../components/advertising/SponsoredCategoryBlock';
 import CategoryFilterBar from '../components/CategoryFilterBar';
 
 const customerRoots = (tree) => (tree || []).flatMap((category) => {
@@ -112,7 +112,10 @@ const CategoriesPage = () => {
         ) : productsError ? (
           <div className="all-categories-state compact" role="alert"><span>{productsError}</span><button type="button" onClick={retryProducts}>Retry</button></div>
         ) : products.length === 0 ? (
-          <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
+          Object.values(attrs).some((v) => (Array.isArray(v) ? v.length : v))
+            // A filter is hiding the products, not an empty category.
+            ? <div className="all-categories-state compact"><strong>No products match these filters</strong><span>Try removing a filter.</span><button type="button" onClick={() => setAttrs({})} style={{ marginTop: 8, background: 'none', border: 0, color: '#0369a1', fontWeight: 700, cursor: 'pointer' }}>Clear filters</button></div>
+            : <div className="all-categories-state compact"><strong>No available products</strong><span>This category is active but currently has no published stock.</span></div>
         ) : (
           <div className="category-products-grid">
             {products.filter((product) => !sponsoredIds.includes(String(product._id))).map((product) => {

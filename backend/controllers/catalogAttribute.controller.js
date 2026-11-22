@@ -6,7 +6,7 @@ import CategoryAttribute from '../models/CategoryAttribute.js';
 import CatalogConfigAudit from '../models/CatalogConfigAudit.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, created, httpError } from '../utils/response.js';
-import { resolveCategoryFields, categoryFilters } from '../services/catalogAttribute.service.js';
+import { resolveCategoryFields, categoryFilters, normalizeFieldValue } from '../services/catalogAttribute.service.js';
 
 /**
  * Dynamic category attributes.
@@ -160,6 +160,42 @@ export const getCategoryMappings = asyncHandler(async (req, res) => {
   return ok(res, { category, mappings: own, effective }, 'Category attributes');
 });
 
+/**
+ * The value pre-filled for sellers on new listings in this category (PDF §2 "default value"). Checked with the
+ * same rules as a seller's input, so a default can never be something the seller would then be refused.
+ * Files and photos have no default. Returns {} (no default) or { defaultValue }.
+ */
+const cleanDefault = (attribute, raw, allowedOptions) => {
+  if (raw === undefined || raw === null || raw === '' || (Array.isArray(raw) && !raw.length)) return {};
+  if (['image', 'file'].includes(attribute.fieldType)) throw httpError(400, `${attribute.label} is an upload field and cannot have a default value`);
+  const usable = (attribute.options || []).filter((o) => o.isActive !== false && (!allowedOptions?.length || allowedOptions.includes(o.value)));
+  const r = normalizeFieldValue({ ...attribute, options: usable }, raw);
+  if (r.error) throw httpError(400, `Default value: ${r.error}`);
+  return { defaultValue: r.value };
+};
+
+/** "Clothing: added Fabric; Size now required, customer filter; removed Pattern" — what the change log shows. */
+const mappingChangeSummary = (categoryName, before, after, byId) => {
+  const label = (id) => byId.get(String(id))?.label || 'a field';
+  const flags = [['required', 'required'], ['isVariant', 'per variant'], ['isFilter', 'customer filter'], ['showOnDetail', 'on product page']];
+  const was = new Map(before.map((m) => [String(m.attribute), m]));
+  const now = new Map(after.map((m) => [String(m.attribute), m]));
+  const parts = [];
+  for (const [id, m] of now) {
+    const old = was.get(id);
+    if (!old) { parts.push(`added ${label(id)}`); continue; }
+    const on = flags.filter(([k]) => Boolean(m[k] ?? k === 'showOnDetail') && !Boolean(old[k] ?? k === 'showOnDetail')).map(([, t]) => t);
+    const off = flags.filter(([k]) => !Boolean(m[k] ?? k === 'showOnDetail') && Boolean(old[k] ?? k === 'showOnDetail')).map(([, t]) => t);
+    const changes = [...on.map((t) => `now ${t}`), ...off.map((t) => `no longer ${t}`)];
+    if (JSON.stringify(old.defaultValue ?? null) !== JSON.stringify(m.defaultValue ?? null)) changes.push(m.defaultValue === undefined ? 'default removed' : `default ${JSON.stringify(m.defaultValue)}`);
+    if ((old.group || '') !== (m.group || '')) changes.push(`group "${m.group}"`);
+    if (changes.length) parts.push(`${label(id)} ${changes.join(', ')}`);
+  }
+  for (const [id, m] of was) if (!now.has(id)) parts.push(`removed ${byId.get(id)?.label || m.attribute?.label || 'a field'}`);
+  if (!parts.length) parts.push(`order or settings saved (${after.length} field${after.length === 1 ? '' : 's'})`);
+  return `${categoryName}: ${parts.join('; ')}`.slice(0, 500);
+};
+
 /** Replaces this category's own mappings (inherited ones are edited on the parent). */
 export const replaceCategoryMappings = asyncHandler(async (req, res) => {
   if (!isId(req.params.id)) throw httpError(400, 'Invalid category');
@@ -170,7 +206,7 @@ export const replaceCategoryMappings = asyncHandler(async (req, res) => {
   const ids = list.map((m) => String(m?.attribute || ''));
   if (ids.some((id) => !isId(id))) throw httpError(400, 'Every mapping needs a valid attribute');
   if (new Set(ids).size !== ids.length) throw httpError(400, 'An attribute is mapped twice');
-  const attributes = await CatalogAttribute.find({ _id: { $in: ids } }).select('fieldType options label').lean();
+  const attributes = await CatalogAttribute.find({ _id: { $in: ids } }).select('fieldType options label validation').lean();
   if (attributes.length !== ids.length) throw httpError(400, 'An attribute does not exist');
   const byId = new Map(attributes.map((a) => [String(a._id), a]));
   const docs = list.map((m, i) => {
@@ -188,7 +224,7 @@ export const replaceCategoryMappings = asyncHandler(async (req, res) => {
       group: String(m.group || 'Product details').trim().slice(0, 60) || 'Product details',
       sortOrder: Number.isFinite(Number(m.sortOrder)) ? Number(m.sortOrder) : i,
       ...(allowedOptions?.length ? { allowedOptions } : {}),
-      ...(m.defaultValue !== undefined && m.defaultValue !== '' ? { defaultValue: m.defaultValue } : {}),
+      ...cleanDefault(a, m.defaultValue, allowedOptions),
       isActive: m.isActive !== false, updatedBy: req.user._id,
     };
   });
@@ -200,7 +236,7 @@ export const replaceCategoryMappings = asyncHandler(async (req, res) => {
       if (docs.length) await CategoryAttribute.insertMany(docs, { session });
     });
   } finally { await session.endSession(); }
-  audit(req, 'mapping.replace', 'mapping', category._id, `${category.name}: ${docs.length} field${docs.length === 1 ? '' : 's'}`, before, docs);
+  audit(req, 'mapping.replace', 'mapping', category._id, mappingChangeSummary(category.name, before, docs, byId), before, docs);
   const effective = await resolveCategoryFields(category._id);
   return ok(res, { mappings: await CategoryAttribute.find({ category: category._id }).populate('attribute').sort({ sortOrder: 1 }).lean(), effective }, 'Category attributes saved');
 });

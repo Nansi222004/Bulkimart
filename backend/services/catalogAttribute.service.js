@@ -275,6 +275,31 @@ export function parseCommonListingDetails(body = {}) {
       out.dispatchDays = n;
     }
   }
+  if (has('dimensions')) out.dimensions = parsePackageDimensions(body.dimensions);
+  return out;
+}
+
+/**
+ * Packed size in centimetres (PDF §4 "package weight and dimensions"). All three or none: a partial size cannot
+ * be used to book a courier. Accepts an object or its JSON (multipart forms send strings). Empty clears it.
+ */
+export function parsePackageDimensions(raw) {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  let value = raw;
+  if (typeof raw === 'string') {
+    try { value = JSON.parse(raw); } catch { throw httpError(400, 'Package size must be length, breadth and height in cm'); }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw httpError(400, 'Package size must be length, breadth and height in cm');
+  const keys = ['length', 'breadth', 'height'];
+  const blank = (v) => v === undefined || v === null || String(v).trim() === '';
+  if (keys.every((k) => blank(value[k]))) return undefined;
+  if (keys.some((k) => blank(value[k]))) throw httpError(400, 'Enter all three package measurements (length, breadth and height) or leave them all empty');
+  const out = {};
+  for (const k of keys) {
+    const n = Number(value[k]);
+    if (!Number.isFinite(n) || n <= 0 || n > 500) throw httpError(400, `Package ${k} must be more than 0 and at most 500 cm`);
+    out[k] = Math.round(n * 10) / 10;
+  }
   return out;
 }
 
@@ -308,6 +333,13 @@ export async function displaySpecifications(product) {
   if (!specs.length && !variantValues.size) return [];
   const fields = await resolveCategoryFields(product.category?._id || product.category, product.subCategory?._id || product.subCategory).catch(() => []);
   const byCode = new Map(fields.map((f, i) => [f.code, { ...f, order: i }]));
+  // A field Admin archived or unmapped since the product was saved: still print "Steel", not the stored
+  // "steel", by reading the attribute itself (archived ones included) for its labels, type and unit.
+  const missing = [...new Set([...specs.map((s) => s.code), ...variantValues.keys()])].filter((c) => c && !byCode.has(c));
+  if (missing.length) {
+    const archived = await CatalogAttribute.find({ code: { $in: missing } }).select('code label fieldType unit options').lean().catch(() => []);
+    for (const a of archived) byCode.set(a.code, { code: a.code, label: a.label, fieldType: a.fieldType, unit: a.unit, options: a.options || [], order: 999 });
+  }
   const optionLabel = (f, value) => f?.options?.find((o) => o.value === String(value))?.label || String(value);
   const show = (value, f, unit) => {
     if (Array.isArray(value)) return value.map((x) => optionLabel(f, x)).join(', ');

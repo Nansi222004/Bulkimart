@@ -440,6 +440,7 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
               // Category details set by the seller (Fabric, RAM, Purity …), already labelled and ordered by the server.
               ...(product.specifications || []).map(s => [s.label, s.value]),
               ['Country of origin', product.countryOfOrigin],
+              ['Dispatch', Number.isInteger(product.dispatchDays) ? (product.dispatchDays === 0 ? 'Ships the same day' : `Ships within ${product.dispatchDays} day${product.dispatchDays === 1 ? '' : 's'}`) : ''],
               ['Fulfillment', wholesale.mode === 'wholesale' ? 'Wholesale · confirmed at checkout' : isDigital ? 'Digital download after payment' : 'See Delivery Details above for your address']]
               .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
               .map(([k, v], i) => <View key={`${k}-${i}`} style={styles.infoRow}><Text style={styles.infoKey}>{k}</Text><Text style={styles.infoVal}>{v}</Text></View>)}

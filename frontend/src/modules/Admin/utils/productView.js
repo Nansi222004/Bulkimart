@@ -22,6 +22,7 @@ export const productView = p => ({
         isActive: p.isActive,
         isFeatured: p.isFeatured,
         rejectionReason: p.rejectionReason,
+        resubmittedAt: p.resubmittedAt,
         createdAt: p.createdAt,
         raw: p,
       });

@@ -206,6 +206,13 @@ export const ProductsTab = ({ detailPage = false }) => {
                     <span className="admin-item-value" style={{ color: '#b91c1c' }}>{p.rejectionReason}</span>
                   </div>
                 )}
+                {p.status === 'pending' && p.resubmittedAt && (
+                  // The seller changed a rejected listing and sent it back: show what they were asked to fix.
+                  <div className="admin-item-row">
+                    <span className="admin-item-label">Resubmitted</span>
+                    <span className="admin-item-value" style={{ color: '#b45309' }}>{p.rejectionReason ? `Earlier rejected: ${p.rejectionReason}` : 'After a rejection'}</span>
+                  </div>
+                )}
               </div>
 
               <div className="admin-item-actions">
@@ -229,13 +236,30 @@ export const ProductsTab = ({ detailPage = false }) => {
                     {p.isFeatured ? 'Unfeature' : 'Feature'}
                   </button>
                 )}
-                {p.status === 'rejected' || p.status === 'pending' ? (
+                {p.status === 'pending' ? (
+                  <>
+                    <button
+                      className="admin-btn-sm details"
+                      style={{ background: '#dcfce7', color: '#166534' }}
+                      onClick={() => restoreProduct(p.id, { pending: true })}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="admin-btn-sm details"
+                      style={{ background: '#fee2e2', color: '#b91c1c' }}
+                      onClick={() => takeDownProduct(p.id, undefined, { pending: true })}
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : p.status === 'rejected' ? (
                   <button
                     className="admin-btn-sm details"
                     style={{ background: '#dcfce7', color: '#166534' }}
                     onClick={() => restoreProduct(p.id)}
                   >
-                    {p.status === 'pending' ? 'Approve' : 'Restore'}
+                    Restore
                   </button>
                 ) : (
                   <button
@@ -360,13 +384,30 @@ export const ProductsTab = ({ detailPage = false }) => {
               >
                 {deletingProductId === selectedProduct.id ? 'Deleting…' : 'Delete product'}
               </button>
-              {selectedProduct.status === 'rejected' || selectedProduct.status === 'pending' ? (
+              {selectedProduct.status === 'pending' ? (
+                <>
+                  <button
+                    className="admin-btn-sm details"
+                    style={{ background: '#fee2e2', color: '#b91c1c' }}
+                    onClick={() => takeDownProduct(selectedProduct.id, undefined, { pending: true })}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    className="admin-btn-sm details admin-product-primary-action"
+                    style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
+                    onClick={() => restoreProduct(selectedProduct.id, { pending: true })}
+                  >
+                    Approve listing
+                  </button>
+                </>
+              ) : selectedProduct.status === 'rejected' ? (
                 <button
                   className="admin-btn-sm details admin-product-primary-action"
                   style={{ background: '#dcfce7', color: '#166534', flex: 1 }}
                   onClick={() => restoreProduct(selectedProduct.id)}
                 >
-                  {selectedProduct.status === 'pending' ? 'Approve listing' : 'Put back on the storefront'}
+                  Put back on the storefront
                 </button>
               ) : (
                 <button

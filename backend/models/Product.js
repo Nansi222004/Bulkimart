@@ -197,7 +197,7 @@ const productSchema = new Schema(
     specs: { type: [attributeValueSchema], default: undefined },
     // Common listing details (PDF §4). Optional; where the law requires them, Admin marks them required
     // through the category's attributes.
-    hsnCode: { type: String, trim: true, match: /^d{4,8}$/ },
+    hsnCode: { type: String, trim: true, match: /^\d{4,8}$/ },
     barcode: { type: String, trim: true, maxlength: 20 }, // GTIN / EAN / UPC
     countryOfOrigin: { type: String, trim: true, maxlength: 60 },
     dispatchDays: { type: Number, min: 0, max: 30 },
@@ -271,6 +271,8 @@ const productSchema = new Schema(
     // Admin Approval (Default approved — direct storefront listing)
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
     rejectionReason: String,
+    /** When the seller last fixed a rejected listing and sent it back for review. */
+    resubmittedAt: { type: Date },
     /** Seller's unfinished listing: never shown to customers; goes live only through "Publish" (PUT with publish=true). */
     isDraft: { type: Boolean, default: false },
 

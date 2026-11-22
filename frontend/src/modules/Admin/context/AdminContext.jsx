@@ -365,12 +365,16 @@ export const AdminProvider = ({ children }) => {
    * Not an approval queue: products go live the moment a seller publishes them,
    * by deliberate decision. This exists to undo a takedown.
    */
-  const restoreProduct = async (id) => {
-    return ui.perform({title:'Restore this product?',message:`Confirm restore this product (reference ${id})? Existing server validation still applies.`,confirmLabel:'Restore this product'}, async () => {
+  const restoreProduct = async (id, { pending = false } = {}) => {
+    // The same endpoint approves a new listing waiting for review and restores a taken-down one; say which.
+    const prompt = pending
+      ? { title: 'Approve this listing?', message: `Approve this listing (reference ${id})? It goes live for customers straight away.`, confirmLabel: 'Approve listing' }
+      : { title: 'Restore this product?', message: `Confirm restore this product (reference ${id})? Existing server validation still applies.`, confirmLabel: 'Restore this product' };
+    return ui.perform(prompt, async () => {
     try {
       const { message } = await adminPatch(`/products/${id}/approve`);
-      triggerToast(message || 'Product is live again.');
-      addLog(`Product ${id} restored to live.`);
+      triggerToast(message || (pending ? 'Listing approved and live.' : 'Product is live again.'));
+      addLog(pending ? `Product ${id} approved.` : `Product ${id} restored to live.`);
       setSelectedProduct(null);
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
@@ -381,12 +385,12 @@ export const AdminProvider = ({ children }) => {
   };
 
   /** Take a listing off the storefront. The seller is shown the reason. */
-  const takeDownProduct = async (id, reason) => {
+  const takeDownProduct = async (id, reason, { pending = false } = {}) => {
     const operation = async (finalReason) => {
     try {
       const { message } = await adminPatch(`/products/${id}/reject`, { reason: finalReason });
-      triggerToast(message || 'Product taken down.');
-      addLog(`Product ${id} taken down: ${finalReason}`);
+      triggerToast(message || (pending ? 'Listing rejected. The seller can see why.' : 'Product taken down.'));
+      addLog(pending ? `Product ${id} rejected: ${finalReason}` : `Product ${id} taken down: ${finalReason}`);
       setSelectedProduct(null);
       setProductRevision(value => value + 1); await fetchAdminProducts(productFilters);
     } catch (err) {
@@ -394,8 +398,11 @@ export const AdminProvider = ({ children }) => {
     }
 
 };
-    if (reason) return ui.perform({title:"Take down this listing?",message:"Why is this listing being taken down? (the seller will see this)" + ' Reference: ' + id,destructive:true,confirmLabel:"Take down listing"}, () => operation(reason));
-    return ui.collect("Why is this listing being taken down? (the seller will see this)" + ' Reference: ' + id, {title:"Take down this listing?",confirmLabel:"Take down listing",destructive:true,required:true,action:operation});};
+    const words = pending
+      ? { title: 'Reject this listing?', ask: 'Why is this listing being rejected? (the seller will see this)', confirm: 'Reject listing' }
+      : { title: 'Take down this listing?', ask: 'Why is this listing being taken down? (the seller will see this)', confirm: 'Take down listing' };
+    if (reason) return ui.perform({title:words.title,message:words.ask + ' Reference: ' + id,destructive:true,confirmLabel:words.confirm}, () => operation(reason));
+    return ui.collect(words.ask + ' Reference: ' + id, {title:words.title,confirmLabel:words.confirm,destructive:true,required:true,action:operation});};
 
   const toggleProductFeatured = async (id, isFeatured) => {
     try {

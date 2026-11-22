@@ -53,7 +53,27 @@ export const blankVariant = () => ({ name: '', price: '', mrp: '', stock: '', un
 // Category details (Admin-configured per category): { code: value } on the product, and per variant for
 // variant-defining fields such as Size / Colour. Stored values come back as arrays of { code, value }.
 const valuesFrom = (list) => Object.fromEntries((list || []).map((x) => [x.code, x.value]));
-const commonDefaults = { hsnCode: '', barcode: '', countryOfOrigin: '', dispatchDays: '' };
+const commonDefaults = { hsnCode: '', barcode: '', countryOfOrigin: '', dispatchDays: '', pkgLength: '', pkgBreadth: '', pkgHeight: '' };
+
+/**
+ * Pre-fills the category's Admin-set default values into fields the seller has left empty (new listings only).
+ * Never overwrites what the seller typed; a variant gets defaults for its variant fields (e.g. Size).
+ */
+export const applyFieldDefaults = (form, fields) => {
+  const hasDefault = (f) => f.defaultValue !== undefined && f.defaultValue !== null && f.defaultValue !== '' && !(Array.isArray(f.defaultValue) && !f.defaultValue.length);
+  const isEmpty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+  const withDefaults = fields.filter(hasDefault);
+  if (!withDefaults.length) return form;
+  const specs = { ...(form.specs || {}) };
+  for (const f of withDefaults.filter((x) => !x.isVariant)) if (isEmpty(specs[f.code])) specs[f.code] = f.defaultValue;
+  const variantDefaults = withDefaults.filter((x) => x.isVariant);
+  const variants = variantDefaults.length ? (form.variants || []).map((v) => {
+    const options = { ...(v.options || {}) };
+    for (const f of variantDefaults) if (isEmpty(options[f.code])) options[f.code] = f.defaultValue;
+    return { ...v, options };
+  }) : form.variants;
+  return { ...form, specs, variants };
+};
 
 export const emptyForm = () => ({
   name: '', categoryId: '', desc: '', brandName: '', gstRate: 0,
@@ -76,6 +96,8 @@ export const formFromProduct = (raw) => ({
   specs: valuesFrom(raw.specs),
   hsnCode: raw.hsnCode || '', barcode: raw.barcode || '', countryOfOrigin: raw.countryOfOrigin || '',
   dispatchDays: raw.dispatchDays ?? '',
+  // Packed size in cm (PDF §4); used as the starting value when booking a courier.
+  pkgLength: raw.dimensions?.length ?? '', pkgBreadth: raw.dimensions?.breadth ?? '', pkgHeight: raw.dimensions?.height ?? '',
   sameDayEnabled: Boolean(raw.sameDay?.enabled),
   processingMinutes: raw.sameDay?.processingMinutes ?? '',
   returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
@@ -149,6 +171,13 @@ const variantPayload = (v, withId) => ({
 const appendDetails = (fd, form) => {
   fd.append('specs', JSON.stringify(form.specs || {}));
   for (const key of ['hsnCode', 'barcode', 'countryOfOrigin', 'dispatchDays']) fd.append(key, String(form[key] ?? '').trim());
+  fd.append('dimensions', JSON.stringify(packageDimensions(form)));
+};
+
+// All three or none; the server rejects a partial size. An empty object clears a saved size.
+export const packageDimensions = (form) => {
+  const vals = { length: form.pkgLength, breadth: form.pkgBreadth, height: form.pkgHeight };
+  return Object.values(vals).every((v) => blank(v) || String(v).trim() === '') ? {} : Object.fromEntries(Object.entries(vals).map(([k, v]) => [k, Number(v)]));
 };
 
 const emptyValue = (v) => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
@@ -164,7 +193,7 @@ export function validateCategoryFields(form, fields) {
     if (emptyValue(v)) { if (f.required) errs.push(`${f.label} is required`); continue; }
     if (['number', 'decimal'].includes(f.fieldType) && !Number.isFinite(Number(v))) errs.push(`${f.label} must be a number`);
     if (f.fieldType === 'number' && Number.isFinite(Number(v)) && !Number.isInteger(Number(v))) errs.push(`${f.label} must be a whole number`);
-    if (f.fieldType === 'date' && !/^d{4}-d{2}-d{2}$/.test(String(v))) errs.push(`${f.label} must be a date (YYYY-MM-DD)`);
+    if (f.fieldType === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) errs.push(`${f.label} must be a date (YYYY-MM-DD)`);
   }
   const variantFields = fields.filter((x) => x.isVariant);
   const seen = new Set();
@@ -173,13 +202,18 @@ export function validateCategoryFields(form, fields) {
     for (const f of variantFields) if (f.required && emptyValue(variant.options?.[f.code])) errs.push(`${name}: ${f.label} is required`);
     if (variantFields.length) {
       const key = variantFields.map((f) => String(variant.options?.[f.code] ?? '')).join('|');
-      if (key.replace(/|/g, '') && seen.has(key)) errs.push(`${name} has the same ${variantFields.map((f) => f.label).join(' / ')} as another variant`);
+      if (key.replace(/\|/g, '') && seen.has(key)) errs.push(`${name} has the same ${variantFields.map((f) => f.label).join(' / ')} as another variant`);
       seen.add(key);
     }
   });
-  if (form.hsnCode && !/^d{4,8}$/.test(String(form.hsnCode).trim())) errs.push('HSN code must be 4 to 8 digits');
-  if (form.barcode && !/^d{8,14}$/.test(String(form.barcode).trim())) errs.push('Barcode must be 8 to 14 digits');
+  if (form.hsnCode && !/^\d{4,8}$/.test(String(form.hsnCode).trim())) errs.push('HSN code must be 4 to 8 digits');
+  if (form.barcode && !/^\d{8,14}$/.test(String(form.barcode).trim())) errs.push('Barcode must be 8 to 14 digits');
   if (!emptyValue(form.dispatchDays) && !(Number.isInteger(Number(form.dispatchDays)) && Number(form.dispatchDays) >= 0 && Number(form.dispatchDays) <= 30)) errs.push('Dispatch time must be 0 to 30 days');
+  const pkg = [form.pkgLength, form.pkgBreadth, form.pkgHeight];
+  if (pkg.some((v) => !emptyValue(v))) {
+    if (pkg.some((v) => emptyValue(v))) errs.push('Enter all three package measurements (length, breadth, height) or leave them all empty');
+    else if (pkg.some((v) => !(Number(v) > 0 && Number(v) <= 500))) errs.push('Package measurements must be more than 0 and at most 500 cm');
+  }
   return errs;
 }
 

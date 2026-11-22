@@ -27,6 +27,12 @@ export default function FulfillmentScreen({ route, navigation }) {
   const [message, setMessage] = useState('');
 
   React.useEffect(() => { navigation.setOptions({ title: orderNo ? `Delivery · ${orderNo}` : 'Choose delivery method' }); }, [navigation, orderNo]);
+  // Start from the package size saved on the listing (single-item orders only); the seller can still change it.
+  const suggested = options?.shiprocket?.suggestedPackage;
+  React.useEffect(() => {
+    if (!suggested) return;
+    setSize((s) => (DIMENSIONS.some((k) => s[k]) ? s : Object.fromEntries(DIMENSIONS.map((k) => [k, String(suggested[k])]))));
+  }, [suggested?.length, suggested?.breadth, suggested?.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading && !options) return <LoadingView message="Checking delivery eligibility…" />;
   if (!options) return <ErrorView message={error || 'Could not evaluate fulfillment options'} onRetry={reload} />;
@@ -122,6 +128,7 @@ export default function FulfillmentScreen({ route, navigation }) {
                 onChangeText={(t) => setSize((s) => ({ ...s, [k]: t.replace(/[^0-9.]/g, '') }))} />
             ))}
           </View>
+          {ship.suggestedPackage ? <Text style={type.small}>Filled in from the package size saved on this product. Measure the packed parcel and correct it if needed.</Text> : null}
           <AppButton title="Create Shiprocket shipment" loading={busy}
             disabled={!ship.available || !ship.quote || (isQuick && ship.feeCollection?.status !== 'paid')}
             onPress={confirmShiprocket} />

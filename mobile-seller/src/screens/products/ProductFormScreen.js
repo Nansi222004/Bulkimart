@@ -16,7 +16,7 @@ import { useAuth } from '../../context/AuthContext';
 import { CHANNEL_LABEL } from '../../hooks/useSellerChannel';
 import { createProduct, getCategoryFields, getCategoryReturnPolicy, getCategoryTree, updateProduct } from '../../services/product.api';
 import {
-  GST_RATES, defaultEasyReturnsPolicy, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
+  GST_RATES, applyFieldDefaults, defaultEasyReturnsPolicy, MAX_PRODUCT_IMAGES, UNITS, blankVariant, buildCreateFormData, buildUpdateFormData,
   effectiveCategory, emptyForm, formFromProduct, picksForCategory, validateCategoryFields, validateProductForm,
 } from '../../utils/productForm';
 import { colors, radius, spacing, type } from '../../theme';
@@ -41,6 +41,17 @@ export default function ProductFormScreen({ route, navigation }) {
   const [progress, setProgress] = useState(null);
   const [saveError, setSaveError] = useState('');
   const savingRef = useRef(false);
+  // Unsaved-changes guard: set by the seller's own edits (not by loading or pre-filled defaults); cleared on save.
+  const dirtyRef = useRef(false);
+  const savedRef = useRef(false);
+  const touch = () => { dirtyRef.current = true; };
+  useEffect(() => navigation.addListener('beforeRemove', (e) => {
+    if (!dirtyRef.current || savedRef.current) return;
+    e.preventDefault();
+    Alert.alert(isEditing ? 'Discard your changes?' : 'Discard this listing?',
+      'You have changes that are not saved. If you leave now they will be lost. Use "Save as draft" to keep them.',
+      [{ text: 'Keep editing', style: 'cancel' }, { text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) }]);
+  }), [navigation, isEditing]);
 
   useEffect(() => { navigation.setOptions({ title: isEditing ? 'Edit product' : `New ${CHANNEL_LABEL[channel]} product` }); }, [navigation, isEditing, channel]);
 
@@ -81,22 +92,33 @@ export default function ProductFormScreen({ route, navigation }) {
     let cancelled = false;
     setFieldsState('loading');
     getCategoryFields(category.id)
-      .then((list) => { if (!cancelled) { setFields(list); setFieldsState('ready'); } })
+      .then((list) => {
+        if (cancelled) return;
+        setFields(list); setFieldsState('ready');
+        // New listings start from the category's default values; an edit keeps exactly what was saved.
+        if (!isEditing) setForm((f) => applyFieldDefaults(f, list));
+      })
       .catch(() => { if (!cancelled) setFieldsState('error'); });
     return () => { cancelled = true; };
   }, [category.id, fieldsAttempt]);
   const productFields = fields.filter((f) => !f.isVariant);
   const variantFields = fields.filter((f) => f.isVariant);
   const groups = productFields.reduce((acc, f) => { (acc[f.group] = acc[f.group] || []).push(f); return acc; }, {});
-  const setSpec = (code, value) => setForm((f) => ({ ...f, specs: { ...(f.specs || {}), [code]: value } }));
-  const setVariantOption = (index, code, value) => setForm((f) => ({
+  const setSpec = (code, value) => { touch(); setForm((f) => ({ ...f, specs: { ...(f.specs || {}), [code]: value } })); };
+  const setVariantOption = (index, code, value) => touch() || setForm((f) => ({
     ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, options: { ...(v.options || {}), [code]: value } } : v)),
   }));
 
-  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
-  const setVariant = (index, key, value) => setForm((f) => ({ ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, [key]: value } : v)) }));
-  const addVariant = () => setForm((f) => ({ ...f, variants: [...f.variants, blankVariant()] }));
-  const removeVariant = (index) => setForm((f) => ({ ...f, variants: f.variants.filter((_, i) => i !== index) }));
+  const set = (key, value) => touch() || setForm((f) => ({ ...f, [key]: value }));
+  const setVariant = (index, key, value) => touch() || setForm((f) => ({ ...f, variants: f.variants.map((v, i) => (i === index ? { ...v, [key]: value } : v)) }));
+  // A new variant starts from the category's variant defaults too (only that variant is filled).
+  const addVariant = () => touch() || setForm((f) => {
+    const [fresh] = applyFieldDefaults({ specs: {}, variants: [blankVariant()] }, fields.filter((x) => x.isVariant)).variants;
+    return { ...f, variants: [...f.variants, fresh] };
+  });
+  const removeVariant = (index) => touch() || setForm((f) => ({ ...f, variants: f.variants.filter((_, i) => i !== index) }));
+  const pick = (update) => { touch(); setPicks(update); };
+  const changeImages = (next) => { touch(); setImages(next); };
 
   const sameDayMax = Number(limits?.sameDayMaxProcessingMinutes);
   const errors = validateProductForm(form, {
@@ -139,6 +161,7 @@ export default function ProductFormScreen({ route, navigation }) {
           : res?.product?.status === 'pending' ? 'Sent for admin review. It goes live once approved.' : 'Product published.', ToastAndroid.LONG);
       }
       // Back to the list (which re-reads from the server), not to a detail screen holding the pre-edit row.
+      savedRef.current = true; // saved: leaving now needs no warning
       navigation.navigate('Tabs', { screen: 'Products' });
     } catch (e) {
       // A dropped connection after the upload finished may still have saved the listing.
@@ -163,16 +186,16 @@ export default function ProductFormScreen({ route, navigation }) {
           <>
             <OptionPicker label="Header category" required disabled={saving || treeState !== 'ready'} value={picks.l1} options={l1Options}
               placeholder={treeState === 'loading' ? 'Loading categories…' : 'Select header category'}
-              onChange={(v) => setPicks({ l1: v, l2: '', l3: '' })} />
+              onChange={(v) => pick({ l1: v, l2: '', l3: '' })} />
             {category.l2List.length ? (
               <OptionPicker label="Main category" required disabled={saving} value={picks.l2}
                 options={category.l2List.map((c) => ({ value: String(c._id), label: c.name }))}
-                onChange={(v) => setPicks((p) => ({ ...p, l2: v, l3: '' }))} />
+                onChange={(v) => pick((p) => ({ ...p, l2: v, l3: '' }))} />
             ) : null}
             {category.l3List.length ? (
               <OptionPicker label="Sub-category" required disabled={saving} value={picks.l3}
                 options={category.l3List.map((c) => ({ value: String(c._id), label: c.name }))}
-                onChange={(v) => setPicks((p) => ({ ...p, l3: v }))} />
+                onChange={(v) => pick((p) => ({ ...p, l3: v }))} />
             ) : null}
             {category.id ? <Text style={type.small}>Listing category: {category.breadcrumb}</Text> : null}
           </>
@@ -334,6 +357,13 @@ export default function ProductFormScreen({ route, navigation }) {
           <AppInput style={styles.half} label="Dispatch in (days)" keyboardType="number-pad" maxLength={2} placeholder="e.g. 1" value={String(form.dispatchDays ?? '')}
             editable={!saving} onChangeText={(t) => set('dispatchDays', t.replace(/\D/g, ''))} />
         </View>
+        <Text style={type.small}>Package size when packed (cm). Optional; filled in for you when you book a courier.</Text>
+        <View style={styles.pair}>
+          {[['pkgLength', 'Length'], ['pkgBreadth', 'Breadth'], ['pkgHeight', 'Height']].map(([key, label]) => (
+            <AppInput key={key} style={styles.half} label={`${label} (cm)`} keyboardType="decimal-pad" maxLength={6} value={String(form[key] ?? '')}
+              editable={!saving} onChangeText={(t) => set(key, t.replace(/[^0-9.]/g, ''))} />
+          ))}
+        </View>
       </Card>
 
       <Card title="Photos">
@@ -344,16 +374,17 @@ export default function ProductFormScreen({ route, navigation }) {
             </ScrollView>
             <SwitchRow label="Replace all photos" value={replacePhotos} disabled={saving}
               hint="Adding any new photo replaces the entire photo set. Leave this off to keep the current photos."
-              onValueChange={(v) => { setReplacePhotos(v); if (!v) setImages([]); }} />
+              onValueChange={(v) => { touch(); setReplacePhotos(v); if (!v) setImages([]); }} />
           </>
         ) : null}
-        {replacePhotos ? <ImageManager images={images} onChange={setImages} max={MAX_PRODUCT_IMAGES} disabled={saving} /> : null}
+        {replacePhotos ? <ImageManager images={images} onChange={changeImages} max={MAX_PRODUCT_IMAGES} disabled={saving} /> : null}
         {showErrors && errors.photos.length ? <InlineNotice tone="error">{errorText(errors.photos)}</InlineNotice> : null}
       </Card>
 
       {saving ? <UploadProgress progress={progress} label={replacePhotos && images.length ? 'Uploading photos' : 'Saving'} /> : null}
       {saveError ? <InlineNotice tone="error">{saveError}</InlineNotice> : null}
       {isDraft ? <InlineNotice tone="info">This is a draft. Customers cannot see it until you publish it.</InlineNotice> : null}
+      {product?.status === 'rejected' && !isDraft ? <InlineNotice tone="warning">{product.rejectionReason ? `Admin rejected this listing: ${product.rejectionReason}\n` : ''}Saving your changes sends it back to Admin for review.</InlineNotice> : null}
       <AppButton title={!isEditing || isDraft ? 'Publish product' : 'Save changes'} variant="accent" loading={saving} onPress={() => submit(!isEditing || isDraft ? 'publish' : 'save')} />
       {!isEditing || isDraft ? (
         <AppButton title={isDraft ? 'Save draft' : 'Save as draft'} variant="outline" disabled={saving} onPress={() => submit('draft')} />

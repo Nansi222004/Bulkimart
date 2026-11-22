@@ -32,6 +32,25 @@ export function useCategoryFields(categoryId) {
 const blank = (v) => v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
 
 /** Same required / format checks the server makes, shown before the upload. */
+/**
+ * Pre-fills the category's Admin-set default values into fields the seller has left empty (new listings only).
+ * Never overwrites what the seller typed; each variant gets defaults for its variant fields (e.g. Size).
+ */
+export function applyFieldDefaults(form, fields) {
+  const isEmpty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+  const withDefaults = (fields || []).filter((f) => !isEmpty(f.defaultValue));
+  if (!withDefaults.length) return form;
+  const specs = { ...(form.specs || {}) };
+  for (const f of withDefaults.filter((x) => !x.isVariant)) if (isEmpty(specs[f.code])) specs[f.code] = f.defaultValue;
+  const variantDefaults = withDefaults.filter((x) => x.isVariant);
+  const variants = variantDefaults.length ? (form.variants || []).map((v) => {
+    const options = { ...(v.options || {}) };
+    for (const f of variantDefaults) if (isEmpty(options[f.code])) options[f.code] = f.defaultValue;
+    return { ...v, options };
+  }) : form.variants;
+  return { ...form, specs, variants };
+}
+
 export function validateCategoryDetails(form, fields) {
   const errs = [];
   for (const f of fields.filter((x) => !x.isVariant)) {
@@ -54,6 +73,11 @@ export function validateCategoryDetails(form, fields) {
   if (form.hsnCode && !/^\d{4,8}$/.test(String(form.hsnCode).trim())) errs.push('HSN code must be 4 to 8 digits');
   if (form.barcode && !/^\d{8,14}$/.test(String(form.barcode).trim())) errs.push('Barcode must be 8 to 14 digits');
   if (!blank(form.dispatchDays) && !(Number.isInteger(Number(form.dispatchDays)) && Number(form.dispatchDays) >= 0 && Number(form.dispatchDays) <= 30)) errs.push('Dispatch time must be 0 to 30 days');
+  const pkg = [form.pkgLength, form.pkgBreadth, form.pkgHeight];
+  if (pkg.some((v) => !blank(v))) {
+    if (pkg.some((v) => blank(v))) errs.push('Enter all three package measurements (length, breadth, height) or leave them all empty');
+    else if (pkg.some((v) => !(Number(v) > 0 && Number(v) <= 500))) errs.push('Package measurements must be more than 0 and at most 500 cm');
+  }
   return errs;
 }
 

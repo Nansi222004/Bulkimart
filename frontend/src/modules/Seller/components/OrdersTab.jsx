@@ -124,6 +124,10 @@ export const OrdersTab = ({ detailPage = false }) => {
     if (generation !== fulfillmentScope.current) return;
     if (result.ok) {
       setFulfillmentOptions(result.data);
+      // Start from the package size saved on the listing (single-item orders); the seller can still change it.
+      const suggested = result.data.shiprocket?.suggestedPackage;
+      if (suggested) setPackageSize(current => (current.length || current.breadth || current.height ? current
+        : { length: String(suggested.length), breadth: String(suggested.breadth), height: String(suggested.height) }));
       setSelectedRiderId(current => result.data.manual?.riders?.some(rider => String(rider.id) === String(current) && rider.online) ? current : null);
     }
     else setFulfillmentError(result.message);
@@ -726,6 +730,7 @@ export const OrdersTab = ({ detailPage = false }) => {
                   placeholder={`${field[0].toUpperCase() + field.slice(1)} (cm)`} value={packageSize[field]}
                   onChange={(e) => setPackageSize((value) => ({ ...value, [field]: e.target.value }))} /></label>
               ))}</div>
+              {fulfillmentOptions.shiprocket?.suggestedPackage && <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 8px' }}>Filled in from the package size saved on this product. Measure the packed parcel and correct it if needed.</p>}
               <button className="primary-onboarding-btn" style={{ width: '100%' }}
                 disabled={!fulfillmentOptions.shiprocket?.available || !fulfillmentOptions.shiprocket?.quote || (fulfilling.channel === 'grocery' && fulfillmentOptions.shiprocket?.feeCollection?.status !== 'paid') || busyId === fulfilling._id}
                 onClick={async () => {

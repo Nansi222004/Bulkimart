@@ -53,6 +53,10 @@ const getBrowserStorage = () => {
 const appendListingDetails = (fd, form) => {
   fd.append('specs', JSON.stringify(form.specs || {}));
   for (const key of ['hsnCode', 'barcode', 'countryOfOrigin', 'dispatchDays']) fd.append(key, String(form[key] ?? '').trim());
+  // Packed size in cm: all three or none (an empty object clears a saved size).
+  const pkg = { length: form.pkgLength, breadth: form.pkgBreadth, height: form.pkgHeight };
+  fd.append('dimensions', JSON.stringify(Object.values(pkg).every((v) => v === undefined || v === null || String(v).trim() === '')
+    ? {} : Object.fromEntries(Object.entries(pkg).map(([k, v]) => [k, Number(v)]))));
   // Drafts: "Save as draft" on a new listing, "Publish" on a saved draft (the server ignores either elsewhere).
   if (form.saveMode === 'draft') fd.append('saveAsDraft', 'true');
   if (form.saveMode === 'publish') fd.append('publish', 'true');
@@ -386,6 +390,7 @@ export const SellerProvider = ({ children }) => {
       // Category details and the common listing fields (Developer Guide §3–4).
       specs: Object.fromEntries((raw.specs || []).map((x) => [x.code, x.value])),
       hsnCode: raw.hsnCode || '', barcode: raw.barcode || '', countryOfOrigin: raw.countryOfOrigin || '', dispatchDays: raw.dispatchDays ?? '',
+      pkgLength: raw.dimensions?.length ?? '', pkgBreadth: raw.dimensions?.breadth ?? '', pkgHeight: raw.dimensions?.height ?? '',
       sameDayEnabled: Boolean(raw.sameDay?.enabled),
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
       returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,

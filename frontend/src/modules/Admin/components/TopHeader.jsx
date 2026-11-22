@@ -16,7 +16,7 @@ const pageTitles = {
   'user-wallets': 'Real Money Wallets', 'seller-kyc': 'Seller KYC',
   'gst-assistance': 'GST Registration Assistance', 'finance-center': 'Finance Center',
   'categories-all': 'All Categories', 'categories-header': 'Header Categories',
-  'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories',
+  'categories-main': 'Main Categories', 'categories-sub': 'Sub-Categories', 'categories-fields': 'Category Fields',
   'helpline-settings': 'Helpline & SOS Emergency Settings',
   'cod-charges': 'Payment Settings · COD Charges',
 };

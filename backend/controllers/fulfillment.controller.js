@@ -8,6 +8,7 @@ import User from '../models/User.js';
 import DeliveryPartner from '../models/DeliveryPartner.js';
 import Delivery from '../models/Delivery.js';
 import Return from '../models/Return.js';
+import Product from '../models/Product.js';
 import { applyForwardTracking, logCourierEvent, safePayload, assertShiprocketCodAllowed, shiprocketCodBlocked, SHIPROCKET_COD_MESSAGE } from '../services/courierTracking.service.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok, httpError } from '../utils/response.js';
@@ -58,6 +59,20 @@ const totalWeightKg = (order) => {
     grams += weight * Number(item.qty || 0);
   }
   return Number((grams / 1000).toFixed(3));
+};
+
+/**
+ * The package size the seller saved on the listing, offered as the starting value for a courier booking.
+ * Only for a single unit of a single product: a multi-item parcel's size is not the sum of its items.
+ * The seller still confirms (or edits) the measurements before booking.
+ */
+const suggestedPackage = async (order) => {
+  const items = order.items || [];
+  if (items.length !== 1 || Number(items[0].qty) !== 1 || !items[0].productId) return null;
+  const product = await Product.findById(items[0].productId).select('dimensions').lean().catch(() => null);
+  const d = product?.dimensions;
+  return d && [d.length, d.breadth, d.height].every((n) => Number.isFinite(n) && n > 0)
+    ? { length: d.length, breadth: d.breadth, height: d.height, source: 'listing' } : null;
 };
 
 export const getFulfillmentOptions = asyncHandler(async (req, res) => {
@@ -169,6 +184,7 @@ export const getFulfillmentOptions = asyncHandler(async (req, res) => {
       shippingApproved: Boolean(seller.thirdPartyFulfillment?.enabled),
       verifiedPickup,
       packageWeightKg,
+      suggestedPackage: await suggestedPackage(order),
       quote: providerQuote,
       quickCommerceSupported: capabilities.quickCommerce,
       codUnavailable: codBlocked,

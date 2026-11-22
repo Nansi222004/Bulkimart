@@ -702,6 +702,9 @@ export const ProductsTab = () => {
                       </div>
                       <span className="prod-card-mobile-status" style={statusStyle}>{statusLabel}</span>
                     </div>
+                    {p.status === 'Rejected' && p.raw?.rejectionReason ? (
+                      <div style={{ margin: '6px 0 0', fontSize: 12, color: '#b91c1c' }}>Reason: {p.raw.rejectionReason}. Edit and save to send it for review again.</div>
+                    ) : null}
                     <div className="prod-card-mobile-actions">
                       {!isEbook ? <button className="action-icon-btn" title="Stock history" onClick={() => setHistoryProduct(p)}>Stock history</button> : null}
                       <button className="action-icon-btn" title="Edit Product" onClick={() => startEditProduct(p.raw)}>
@@ -858,18 +861,26 @@ export const ProductsTab = () => {
                             Approved
                           </span>
                         ) : p.status === 'Rejected' ? (
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '3px 8px',
-                            borderRadius: 6,
-                            fontSize: 10,
-                            fontWeight: '800',
-                            backgroundColor: '#fee2e2',
-                            color: '#dc2626',
-                            letterSpacing: '0.3px'
-                          }}>
-                            Rejected
-                          </span>
+                          <>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '3px 8px',
+                              borderRadius: 6,
+                              fontSize: 10,
+                              fontWeight: '800',
+                              backgroundColor: '#fee2e2',
+                              color: '#dc2626',
+                              letterSpacing: '0.3px'
+                            }}>
+                              Rejected
+                            </span>
+                            {/* What Admin wrote when rejecting or taking the listing down. */}
+                            {p.raw?.rejectionReason ? (
+                              <div style={{ marginTop: 4, fontSize: 11, color: '#b91c1c', maxWidth: 220, whiteSpace: 'normal' }}>
+                                Reason: {p.raw.rejectionReason}. Edit and save to send it for review again.
+                              </div>
+                            ) : null}
+                          </>
                         ) : (
                           <span style={{
                             display: 'inline-block',
