@@ -40,13 +40,8 @@ export const ProductsTab = () => {
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [sortBy, setSortBy] = useState('Newest');
 
-  // Helper to generate dynamic lower-case SKU (e.g. xyzz-01-rw8b)
-  const getProductCode = (p) => {
-    const cleanName = p.name.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
-    const prefix = cleanName.substring(0, 4).padEnd(4, 'x');
-    const idNum = p.id.replace(/\D/g, '') || '01';
-    return `${prefix}-01-rw${idNum.padStart(2, '0')}`;
-  };
+  // The product's real SKU as stored on the server (auto-assigned when the seller left it blank).
+  const getProductCode = (p) => p.raw?.sku || p.raw?.variants?.[0]?.sku || '—';
 
   // Helper to generate dynamic header, category, and subcategory based on product category
   const getProductDetails = (p) => {

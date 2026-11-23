@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useSeller } from '../context/SellerContext';
 import { ProductModal } from './ProductModal';
 
+// Keep in step with backend/constants/enums.js LOW_STOCK_THRESHOLD (the dashboard count uses it).
+const LOW_STOCK_THRESHOLD = 20;
+
 export const StockTab = () => {
   const {
     products,
@@ -17,34 +20,65 @@ export const StockTab = () => {
   
   // Inline adjustment state
   const [adjustingId, setAdjustingId] = useState(null);
+  const [adjustVariantId, setAdjustVariantId] = useState(null);
   const [newStockVal, setNewStockVal] = useState(0);
 
-  // Dynamic Product SKU/Code generation matching mock style (e.g., XYZZ-01-RW8B)
-  const getProductCode = (p) => {
-    const cleanName = p.name.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const prefix = cleanName.substring(0, 4).padEnd(4, 'X');
-    const idNum = p.id.replace(/\D/g, '') || '01';
-    return `${prefix}-01-RW${idNum.padStart(2, '0')}`;
-  };
+  // The product's real SKU as stored on the server (auto-assigned when the seller left it blank).
+  const productSku = (p) => p.raw?.sku || p.raw?.variants?.[0]?.sku || '';
+  const variantsOf = (p) => (p.raw?.variants || []).filter((v) => v && v._id);
 
-  // The server applies a stock change to the first variant (and the product total). With several
-  // variants, start the editor from that variant's own stock, not the total of all variants.
-  const adjustableStock = (p) => (p.raw?.variants?.length ? Number(p.raw.variants[0].stock ?? 0) : p.stock);
+  // Stock of the variant being edited (the server changes that variant and the product total).
+  const variantStock = (p, variantId) => {
+    const v = variantsOf(p).find((x) => String(x._id) === String(variantId));
+    return v ? Number(v.stock ?? 0) : p.stock;
+  };
+  const startAdjust = (p) => {
+    const first = variantsOf(p)[0];
+    setAdjustingId(p.id);
+    setAdjustVariantId(first?._id ?? null);
+    setNewStockVal(first ? Number(first.stock ?? 0) : p.stock);
+  };
+  const pickVariant = (p, variantId) => {
+    setAdjustVariantId(variantId);
+    setNewStockVal(variantStock(p, variantId));
+  };
+  const saveAdjust = (p) => {
+    handleUpdateStock(p.id, newStockVal - variantStock(p, adjustVariantId), adjustVariantId || undefined);
+    setAdjustingId(null);
+  };
+  const renderVariantPicker = (p) => {
+    const variants = variantsOf(p);
+    if (variants.length < 2) return null;
+    return (
+      <select
+        aria-label={`Variant of ${p.name} to adjust`}
+        value={adjustVariantId ?? ''}
+        onChange={(e) => pickVariant(p, e.target.value)}
+        style={{ height: 30, border: '1.5px solid #cbd5e1', borderRadius: 8, fontSize: 11, fontWeight: '700', color: '#0f172a', maxWidth: 140 }}
+      >
+        {variants.map((v) => <option key={v._id} value={v._id}>{v.name} ({Number(v.stock ?? 0)})</option>)}
+      </select>
+    );
+  };
 
   // Digital listings are not physical inventory and have no adjustable stock.
   const inventoryProducts = products.filter((product) => product.raw?.fulfillmentType !== 'digital');
 
+  // Same rule as the backend dashboard (LOW_STOCK_THRESHOLD in backend/constants/enums.js):
+  // low stock = more than 0 but fewer than 20 units.
+  const isLowStock = (stock) => stock > 0 && stock < LOW_STOCK_THRESHOLD;
+
   // KPI Calculations
   const totalInventory = inventoryProducts.reduce((acc, p) => acc + p.stock, 0);
-  const lowStockCount = inventoryProducts.filter(p => p.stock > 0 && p.stock <= 10).length;
+  const lowStockCount = inventoryProducts.filter(p => isLowStock(p.stock)).length;
   const outOfStockCount = inventoryProducts.filter(p => p.stock === 0).length;
   const totalValuation = inventoryProducts.reduce((acc, p) => acc + (p.price * p.stock), 0);
 
-  // Filtered Products
+  // Filtered Products — search matches the name, the product SKU or any variant SKU.
   const filteredProducts = inventoryProducts.filter(p => {
-    const code = getProductCode(p).toLowerCase();
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
-                          code.includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const skus = [productSku(p), ...variantsOf(p).map((v) => v.sku || '')].join(' ').toLowerCase();
+    const matchesSearch = p.name.toLowerCase().includes(q) || skus.includes(q);
     
     let matchesTab = true;
     if (selectedTab === 'In Stock') {
@@ -541,7 +575,7 @@ export const StockTab = () => {
             <div className="stock-cards-mobile">
               {filteredProducts.map((p) => {
                 const isOut = p.stock === 0;
-                const isLow = p.stock > 0 && p.stock <= 10;
+                const isLow = isLowStock(p.stock);
                 const healthStyle = isOut
                   ? { backgroundColor: '#fee2e2', color: '#dc2626' }
                   : isLow
@@ -565,7 +599,10 @@ export const StockTab = () => {
                       </div>
                       <div className="stock-card-mobile-info">
                         <span className="stock-card-mobile-name">{p.name}</span>
-                        <span className="stock-card-mobile-code">PRODUCT CODE: {getProductCode(p)}</span>
+                        <span className="stock-card-mobile-code">SKU: {productSku(p) || '—'}</span>
+                        {variantsOf(p).length > 1 && (
+                          <span className="stock-card-mobile-code">{variantsOf(p).map((v) => `${v.name}: ${Number(v.stock ?? 0)}`).join(' · ')}</span>
+                        )}
                       </div>
                       <span className="stock-card-mobile-price">₹{p.price}</span>
                     </div>
@@ -574,7 +611,8 @@ export const StockTab = () => {
                       <span className="stock-card-mobile-health" style={healthStyle}>{healthLabel}</span>
 
                       {adjustingId === p.id ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 }}>
+                          {renderVariantPicker(p)}
                           <button className="stepper-btn" disabled={newStockVal <= 0} onClick={() => setNewStockVal(prev => Math.max(0, prev - 1))}>-</button>
                           <input
                             type="number"
@@ -584,7 +622,7 @@ export const StockTab = () => {
                           />
                           <button className="stepper-btn" onClick={() => setNewStockVal(prev => prev + 1)}>+</button>
                           <button
-                            onClick={() => { handleUpdateStock(p.id, newStockVal - adjustableStock(p)); setAdjustingId(null); }}
+                            onClick={() => saveAdjust(p)}
                             style={{ border: 'none', backgroundColor: 'var(--primary)', color: '#fff', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, fontWeight: '800', cursor: 'pointer' }}
                           >
                             Save
@@ -597,7 +635,7 @@ export const StockTab = () => {
                           </button>
                         </div>
                       ) : (
-                        <button className="action-adjust-btn" onClick={() => { setAdjustingId(p.id); setNewStockVal(adjustableStock(p)); }}>
+                        <button className="action-adjust-btn" onClick={() => startAdjust(p)}>
                           Adjust Stock
                         </button>
                       )}
@@ -622,8 +660,8 @@ export const StockTab = () => {
               <tbody>
                 {filteredProducts.map((p) => {
                   const isOut = p.stock === 0;
-                  const isLow = p.stock > 0 && p.stock <= 10;
-                  
+                  const isLow = isLowStock(p.stock);
+
                   return (
                     <tr key={p.id} className="stock-table-row">
                       {/* Product Information */}
@@ -656,7 +694,7 @@ export const StockTab = () => {
                               {p.name}
                             </h4>
                             <span style={{ fontSize: 9, fontWeight: '800', color: '#94a3b8', letterSpacing: '0.3px' }}>
-                              PRODUCT CODE: {getProductCode(p)}
+                              SKU: {productSku(p) || '—'}
                             </span>
                           </div>
                         </div>
@@ -667,6 +705,11 @@ export const StockTab = () => {
                         <span style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }}>
                           {p.stock} units
                         </span>
+                        {variantsOf(p).length > 1 && (
+                          <div style={{ fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 2 }}>
+                            {variantsOf(p).map((v) => `${v.name}: ${Number(v.stock ?? 0)}`).join(' · ')}
+                          </div>
+                        )}
                       </td>
 
                       {/* Stock Health */}
@@ -724,6 +767,7 @@ export const StockTab = () => {
                       <td className="stock-td" style={{ textAlign: 'right', paddingRight: '24px' }}>
                         {adjustingId === p.id ? (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {renderVariantPicker(p)}
                             <button
                               className="stepper-btn"
                               disabled={newStockVal <= 0}
@@ -755,10 +799,7 @@ export const StockTab = () => {
                             </button>
                             
                             <button
-                              onClick={() => {
-                                handleUpdateStock(p.id, newStockVal - adjustableStock(p));
-                                setAdjustingId(null);
-                              }}
+                              onClick={() => saveAdjust(p)}
                               style={{
                                 border: 'none',
                                 backgroundColor: 'var(--primary)',
@@ -799,10 +840,7 @@ export const StockTab = () => {
                         ) : (
                           <button
                             className="action-adjust-btn"
-                            onClick={() => {
-                              setAdjustingId(p.id);
-                              setNewStockVal(adjustableStock(p));
-                            }}
+                            onClick={() => startAdjust(p)}
                           >
                             Adjust Stock
                           </button>

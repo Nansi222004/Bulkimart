@@ -1542,14 +1542,16 @@ export const SellerProvider = ({ children }) => {
   // Local state is never mutated optimistically here — the row only ever
   // shows what the server just confirmed, via a full re-fetch on success.
   const [stockUpdatingId, setStockUpdatingId] = useState(null);
-  const handleUpdateStock = async (productId, change) => {
+  // `variantId` (optional) picks which variant changes; omitted = the product's first variant.
+  const handleUpdateStock = async (productId, change, variantId) => {
     if (stockUpdatingId) return; // one adjustment in flight at a time
+    if (!change) return; // nothing changed
     setStockUpdatingId(productId);
     try {
       const res = await fetch(apiUrl(`/api/products/${productId}/stock`), {
         method: 'PATCH',
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delta: change }),
+        body: JSON.stringify(variantId ? { delta: change, variantId } : { delta: change }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

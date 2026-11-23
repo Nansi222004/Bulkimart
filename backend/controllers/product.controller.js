@@ -1272,7 +1272,9 @@ export const updateProductChannelStatus = asyncHandler(async (req, res) => {
  * @access Private
  */
 export const adjustProductStock = asyncHandler(async (req, res) => {
-  const { delta } = req.body;
+  // `variantId` picks which variant's stock changes. Omitted = the first variant, which is what
+  // older clients (the current seller app build) still send.
+  const { delta, variantId } = req.body;
   const parsedDelta = Number(delta);
 
   if (delta === undefined || delta === null || delta === '' ||
@@ -1296,9 +1298,21 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
   // negative, so no lower-bound check is needed on that path.
   const filter = { _id: product._id };
   let update;
+  let target = null;
   if (Array.isArray(product.variants) && product.variants.length) {
-    if (parsedDelta < 0) filter['variants.0.stock'] = { $gte: -parsedDelta };
-    update = { $inc: { 'variants.0.stock': parsedDelta, stock: parsedDelta, __v: 1 } };
+    const wantedId = variantId === undefined || variantId === null || variantId === '' ? null : String(variantId);
+    target = wantedId ? product.variants.find((v) => v._id && String(v._id) === wantedId) : product.variants[0];
+    if (!target) throw httpError(400, 'That variant does not belong to this product');
+    if (target._id) {
+      // Match the variant by id (not position) so a reorder between the read and this write
+      // cannot move the change onto a different variant.
+      filter.variants = { $elemMatch: { _id: target._id, ...(parsedDelta < 0 ? { stock: { $gte: -parsedDelta } } : {}) } };
+      update = { $inc: { 'variants.$.stock': parsedDelta, stock: parsedDelta, __v: 1 } };
+    } else {
+      // Legacy variant without an _id — only reachable as the default first variant.
+      if (parsedDelta < 0) filter['variants.0.stock'] = { $gte: -parsedDelta };
+      update = { $inc: { 'variants.0.stock': parsedDelta, stock: parsedDelta, __v: 1 } };
+    }
   } else {
     if (parsedDelta < 0) filter.stock = { $gte: -parsedDelta };
     update = { $inc: { stock: parsedDelta, __v: 1 } };
@@ -1315,7 +1329,8 @@ export const adjustProductStock = asyncHandler(async (req, res) => {
     throw httpError(409, 'Stock changed before this update could be applied — please refresh and try again');
   }
   await recordStockMovements([{
-    productId: updated._id, variantId: updated.variants?.[0]?._id, delta: parsedDelta, reason: 'seller_adjustment',
+    productId: updated._id, variantId: target?._id ?? updated.variants?.[0]?._id, variantName: target?.name,
+    delta: parsedDelta, reason: 'seller_adjustment',
     actorType: req.userType === 'admin' ? 'admin' : 'seller', actorId: req.user._id,
   }]);
 
