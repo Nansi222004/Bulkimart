@@ -11,6 +11,7 @@ import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import SellerContext from '../context/SellerContext';
 import { apiUrl } from '../../../utils/api';
 import { applyFieldDefaults, CategoryFieldInput, CategoryUploadInput, useCategoryFields, validateCategoryDetails } from './CategoryDetailsFields';
+import ProductVideosField from './ProductVideosField';
 import './ProductModal.css';
 
 /**
@@ -122,7 +123,9 @@ export const ProductModal = () => {
         const res = await fetch(apiUrl(`/api/categories/tree?type=${categoryTreeType}`));
         const body = await res.json();
         const rows = Array.isArray(body) ? body : (body.data || []);
-        if (!cancelled) setCatTree(rows);
+        // Smart Buy / Hot Deals are storefront tabs, not product categories (the server refuses them too);
+        // any sub-category under one is offered as a top-level choice.
+        if (!cancelled) setCatTree(rows.flatMap((c) => (c?.isSystem ? (c.children || []) : [c])));
       } catch {
         if (!cancelled) setCatTree([]);
       } finally {
@@ -1273,6 +1276,12 @@ export const ProductModal = () => {
                         ))}
                       </div>
                     </div>
+
+                    <ProductVideosField
+                      value={newProductForm.videos}
+                      disabled={savingProduct}
+                      onChange={(videos) => setNewProductForm((f) => ({ ...f, videos }))}
+                    />
                   </>
                 )}
               </div>

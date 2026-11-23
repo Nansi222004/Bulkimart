@@ -5,7 +5,7 @@ import { EFFECT_PRESETS, EFFECT_LABELS } from '../../../../../backend/shared/cel
 // Sale times are entered and shown in IST, like every other Studio schedule.
 const local = value => value ? new Date(Date.parse(value) + 330 * 60000).toISOString().slice(0, 16) : '';
 const iso = value => value ? new Date(`${value}:00+05:30`).toISOString() : null;
-const targets = [{ value: 'none', label: 'No button' }, { value: 'categories', label: 'All categories' }, { value: 'hot-deals', label: 'Hot deals' }, { value: 'smart-buy', label: 'Smart Buy' }, { value: 'campaign', label: 'A deal campaign page' }];
+const targets = [{ value: 'none', label: 'No button' }, { value: 'categories', label: 'All categories' }, { value: 'hot-deals', label: 'Hot deals' }, { value: 'smart-buy', label: 'Shop All home' }, { value: 'campaign', label: 'A deal campaign page' }];
 const MEDIA_RULES = {
   image: { accept: 'image/jpeg,image/png,image/webp', types: ['image/jpeg', 'image/png', 'image/webp'], maxMb: 5, error: 'Choose a JPEG, PNG or WebP image up to 5 MB.' },
   video: { accept: 'video/mp4,video/webm', types: ['video/mp4', 'video/webm'], maxMb: 15, error: 'Choose an MP4 or WebM video up to 15 MB.' },

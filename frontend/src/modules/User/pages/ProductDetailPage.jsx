@@ -276,7 +276,11 @@ const ProductDetailPage = () => {
     : [product?.image].filter(Boolean);
   const variantImages = selectedVariant?.images || [];
   const allImages = variantImages.length ? [...variantImages, ...productImages.filter((img) => !variantImages.includes(img))] : productImages;
-  const activeImage = allImages[activeImageIndex] || product?.image;
+  // Product videos come after the photos in the same gallery.
+  const productVideos = Array.isArray(product?.videos) ? product.videos : [];
+  const gallery = [...allImages.map((url) => ({ type: 'image', url })), ...productVideos.map((url) => ({ type: 'video', url }))];
+  const activeMedia = gallery[activeImageIndex] || null;
+  const activeImage = activeMedia?.type === 'image' ? activeMedia.url : (activeMedia ? null : product?.image);
 
   // A live Campaign deal, if this product has one right now — never
   // trusted from whatever the card that opened this page already had in
@@ -506,23 +510,33 @@ const ProductDetailPage = () => {
 
       {/* Product image hero */}
       <div className="pd-image-hero">
-        {activeImage ? <img src={activeImage} alt={product.name} className="pd-hero-img" /> : <span className="pd-image-unavailable" role="img" aria-label="Product image unavailable">Image unavailable</span>}
+        {activeMedia?.type === 'video'
+          ? <video key={activeMedia.url} src={activeMedia.url} className="pd-hero-img" controls playsInline preload="metadata" aria-label={`${product.name} video`} style={{ background: '#000', objectFit: 'contain' }} />
+          : activeImage ? <img src={activeImage} alt={product.name} className="pd-hero-img" /> : <span className="pd-image-unavailable" role="img" aria-label="Product image unavailable">Image unavailable</span>}
         {/* Offer badge */}
         {/* Real saving against MRP for the selected variant, including a running deal. */}
         {wholesale.mode === 'retail' && savingPercent > 0 && <div className="pd-offer-badge">{savingPercent}% OFF</div>}
       </div>
 
       {/* Horizontal thumbnail gallery carousel */}
-      {allImages.length > 1 && (
+      {gallery.length > 1 && (
         <div className="pd-thumbnails-container">
-          {allImages.map((imgUrl, idx) => (
+          {gallery.map((item, idx) => (
             <button
-              key={idx}
+              key={`${item.type}-${idx}`}
               type="button"
               className={`pd-thumbnail-btn ${activeImageIndex === idx ? 'active' : ''}`}
               onClick={() => setActiveImageIndex(idx)}
+              aria-label={item.type === 'video' ? `Play video ${idx - allImages.length + 1}` : undefined}
             >
-              <img src={imgUrl} alt={`${product.name} ${idx + 1}`} />
+              {item.type === 'video' ? (
+                <span style={{ position: 'relative', display: 'block', width: '100%', height: '100%' }}>
+                  <video src={`${item.url}#t=0.5`} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                  <span aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, background: 'rgba(0,0,0,0.35)' }}>▶</span>
+                </span>
+              ) : (
+                <img src={item.url} alt={`${product.name} ${idx + 1}`} />
+              )}
             </button>
           ))}
         </div>

@@ -53,3 +53,22 @@ export async function takePhoto() {
 export async function pickPhotos(limit = 1) {
   return handleResult(await launchImageLibrary({ ...PICK_OPTIONS, selectionLimit: Math.max(1, limit) }));
 }
+
+// Product videos: same limits as the server (backend mediaPolicy 'seller.productvideo') and the web form.
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+export const MAX_VIDEO_SECONDS = 60;
+
+/** One video from the gallery: { uri, type, name, size, duration } or null when cancelled. */
+export async function pickVideo() {
+  const result = await launchImageLibrary({ mediaType: 'video', selectionLimit: 1, includeBase64: false, formatAsMp4: true });
+  if (result.didCancel) return null;
+  if (result.errorCode) throw new MediaError(result.errorMessage || 'Could not open the video picker.');
+  const asset = result.assets?.[0];
+  if (!asset?.uri) return null;
+  const name = asset.fileName || `video-${Date.now()}.mp4`;
+  const isMp4 = asset.type === 'video/mp4' || /\.(mp4|m4v)$/i.test(name);
+  if (!isMp4) throw new MediaError('Choose an MP4 video. Other formats (for example .mov or .3gp) are not supported.');
+  if (asset.fileSize && asset.fileSize > MAX_VIDEO_BYTES) throw new MediaError('The video must be 50 MB or smaller.');
+  if (asset.duration && asset.duration > MAX_VIDEO_SECONDS + 0.5) throw new MediaError(`The video must be ${MAX_VIDEO_SECONDS} seconds or shorter (this one is ${Math.round(asset.duration)} s).`);
+  return { uri: asset.uri, type: 'video/mp4', name: /\.(mp4|m4v)$/i.test(name) ? name : `${name}.mp4`, size: asset.fileSize || null, duration: asset.duration || null };
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { House, MessageCircle, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react';
+import { House, MessageCircle, Flame, LayoutGrid } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotifications } from '../../../utils/useNotifications';
 import NotificationDrawer from './NotificationDrawer';
@@ -63,7 +63,7 @@ const UnifiedHeader = () => {
   // Admin-selected category tabs share this row with application shortcuts.
   const currentSubNavItems = [
     ...(activeMode === 'shop-all'
-      ? [{ id: 'ecommerce--smart-buy', label: 'Smart Buy', Icon: CircleArrowRight }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
+      ? [{ id: 'ecommerce--smart-buy', label: 'Home', Icon: House }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
       : [{ id: 'grocery--home', label: 'My Home', Icon: House }, { id: 'coupons', label: 'Coupons', Icon: MessageCircle }]),
     { id: 'explore-more', label: 'All categories', Icon: LayoutGrid },
   ];

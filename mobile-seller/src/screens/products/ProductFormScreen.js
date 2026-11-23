@@ -8,6 +8,7 @@ import AppButton from '../../components/AppButton';
 import OptionPicker from '../../components/OptionPicker';
 import SwitchRow from '../../components/SwitchRow';
 import ImageManager from '../../components/ImageManager';
+import ProductVideos from '../../components/ProductVideos';
 import CategoryField from '../../components/CategoryField';
 import CategoryUploadField from '../../components/CategoryUploadField';
 import UploadProgress from '../../components/UploadProgress';
@@ -59,7 +60,9 @@ export default function ProductFormScreen({ route, navigation }) {
   const loadTree = React.useCallback(async () => {
     setTreeState('loading');
     try {
-      const rows = await getCategoryTree(channel);
+      // Smart Buy / Hot Deals are storefront tabs, not product categories (the server refuses them too);
+      // any sub-category under one is offered as a top-level choice.
+      const rows = (await getCategoryTree(channel)).flatMap((c) => (c?.isSystem ? (c.children || []) : [c]));
       setTree(rows);
       setTreeState('ready');
       if (product) setPicks(picksForCategory(rows, product.category?._id || product.category));
@@ -379,6 +382,10 @@ export default function ProductFormScreen({ route, navigation }) {
         ) : null}
         {replacePhotos ? <ImageManager images={images} onChange={changeImages} max={MAX_PRODUCT_IMAGES} disabled={saving} /> : null}
         {showErrors && errors.photos.length ? <InlineNotice tone="error">{errorText(errors.photos)}</InlineNotice> : null}
+      </Card>
+
+      <Card title="Videos">
+        <ProductVideos value={form.videos} disabled={saving} onChange={(videos) => set('videos', videos)} />
       </Card>
 
       {saving ? <UploadProgress progress={progress} label={replacePhotos && images.length ? 'Uploading photos' : 'Saving'} /> : null}

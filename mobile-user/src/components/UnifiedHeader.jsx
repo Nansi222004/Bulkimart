@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import { House, CircleArrowRight, Flame, LayoutGrid } from 'lucide-react-native';
+import { House, Flame, LayoutGrid } from 'lucide-react-native';
 import { useUser } from '../context/UserContext';
 import { useStorefront } from '../context/StorefrontContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -112,7 +112,7 @@ export function HeaderPinned() {
   const { activeMode, activeSubNav, setActiveSubNav, setActiveNav, openVoiceSearch, openImageSearch } = useUser();
   const items = [
     ...(activeMode === 'shop-all'
-      ? [{ id: 'ecommerce--smart-buy', label: 'Smart Buy', Icon: CircleArrowRight }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
+      ? [{ id: 'ecommerce--smart-buy', label: 'Home', Icon: House }, { id: 'ecommerce--hot-deals', label: 'Hot Deals', Icon: Flame }]
       : [{ id: 'grocery--home', label: 'My Home', Icon: House }]),
     { id: 'explore-more', label: 'All categories', Icon: LayoutGrid },
   ];

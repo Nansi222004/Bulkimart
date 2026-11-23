@@ -57,6 +57,16 @@ export async function uploadCatalogFile(doc, kind = 'image') {
   return body.data.url;
 }
 
+// POST /api/products/media/video (field "video", MP4) → { data: { url, durationSec } }. The video is stored on
+// Bulkimart's server; the product form then sends the URL in `videos`.
+export async function uploadProductVideo(video, onProgress) {
+  const fd = new FormData();
+  fd.append('video', { uri: video.uri, name: video.name, type: 'video/mp4' });
+  const body = await api.post('/api/products/media/video', fd, multipart(onProgress));
+  if (!body?.data?.url) throw new Error(body?.message || 'Video upload failed');
+  return body.data;
+}
+
 // Bulk upload (backend/controllers/bulkProduct.controller.js). mode: 'ecommerce' | 'quick'.
 // GET /api/products/bulk/template-link → { path }: a signed 10-minute download link (no login header needed),
 // opened in the phone's browser so the .xlsx lands in Downloads.

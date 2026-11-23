@@ -78,7 +78,7 @@ export const applyFieldDefaults = (form, fields) => {
 export const emptyForm = () => ({
   name: '', categoryId: '', desc: '', brandName: '', gstRate: 0,
   variants: [{ ...blankVariant(), name: 'Default' }],
-  specs: {}, ...commonDefaults,
+  specs: {}, ...commonDefaults, videos: [],
   sameDayEnabled: false, processingMinutes: '', returnable: false, returnWindowDays: '',
   ...easyDefaults,
 });
@@ -98,6 +98,7 @@ export const formFromProduct = (raw) => ({
   dispatchDays: raw.dispatchDays ?? '',
   // Packed size in cm (PDF §4); used as the starting value when booking a courier.
   pkgLength: raw.dimensions?.length ?? '', pkgBreadth: raw.dimensions?.breadth ?? '', pkgHeight: raw.dimensions?.height ?? '',
+  videos: Array.isArray(raw.videos) ? raw.videos : [],
   sameDayEnabled: Boolean(raw.sameDay?.enabled),
   processingMinutes: raw.sameDay?.processingMinutes ?? '',
   returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,
@@ -172,6 +173,8 @@ const appendDetails = (fd, form) => {
   fd.append('specs', JSON.stringify(form.specs || {}));
   for (const key of ['hsnCode', 'barcode', 'countryOfOrigin', 'dispatchDays']) fd.append(key, String(form[key] ?? '').trim());
   fd.append('dimensions', JSON.stringify(packageDimensions(form)));
+  // Already-uploaded product videos; only sent when the form knows them, so nothing is wiped by accident.
+  if (Array.isArray(form.videos)) fd.append('videos', JSON.stringify(form.videos));
 };
 
 // All three or none; the server rejects a partial size. An empty object clears a saved size.

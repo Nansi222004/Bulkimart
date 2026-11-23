@@ -49,6 +49,8 @@ export const normalizeProduct = (p) => {
     retailAvailable: p.retailAvailable,
     image: p.matchedImageUrl || p.image || p.images?.[0] || '',
     images: Array.isArray(p.images) && p.images.length ? p.images : p.image ? [p.image] : [],
+    // Product videos (MP4 on Bulkimart's server), shown after the photos on the product page.
+    videos: Array.isArray(p.videos) ? p.videos.filter((v) => typeof v === 'string' && v.startsWith('https://')) : [],
     price: p.price,
     mrp: p.mrp,
     discountPercent: p.discountPercent,

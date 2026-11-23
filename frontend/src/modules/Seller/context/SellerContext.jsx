@@ -60,6 +60,9 @@ const appendListingDetails = (fd, form) => {
   // Drafts: "Save as draft" on a new listing, "Publish" on a saved draft (the server ignores either elsewhere).
   if (form.saveMode === 'draft') fd.append('saveAsDraft', 'true');
   if (form.saveMode === 'publish') fd.append('publish', 'true');
+  // Product videos already uploaded to the server (ProductVideosField). Only sent once the form knows the
+  // product's videos, so an edit opened without them can never wipe the saved ones.
+  if (Array.isArray(form.videos)) fd.append('videos', JSON.stringify(form.videos));
 };
 
 export const SellerProvider = ({ children }) => {
@@ -391,6 +394,7 @@ export const SellerProvider = ({ children }) => {
       specs: Object.fromEntries((raw.specs || []).map((x) => [x.code, x.value])),
       hsnCode: raw.hsnCode || '', barcode: raw.barcode || '', countryOfOrigin: raw.countryOfOrigin || '', dispatchDays: raw.dispatchDays ?? '',
       pkgLength: raw.dimensions?.length ?? '', pkgBreadth: raw.dimensions?.breadth ?? '', pkgHeight: raw.dimensions?.height ?? '',
+      videos: Array.isArray(raw.videos) ? raw.videos : [],
       sameDayEnabled: Boolean(raw.sameDay?.enabled),
       processingMinutes: raw.sameDay?.processingMinutes ?? '',
       returnable: raw.type === 'grocery' ? Boolean(raw.returnable) : raw.returnSettings?.enabled !== false,

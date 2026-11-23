@@ -19,6 +19,7 @@ import { normalizeProduct, useProducts } from '../hooks/useProducts';
 import { useProductDeliveryOptions } from '../hooks/useDeliveryOptions';
 import { useProductWholesale } from '../hooks/useProductWholesale';
 import ProductWholesaleOffer from '../components/ProductWholesaleOffer';
+import ProductVideoPlayer from '../components/ProductVideoPlayer';
 import EasyReturnsSheet from '../components/EasyReturnsSheet';
 import BackButton from '../components/BackButton';
 import { BoltIcon, HeartIcon, ShareIcon } from '../components/icons';
@@ -218,7 +219,11 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
   const productImages = Array.isArray(product.images) && product.images.length > 0 ? product.images : [product.image].filter(Boolean);
   const variantImages = selectedVariant?.images || [];
   const allImages = variantImages.length ? [...variantImages, ...productImages.filter(img => !variantImages.includes(img))] : productImages;
-  const activeImage = allImages[activeImageIndex] || product.image;
+  // Product videos come after the photos in the same gallery.
+  const productVideos = Array.isArray(product.videos) ? product.videos : [];
+  const gallery = [...allImages.map(url => ({ type: 'image', url })), ...productVideos.map(url => ({ type: 'video', url }))];
+  const activeMedia = gallery[activeImageIndex] || null;
+  const activeImage = activeMedia?.type === 'image' ? activeMedia.url : (activeMedia ? null : product.image);
   const imageUri = img => mediaUrl(typeof img === 'string' ? img : img?.url || img?.secure_url || '');
 
   // Live campaign deal, return policy and fresh variants (never trusted from the card that opened the page).
@@ -335,12 +340,17 @@ function ProductDetail({ product, routeMode, routeVariant, close }) {
     </View>
     <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 110 }}>
       <View style={styles.hero}>
-        {activeImage ? <Image source={{ uri: imageUri(activeImage) }} style={{ width: '88%', aspectRatio: 1 }} contentFit="contain" accessibilityLabel={product.name} /> : <Text style={{ color: '#94a3b8' }}>Image unavailable</Text>}
+        {activeMedia?.type === 'video'
+          ? <ProductVideoPlayer key={activeMedia.url} uri={mediaUrl(activeMedia.url)} label={`${product.name} video`} />
+          : activeImage ? <Image source={{ uri: imageUri(activeImage) }} style={{ width: '88%', aspectRatio: 1 }} contentFit="contain" accessibilityLabel={product.name} /> : <Text style={{ color: '#94a3b8' }}>Image unavailable</Text>}
         {wholesale.mode === 'retail' && savingPercent > 0 && <Text style={styles.offerBadge}>{savingPercent}% OFF</Text>}
       </View>
-      {allImages.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: '#fff' }} contentContainerStyle={{ gap: 10, paddingVertical: 12, paddingHorizontal: 16, flexGrow: 1, justifyContent: 'center' }}>
-        {allImages.map((img, idx) => <Pressable key={idx} onPress={() => setActiveImageIndex(idx)} style={[styles.thumb, activeImageIndex === idx && { borderColor: primary }]} accessibilityLabel={`${product.name} ${idx + 1}`}>
-          <Image source={{ uri: imageUri(img) }} style={{ width: '100%', height: '100%', borderRadius: 8 }} contentFit="contain" />
+      {gallery.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: '#fff' }} contentContainerStyle={{ gap: 10, paddingVertical: 12, paddingHorizontal: 16, flexGrow: 1, justifyContent: 'center' }}>
+        {gallery.map((item, idx) => <Pressable key={`${item.type}-${idx}`} onPress={() => setActiveImageIndex(idx)} style={[styles.thumb, activeImageIndex === idx && { borderColor: primary }]}
+          accessibilityLabel={item.type === 'video' ? `Play ${product.name} video ${idx - allImages.length + 1}` : `${product.name} ${idx + 1}`}>
+          {item.type === 'video'
+            ? <View style={styles.videoThumb}><Text style={styles.videoThumbIcon}>▶</Text><Text style={styles.videoThumbText}>Video</Text></View>
+            : <Image source={{ uri: imageUri(item.url) }} style={{ width: '100%', height: '100%', borderRadius: 8 }} contentFit="contain" />}
         </Pressable>)}
       </ScrollView>}
 
@@ -633,6 +643,9 @@ const styles = StyleSheet.create({
   hero: { backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', padding: 24, minHeight: 240 },
   offerBadge: { position: 'absolute', top: 16, left: 16, backgroundColor: '#ff8500', color: '#fff', fontSize: 10, fontWeight: '900', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, overflow: 'hidden' },
   thumb: { width: 58, height: 58, borderRadius: 12, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#f8fafc', padding: 3 },
+  videoThumb: { flex: 1, borderRadius: 8, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' },
+  videoThumbIcon: { color: '#fff', fontSize: 16 },
+  videoThumbText: { color: '#fff', fontSize: 9, fontWeight: '700' },
   infoCard: { backgroundColor: '#fff', padding: 16, borderBottomWidth: 8, borderBottomColor: '#f1f5f9' },
   infoTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
   name: { fontSize: 17, fontWeight: '900', color: '#0f172a', lineHeight: 22, marginBottom: 2 },
