@@ -3,7 +3,7 @@ import { CHANNEL } from '../constants/enums.js';
 import { asyncHandler } from '../middlewares/error.middleware.js';
 import { ok } from '../utils/response.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
-import { mediaContext } from '../services/media.service.js';
+import { mediaContext } from '../services/media.service.js';
 import { auditCategoryChange } from './catalogAttribute.controller.js';
 
 
@@ -125,9 +125,13 @@ export const getSelectableCategories = asyncHandler(async (req, res) => {
     throw new Error('A supported channel type is required (ecommerce | grocery)');
   }
 
-  const all = await Category.find({ type, isActive: true })
+  // System categories (Smart Buy, Hot Deals) are storefront tabs, never a product's category.
+  // Their sub-categories, if Admin adds any, stay selectable as top-level choices.
+  const raw = await Category.find({ type, isActive: true })
     .sort({ sortOrder: 1, name: 1 })
     .lean();
+  const systemIds = new Set(raw.filter((c) => c.isSystem).map((c) => String(c._id)));
+  const all = raw.filter((c) => !c.isSystem).map((c) => (c.parent && systemIds.has(String(c.parent)) ? { ...c, parent: null } : c));
 
   const byId = new Map(all.map((c) => [String(c._id), c]));
   const parentIds = new Set(all.filter((c) => c.parent).map((c) => String(c.parent)));

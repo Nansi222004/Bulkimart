@@ -188,15 +188,24 @@ export const inspectMp4 = async (reader) => {
   return { durationSec: duration / timescale, ...video };
 };
 
-export const assertVideoWithinLimits = (info) => {
-  if (!VIDEO_LIMITS.codecs.includes(info.codec)) {
-    throw invalid('Videos must be encoded as H.264 MP4. Re-export the clip as MP4 (H.264) and upload again.', 'MEDIA_VIDEO_UNSUPPORTED');
+// A category may relax the defaults with `video: { maxDurationSec, maxWidth }` (e.g. product videos).
+export const assertVideoWithinLimits = (info, overrides = {}) => {
+  const limits = { ...VIDEO_LIMITS, ...overrides };
+  if (!limits.codecs.includes(info.codec)) {
+    throw invalid('Videos must be encoded as H.264 MP4. Re-export the clip as MP4 (H.264) and upload again. On iPhone, set Camera → Formats → "Most Compatible".', 'MEDIA_VIDEO_UNSUPPORTED');
   }
-  if (info.durationSec > VIDEO_LIMITS.maxDurationSec + VIDEO_LIMITS.durationToleranceSec) {
-    throw invalid(`Videos must be ${VIDEO_LIMITS.maxDurationSec} seconds or shorter.`, 'MEDIA_VIDEO_UNSUPPORTED');
+  if (info.durationSec > limits.maxDurationSec + limits.durationToleranceSec) {
+    throw invalid(`Videos must be ${limits.maxDurationSec} seconds or shorter.`, 'MEDIA_VIDEO_UNSUPPORTED');
   }
-  if (!info.width || info.width > VIDEO_LIMITS.maxWidth) {
-    throw invalid(`Videos must be at most ${VIDEO_LIMITS.maxWidth} px wide.`, 'MEDIA_VIDEO_UNSUPPORTED');
+  if (!info.width) throw invalid('The video size could not be read.', 'MEDIA_VIDEO_UNSUPPORTED');
+  // `maxLongSide` (product videos) also accepts portrait phone clips such as 1080×1920;
+  // otherwise only the width is limited (storefront videos).
+  if (limits.maxLongSide) {
+    if (Math.max(info.width, info.height || 0) > limits.maxLongSide) {
+      throw invalid(`Videos can be at most ${limits.maxLongSide} px on the longer side (1080p). Export the clip at 1080p or lower.`, 'MEDIA_VIDEO_UNSUPPORTED');
+    }
+  } else if (info.width > limits.maxWidth) {
+    throw invalid(`Videos must be at most ${limits.maxWidth} px wide.`, 'MEDIA_VIDEO_UNSUPPORTED');
   }
 };
 
@@ -228,7 +237,7 @@ export const validateUpload = async (input, policy, options = {}) => {
     if (type === 'mp4') {
       // Truncated boxes can make header reads run past the data: report as malformed, not a 500.
       const info = await inspectMp4(reader).catch((error) => { throw error.status ? error : invalid('The video file is malformed.'); });
-      assertVideoWithinLimits(info);
+      assertVideoWithinLimits(info, policy.video);
       return { ...(input.buffer ? { buffer: input.buffer } : { filePath: input.filePath }), mimeType: 'video/mp4', ext: 'mp4', sizeBytes: size, width: info.width, height: info.height, durationSec: info.durationSec };
     }
     const buffer = input.buffer || await reader.read(0, size);

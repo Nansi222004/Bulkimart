@@ -18,6 +18,15 @@ import { parseSpreadsheet, generateBulkTemplateExcelJS } from '../utils/excelPar
 
 const TEMPLATE_PURPOSE = 'bulk-template';
 const MODES = ['quick', 'grocery', 'ecommerce'];
+/**
+ * Categories a product may be filed under: system categories (Smart Buy, Hot Deals) are storefront tabs and are
+ * left out; any sub-category Admin adds under one becomes a top-level choice, as in the seller form.
+ */
+const listableCategories = (list) => {
+  const systemIds = new Set(list.filter((c) => c.isSystem).map((c) => String(c._id)));
+  return list.filter((c) => !c.isSystem).map((c) => (c.parent && systemIds.has(String(c.parent)) ? { ...c, parent: null } : c));
+};
+
 // Image and file fields cannot be typed into a spreadsheet cell.
 const SHEET_FIELD_TYPES = ['text', 'longtext', 'number', 'decimal', 'select', 'multiselect', 'date', 'boolean'];
 
@@ -51,8 +60,8 @@ async function sendTemplate(res, rawMode) {
   const targetChannel = isQuick ? 'grocery' : 'ecommerce';
 
   // Active categories of this storefront (fall back to all active ones when none are typed yet).
-  let categories = await Category.find({ isActive: true, type: targetChannel }).lean();
-  if (!categories || categories.length === 0) categories = await Category.find({ isActive: true }).lean();
+  let categories = listableCategories(await Category.find({ isActive: true, type: targetChannel }).lean());
+  if (!categories || categories.length === 0) categories = listableCategories(await Category.find({ isActive: true }).lean());
 
   // Header → main → sub, for the dependent drop-downs.
   const headerMap = new Map();
@@ -170,7 +179,7 @@ export const processBulkUpload = asyncHandler(async (req, res) => {
   const mode = String(req.query.mode || req.body?.mode || 'ecommerce').toLowerCase();
   if (!MODES.includes(mode)) throw httpError(400, 'Choose Shop All or Quick Commerce.');
   const type = ['quick', 'grocery'].includes(mode) ? 'grocery' : 'ecommerce';
-  const categories = await Category.find({ isActive: true, type }).lean();
+  const categories = listableCategories(await Category.find({ isActive: true, type }).lean());
 
   const fieldCache = new Map();
   const getFields = (categoryId, subCategoryId) => {

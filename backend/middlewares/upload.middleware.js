@@ -121,3 +121,18 @@ export const uploadCatalogFile = (req, res, next) => catalogFileUpload(req, res,
   if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('The file must be 5 MB or smaller.'), { status: 413 }));
   next(error);
 });
+
+// One product video (MP4). Written to a temporary file, not memory: a 50 MB clip per request would
+// otherwise sit in RAM. The controller moves it into media storage and always deletes the temp file.
+const productVideoUpload = multer({
+  storage: multer.diskStorage({}), // OS temp directory, random file name
+  limits: { fileSize: 50 * 1024 * 1024, files: 1, fields: 2, fieldSize: 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^video\/(mp4|x-m4v)$/i.test(file.mimetype) || /\.(mp4|m4v)$/i.test(file.originalname || '');
+    cb(ok ? null : Object.assign(new Error('Upload the video as an MP4 file.'), { status: 400 }), ok);
+  },
+}).single('video');
+export const uploadProductVideoFile = (req, res, next) => productVideoUpload(req, res, (error) => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(Object.assign(new Error('The video must be 50 MB or smaller.'), { status: 413 }));
+  next(error);
+});

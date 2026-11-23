@@ -186,6 +186,9 @@ const productSchema = new Schema(
     slug: String,
     description: String,
     images: [String], // Cloudinary URLs (max 5)
+    // Product videos (MP4 on our own server, /media/product-videos/…), max 2. Uploaded first through
+    // POST /api/products/media/video; the product form then submits the returned URLs.
+    videos: { type: [String], default: undefined },
     category: { type: ObjectId, ref: "Category", required: true },
     subCategory: { type: ObjectId, ref: "Category" },
 

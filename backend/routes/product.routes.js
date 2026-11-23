@@ -31,7 +31,8 @@ import {
 import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
 import { downloadBulkTemplate, downloadBulkTemplateWithLink, getBulkTemplateLink, processBulkUpload } from '../controllers/bulkProduct.controller.js';
-import { uploadProductImages, uploadBulkFiles, uploadReviewImages } from '../middlewares/upload.middleware.js';
+import { uploadProductVideo } from '../controllers/product.controller.js';
+import { uploadProductImages, uploadBulkFiles, uploadReviewImages, uploadProductVideoFile } from '../middlewares/upload.middleware.js';
 import { uploadEbookFile } from '../middlewares/ebookUpload.middleware.js';
 
 const router = express.Router();
@@ -43,6 +44,8 @@ router.get('/bulk/template', protect, requireRole('seller', 'admin'), downloadBu
 router.get('/bulk/template-link', protect, requireRole('seller', 'admin'), getBulkTemplateLink);
 router.get('/bulk/template/download', downloadBulkTemplateWithLink);
 router.post('/bulk/upload', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, uploadBulkFiles, processBulkUpload);
+// One product video (MP4, stored on our server) — the product form then sends its URL in `videos`.
+router.post('/media/video', protect, requireRole('seller'), requireSellerSession, requireApprovedSeller, uploadProductVideoFile, uploadProductVideo);
 
 // Public routes
 router.get('/', getProducts);

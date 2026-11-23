@@ -29,6 +29,7 @@ import { getWholesaleCatalogPage, hasWholesaleOffers } from '../services/wholesa
 import { removeStoredEbook, storeEbookPdf } from '../services/ebookStorage.service.js';
 import { assertEbookUploadOwnership } from '../services/digitalProduct.service.js';
 import StockMovement from '../models/StockMovement.js';
+import { resolveProductVideos, storeProductVideo } from '../services/productVideo.service.js';
 
 const parseDigitalDetails = (input) => {
   let details = input;
@@ -512,6 +513,11 @@ const resolveListingCategory = async (categoryId, channel) => {
   if (cat.type !== channel) {
     throw httpError(400, `That category belongs to the ${cat.type} section — please pick a ${channel} category`);
   }
+  // System categories (Smart Buy, Hot Deals) are storefront tabs, not product categories: the apps never list
+  // products filed under them, so such a product could only be found through search.
+  if (cat.isSystem) {
+    throw httpError(400, `"${cat.name}" is a storefront tab, not a product category. Please choose a real category (for example Clothing & Fashion).`, { code: 'SYSTEM_CATEGORY_NOT_LISTABLE' });
+  }
 
   const hasChildren = await Category.exists({ parent: cat._id, isActive: true });
   if (hasChildren) {
@@ -747,6 +753,8 @@ export const createProduct = asyncHandler(async (req, res) => {
   if (!saveAsDraft && (!req.files || req.files.length === 0)) {
     throw httpError(400, 'Please upload at least one product image');
   }
+  // Optional product videos, uploaded beforehand through POST /api/products/media/video.
+  const videos = await resolveProductVideos(req.body.videos, { ownerId: req.user._id });
 
   const returnSettings = !b2bOnly ? await parseProductReturnSettings(req.body, { type, category, fulfillmentType }) : undefined;
   const easyReturns = !b2bOnly && req.body.easyReturns !== undefined
@@ -797,6 +805,7 @@ export const createProduct = asyncHandler(async (req, res) => {
     // Root price/mrp/stock/unit/weight are synced from variants[0] by the
     // model's pre-validate hook — not set here.
     variants: parsedVariants,
+    ...(videos?.length ? { videos } : {}),
     ...(attributeCheck.specs.length ? { specs: attributeCheck.specs } : {}),
     ...Object.fromEntries(Object.entries(commonDetails).filter(([, v]) => v !== undefined)),
     // Listings go live immediately unless the category requires admin approval (or it is an e-book).
@@ -1145,6 +1154,10 @@ export const updateProduct = asyncHandler(async (req, res) => {
     product.resubmittedAt = new Date();
   }
   void detailsChanged;
+
+  // Product videos: replaced by the list the form sends (already-uploaded URLs); absent = unchanged.
+  const videos = await resolveProductVideos(req.body.videos, { ownerId: req.user._id, existing: product.videos });
+  if (videos !== undefined) product.videos = videos.length ? videos : undefined;
 
   // Upload new images if provided
   if (req.files && req.files.length > 0) {
@@ -1632,4 +1645,12 @@ export const getProductStockHistory = asyncHandler(async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
   const rows = await StockMovement.find({ productId: product._id }).sort({ createdAt: -1 }).limit(limit).select('-actorId').lean();
   return res.status(200).json({ success: true, data: rows });
+});
+
+// @desc    Upload one product video (MP4) to our own server; returns the URL the product form submits in `videos`
+// @route   POST /api/products/media/video
+// @access  Private (approved seller)
+export const uploadProductVideo = asyncHandler(async (req, res) => {
+  const video = await storeProductVideo(req);
+  res.status(201).json({ success: true, message: 'Video uploaded', data: video });
 });
