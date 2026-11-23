@@ -72,6 +72,9 @@ export default function ProductsScreen({ navigation }) {
       <ChipRow accessibilityLabel="Product status" value={status} onChange={setStatus}
         options={STATUS_FILTERS.map((s) => ({ value: s, label: s, count: counts[s] }))} />
       <AppInput placeholder="Search name or SKU" value={search} onChangeText={setSearch} autoCorrect={false} returnKeyType="search" />
+      <Pressable accessibilityRole="button" accessibilityLabel="Bulk upload products from Excel" onPress={() => navigation.navigate('BulkUpload', { channel })} style={styles.bulkLink}>
+        <Text style={styles.bulkLinkText}>⇪ Bulk upload from Excel</Text>
+      </Pressable>
     </View>
   );
 
@@ -104,6 +107,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: colors.surface },
   content: { padding: spacing.lg, gap: spacing.md, paddingBottom: 96 },
   header: { gap: spacing.md },
+  bulkLink: { alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.primaryDark, borderRadius: radius.pill, paddingHorizontal: spacing.lg, minHeight: 40, justifyContent: 'center' },
+  bulkLinkText: { color: colors.primaryDark, fontWeight: '800', fontSize: 13 },
   row: { flexDirection: 'row', gap: spacing.md, backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md },
   thumb: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.surface },
   noThumb: { alignItems: 'center', justifyContent: 'center' },

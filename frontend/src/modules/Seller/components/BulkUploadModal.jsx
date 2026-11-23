@@ -8,6 +8,9 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+// A product spread over several rows (its variants) reports all of them: "Rows 4, 5".
+const rowsText = (error) => (error.rows?.length > 1 ? `Rows ${error.rows.join(', ')}` : `Row ${error.row}`);
+
 export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
   const [excelFile, setExcelFile] = useState(null);
   const [zipFile, setZipFile] = useState(null);
@@ -196,7 +199,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
               ⚠️ {errorMessage}
             </div>
           )}
-          {rowErrors.length > 0 && <div role="alert"><strong>Fix these rows and upload the file again. No products were imported.</strong><ul>{rowErrors.map((error, index) => <li key={index}>Row {error.row}{error.name ? ` (${error.name})` : ''}: {error.reason}</li>)}</ul></div>}
+          {rowErrors.length > 0 && <div role="alert"><strong>Fix these rows and upload the file again. No products were imported.</strong><ul>{rowErrors.map((error, index) => <li key={index}>{rowsText(error)}{error.name ? ` (${error.name})` : ''}: {error.reason}</li>)}</ul></div>}
 
           {/* STEP 1: Download Template */}
           <div style={{
@@ -266,7 +269,12 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                     boxSizing: 'border-box'
                   }}
                 />
-                <small id="bulk-sheet-help">Accepted: .xlsx or .csv, up to 10 MB. Use the downloaded template. Product Name, Main Category, Sell Price and Stock are required; stock must be a whole number of zero or more. MRP must be at least the selling price.</small>
+                <small id="bulk-sheet-help">Accepted: .xlsx or .csv, up to 10 MB. Use the downloaded template. Product Name, Main Category, Sell Price, Stock and a Primary Image are required; MRP must be at least the selling price.</small>
+                <ul style={{ margin: '8px 0 0', paddingLeft: '18px', fontSize: '12px', color: '#475569', lineHeight: 1.5 }}>
+                  <li><strong>Variants:</strong> repeat the same Product Name on several rows, one row per variant (e.g. 500 g, 1 kg), each with its own Variant Name, price and stock.</li>
+                  <li><strong>Category fields:</strong> the teal columns (e.g. Allergens) come from Admin → Category Fields. Fill the ones your category uses; dark-teal columns are required for some categories. Hover a column header to see its options.</li>
+                  <li>Products in categories that need admin approval are sent for review instead of going live.</li>
+                </ul>
                 {fileErrors.sheet && <p id="bulk-sheet-error" role="alert" style={{ color: '#b91c1c' }}>{fileErrors.sheet}</p>}
                 {excelFile && (
                   <span style={{ fontSize: '11px', color: '#1b7a37', fontWeight: '700', marginTop: '4px', display: 'block' }}>
@@ -300,7 +308,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                 <small id="bulk-zip-help">Accepted: .zip, up to 50 MB. Filenames must match the product sheet.</small>
                 {fileErrors.zip && <p id="bulk-zip-error" role="alert" style={{ color: '#b91c1c' }}>{fileErrors.zip}</p>}
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                  Image filenames in Excel (e.g. <code>prod1_main.png</code>) will automatically map to images in this ZIP archive.
+                  Type just the file name in the image columns (e.g. <code>amul-milk.jpg</code>) and put that photo in this ZIP. JPG, PNG or WEBP. You can also paste a full https:// image link instead.
                 </span>
                 {zipFile && (
                   <span style={{ fontSize: '11px', color: '#1b7a37', fontWeight: '700', marginTop: '2px', display: 'block' }}>
@@ -385,9 +393,14 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                   )}
                   <div>
                     <span style={{ display: 'block', fontSize: '24px', fontWeight: '900', color: '#0f172a' }}>{uploadResult.totalRows}</span>
-                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Total Rows</span>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Products in Sheet</span>
                   </div>
                 </div>
+                {uploadResult.pendingCount > 0 && (
+                  <p style={{ margin: '12px 0 0', fontSize: '12px', color: '#92400e', fontWeight: '600' }}>
+                    {uploadResult.pendingCount} product{uploadResult.pendingCount === 1 ? ' is' : 's are'} in a category that needs admin approval — sent for review, live once approved.
+                  </p>
+                )}
               </div>
 
               {/* Errors Breakdown */}
@@ -406,7 +419,7 @@ export const BulkUploadModal = ({ onClose, onSuccess, mode = 'ecommerce' }) => {
                       <tbody>
                         {uploadResult.errors.map((err, idx) => (
                           <tr key={idx} style={{ borderBottom: '1px solid #fecaca' }}>
-                            <td style={{ padding: '8px 12px', fontWeight: '700' }}>Row {err.row}</td>
+                            <td style={{ padding: '8px 12px', fontWeight: '700' }}>{rowsText(err)}</td>
                             <td style={{ padding: '8px 12px' }}>{err.name || '—'}</td>
                             <td style={{ padding: '8px 12px', color: '#dc2626' }}>{err.reason}</td>
                           </tr>

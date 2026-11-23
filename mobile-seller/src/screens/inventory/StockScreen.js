@@ -19,9 +19,13 @@ const FILTERS = [{ value: 'all', label: 'All' }, { value: 'in', label: 'In stock
 const HEALTH = { out: ['OUT OF STOCK', '#fee2e2', '#dc2626'], low: ['LOW STOCK', '#fff7ed', '#ea580c'], ok: ['IN STOCK', colors.aquaLight, colors.primaryDark] };
 
 function StockAdjustSheet({ product, onClose, onSaved }) {
-  // The server applies the change to the first variant (and the product total), so start from that
-  // variant's own stock; using the total of all variants made the change wrong for multi-variant products.
-  const current = Number((product?.variants?.length ? product.variants[0].stock : product?.stock) ?? 0);
+  // The seller picks which variant to change; the server applies the change to that variant (and the
+  // product total), so the editor starts from that variant's own stock, not the total of all variants.
+  const variants = useMemo(() => (product?.variants || []).filter((v) => v && v._id), [product]);
+  const [variantId, setVariantId] = useState(null);
+  useEffect(() => { setVariantId(variants[0]?._id ? String(variants[0]._id) : null); }, [variants]);
+  const selected = variants.find((v) => String(v._id) === variantId);
+  const current = Number((selected ? selected.stock : product?.stock) ?? 0);
   const [value, setValue] = useState(String(current));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -30,8 +34,7 @@ function StockAdjustSheet({ product, onClose, onSaved }) {
 
   const target = Number(value);
   const delta = Number.isSafeInteger(target) ? target - current : NaN;
-  const firstVariant = product.variants?.[0];
-  const multi = (product.variants?.length || 0) > 1;
+  const multi = variants.length > 1;
 
   const save = async () => {
     setError('');
@@ -39,7 +42,7 @@ function StockAdjustSheet({ product, onClose, onSaved }) {
     if (delta === 0) { setError('Stock is unchanged.'); return; }
     setBusy(true);
     try {
-      await adjustProductStock(product._id, delta);
+      await adjustProductStock(product._id, delta, variantId || undefined);
       ToastAndroid.show('Stock updated successfully!', ToastAndroid.SHORT);
       onSaved();
     } catch (e) {
@@ -55,8 +58,11 @@ function StockAdjustSheet({ product, onClose, onSaved }) {
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={type.heading} numberOfLines={2}>{product.name}</Text>
-          <Text style={type.small}>{multi && firstVariant ? `“${firstVariant.name}” stock: ${current} · total of all variants: ${Number(product.stock ?? 0)}` : `Current stock: ${current}`}</Text>
-          {multi ? <InlineNotice tone="info">Stock adjustment applies to the first variant. Use Edit product to change other variants.</InlineNotice> : null}
+          {multi ? (
+            <ChipRow accessibilityLabel="Variant to adjust" value={variantId} onChange={busy ? () => {} : setVariantId}
+              options={variants.map((v) => ({ value: String(v._id), label: `${v.name} (${Number(v.stock ?? 0)})` }))} />
+          ) : null}
+          <Text style={type.small}>{multi && selected ? `“${selected.name}” stock: ${current} · total of all variants: ${Number(product.stock ?? 0)}` : `Current stock: ${current}`}</Text>
           <View style={styles.stepper}>
             <AppButton small variant="outline" title="−10" disabled={busy} onPress={() => step(-10)} />
             <AppButton small variant="outline" title="−1" disabled={busy} onPress={() => step(-1)} />

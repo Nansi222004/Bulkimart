@@ -33,6 +33,7 @@ import EditProfileScreen from '../screens/profile/EditProfileScreen';
 import PickupSyncScreen from '../screens/profile/PickupSyncScreen';
 import ProductDetailScreen from '../screens/products/ProductDetailScreen';
 import ProductFormScreen from '../screens/products/ProductFormScreen';
+import BulkUploadScreen from '../screens/products/BulkUploadScreen';
 import StockScreen from '../screens/inventory/StockScreen';
 import FulfillmentScreen from '../screens/orders/FulfillmentScreen';
 import TrackOrdersScreen from '../screens/orders/TrackOrdersScreen';
@@ -109,6 +110,7 @@ export default function RootNavigator() {
       <Stack.Screen name="PickupSync" component={PickupSyncScreen} options={{ title: 'Pickup registration' }} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Product' }} />
       <Stack.Screen name="ProductForm" component={ProductFormScreen} options={{ title: 'Product' }} />
+      <Stack.Screen name="BulkUpload" component={BulkUploadScreen} options={{ title: 'Bulk upload' }} />
       <Stack.Screen name="Stock" component={StockScreen} options={{ title: 'Stock' }} />
       <Stack.Screen name="Fulfillment" component={FulfillmentScreen} options={{ title: 'Choose delivery method' }} />
       <Stack.Screen name="TrackOrders" component={TrackOrdersScreen} options={{ title: 'Track orders' }} />

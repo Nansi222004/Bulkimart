@@ -57,6 +57,25 @@ export async function uploadCatalogFile(doc, kind = 'image') {
   return body.data.url;
 }
 
+// Bulk upload (backend/controllers/bulkProduct.controller.js). mode: 'ecommerce' | 'quick'.
+// GET /api/products/bulk/template-link → { path }: a signed 10-minute download link (no login header needed),
+// opened in the phone's browser so the .xlsx lands in Downloads.
+export async function getBulkTemplateLink(mode) {
+  const body = await api.get('/api/products/bulk/template-link', { params: { mode } });
+  if (!body?.path) throw new Error(body?.message || 'Could not create the template link');
+  return body.path;
+}
+
+// POST /api/products/bulk/upload (excelFile, optional zipFile) →
+// { successCount, failedCount, pendingCount, totalRows, products, errors }. A 400 carries body.meta.errors per row.
+export function uploadBulkProducts(mode, sheet, zip, onProgress) {
+  const fd = new FormData();
+  fd.append('mode', mode);
+  fd.append('excelFile', { uri: sheet.uri, name: sheet.name, type: sheet.type });
+  if (zip) fd.append('zipFile', { uri: zip.uri, name: zip.name, type: zip.type });
+  return api.post(`/api/products/bulk/upload?mode=${encodeURIComponent(mode)}`, fd, multipart(onProgress));
+}
+
 // PUT /api/products/:id. Attaching any image replaces the whole photo set; no images keeps the existing ones.
 export const updateProduct = (id, formData, onProgress) => api.put(`/api/products/${requireId(id)}`, formData, multipart(onProgress));
 
@@ -66,9 +85,9 @@ export const deleteProduct = (id) => api.delete(`/api/products/${requireId(id)}`
 // GET /api/products/:id/stock-history → { data: [{ reason, delta, stockAfter, variantName, createdAt }] }
 export const getStockHistory = (id) => api.get(`/api/products/${requireId(id)}/stock-history`).then((body) => (Array.isArray(body?.data) ? body.data : []));
 
-// PATCH /api/products/:id/stock { delta } → { stock, product }. Atomic $inc on the server,
-// which applies to the first variant. 409 means stock changed in between.
-export const adjustProductStock = (id, delta) => api.patch(`/api/products/${requireId(id)}/stock`, { delta });
+// PATCH /api/products/:id/stock { delta, variantId? } → { stock, product }. Atomic $inc on the server on that
+// variant (the first one when variantId is omitted). 409 means stock changed in between.
+export const adjustProductStock = (id, delta, variantId) => api.patch(`/api/products/${requireId(id)}/stock`, variantId ? { delta, variantId } : { delta });
 
 // PATCH /api/products/:id/wholesale-pricing { variants:[{variantId, wholesalePricing}], version }
 // → { success, message, variants, version }. 409 = product changed since it was loaded.

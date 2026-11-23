@@ -30,7 +30,7 @@ import {
 } from '../controllers/product.controller.js';
 import { protect, requireRole, requireCustomerSession, requireSellerSession } from '../middlewares/auth.middleware.js';
 import { requireApprovedSeller } from '../middlewares/vendor.middleware.js';
-import { downloadBulkTemplate, processBulkUpload } from '../controllers/bulkProduct.controller.js';
+import { downloadBulkTemplate, downloadBulkTemplateWithLink, getBulkTemplateLink, processBulkUpload } from '../controllers/bulkProduct.controller.js';
 import { uploadProductImages, uploadBulkFiles, uploadReviewImages } from '../middlewares/upload.middleware.js';
 import { uploadEbookFile } from '../middlewares/ebookUpload.middleware.js';
 
@@ -39,6 +39,9 @@ router.use('/search-by-image', imageSearchRouter());
 
 // Bulk Product Upload & Template routes (declared before /:id)
 router.get('/bulk/template', protect, requireRole('seller', 'admin'), downloadBulkTemplate);
+// The seller app opens this signed 10-minute link in the phone browser to save the template.
+router.get('/bulk/template-link', protect, requireRole('seller', 'admin'), getBulkTemplateLink);
+router.get('/bulk/template/download', downloadBulkTemplateWithLink);
 router.post('/bulk/upload', protect, requireRole('seller', 'admin'), requireSellerSession, requireApprovedSeller, uploadBulkFiles, processBulkUpload);
 
 // Public routes

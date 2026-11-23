@@ -30,7 +30,7 @@ export const BULK_COLUMNS = [
  * @param {Array<Object>} categoriesTree - Pre-fetched categories from MongoDB
  * @returns {Promise<Buffer>} Excel buffer
  */
-export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'ecommerce', categoryHierarchy = []) {
+export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'ecommerce', categoryHierarchy = [], fieldColumns = []) {
   const workbook = new ExcelJS.Workbook();
 
   // Sheet 1: Main Product Template
@@ -177,8 +177,50 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     { header: 'Sell Price (₹)', key: 'sellPrice', width: 16 },
     { header: 'MRP Price (₹)', key: 'mrpPrice', width: 16 },
     { header: 'Stock', key: 'stock', width: 14 },
+    // One column per Category Field (Admin → Category Fields). "[code]" is how the upload finds the field.
+    ...fieldColumns.map((f) => ({ header: `${f.label} [${f.code}]`, key: `field_${f.code}`, width: Math.min(40, Math.max(18, f.label.length + 10)), field: f })),
   ];
-  worksheet.columns = columnsList;
+  worksheet.columns = columnsList.map(({ header, key, width }) => ({ header, key, width }));
+  const lastColumn = getColumnLetter(columnsList.length);
+  const columnOf = (key) => getColumnLetter(columnsList.findIndex((c) => c.key === key) + 1);
+
+  // How each column is used — shown as a note when the header cell is hovered / tapped.
+  const columnNotes = {
+    productName: 'Required. One row = one product.\nTo add variants (500 g / 1 kg, S / M / L): repeat the SAME Product Name on several rows, one row per variant, each with its own Variant Name, price and stock. Product details (brand, description, images, category fields) go on the first row.',
+    variantName: 'e.g. 500 g, 1 kg, Red, XL. Required when the product has several rows. If empty, Pack Size + Unit is used (e.g. "500 g").',
+    unit: 'kg, g, litre, ml, piece, dozen or pack. Default: piece.',
+    packSize: 'Number for this variant, e.g. 500 (with Unit g) = 500 g. Used as the variant name when Variant Name is empty.',
+    specifications: 'Optional. Format: Name: Value | Name: Value. A name matching a category field column fills that field; the rest are shown in the description.',
+    searchTags: 'Comma separated, e.g. milk, dairy, fresh',
+    primaryImageUrl: 'Required on the first row of each product.\nEither the image file name inside your ZIP (e.g. amul-milk.jpg) or a full https:// link.\nImages on later rows of the same product become that variant\'s photos.',
+    frontImageUrl: 'Optional. File name in the ZIP or https:// link.',
+    backImageUrl: 'Optional. File name in the ZIP or https:// link.',
+    sellPrice: 'Required. Selling price, up to 2 decimals.',
+    mrpPrice: 'Optional. Must be at least the Sell Price. Default: Sell Price.',
+    stock: 'Required. Whole number, 0 or more.',
+  };
+  const fieldNote = (f) => {
+    const typeText = {
+      text: 'Text', longtext: 'Text', number: 'Whole number', decimal: 'Number', date: 'Date (YYYY-MM-DD)', boolean: 'Yes or No',
+      select: 'Pick one option', multiselect: 'One or more options, separated by commas',
+    }[f.fieldType] || f.fieldType;
+    const lines = [`${f.label}: ${typeText}${f.unit ? ` (${f.unit})` : ''}`];
+    if (f.options?.length) lines.push(`Options: ${f.options.slice(0, 40).join(', ')}${f.options.length > 40 ? ' …' : ''}`);
+    if (f.isVariant) lines.push('Per variant: fill it on every row of the product.');
+    lines.push(f.requiredIn.length ? `REQUIRED for: ${f.requiredIn.slice(0, 15).join(', ')}${f.requiredIn.length > 15 ? ' …' : ''}` : 'Optional');
+    if (f.usedIn.length) lines.push(`Used in: ${f.usedIn.slice(0, 15).join(', ')}${f.usedIn.length > 15 ? ' …' : ''}`);
+    lines.push('Leave it empty for categories that do not use it.');
+    if (f.helpText) lines.push(f.helpText);
+    return lines.join('\n');
+  };
+
+  // Single-choice category fields get a drop-down from the hidden reference sheet.
+  const fieldListFormula = new Map();
+  for (const col of columnsList.filter((c) => c.field?.fieldType === 'select' && c.field.options?.length)) {
+    const letter = getColumnLetter(refColIdx++);
+    col.field.options.forEach((label, i) => { refSheet.getCell(`${letter}${i + 1}`).value = label; });
+    fieldListFormula.set(col.key, `CategoriesRef!$${letter}$1:$${letter}$${col.field.options.length}`);
+  }
 
   // Mode Banner Styling
   const modeStr = String(mode).toLowerCase();
@@ -189,48 +231,29 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
     : '🛒 E-COMMERCE BULK PRODUCT UPLOAD TEMPLATE';
   const bannerColor = isQuick ? 'FF047857' : 'FF1E4E78'; // Emerald for Quick, Navy Blue for E-Commerce
 
-  // Insert Row 1: Mode Title Banner (Merged A1:P1)
-  worksheet.mergeCells('A1:P1');
+  // Row 1: Mode Title Banner across every column
+  worksheet.mergeCells(`A1:${lastColumn}1`);
   const bannerCell = worksheet.getCell('A1');
   bannerCell.value = modeTitle;
-  bannerCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: bannerColor }
-  };
-  bannerCell.font = {
-    name: 'Segoe UI',
-    size: 13,
-    bold: true,
-    color: { argb: 'FFFFFFFF' }
-  };
+  bannerCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bannerColor } };
+  bannerCell.font = { name: 'Segoe UI', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
   bannerCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   bannerCell.protection = { locked: true };
   worksheet.getRow(1).height = 32;
 
-  // Row 2: Table Column Headers (Navy Blue)
-  const columnHeaders = columnsList.map(c => c.header);
+  // Row 2: Table Column Headers
   const headerRow = worksheet.getRow(2);
   headerRow.height = 28;
-  columnHeaders.forEach((h, idx) => {
-    const colLetter = String.fromCharCode(65 + idx);
-    const cell = worksheet.getCell(`${colLetter}2`);
-    cell.value = h;
-
-    // Sell Price and MRP Price get distinct amber/orange header color
-    const isPriceCol = h === 'Sell Price (₹)' || h === 'MRP Price (₹)';
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: isPriceCol ? 'FFB45309' : 'FF1F4E78' } // Amber for price cols, Navy for others
-    };
-    cell.font = {
-      name: 'Segoe UI',
-      size: 11,
-      bold: true,
-      color: { argb: 'FFFFFFFF' }
-    };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  columnsList.forEach((col, idx) => {
+    const cell = worksheet.getCell(`${getColumnLetter(idx + 1)}2`);
+    cell.value = col.header;
+    const isPriceCol = col.key === 'sellPrice' || col.key === 'mrpPrice';
+    const isRequiredField = col.field?.requiredIn?.length;
+    // Amber for price columns, teal for category fields (darker when required somewhere), navy for the rest.
+    const color = isPriceCol ? 'FFB45309' : col.field ? (isRequiredField ? 'FF0F766E' : 'FF14B8A6') : 'FF1F4E78';
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+    cell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FF000000' } },
       left: { style: 'thin', color: { argb: 'FF000000' } },
@@ -238,6 +261,8 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
       right: { style: 'thin', color: { argb: 'FF000000' } }
     };
     cell.protection = { locked: true };
+    const note = col.field ? fieldNote(col.field) : columnNotes[col.key];
+    if (note) cell.note = note;
   });
 
   // Row 3: Single Locked Mock Example Row — for visual reference only
@@ -264,21 +289,11 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
 
   const mockRow = worksheet.getRow(3);
   mockRow.height = 24;
-  mockRowValues.forEach((val, idx) => {
-    const colLetter = String.fromCharCode(65 + idx);
-    const cell = worksheet.getCell(`${colLetter}3`);
-    cell.value = val;
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFF2F4F8' } // Light gray background for example row
-    };
-    cell.font = {
-      name: 'Segoe UI',
-      size: 10,
-      italic: true,
-      color: { argb: 'FF595959' }
-    };
+  columnsList.forEach((col, idx) => {
+    const cell = worksheet.getCell(`${getColumnLetter(idx + 1)}3`);
+    cell.value = mockRowValues[idx] ?? '';
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F8' } };
+    cell.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: 'FF595959' } };
     cell.alignment = { vertical: 'middle', horizontal: 'left' };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
@@ -291,80 +306,65 @@ export async function generateBulkTemplateExcelJS(categoriesTree = [], mode = 'e
 
   // Data Entry Rows (Row 4 to 1000)
   const unitsFormula = '"kg, g, litre, ml, piece, dozen, pack"';
+  const [colA, colB, colC, colUnit, colPrice, colMrp, colStock] = ['headerCategory', 'mainCategory', 'subCategory', 'unit', 'sellPrice', 'mrpPrice', 'stock'].map(columnOf);
 
   for (let rowIdx = 4; rowIdx <= 1000; rowIdx++) {
-    worksheet.getCell(`Q${rowIdx}`).dataValidation = { type: 'whole', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: false, showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Invalid Stock', error: 'Stock must be a whole number of zero or more.' };
-    // Explicitly unlock every cell in columns 1 to columnsList.length (A to P) so Excel permits editing
+    // Unlock every data cell so Excel permits editing
     for (let colIdx = 1; colIdx <= columnsList.length; colIdx++) {
-      const cell = worksheet.getCell(rowIdx, colIdx);
-      cell.protection = { locked: false };
+      worksheet.getCell(rowIdx, colIdx).protection = { locked: false };
     }
 
-    // Column A: Header Category
-    worksheet.getCell(`A${rowIdx}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [headerListFormula],
-      showErrorMessage: true,
-      errorTitle: 'Invalid Header Category',
-      error: 'Please select a valid Header Category from the drop-down list.'
+    worksheet.getCell(`${colStock}${rowIdx}`).dataValidation = { type: 'whole', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: true, showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Invalid Stock', error: 'Stock must be a whole number of zero or more.' };
+
+    // Header Category
+    worksheet.getCell(`${colA}${rowIdx}`).dataValidation = {
+      type: 'list', allowBlank: true, formulae: [headerListFormula], showErrorMessage: true,
+      errorTitle: 'Invalid Header Category', error: 'Please select a valid Header Category from the drop-down list.'
     };
 
-    // Column B: Main Category (Dependent on Column A)
-    const indirectMainFormula = `=INDIRECT(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(A${rowIdx}," ","_"),"&","_"),"-","_"),"/","_"),"(","_"),")","_"),",","_"))`;
-    worksheet.getCell(`B${rowIdx}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [indirectMainFormula],
-      showErrorMessage: true,
-      errorTitle: 'Invalid Main Category',
-      error: 'Please select a valid Main Category for the selected Header Category.'
+    // Main Category (depends on Header Category)
+    const indirectMainFormula = `=INDIRECT(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(${colA}${rowIdx}," ","_"),"&","_"),"-","_"),"/","_"),"(","_"),")","_"),",","_"))`;
+    worksheet.getCell(`${colB}${rowIdx}`).dataValidation = {
+      type: 'list', allowBlank: true, formulae: [indirectMainFormula], showErrorMessage: true,
+      errorTitle: 'Invalid Main Category', error: 'Please select a valid Main Category for the selected Header Category.'
     };
 
-    // Column C: Sub Category (Dependent on Column B)
-    const indirectSubFormula = `=INDIRECT(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(B${rowIdx}," ","_"),"&","_"),"-","_"),"/","_"),"(","_"),")","_"),",","_"))`;
-    worksheet.getCell(`C${rowIdx}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [indirectSubFormula],
-      showErrorMessage: true,
-      errorTitle: 'Invalid Sub Category',
-      error: 'Please select a valid Sub Category for the selected Main Category.'
+    // Sub Category (depends on Main Category)
+    const indirectSubFormula = `=INDIRECT(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(${colB}${rowIdx}," ","_"),"&","_"),"-","_"),"/","_"),"(","_"),")","_"),",","_"))`;
+    worksheet.getCell(`${colC}${rowIdx}`).dataValidation = {
+      type: 'list', allowBlank: true, formulae: [indirectSubFormula], showErrorMessage: true,
+      errorTitle: 'Invalid Sub Category', error: 'Please select a valid Sub Category for the selected Main Category.'
     };
 
-    // Column G: Unit
-    worksheet.getCell(`G${rowIdx}`).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [unitsFormula],
-      showErrorMessage: true,
-      errorTitle: 'Invalid Unit',
-      error: 'Please select a unit from the drop-down list (kg, g, litre, ml, piece, dozen, pack).'
+    // Unit
+    worksheet.getCell(`${colUnit}${rowIdx}`).dataValidation = {
+      type: 'list', allowBlank: true, formulae: [unitsFormula], showErrorMessage: true,
+      errorTitle: 'Invalid Unit', error: 'Please select a unit from the drop-down list (kg, g, litre, ml, piece, dozen, pack).'
     };
 
-    // Column O: Sell Price (₹) — must be a positive number
-    worksheet.getCell(`O${rowIdx}`).dataValidation = {
-      type: 'decimal',
-      operator: 'greaterThan',
-      allowBlank: true,
-      formulae: [0],
-      showErrorMessage: true,
-      errorStyle: 'stop',
-      errorTitle: 'Invalid Sell Price',
-      error: 'Sell Price must be a positive number greater than 0 (e.g., 99 or 149.50).'
+    // Sell Price — must be a positive number
+    worksheet.getCell(`${colPrice}${rowIdx}`).dataValidation = {
+      type: 'decimal', operator: 'greaterThan', allowBlank: true, formulae: [0], showErrorMessage: true, errorStyle: 'stop',
+      errorTitle: 'Invalid Sell Price', error: 'Sell Price must be a positive number greater than 0 (e.g., 99 or 149.50).'
     };
 
-    // Column P: MRP Price (₹) — must be >= Sell Price in Column O
-    worksheet.getCell(`P${rowIdx}`).dataValidation = {
-      type: 'custom',
-      allowBlank: true,
-      formulae: [`P${rowIdx}>=O${rowIdx}`],
-      showErrorMessage: true,
-      errorStyle: 'stop',
-      errorTitle: 'Invalid MRP Price',
-      error: 'MRP Price must be greater than or equal to Sell Price. The MRP is the original/crossed-out price shown to customers.'
+    // MRP — must be >= Sell Price
+    worksheet.getCell(`${colMrp}${rowIdx}`).dataValidation = {
+      type: 'custom', allowBlank: true, formulae: [`${colMrp}${rowIdx}>=${colPrice}${rowIdx}`], showErrorMessage: true, errorStyle: 'stop',
+      errorTitle: 'Invalid MRP Price', error: 'MRP Price must be greater than or equal to Sell Price. The MRP is the original/crossed-out price shown to customers.'
     };
+
+    // Single-choice category fields
+    for (const [key, formula] of fieldListFormula) {
+      worksheet.getCell(`${columnOf(key)}${rowIdx}`).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [formula], showErrorMessage: true, errorStyle: 'stop',
+        errorTitle: 'Invalid option', error: 'Pick one of the options in the drop-down list.'
+      };
+    }
   }
+
+  // Keep the header visible while scrolling down
+  worksheet.views = [{ state: 'frozen', ySplit: 2 }];
 
   // Protect worksheet so Row 1 (Banner Title), Row 2 (Headers), and Row 3 (Example Row) are locked, while Row 4+ are editable
   await worksheet.protect('', {
@@ -402,7 +402,13 @@ export async function parseXLSX(buffer) {
       const rowValues = [];
       row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         let val = cell.value;
-        if (val && typeof val === 'object' && val.result !== undefined) {
+        if (val instanceof Date) {
+          // Date cells (e.g. an Expiry date field) → YYYY-MM-DD, the format category date fields use.
+          val = Number.isNaN(val.getTime()) ? '' : val.toISOString().slice(0, 10);
+        } else if (val && typeof val === 'object' && (val.hyperlink || val.text)) {
+          // Excel turns a pasted image link into a hyperlink cell: { text, hyperlink }.
+          val = typeof val.text === 'string' ? val.text : (val.text?.richText ? val.text.richText.map(t => t.text).join('') : val.hyperlink);
+        } else if (val && typeof val === 'object' && val.result !== undefined) {
           val = val.result;
         } else if (val && typeof val === 'object' && val.richText) {
           val = val.richText.map(t => t.text).join('');

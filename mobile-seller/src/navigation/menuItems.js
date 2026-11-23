@@ -4,6 +4,7 @@ export const MENU_SECTIONS = [
     title: 'Selling',
     items: [
       { title: 'Stock', route: 'Stock', icon: 'layers', hint: 'Stock levels and adjustments' },
+      { title: 'Bulk upload', route: 'BulkUpload', icon: 'file', hint: 'List many products from an Excel sheet' },
       { title: 'Track orders', route: 'TrackOrders', icon: 'truck', hint: 'Partners, couriers and status trails' },
       { title: 'Returns', route: 'Returns', icon: 'returns', hint: 'Review returns and arrange pickups' },
       { title: 'Product questions', route: 'ProductFaqs', icon: 'help', hint: 'Answer customer questions' },
@@ -34,4 +35,4 @@ export const MENU_SECTIONS = [
   },
 ];
 
-export const WEB_ONLY_NOTE = 'E-books, new Wholesale-only listings, bulk upload, advertising payments, GST assistance and services are on the Bulkimart seller website for now.';
+export const WEB_ONLY_NOTE = 'E-books, new Wholesale-only listings, advertising payments, GST assistance and services are on the Bulkimart seller website for now.';
